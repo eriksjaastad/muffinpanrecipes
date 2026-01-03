@@ -1,0 +1,8 @@
+# Cursor Rules for Muffin Pan Recipes
+
+- **Mobile First:** Always prioritize mobile responsiveness in UI suggestions.
+- **No Fluff:** Suggest designs that put core content (ingredients/steps) at the top.
+- **Standard Layout:** Ensure all recipe pages follow the `Documents/core/RECIPE_SCHEMA.md`.
+- **Deployment Safety:** Warn before suggesting changes to `.github/workflows/deploy.yml`.
+- **Documentation:** Always remind to update `Documents/core/ARCHITECTURAL_DECISIONS.md` for new technical patterns.
+
