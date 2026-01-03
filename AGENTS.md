@@ -5,8 +5,8 @@ Muffin Pan Recipes is a high-volume, AI-driven recipe site focused on "Muffin Ti
 
 ## 🛠 Tech Stack
 - **Frontend:** Static HTML, Tailwind CSS (via CDN for prototype).
-- **Deployment:** GitHub Actions (SSH + Rsync).
-- **Hosting:** Dreamhost.
+- **Deployment:** Vercel (Automatic GitHub Integration).
+- **Hosting:** Vercel.
 - **AI Strategy:** Gemini 3 Flash for complex logic/prompts; Local models for routine tasks.
 
 ## 📋 Definition of Done (DoD)

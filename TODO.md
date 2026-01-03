@@ -30,7 +30,8 @@ Build a fast, mobile-first experience for recipe consumers.
 - [x] **Search/Filter:** Added "Filter by Category" (Breakfast, Savory, Sweet) functionality.
 - [x] **Single Recipe View:** Created high-conversion template with "Gargantuan Jump to Recipe" button.
 
-## 🚀 Phase 3: Launch & Iteration [pending]
+## 🚀 Phase 3: Launch & Iteration [in_progress]
+- [x] **Hosting Pivot:** Migrated from Dreamhost to Vercel with domain connected via Namecheap.
 - [ ] **SEO Audit:** Monitor search console for "Muffin Tin" keyword rankings.
 - [ ] **Social Harvest:** Automate Pinterest/Instagram "Recipe Card" image generation.
 

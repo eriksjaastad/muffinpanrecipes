@@ -22,11 +22,11 @@
 Automates the generation and deployment of a niche recipe site dedicated to meals made in muffin pans.
 
 **Current status:**
-Phase 0 (Scaffolding) complete. Infrastructure for automated deployment is ready.
+Phase 1 complete. Infrastructure for automated deployment is ready on Vercel. 10 initial recipes harvested.
 
 **Key constraints:**
 - Static site architecture only.
-- 0-manual-step deployment via GitHub Actions.
+- 0-manual-step deployment via Vercel.
 - Mobile-first "No-Fluff" UI.
 
 ---

@@ -10,14 +10,15 @@
 - No database management required initially.
 - SEO friendly out of the box.
 
-## AD 002: Dreamhost Deployment via GitHub Actions
+## AD 002: Vercel Deployment via GitHub Integration
 **Status:** Accepted
 **Date:** 2026-01-03
 **Context:** Automated deployment is required to maintain the "Clean Slate" philosophy of rapid iteration.
-**Decision:** Use SSH + Rsync via GitHub Actions to deploy the `src/` folder to Dreamhost.
+**Decision:** Use Vercel's native GitHub integration to deploy the project.
 **Consequences:** 
-- 0-manual-step deployment.
-- Requires SSH keys to be configured in GitHub Secrets (`DREAMHOST_SSH_KEY`).
+- 0-manual-step deployment on every push to `main`.
+- Automatic SSL and Global CDN.
+- Replaced original Dreamhost SSH/Rsync plan for better speed and developer experience.
 
 ## AD 003: "No-Fluff" UI Design
 **Status:** Accepted
