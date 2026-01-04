@@ -43,6 +43,7 @@
     </script>
     <style>
         body { background-color: #FFFFFF; }
+        .recipe-grid-card { text-decoration: none !important; color: inherit !important; }
         .recipe-grid-card:hover .recipe-title { color: #C0392B; }
         .active-filter { 
             color: #C0392B !important; 
@@ -90,20 +91,6 @@
         </div>
     </main>
 
-    <!-- Single Recipe Modal/Overlay (Hidden by default) -->
-    <div id="recipe-modal" class="fixed inset-0 bg-white z-[100] overflow-y-auto hidden">
-        <!-- Close Button -->
-        <button id="close-recipe" class="fixed top-8 right-8 z-[110] p-4 text-gray-400 hover:text-terracotta transition-colors">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-        </button>
-
-        <div id="recipe-content" class="max-w-screen-md mx-auto pt-24 px-6 pb-24">
-            <!-- Content populated by JS -->
-        </div>
-    </div>
-
     <footer class="py-24 px-6 bg-gray-50 text-center border-t border-gray-100">
         <p class="font-serif text-2xl mb-4 italic">Everything fits in a muffin pan.</p>
         <p class="text-sage text-xs uppercase tracking-widest">&copy; 2026 Muffin Pan Recipes</p>
@@ -130,29 +117,22 @@
             try {
                 const response = await fetch('recipes.json');
                 
-                // 2. Defense: Check if response is ok
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
 
                 const data = await response.json();
                 recipes = data.recipes;
-                
-                // Reset retry count on success
                 retryCount = 0;
-                
-                // 3. Render Grid
                 renderGrid();
             } catch (error) {
                 console.error('Error loading recipes:', error);
                 
-                // 4. Retry Logic
                 if (retryCount < MAX_RETRIES) {
                     retryCount++;
                     console.log(`Retrying recipe load (${retryCount}/${MAX_RETRIES})...`);
-                    setTimeout(loadRecipes, 1000 * retryCount); // Exponential-ish backoff
+                    setTimeout(loadRecipes, 1000 * retryCount);
                 } else {
-                    // 5. Error State
                     grid.innerHTML = `
                         <div class="col-span-full py-24 text-center">
                             <p class="font-serif text-2xl mb-6 text-terracotta">Oven Error: Could not load recipes.</p>
@@ -185,7 +165,7 @@
             
             recipes.filter(r => filter === 'All' || r.category === filter).forEach(recipe => {
                 const card = `
-                    <div class="recipe-grid-card cursor-pointer group" onclick="openRecipe('${recipe.slug}')">
+                    <a href="/recipes/${recipe.slug}" class="recipe-grid-card group block">
                         <div class="aspect-[4/5] bg-gray-50 mb-6 overflow-hidden relative">
                             <div class="absolute inset-0 bg-sage/5 transition-opacity group-hover:opacity-0"></div>
                             <img src="${recipe.image}" 
@@ -197,7 +177,7 @@
                         <p class="text-[10px] uppercase tracking-[0.2em] text-sage font-bold mb-3">${recipe.category}</p>
                         <h3 class="recipe-title font-serif text-3xl transition-colors mb-3 leading-tight">${recipe.title}</h3>
                         <p class="text-gray-500 text-sm leading-relaxed">${recipe.description}</p>
-                    </div>
+                    </a>
                 `;
                 grid.innerHTML += card;
             });
@@ -216,95 +196,6 @@
                 }
             });
         }
-
-        function openRecipe(slug) {
-            const recipe = recipes.find(r => r.slug === slug);
-            const content = document.getElementById('recipe-content');
-            
-            // JSON-LD SEO Generation
-            const jsonLd = {
-                "@context": "https://schema.org/",
-                "@type": "Recipe",
-                "name": recipe.title,
-                "description": recipe.description,
-                "prepTime": "PT" + recipe.prep.replace(' mins', 'M'),
-                "cookTime": "PT" + recipe.cook.replace(' mins', 'M'),
-                "recipeYield": recipe.yield,
-                "recipeCategory": recipe.category,
-                "recipeIngredient": recipe.ingredients,
-                "recipeInstructions": recipe.instructions.map(i => ({"@type": "HowToStep", "text": i}))
-            };
-
-            content.innerHTML = `
-                <script type="application/ld+json">${JSON.stringify(jsonLd)}<\/script>
-                <div class="text-center mb-16">
-                    <p class="text-xs uppercase tracking-[0.3em] text-terracotta font-bold mb-4">${recipe.category}</p>
-                    <h1 class="font-serif text-5xl md:text-7xl mb-8 leading-tight">${recipe.title}</h1>
-                    <div class="aspect-video bg-gray-50 mb-12 flex items-center justify-center overflow-hidden">
-                        <img src="${recipe.image}" 
-                             onerror="handleImageError(this)" 
-                             loading="lazy"
-                             class="w-full h-full object-cover" 
-                             alt="${recipe.title}">
-                    </div>
-                    
-                    <!-- GARGANTUAN JUMP TO RECIPE BUTTON -->
-                    <a href="#recipe-card" class="block w-full py-8 border-4 border-gray-900 font-bold uppercase tracking-[0.4em] text-sm hover:bg-gray-900 hover:text-white transition-all transform active:scale-[0.98]">
-                        Jump to Recipe
-                    </a>
-                </div>
-
-                <div class="prose prose-lg max-w-none">
-                    <h2 class="font-serif text-3xl mb-6">Why Muffin Pans?</h2>
-                    <p class="text-gray-600 mb-12 italic">Muffin tins provide the ultimate portion control and maximize surface area for that perfect golden edge. This recipe explores the architectural benefits of the single-serving cup.</p>
-                </div>
-
-                <div id="recipe-card" class="bg-linen border border-gray-100 p-8 md:p-12 mt-16 shadow-2xl shadow-gray-200/50">
-                    <div class="flex flex-wrap justify-between items-center border-b border-gray-100 pb-8 mb-12 gap-6">
-                        <div class="text-center px-4">
-                            <span class="block text-[10px] uppercase tracking-widest text-sage font-bold mb-1">Prep</span>
-                            <span class="text-xl font-medium">${recipe.prep}</span>
-                        </div>
-                        <div class="text-center px-4">
-                            <span class="block text-[10px] uppercase tracking-widest text-sage font-bold mb-1">Cook</span>
-                            <span class="text-xl font-medium">${recipe.cook}</span>
-                        </div>
-                        <div class="text-center px-4">
-                            <span class="block text-[10px] uppercase tracking-widest text-sage font-bold mb-1">Yield</span>
-                            <span class="text-xl font-medium">${recipe.yield}</span>
-                        </div>
-                    </div>
-
-                    <div class="grid md:grid-cols-2 gap-16">
-                        <div>
-                            <h3 class="font-serif text-2xl mb-8 italic border-l-4 border-terracotta pl-4 uppercase tracking-tighter">Ingredients</h3>
-                            <ul class="space-y-4 list-none p-0 text-gray-700">
-                                ${recipe.ingredients.map(i => `<li class="border-b border-gray-50 pb-2">${i}</li>`).join('')}
-                            </ul>
-                        </div>
-                        <div>
-                            <h3 class="font-serif text-2xl mb-8 italic border-l-4 border-terracotta pl-4 uppercase tracking-tighter">Instructions</h3>
-                            <ol class="space-y-8 list-none p-0 text-gray-700">
-                                ${recipe.instructions.map((step, idx) => `
-                                    <li class="flex gap-4">
-                                        <span class="font-serif text-terracotta font-bold italic text-xl">${(idx + 1).toString().padStart(2, '0')}</span>
-                                        <span>${step}</span>
-                                    </li>
-                                `).join('')}
-                            </ol>
-                        </div>
-                    </div>
-                </div>
-            `;
-            
-            document.getElementById('recipe-modal').classList.remove('hidden');
-            document.body.style.overflow = 'hidden';
-        }
-
-        document.getElementById('close-recipe').onclick = () => {
-            document.getElementById('recipe-modal').classList.add('hidden');
-            document.body.style.overflow = 'auto';
-        };
 
         // Initial Load
         loadRecipes();
