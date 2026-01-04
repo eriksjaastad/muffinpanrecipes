@@ -1,13 +1,16 @@
 # Muffin Pan Recipes
 
-An AI-driven experimental recipe platform focused exclusively on "Muffin Tin Meals." This project explores high-volume content generation, niche SEO optimization, and automated deployment to shared hosting (Dreamhost).
+An AI-driven experimental recipe platform focused exclusively on "Muffin Tin Meals." This project explores high-volume content generation, niche SEO optimization, and automated deployment to Vercel.
 
 ## Quick Start
 
 ### Development
 1. Clone the repository.
 2. Open `src/index.html` in your browser to view the prototype.
-3. For deployment, configure GitHub Secrets for your Dreamhost account.
+
+### Deployment
+1. The project is configured for Vercel via `vercel.json`.
+2. Push to `main` to trigger an automatic deployment.
 
 ## Documentation
 See the `Documents/` directory for detailed documentation:

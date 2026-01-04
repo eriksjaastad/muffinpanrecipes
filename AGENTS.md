@@ -17,7 +17,7 @@ Muffin Pan Recipes is a high-volume, AI-driven recipe site focused on "Muffin Ti
 
 ## 🚀 Execution Commands
 - **Local Dev:** Open `src/index.html` directly in the browser.
-- **Test Deployment:** Push to `main` branch to trigger GitHub Actions.
+- **Production:** `vercel.json` maps root traffic to the `src/` directory.
 
 ## ⚠️ Critical Constraints
 - **Static Only:** No server-side logic or database for the initial phase.
