@@ -3,10 +3,20 @@ import glob
 import re
 import json
 import sys
+import logging
 from pathlib import Path
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 # Add AI Router to path
-AI_ROUTER_PATH = "/Users/eriksjaastad/projects/_tools/ai_router"
+PROJECT_ROOT = Path(os.getenv("PROJECT_ROOT", Path(__file__).parent.parent))
+AI_ROUTER_PATH = os.getenv("AI_ROUTER_PATH", str(PROJECT_ROOT.parent / "_tools" / "ai_router"))
+
 if AI_ROUTER_PATH not in sys.path:
     sys.path.append(AI_ROUTER_PATH)
 
@@ -19,13 +29,14 @@ except ImportError as e:
     sys.exit(1)
 
 # Configuration
-RECIPE_DIR = "/Users/eriksjaastad/projects/muffinpanrecipes/data/recipes"
-OUTPUT_JOBS_FILE = "/Users/eriksjaastad/projects/muffinpanrecipes/data/image_generation_jobs.json"
-STYLE_GUIDE_PATH = "/Users/eriksjaastad/projects/muffinpanrecipes/Documents/core/IMAGE_STYLE_GUIDE.md"
+RECIPE_DIR = PROJECT_ROOT / "data" / "recipes"
+OUTPUT_JOBS_FILE = PROJECT_ROOT / "data" / "image_generation_jobs.json"
+STYLE_GUIDE_PATH = PROJECT_ROOT / "Documents" / "core" / "IMAGE_STYLE_GUIDE.md"
 
 def get_gemini_config():
     """Extract Gemini config from factory settings."""
-    settings_path = Path("/Users/eriksjaastad/.factory/settings.json")
+    # Attempt to find factory settings in home directory
+    settings_path = Path.home() / ".factory" / "settings.json"
     if settings_path.exists():
         with open(settings_path, 'r') as f:
             settings = json.load(f)
@@ -100,12 +111,21 @@ def generate_triple_plate_prompts(router, recipe):
     ], tier="local")
     
     if result.error:
-        print(f"  ⚠️ AI Router Error for {recipe['title']}: {result.error}")
-        # Try local fallback if cloud failed
+        logger.warning(f"  ⚠️ Local tier (DeepSeek) failed for {recipe['title']}: {result.error}. Attempting 'cheap' tier fallback.")
+        # Fallback to cheap tier (e.g., gpt-4o-mini or similar) if local failed
         result = router.chat([
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_request}
-        ], tier="local")
+        ], tier="cheap")
+    
+    if result.error:
+        logger.error(f"  ❌ All AI tiers failed for {recipe['title']}: {result.error}")
+        # Return generic fallback prompts so we don't crash the whole batch
+        return {
+            "editorial": f"Professional food photography of {recipe['title']} in a muffin tin, white marble, macro texture, 85mm, f/2.8",
+            "action_steam": f"Professional food photography of hot {recipe['title']} with rising steam in a muffin tin, white marble, 85mm, f/2.8",
+            "the_spread": f"Professional food photography of a spread of {recipe['title']} on a white marble surface, editorial style, 85mm, f/2.8"
+        }
     
     try:
         # Extract JSON from response
@@ -138,7 +158,7 @@ def main():
     
     for rf in sorted(recipe_files):
         recipe = extract_recipe_details(rf)
-        print(f"Generating prompts for: {recipe['title']}...")
+        logger.info(f"Generating prompts for: {recipe['title']}...")
         
         # Force local for everything to avoid cloud errors
         prompts = generate_triple_plate_prompts(router, recipe)
