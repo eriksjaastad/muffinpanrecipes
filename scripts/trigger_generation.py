@@ -6,7 +6,7 @@ from pathlib import Path
 # This path is relative to the projects/ directory where all related repos live.
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "3D Pose Factory" / "shared" / "scripts"))
 try:
-    from mission_control import MissionControl
+    from mission_control import MissionControl  # type: ignore
 except ImportError:
     print("❌ Error: Could not find 'mission_control.py'.")
     print(f"Looked in: {Path(__file__).parent.parent.parent / '3D Pose Factory' / 'shared' / 'scripts'}")
