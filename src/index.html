@@ -111,128 +111,18 @@
 
     <!-- Simple JS to handle recipes and filtering -->
     <script>
-        const recipes = [
-            {
-                slug: "spinach-feta-egg-bites",
-                title: "Spinach & Feta Egg Bites",
-                category: "Breakfast",
-                image: "assets/images/spinach-feta-egg-bites.png",
-                description: "Velvety, protein-packed egg bites that mimic the sous-vide texture.",
-                prep: "10 mins",
-                cook: "20 mins",
-                yield: "12 standard muffins",
-                ingredients: ["6 large Eggs", "60ml (1/4 cup) Heavy cream", "100g (2 cups) Spinach", "75g (1/2 cup) Feta"],
-                instructions: ["Preheat oven to 325°F.", "Whisk eggs and cream.", "Layer spinach and feta.", "Pour eggs over fillings.", "Bake for 20 mins."]
-            },
-            {
-                slug: "baked-oatmeal-cups",
-                title: "Baked Oatmeal Breakfast Cups",
-                category: "Breakfast",
-                image: "assets/images/baked-oatmeal-cups.png",
-                description: "Hearty, portable oatmeal portions that are naturally sweetened and perfect for a quick morning fuel.",
-                prep: "10 mins",
-                cook: "25 mins",
-                yield: "12 standard muffins",
-                ingredients: ["270g (3 cups) Rolled oats", "480ml (2 cups) Milk", "80ml (1/3 cup) Maple syrup", "100g (3/4 cup) Blueberries"],
-                instructions: ["Preheat oven to 350°F.", "Mix dry ingredients.", "Whisk wet ingredients.", "Combine and fold in berries.", "Bake for 25-30 mins."]
-            },
-            {
-                slug: "mini-pancake-bites",
-                title: "Mini Pancake Bites",
-                category: "Breakfast",
-                image: "assets/images/mini-pancake-bites.png",
-                description: "Fluffy pancake portions that you don't have to flip. Perfect for dipping.",
-                prep: "5 mins",
-                cook: "12 mins",
-                yield: "24 mini muffins",
-                ingredients: ["150g (1 1/4 cups) Flour", "240ml (1 cup) Milk", "1 large Egg", "30g (2 tbsp) Butter"],
-                instructions: ["Preheat oven to 350°F.", "Whisk batter until smooth.", "Fill mini cups 2/3 full.", "Add optional toppings.", "Bake for 12-14 mins."]
-            },
-            {
-                slug: "muffin-tin-lasagna",
-                title: "Muffin Tin Lasagna Cups",
-                category: "Savory",
-                image: "assets/images/muffin-tin-lasagna.png",
-                description: "Crispy-edged, multi-layered mini lasagnas using wonton wrappers.",
-                prep: "20 mins",
-                cook: "20 mins",
-                yield: "12 standard muffins",
-                ingredients: ["24 Wonton wrappers", "400g Marinara", "250g Ricotta", "200g Mozzarella"],
-                instructions: ["Preheat oven to 375°F.", "Layer wontons and ricotta.", "Add sauce and cheese.", "Repeat layers.", "Bake until crispy."]
-            },
-            {
-                slug: "mini-meatloaf-bites",
-                title: "Mini Meatloaf Bites",
-                category: "Savory",
-                image: "assets/images/mini-meatloaf-bites.png",
-                description: "Savory, glazed mini meatloaves that cook in half the time of a traditional loaf.",
-                prep: "15 mins",
-                cook: "20 mins",
-                yield: "12 standard muffins",
-                ingredients: ["680g (1.5 lbs) Ground beef", "50g (1/2 cup) Panko", "120ml (1/2 cup) Ketchup", "15ml (1 tbsp) Brown sugar"],
-                instructions: ["Preheat oven to 400°F.", "Mix loaf ingredients.", "Portion into cups.", "Apply glaze.", "Bake for 20-22 mins."]
-            },
-            {
-                slug: "buffalo-chicken-mac-bites",
-                title: "Buffalo Chicken Mac & Cheese Bites",
-                category: "Savory",
-                image: "assets/images/buffalo-chicken-mac-bites.png",
-                description: "Creamy mac and cheese with a spicy buffalo kick, crisped to perfection.",
-                prep: "20 mins",
-                cook: "15 mins",
-                yield: "24 mini muffins",
-                ingredients: ["225g Macaroni", "200g Cheddar", "150g Chicken", "60ml Buffalo sauce"],
-                instructions: ["Preheat oven to 375°F.", "Mix all ingredients.", "Pack firmly into mini cups.", "Add panko topping.", "Bake for 15-18 mins."]
-            },
-            {
-                slug: "mini-shepherds-pie",
-                title: "Mini Shepherd's Pie Pots",
-                category: "Savory",
-                image: "assets/images/mini-shepherds-pie.png",
-                description: "Individual servings of classic Shepherd's Pie with a toasted potato peak.",
-                prep: "25 mins",
-                cook: "20 mins",
-                yield: "12 standard muffins",
-                ingredients: ["450g Ground lamb/beef", "500g Potatoes", "120ml Beef broth", "30ml Tomato paste"],
-                instructions: ["Preheat oven to 400°F.", "Cook meat filling.", "Mash potatoes.", "Layer meat and top with potato.", "Bake until golden."]
-            },
-            {
-                slug: "jumbo-cornbread-bites",
-                title: "Jumbo Cornbread Honey Bites",
-                category: "Savory",
-                image: "assets/images/jumbo-cornbread-bites.png",
-                description: "Massive, moist, and sweet cornbread muffins for chili or BBQ.",
-                prep: "10 mins",
-                cook: "22 mins",
-                yield: "6 jumbo muffins",
-                ingredients: ["150g Cornmeal", "125g Flour", "240ml Buttermilk", "30ml Honey"],
-                instructions: ["Preheat oven to 375°F.", "Mix dry ingredients.", "Whisk wet ingredients.", "Combine and scoop into jumbo cups.", "Bake for 22-25 mins."]
-            },
-            {
-                slug: "classic-blueberry-muffins",
-                title: "Classic Blueberry Muffin Tops",
-                category: "Sweet",
-                image: "assets/images/classic-blueberry-muffins.png",
-                description: "The gold standard: bursting with berries and a perfectly domed top.",
-                prep: "15 mins",
-                cook: "20 mins",
-                yield: "12 standard muffins",
-                ingredients: ["250g Flour", "150g Sugar", "120ml Milk", "150g Blueberries"],
-                instructions: ["Preheat oven to 400°F.", "Mix dry ingredients.", "Whisk wet ingredients.", "Fold in blueberries.", "Bake for 20 mins."]
-            },
-            {
-                slug: "dark-chocolate-chip-muffins",
-                title: "Dark Chocolate Chip Decadence",
-                category: "Sweet",
-                image: "assets/images/dark-chocolate-chip-muffins.png",
-                description: "Rich, cocoa-infused muffins loaded with dark chocolate chips.",
-                prep: "15 mins",
-                cook: "18 mins",
-                yield: "12 standard muffins",
-                ingredients: ["220g Flour", "40g Cocoa", "180ml Sour cream", "175g Choc chips"],
-                instructions: ["Preheat oven to 375°F.", "Sift dry ingredients.", "Whisk wet ingredients.", "Fold in chocolate chips.", "Bake for 18-20 mins."]
+        let recipes = [];
+
+        async function loadRecipes() {
+            try {
+                const response = await fetch('recipes.json');
+                const data = await response.json();
+                recipes = data.recipes;
+                renderGrid();
+            } catch (error) {
+                console.error('Error loading recipes:', error);
             }
-        ];
+        }
 
         function handleImageError(img) {
             const container = img.parentElement;
@@ -368,8 +258,8 @@
             document.body.style.overflow = 'auto';
         };
 
-        // Initial Render
-        renderGrid();
+        // Initial Load
+        loadRecipes();
     </script>
 </body>
 </html>

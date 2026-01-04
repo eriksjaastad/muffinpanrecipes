@@ -15,16 +15,13 @@ An AI-driven experimental recipe platform focused exclusively on "Muffin Tin Mea
 ## Mission Control (Cloud GPU)
 This project leverages the central **SSH Agent** for high-end image generation on RunPod.
 
-### Photography Pipeline
-1.  **Prompts:** Generated locally using `scripts/generate_image_prompts.py`.
-2.  **Generation:** Triggered via the central SSH Agent on your GPU pod.
-3.  **Sync:** Results are synced to Cloudflare R2 and then downloaded locally for selection.
+## Image Generation Pipeline
+This project uses a 4-step automated photography pipeline to generate and select high-end visuals.
 
-To start the photography pipeline, ensure the SSH Agent is running:
-```bash
-cd /Users/eriksjaastad/projects/_tools/ssh_agent
-./start_agent.sh
-```
+1. **`scripts/generate_image_prompts.py`**: Analyzes recipes and generates 3 high-key SDXL prompts per recipe using AI Router (Local DeepSeek-R1 or Cloud).
+2. **`scripts/trigger_generation.py`**: Handshakes with Mission Control to upload jobs and scripts to Cloudflare R2.
+3. **`scripts/direct_harvest.py` (RunPod)**: Executed on a remote GPU pod to generate the images directly via Stability AI API, bypassing Blender buffer issues.
+4. **`scripts/art_director.py` (Local)**: The Art Director agent reviews the generated variants from `__temp_harvest/` and moves the winner to `src/assets/images/`.
 
 ## Documentation
 See the `Documents/` directory for detailed documentation:

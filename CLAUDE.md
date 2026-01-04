@@ -40,7 +40,6 @@ muffinpanrecipes/
 ├── Documents/                # Project documentation
 │   ├── core/                 # Architecture, schema, and decisions
 │   └── archives/             # Historical records
-├── .github/workflows/        # Deployment automation
 ├── README.md                 # High-level overview
 ├── AGENTS.md                 # AI source of truth
 ├── CLAUDE.md                 # This file
@@ -59,9 +58,6 @@ muffinpanrecipes/
 ---
 
 ## Safety Rules
-
-### 🔴 NEVER Modify These:
-1. **`.github/workflows/deploy.yml`** - Deployment logic is critical; ask before changing.
 
 ### 🟡 Be Careful With These:
 1. **`Documents/core/RECIPE_SCHEMA.md`** - Changing this impacts all future AI generation.

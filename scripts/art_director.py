@@ -3,10 +3,20 @@ import os
 import json
 import sys
 import shutil
+import logging
 from pathlib import Path
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 # Add AI Router to path
-AI_ROUTER_PATH = "/Users/eriksjaastad/projects/_tools/ai_router"
+PROJECT_ROOT = Path(os.getenv("PROJECT_ROOT", Path(__file__).parent.parent))
+AI_ROUTER_PATH = os.getenv("AI_ROUTER_PATH", str(PROJECT_ROOT.parent / "_tools" / "ai_router"))
+
 if AI_ROUTER_PATH not in sys.path:
     sys.path.append(AI_ROUTER_PATH)
 
@@ -19,11 +29,11 @@ except ImportError as e:
     sys.exit(1)
 
 # Configuration
-STAGING_DIR = Path("/Users/eriksjaastad/projects/muffinpanrecipes/__temp_harvest")
-FINAL_IMAGE_DIR = Path("/Users/eriksjaastad/projects/muffinpanrecipes/src/assets/images")
-TRASH_DIR = Path("/Users/eriksjaastad/projects/muffinpanrecipes/_trash")
-STYLE_GUIDE_PATH = Path("/Users/eriksjaastad/projects/muffinpanrecipes/Documents/core/IMAGE_STYLE_GUIDE.md")
-INDEX_HTML_PATH = Path("/Users/eriksjaastad/projects/muffinpanrecipes/src/index.html")
+STAGING_DIR = PROJECT_ROOT / "__temp_harvest"
+FINAL_IMAGE_DIR = PROJECT_ROOT / "src" / "assets" / "images"
+TRASH_DIR = PROJECT_ROOT / "_trash"
+STYLE_GUIDE_PATH = PROJECT_ROOT / "Documents" / "core" / "IMAGE_STYLE_GUIDE.md"
+INDEX_HTML_PATH = PROJECT_ROOT / "src" / "index.html"
 
 def pick_winner_metadata(recipe_id, recipe_title, variant_metadata):
     """
@@ -70,14 +80,14 @@ def pick_winner_metadata(recipe_id, recipe_title, variant_metadata):
     return winner
 
 def main():
-    print("--- 🧁 Muffin Pan Recipes: The Art Director Agent ---")
+    logger.info("--- 🧁 Muffin Pan Recipes: The Art Director Agent ---")
     
     # Create directories if they don't exist
     FINAL_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
     TRASH_DIR.mkdir(parents=True, exist_ok=True)
 
     # Load the prompts we used
-    JOBS_FILE = "/Users/eriksjaastad/projects/muffinpanrecipes/data/image_generation_jobs.json"
+    JOBS_FILE = PROJECT_ROOT / "data" / "image_generation_jobs.json"
     if not os.path.exists(JOBS_FILE):
         print(f"Error: Jobs file not found at {JOBS_FILE}")
         return
@@ -105,8 +115,12 @@ def main():
                 if variant_name == winner_variant:
                     # Move to final
                     dest = FINAL_IMAGE_DIR / f"{recipe_id}.{ext}"
-                    shutil.move(str(img_file), str(dest))
-                    print(f"  ✅ Integrated: {dest.name}")
+                    try:
+                        shutil.move(str(img_file), str(dest))
+                        logger.info(f"  ✅ Integrated: {dest.name}")
+                    except Exception as e:
+                        logger.error(f"  ❌ CRITICAL ERROR: Could not move {img_file.name} to {dest}: {e}")
+                        sys.exit(1)
                 else:
                     # Move to trash
                     # Clean up the filename to avoid "File name too long" errors
@@ -115,11 +129,12 @@ def main():
                     try:
                         shutil.move(str(img_file), str(trash_dest))
                     except Exception as e:
-                        print(f"  ⚠️ Error trashing {img_file.name}: {e}")
+                        logger.error(f"  ❌ CRITICAL ERROR: Could not move {img_file.name} to trash: {e}")
+                        sys.exit(1)
         else:
-            print(f"  ⚠️ No images found in {recipe_output_dir}. Skipping movement.")
+            logger.warning(f"  ⚠️ No images found in {recipe_output_dir}. Skipping movement.")
 
-    print("\n✨ Art Director processing complete.")
+    logger.info("\n✨ Art Director processing complete.")
 
 if __name__ == "__main__":
     main()
