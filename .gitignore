@@ -4,6 +4,7 @@ node_modules/
 venv/
 .env
 data/
+_trash/
 
 # Vercel Shield: Only allow optimized assets
 src/assets/images/*.png
