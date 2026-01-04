@@ -102,6 +102,7 @@
                 slug: "spinach-feta-egg-bites",
                 title: "Spinach & Feta Egg Bites",
                 category: "Breakfast",
+                image: "assets/images/spinach-feta-egg-bites.jpg",
                 description: "Velvety, protein-packed egg bites that mimic the sous-vide texture.",
                 prep: "10 mins",
                 cook: "20 mins",
@@ -113,6 +114,7 @@
                 slug: "baked-oatmeal-cups",
                 title: "Baked Oatmeal Breakfast Cups",
                 category: "Breakfast",
+                image: "assets/images/baked-oatmeal-cups.jpg",
                 description: "Hearty, portable oatmeal portions that are naturally sweetened and perfect for a quick morning fuel.",
                 prep: "10 mins",
                 cook: "25 mins",
@@ -124,6 +126,7 @@
                 slug: "mini-pancake-bites",
                 title: "Mini Pancake Bites",
                 category: "Breakfast",
+                image: "assets/images/mini-pancake-bites.jpg",
                 description: "Fluffy pancake portions that you don't have to flip. Perfect for dipping.",
                 prep: "5 mins",
                 cook: "12 mins",
@@ -135,6 +138,7 @@
                 slug: "muffin-tin-lasagna",
                 title: "Muffin Tin Lasagna Cups",
                 category: "Savory",
+                image: "assets/images/muffin-tin-lasagna.jpg",
                 description: "Crispy-edged, multi-layered mini lasagnas using wonton wrappers.",
                 prep: "20 mins",
                 cook: "20 mins",
@@ -146,6 +150,7 @@
                 slug: "mini-meatloaf-bites",
                 title: "Mini Meatloaf Bites",
                 category: "Savory",
+                image: "assets/images/mini-meatloaf-bites.jpg",
                 description: "Savory, glazed mini meatloaves that cook in half the time of a traditional loaf.",
                 prep: "15 mins",
                 cook: "20 mins",
@@ -157,6 +162,7 @@
                 slug: "buffalo-chicken-mac-bites",
                 title: "Buffalo Chicken Mac & Cheese Bites",
                 category: "Savory",
+                image: "assets/images/buffalo-chicken-mac-bites.jpg",
                 description: "Creamy mac and cheese with a spicy buffalo kick, crisped to perfection.",
                 prep: "20 mins",
                 cook: "15 mins",
@@ -168,6 +174,7 @@
                 slug: "mini-shepherds-pie",
                 title: "Mini Shepherd's Pie Pots",
                 category: "Savory",
+                image: "assets/images/mini-shepherds-pie.jpg",
                 description: "Individual servings of classic Shepherd's Pie with a toasted potato peak.",
                 prep: "25 mins",
                 cook: "20 mins",
@@ -179,6 +186,7 @@
                 slug: "jumbo-cornbread-bites",
                 title: "Jumbo Cornbread Honey Bites",
                 category: "Savory",
+                image: "assets/images/jumbo-cornbread-bites.jpg",
                 description: "Massive, moist, and sweet cornbread muffins for chili or BBQ.",
                 prep: "10 mins",
                 cook: "22 mins",
@@ -190,6 +198,7 @@
                 slug: "classic-blueberry-muffins",
                 title: "Classic Blueberry Muffin Tops",
                 category: "Sweet",
+                image: "assets/images/classic-blueberry-muffins.jpg",
                 description: "The gold standard: bursting with berries and a perfectly domed top.",
                 prep: "15 mins",
                 cook: "20 mins",
@@ -201,6 +210,7 @@
                 slug: "dark-chocolate-chip-muffins",
                 title: "Dark Chocolate Chip Decadence",
                 category: "Sweet",
+                image: "assets/images/dark-chocolate-chip-muffins.jpg",
                 description: "Rich, cocoa-infused muffins loaded with dark chocolate chips.",
                 prep: "15 mins",
                 cook: "18 mins",
@@ -219,7 +229,7 @@
                     <div class="recipe-grid-card cursor-pointer group" onclick="openRecipe('${recipe.slug}')">
                         <div class="aspect-[4/5] bg-gray-50 mb-6 overflow-hidden relative">
                             <div class="absolute inset-0 bg-sage/5 transition-opacity group-hover:opacity-0"></div>
-                            <div class="flex items-center justify-center h-full text-sage/20 font-serif italic">Photo Coming Soon</div>
+                            ${recipe.image ? `<img src="${recipe.image}" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" alt="${recipe.title}">` : `<div class="flex items-center justify-center h-full text-sage/20 font-serif italic">Photo Coming Soon</div>`}
                         </div>
                         <p class="text-[10px] uppercase tracking-[0.2em] text-sage font-bold mb-3">${recipe.category}</p>
                         <h3 class="recipe-title font-serif text-3xl transition-colors mb-3 leading-tight">${recipe.title}</h3>
@@ -265,7 +275,9 @@
                 <div class="text-center mb-16">
                     <p class="text-xs uppercase tracking-[0.3em] text-terracotta font-bold mb-4">${recipe.category}</p>
                     <h1 class="font-serif text-5xl md:text-7xl mb-8 leading-tight">${recipe.title}</h1>
-                    <div class="aspect-video bg-gray-50 mb-12 flex items-center justify-center text-sage/20 font-serif italic text-2xl">Featured Image</div>
+                    <div class="aspect-video bg-gray-50 mb-12 flex items-center justify-center overflow-hidden">
+                        ${recipe.image ? `<img src="${recipe.image}" class="w-full h-full object-cover" alt="${recipe.title}">` : `<span class="text-sage/20 font-serif italic text-2xl">Featured Image</span>`}
+                    </div>
                     
                     <!-- GARGANTUAN JUMP TO RECIPE BUTTON -->
                     <a href="#recipe-card" class="block w-full py-8 border-4 border-gray-900 font-bold uppercase tracking-[0.4em] text-sm hover:bg-gray-900 hover:text-white transition-all transform active:scale-[0.98]">

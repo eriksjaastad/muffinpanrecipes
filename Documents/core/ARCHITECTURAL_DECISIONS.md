@@ -30,3 +30,16 @@
 - Better mobile experience.
 - Differentiator from traditional food blogs.
 
+---
+
+# Vision & Philosophy: The Vessel & Modular Architecture
+
+## The "Docker Container of Food"
+The Muffin Tin is more than a baking tool; it is a **rigid, predictable, modular vessel**. Unlike the "Stick" (kebabs, corn dogs) which represents vertical mobility, the Muffin Pan represents **encapsulation**.
+
+## Core Tenets
+1.  **Encapsulation:** Every meal is a self-contained unit. 
+2.  **Structural Layering:** The vessel allows for "Vessels within Vessels" (e.g., a bacon strip acting as a basket for an egg).
+3.  **Modular Scalability:** If it fits in one cup, it fits in 12. This is "Systematic Meal Prep."
+4.  **The Oven-less Frontier:** The vessel is medium-agnostic. It works for the Oven (Baking), the Freezer (Yogurt pucks), and the Fridge (Jello parfaits).
+
