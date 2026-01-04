@@ -1,0 +1,15 @@
+{
+  "public": true,
+  "cleanUrls": true,
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/src/$1"
+    },
+    {
+      "source": "/",
+      "destination": "/src/index.html"
+    }
+  ]
+}
+
