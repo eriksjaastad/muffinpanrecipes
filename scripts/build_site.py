@@ -3,6 +3,8 @@ import sys
 import json
 import logging
 import shutil
+import html
+import re
 from pathlib import Path
 from datetime import datetime
 
@@ -12,6 +14,19 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+def parse_duration(duration_str):
+    """Converts 'X mins' to ISO 8601 duration 'PTXM'"""
+    if not duration_str:
+        return "PT0M"
+    
+    # Extract numbers using regex
+    match = re.search(r'(\d+)', duration_str)
+    if match:
+        minutes = match.group(1)
+        return f"PT{minutes}M"
+    
+    return "PT0M"
 
 def main():
     # Get project root path
@@ -74,21 +89,27 @@ def main():
             recipe_dir = recipes_output_dir / slug
             recipe_dir.mkdir(parents=True, exist_ok=True)
 
-            # Pre-render lists
-            ingredients_html = "\n".join([f'<li class="border-b border-gray-50 pb-2">{i}</li>' for i in recipe.get("ingredients", [])])
+            # Pre-render lists with HTML escaping
+            ingredients_html = "\n".join([
+                f'<li class="border-b border-gray-50 pb-2">{html.escape(i)}</li>' 
+                for i in recipe.get("ingredients", [])
+            ])
             instructions_html = "\n".join([
-                f'<li class="flex gap-4"><span class="font-serif text-terracotta font-bold italic text-xl">{(idx + 1):02d}</span><span>{step}</span></li>'
+                f'<li class="flex gap-4"><span class="font-serif text-terracotta font-bold italic text-xl">{(idx + 1):02d}</span><span>{html.escape(step)}</span></li>'
                 for idx, step in enumerate(recipe.get("instructions", []))
             ])
 
-            # Pre-render JSON-LD
+            # Pre-render JSON-LD (json.dumps handles escaping for JSON content)
+            prep_iso = parse_duration(recipe.get("prep"))
+            cook_iso = parse_duration(recipe.get("cook"))
+            
             json_ld = {
                 "@context": "https://schema.org/",
                 "@type": "Recipe",
                 "name": title,
                 "description": recipe.get("description"),
-                "prepTime": "PT" + recipe.get("prep", "0 mins").replace(' mins', 'M'),
-                "cookTime": "PT" + recipe.get("cook", "0 mins").replace(' mins', 'M'),
+                "prepTime": prep_iso,
+                "cookTime": cook_iso,
                 "recipeYield": recipe.get("yield"),
                 "recipeCategory": recipe.get("category"),
                 "recipeIngredient": recipe.get("ingredients"),
@@ -100,13 +121,13 @@ def main():
             page_content = template_content
             replacements = {
                 "{{ slug }}": slug,
-                "{{ title }}": title,
-                "{{ description }}": recipe.get("description", ""),
+                "{{ title }}": html.escape(title),
+                "{{ description }}": html.escape(recipe.get("description", "")),
                 "{{ image_path }}": recipe.get("image", ""),
-                "{{ category }}": recipe.get("category", ""),
-                "{{ prep_time }}": recipe.get("prep", ""),
-                "{{ cook_time }}": recipe.get("cook", ""),
-                "{{ yield }}": recipe.get("yield", ""),
+                "{{ category }}": html.escape(recipe.get("category", "")),
+                "{{ prep_time }}": html.escape(recipe.get("prep", "")),
+                "{{ cook_time }}": html.escape(recipe.get("cook", "")),
+                "{{ yield }}": html.escape(recipe.get("yield", "")),
                 "{{ ingredients_list }}": ingredients_html,
                 "{{ instructions_list }}": instructions_html,
                 "{{ json_ld }}": json_ld_script

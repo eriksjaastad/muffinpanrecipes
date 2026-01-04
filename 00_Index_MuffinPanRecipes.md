@@ -30,6 +30,8 @@ An AI-driven experimental recipe platform focused exclusively on "Muffin Tin Mea
 **Next Step:** Build the "Editorial Command Center" (Phase 3.4) for local administration and scaling.
 
 ## 🚀 Recent Activity
+- **2026-01-04:** **Master Archive & Vercel Shield:** Industrialized the image pipeline with safe archival logic and implemented a `.gitignore` shield to protect production from large master assets.
+- **2026-01-04:** **SSG Hardening:** Implemented HTML escaping, canonical links, and `robots.txt` to finalize the Content Moat architecture.
 - **2026-01-04:** **The Content Moat:** Transitioned the site from a single-page modal system to a Static Site Generation (SSG) model. Every recipe now has a unique URL, automated Open Graph metadata, and a verified sitemap for search indexing.
 - **2026-01-04:** **Visual Asset Optimization:** Converted all images to `.webp` (96% size reduction) and implemented lazy loading for "Dial-up" speed parity.
 - **2026-01-04:** **Industrialization Upgrade:** Refactored entire repo for portability, added robust error handling, and implemented an environment guard script.

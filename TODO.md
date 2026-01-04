@@ -57,11 +57,15 @@ Refactoring the site from a single-page modal system to a high-authority static 
 - [x] **Metadata Automation:** Ensure the build script generates recipe-specific Open Graph tags (`og:image`, `og:title`, `og:description`) for Pinterest/Social richness. [DONE]
 - [x] **Hybrid Handshake:** Update `index.html` grid to use direct links (`<a>` tags) while maintaining the "No Fluff" instant-load feel. [DONE]
 - [x] **Sitemap Generation:** Add a task to the build script to generate a `sitemap.xml` for Google Search Console to index all 10+ recipes. [DONE]
+- [x] **Vercel Routing:** Implement a `src/vercel.json` rewrite map to support clean URLs (e.g., `/recipes/spinach-bites` → `/recipes/spinach-bites/index.html`). [DONE]
+- [x] **SSG Hardening:** Implemented HTML escaping, canonical links, robots.txt, and Article metadata for peak SEO authority. [DONE]
+- [x] **Master Archive & Shield:** Optimized `optimize_images.py` with idempotent logic and safe archival (`data/image_archive/`). Implemented `.gitignore` "Vercel Shield" for production safety. [DONE]
 - [x] **Done Criteria:**
     - [x] Every recipe has a unique, navigable URL (e.g., `/recipes/dark-chocolate-chip-muffins`).
     - [x] Sharing a recipe link on social media correctly displays the specific recipe image and description.
     - [x] The "Back" button works natively in the browser when navigating between the grid and a recipe.
     - [x] Google Search Console can find the `sitemap.xml` containing all recipe paths.
+    - [x] Site is reachable by robots (verified `robots.txt` and `sitemap.xml` accessibility).
 
 ### 3.4: Editorial Command Center (Local Admin) [planning]
 Building the "Control Tower" for the AI Editorial Board and high-volume scaling.
