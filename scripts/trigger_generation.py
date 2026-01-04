@@ -1,44 +1,53 @@
-#!/usr/bin/env python3
 import json
 import os
 import sys
 from pathlib import Path
 
-# Paths
-MISSION_CONTROL_PATH = "/Users/eriksjaastad/projects/3D Pose Factory/shared/scripts/mission_control.py"
-JOBS_FILE = "/Users/eriksjaastad/projects/muffinpanrecipes/data/image_generation_jobs.json"
+# Ensure the Mission Control script is in the Python path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "3D Pose Factory" / "shared" / "scripts"))
+from mission_control import MissionControl
 
-def trigger_mission_control(recipe_id, recipe_title, prompts):
-    """
-    Submits a job to Mission Control for the 3 variants.
-    """
-    # In a real scenario, we'd call mission_control.py directly or 
-    # write to its ops_queue. Given the patterns in 3D Pose Factory, 
-    # we'll simulate the job submission manifest creation.
-    
-    print(f"🚀 Submitting Triple-Plate Job for: {recipe_title} ({recipe_id})")
-    
-    for variant, prompt in prompts.items():
-        job_name = f"muffin_{recipe_id}_{variant}"
-        # We simulate the CLI call to Mission Control
-        # In a headless environment, we'd actually execute:
-        # subprocess.run([MISSION_CONTROL_PATH, "render", "--prompt", prompt, "--output", f"muffin_pan/{recipe_id}/{variant}"])
-        print(f"  - Dispatched {variant} variant...")
+JOBS_FILE = Path(__file__).parent.parent / "data" / "image_generation_jobs.json"
+R2_MUFFIN_PAN_JOBS_PATH = "muffin_pan/jobs/image_generation_jobs.json"
+R2_MUFFIN_PAN_SCRIPTS_PATH = "muffin_pan/scripts/batch_generate_muffins.py"
+R2_MUFFIN_PAN_DIRECT_HARVEST_PATH = "muffin_pan/scripts/direct_harvest.py"
+
 
 def main():
-    if not os.path.exists(JOBS_FILE):
-        print(f"Error: {JOBS_FILE} not found. Run generate_image_prompts.py first.")
-        sys.exit(1)
+    mc = MissionControl()
 
-    with open(JOBS_FILE, 'r') as f:
-        jobs = json.load(f)
+    print("--- 🧁 Mission Control Handshake: Image Generation Batch ---")
 
-    print(f"--- 🧁 Mission Control: Batch Dispatch (10 Recipes) ---")
-    for job in jobs:
-        trigger_mission_control(job['recipe_id'], job['recipe_title'], job['prompts'])
+    # 1. Upload the image_generation_jobs.json to R2
+    if os.path.exists(JOBS_FILE):
+        if mc.upload_to_r2(JOBS_FILE, R2_MUFFIN_PAN_JOBS_PATH, show_progress=True):
+            print("✅ Upload complete!")
+        else:
+            print("❌ Failed to upload jobs file to R2.")
+            sys.exit(1)
+    else:
+        print(f"⚠️ Jobs file not found at {JOBS_FILE}. Skipping upload.")
+
+    # 2. Upload the batch generation script to R2
+    batch_script_path = Path(__file__).parent / "batch_generate_muffins.py"
+    if batch_script_path.exists():
+        if mc.upload_to_r2(batch_script_path, R2_MUFFIN_PAN_SCRIPTS_PATH, show_progress=False):
+            print("✅ Batch generation script uploaded to R2.")
+        else:
+            print("❌ Failed to upload batch generation script to R2.")
+            sys.exit(1)
     
-    print(f"\n✅ All 30 image generation requests dispatched to Mission Control.")
-    print(f"💡 Next Step: Wait for renders to complete and run scripts/art_director.py")
+    # 3. Upload the direct harvest script to R2
+    direct_harvest_script_path = Path(__file__).parent / "direct_harvest.py"
+    if direct_harvest_script_path.exists():
+        if mc.upload_to_r2(direct_harvest_script_path, R2_MUFFIN_PAN_DIRECT_HARVEST_PATH, show_progress=False):
+            print("✅ Direct harvest script uploaded to R2.")
+        else:
+            print("❌ Failed to upload direct harvest script to R2.")
+            sys.exit(1)
+
+    print("\n🚀 MISSION CONTROL HANDSHAKE SUCCESSFUL")
+    print("--------------------------------------------------")
 
 if __name__ == "__main__":
     main()

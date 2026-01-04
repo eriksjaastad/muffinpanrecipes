@@ -1,0 +1,22 @@
+{
+  "cleanUrls": true,
+  "redirects": [
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "www.muffinpanrecipes.com"
+        }
+      ],
+      "destination": "https://muffinpanrecipes.com/$1",
+      "permanent": true
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/((?!assets/).*)",
+      "destination": "/"
+    }
+  ]
+}

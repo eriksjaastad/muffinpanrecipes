@@ -30,6 +30,19 @@
 - Better mobile experience.
 - Differentiator from traditional food blogs.
 
+## AD 004: Vercel Root Directory Configuration
+**Status:** Accepted
+**Date:** 2026-01-04
+**Context:** To keep the repository clean and separate source code from scripts/data, the `src/` directory is designated as the Vercel Root Directory.
+**Decision:** 
+- Set Vercel "Root Directory" to `src/` in project settings.
+- Move `vercel.json` into the `src/` directory.
+- Use path rewrites relative to the `src/` root.
+**Consequences:**
+- Scripts and raw recipe data are not exposed to the public web.
+- Vercel-specific configuration is co-located with the source code.
+- Prevents 404 errors caused by incorrect path mapping when the repo root is used as the web root.
+
 ---
 
 # Vision & Philosophy: The Vessel & Modular Architecture

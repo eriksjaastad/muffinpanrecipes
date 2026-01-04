@@ -1,7 +1,7 @@
 # Muffin Pan Recipes — Roadmap
 
 **Last Update:** January 4, 2026
-**Status:** 📸 PHASE 3: THE VISUAL HARVEST
+**Status:** 📸 PHASE 3: THE VISUAL HARVEST [BLOCKED: Pod Connection]
 
 ---
 
@@ -34,13 +34,19 @@ Build a fast, mobile-first experience for recipe consumers.
 - [x] **Production Launch:** Deploy the current "No Fluff" frontend to muffinpanrecipes.com with the initial 10 recipes (using placeholder images until the Harvest finishes).
 
 ## 📸 Phase 3: The Visual Harvest (Automated Photography) [in_progress]
-High-end AI generation to fill the editorial gaps.
+High-end AI generation leveraging RunPod (Cloud GPU) and local selection.
 
-- [x] **Orchestration:** Built `trigger_generation.py` and `art_director.py` for pipeline management.
-- [x] **Prompt Batching:** Refactored `generate_image_prompts.py` to use AI Router (DeepSeek-R1) for "Triple-Plate" prompts.
-- [ ] **Generation Pipeline:** Trigger "Mission Control" (`3D Pose Factory`) using the "Triple-Plate" pattern (3 variants per recipe).
-- [ ] **AI Selection:** Use the "Art Director" agent to select winners based on the `IMAGE_STYLE_GUIDE.md`.
-- [ ] **Integration:** Automate placement of winners into `src/assets/images/`.
+### 3.1: Cloud Generation (RunPod Tier) [RECOVERY PIVOT]
+- [x] **Prompt Batching:** Refactored `generate_image_prompts.py` to use AI Router (DeepSeek-R1). [DONE]
+- [x] **Architecture Pivot:** Built `direct_harvest.py` to bypass Blender Buffer errors. [NEW]
+- [ ] **GPU Execution:** Run `direct_harvest.py` on RunPod to generate the 30 images.
+- [ ] **R2 Sync:** Push finished images from RunPod to Cloudflare R2.
+
+### 3.2: Local Processing & Selection
+- [ ] **R2 Download:** Use `rclone` to sync the 30 images from R2 to `__temp_harvest/`.
+- [x] **Orchestration:** Built `trigger_generation.py` and `art_director.py` for pipeline management. [DONE]
+- [ ] **AI Selection (Art Director):** Run `art_director.py` to pick the single winner for each of the 10 recipes based on `IMAGE_STYLE_GUIDE.md`.
+- [ ] **Integration:** Automate placement of winners into `src/assets/images/` and cleanup temp files.
 
 ## 🧁 Phase 4: The "Vessel" Expansion (Brainstorming) [planning]
 Expanding beyond the oven into modular, systematic food prep.
@@ -74,6 +80,15 @@ High-budget, high-impact motion content.
 
 - [ ] **Short-Form Build Videos:** 15-second TikTok/YouTube Shorts showing the "Docker for Food" build process (Empty Tin -> Base Layer -> Filling -> Finished Product).
 - [ ] **Cinematic Steam:** High-res video of sunrise lighting and rising steam.
+
+## 🎭 Phase 6: Editorial Personalities & Artistic Tension [in_progress]
+Implementing the "Team of 5" hierarchy to ensure high-end, self-correcting quality.
+
+- [x] **Identity Definition:** Created `Documents/core/PERSONAS.md` defining the 5 roles (Creative Director, Art Director, Copywriter, Site Architect, Social Dispatcher). [DONE]
+- [ ] **The "Grumpy Review" Protocol:** Build a prompt/script for the **Creative Director** (DeepSeek-R1) to audit the full "Recipe + Image" package before deployment.
+- [ ] **The "Art Director" Selection Script:** Finalize `scripts/art_director.py` to compare the 3 variants per recipe and pick the "High-Key" winner.
+- [ ] **The Social Mascot:** Codify the voice of the **Social Dispatcher** for automated Pinterest/Instagram descriptions.
+- [ ] **Multi-Agent Debate:** Implement a "Design Review" where the Site Architect and Art Director must agree on the hero image placement.
 
 ---
 

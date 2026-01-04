@@ -12,12 +12,14 @@ if AI_ROUTER_PATH not in sys.path:
 
 try:
     from router import AIRouter
-except ImportError:
-    print(f"Error: Could not import AIRouter from {AI_ROUTER_PATH}")
+except ImportError as e:
+    import traceback
+    traceback.print_exc()
+    print(f"Error: Could not import AIRouter from {AI_ROUTER_PATH}: {e}")
     sys.exit(1)
 
 # Configuration
-STAGING_DIR = Path("/Users/eriksjaastad/projects/muffinpanrecipes/data/output")
+STAGING_DIR = Path("/Users/eriksjaastad/projects/muffinpanrecipes/__temp_harvest")
 FINAL_IMAGE_DIR = Path("/Users/eriksjaastad/projects/muffinpanrecipes/src/assets/images")
 TRASH_DIR = Path("/Users/eriksjaastad/projects/muffinpanrecipes/_trash")
 STYLE_GUIDE_PATH = Path("/Users/eriksjaastad/projects/muffinpanrecipes/Documents/core/IMAGE_STYLE_GUIDE.md")
@@ -27,8 +29,6 @@ def pick_winner_metadata(recipe_id, recipe_title, variant_metadata):
     """
     Uses AI Router to pick the best variant based on the STYLE GUIDE 
     by comparing the generated descriptions/metadata.
-    
-    (Note: In a full vision setup, we would pass the actual image base64)
     """
     router = AIRouter(expensive_model="gpt-4o")
     
@@ -69,21 +69,6 @@ def pick_winner_metadata(recipe_id, recipe_title, variant_metadata):
     
     return winner
 
-def update_index_html(recipe_id, winner_ext):
-    """Updates the hardcoded image path in index.html for the given recipe."""
-    with open(INDEX_HTML_PATH, 'r') as f:
-        content = f.read()
-    
-    # Update the image path in the recipes array
-    # Pattern looks for the slug and then the image line
-    pattern = rf'(slug:\s*"{recipe_id}".*?image:\s*")([^"]*)(")'
-    new_image_path = f"assets/images/{recipe_id}.{winner_ext}"
-    
-    new_content = re.sub(pattern, rf'\1{new_image_path}\3', content, flags=re.DOTALL)
-    
-    with open(INDEX_HTML_PATH, 'w') as f:
-        f.write(new_content)
-
 def main():
     print("--- 🧁 Muffin Pan Recipes: The Art Director Agent ---")
     
@@ -93,6 +78,10 @@ def main():
 
     # Load the prompts we used
     JOBS_FILE = "/Users/eriksjaastad/projects/muffinpanrecipes/data/image_generation_jobs.json"
+    if not os.path.exists(JOBS_FILE):
+        print(f"Error: Jobs file not found at {JOBS_FILE}")
+        return
+
     with open(JOBS_FILE, 'r') as f:
         jobs = json.load(f)
 
@@ -106,7 +95,7 @@ def main():
         winner_variant = pick_winner_metadata(recipe_id, recipe_title, job['prompts'])
         print(f"  🏆 Winner: {winner_variant}")
         
-        # 2. File Operations (Simulated: In real use, files would be in data/output/{recipe_id}/)
+        # 2. File Operations
         recipe_output_dir = STAGING_DIR / recipe_id
         if recipe_output_dir.exists():
             for img_file in recipe_output_dir.glob("*"):
@@ -118,11 +107,15 @@ def main():
                     dest = FINAL_IMAGE_DIR / f"{recipe_id}.{ext}"
                     shutil.move(str(img_file), str(dest))
                     print(f"  ✅ Integrated: {dest.name}")
-                    # update_index_html(recipe_id, ext)
                 else:
                     # Move to trash
-                    trash_dest = TRASH_DIR / f"{recipe_id}_{variant_name}.{ext}"
-                    shutil.move(str(img_file), str(trash_dest))
+                    # Clean up the filename to avoid "File name too long" errors
+                    clean_name = f"{recipe_id}_{variant_name}.{ext}"
+                    trash_dest = TRASH_DIR / clean_name
+                    try:
+                        shutil.move(str(img_file), str(trash_dest))
+                    except Exception as e:
+                        print(f"  ⚠️ Error trashing {img_file.name}: {e}")
         else:
             print(f"  ⚠️ No images found in {recipe_output_dir}. Skipping movement.")
 
@@ -131,4 +124,3 @@ def main():
 if __name__ == "__main__":
     import re
     main()
-

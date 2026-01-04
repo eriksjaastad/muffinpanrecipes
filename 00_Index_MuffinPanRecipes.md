@@ -25,15 +25,15 @@ An AI-driven experimental recipe platform focused exclusively on "Muffin Tin Mea
 - **The Face:** Clean, fast-loading UI focused on "Jump to Recipe" utility.
 
 ## 📋 Project Status
-**Current Phase:** Phase 3.1 (The Visual Harvest) - Pipeline Orchestration
-**Progress:** Phase 2 (Production Launch) 100% Complete.
-**Next Step:** Execute `trigger_generation.py` to start the photography harvest.
+**Current Phase:** Phase 3.2 (Local Selection) - 100% Complete
+**Progress:** All 10 Recipes now have high-end AI photography integrated.
+**Next Step:** Monitor site performance and plan for "The High-Volume Scale" (Phase 4).
 
 ## 🚀 Recent Activity
-- **2026-01-04:** Production Launch! muffinpanrecipes.com is live on Vercel with 10 recipes.
-- **2026-01-04:** Implemented 🧁 emoji favicon and verified apex domain canonicalization.
-- **2026-01-04:** Phase 3.1 Orchestration: Built `trigger_generation.py` and `art_director.py`.
-- **2026-01-04:** Refactored `generate_image_prompts.py` to use AI Router (DeepSeek-R1) for "Triple-Plate" prompts.
+- **2026-01-04:** Visual Harvest Complete! 30 images generated on RunPod, "Art Directed" locally, and 10 winners integrated into `src/assets/images/`.
+- **2026-01-04:** Production Launch! muffinpanrecipes.com is live on Vercel with 10 recipes and 🧁 favicon.
+- **2026-01-04:** Refactored photography pipeline to use Stability AI Direct API for reliable headless generation.
+- **2026-01-04:** Resolved 404 error on production by co-locating `vercel.json` with the `src/` root directory.
 
 ## 📖 Reference Links
 - [[TODO]]
