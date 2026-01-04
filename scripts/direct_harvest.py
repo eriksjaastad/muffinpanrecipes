@@ -50,11 +50,11 @@ def generate_image(recipe_id, variant_name, prompt):
     
     body = {
         "text_prompts": [{"text": prompt}],
-        "cfg_scale": 7,
+        "cfg_scale": 7, # Default CFG for SDXL balance between prompt adherence and creative quality
         "height": 1024,
         "width": 1024,
         "samples": 1,
-        "steps": 30,
+        "steps": 30, # Optimal step count for SDXL 1.0; balance between speed and high-end texture
     }
 
     try:
