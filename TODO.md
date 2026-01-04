@@ -49,6 +49,28 @@ High-end AI generation leveraging RunPod (Cloud GPU) and local selection. [PRODU
 - [x] **Integration:** Automate placement of winners into `src/assets/images/` and cleanup temp files. [DONE]
 - [x] **Industrialization:** Fixed all V1-V3 audit issues (paths, timeouts, error handling). [DONE]
 
+### 3.3: Static Generation & Social Routing (The Content Moat) [completed]
+Refactoring the site from a single-page modal system to a high-authority static engine.
+
+- [x] **Blueprint Creation:** Extract the modal UI from `index.html` into a standalone `src/templates/recipe_page.html` with Jinja2-style placeholders (e.g., `{{ title }}`, `{{ ingredients_list }}`). [DONE]
+- [x] **The "Baker" Script:** Build `scripts/build_site.py` to iterate through `recipes.json` and output unique HTML folders for every recipe (e.g., `src/recipes/[slug]/index.html`). [DONE]
+- [x] **Metadata Automation:** Ensure the build script generates recipe-specific Open Graph tags (`og:image`, `og:title`, `og:description`) for Pinterest/Social richness. [DONE]
+- [x] **Hybrid Handshake:** Update `index.html` grid to use direct links (`<a>` tags) while maintaining the "No Fluff" instant-load feel. [DONE]
+- [x] **Sitemap Generation:** Add a task to the build script to generate a `sitemap.xml` for Google Search Console to index all 10+ recipes. [DONE]
+- [x] **Done Criteria:**
+    - [x] Every recipe has a unique, navigable URL (e.g., `/recipes/dark-chocolate-chip-muffins`).
+    - [x] Sharing a recipe link on social media correctly displays the specific recipe image and description.
+    - [x] The "Back" button works natively in the browser when navigating between the grid and a recipe.
+    - [x] Google Search Console can find the `sitemap.xml` containing all recipe paths.
+
+### 3.4: Editorial Command Center (Local Admin) [planning]
+Building the "Control Tower" for the AI Editorial Board and high-volume scaling.
+
+- [ ] **Admin Interface:** Build a local web UI (FastAPI/Tailwind) to manage the `recipes.json` data layer.
+- [ ] **Persona Portal:** A "Live Feed" view to monitor the debates and "Grumpy Reviews" from the Team of 5.
+- [ ] **Mission Control Integration:** A dashboard button to trigger the `trigger_generation.py` workflow for new batches.
+- [ ] **Staging Viewer:** A local "Draft" mode to preview new recipes with their AI photography before Vercel deployment.
+
 ## 🧁 Phase 4: The "Vessel" Expansion (Brainstorming) [planning]
 Expanding beyond the oven into modular, systematic food prep.
 
