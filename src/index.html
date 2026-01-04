@@ -190,6 +190,7 @@
                             <div class="absolute inset-0 bg-sage/5 transition-opacity group-hover:opacity-0"></div>
                             <img src="${recipe.image}" 
                                  onerror="handleImageError(this)" 
+                                 loading="lazy"
                                  class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" 
                                  alt="${recipe.title}">
                         </div>
@@ -242,6 +243,7 @@
                     <div class="aspect-video bg-gray-50 mb-12 flex items-center justify-center overflow-hidden">
                         <img src="${recipe.image}" 
                              onerror="handleImageError(this)" 
+                             loading="lazy"
                              class="w-full h-full object-cover" 
                              alt="${recipe.title}">
                     </div>
