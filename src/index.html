@@ -19,7 +19,7 @@
     <meta property="twitter:title" content="Muffin Pan Recipes | Editorial Cookery">
     <meta property="twitter:description" content="Gourmet, mathematically-scaled recipes designed exclusively for muffin tins.">
 
-    <!-- Favicon Placeholder -->
+    <!-- Favicon -->
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧁</text></svg>">
     <!-- Editorial Typography: Playfair Display for Serifs, Inter for Sans-Serif -->
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -48,6 +48,20 @@
             color: #C0392B !important; 
             border-bottom: 2px solid #C0392B;
             padding-bottom: 2px;
+        }
+        .image-placeholder {
+            background: linear-gradient(45deg, #FDFEFE 25%, #F4F6F6 25%, #F4F6F6 50%, #FDFEFE 50%, #FDFEFE 75%, #F4F6F6 75%, #F4F6F6 100%);
+            background-size: 40px 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            width: 100%;
+            color: #717D7E;
+            font-family: 'Playfair Display', serif;
+            font-style: italic;
+            font-size: 0.875rem;
+            border: 1px solid #F2F3F4;
         }
     </style>
 </head>
@@ -220,6 +234,15 @@
             }
         ];
 
+        function handleImageError(img) {
+            const container = img.parentElement;
+            img.style.display = 'none';
+            const placeholder = document.createElement('div');
+            placeholder.className = 'image-placeholder';
+            placeholder.innerHTML = '<span>Photo Coming Soon</span>';
+            container.appendChild(placeholder);
+        }
+
         function renderGrid(filter = 'All') {
             const grid = document.getElementById('recipe-grid');
             grid.innerHTML = '';
@@ -229,7 +252,10 @@
                     <div class="recipe-grid-card cursor-pointer group" onclick="openRecipe('${recipe.slug}')">
                         <div class="aspect-[4/5] bg-gray-50 mb-6 overflow-hidden relative">
                             <div class="absolute inset-0 bg-sage/5 transition-opacity group-hover:opacity-0"></div>
-                            ${recipe.image ? `<img src="${recipe.image}" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" alt="${recipe.title}">` : `<div class="flex items-center justify-center h-full text-sage/20 font-serif italic">Photo Coming Soon</div>`}
+                            <img src="${recipe.image}" 
+                                 onerror="handleImageError(this)" 
+                                 class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" 
+                                 alt="${recipe.title}">
                         </div>
                         <p class="text-[10px] uppercase tracking-[0.2em] text-sage font-bold mb-3">${recipe.category}</p>
                         <h3 class="recipe-title font-serif text-3xl transition-colors mb-3 leading-tight">${recipe.title}</h3>
@@ -246,8 +272,10 @@
             buttons.forEach(btn => {
                 if (btn.innerText.toLowerCase() === filter.toLowerCase()) {
                     btn.classList.add('text-terracotta');
+                    btn.classList.add('active-filter');
                 } else {
                     btn.classList.remove('text-terracotta');
+                    btn.classList.remove('active-filter');
                 }
             });
         }
@@ -276,7 +304,10 @@
                     <p class="text-xs uppercase tracking-[0.3em] text-terracotta font-bold mb-4">${recipe.category}</p>
                     <h1 class="font-serif text-5xl md:text-7xl mb-8 leading-tight">${recipe.title}</h1>
                     <div class="aspect-video bg-gray-50 mb-12 flex items-center justify-center overflow-hidden">
-                        ${recipe.image ? `<img src="${recipe.image}" class="w-full h-full object-cover" alt="${recipe.title}">` : `<span class="text-sage/20 font-serif italic text-2xl">Featured Image</span>`}
+                        <img src="${recipe.image}" 
+                             onerror="handleImageError(this)" 
+                             class="w-full h-full object-cover" 
+                             alt="${recipe.title}">
                     </div>
                     
                     <!-- GARGANTUAN JUMP TO RECIPE BUTTON -->

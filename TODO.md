@@ -1,7 +1,7 @@
 # Muffin Pan Recipes — Roadmap
 
-**Last Update:** January 3, 2026
-**Status:** 🔮 KICKOFF (Phase 0)
+**Last Update:** January 4, 2026
+**Status:** 📸 PHASE 3: THE VISUAL HARVEST
 
 ---
 
@@ -29,33 +29,31 @@ Build a fast, mobile-first experience for recipe consumers.
 - [x] **SEO Strategy:** Implemented Schema.org JSON-LD for rich recipe results.
 - [x] **Search/Filter:** Added "Filter by Category" functionality.
 - [x] **Single Recipe View:** Created high-conversion template with "Gargantuan Jump to Recipe" button.
+- [x] **Infrastructure:** Finalize `www` redirect in Vercel (canonicalize to apex).
+- [x] **Favicon:** Implement 🧁 cupcake emoji as the initial site favicon for branding.
+- [x] **Production Launch:** Deploy the current "No Fluff" frontend to muffinpanrecipes.com with the initial 10 recipes (using placeholder images until the Harvest finishes).
 
-## 🚀 Phase 3: Tomorrow's Launch & Iteration [in_progress]
-The immediate mission for the next session.
+## 📸 Phase 3: The Visual Harvest (Automated Photography) [in_progress]
+High-end AI generation to fill the editorial gaps.
 
-### 📸 Phase 3.1: The Visual Harvest (Automated Photography)
-- [ ] **Infrastructure:** Finalize `www` redirect in Vercel (canonicalize to apex).
-- [ ] **Prompt Batching:** Run `python3 scripts/generate_image_prompts.py` for all 10 recipes.
+- [x] **Orchestration:** Built `trigger_generation.py` and `art_director.py` for pipeline management.
+- [x] **Prompt Batching:** Refactored `generate_image_prompts.py` to use AI Router (DeepSeek-R1) for "Triple-Plate" prompts.
 - [ ] **Generation Pipeline:** Trigger "Mission Control" (`3D Pose Factory`) using the "Triple-Plate" pattern (3 variants per recipe).
 - [ ] **AI Selection:** Use the "Art Director" agent to select winners based on the `IMAGE_STYLE_GUIDE.md`.
 - [ ] **Integration:** Automate placement of winners into `src/assets/images/`.
 
-### 🧁 Phase 3.2: Social Presence (Initial)
-- [ ] **Favicon:** Generate high-end 🧁 icon for branding.
+## 🧁 Phase 4: The "Vessel" Expansion (Brainstorming) [planning]
+Expanding beyond the oven into modular, systematic food prep.
+
+- [ ] **Oven-less Category:** Frozen Yogurt Bites, smoothie pucks, chilled parfaits.
+- [ ] **Performance/Gym Category:** High-protein "Systematic Prep" (e.g., Egg-white & Oat pods).
+- [ ] **Modular "Base Layers":** Bacon baskets, Tortilla cups, Prosciutto liners.
+
+## 📱 Phase 5: Social Presence & Social Dispatcher [planning]
+Strategy for high-volume Pinterest/Instagram growth.
+
 - [ ] **Pinterest Kickoff:** Build script for vertical Pinterest "Recipe Cards" using AI images.
 - [ ] **Skill Acquisition:** Codify "Social Dispatcher" logic in `agent-skills-library`.
-
-## 🏃 Phase 4: Stretch Goals (Coming Soon)
-Items to tackle once the visual pipeline is stable.
-
-- [ ] **Static Admin Utility:** Create `scripts/admin_tool.py` for one-click recipe/image management.
-- [ ] **Agent Recommendation Loop:** Implement mechanism for AI agents to suggest style guide or schema updates.
-- [ ] **The "Idea Basket":** Create `Documents/archives/IDEA_BASKET.md` where agents can dump creative sparks during production.
-- [ ] **Content Scaling:** Generate the next batch of 50 recipes.
-- [ ] **💡 Content Brainstorming: The "Vessel" Expansion:**
-    - [ ] **Oven-less Category:** Frozen Yogurt Bites, smoothie pucks, chilled parfaits.
-    - [ ] **Performance/Gym Category:** High-protein "Systematic Prep" (e.g., Egg-white & Oat pods).
-    - [ ] **Modular "Base Layers":** Bacon baskets, Tortilla cups, Prosciutto liners.
 - [ ] **Instagram Growth:** Automate Instagram postings via Meta Graph API focusing on "Modular Architecture" visuals.
 
 ## 🌟 Phase 5: Long-Term Vision
@@ -83,3 +81,4 @@ High-budget, high-impact motion content.
 - [x] Project Index created (`00_Index_MuffinPanRecipes.md`).
 - [x] Initial roadmap drafted.
 - [x] Phase 0-2 fully executed.
+- [x] Production deployment established.
