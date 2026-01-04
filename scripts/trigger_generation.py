@@ -1,11 +1,16 @@
-import json
 import os
 import sys
 from pathlib import Path
 
 # Ensure the Mission Control script is in the Python path
+# This path is relative to the projects/ directory where all related repos live.
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "3D Pose Factory" / "shared" / "scripts"))
-from mission_control import MissionControl
+try:
+    from mission_control import MissionControl
+except ImportError:
+    print("❌ Error: Could not find 'mission_control.py'.")
+    print(f"Looked in: {Path(__file__).parent.parent.parent / '3D Pose Factory' / 'shared' / 'scripts'}")
+    sys.exit(1)
 
 JOBS_FILE = Path(__file__).parent.parent / "data" / "image_generation_jobs.json"
 R2_MUFFIN_PAN_JOBS_PATH = "muffin_pan/jobs/image_generation_jobs.json"

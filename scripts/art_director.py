@@ -122,5 +122,4 @@ def main():
     print("\n✨ Art Director processing complete.")
 
 if __name__ == "__main__":
-    import re
     main()
