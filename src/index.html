@@ -112,16 +112,62 @@
     <!-- Simple JS to handle recipes and filtering -->
     <script>
         let recipes = [];
+        let retryCount = 0;
+        const MAX_RETRIES = 3;
 
         async function loadRecipes() {
+            const grid = document.getElementById('recipe-grid');
+            
+            // 1. Loading State
+            if (retryCount === 0) {
+                grid.innerHTML = `
+                    <div class="col-span-full py-24 text-center">
+                        <p class="font-serif text-2xl italic text-sage animate-pulse">Baking Recipes...</p>
+                    </div>
+                `;
+            }
+
             try {
                 const response = await fetch('recipes.json');
+                
+                // 2. Defense: Check if response is ok
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
                 const data = await response.json();
                 recipes = data.recipes;
+                
+                // Reset retry count on success
+                retryCount = 0;
+                
+                // 3. Render Grid
                 renderGrid();
             } catch (error) {
                 console.error('Error loading recipes:', error);
+                
+                // 4. Retry Logic
+                if (retryCount < MAX_RETRIES) {
+                    retryCount++;
+                    console.log(`Retrying recipe load (${retryCount}/${MAX_RETRIES})...`);
+                    setTimeout(loadRecipes, 1000 * retryCount); // Exponential-ish backoff
+                } else {
+                    // 5. Error State
+                    grid.innerHTML = `
+                        <div class="col-span-full py-24 text-center">
+                            <p class="font-serif text-2xl mb-6 text-terracotta">Oven Error: Could not load recipes.</p>
+                            <button onclick="retryLoad()" class="px-8 py-3 border-2 border-gray-900 font-bold uppercase tracking-widest text-xs hover:bg-gray-900 hover:text-white transition-colors">
+                                Retry Baking
+                            </button>
+                        </div>
+                    `;
+                }
             }
+        }
+
+        function retryLoad() {
+            retryCount = 0;
+            loadRecipes();
         }
 
         function handleImageError(img) {

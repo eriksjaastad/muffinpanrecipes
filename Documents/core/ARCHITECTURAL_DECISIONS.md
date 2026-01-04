@@ -3,7 +3,7 @@
 ## AD 001: Static Site Architecture
 **Status:** Accepted
 **Date:** 2026-01-03
-**Context:** We need a high-speed, mobile-first experience that is easy to deploy and maintain on Dreamhost.
+**Context:** We need a high-speed, mobile-first experience that is easy to deploy and maintain on Vercel.
 **Decision:** We will use a static site approach (HTML/Tailwind) for the initial prototype. AI-generated recipes will be stored as Markdown files and rendered into HTML.
 **Consequences:** 
 - Extremely fast load times.

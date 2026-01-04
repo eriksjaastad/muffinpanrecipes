@@ -36,7 +36,6 @@ except ImportError:
 
 JOBS_FILE = PROJECT_ROOT / "data" / "image_generation_jobs.json"
 R2_MUFFIN_PAN_JOBS_PATH = "muffin_pan/jobs/image_generation_jobs.json"
-R2_MUFFIN_PAN_SCRIPTS_PATH = "muffin_pan/scripts/batch_generate_muffins.py"
 R2_MUFFIN_PAN_DIRECT_HARVEST_PATH = "muffin_pan/scripts/direct_harvest.py"
 
 
@@ -55,16 +54,7 @@ def main():
     else:
         logger.warning(f"⚠️ Jobs file not found at {JOBS_FILE}. Skipping upload.")
 
-    # 2. Upload the batch generation script to R2
-    batch_script_path = Path(__file__).parent / "batch_generate_muffins.py"
-    if batch_script_path.exists():
-        if mc.upload_to_r2(batch_script_path, R2_MUFFIN_PAN_SCRIPTS_PATH, show_progress=False):
-            logger.info("✅ Batch generation script uploaded to R2.")
-        else:
-            logger.error("❌ Failed to upload batch generation script to R2.")
-            sys.exit(1)
-    
-    # 3. Upload the direct harvest script to R2
+    # 2. Upload the direct harvest script to R2
     direct_harvest_script_path = Path(__file__).parent / "direct_harvest.py"
     if direct_harvest_script_path.exists():
         if mc.upload_to_r2(direct_harvest_script_path, R2_MUFFIN_PAN_DIRECT_HARVEST_PATH, show_progress=False):
