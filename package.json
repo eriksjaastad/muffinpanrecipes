@@ -1,0 +1,24 @@
+{
+  "name": "muffinpanrecipes",
+  "version": "1.0.0",
+  "description": "An AI-driven experimental recipe platform focused exclusively on \"Muffin Tin Meals.\" This project explores high-volume content generation, niche SEO optimization, and automated deployment to Vercel.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eriksjaastad/muffinpanrecipes.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/eriksjaastad/muffinpanrecipes/issues"
+  },
+  "homepage": "https://github.com/eriksjaastad/muffinpanrecipes#readme",
+  "dependencies": {
+    "@vercel/speed-insights": "^1.3.1"
+  }
+}

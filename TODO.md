@@ -75,6 +75,13 @@ Building the "Control Tower" for the AI Editorial Board and high-volume scaling.
 - [ ] **Mission Control Integration:** A dashboard button to trigger the `trigger_generation.py` workflow for new batches.
 - [ ] **Staging Viewer:** A local "Draft" mode to preview new recipes with their AI photography before Vercel deployment.
 
+### 3.5: Remote Orchestration (Podrunner) [planning]
+Automating the infrastructure lifecycle for high-volume visual harvests.
+
+- [ ] **Remote Lifecycle:** Research and implement remote pod spin-up via Podrunner or RunPod CLI.
+- [ ] **Automated Handshake:** Script the deployment of `direct_harvest.py` immediately after pod activation.
+- [ ] **Auto-Termination:** Ensure the pod shuts down automatically from the console once R2 sync is verified.
+
 ## 🧁 Phase 4: The "Vessel" Expansion (Brainstorming) [planning]
 Expanding beyond the oven into modular, systematic food prep.
 
