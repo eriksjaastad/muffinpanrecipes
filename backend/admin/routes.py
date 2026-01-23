@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from backend.data.recipe import Recipe, RecipeStatus
 from backend.publishing.pipeline import PublishingPipeline
+from backend.newsletter.manager import NewsletterManager
 from backend.auth.middleware import require_auth, create_session_cookie, clear_session_cookie
 from backend.utils.logging import get_logger
 
@@ -361,6 +362,30 @@ def create_routes(app: FastAPI):
             "success": True,
             "message": "Recipe generation triggered",
             "note": "This is a placeholder. Connect to orchestrator in future."
+        }
+    
+    # ==================== NEWSLETTER ROUTES ====================
+    
+    @app.post("/api/newsletter/subscribe")
+    async def newsletter_subscribe(email: str):
+        """Public endpoint for newsletter subscription."""
+        manager = NewsletterManager()
+        result = await manager.subscribe(email)
+        
+        if result["success"]:
+            return {"success": True, "message": "Successfully subscribed to newsletter!"}
+        else:
+            raise HTTPException(status_code=400, detail=result.get("error", "Subscription failed"))
+    
+    @app.get("/admin/newsletter/subscribers")
+    async def newsletter_list_subscribers(session_id: str = Depends(require_auth)):
+        """Admin endpoint to list all newsletter subscribers."""
+        manager = NewsletterManager()
+        subscribers = await manager.list_subscribers()
+        
+        return {
+            "subscribers": subscribers,
+            "total": len(subscribers)
         }
     
     logger.info("Admin routes configured")
