@@ -5,6 +5,52 @@
 
 ---
 
+Erik's notes 1/4/2026: My goal is to make muffinpanrecipes super entertaining and have the AI personalities like that's the real content but we're doing it through a recipe website.
+I think on a weekly or monthly basis, me and another AI look at whatever control parameters we have for our worker agents that are the creative director and the photographer in those, and we try and see if we can do anything to help them progress. Like, is our format for memories working? Can we inspire them by having them study something? So, coming up with a continual learning where we try and improve the environment for them to learn in.
+
+The meta-learning layer is where it gets interesting. You're describing three tiers:
+
+Worker agents (creative director, photographer, etc.) — produce content
+You + an AI partner — review and tune the worker agents periodically
+The environment itself — memory formats, learning materials, control parameters
+
+Building a curriculum. "Is our memory format helping them retain useful patterns? Should we have the photographer study food photography from a specific era? Does the creative director need exposure to different design philosophies?"
+
+If the format works, you've essentially built a reality show where the cast improves over time and the audience watches it happen through the lens of muffin pan recipes. That's weird and original enough to stand out.
+
+---
+
+## 🚀 NEXT SESSION: AI Creative Team (January 23, 2026)
+
+**Status:** Core backend complete (31 tests passing). Frontend and polish remaining.
+
+### 🔴 FIRST: Proof of Life
+Before touching frontend, run one REAL recipe through the orchestrator:
+```python
+from backend.orchestrator import RecipeOrchestrator
+orchestrator = RecipeOrchestrator()
+recipe, story = orchestrator.produce_recipe("Savory Breakfast Egg Muffins")
+```
+Review the output JSON. Do Margaret and Marcus's voices come through? If personalities feel flat, fix that before making it pretty. If they sing, proceed to frontend.
+
+### 🟡 Task 10: Frontend Updates
+- [ ] Featured recipe section (above existing grid - DO NOT break grid)
+- [ ] Newsletter signup form (between featured and grid)
+- [ ] Story preview section with curated creative process content
+- [ ] Link to dedicated story page showing full creation process
+
+### 🟡 Task 12: Configuration & Management Tools
+- [ ] Agent configuration viewer/editor
+- [ ] Pipeline monitoring dashboard
+- [ ] Agent performance metrics
+
+### Reference
+- Kiro specs: `.kiro/specs/ai-creative-team/`
+- Proposal: `_handoff/PROPOSAL_FINAL.md`
+- Backend: `backend/` (orchestrator.py is the main entry point)
+
+---
+
 ## 🔮 Phase 0: Scaffolding & Foundation [completed]
 Establish the "Gold Standard" project structure and automated deployment.
 
@@ -110,6 +156,8 @@ Future growth and monetization ideas.
     - [ ] Meal planning "Muffin Tin" subscription.
 
 ## 🎬 Phase 6: The Moonshot (Video)
+
+- [ ] **Tech Debt (Flat Root):** Move contents of `Documents/core/` to `Documents/` root and delete the core directory.
 High-budget, high-impact motion content.
 
 - [ ] **Short-Form Build Videos:** 15-second TikTok/YouTube Shorts showing the "Docker for Food" build process (Empty Tin -> Base Layer -> Filling -> Finished Product).
@@ -119,10 +167,26 @@ High-budget, high-impact motion content.
 Implementing the "Team of 5" hierarchy to ensure high-end, self-correcting quality.
 
 - [x] **Identity Definition:** Created `Documents/core/PERSONAS.md` defining the 5 roles (Creative Director, Art Director, Copywriter, Site Architect, Social Dispatcher). [DONE]
+- [ ] **The "Screenwriter" Implementation:** Draft the logic for the Screenwriter to capture "Creative Tension" logs between roles.
 - [ ] **The "Grumpy Review" Protocol:** Build a prompt/script for the **Creative Director** (DeepSeek-R1) to audit the full "Recipe + Image" package before deployment.
 - [x] **The "Art Director" Selection Script:** Finalize `scripts/art_director.py` to compare the 3 variants per recipe and pick the "High-Key" winner. [DONE]
 - [ ] **The Social Mascot:** Codify the voice of the **Social Dispatcher** for automated Pinterest/Instagram descriptions.
 - [ ] **Multi-Agent Debate:** Implement a "Design Review" where the Site Architect and Art Director must agree on the hero image placement.
+
+## 🎭 Phase 8: Editorial Cadence & Artistic Tension (The Weekly Rhythm)
+
+- [ ] **Dialogue Feed:** Implement a "Behind the Scenes" section on recipe pages surfacing the Screenwriter's dialogue logs.
+- [ ] **Editorial Calendar:** Codify the "Sunday 8:00 AM" launch cycle for new recipes.
+- [ ] **Persona Commentary:** Update the recipe schema to include "Editorial Notes" from the Creative Director or Art Director.
+    - [ ] **Creative Director (DeepSeek-R1):** Sophisticated critique of the recipe's architectural integrity.
+    - [ ] **Art Director (GPT-4o):** Discerning notes on the "Triple-Plate" photography choices.
+- [ ] **Video Pilot (Wednesday Cycle):** Initial planning for the "Cinematic Build" video release.
+    - [ ] **The Video Director:** Define a new persona focused on rhythm, steam, and lighting.
+    - [ ] **Director's Cut:** Include a "Director's Statement" with each video describing the artistic intent.
+- [ ] **Ingredient & Step Audit:** Refactor the generator to break the "4 ingredients / 6 steps" pattern to ensure authentic complexity for diverse recipes.
+
+## 🧪 Content Brainstorming: The "Vessel" Expansion
+- [ ] **The "Docker for Food" Vision:** Further develop the concept of the muffin tin as a "Vessel" for modular, systematic food prep.
 
 ---
 
@@ -131,3 +195,268 @@ Implementing the "Team of 5" hierarchy to ensure high-end, self-correcting quali
 - [x] Initial roadmap drafted.
 - [x] Phase 0-2 fully executed.
 - [x] Production deployment established.
+
+
+<!-- project-scaffolding template appended -->
+
+# {{PROJECT_NAME}} - TODO
+
+**Last Updated:** {{DATE}}  
+**Project Status:** {{STATUS}} (In Progress/Active/Development/Paused/Stalled/Complete)  
+**Current Phase:** {{PHASE}} (Foundation/MVP/Production/etc.)
+
+---
+
+## 📍 Current State
+
+### What's Working ✅
+<!-- List what's operational and tested -->
+- **Feature 1:** Brief description of what works
+- **Feature 2:** Another working component
+- **Automation:** Any scheduled jobs or automated processes
+
+### What's Missing ❌
+<!-- Honest assessment of gaps -->
+- **Feature X:** Not implemented yet
+- **Integration Y:** Needs setup
+- **Documentation Z:** Incomplete
+
+### Blockers & Dependencies
+<!-- What's stopping progress? -->
+- ⛔ **Blocker:** Clear description of what blocks progress
+- 🔗 **Dependency:** External service, API key, or approval needed
+- ⏳ **Waiting:** What you're waiting for
+
+---
+
+## ✅ Completed Tasks
+
+### Phase {{PHASE_NUMBER}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Task description with clear outcome
+- [x] Another completed task
+- [x] Task that was finished
+
+### Phase {{PREVIOUS_PHASE}}: {{PHASE_NAME}} ({{DATE_RANGE}})
+- [x] Historical completed task
+- [x] Another past milestone
+
+---
+
+## 📋 Pending Tasks
+
+### Phase 0: Industrial Hardening (Gate 0)
+- [ ] **Dependency Pinning:** Replace `>=` with `~=` or `==` in `requirements.txt`.
+- [ ] **DNA Check:** Verify zero machine-specific absolute paths remain in codebase.
+- [ ] **Error Audit:** Replace `except: pass` with explicit logging.
+- [ ] **Subprocess Audit:** Ensure all CLI calls have `check=True` and `timeout`.
+
+### 🔴 CRITICAL - Must Do First
+<!-- High-priority, blocking other work -->
+
+#### Task Group 1: {{TASK_GROUP_NAME}}
+- [ ] Specific actionable task
+- [ ] Another task with clear success criteria
+- [ ] Task that depends on previous tasks
+
+#### Task Group 2: {{TASK_GROUP_NAME}}
+- [ ] Task description
+  - [ ] Sub-task (if needed)
+  - [ ] Another sub-task
+
+---
+
+### 🟡 HIGH PRIORITY - Important
+<!-- Important but not blocking -->
+
+#### Task Group 3: {{TASK_GROUP_NAME}}
+- [ ] High-value task
+- [ ] Another important task
+
+---
+
+### 🔵 MEDIUM PRIORITY - Nice to Have
+<!-- Useful but can wait -->
+
+#### Task Group 4: {{TASK_GROUP_NAME}}
+- [ ] Enhancement or improvement
+- [ ] Optional feature
+
+---
+
+### 🟢 LOW PRIORITY - Future
+<!-- Backlog items, not urgent -->
+
+#### Task Group 5: {{TASK_GROUP_NAME}}
+- [ ] Long-term idea
+- [ ] Nice-to-have feature
+
+---
+
+## 🎯 Success Criteria
+
+### {{PHASE}} Complete When:
+- [ ] Clear, measurable criterion
+- [ ] Another specific goal
+- [ ] Outcome that defines "done"
+
+### Project Complete When:
+- [ ] Final outcome achieved
+- [ ] All core features working
+- [ ] Documentation complete
+
+---
+
+## 📊 Notes
+
+### AI Agents in Use
+<!-- Which AI is helping with what? NEW SECTION -->
+- **{{AI_NAME}} ({{MODEL}}):** Role description (e.g., "Implementation", "Code Review", "Architecture")
+- **{{AI_NAME}}:** Another AI agent and its role
+
+### Cron Jobs / Automation
+<!-- Scheduled tasks for this project -->
+- **Schedule:** `{{CRON_EXPRESSION}}` (e.g., "0 14 * * *" = daily 2 PM)
+- **Command:** `{{COMMAND}}`
+- **Purpose:** What it does
+- **Status:** Active/Inactive
+
+### External Services Used
+<!-- From project-scaffolding/EXTERNAL_RESOURCES.md -->
+- **{{SERVICE_NAME}}:** Purpose, cost
+- **{{SERVICE_NAME}}:** Another service
+
+### Cost Estimates
+<!-- If applicable -->
+- **Development:** Estimated time or cost
+- **Monthly:** Recurring costs (API, hosting, etc.)
+- **One-time:** Setup or infrastructure costs
+
+### Time Estimates
+<!-- Rough guidance -->
+- **{{PHASE}}:** X-Y hours
+- **Total project:** X-Y hours/weeks
+- **Next milestone:** X hours
+
+### Related Projects & Documentation
+<!-- Links to other relevant projects or docs -->
+- **{{PROJECT_NAME}}:** How it relates
+- **{{DOC_PATH}}:** Important reference document
+
+### Technical Stack
+<!-- Key technologies -->
+- **Language:** Python 3.11+ / JavaScript / etc.
+- **Framework:** FastAPI / React / etc.
+- **Database:** SQLite / PostgreSQL / etc.
+- **Deployment:** Railway / Local / etc.
+
+### Key Decisions Made
+<!-- Important choices for future reference -->
+1. **Decision:** Rationale and date
+2. **Decision:** Another key choice
+
+### Open Questions
+<!-- Unresolved items needing discussion -->
+- ❓ Question that needs answering
+- ❓ Choice that needs to be made
+
+---
+
+## 🔄 Change Log (Optional)
+
+### {{DATE}} - {{PHASE_NAME}}
+- Major milestone or significant change
+- Another important update
+
+### {{PREVIOUS_DATE}} - {{PREVIOUS_PHASE}}
+- Historical change
+- Past update
+
+---
+
+<!-- 
+=============================================================================
+GUIDANCE FOR AI SESSIONS:
+=============================================================================
+
+This TODO is designed to be both HUMAN and AI readable.
+
+When updating this file:
+1. Always update "Last Updated" date at the top
+2. Move completed tasks from Pending → Completed (keep the checkbox [x])
+3. Add dates to completed phases
+4. Update "Current State" section as project evolves
+5. Keep Blockers section honest and current
+6. Mark tasks as [x] when done, don't delete them (shows progress)
+7. Update Success Criteria as understanding improves
+8. Keep Notes section current (costs, time, related projects)
+
+When reading this file at session start:
+1. Read "Current State" first (understand where things are)
+2. Check "Blockers & Dependencies" (know what's stopping progress)
+3. Review "Pending Tasks" (understand what's next)
+4. Check "Success Criteria" (know what "done" looks like)
+5. Scan "Notes" for context (costs, related projects, decisions)
+
+Priority Emojis:
+- 🔴 CRITICAL: Must do first, blocking other work
+- 🟡 HIGH: Important but not blocking
+- 🔵 MEDIUM: Nice to have, can wait
+- 🟢 LOW: Backlog, future consideration
+
+Task Status:
+- [ ] Not started
+- [x] Completed (never delete, shows progress!)
+
+Formatting:
+- Use clear hierarchy (Phase → Task Group → Task → Sub-task)
+- Keep task descriptions actionable ("Create X", not "X needs creating")
+- Include enough context for a new AI session to understand
+
+Meta-Philosophy:
+- This is a living document
+- Honest assessment > optimistic projection
+- Show progress (keep completed tasks)
+- Context for future you/AI (notes, decisions, questions)
+
+=============================================================================
+-->
+
+---
+
+*Template Version: 1.0*  
+*Last Modified: December 30, 2025*  
+*Source: ./templates/TODO.md.template*
+
+
+<!-- project-scaffolding template appended -->
+
+## Related Documentation
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+- [[PROJECT_KICKOFF_GUIDE]] - project setup
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+- [[architecture_patterns]] - architecture
+- [[automation_patterns]] - automation
+- [[cloud_gpu_setup]] - cloud GPU
+- [[cost_management]] - cost management
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_setup]] - database
+- [[error_handling_patterns]] - error handling
+- [[prompt_engineering_guide]] - prompt engineering
+- [[queue_processing_guide]] - queue/workflow
+- [[adult_business_compliance]] - adult industry
+- [[ai_model_comparison]] - AI models
+- [[deployment_patterns]] - deployment
+- [[orchestration_patterns]] - orchestration
+- [[performance_optimization]] - performance
+- [[project_planning]] - planning/roadmap
+- [[recipe_system]] - recipe generation
+- [[research_methodology]] - research
+- [[security_patterns]] - security
+- [[video_analysis_tools]] - video analysis
+- [[agent-skills-library/README]] - Agent Skills
+- [[analyze-youtube-videos/README]] - YouTube Analyzer
+- [[muffinpanrecipes/README]] - Muffin Pan Recipes
+- [[project-scaffolding/README]] - Project Scaffolding

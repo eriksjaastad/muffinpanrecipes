@@ -56,3 +56,12 @@ The Muffin Tin is more than a baking tool; it is a **rigid, predictable, modular
 3.  **Modular Scalability:** If it fits in one cup, it fits in 12. This is "Systematic Meal Prep."
 4.  **The Oven-less Frontier:** The vessel is medium-agnostic. It works for the Oven (Baking), the Freezer (Yogurt pucks), and the Fridge (Jello parfaits).
 
+## Related Documentation
+
+- [[architecture_patterns]] - architecture
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_setup]] - database
+- [[deployment_patterns]] - deployment
+- [[performance_optimization]] - performance
+- [[recipe_system]] - recipe generation
+- [[muffinpanrecipes/README]] - Muffin Pan Recipes

@@ -223,3 +223,10 @@ Ship it. Monitor it. Iterate.
 ---
 
 *End of Review V3 — FINAL*
+
+
+## Related Documentation
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+

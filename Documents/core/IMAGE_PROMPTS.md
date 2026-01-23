@@ -30,3 +30,8 @@ When generating for a specific recipe, replace the following:
 - **[RECIPE NAME]:** e.g., "Mini Spinach and Feta Quiches"
 - **[KEY INGREDIENT]:** e.g., "flaky crust and melted feta"
 
+## Related Documentation
+
+- [[prompt_engineering_guide]] - prompt engineering
+- [[recipe_system]] - recipe generation
+- [[muffinpanrecipes/README]] - Muffin Pan Recipes

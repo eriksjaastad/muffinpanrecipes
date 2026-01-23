@@ -1,0 +1,92 @@
+---
+targets: ["*"]
+---
+
+# AGENTS.md - Source of Truth for AI Agents
+
+## 🎯 Project Overview
+Muffin Pan Recipes is a high-volume, AI-driven recipe site focused on "Muffin Tin Meals." It leverages LLMs for content generation and is hosted on Vercel.
+
+## 🛠 Tech Stack
+- **Frontend:** Static HTML, Tailwind CSS (via CDN for prototype).
+- **Deployment:** Vercel (Automatic GitHub Integration).
+- **Hosting:** Vercel.
+- **AI Strategy:** Gemini 3 Flash for complex logic/prompts; Local models for routine tasks.
+
+## 📋 Definition of Done (DoD)
+- [ ] Recipes follow the `Documents/core/RECIPE_SCHEMA.md`.
+- [ ] Technical changes are documented in `Documents/core/ARCHITECTURAL_DECISIONS.md`.
+- [ ] `00_Index_MuffinPanRecipes.md` is updated with recent activity.
+- [ ] Deployment to Vercel is verified with 0 manual steps.
+
+## 🚀 Execution Commands
+- **Local Dev:** Open `src/index.html` directly in the browser.
+- **Production:** `vercel.json` maps root traffic to the `src/` directory.
+
+## ⚠️ Critical Constraints
+- **Static Only:** No server-side logic or database for the initial phase.
+- **Mobile-First:** All UI changes must be tested for mobile responsiveness.
+- **No Fluff:** Priority is the "Jump to Recipe" experience.
+
+## 📖 Reference Links
+- [[00_Index_MuffinPanRecipes]]
+- [[RECIPE_SCHEMA]]
+- [[ARCHITECTURAL_DECISIONS]]
+
+
+
+<!-- project-scaffolding template appended -->
+
+# AGENTS.md - Source of Truth for AI Agents
+
+## 🎯 Project Overview
+{project_description}
+
+## 🛠 Tech Stack
+- Language: {language}
+- Frameworks: {frameworks}
+- AI Strategy: {ai_strategy}
+
+## 📋 Definition of Done (DoD)
+- [ ] Code is documented with type hints.
+- [ ] Technical changes are logged to `project-tracker/data/WARDEN_LOG.yaml`.
+- [ ] `00_Index_*.md` is updated with recent activity.
+- [ ] Code validated (no hardcoded paths, no secrets exposed).
+- [ ] Code review completed (if significant architectural changes).
+- [ ] [Project-specific DoD item]
+
+## 🚀 Execution Commands
+- Environment: `{venv_activation}`
+- Run: `{run_command}`
+- Test: `{test_command}`
+
+## ⚠️ Critical Constraints
+- NEVER hard-code API keys, secrets, or credentials in script files. Use `.env` and `os.getenv()`.
+- NEVER use absolute paths (e.g., machine-specific paths). ALWAYS use relative paths or `PROJECT_ROOT` env var.
+- ALWAYS run validation before considering work complete: `python "./scripts/validate_project.py" [project-name]`
+- {constraint_1}
+- {constraint_2}
+
+**Code Review Standards:** See `./REVIEWS_AND_GOVERNANCE_PROTOCOL.md` for full review process.
+
+## 📖 Reference Links
+- [[00_Index_{project_name}]]
+- [[Project Philosophy]]
+
+
+<!-- project-scaffolding template appended -->
+
+## Related Documentation
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_setup]] - database
+- [[prompt_engineering_guide]] - prompt engineering
+- [[ai_model_comparison]] - AI models
+- [[deployment_patterns]] - deployment
+- [[recipe_system]] - recipe generation
+- [[muffinpanrecipes/README]] - Muffin Pan Recipes
+- [[project-scaffolding/README]] - Project Scaffolding
+

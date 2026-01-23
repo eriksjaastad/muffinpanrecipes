@@ -5,8 +5,8 @@ This script orchestrates the upload of generation jobs and helper scripts
 to Cloudflare R2 for execution on RunPod.
 
 DEPENDENCIES:
-- MissionControl class from the '3D Pose Factory' project.
-  Ensure '3D Pose Factory' is a sibling directory or set POSE_FACTORY_SCRIPTS.
+- MissionControl class from the '3d-pose-factory' project.
+  Ensure '3d-pose-factory' is a sibling directory or set POSE_FACTORY_SCRIPTS.
 """
 import os
 import sys
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # Add Mission Control to path
 PROJECT_ROOT = Path(os.getenv("PROJECT_ROOT", Path(__file__).parent.parent))
-POSE_FACTORY_SCRIPTS = os.getenv("POSE_FACTORY_SCRIPTS", str(PROJECT_ROOT.parent / "3D Pose Factory" / "shared" / "scripts"))
+POSE_FACTORY_SCRIPTS = os.getenv("POSE_FACTORY_SCRIPTS", str(PROJECT_ROOT.parent / "3d-pose-factory" / "shared" / "scripts"))
 
 if POSE_FACTORY_SCRIPTS not in sys.path:
     sys.path.insert(0, POSE_FACTORY_SCRIPTS)

@@ -10,7 +10,7 @@
 
 ### **[Needs Major Refactor]**
 
-This repository is a **proof-of-concept pretending to be production software**. It runs on one developer's MacBook and nobody else's. The Python scripts are hardcoded to `/Users/eriksjaastad/projects/`, the documentation references deployment infrastructure that doesn't exist (`.github/workflows/deploy.yml`), and the "high-volume recipe engine" embeds 10 recipes as a JavaScript array in an HTML file. Scaling this to 1,000 recipes would require rewriting the entire data layer. The external dependencies on `AIRouter` and `MissionControl` from sibling directories create an invisible dependency graph that will silently break the moment the project is cloned to any other machine. This isn't a recipe generator—it's a Rube Goldberg machine that happens to display muffins.
+This repository is a **proof-of-concept pretending to be production software**. It runs on one developer's MacBook and nobody else's. The Python scripts are hardcoded to `[USER_HOME]/projects/`, the documentation references deployment infrastructure that doesn't exist (`.github/workflows/deploy.yml`), and the "high-volume recipe engine" embeds 10 recipes as a JavaScript array in an HTML file. Scaling this to 1,000 recipes would require rewriting the entire data layer. The external dependencies on `AIRouter` and `MissionControl` from sibling directories create an invisible dependency graph that will silently break the moment the project is cloned to any other machine. This isn't a recipe generator—it's a Rube Goldberg machine that happens to display muffins.
 
 ---
 
@@ -20,14 +20,14 @@ This repository is a **proof-of-concept pretending to be production software**. 
 
 | File | Code | Problem | Impact |
 |------|------|---------|--------|
-| `scripts/generate_image_prompts.py:9` | `AI_ROUTER_PATH = "/Users/eriksjaastad/projects/_tools/ai_router"` | Hardcoded absolute path to developer's machine | Script fails immediately on any other system |
-| `scripts/generate_image_prompts.py:22-24` | `RECIPE_DIR = "/Users/eriksjaastad/projects/muffinpanrecipes/data/recipes"` | Hardcoded paths for recipe directory, output file, and style guide | Portability: zero |
-| `scripts/generate_image_prompts.py:28` | `settings_path = Path("/Users/eriksjaastad/.factory/settings.json")` | Reads Gemini config from developer's home folder | Credentials won't exist on RunPod or any CI environment |
+| `scripts/generate_image_prompts.py:9` | `AI_ROUTER_PATH = "[USER_HOME]/projects/_tools/ai_router"` | Hardcoded absolute path to developer's machine | Script fails immediately on any other system |
+| `scripts/generate_image_prompts.py:22-24` | `RECIPE_DIR = "[USER_HOME]/projects/muffinpanrecipes/data/recipes"` | Hardcoded paths for recipe directory, output file, and style guide | Portability: zero |
+| `scripts/generate_image_prompts.py:28` | `settings_path = Path("[USER_HOME]/.factory/settings.json")` | Reads Gemini config from developer's home folder | Credentials won't exist on RunPod or any CI environment |
 | `scripts/generate_image_prompts.py:104-108` | Fallback calls `tier="local"` after `tier="local"` fails | Copy-paste error: tries the same failing tier twice | Error recovery is broken—retries the exact same operation |
-| `scripts/art_director.py:9` | `AI_ROUTER_PATH = "/Users/eriksjaastad/projects/_tools/ai_router"` | Same hardcoded path as above | Portability: zero |
-| `scripts/art_director.py:22-26` | Five more hardcoded absolute paths | Every path references `/Users/eriksjaastad/` | One-machine-only codebase |
-| `scripts/art_director.py:80` | `JOBS_FILE = "/Users/eriksjaastad/projects/muffinpanrecipes/data/image_generation_jobs.json"` | Yet another hardcoded path | Fails on any other machine |
-| `scripts/trigger_generation.py:7` | `sys.path.insert(0, str(Path(__file__).parent.parent.parent / "3D Pose Factory" / "shared" / "scripts"))` | Cross-project relative path to sibling directory | Breaks if directory structure changes; undocumented external dependency |
+| `scripts/art_director.py:9` | `AI_ROUTER_PATH = "[USER_HOME]/projects/_tools/ai_router"` | Same hardcoded path as above | Portability: zero |
+| `scripts/art_director.py:22-26` | Five more hardcoded absolute paths | Every path references `[USER_HOME]/` | One-machine-only codebase |
+| `scripts/art_director.py:80` | `JOBS_FILE = "[USER_HOME]/projects/muffinpanrecipes/data/image_generation_jobs.json"` | Yet another hardcoded path | Fails on any other machine |
+| `scripts/trigger_generation.py:7` | `sys.path.insert(0, str(Path(__file__).parent.parent.parent / "3d-pose-factory" / "shared" / "scripts"))` | Cross-project relative path to sibling directory | Breaks if directory structure changes; undocumented external dependency |
 | `scripts/direct_harvest.py:12-13` | `JOBS_FILE = "/workspace/image_generation_jobs.json"` | Hardcoded to RunPod `/workspace/` path | Only works on RunPod, not locally |
 | `scripts/direct_harvest.py:46` | `response = requests.post(url, headers=headers, json=body)` | No timeout on HTTP request | API hang = infinite wait |
 | `scripts/direct_harvest.py:48-50` | `if response.status_code != 200: print(f"Failed: {response.text}"); return False` | Silent failure: prints to stdout, returns False | No exception, no logging, caller doesn't know why it failed |
@@ -46,7 +46,7 @@ This repository is a **proof-of-concept pretending to be production software**. 
 
 1. **Implicit Workflow**: Must run `generate_image_prompts.py` → `trigger_generation.py` → (RunPod) `direct_harvest.py` → (local) `art_director.py`. This sequence is NOWHERE documented except buried in TODO.md comments.
 2. **External Tool Setup**: `AIRouter` must be installed at a specific sibling path. No `requirements.txt`, no documentation.
-3. **MissionControl**: Requires cloning a separate `3D Pose Factory` repo as a sibling directory. This is not mentioned anywhere.
+3. **MissionControl**: Requires cloning a separate `3d-pose-factory` repo as a sibling directory. This is not mentioned anywhere.
 
 #### Magic Values in `direct_harvest.py`
 
@@ -73,7 +73,7 @@ The `RECIPE_SCHEMA.md` specifies:
 
 1. **Clone to new machine** — `generate_image_prompts.py:9` — `ImportError: cannot import AIRouter` (path doesn't exist)
 
-2. **Run on CI/CD** — `generate_image_prompts.py:22` — `FileNotFoundError: /Users/eriksjaastad/projects/muffinpanrecipes/data/recipes` doesn't exist
+2. **Run on CI/CD** — `generate_image_prompts.py:22` — `FileNotFoundError: [USER_HOME]/projects/muffinpanrecipes/data/recipes` doesn't exist
 
 3. **Missing Stability API key** — `direct_harvest.py:14` — `API_KEY = None`, causes `401 Unauthorized` with no helpful error message
 
@@ -85,7 +85,7 @@ The `RECIPE_SCHEMA.md` specifies:
 
 7. **GPT-4o rate limit** — `art_director.py:60-63` — No retry logic, no timeout, single failure = entire batch fails
 
-8. **Missing MissionControl** — `trigger_generation.py:8-13` — Exits with error if `3D Pose Factory` sibling repo doesn't exist
+8. **Missing MissionControl** — `trigger_generation.py:8-13` — Exits with error if `3d-pose-factory` sibling repo doesn't exist
 
 9. **Conflicting vercel.json** — Root vs `src/` — Which config is used depends on Vercel project settings; silent configuration drift
 
@@ -100,7 +100,7 @@ The `RECIPE_SCHEMA.md` specifies:
 | Pattern | File:Line | Description |
 |---------|-----------|-------------|
 | **Implicit External Dependencies** | `generate_image_prompts.py:9-11` | Adds arbitrary filesystem path to `sys.path` instead of using proper package management |
-| **Cross-Repo Path Traversal** | `trigger_generation.py:7` | Imports from `../../../3D Pose Factory/` — fragile, undocumented |
+| **Cross-Repo Path Traversal** | `trigger_generation.py:7` | Imports from `../../../3d-pose-factory/` — fragile, undocumented |
 | **Copy-Paste Error Handling** | `generate_image_prompts.py:104-108` | Fallback logic calls same tier that just failed |
 | **Silent Data Loss** | `art_director.py:115-118` | Trashing files catches exception but doesn't re-raise; image is lost with only a warning |
 | **Hardcoded Environment** | `direct_harvest.py:12-13` | `/workspace/` path only valid on RunPod; script is environment-specific |
@@ -209,20 +209,20 @@ The current 4-script pipeline exists because of Blender/RunPod complexity that i
 
 | Issue | File:Line | Code Evidence | Impact |
 |-------|-----------|---------------|--------|
-| Hardcoded Mac path | `generate_image_prompts.py:9` | `AI_ROUTER_PATH = "/Users/eriksjaastad/..."` | Portability: Zero |
-| Hardcoded Mac path | `generate_image_prompts.py:22` | `RECIPE_DIR = "/Users/eriksjaastad/..."` | Portability: Zero |
-| Hardcoded Mac path | `generate_image_prompts.py:23` | `OUTPUT_JOBS_FILE = "/Users/eriksjaastad/..."` | Portability: Zero |
-| Hardcoded Mac path | `generate_image_prompts.py:24` | `STYLE_GUIDE_PATH = "/Users/eriksjaastad/..."` | Portability: Zero |
-| Hardcoded home path | `generate_image_prompts.py:28` | `Path("/Users/eriksjaastad/.factory/settings.json")` | Credentials unavailable elsewhere |
+| Hardcoded Mac path | `generate_image_prompts.py:9` | `AI_ROUTER_PATH = "[USER_HOME]/..."` | Portability: Zero |
+| Hardcoded Mac path | `generate_image_prompts.py:22` | `RECIPE_DIR = "[USER_HOME]/..."` | Portability: Zero |
+| Hardcoded Mac path | `generate_image_prompts.py:23` | `OUTPUT_JOBS_FILE = "[USER_HOME]/..."` | Portability: Zero |
+| Hardcoded Mac path | `generate_image_prompts.py:24` | `STYLE_GUIDE_PATH = "[USER_HOME]/..."` | Portability: Zero |
+| Hardcoded home path | `generate_image_prompts.py:28` | `Path("[USER_HOME]/.factory/settings.json")` | Credentials unavailable elsewhere |
 | Broken fallback | `generate_image_prompts.py:104-108` | Retry uses same `tier="local"` that just failed | Fallback does nothing |
-| Hardcoded Mac path | `art_director.py:9` | `AI_ROUTER_PATH = "/Users/eriksjaastad/..."` | Portability: Zero |
-| Hardcoded Mac path | `art_director.py:22` | `STAGING_DIR = Path("/Users/eriksjaastad/...")` | Portability: Zero |
-| Hardcoded Mac path | `art_director.py:23` | `FINAL_IMAGE_DIR = Path("/Users/eriksjaastad/...")` | Portability: Zero |
-| Hardcoded Mac path | `art_director.py:24` | `TRASH_DIR = Path("/Users/eriksjaastad/...")` | Portability: Zero |
-| Hardcoded Mac path | `art_director.py:25` | `STYLE_GUIDE_PATH = Path("/Users/eriksjaastad/...")` | Portability: Zero |
-| Hardcoded Mac path | `art_director.py:26` | `INDEX_HTML_PATH = Path("/Users/eriksjaastad/...")` | Portability: Zero |
-| Hardcoded Mac path | `art_director.py:80` | `JOBS_FILE = "/Users/eriksjaastad/..."` | Portability: Zero |
-| Cross-repo import | `trigger_generation.py:7` | `Path(__file__).parent.parent.parent / "3D Pose Factory"` | Hidden external dependency |
+| Hardcoded Mac path | `art_director.py:9` | `AI_ROUTER_PATH = "[USER_HOME]/..."` | Portability: Zero |
+| Hardcoded Mac path | `art_director.py:22` | `STAGING_DIR = Path("[USER_HOME]/...")` | Portability: Zero |
+| Hardcoded Mac path | `art_director.py:23` | `FINAL_IMAGE_DIR = Path("[USER_HOME]/...")` | Portability: Zero |
+| Hardcoded Mac path | `art_director.py:24` | `TRASH_DIR = Path("[USER_HOME]/...")` | Portability: Zero |
+| Hardcoded Mac path | `art_director.py:25` | `STYLE_GUIDE_PATH = Path("[USER_HOME]/...")` | Portability: Zero |
+| Hardcoded Mac path | `art_director.py:26` | `INDEX_HTML_PATH = Path("[USER_HOME]/...")` | Portability: Zero |
+| Hardcoded Mac path | `art_director.py:80` | `JOBS_FILE = "[USER_HOME]/..."` | Portability: Zero |
+| Cross-repo import | `trigger_generation.py:7` | `Path(__file__).parent.parent.parent / "3d-pose-factory"` | Hidden external dependency |
 | Hardcoded RunPod path | `direct_harvest.py:12` | `JOBS_FILE = "/workspace/..."` | Only works on RunPod |
 | Hardcoded RunPod path | `direct_harvest.py:13` | `OUTPUT_ROOT = "/workspace/..."` | Only works on RunPod |
 | No request timeout | `direct_harvest.py:46` | `requests.post(url, headers=headers, json=body)` | Hangs on slow API |
@@ -436,3 +436,10 @@ Before writing one more line of code, fix the portability issues. Before scaling
 ---
 
 *End of Review*
+
+
+## Related Documentation
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+
