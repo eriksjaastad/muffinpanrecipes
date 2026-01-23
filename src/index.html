@@ -1,16 +1,19 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Muffin Pan Recipes | Editorial Cookery</title>
-    <meta name="description" content="Gourmet, mathematically-scaled recipes designed exclusively for muffin tins. Breakfast, Savory, and Sweet single-serving meals.">
-    
+    <meta name="description"
+        content="Gourmet, mathematically-scaled recipes designed exclusively for muffin tins. Breakfast, Savory, and Sweet single-serving meals.">
+
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://muffinpanrecipes.com/">
     <meta property="og:title" content="Muffin Pan Recipes | Editorial Cookery">
-    <meta property="og:description" content="Gourmet, mathematically-scaled recipes designed exclusively for muffin tins. Breakfast, Savory, and Sweet single-serving meals.">
+    <meta property="og:description"
+        content="Gourmet, mathematically-scaled recipes designed exclusively for muffin tins. Breakfast, Savory, and Sweet single-serving meals.">
     <meta property="og:image" content="https://muffinpanrecipes.com/assets/images/classic-blueberry-muffins.webp">
     <meta property="og:image:width" content="1024">
     <meta property="og:image:height" content="1024">
@@ -19,15 +22,19 @@
     <meta property="twitter:card" content="summary_large_image">
     <meta property="twitter:url" content="https://muffinpanrecipes.com/">
     <meta property="twitter:title" content="Muffin Pan Recipes | Editorial Cookery">
-    <meta property="twitter:description" content="Gourmet, mathematically-scaled recipes designed exclusively for muffin tins.">
+    <meta property="twitter:description"
+        content="Gourmet, mathematically-scaled recipes designed exclusively for muffin tins.">
     <meta property="twitter:image" content="https://muffinpanrecipes.com/assets/images/classic-blueberry-muffins.webp">
 
     <!-- Favicon -->
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧁</text></svg>">
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧁</text></svg>">
     <!-- Vercel Speed Insights -->
     <script defer src="/_vercel/speed-insights/script.js"></script>
     <!-- Editorial Typography: Playfair Display for Serifs, Inter for Sans-Serif -->
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,700&family=Inter:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -47,14 +54,25 @@
         }
     </script>
     <style>
-        body { background-color: #FFFFFF; }
-        .recipe-grid-card { text-decoration: none !important; color: inherit !important; }
-        .recipe-grid-card:hover .recipe-title { color: #C0392B; }
-        .active-filter { 
-            color: #C0392B !important; 
+        body {
+            background-color: #FFFFFF;
+        }
+
+        .recipe-grid-card {
+            text-decoration: none !important;
+            color: inherit !important;
+        }
+
+        .recipe-grid-card:hover .recipe-title {
+            color: #C0392B;
+        }
+
+        .active-filter {
+            color: #C0392B !important;
             border-bottom: 2px solid #C0392B;
             padding-bottom: 2px;
         }
+
         .image-placeholder {
             background: linear-gradient(45deg, #FDFEFE 25%, #F4F6F6 25%, #F4F6F6 50%, #FDFEFE 50%, #FDFEFE 75%, #F4F6F6 75%, #F4F6F6 100%);
             background-size: 40px 40px;
@@ -71,6 +89,7 @@
         }
     </style>
 </head>
+
 <body class="text-gray-900 font-sans antialiased">
 
     <!-- Minimal Editorial Header -->
@@ -81,8 +100,10 @@
 
     <!-- Category Filter -->
     <nav class="sticky top-0 bg-white/90 backdrop-blur-md z-50 border-b border-gray-50 py-4 mb-12">
-        <div class="flex justify-center space-x-8 text-xs font-bold uppercase tracking-widest text-gray-400" id="filter-buttons">
-            <button class="hover:text-terracotta transition-colors active-filter text-terracotta" onclick="setFilter('All')">All</button>
+        <div class="flex justify-center space-x-8 text-xs font-bold uppercase tracking-widest text-gray-400"
+            id="filter-buttons">
+            <button class="hover:text-terracotta transition-colors active-filter text-terracotta"
+                onclick="setFilter('All')">All</button>
             <button class="hover:text-terracotta transition-colors" onclick="setFilter('Breakfast')">Breakfast</button>
             <button class="hover:text-terracotta transition-colors" onclick="setFilter('Savory')">Savory</button>
             <button class="hover:text-terracotta transition-colors" onclick="setFilter('Sweet')">Sweet</button>
@@ -90,7 +111,31 @@
     </nav>
 
     <main class="max-w-screen-xl mx-auto px-6 pb-24">
+
+        <!-- Featured Recipe Hero -->
+        <section id="featured-recipe" class="mb-20">
+            <!-- Will be populated by JavaScript -->
+        </section>
+
+        <!-- Newsletter Signup -->
+        <section class="mb-20 bg-gradient-to-br from-terracotta to-red-700 text-white rounded-lg p-12 text-center">
+            <h2 class="font-serif text-4xl md:text-5xl mb-4">Never Miss a Recipe</h2>
+            <p class="text-white/90 mb-8 text-lg">Get new muffin pan masterpieces delivered to your inbox weekly</p>
+
+            <form id="newsletter-form" class="max-w-md mx-auto flex flex-col sm:flex-row gap-3">
+                <input type="email" id="newsletter-email" placeholder="your@email.com" required
+                    class="flex-1 px-6 py-4 rounded-lg text-gray-900 focus:outline-none focus:ring-4 focus:ring-white/50">
+                <button type="submit"
+                    class="px-8 py-4 bg-white text-terracotta font-bold uppercase tracking-widest text-sm rounded-lg hover:bg-gray-100 transition-all transform active:scale-95">
+                    Subscribe
+                </button>
+            </form>
+
+            <p id="newsletter-message" class="mt-4 text-sm text-white/80 hidden"></p>
+        </section>
+
         <!-- Editorial Grid -->
+        <h2 class="font-serif text-4xl mb-12 text-center">All Recipes</h2>
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-16" id="recipe-grid">
             <!-- Grid items will be populated here -->
         </div>
@@ -109,7 +154,7 @@
 
         async function loadRecipes() {
             const grid = document.getElementById('recipe-grid');
-            
+
             // 1. Loading State
             if (retryCount === 0) {
                 grid.innerHTML = `
@@ -121,7 +166,7 @@
 
             try {
                 const response = await fetch('recipes.json');
-                
+
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
@@ -132,7 +177,7 @@
                 renderGrid();
             } catch (error) {
                 console.error('Error loading recipes:', error);
-                
+
                 if (retryCount < MAX_RETRIES) {
                     retryCount++;
                     console.log(`Retrying recipe load (${retryCount}/${MAX_RETRIES})...`);
@@ -167,7 +212,7 @@
         function renderGrid(filter = 'All') {
             const grid = document.getElementById('recipe-grid');
             grid.innerHTML = '';
-            
+
             recipes.filter(r => filter === 'All' || r.category === filter).forEach(recipe => {
                 const card = `
                     <a href="/recipes/${recipe.slug}" class="recipe-grid-card group block">
@@ -202,8 +247,90 @@
             });
         }
 
+        function renderFeaturedRecipe() {
+            if (recipes.length === 0) return;
+
+            // Pick the first recipe as featured (or you can randomize, or pick by slug)
+            const featured = recipes[0];
+            const featuredSection = document.getElementById('featured-recipe');
+
+            featuredSection.innerHTML = `
+                <a href="/recipes/${featured.slug}" class="block group">
+                    <div class="grid md:grid-cols-2 gap-12 items-center">
+                        <div class="aspect-[4/3] bg-gray-50 overflow-hidden rounded-lg">
+                            <img src="${featured.image}" 
+                                 onerror="handleImageError(this)"
+                                 class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" 
+                                 alt="${featured.title}">
+                        </div>
+                        <div>
+                            <p class="text-xs uppercase tracking-widest text-terracotta font-bold mb-4">Featured Recipe</p>
+                            <h2 class="font-serif text-5xl md:text-6xl mb-6 leading-tight group-hover:text-terracotta transition-colors">${featured.title}</h2>
+                            <p class="text-gray-600 text-lg mb-8 leading-relaxed">${featured.description}</p>
+                            <div class="flex gap-6 text-sm text-sage mb-8">
+                                <span>⏱️ ${featured.prep}</span>
+                                <span>🔥 ${featured.cook}</span>
+                                <span>🧁 ${featured.yield}</span>
+                            </div>
+                            <span class="inline-block px-8 py-4 border-2 border-gray-900 font-bold uppercase tracking-widest text-xs group-hover:bg-gray-900 group-hover:text-white transition-all">
+                                View Recipe →
+                            </span>
+                        </div>
+                    </div>
+                </a>
+            `;
+        }
+
+        // Newsletter form handling
+        document.addEventListener('DOMContentLoaded', () => {
+            const form = document.getElementById('newsletter-form');
+            const messageEl = document.getElementById('newsletter-message');
+
+            if (form) {
+                form.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+
+                    const email = document.getElementById('newsletter-email').value;
+                    const submitBtn = form.querySelector('button[type="submit"]');
+                    const originalText = submitBtn.textContent;
+
+                    // Disable button and show loading
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = 'Subscribing...';
+                    messageEl.classList.add('hidden');
+
+                    try {
+                        const response = await fetch('/api/newsletter/subscribe', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ email: email })
+                        });
+
+                        const data = await response.json();
+
+                        if (response.ok) {
+                            messageEl.textContent = '✓ ' + (data.message || 'Successfully subscribed!');
+                            messageEl.classList.remove('hidden', 'text-red-200');
+                            messageEl.classList.add('text-green-200');
+                            form.reset();
+                        } else {
+                            throw new Error(data.detail || 'Subscription failed');
+                        }
+                    } catch (error) {
+                        messageEl.textContent = '✗ ' + error.message;
+                        messageEl.classList.remove('hidden', 'text-green-200');
+                        messageEl.classList.add('text-red-200');
+                    } finally {
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = originalText;
+                    }
+                });
+            }
+        });
+
         // Initial Load
-        loadRecipes();
+        loadRecipes().then(() => renderFeaturedRecipe());
     </script>
 </body>
+
 </html>
