@@ -1,141 +1,357 @@
-# Proposal: AI Creative Team System for Muffin Pan Recipes
+# Proposal: Infrastructure & Admin System for Muffin Pan Recipes
 
 **Proposed By:** Erik + Claude Opus 4.5 (Super Manager)
-**Date:** 2026-01-22
+**Date:** 2026-01-23
 **Target Project:** muffinpanrecipes
 **Complexity:** major
 
 ---
 
+## EXECUTION MODEL
+
+> **NOT USING AGENT HUB.** Antigravity should use its own agents for implementation.
+> We want this done quickly compared to Agent Hub's speed.
+> Break work into phases but execute efficiently.
+
+---
+
 ## 1. What We're Doing
 
-Building a multi-agent AI orchestration system where five AI personalities (Baker, Creative Director, Art Director, Editorial Copywriter, Site Architect) collaborate to produce muffin tin recipes. Each agent has a distinct, consistent personality that influences their work style, communication, and creative decisions. The system captures their interactions as entertainment content while producing actual recipes for the website.
+Building the infrastructure layer that makes the AI Creative Team's output usable: recipe storage, publishing pipeline, admin dashboard, and authentication. The creative agents already work (31 tests passing) - now we need the plumbing to get recipes from "generated" to "live on site."
 
-## 2. Why It Matters
+**Current State:**
+- AI agents generate recipes with LLM integration (Margaret/Baker, Marcus/Copywriter)
+- Discord notifications work (recipe ready alerts)
+- Recipe storage with status tracking implemented today (pending → approved → published)
+- Static site exists with 10 recipes, Vercel deployment works via git push
 
-The website currently has static recipe content. This system transforms recipe production into an ongoing entertainment experience where readers can follow the creative team's workplace dynamics, conflicts, and collaborations. It creates differentiated content that competitors can't replicate - the recipes come with stories.
+**What's Missing:**
+- Publishing pipeline (Recipe JSON → HTML → Vercel)
+- Admin dashboard (review/approve/publish UI)
+- Authentication (Google OAuth)
+- Newsletter system
+
+---
+
+## 2. Erik's Tasks (Do These First)
+
+**IMPORTANT:** Complete these setup tasks before implementation begins. Batch them together.
+
+### E1: Google OAuth Credentials
+- [ ] Create Google Cloud project (or use existing)
+- [ ] Enable Google OAuth 2.0 API
+- [ ] Create OAuth client credentials (Web application type)
+- [ ] Set authorized redirect URI: `http://localhost:8000/auth/callback` (dev)
+- [ ] Save Client ID and Client Secret to `.env` file:
+  ```
+  GOOGLE_CLIENT_ID=your-client-id
+  GOOGLE_CLIENT_SECRET=your-client-secret
+  GOOGLE_AUTHORIZED_EMAILS=erik@youremail.com
+  ```
+
+### E2: Newsletter Service Setup
+- [ ] Choose email service (Buttondown, ConvertKit, Resend, or custom SMTP)
+- [ ] Create account and get API credentials
+- [ ] Add to `.env`:
+  ```
+  NEWSLETTER_SERVICE=buttondown  # or resend, etc.
+  NEWSLETTER_API_KEY=your-api-key
+  ```
+
+### E3: Verify Discord Webhook
+- [ ] Confirm `DISCORD_WEBHOOK_URL` is in `.env` (already done earlier today)
+
+**Note:** Implementation can proceed with Phases 1-2 while Erik completes these tasks. Phase 3+ requires E1, Phase 4 requires E2.
+
+---
 
 ## 3. Source Files
 
-**Kiro Specifications (primary source of truth):**
-- `.kiro/specs/ai-creative-team/requirements.md` - 15 detailed requirements
-- `.kiro/specs/ai-creative-team/design.md` - Python architecture with Agent classes, MessageSystem, Pipeline
-- `.kiro/specs/ai-creative-team/tasks.md` - 14 implementation tasks with subtasks
+**Kiro Specifications (updated today):**
+- `.kiro/specs/ai-creative-team/requirements.md` - Requirements 16-22 cover infrastructure
+- `.kiro/specs/ai-creative-team/design.md` - Infrastructure component designs
+- `.kiro/specs/ai-creative-team/tasks.md` - Tasks 15-22 cover infrastructure
 
-**Existing Project Files:**
-- `src/index.html` - Current website (DO NOT break existing recipe grid)
-- `data/recipes/` - Existing recipe storage (reference for schema)
-- `CLAUDE.md` - Project rules and constraints
+**Existing Code to Build On:**
+- `scripts/build_site.py` - Static site generator (incorporate into PublishingPipeline)
+- `backend/orchestrator.py` - Recipe production orchestrator
+- `backend/data/recipe.py` - Recipe model with status tracking (completed today)
+- `backend/utils/discord.py` - Discord webhook notifications
 
-## 4. Target Output
+**PRD Reference:**
+- `PRD.md` Section 10.5 - Infrastructure requirements
+- `PRD.md` Section 3.5 - Security/Auth constraints
 
-**New Python Backend:**
-- `backend/agents/` - Agent framework and individual agent implementations
-- `backend/messaging/` - Message system for inter-agent communication
-- `backend/pipeline/` - Recipe production pipeline controller
-- `backend/memory/` - Agent memory system for personality development
-- `backend/data/` - Data models and storage
+---
 
-**Frontend Updates (minimal):**
-- Featured recipe section (above existing grid)
-- Newsletter signup form (between featured and grid)
+## 4. Phases
 
-**Tests:**
-- `tests/` - Property-based tests (Hypothesis) and unit tests
+### Phase 1: Publishing Pipeline (Priority)
 
-## 5. Requirements
+**Goal:** Approved recipes automatically become live on the site.
 
-From Kiro specs, prioritized for MVP (see `.kiro/specs/ai-creative-team/tasks.md` for detailed breakdown):
+**Task 17 from Kiro - Modified:**
 
-**Phase 1 - Core Agent Framework:** ✅ COMPLETE
-- [x] Agent base class with personality-driven behavior (Req 1.1-1.6)
-- [x] PersonalityConfig system with core traits, backstory, quirks (Req 1A)
-- [x] All 5 agent implementations with distinct personalities
+Create `backend/publishing/pipeline.py` - a `PublishingPipeline` class that:
 
-**Phase 2 - Communication Infrastructure:** ✅ COMPLETE
-- [x] Message system with queuing, routing, logging (Req 10.1-10.7)
-- [x] Personality-based message styling
-- [x] Creative process documentation via message logs (Req 4.1-4.5)
+1. **Incorporates `scripts/build_site.py` logic:**
+   - Load recipe JSON
+   - Render HTML from template (`src/templates/recipe_page.html`)
+   - Generate JSON-LD structured data
+   - Update `src/recipes.json` with new recipe
+   - Regenerate `src/sitemap.xml`
 
-**Phase 3 - Memory & Pipeline:** ✅ COMPLETE
-- [x] Agent memory for personality development (Req 3.1-3.6)
-- [x] Recipe pipeline controller with stage management (Req 2.1-2.7)
-- [x] Creative Director review process (Req 6.1-6.5)
+2. **New functionality:**
+   - `publish_recipe(recipe_id)` - Publish single approved recipe
+   - `publish_all_approved()` - Batch publish all approved recipes
+   - Update recipe status to `published` after successful generation
+   - Git commit + push (triggers Vercel deploy automatically)
 
-**Phase 4 - Frontend & Integration:** ⚠️ PARTIAL (Core Complete)
-- [x] End-to-end recipe production workflow (COMPLETE)
-- [x] Data models for Recipe and CreationStory (COMPLETE)
-- [x] Integration orchestrator (COMPLETE)
-- [ ] Featured recipe section HTML template (Req 12.1-12.7) - Enhancement
-- [ ] Newsletter signup form (Req 13) - Enhancement
+3. **Integration:**
+   - Connect to `Recipe.transition_status()` from today's A1 work
+   - Add Discord notification on successful publish
 
-## 6. Acceptance Criteria
+**Files to create/modify:**
+- `backend/publishing/__init__.py` (new)
+- `backend/publishing/pipeline.py` (new - main class)
+- `backend/publishing/templates.py` (new - template rendering)
+- `scripts/build_site.py` → keep as CLI entry point, calls PublishingPipeline
 
-**Agent Framework:** ✅ ALL VERIFIED
-- [x] Each agent loads consistent personality across restarts (Property 1)
-- [x] All agents have: core traits, backstory, communication style, quirks, triggers (Property 2)
-- [x] Baker produces recipes with concept, ingredients, and instructions (Property 4)
+**Acceptance Criteria:**
+- [ ] `PublishingPipeline.publish_recipe(recipe_id)` generates HTML and updates status
+- [ ] Recipe appears in `src/recipes/{slug}/index.html`
+- [ ] `src/recipes.json` updated with new entry
+- [ ] `src/sitemap.xml` regenerated
+- [ ] Git commit created with recipe info
+- [ ] Discord notification sent on publish
 
-**Message System:** ✅ ALL VERIFIED
-- [x] Messages delivered only to specified recipient (Property 8)
-- [x] All messages logged with sender, recipient, timestamp, content (Property 9)
+---
 
-**Pipeline:** ✅ ALL VERIFIED
-- [x] Recipe processes through all stages without skipping (Property 3)
-- [x] Creative Director applies consistent quality standards (Property 7)
+### Phase 2: Authentication System
 
-**Memory:** ✅ ALL VERIFIED
-- [x] Each agent has persistent memory file (Property 5)
-- [x] Significant experiences recorded with emotional context (Property 6)
+**Goal:** Secure admin access with Google OAuth.
 
-**Frontend:** ⚠️ DEFERRED
-- [ ] Featured recipe displays without breaking existing grid
-- [ ] Newsletter email validation works correctly (Property 11)
+**Task 16 from Kiro:**
 
-**Final Verification:** ✅ PASSED
-- [x] All property-based tests pass with 100+ iterations (31 tests passing)
-- [x] End-to-end recipe production completes successfully (6 integration tests)
+**Depends on:** Erik's Task E1 (Google OAuth credentials)
 
-## 7. Constraints
+Create `backend/auth/`:
 
-- **Allowed paths:** `backend/`, `src/` (frontend updates only), `tests/`, `data/`
+1. **`oauth.py`** - Google OAuth 2.0 flow:
+   - `get_authorization_url()` - Redirect to Google login
+   - `handle_callback(code)` - Exchange code for tokens
+   - `verify_token(token)` - Validate Google ID token
+   - Check email against whitelist (`GOOGLE_AUTHORIZED_EMAILS`)
+
+2. **`session.py`** - Session management:
+   - Create secure session on successful auth
+   - Session expiry (24 hours)
+   - Session validation middleware
+
+3. **`middleware.py`** - FastAPI dependency:
+   - `require_auth` decorator for protected routes
+   - Return 401 if not authenticated
+
+**Files to create:**
+- `backend/auth/__init__.py`
+- `backend/auth/oauth.py`
+- `backend/auth/session.py`
+- `backend/auth/middleware.py`
+
+**Acceptance Criteria:**
+- [ ] Unauthenticated requests to `/admin/*` redirect to Google login
+- [ ] Only whitelisted emails can access admin
+- [ ] Sessions persist across requests
+- [ ] Sessions expire after 24 hours
+
+---
+
+### Phase 3: Admin Dashboard
+
+**Goal:** Web UI to review, approve, and publish recipes.
+
+**Task 16.3 + Task 21 from Kiro:**
+
+**Depends on:** Phase 2 (Authentication)
+
+Create `backend/admin/`:
+
+1. **`app.py`** - FastAPI application:
+   ```
+   GET  /admin/                    → Dashboard home
+   GET  /admin/recipes             → List all recipes by status
+   GET  /admin/recipes/{id}        → Recipe detail with preview
+   POST /admin/recipes/{id}/approve → Move pending → approved
+   POST /admin/recipes/{id}/reject  → Move to rejected with notes
+   POST /admin/recipes/{id}/publish → Trigger PublishingPipeline
+   GET  /admin/agents              → View agent status/mood
+   POST /admin/generate            → Trigger new recipe generation
+   ```
+
+2. **`templates/`** - Jinja2 HTML templates:
+   - `dashboard.html` - Overview with stats
+   - `recipe_list.html` - Table of recipes by status
+   - `recipe_detail.html` - Full preview with approve/reject buttons
+   - `agents.html` - Agent status panel
+
+3. **Integration:**
+   - Use `Recipe.transition_status()` for state changes
+   - Use `PublishingPipeline` for publishing
+   - Send Discord notifications on actions
+
+**Files to create:**
+- `backend/admin/__init__.py`
+- `backend/admin/app.py`
+- `backend/admin/routes.py`
+- `backend/admin/templates/*.html`
+
+**Acceptance Criteria:**
+- [ ] Dashboard shows recipe counts by status
+- [ ] Can view full recipe preview before approval
+- [ ] Approve button moves recipe to approved status
+- [ ] Reject button moves recipe to rejected with notes field
+- [ ] Publish button triggers pipeline and shows result
+- [ ] All actions require authentication
+
+---
+
+### Phase 4: Newsletter System
+
+**Goal:** Capture email signups for future newsletters.
+
+**Task 18 from Kiro:**
+
+**Depends on:** Erik's Task E2 (Newsletter service setup)
+
+1. **`backend/newsletter/manager.py`:**
+   - `subscribe(email)` - Validate and store subscription
+   - `unsubscribe(token)` - Remove subscription
+   - `list_subscribers()` - Admin view of subscribers
+   - Integration with chosen service (Buttondown/Resend/etc.)
+
+2. **Frontend form** (add to `src/index.html`):
+   - Email input between featured recipe and grid
+   - Client-side validation
+   - Submit to `/api/newsletter/subscribe`
+   - Success/error feedback
+
+**Files to create:**
+- `backend/newsletter/__init__.py`
+- `backend/newsletter/manager.py`
+- Update `src/index.html` with signup form
+
+**Acceptance Criteria:**
+- [ ] Email validation rejects invalid formats
+- [ ] Duplicate emails handled gracefully
+- [ ] Subscriptions stored (JSON file or service)
+- [ ] Admin can view subscriber list
+
+---
+
+### Phase 5: Lower Priority / Future Enhancements
+
+**Do these after Phases 1-4 are complete:**
+
+#### 5A: Enhanced Discord Notifications
+- Error alerts when pipeline fails
+- Weekly summary of recipe activity
+- (NOT daily summaries - only 1 recipe/week)
+
+#### 5B: Backup System Improvements
+- Currently using rclone for backups
+- Add automated verification
+- Add retention policy management
+- Lower priority since rclone handles basics
+
+#### 5C: Conversation Pipeline Notifications (Future)
+- When character conversations are captured throughout the week
+- Notify Erik before publishing any conversation content
+- This depends on conversation capture system being built (not in current scope)
+
+---
+
+## 5. Recipe State Management - COMPLETE
+
+**Task 15 from Kiro - Already Implemented Today:**
+
+- [x] `RecipeStatus` enum: pending, approved, published, rejected
+- [x] `Recipe.status` field with default=pending
+- [x] `Recipe.transition_status()` method moves files between directories
+- [x] `Recipe.list_by_status()` to query recipes by state
+- [x] Directory structure: `data/recipes/{pending,approved,published,rejected}/`
+- [x] Orchestrator saves new recipes to `pending/`
+
+**Verification only needed** - Antigravity should run tests to confirm:
+```bash
+uv run pytest tests/test_integration.py -v
+```
+
+---
+
+## 6. Constraints
+
+- **Allowed paths:** `backend/`, `src/` (additive only), `scripts/`, `tests/`
 - **Forbidden paths:** `.env`, `vercel.json`, `CLAUDE.md`
-- **Deletions allowed:** No (existing code must not be removed)
-- **Max diff size:** 500 lines per task (break into subtasks if larger)
-- **Testing:** Use pytest + hypothesis for property-based testing
-- **Python:** Use uv for dependency management, not pip
+- **Deletions allowed:** Only for refactoring (e.g., moving build_site.py logic)
+- **Testing:** Use pytest for new functionality
+- **Python:** Use `uv run` for all Python execution
 
-**Critical Frontend Constraint:**
-The existing recipe grid, styling, mobile responsiveness, and "Jump to Recipe" functionality must remain EXACTLY as implemented. Frontend changes are ADDITIVE only.
+**Critical:**
+- Existing recipe grid must NOT be broken
+- Vercel deployment continues to work via git push
+- Discord webhook URL is already configured
+
+---
+
+## 7. Traceability
+
+| PRD Requirement | Kiro Task | Implementation |
+|-----------------|-----------|----------------|
+| 10.5 Recipe Storage | 15 | COMPLETE (A1) |
+| 10.5 Publishing Pipeline | 17 | Phase 1 |
+| 10 Authentication | 16 | Phase 2 |
+| 10.5 Admin API | 16.3, 21 | Phase 3 |
+| 10.5 Newsletter | 18 | Phase 4 |
+| 10.5 Notifications | 19 | Phase 5A |
+| 10.5 Backup | 20 | Phase 5B (rclone exists) |
+
+---
 
 ## 8. Notes for Implementer
 
-**Agent Personalities (from Req 1A):**
+**PublishingPipeline Design:**
 
-1. **Baker** - 50s traditionalist, 30 years experience, skeptical of trendy ingredients (matcha, activated charcoal), passive-aggressive mutterer
+The existing `scripts/build_site.py` does these things:
+1. Loads ALL recipes from `src/recipes.json`
+2. Clears and rebuilds entire `src/recipes/` directory
+3. Generates HTML from template with placeholder replacement
+4. Creates JSON-LD structured data
+5. Generates sitemap
 
-2. **Creative Director** - 28yo woman, first CD role, trust fund background, got job through connections, good intentions but poor communication skills, under pressure not to fail
+The new `PublishingPipeline` class should:
+1. Be able to publish a SINGLE recipe (incremental)
+2. Also support full rebuild (for consistency)
+3. Update `src/recipes.json` incrementally (add new recipe, don't rewrite all)
+4. Handle the Recipe model from `backend/data/recipe.py`
+5. Keep `scripts/build_site.py` as a CLI wrapper that calls the class
 
-3. **Art Director** - Pretentious art school grad + failed Instagram influencer. Talks about "visual language of baked goods" and "negative space." Takes 47 shots for crumb structure. Suggests impractical marble backdrops and eucalyptus garnishes.
+**Authentication Flow:**
+```
+User visits /admin → Not authenticated → Redirect to Google
+Google authenticates → Callback to /auth/callback
+Check email in whitelist → Create session → Redirect to /admin
+Session cookie sent on subsequent requests
+```
 
-4. **Editorial Copywriter** - Failed novelist who writes 800-word backstories for blueberry muffins. Must be reined in. Secretly resents that more people read muffin descriptions than his self-published book.
-
-5. **Site Architect** - Fresh college grad who lied on resume, lazy but competent, tries to convince everyone he knows everything about tech while being the only one who actually codes
-
-**Architecture Notes:**
-- Python backend (no Node.js)
-- Static HTML + Tailwind CSS frontend (existing)
-- JSON file storage (no database)
-- Vercel deployment (automatic from GitHub)
-
-**Development Order:**
-Follow the task order in `.kiro/specs/ai-creative-team/tasks.md`. There are checkpoints at tasks 4, 8, and 14 to verify progress.
-
-**Property-Based Testing:**
-Each property test must reference its design document property using the format:
-`Feature: ai-creative-team, Property N: [Property Name]`
+**Recipe Status Flow:**
+```
+Baker generates → pending/
+Erik approves via dashboard → approved/
+Publish button clicked → PublishingPipeline runs → published/
+(or Erik rejects → rejected/)
+```
 
 ---
 
 **Erik Approval:** ☐ Approved
-**Trigger:** When this file is saved as `_handoff/PROPOSAL_FINAL.md`, the Floor Manager will convert it to a TASK_CONTRACT.json and begin execution.
+**Execution:** Antigravity with own agents (NOT Agent Hub)
