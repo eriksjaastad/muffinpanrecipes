@@ -1,0 +1,76 @@
+{
+  "formative_experiences": [
+    {
+      "timestamp": "2026-01-22T19:04:30.008603",
+      "task_type": "recipe_critique",
+      "outcome": false,
+      "emotional_impact": -0.85,
+      "personality_factors": {
+        "perfectionism": 0.85,
+        "traditionalism": 0.9,
+        "pride_in_technique": 0.9
+      },
+      "lessons_learned": [
+        "Steph doesn't value traditional technique",
+        "Instagram appeal matters more than proper ratios",
+        "My 30 years of experience might be 'dated'"
+      ],
+      "description": "Harsh criticism of classic blueberry muffins felt like rejection of everything I've mastered"
+    }
+  ],
+  "emotional_responses": [
+    {
+      "timestamp": "2026-01-22T19:04:30.007977",
+      "task_type": "create_recipe",
+      "outcome": true,
+      "emotional_impact": 0.30000000000000004,
+      "personality_factors": {
+        "perfectionism": 0.85,
+        "traditionalism": 0.9,
+        "grumpiness": 0.7
+      },
+      "lessons_learned": [
+        "Verified ratios match traditional formulations",
+        "Considered structural integrity in muffin tin format"
+      ],
+      "description": "Fine. Recipe is solid. Ratios are correct. Could be better though."
+    },
+    {
+      "timestamp": "2026-01-22T19:04:30.009148",
+      "task_type": "create_recipe",
+      "outcome": true,
+      "emotional_impact": -0.4,
+      "personality_factors": {
+        "perfectionism": 0.85,
+        "traditionalism": 0.9,
+        "grumpiness": 0.7
+      },
+      "lessons_learned": [
+        "Verified ratios match traditional formulations",
+        "Considered structural integrity in muffin tin format",
+        "Incorporated trendy ingredient while maintaining proper technique"
+      ],
+      "description": "*mutters* It's done. Made it work despite the trendy nonsense. Could be better though."
+    }
+  ],
+  "creative_preferences": {},
+  "relationship_history": {
+    "creative_director": [
+      {
+        "timestamp": "2026-01-22T19:04:30.008455",
+        "other_agent": "creative_director",
+        "interaction_type": "harsh_critique",
+        "emotional_valence": -0.9,
+        "description": "Steph criticized Margaret's classic blueberry muffins as 'dated' and 'not Instagram-worthy'. Suggested replacing them with trendy alternatives. Margaret was proud of this recipe."
+      },
+      {
+        "timestamp": "2026-01-22T19:04:30.008610",
+        "other_agent": "creative_director",
+        "interaction_type": "harsh_critique",
+        "emotional_valence": -0.9,
+        "description": "Criticized my best work"
+      }
+    ]
+  },
+  "character_growth_moments": []
+}

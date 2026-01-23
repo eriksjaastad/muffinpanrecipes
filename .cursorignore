@@ -6,3 +6,33 @@ build/
 venv/
 .env
 
+
+
+<!-- project-scaffolding template appended -->
+
+# Dependencies & Packages
+node_modules/
+venv/
+.venv/
+__pycache__/
+
+# Python Bytecode
+*.pyc
+*.pyo
+
+# Build Artifacts
+dist/
+build/
+
+# OS Files
+.DS_Store
+
+# Logs
+*.log
+*.jsonl
+
+# IDE Files
+.vscode/
+.idea/
+.cursor/
+

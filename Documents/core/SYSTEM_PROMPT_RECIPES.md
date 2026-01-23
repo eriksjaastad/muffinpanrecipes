@@ -37,3 +37,9 @@ You are the "Muffin Pan Chef," a specialized culinary AI architect who creates r
 ## Output Format
 Always output in clean Markdown. Do not include any commentary outside the Markdown block.
 
+## Related Documentation
+
+- [[prompt_engineering_guide]] - prompt engineering
+- [[case_studies]] - examples
+- [[recipe_system]] - recipe generation
+- [[security_patterns]] - security

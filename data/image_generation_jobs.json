@@ -1,0 +1,93 @@
+[
+  {
+    "recipe_id": "spinach-feta-egg-bites",
+    "recipe_title": "Spinach and Feta Egg Bites",
+    "prompts": {
+      "editorial": "Beautiful portrait of Triple-Plate_ Close-up shot of velvety spinach and feta egg bites, macro focus on their soft, custard-like texture with visible specs of crumbled feta melting into the eggs. High-key natural daylight, soft shadows, clean white marble background. Shallow depth of field, high-end editorial food photography style.",
+      "action_steam": "Beautiful portrait of Triple-Plate_ Action shot of hot spinach and feta egg bites emerging from a rustic muffin tin, steam visibly rising from each bite as they glisten under high-key natural daylight. Cinematic lighting, soft highlights, clean kitchen environment. 8k resolution, photorealistic.",
+      "the_spread": "Beautiful portrait of Triple-Plate_ A dozen elegantly arranged spinach and feta egg bites on a white marble countertop, showcasing their uniform size and glowing, golden texture. High-key natural daylight, airy composition, minimal fluff. High-end food styling, professional photography."
+    }
+  },
+  {
+    "recipe_id": "baked-oatmeal-cups",
+    "recipe_title": "Baked Oatmeal Breakfast Cups",
+    "prompts": {
+      "editorial": "Beautiful portrait of A macro close-up of a single baked oatmeal breakfast cup on a rustic muffin tin, glistening with steam. Soft natural light highlights the golden-brown exterior with hints of honey and plump blueberries peeking through the oats. Shallow depth of field, high-end editorial food photography style.",
+      "action_steam": "Beautiful portrait of A vibrant shot of baked oatmeal breakfast cups rising steam freshly out of a rustic muffin tin. Golden-brown tops glisten under high-key natural daylight, capturing the warmth and freshness of a breakfast spread. Cinematic lighting, soft highlights, clean kitchen environment.",
+      "the_spread": "Beautiful portrait of A beautifully arranged spread of three baked oatmeal breakfast cups on a white marble countertop, showcasing their variety and quantity. Rustic muffin tin adds warmth to the scene, while the soft natural light emphasizes the wholesome ingredients. High-end food styling, professional photography."
+    }
+  },
+  {
+    "recipe_id": "mini-pancake-bites",
+    "recipe_title": "Mini Pancake Bites",
+    "prompts": {
+      "editorial": "Beautiful portrait of A macro close-up of a single mini pancake bite, perfectly golden and fluffy, with a tiny pat of melting butter on top. Placed in a mini muffin tin, highlighting the golden-brown edges. High-key natural daylight, soft shadows, clean white marble background. Shallow depth of field, high-end editorial food photography style.",
+      "action_steam": "Beautiful portrait of A stack of hot mini pancake bites in a mini muffin tin, with visible steam rising from each one. Soft natural light captures the fluffy texture and the steam in a clean kitchen setting. Cinematic lighting, soft highlights, photorealistic, 8k resolution.",
+      "the_spread": "Beautiful portrait of A dozen mini pancake bites elegantly arranged in a clean mini muffin tin on a white marble countertop. The rustic tin adds character to the high-key natural daylight scene. High-end food styling, professional photography, minimal fluff."
+    }
+  },
+  {
+    "recipe_id": "muffin-tin-lasagna",
+    "recipe_title": "Muffin Tin Lasagna Cups",
+    "prompts": {
+      "editorial": "Beautiful portrait of A macro close-up of a single muffin tin lasagna cup, focusing on the crispy wonton wrapper edges and the bubbling, golden mozzarella. The camera captures the layers of rich marinara and ricotta peeking through. High-key natural daylight, soft shadows, clean white marble background. Shallow depth of field, high-end editorial food photography style.",
+      "action_steam": "Beautiful portrait of A tray of muffin tin lasagna cups fresh out of the oven, with steam rising from the bubbling cheese and sauce. Soft natural light highlights the crispy textures and the hot, gooey center. Cinematic lighting, soft highlights, clean kitchen environment, 8k resolution.",
+      "the_spread": "Beautiful portrait of A dozen muffin tin lasagna cups arranged elegantly in a rustic muffin tin on top of a white marble countertop. High-key natural daylight emphasizes the vibrant colors and the crispy edges. High-end food styling, professional photography."
+    }
+  },
+  {
+    "recipe_id": "mini-meatloaf-bites",
+    "recipe_title": "Mini Meatloaf Bites",
+    "prompts": {
+      "editorial": "Beautiful portrait of A macro close-up of a single mini meatloaf bite in a rustic muffin tin, focusing on the glossy ketchup glaze and the savory, tender texture. Soft natural light highlights the juicy center. High-key natural daylight, soft shadows, clean white marble background. Shallow depth of field, high-end editorial food photography style.",
+      "action_steam": "Beautiful portrait of A tray of mini meatloaf bites steaming hot, fresh out of the oven. Soft natural light captures the rising steam and the savory, juicy texture. Cinematic lighting, soft highlights, clean kitchen environment, 8k resolution.",
+      "the_spread": "Beautiful portrait of A dozen mini meatloaf bites arranged in a rustic muffin tin on a white marble countertop. High-key natural daylight emphasizes the savory glaze and the uniform, bite-sized portions. High-end food styling, professional photography."
+    }
+  },
+  {
+    "recipe_id": "buffalo-chicken-mac-bites",
+    "recipe_title": "Buffalo Chicken Mac & Cheese Bites",
+    "prompts": {
+      "editorial": "Beautiful portrait of A close-up shot of golden Buffalo Chicken Mac _ Cheese Bites in a rustic muffin tin, creamy mac and cheese with a spicy orange kickpeeking through the shredded cheese topping, soft natural light creating an appetizing texture, macro focus, high-end editorial style.",
+      "action_steam": "Beautiful portrait of Hot Buffalo Chicken Mac _ Cheese Bites emerging from a rustic muffin tin, steam rising gently, golden cheese glistening in the natural light, side lighting creating soft shadows on the white marble background, cinematic and fresh.",
+      "the_spread": "Beautiful portrait of A selection of perfectly baked Buffalo Chicken Mac _ Cheese Bites on a white marble countertop, arranged elegantly in a rustic muffin tin and scattered individually around, each bite showcasing its golden crust and creamy interior, high-key natural lighting."
+    }
+  },
+  {
+    "recipe_id": "mini-shepherds-pie",
+    "recipe_title": "Mini Shepherd's Pie Pots",
+    "prompts": {
+      "editorial": "Beautiful portrait of A macro close-up of a single mini Shepherd's Pie pot in a rustic muffin tin, focusing on the toasted, peaked mashed potato topping and the savory meat filling peeking out. High-key natural daylight, soft shadows, clean white marble background. Shallow depth of field, high-end editorial food photography style.",
+      "action_steam": "Beautiful portrait of A tray of mini Shepherd's Pie pots steaming hot, fresh out of the oven. Soft natural light captures the rising steam from the toasted potato peaks. Cinematic lighting, soft highlights, clean kitchen environment, 8k resolution.",
+      "the_spread": "Beautiful portrait of A dozen mini Shepherd's Pie pots arranged in a rustic muffin tin on a white marble countertop. High-key natural daylight emphasizes the golden-brown potato peaks and the savory filling. High-end food styling, professional photography."
+    }
+  },
+  {
+    "recipe_id": "jumbo-cornbread-bites",
+    "recipe_title": "Jumbo Cornbread Honey Bites",
+    "prompts": {
+      "editorial": "Beautiful portrait of A macro close-up shot of golden Jumbo Cornbread Honey Bites, slightly risen and glistening with a thin layer of honey drizzle. The camera focuses on the soft, moist crumb texture, high-key natural daylight, white marble background, professional food photography.",
+      "action_steam": "Beautiful portrait of Two Jumbo Cornbread Honey Bites resting on a rustic muffin tin, still warm and oozing with golden honey. Visible steam rises from the hot surface as natural daylight hits them at a side angle, cinematic and appetizing.",
+      "the_spread": "Beautiful portrait of A beautiful spread of six Jumbo Cornbread Honey Bites arranged on a white marble countertop, varying from golden-brown peaks to slightly flattened tops. Some are dotted with cream-2-after.png and drizzled with more honey, high-key professional look."
+    }
+  },
+  {
+    "recipe_id": "classic-blueberry-muffins",
+    "recipe_title": "Classic Blueberry Muffin Tops",
+    "prompts": {
+      "editorial": "Beautiful portrait of A close-up macro shot of a perfectly golden Classic Blueberry Muffin Top, the surface glistening with melted butter and sugar crystals. Plump blueberries peek out from the fluffy center, high-key natural daylight, white marble background, editorial style.",
+      "action_steam": "Beautiful portrait of A dynamic shot of three Classic Blueberry Muffin Tops, still warm and slightly glossy from baking, placed on a white marble countertop. Visible steam rises hungrily from the hot muffins, natural lighting.",
+      "the_spread": "Beautiful portrait of A beautifully composed arrangement of six Classic Blueberry Muffin Tops on a pristine white marble countertop, each one glistening with butter and sugar. A variety of textures and deep blue colors from the berries are highlighted by high-key natural daylight."
+    }
+  },
+  {
+    "recipe_id": "dark-chocolate-chip-muffins",
+    "recipe_title": "Dark Chocolate Chip Decadence",
+    "prompts": {
+      "editorial": "Beautiful portrait of A close-up shot of a rich dark chocolate chip muffin, the camera focusing on the velvety cocoa-infused top with melted dark chocolate chips glistening in the light. The shallow depth of field creates a luxurious editorial feel, white marble background.",
+      "action_steam": "Beautiful portrait of A series of freshly baked dark chocolate chip muffins placed on a white marble countertop, steam rising gently from each one. The warmth of the scene is captured with inviting lighting and high-key natural daylight.",
+      "the_spread": "Beautiful portrait of Multiple dark chocolate chip muffins arranged elegantly on a white marble countertop, showcasing their variety of shapes and textures. Some are perfectly round, others slightly cr-2-after.png, high-key natural daylight."
+    }
+  }
+]
+

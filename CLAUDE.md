@@ -1,94 +1,94 @@
-# CLAUDE.md - AI Collaboration Instructions
+# CLAUDE.md - muffinpanrecipes
 
-> **Purpose:** Project-specific instructions for AI assistants (Claude, Gemini, etc.)
-> **Audience:** AI collaborators and human developers
+<!-- AUTO-GENERATED from .agentsync/rules/ - Do not edit directly -->
+<!-- Run: uv run $TOOLS_ROOT/agentsync/sync_rules.py muffinpanrecipes -->
 
----
+# AGENTS.md - Source of Truth for AI Agents
 
-## 📚 Required Reading Before Writing Code
+## 🎯 Project Overview
+Muffin Pan Recipes is a high-volume, AI-driven recipe site focused on "Muffin Tin Meals." It leverages LLMs for content generation and is hosted on Vercel.
 
-**You MUST read these files:**
+## 🛠 Tech Stack
+- **Frontend:** Static HTML, Tailwind CSS (via CDN for prototype).
+- **Deployment:** Vercel (Automatic GitHub Integration).
+- **Hosting:** Vercel.
+- **AI Strategy:** Gemini 3 Flash for complex logic/prompts; Local models for routine tasks.
 
-1. **README.md** - Project overview and quick start
-2. **This file (CLAUDE.md)** - Coding standards and safety rules
-3. **Documents/core/RECIPE_SCHEMA.md** - How recipes must be structured
-4. **Documents/core/ARCHITECTURAL_DECISIONS.md** - Core architecture rules
+## 📋 Definition of Done (DoD)
+- [ ] Recipes follow the `Documents/core/RECIPE_SCHEMA.md`.
+- [ ] Technical changes are documented in `Documents/core/ARCHITECTURAL_DECISIONS.md`.
+- [ ] `00_Index_MuffinPanRecipes.md` is updated with recent activity.
+- [ ] Deployment to Vercel is verified with 0 manual steps.
 
----
+## 🚀 Execution Commands
+- **Local Dev:** Open `src/index.html` directly in the browser.
+- **Production:** `vercel.json` maps root traffic to the `src/` directory.
 
-## Project Summary
+## ⚠️ Critical Constraints
+- **Static Only:** No server-side logic or database for the initial phase.
+- **Mobile-First:** All UI changes must be tested for mobile responsiveness.
+- **No Fluff:** Priority is the "Jump to Recipe" experience.
 
-**What this project does:**
-Automates the generation and deployment of a niche recipe site dedicated to meals made in muffin pans.
+## 📖 Reference Links
+- [[00_Index_MuffinPanRecipes]]
+- [[RECIPE_SCHEMA]]
+- [[ARCHITECTURAL_DECISIONS]]
 
-**Current status:**
-Phase 1 complete. Infrastructure for automated deployment is ready on Vercel. 10 initial recipes harvested.
 
-**Key constraints:**
-- Static site architecture only.
-- 0-manual-step deployment via Vercel.
-- Mobile-first "No-Fluff" UI.
 
----
+<!-- project-scaffolding template appended -->
 
-## Project Structure
+# AGENTS.md - Source of Truth for AI Agents
 
-```
-muffinpanrecipes/
-├── src/                      # Source code (HTML/CSS)
-├── data/                     # Recipe data and assets
-├── Documents/                # Project documentation
-│   ├── core/                 # Architecture, schema, and decisions
-│   └── archives/             # Historical records
-├── README.md                 # High-level overview
-├── AGENTS.md                 # AI source of truth
-├── CLAUDE.md                 # This file
-└── TODO.md                   # Task tracking
-```
+## 🎯 Project Overview
+{project_description}
 
----
+## 🛠 Tech Stack
+- Language: {language}
+- Frameworks: {frameworks}
+- AI Strategy: {ai_strategy}
 
-## Coding Standards
+## 📋 Definition of Done (DoD)
+- [ ] Code is documented with type hints.
+- [ ] Technical changes are logged to `project-tracker/data/WARDEN_LOG.yaml`.
+- [ ] `00_Index_*.md` is updated with recent activity.
+- [ ] Code validated (no hardcoded paths, no secrets exposed).
+- [ ] Code review completed (if significant architectural changes).
+- [ ] [Project-specific DoD item]
 
-### UI/UX
-- Use Tailwind CSS for rapid prototyping.
-- Prioritize the "Jump to Recipe" button above the fold.
-- Ensure all components are accessible and mobile-responsive.
+## 🚀 Execution Commands
+- Environment: `{venv_activation}`
+- Run: `{run_command}`
+- Test: `{test_command}`
 
----
+## ⚠️ Critical Constraints
+- NEVER hard-code API keys, secrets, or credentials in script files. Use `.env` and `os.getenv()`.
+- NEVER use absolute paths (e.g., machine-specific paths). ALWAYS use relative paths or `PROJECT_ROOT` env var.
+- ALWAYS run validation before considering work complete: `python "./scripts/validate_project.py" [project-name]`
+- {constraint_1}
+- {constraint_2}
 
-## Safety Rules
+**Code Review Standards:** See `./REVIEWS_AND_GOVERNANCE_PROTOCOL.md` for full review process.
 
-### 🟡 Be Careful With These:
-1. **`Documents/core/RECIPE_SCHEMA.md`** - Changing this impacts all future AI generation.
-2. **`src/index.html`** - Core UI; ensure mobile layout isn't broken.
+## 📖 Reference Links
+- [[00_Index_{project_name}]]
+- [[Project Philosophy]]
 
-### ✅ Safe to Modify:
-1. **`Documents/core/ARCHITECTURAL_DECISIONS.md`** - Log new decisions here.
-2. **`TODO.md`** - Keep tasks updated.
 
----
+<!-- project-scaffolding template appended -->
 
-## Git Workflow
+## Related Documentation
 
-### Commit Message Format
-```
-[Component] Brief description
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+- [[dashboard_architecture]] - dashboard/UI
+- [[database_setup]] - database
+- [[prompt_engineering_guide]] - prompt engineering
+- [[ai_model_comparison]] - AI models
+- [[deployment_patterns]] - deployment
+- [[recipe_system]] - recipe generation
+- [[muffinpanrecipes/README]] - Muffin Pan Recipes
+- [[project-scaffolding/README]] - Project Scaffolding
 
-- Change 1
-- Change 2
-```
-
----
-
-## Working with This AI
-
-### Communication Preferences
-- **Be direct** - Tell me what you need.
-- **Focus on the Niche** - Always remember the "Muffin Pan Constraint."
-- **Check Schema** - Before generating recipes, verify they match the schema.
-
----
-
-*This file follows the [project-scaffolding](https://github.com/eriksjaastad/project-scaffolding) pattern.*
-
+<!-- Source of truth: .agentsync/rules/ -->

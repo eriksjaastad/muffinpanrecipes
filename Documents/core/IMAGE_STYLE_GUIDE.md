@@ -34,3 +34,10 @@ The goal is to evoke a sense of high-end, minimalist cookery. Images should feel
 ## 🛠️ The Canonical Prompt Template
 "Professional food photography of **[RECIPE NAME]** served in a rustic muffin tin. Bright, high-key lighting, natural daylight coming from the side. Soft shadows on a white marble countertop. Focus on the texture of the **[KEY INGREDIENT/TEXTURE]**. Shot on 85mm macro lens, f/2.8. Editorial cookbook style, clean, minimalist, highly appetizing. No text, no people."
 
+## Related Documentation
+
+- [[architecture_patterns]] - architecture
+- [[prompt_engineering_guide]] - prompt engineering
+- [[portfolio_content]] - portfolio/career
+- [[recipe_system]] - recipe generation
+- [[muffinpanrecipes/README]] - Muffin Pan Recipes

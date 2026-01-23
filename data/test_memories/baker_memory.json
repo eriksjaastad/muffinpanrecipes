@@ -1,0 +1,42 @@
+{
+  "formative_experiences": [],
+  "emotional_responses": [
+    {
+      "timestamp": "2026-01-22T19:02:22.948735",
+      "task_type": "create_recipe",
+      "outcome": true,
+      "emotional_impact": -0.4,
+      "personality_factors": {
+        "perfectionism": 0.85,
+        "traditionalism": 0.9,
+        "grumpiness": 0.7
+      },
+      "lessons_learned": [
+        "Verified ratios match traditional formulations",
+        "Considered structural integrity in muffin tin format",
+        "Incorporated trendy ingredient while maintaining proper technique"
+      ],
+      "description": "*mutters* It's done. Made it work despite the trendy nonsense. Could be better though."
+    },
+    {
+      "timestamp": "2026-01-22T19:02:22.949774",
+      "task_type": "create_recipe",
+      "outcome": true,
+      "emotional_impact": -0.4,
+      "personality_factors": {
+        "perfectionism": 0.85,
+        "traditionalism": 0.9,
+        "grumpiness": 0.7
+      },
+      "lessons_learned": [
+        "Verified ratios match traditional formulations",
+        "Considered structural integrity in muffin tin format",
+        "Incorporated trendy ingredient while maintaining proper technique"
+      ],
+      "description": "*mutters* It's done. Made it work despite the trendy nonsense. Could be better though."
+    }
+  ],
+  "creative_preferences": {},
+  "relationship_history": {},
+  "character_growth_moments": []
+}

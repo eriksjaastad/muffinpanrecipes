@@ -167,7 +167,7 @@ These are polish items for a future sprint. None block production.
 
 Five reviews. Seven hours. Forty issues identified. All resolved.
 
-This project started as a MacBook-only prototype with hardcoded paths to `/Users/eriksjaastad/`, documentation that lied about GitHub Actions and Dreamhost, and a JavaScript loader that showed a blank page on network failure. It is now an industrial-grade Static Site Generator that produces SEO-optimized HTML with proper meta tags, canonical URLs, and JSON-LD structured data. The image pipeline is idempotent, the archives are timestamped, the `.gitignore` blocks deployment boulders, and the Vercel routing correctly serves both the sitemap and robots.txt.
+This project started as a MacBook-only prototype with hardcoded paths to `[USER_HOME]/`, documentation that lied about GitHub Actions and Dreamhost, and a JavaScript loader that showed a blank page on network failure. It is now an industrial-grade Static Site Generator that produces SEO-optimized HTML with proper meta tags, canonical URLs, and JSON-LD structured data. The image pipeline is idempotent, the archives are timestamped, the `.gitignore` blocks deployment boulders, and the Vercel routing correctly serves both the sitemap and robots.txt.
 
 The "Content Moat" strategy is now operational. Each recipe gets its own URL, its own Open Graph card, its own Twitter preview, and its own place in the sitemap. Google will crawl it. Pinterest will pin it. The Conductor can scale to 1,000 recipes without touching the code.
 
@@ -180,3 +180,9 @@ This is what a production system looks like.
 ---
 
 *End of Review V5 — FINAL CERTIFICATION*
+
+
+## Related Documentation
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+

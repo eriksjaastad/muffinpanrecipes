@@ -69,3 +69,11 @@ description: "A short, punchy 1-2 sentence description for SEO."
 3. **Yield Specificity:** Must explicitly state if it's for 12 standard, 6 jumbo, or 24 mini cups.
 4. **No Intro Fluff:** Strictly forbidden to include personal stories or unrelated anecdotes.
 5. **Bolded Key Actions:** Step-by-step instructions should start with a bolded action word.
+
+## Related Documentation
+
+- [[prompt_engineering_guide]] - prompt engineering
+- [[ai_model_comparison]] - AI models
+- [[performance_optimization]] - performance
+- [[recipe_system]] - recipe generation
+- [[muffinpanrecipes/README]] - Muffin Pan Recipes

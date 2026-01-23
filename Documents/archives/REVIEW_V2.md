@@ -11,7 +11,7 @@
 
 ### **[Better, but Still Fragile]**
 
-The team showed up. They deleted the dead code, nuked the duplicate configs, and actually used environment variables like adults. The hardcoded `/Users/eriksjaastad/` paths are gone from the scripts—that alone is a minor miracle. The `recipes.json` extraction was the right call, and the `fetch()` loader in `index.html` means you can now add a recipe without editing HTML.
+The team showed up. They deleted the dead code, nuked the duplicate configs, and actually used environment variables like adults. The hardcoded `[USER_HOME]/` paths are gone from the scripts—that alone is a minor miracle. The `recipes.json` extraction was the right call, and the `fetch()` loader in `index.html` means you can now add a recipe without editing HTML.
 
 **But here's the problem:** They left landmines. The `trigger_generation.py` script still tries to upload a file that was deleted (`batch_generate_muffins.py`). The `.cursorrules` file still warns about a GitHub Actions workflow that doesn't exist. The `validate_env.py` script marks `PROJECT_ROOT` as "optional" when half the scripts will fail without it. This isn't production-ready—it's "works on my machine with proper setup" ready. That's progress, not victory.
 
@@ -21,10 +21,10 @@ The team showed up. They deleted the dead code, nuked the duplicate configs, and
 
 | # | Original Finding | Current State | Verdict |
 |---|------------------|---------------|---------|
-| 1 | **Hardcoded paths in `generate_image_prompts.py`** (`/Users/eriksjaastad/...`) | Replaced with `PROJECT_ROOT` env var and `Path.home()` for factory settings | ✅ **FIXED** |
+| 1 | **Hardcoded paths in `generate_image_prompts.py`** (`[USER_HOME]/...`) | Replaced with `PROJECT_ROOT` env var and `Path.home()` for factory settings | ✅ **FIXED** |
 | 2 | **Hardcoded paths in `art_director.py`** (6 occurrences) | Replaced with `PROJECT_ROOT` relative paths | ✅ **FIXED** |
 | 3 | **Hardcoded RunPod paths in `direct_harvest.py`** | Added smart detection: `/workspace` if exists, else project root | ✅ **FIXED** |
-| 4 | **Cross-project import via `../../../3D Pose Factory`** | Now uses `POSE_FACTORY_SCRIPTS` env var with fallback | ✅ **FIXED** |
+| 4 | **Cross-project import via `../../../3d-pose-factory`** | Now uses `POSE_FACTORY_SCRIPTS` env var with fallback | ✅ **FIXED** |
 | 5 | **Broken fallback logic** (tried `tier="local"` twice) | Changed second fallback to `tier="cheap"` | ✅ **FIXED** |
 | 6 | **No request timeout in `direct_harvest.py`** | Added `timeout=60` to `requests.post()` | ✅ **FIXED** |
 | 7 | **No API key validation** | Added `sys.exit()` if `STABILITY_API_KEY` not set | ✅ **FIXED** |
@@ -194,3 +194,10 @@ This is no longer a "Screenshot"—it's a "Demo that mostly works." One more foc
 ---
 
 *End of Review V2*
+
+
+## Related Documentation
+
+- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+

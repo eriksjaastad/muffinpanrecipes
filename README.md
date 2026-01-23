@@ -28,7 +28,58 @@ See the `Documents/` directory for detailed documentation:
 - [Architectural Decisions](Documents/core/ARCHITECTURAL_DECISIONS.md)
 - [Recipe Schema](Documents/core/RECIPE_SCHEMA.md)
 
+## Development Resources
+- [[muffinpanrecipes/WARDEN_LOG.yaml|WARDEN_LOG.yaml]]
+- [[muffinpanrecipes/package-lock.json|package-lock.json]]
+- [[muffinpanrecipes/scripts/warden_audit.py|warden_audit.py]]
+
 ## Status
 - **Current Phase:** Phase 1: AI Recipe Engine
 - **Status:** #status/active
 
+
+
+<!-- project-scaffolding template appended -->
+
+# [PROJECT_NAME]
+
+[Brief 2-3 sentence description of the project.]
+
+## Quick Start
+
+### Installation
+```bash
+# [Add installation steps here]
+```
+
+### Usage
+```bash
+# [Add usage steps here]
+```
+
+## Documentation
+See the `Documents/` directory for detailed documentation:
+- [Architecture Overview](Documents/ARCHITECTURE_OVERVIEW.md)
+- [Operations Guide](Documents/OPERATIONS_GUIDE.md)
+
+## Development Resources
+- [[muffinpanrecipes/WARDEN_LOG.yaml|WARDEN_LOG.yaml]]
+- [[muffinpanrecipes/package-lock.json|package-lock.json]]
+- [[muffinpanrecipes/scripts/warden_audit.py|warden_audit.py]]
+
+## Status
+- **Current Phase:** [Phase Name]
+- **Status:** #status/active
+
+## Related Documentation
+
+- [[LOCAL_MODEL_LEARNINGS]] - local AI
+- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
+- [[architecture_patterns]] - architecture
+- [[cloud_gpu_setup]] - cloud GPU
+- [[prompt_engineering_guide]] - prompt engineering
+- [[deployment_patterns]] - deployment
+- [[performance_optimization]] - performance
+- [[recipe_system]] - recipe generation
+- [[muffinpanrecipes/README]] - Muffin Pan Recipes
+- [[project-scaffolding/README]] - Project Scaffolding

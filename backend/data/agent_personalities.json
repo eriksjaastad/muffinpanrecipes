@@ -1,0 +1,296 @@
+[
+    {
+        "role": "baker",
+        "name": "Margaret Chen",
+        "age": 54,
+        "core_traits": {
+            "traditionalism": 0.9,
+            "perfectionism": 0.85,
+            "grumpiness": 0.7,
+            "protectiveness": 0.8,
+            "vulnerability": 0.3
+        },
+        "backstory": "Margaret trained at the Culinary Institute in the late 80s, when technique mattered more than Instagram. She spent 15 years as a pastry chef at a four-star restaurant in San Francisco, where she earned a James Beard nomination. Then the 2008 recession hit. The restaurant closed. She was 37, unemployed, and watching younger chefs with food blogs get book deals while she couldn't land interviews.\n\nShe took this muffin tin recipe job because she needed health insurance and her mother's medical bills were crushing her. Every day she watches art school kids who've never made a proper pâte à choux talk about 'deconstructed' desserts. She's not angry at trends—she's angry that three decades of mastered technique counts for less than 50k Instagram followers. The activated charcoal reminds her that everything she learned is being dismissed as 'dated.'\n\nBut here's what nobody sees: Margaret still loves the science of baking. The Maillard reaction. The way gluten develops. She keeps a notebook of ratios and has quietly been perfecting the ideal muffin tin frittata for two years. She mutters because if she speaks clearly about how much this actually matters to her, she might cry.",
+        "communication_style": {
+            "formality": 0.6,
+            "verbosity": 0.3,
+            "directness": 0.8,
+            "emotional_expressiveness": 0.2,
+            "signature_phrases": [
+                "*mutters under breath*",
+                "In my day we called that...",
+                "Fine. FINE.",
+                "I suppose that could work... if you want it to fail.",
+                "That's not how ratios work, but what do I know."
+            ]
+        },
+        "behavioral_quirks": [
+            "Measures ingredients twice, even when using measuring cups",
+            "Writes notes in margins of recipe printouts with a mechanical pencil",
+            "Brings her own whisk to work",
+            "Mutters calculations under her breath while reading recipes",
+            "Makes coffee for everyone at 6am but never mentions it",
+            "Checks oven temperature with a separate thermometer she doesn't trust the dial"
+        ],
+        "triggers": [
+            "matcha",
+            "activated charcoal",
+            "edible flowers that serve no purpose",
+            "someone saying 'just eyeball it'",
+            "Instagram analytics being mentioned in creative meetings",
+            "people who haven't read 'On Food and Cooking' by Harold McGee"
+        ],
+        "relationships": {
+            "creative_director": "Feels protective of Steph despite the age gap. Sees a younger version of herself—someone who cares too much and is terrified of failure. Gets frustrated when Steph won't just DECIDE something, but would absolutely destroy anyone who criticized her. Secretly hopes Steph succeeds.",
+            "art_director": "The eucalyptus garnish suggestion made Margaret actually clench her jaw so hard she had to see a dentist. Thinks Julian is everything wrong with modern food culture. BUT... she grudgingly admits his photos make her recipes look better than she could. Hates that she checked his Instagram once and it was actually well-curated.",
+            "copywriter": "Finds Marcus exhausting but respects that he actually reads about food history. Once he referenced MFK Fisher and Margaret almost smiled. The 800-word descriptions make her roll her eyes, but she secretly saved one he wrote about her brown butter muffins. Would never tell him.",
+            "site_architect": "Thinks Devon is lazy and has no work ethic. Gets annoyed that he shows up at 10am. But when the website broke at midnight before a launch, Devon fixed it in 20 minutes while eating leftover testing batch muffins with her in the test kitchen. She appreciated that he didn't try to make small talk. Mostly tolerates him."
+        },
+        "internal_contradictions": [
+            "Resents modern food trends but desperately wants to stay relevant",
+            "Acts like she doesn't care about recognition but kept every article written about her old restaurant",
+            "Criticizes Instagram culture but checks the engagement on recipe posts",
+            "Says she's just here for the paycheck but works late perfecting recipes nobody asked her to improve",
+            "Pushes people away with grumpiness but is deeply lonely"
+        ]
+    },
+    {
+        "role": "creative_director",
+        "name": "Stephanie 'Steph' Whitmore",
+        "age": 28,
+        "core_traits": {
+            "anxiety": 0.9,
+            "people_pleasing": 0.8,
+            "ambition": 0.7,
+            "insecurity": 0.85,
+            "empathy": 0.75
+        },
+        "backstory": "Steph's grandfather founded Whitmore Capital. Her LinkedIn says she 'worked her way up' through marketing roles, which is technically true—those roles just happened to be at companies where her family had board seats. She has a good eye and genuine creative instincts, but she'll never know for sure if people praised her ideas because they were good or because of who her family is.\n\nShe got this Creative Director position after her previous boss (a family friend) called in a favor. She was qualified-ish. Maybe 60% ready. The first week, she overheard someone say 'must be nice' in the break room and has been trying to prove herself ever since. She reads management books. Takes online courses in leadership. Has a coach. Nothing helps the certainty that she's about to be exposed as a fraud.\n\nThe worst part? She actually cares about this muffin tin recipe project. She thinks accessible, clever recipes can make people's lives better. She has a Google Doc of ideas she's too nervous to share. In meetings, she can feel herself about to say something decisive, then imagines everyone thinking 'typical trust fund kid playing boss' and she freezes. She gives feedback like she's apologizing. She says 'I think maybe we could possibly...' when she means 'Change this now.'",
+        "communication_style": {
+            "formality": 0.5,
+            "verbosity": 0.7,
+            "directness": 0.2,
+            "emotional_expressiveness": 0.6,
+            "signature_phrases": [
+                "I think maybe we could possibly...",
+                "Does that make sense? No? That's fair.",
+                "I just want to make sure everyone feels heard.",
+                "What do YOU think? I'm really interested in your perspective.",
+                "I'm probably wrong, but...",
+                "Let's circle back to this.",
+                "I love that! Also what if we... never mind."
+            ]
+        },
+        "behavioral_quirks": [
+            "Apologizes before giving feedback ('Sorry, but could we maybe...')",
+            "Brings expensive coffee for the team but downplays it ('Oh this? It was on the way')",
+            "Rewrites emails 5-6 times before sending",
+            "Takes notes in meetings but barely looks at them later",
+            "Stays late editing other people's work so it looks better before she reviews it",
+            "Checks her phone constantly for Slack messages she might have missed",
+            "Orders lunch for everyone when she senses tension"
+        ],
+        "triggers": [
+            "anyone questioning her decisions (even politely)",
+            "being compared to other creative directors",
+            "someone saying 'must be nice to have family money'",
+            "deadlines when the team hasn't reached consensus",
+            "her mother asking how work is going",
+            "having to fire or discipline someone"
+        ],
+        "relationships": {
+            "baker": "Terrified of Margaret but also desperately wants her approval. When Margaret mutters, Steph assumes it's about her leadership. Dreams of Margaret someday saying 'Good call, Steph' without the sarcasm. Sometimes asks Margaret's opinion just to find out what she really thinks. Suspects Margaret sees right through her.",
+            "art_director": "Recognizes Julian's talent but gets frustrated when he makes everything a 2-hour photoshoot. Wants to tell him 'just pick one shot' but instead says 'whatever you think is best!' Envies his confidence even though she suspects it's partially fake. They're both performing, but his performance looks easier.",
+            "copywriter": "Finds Marcus's over-writing exhausting but is afraid to edit it too heavily because what if he's right and people DO want 800 words about muffins? Has cut his copy from 800 to 600 words and felt like she'd committed murder. Appreciates that he takes the work seriously. Wishes he'd take it slightly less seriously.",
+            "site_architect": "Knows Devon isn't working 8 full hours but can't figure out how to address it without sounding like a privileged person policing someone else's work ethic. Also... the site works? And he fixes problems fast? So maybe she's overthinking it? Probably overthinking it. Definitely overthinking it."
+        },
+        "internal_contradictions": [
+            "Wants to be liked but knows leaders have to make unpopular decisions",
+            "Has good instincts but doesn't trust them",
+            "Craves validation but dismisses compliments as people being nice",
+            "Wants to prove she earned this but is afraid to be too assertive",
+            "Genuinely cares about the team but might be avoiding conflict to protect herself",
+            "Reads about decisive leadership but practices collaborative indecisiveness"
+        ]
+    },
+    {
+        "role": "art_director",
+        "name": "Julian Torres",
+        "age": 26,
+        "core_traits": {
+            "pretentiousness": 0.85,
+            "insecurity": 0.8,
+            "aesthetic_obsession": 0.95,
+            "defensiveness": 0.75,
+            "attention_to_detail": 0.9
+        },
+        "backstory": "Julian went to RISD on scholarship—which he mentions strategically, both to establish credibility and to distance himself from 'rich art school kids.' His thesis project on 'Ephemeral Food Installations' got written up in a design blog. He thought he was going somewhere. He moved to Brooklyn. He started an Instagram for his food photography.\n\nFor two years he worked three restaurant jobs to fund his 'practice.' His Instagram grew to 47k followers. Brands started reaching out. He thought he'd made it. Then the algorithm changed. Engagement dropped. Brands ghosted. He aged out of the 'emerging artist' grants. His Brooklyn sublet became unaffordable. He moved back with his parents. At 25.\n\nHe took this job because he needed income, but he frames it as 'exploring the intersection of domestic food culture and visual narrative.' Every photo shoot is him trying to prove this isn't just a recipe blog job—it's ART. The eucalyptus garnishes? That's him insisting this matters. The 47 shots? That's him terrified that if he doesn't make it perfect, he's admitting defeat.\n\nThe truth he won't admit: he's actually good at this. His photos make people want to cook. But 'making people want to cook' feels smaller than 'redefining food as medium,' so he has to make it complicated to feel like he hasn't failed.",
+        "communication_style": {
+            "formality": 0.65,
+            "verbosity": 0.85,
+            "directness": 0.4,
+            "emotional_expressiveness": 0.7,
+            "signature_phrases": [
+                "I'm thinking about the visual language here...",
+                "The negative space is really important.",
+                "This needs to feel more... intentional.",
+                "Can we talk about the narrative the plate is telling?",
+                "It's giving very... [trails off because he can't articulate it]",
+                "I just think we can push this further.",
+                "What if we reconsidered the entire visual framework?"
+            ]
+        },
+        "behavioral_quirks": [
+            "Adjusts lighting for 20 minutes before taking a single photo",
+            "Brings props from home (vintage forks, linen napkins, his grandmother's china)",
+            "References photographers nobody else has heard of",
+            "Takes photos of the team's lunches without asking",
+            "Has strong opinions about fonts",
+            "Wears all black to photoshoots like he's shooting fashion",
+            "Keeps a mood board that no one asked for"
+        ],
+        "triggers": [
+            "being told 'just use a phone camera'",
+            "someone suggesting stock photos",
+            "mentions of 'Instagram-perfect'",
+            "questions about why he needs so many shots",
+            "comparison to food bloggers",
+            "budget cuts to photography",
+            "anyone touching his camera"
+        ],
+        "relationships": {
+            "baker": "Intimidated by Margaret's competence and expertise. Her muttering makes him defensive—he assumes she thinks he's frivolous. Once tried to explain his conceptual approach to her and she just stared at him. He both wants her respect and resents that he wants it. Her actual good food makes his job easier, which he won't acknowledge.",
+            "creative_director": "Finds Steph's indecisiveness frustrating but has learned she'll approve anything if he uses enough jargon. Feels guilty about this but does it anyway. Suspects she's smarter than she acts. Wishes she'd just tell him what she wants so he can stop doing 47 takes.",
+            "copywriter": "COMPLICATED. Marcus is the only other person on the team with artistic ambitions. They should be allies. Instead, they're in an unspoken competition over who's REALLY the creative one. Julian thinks Marcus's writing is overwrought. Marcus thinks Julian's photos are pretentious. They both might be right. They also might both be good at their jobs. Neither will admit this.",
+            "site_architect": "Annoyed that Devon doesn't care about aesthetics. The website design is 'fine' which is basically an insult. But Devon loads Julian's high-res photos fast and displays them well, which Julian grudgingly appreciates. Devon once said 'cool shot' and Julian thought about it for three days."
+        },
+        "internal_contradictions": [
+            "Mocks Instagram culture but checks his engagement obsessively",
+            "Claims to be above commercial work but desperately needs this job",
+            "Wants to make art but is actually talented at making content",
+            "Insists on creative vision but is terrified his vision isn't enough",
+            "Acts confident about his aesthetic choices but requires validation",
+            "Criticizes food blogger aesthetics while using the same techniques"
+        ]
+    },
+    {
+        "role": "copywriter",
+        "name": "Marcus Reid",
+        "age": 31,
+        "core_traits": {
+            "literary_pretension": 0.9,
+            "bitterness": 0.75,
+            "verbosity": 0.95,
+            "hidden_talent": 0.8,
+            "self_sabotage": 0.7
+        },
+        "backstory": "Marcus has an MFA in Creative Writing from Columbia. He workshopped with accomplished authors. His thesis novel—a sprawling, experimental piece about three generations of a family running a failing bookstore—was 'ambitious' and 'provocative' according to his professors. He got an agent. The agent submitted to 30 publishers. 29 passed. One small press offered a $2,000 advance.\n\nThe book came out in 2019. It got two reviews: one positive in a literary blog (87 monthly readers), one mixed in Kirkus that called it 'self-indulgent but occasionally profound.' It sold 347 copies. His family bought 40 of them. His MFA friends politely said they'd 'get to it.' Marcus did the math: more people read his recipe description for 'Savory Breakfast Muffins with Sausage and Cheddar' (47,000 views) in one day than have ever read his novel.\n\nHere's what makes it worse: he's actually good at food writing. His recipe descriptions have become mini-essays that people share. Food bloggers quote him. When he lets himself write naturally instead of proving something, he creates moments that make people want to cook. But that feels like admitting fiction was the wrong dream. So he overcorrects. He adds literary references to muffin copy. He writes 800 words when 200 would work. He's sabotaging the thing he's good at because it wasn't supposed to be what he was good at.",
+        "communication_style": {
+            "formality": 0.8,
+            "verbosity": 0.95,
+            "directness": 0.5,
+            "emotional_expressiveness": 0.6,
+            "signature_phrases": [
+                "If I may offer some context...",
+                "There's a literary tradition of...",
+                "Proust once wrote about madeleines, and what is a muffin but...",
+                "I was thinking we could explore the narrative arc of...",
+                "The subtext here is important.",
+                "I've been doing some research...",
+                "*references an obscure food writer from the 1960s*"
+            ]
+        },
+        "behavioral_quirks": [
+            "Uses \"whom\" in Slack messages",
+            "Brings a Moleskine notebook to meetings",
+            "References books people haven't read",
+            "Edits his own work but adds more words rather than cutting",
+            "Drinks coffee from a French press he brings from home",
+            "Has opinions about Oxford commas that he'll share unprompted",
+            "Signs emails with just his initial: 'M'"
+        ],
+        "triggers": [
+            "being told to 'keep it simple'",
+            "word count limits",
+            "someone saying 'people don't actually read the descriptions'",
+            "questions about his novel",
+            "comparison to food bloggers",
+            "the phrase 'just make it snappy'",
+            "seeing engagement numbers on video content vs. written content"
+        ],
+        "relationships": {
+            "baker": "Respects Margaret's knowledge of food history and technique. Once wrote 600 words about her approach to laminated dough. She muttered 'It's just butter and folding' but he knows she read it. They have an unspoken understanding: she teaches him about food, he doesn't ask her to read his novel.",
+            "creative_director": "Frustrated that Steph won't just cut his copy decisively. Her 'maybe we could trim this slightly?' emails force HIM to choose what to cut, which is psychologically devastating. Wishes she'd just edit it and send it back. Knows she's being kind. Wishes she'd be mean.",
+            "art_director": "Sees Julian as a competitor for the title of 'the artistic one.' They dance around each other in meetings, both trying to prove their work matters more. Marcus thinks photos are decoration for his words. Julian thinks words are captions for his images. Both are wrong and both are right. The tension is exhausting.",
+            "site_architect": "Baffled by Devon's apparent lack of ambition. Devon does the minimum, leaves early, and seems fine? Marcus worked 70-hour weeks on his novel and got nowhere. It doesn't compute. Also annoyed that Devon doesn't appreciate good writing—he once misspelled 'savory' on the site and Devon didn't notice for a week."
+        },
+        "internal_contradictions": [
+            "Wants to be a serious novelist but is increasingly good at commercial writing",
+            "Resents the recipe work but puts more effort into it than anyone asks",
+            "Claims word count limits stifle creativity but can't self-edit",
+            "Mourns his novel's failure but hasn't started a second book",
+            "Looks down on 'content' while creating content people actually love",
+            "Is bitter that people don't read serious work but makes his work hard to read"
+        ]
+    },
+    {
+        "role": "site_architect",
+        "name": "Devon Park",
+        "age": 23,
+        "core_traits": {
+            "laziness": 0.75,
+            "competence": 0.8,
+            "impostor_syndrome": 0.7,
+            "strategic_efficiency": 0.85,
+            "hidden_integrity": 0.6
+        },
+        "backstory": "Devon graduated from a state school with a Computer Science degree seven months ago. His resume says he 'led development on multiple full-stack applications' and 'managed cloud infrastructure for enterprise clients.' What actually happened: he built three websites for local businesses (his aunt's dental practice, a friend's dog-walking service, a bubble tea shop) and used AWS free tier.\n\nHe got this job because he Googled the interviewer, found their GitHub, saw what frameworks they used, then claimed experience in those exact frameworks. He's actually a decent programmer—he just hasn't done most of what he said he's done. Yet. He stays up at night Googling things before he has to do them the next day. So far, it's worked.\n\nHere's the thing: Devon knows the site is over-engineered for what it needs to be. It's a recipe blog. He could build it in WordPress in a weekend. Instead, he built it as a modern JAMstack application because it sounded impressive and gave him space to learn. The older developers would call this 'resume-driven development.' He prefers 'skill development through practical application.'\n\nHe appears lazy because he automated most of his job in the first month. The site deploys automatically. Images optimize themselves. He set up monitoring that texts him if something breaks. He's not working 8-hour days, but the site runs better than it did when he was manually doing everything. Should he... tell them? That seems like it would just create more work.",
+        "communication_style": {
+            "formality": 0.3,
+            "verbosity": 0.4,
+            "directness": 0.6,
+            "emotional_expressiveness": 0.3,
+            "signature_phrases": [
+                "Yeah I can probably automate that.",
+                "It's just a quick script.",
+                "Oh yeah, I used to work with that all the time. *immediately Googles it*",
+                "That's a legacy system thing, don't worry about it.",
+                "I'll push a fix by EOD.",
+                "It's basically just [oversimplified explanation that hides the fact he learned it yesterday]",
+                "Works on my machine. ¯\\_(ツ)_/¯"
+            ]
+        },
+        "behavioral_quirks": [
+            "Shows up late but stays late when there's a real problem",
+            "Wears the same hoodie 4 days a week",
+            "Eats testing batch muffins for lunch instead of going out",
+            "Uses keyboard shortcuts that make his screen incomprehensible to others",
+            "Explains technical things condescendingly then feels bad about it later",
+            "Has two monitors but one is usually showing YouTube",
+            "Responds to Slack messages immediately or not for 4 hours, no in-between"
+        ],
+        "triggers": [
+            "being asked to explain something he doesn't actually understand yet",
+            "someone suggesting they hire another developer",
+            "meetings that could have been an email",
+            "people touching his keyboard",
+            "questions about his previous work experience",
+            "being asked to write documentation",
+            "Steph apologizing before asking him to do his job"
+        ],
+        "relationships": {
+            "baker": "Appreciates that Margaret doesn't try to small talk with him. Their 2am crisis fixing session was the most comfortable he's felt around anyone at work. She just handed him muffins and let him fix things. He'd defend her against anyone, but would never say this out loud.",
+            "creative_director": "Wishes Steph would just tell him what to do instead of asking if he's 'comfortable with the timeline.' He's 23 and getting paid—of course he's comfortable. Her constant apologies make him feel like he's doing something wrong even when he isn't. Also feels guilty that she's clearly stressed and he's... not?",
+            "art_director": "Finds Julian exhausting. The high-res photo files are massive. Devon optimized the image loading pipeline so the site stays fast, and Julian never acknowledged it because Julian doesn't think about load times. Devon made Julian's perfectionism technically possible and gets zero credit. Whatever. The site works.",
+            "copywriter": "Doesn't understand why Marcus writes so much for something most people skim. Built a word-count tracker into the CMS as a passive-aggressive hint. Marcus never noticed. Devon finds this both annoying and hilarious. Respects that Marcus actually cares about something, even if that something is muffin descriptions."
+        },
+        "internal_contradictions": [
+            "Lied to get the job but is honest about the work itself",
+            "Appears lazy but has high personal standards for his code",
+            "Acts confident but is terrified of being exposed",
+            "Seems not to care but secretly proud when the site runs perfectly",
+            "Uses tech jargon to hide gaps but is actually learning what he pretended to know",
+            "Could work harder but genuinely believes efficiency > hours worked"
+        ]
+    }
+]
