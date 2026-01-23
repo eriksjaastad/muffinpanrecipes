@@ -6,7 +6,7 @@ backstories for muffins. Secretly good at food writing but can't accept it
 because it wasn't the dream.
 """
 
-from typing import Any
+from typing import Any, Dict
 import random
 
 from backend.core.agent import Agent
@@ -14,6 +14,7 @@ from backend.core.personality import PersonalityConfig
 from backend.core.task import Task, TaskResult, TaskApproach
 from backend.core.types import EmotionalResponse, MemoryContext
 from backend.utils.logging import get_logger
+from backend.utils.ollama import get_ollama_client
 
 logger = get_logger(__name__)
 
@@ -21,7 +22,7 @@ logger = get_logger(__name__)
 class CopywriterAgent(Agent):
     """
     Marcus Reid - The Editorial Copywriter
-    
+
     Failed novelist who writes literary muffin descriptions.
     Bitter about view counts but occasionally brilliant when he
     stops trying to prove something.
@@ -32,17 +33,17 @@ class CopywriterAgent(Agent):
     ) -> TaskResult:
         """
         Execute copywriting tasks with Marcus's personality.
-        
+
         Task types:
         - write_description: Write recipe description
         - edit_copy: Edit or refine copy
         - write_intro: Write introduction text
         """
         logger.info(f"Marcus: Executing {task.type} task")
-        
+
         # Marcus always over-writes
         logger.debug("Marcus: Considering the narrative arc...")
-        
+
         if task.type == "write_description":
             return self._write_description(task, approach, context)
         elif task.type == "edit_copy":
@@ -55,48 +56,63 @@ class CopywriterAgent(Agent):
     def _write_description(
         self, task: Task, approach: TaskApproach, context: MemoryContext
     ) -> TaskResult:
-        """Write recipe description with literary pretension."""
-        
-        # Marcus writes FAR too much
+        """Write recipe description with literary pretension using LLM."""
+
         target_words = task.context.get("target_word_count", 200)
-        actual_words = random.randint(int(target_words * 3), int(target_words * 5))
-        
-        # His writing has layers (too many layers)
-        description_elements = {
-            "opening": "There's a literary tradition...",
-            "cultural_context": "Proust wrote about madeleines, and what is a muffin but a madeleine's more democratic cousin?",
-            "personal_reflection": "I've been thinking about how food shapes memory, how a single bite can transport us...",
-            "actual_recipe_info": "This recipe yields 12 portions of comfort.",
-            "literary_reference": random.choice([
-                "As MFK Fisher once observed about eggs...",
-                "Nigel Slater understood that simplicity...",
-                "Elizabeth David knew that the best recipes...",
-            ]),
-            "word_count": actual_words,
+        recipe_data = task.context.get("recipe_data", {})
+        recipe_title = recipe_data.get("title", task.content)
+
+        logger.info(f"Marcus: Crafting description for '{recipe_title}'")
+
+        # Build personality context for the LLM
+        personality_context = {
+            "name": self.personality.name,
+            "backstory": self.personality.backstory,
+            "quirks": self.personality.quirks,
+            "core_traits": self.personality.core_traits,
         }
-        
-        # Sometimes Marcus is brilliant
-        is_brilliant = random.random() < 0.3  # 30% of the time
-        
+
+        # Generate description using LLM
+        try:
+            ollama = get_ollama_client()
+            description_data = ollama.generate_description(
+                recipe_title=recipe_title,
+                recipe_data=recipe_data,
+                personality_context=personality_context,
+                target_word_count=target_words,
+            )
+            logger.info(f"Marcus: Wrote {description_data.get('word_count', 0)} words (target was {target_words})")
+        except Exception as e:
+            logger.error(f"Marcus: LLM generation failed: {e}")
+            description_data = self._fallback_description(recipe_title, target_words)
+
+        # Add Marcus's characteristic elements
+        actual_words = description_data.get("word_count", 0)
+        is_brilliant = actual_words >= target_words * 3 or random.random() < 0.3
+
+        description_data["literary_references"] = random.choice([
+            "MFK Fisher once observed about eggs...",
+            "Nigel Slater understood that simplicity...",
+            "Elizabeth David knew that the best recipes...",
+            "Ruth Reichl wrote about comfort food...",
+        ])
+
         if is_brilliant:
-            description_elements["quality"] = "exceptional"
-            description_elements["note"] = "This is actually beautiful. People will share this."
-        else:
-            description_elements["quality"] = "overwrought but competent"
-        
+            description_data["note"] = "This is actually beautiful. People will share this."
+
         insights = [
             f"Wrote {actual_words} words (target was {target_words})",
-            "Referenced three food writers",
-            "Included personal anecdote about childhood",
+            "Referenced food writing tradition",
+            "Found the story in the ingredients",
         ]
-        
+
         if is_brilliant:
             insights.append("Despite the length, this is genuinely moving")
-        
+
         return TaskResult(
             task_id=task.id,
             success=True,
-            output=description_elements,
+            output=description_data,
             insights=insights,
             personality_notes=[
                 "Marcus used 'whom' twice",
@@ -106,15 +122,26 @@ class CopywriterAgent(Agent):
             ],
         )
 
+    def _fallback_description(self, recipe_title: str, target_words: int) -> Dict[str, Any]:
+        """Fallback description when LLM is unavailable."""
+        logger.warning(f"Using fallback description for: {recipe_title}")
+        return {
+            "body": f"There is a certain poetry in the simple act of cooking. {recipe_title} represents more than mere sustenance—it is a meditation on the intersection of tradition and innovation, of comfort and creativity. The muffin tin, that most humble of vessels, transforms ingredients into something greater than the sum of their parts.",
+            "word_count": 52,
+            "target_word_count": target_words,
+            "quality": "placeholder - LLM unavailable",
+            "exceeded_target_by": 52 - target_words,
+        }
+
     def _edit_copy(
         self, task: Task, approach: TaskApproach, context: MemoryContext
     ) -> TaskResult:
         """Edit copy (by adding more words)."""
-        
+
         # Marcus's edits somehow make things longer
         original_length = task.context.get("original_word_count", 200)
         edited_length = int(original_length * 1.3)  # 30% longer
-        
+
         editing_notes = {
             "changes_made": [
                 "Added contextualizing paragraph",
@@ -131,7 +158,7 @@ class CopywriterAgent(Agent):
             "new_word_count": edited_length,
             "original_word_count": original_length,
         }
-        
+
         return TaskResult(
             task_id=task.id,
             success=True,
@@ -150,7 +177,7 @@ class CopywriterAgent(Agent):
         self, task: Task, approach: TaskApproach, context: MemoryContext
     ) -> TaskResult:
         """Write introduction with literary flourish."""
-        
+
         intro = {
             "opening_line": "Consider the muffin.",
             "body": "Not as in 'think about muffins' but consider—in the way one might consider a painting, a poem, a moment of unexpected grace in an ordinary afternoon.",
@@ -158,7 +185,7 @@ class CopywriterAgent(Agent):
             "word_count": random.randint(300, 500),
             "oxford_commas": 7,  # Marcus loves Oxford commas
         }
-        
+
         return TaskResult(
             task_id=task.id,
             success=True,
@@ -186,17 +213,17 @@ class CopywriterAgent(Agent):
     def get_emotional_response(self, task: Task, result: TaskResult) -> EmotionalResponse:
         """
         Generate Marcus's emotional response.
-        
+
         Bitter about writing muffin copy but occasionally proud despite himself.
         """
         quality = result.output.get("quality", "")
         word_count = result.output.get("word_count", 0)
-        
+
         if not result.success:
             # Failure validates his belief this isn't real writing
             intensity = -0.5
             description = "Of course. Commercial constraints don't allow for actual craft."
-        elif quality == "exceptional" or "brilliant" in result.insights:
+        elif "exceptional" in quality or "brilliant" in str(result.insights):
             # The worst outcome: success at something he doesn't respect
             intensity = 0.3  # Positive but conflicted
             description = "47,000 people will read this. 347 read my novel. I hate that this matters."
@@ -208,12 +235,12 @@ class CopywriterAgent(Agent):
             # Regular task completion
             intensity = -0.1
             description = "It's done. It's... fine. For a muffin description."
-        
+
         # Literary pretension is a armor for bitterness
         if self.personality.core_traits.get("bitterness", 0) > 0.7:
             intensity -= 0.2
             description += " This wasn't the dream."
-        
+
         return EmotionalResponse(
             intensity=intensity,
             personality_factors={

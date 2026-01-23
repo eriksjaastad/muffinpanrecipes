@@ -1,0 +1,87 @@
+{
+  "recipe_id": "86821e9e",
+  "title": "Maple Bacon Breakfast Cups",
+  "concept": "Maple Bacon Breakfast Cups",
+  "description": "In the quiet hours before dawn, when the world is still wrapped in slumber, there's a certain magic that only breakfast can conjure. It's as if the very essence of morning \u2013 dew-kissed and fresh as the first light of day \u2013 has been distilled into a culinary ritual that awakens our senses and nourishes our souls.\n\nIt begins with the humblest of ingredients: a handful of flour, cold and unyielding like a winter's night, yet about to be transformed by the gentle persuasion of butter. As we cream and cut, the mixture becomes less rigid, more yielding, like the first tender shoots of spring pushing through the earth. And then, of course, there's the bacon \u2013 that most indulgent of breakfast companions \u2013 whose smoky, savory essence wafts up like a promise of comfort and solace.\n\nBut it's in the subtle interplay between these ingredients, this delicate balance of flavors and textures, that the true magic of our Maple Bacon Breakfast Cups is revealed. For just as the sweetness of maple syrup can evoke memories of lazy summer mornings spent at the lake, or family gatherings around a crackling fire, so too does its use here \u2013 in harmony with the richness of cheddar cheese and the earthy, umami undertones of cooked bacon \u2013 conjure a sense of warmth and intimacy that feels almost primal.\n\nAnd then, of course, there's the egg: that most versatile of ingredients, capable of binding us to our plates as surely as it binds us to our pasts. As we crack its golden yolk into the waiting mixture, we're reminded that breakfast is not just a meal, but a ritual \u2013 a moment to pause, to reflect, and to savor the simple pleasures in life.\n\nIn this recipe, time itself becomes a luxury we can afford to indulge. Twenty minutes is all we need \u2013 a mere blink of an eye in the grand scheme of morning \u2013 to conjure up something truly special: a dish that's equal parts comfort food and culinary artistry, a breakfast cup that's at once humble and sublime.",
+  "ingredients": [
+    {
+      "item": "all-purpose flour",
+      "amount": "1 1/2 cups",
+      "notes": "190g"
+    },
+    {
+      "item": "cold unsalted butter, cut into small pieces",
+      "amount": "1/4 cup",
+      "notes": "50g"
+    },
+    {
+      "item": "grated cheddar cheese",
+      "amount": "1/2 cup",
+      "notes": "100g"
+    },
+    {
+      "item": "pure maple syrup",
+      "amount": "1/4 cup",
+      "notes": "60ml"
+    },
+    {
+      "item": "eggs",
+      "amount": "4 large",
+      "notes": ""
+    },
+    {
+      "item": "of cooked, crumbled bacon",
+      "amount": "6 slices",
+      "notes": "thick-cut, applewood-smoked, and house-cured at home or using your favorite brand"
+    },
+    {
+      "item": "and pepper to taste",
+      "amount": "Salt",
+      "notes": ""
+    },
+    {
+      "item": "kosher salt",
+      "amount": "1/2 teaspoon",
+      "notes": ""
+    },
+    {
+      "item": "black pepper",
+      "amount": "1/4 teaspoon",
+      "notes": ""
+    },
+    {
+      "item": "thyme leaves for garnish",
+      "amount": "Fresh",
+      "notes": "optional"
+    }
+  ],
+  "instructions": [
+    "Preheat the oven to 400\u00b0F (200\u00b0C) with a rack in the center.",
+    "In a medium bowl, whisk together flour and cold butter until mixture resembles coarse crumbs. Add grated cheese and mix until well combined.",
+    "Gradually pour in maple syrup while stirring the mixture with a fork until it forms a shaggy dough. Wrap in plastic wrap and refrigerate for at least 10 minutes to allow flavors to meld.",
+    "In a separate bowl, whisk together eggs, salt, and pepper until well combined.",
+    "Remove chilled pastry from refrigerator and roll out on a lightly floured surface to about 1/8 inch thickness. Cut into 12 equal squares using a pastry cutter or a knife.",
+    "Spoon a small amount of egg mixture onto one half of each square, leaving a 1/2-inch border around the edges. Top with crumbled bacon and a sprinkle of cheese.",
+    "Fold other half over to form a triangle, pressing edges together to seal. Use a fork to crimp edges for a decorative touch.",
+    "Place cups in a greased muffin tin (I use a 12-cup standard muffin tin) and bake for 15-20 minutes or until golden brown.",
+    "Remove from oven and let cool for 5 minutes before serving."
+  ],
+  "servings": 12,
+  "prep_time_minutes": 25,
+  "cook_time_minutes": 20,
+  "difficulty": "easy",
+  "photos": [
+    "muffin_shot_01.jpg",
+    "muffin_shot_02.jpg",
+    "muffin_shot_03.jpg"
+  ],
+  "featured_photo": "muffin_shot_01.jpg",
+  "tags": [],
+  "category": "breakfast/savory",
+  "slug": "maple-bacon-breakfast-cups",
+  "seo_description": null,
+  "created_by": "AI Creative Team",
+  "created_at": "2026-01-23T08:42:01.773509",
+  "published_at": null,
+  "story_id": "b6990a39"
+}

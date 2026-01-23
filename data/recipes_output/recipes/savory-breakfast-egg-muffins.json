@@ -1,0 +1,76 @@
+{
+  "recipe_id": "be2584c0",
+  "title": "Savory Breakfast Egg Muffins",
+  "concept": "Savory Breakfast Egg Muffins",
+  "description": "",
+  "ingredients": [
+    {
+      "item": "Bob's Red Mill All-Purpose Flour",
+      "amount": "1 cup",
+      "notes": "120g"
+    },
+    {
+      "item": "teaspoons kosher salt",
+      "amount": "2",
+      "notes": "Himalayan Pink Salt, Morton"
+    },
+    {
+      "item": "teaspoon black pepper",
+      "amount": "1/4",
+      "notes": "Freshly ground, McCormick"
+    },
+    {
+      "item": "tablespoons unsalted butter, melted",
+      "amount": "2",
+      "notes": "European-style, Kerrygold"
+    },
+    {
+      "item": "eggs",
+      "amount": "6 large",
+      "notes": ""
+    },
+    {
+      "item": "shredded Smoked Gouda cheese",
+      "amount": "1 cup",
+      "notes": "Sargento, smoked to perfection for a deep, savory flavor"
+    },
+    {
+      "item": "tablespoon chopped fresh chives",
+      "amount": "1",
+      "notes": "Mitsukan, adds a pop of color and freshness"
+    },
+    {
+      "item": "tablespoons diced cooked bacon",
+      "amount": "2",
+      "notes": "Look for thick-cut, applewood-smoked, Niman Ranch"
+    }
+  ],
+  "instructions": [
+    "Preheat oven to 375\u00b0F (190\u00b0C). Line the muffin tin with paper liners or grease with butter.",
+    "In a medium bowl, whisk together flour, salt, and pepper until well combined.",
+    "Add melted butter to the dry ingredients and stir until just combined. Do not overmix.",
+    "In a large bowl, whisk together eggs, Smoked Gouda cheese, chives, and cooked bacon until smooth.",
+    "Divide egg mixture evenly among muffin cups, filling each about 3/4 of the way full.",
+    "Sprinkle remaining Smoked Gouda cheese on top of each muffin.",
+    "Bake for 18 minutes or until whites are set and yolks still slightly jiggly (about 1-2 seconds).",
+    "Remove from oven and let cool in tin for 5 minutes before transferring to a wire rack to cool completely."
+  ],
+  "servings": 12,
+  "prep_time_minutes": 15,
+  "cook_time_minutes": 20,
+  "difficulty": "medium",
+  "photos": [
+    "muffin_shot_01.jpg",
+    "muffin_shot_02.jpg",
+    "muffin_shot_03.jpg"
+  ],
+  "featured_photo": "muffin_shot_01.jpg",
+  "tags": [],
+  "category": "savory",
+  "slug": "savory-breakfast-egg-muffins",
+  "seo_description": null,
+  "created_by": "AI Creative Team",
+  "created_at": "2026-01-23T08:05:29.161698",
+  "published_at": null,
+  "story_id": "c9385162"
+}

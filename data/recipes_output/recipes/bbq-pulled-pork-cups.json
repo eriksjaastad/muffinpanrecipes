@@ -1,0 +1,26 @@
+{
+  "recipe_id": "5a63367b",
+  "title": "BBQ Pulled Pork Cups",
+  "concept": "BBQ Pulled Pork Cups",
+  "description": "",
+  "ingredients": [],
+  "instructions": [],
+  "servings": 12,
+  "prep_time_minutes": 15,
+  "cook_time_minutes": 20,
+  "difficulty": "medium",
+  "photos": [
+    "muffin_shot_01.jpg",
+    "muffin_shot_02.jpg",
+    "muffin_shot_03.jpg"
+  ],
+  "featured_photo": "muffin_shot_01.jpg",
+  "tags": [],
+  "category": "savory",
+  "slug": "bbq-pulled-pork-cups",
+  "seo_description": null,
+  "created_by": "AI Creative Team",
+  "created_at": "2026-01-23T08:09:54.574160",
+  "published_at": null,
+  "story_id": "2b3d8b50"
+}

@@ -43,8 +43,9 @@ def main():
     # 1. Clean Slate: Clear existing recipes directory
     try:
         if recipes_output_dir.exists():
-            shutil.rmtree(recipes_output_dir)
-            logger.info(f"Clean Slate: Removed old recipes directory.")
+            from send2trash import send2trash
+            send2trash(str(recipes_output_dir))
+            logger.info(f"Clean Slate: Moved old recipes directory to Trash.")
         recipes_output_dir.mkdir(parents=True, exist_ok=True)
     except Exception as e:
         logger.error(f"❌ Failed to clear recipes directory: {e}")

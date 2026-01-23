@@ -1,0 +1,98 @@
+{
+  "story_id": "63b344f2",
+  "recipe_id": "c6908e77",
+  "title": "How We Made: Banana Nut Muffins",
+  "summary": "Margaret Chen (Recipe Development): Margaret measured ingredients twice | Julian Torres (Photography): Julian explained his artistic vision for 15 minutes | Marcus Reid (Editorial Copy): Marcus used 'whom' twice",
+  "full_story": "# How We Made This Recipe\n\n\n## Margaret Chen - Recipe Development\n\n- Margaret measured ingredients twice\n- Muttered about proper technique\n- Emotional state: professionally focused\n\n## Julian Torres - Photography\n\n- Julian explained his artistic vision for 15 minutes\n- Wore all black to the shoot\n- Adjusted lighting 12 times\n- Muttered about 'commercial constraints'\n\n## Marcus Reid - Editorial Copy\n\n- Marcus used 'whom' twice\n- Referenced his thesis research\n- Brought Moleskine to typing session\n- Checked thesaurus 7 times\n\n## Stephanie 'Steph' Whitmore - Creative Review\n\n- Rewrote feedback 3 times before delivering\n- Checked Slack 12 times while reviewing\n- Bought team coffee to soften any criticism\n\n## Devon Park - Deployment\n\n- Devon showed up 20 minutes late\n- Deployment was done before he arrived (automation)\n- Responded to Slack 4 hours later",
+  "agent_contributions": [
+    {
+      "agent_name": "Margaret Chen",
+      "agent_role": "baker",
+      "contribution_type": "Recipe Development",
+      "key_decisions": [
+        "Verified ratios match traditional formulations",
+        "Considered structural integrity in muffin tin format",
+        "Created: Cinnamon Swirl Banana Nut Muffin Bites"
+      ],
+      "personality_moments": [
+        "Margaret measured ingredients twice",
+        "Muttered about proper technique",
+        "Emotional state: professionally focused"
+      ],
+      "quotes": []
+    },
+    {
+      "agent_name": "Julian Torres",
+      "agent_role": "art_director",
+      "contribution_type": "Photography",
+      "key_decisions": [
+        "Took 54 shots to capture the essence",
+        "Applied knowledge of compositional theory",
+        "Each frame was intentional"
+      ],
+      "personality_moments": [
+        "Julian explained his artistic vision for 15 minutes",
+        "Wore all black to the shoot",
+        "Adjusted lighting 12 times",
+        "Muttered about 'commercial constraints'"
+      ],
+      "quotes": []
+    },
+    {
+      "agent_name": "Marcus Reid",
+      "agent_role": "copywriter",
+      "contribution_type": "Editorial Copy",
+      "key_decisions": [
+        "Wrote 336 words (target was 200)",
+        "Referenced food writing tradition",
+        "Found the story in the ingredients"
+      ],
+      "personality_moments": [
+        "Marcus used 'whom' twice",
+        "Referenced his thesis research",
+        "Brought Moleskine to typing session",
+        "Checked thesaurus 7 times"
+      ],
+      "quotes": []
+    },
+    {
+      "agent_name": "Stephanie 'Steph' Whitmore",
+      "agent_role": "creative_director",
+      "contribution_type": "Creative Review",
+      "key_decisions": [
+        "Steph actually identified real improvements",
+        "Framed feedback as questions to avoid seeming bossy"
+      ],
+      "personality_moments": [
+        "Rewrote feedback 3 times before delivering",
+        "Checked Slack 12 times while reviewing",
+        "Bought team coffee to soften any criticism"
+      ],
+      "quotes": []
+    },
+    {
+      "agent_name": "Devon Park",
+      "agent_role": "site_architect",
+      "contribution_type": "Deployment",
+      "key_decisions": [
+        "Deployment fully automated",
+        "Devon set this up in week 1",
+        "Nobody knows how little he actually does"
+      ],
+      "personality_moments": [
+        "Devon showed up 20 minutes late",
+        "Deployment was done before he arrived (automation)",
+        "Responded to Slack 4 hours later"
+      ],
+      "quotes": []
+    }
+  ],
+  "key_conflicts": [],
+  "revision_history": [],
+  "personality_highlights": [],
+  "total_messages": 0,
+  "total_revisions": 0,
+  "time_to_complete_minutes": null,
+  "started_at": "2026-01-23T08:35:48.505660",
+  "completed_at": "2026-01-23T08:36:16.431811"
+}

@@ -7,6 +7,8 @@
 
 This implementation plan creates a Python-based AI agent orchestration system that simulates a creative team producing muffin tin recipes. The backend handles all agent personalities, messaging, pipeline management, and data persistence, while the frontend receives minimal updates (featured recipe section and newsletter signup) to the existing static HTML architecture.
 
+**Infrastructure Additions**: The plan now includes comprehensive infrastructure requirements including recipe state management, Google OAuth authentication, publishing pipeline with Vercel deployment, newsletter system with email validation, Discord notifications for monitoring, and automated backup/recovery systems. These additions support the creative team workflow without changing any agent personalities or creative dynamics.
+
 ## Tasks
 
 - [x] 1. Set up Python project structure and core interfaces ✅ COMPLETE
@@ -227,11 +229,164 @@ This implementation plan creates a Python-based AI agent orchestration system th
 - [x] 14. Final Checkpoint #3 - Complete system validation ✅ PASSED (31/32 tests)
   - Ensure all tests pass, ask the user if questions arise.
 
+- [ ] 15. Implement Recipe State Management System
+  - [ ] 15.1 Create RecipeState enum and RecipeWithState class
+    - Implement recipe state tracking with pending, approved, published, rejected states
+    - Add state transition validation and history tracking
+    - Create state transition methods with proper validation
+    - _Requirements: 16.1, 16.2, 16.7_
+
+  - [ ] 15.2 Write property test for recipe state integrity
+    - **Property 12: Recipe State Integrity**
+    - **Validates: Requirements 16.1**
+
+  - [ ] 15.3 Implement state transition logic in pipeline
+    - Update RecipePipeline to use state-based recipe management
+    - Add automatic state transitions for Baker creation and Creative Director approval
+    - Integrate state changes with existing agent workflow
+    - _Requirements: 16.2, 16.3_
+
+  - [ ] 15.4 Write property tests for state transitions
+    - **Property 13: Initial Recipe State Assignment**
+    - **Property 14: Creative Director Approval State Transition**
+    - **Property 15: State Transition Validation**
+    - **Validates: Requirements 16.2, 16.3, 16.7**
+
+- [ ] 16. Implement Authentication System
+  - [ ] 16.1 Create Google OAuth authentication manager
+    - Implement AuthenticationManager class with Google OAuth 2.0 integration
+    - Add session management and authorized email whitelist
+    - Create authentication middleware for protecting admin routes
+    - _Requirements: 18.1, 18.2, 18.6_
+
+  - [ ] 16.2 Write property test for admin API authentication
+    - **Property 18: Admin API Authentication**
+    - **Validates: Requirements 18.4**
+
+  - [ ] 16.3 Implement admin API endpoints
+    - Create AdminAPIEndpoints class with recipe management functions
+    - Add endpoints for viewing recipes, agent status, and system metrics
+    - Implement admin action logging and audit trail
+    - _Requirements: 21.1, 21.2, 21.3, 21.7_
+
+  - [ ] 16.4 Write property test for admin email authorization
+    - **Property 19: Admin Email Authorization**
+    - **Validates: Requirements 18.6**
+
+- [ ] 17. Implement Publishing Pipeline
+  - [ ] 17.1 Create PublishingPipeline class
+    - Implement static HTML generation for recipes and stories
+    - Add Vercel deployment integration with API calls
+    - Create recipe grid update functionality
+    - _Requirements: 17.1, 17.2, 17.4_
+
+  - [ ] 17.2 Write property test for publishing pipeline trigger
+    - **Property 16: Publishing Pipeline Trigger**
+    - **Validates: Requirements 17.1**
+
+  - [ ] 17.3 Integrate publishing with Site Architect agent
+    - Update Site Architect to use PublishingPipeline for deployments
+    - Add deployment success/failure handling and state updates
+    - Implement error notification and manual retry capabilities
+    - _Requirements: 17.5, 17.6_
+
+  - [ ] 17.4 Write property test for deployment state update
+    - **Property 17: Deployment State Update**
+    - **Validates: Requirements 17.5**
+
+- [ ] 18. Implement Newsletter System
+  - [ ] 18.1 Create NewsletterManager class
+    - Implement email subscription management with validation
+    - Add confirmation email sending and unsubscribe functionality
+    - Create subscription storage and duplicate prevention
+    - _Requirements: 19.1, 19.2, 19.5, 19.6_
+
+  - [ ] 18.2 Write property tests for newsletter functionality
+    - **Property 20: Newsletter Email Format Validation**
+    - **Property 21: Newsletter Subscription Uniqueness**
+    - **Validates: Requirements 19.5, 19.6**
+
+  - [ ] 18.3 Add newsletter signup form to frontend
+    - Create HTML form for email subscription between featured recipe and grid
+    - Add client-side email validation and submission handling
+    - Style form with muffin-themed design elements
+    - _Requirements: 13.1, 13.4_
+
+  - [ ] 18.4 Write property test for newsletter email validation (frontend)
+    - **Property 11: Email Validation**
+    - **Validates: Requirements 13.2**
+
+- [ ] 19. Implement Discord Notification System
+  - [ ] 19.1 Create DiscordNotificationSystem class
+    - Implement webhook-based notifications for recipe events
+    - Add system error notifications and daily summary reports
+    - Create formatted Discord messages with embeds and emoji
+    - _Requirements: 20.1, 20.2, 20.4, 20.5_
+
+  - [ ] 19.2 Write property test for Discord notification triggers
+    - **Property 22: Discord Notification Triggers**
+    - **Validates: Requirements 20.1**
+
+  - [ ] 19.3 Integrate notifications with pipeline and agents
+    - Add notification calls to recipe state transitions
+    - Integrate error notifications with exception handling
+    - Create daily summary generation and scheduling
+    - _Requirements: 20.1, 20.2, 20.4_
+
+- [ ] 20. Implement Backup and Recovery System
+  - [ ] 20.1 Create BackupSystem class
+    - Implement daily backup creation with data collection
+    - Add backup integrity verification and multi-location storage
+    - Create retention policy enforcement and cleanup
+    - _Requirements: 22.1, 22.3, 22.4_
+
+  - [ ] 20.2 Write property tests for backup system
+    - **Property 23: Backup Data Completeness**
+    - **Property 24: Backup Integrity Verification**
+    - **Validates: Requirements 22.1, 22.3**
+
+  - [ ] 20.3 Implement recovery procedures
+    - Add backup restoration functionality with integrity checks
+    - Create system snapshot and rollback capabilities
+    - Implement automatic recovery from corruption detection
+    - _Requirements: 22.5, 22.6_
+
+  - [ ] 20.4 Write integration tests for backup and recovery
+    - Test complete backup and restore cycles
+    - Verify data integrity after recovery operations
+    - _Requirements: 22.5, 22.6_
+
+- [ ] 21. Infrastructure Integration and Testing
+  - [ ] 21.1 Integrate all infrastructure components
+    - Connect authentication, publishing, notifications, and backup systems
+    - Add infrastructure error handling and graceful degradation
+    - Create infrastructure monitoring and health checks
+    - _Requirements: All infrastructure requirements_
+
+  - [ ] 21.2 Write comprehensive infrastructure tests
+    - Test authentication flows and security measures
+    - Test publishing pipeline with various recipe types
+    - Test notification delivery and error handling
+    - Test backup and recovery under various scenarios
+    - _Requirements: All infrastructure requirements_
+
+  - [ ] 21.3 Add infrastructure configuration management
+    - Create configuration files for all external services
+    - Add environment-specific settings and secrets management
+    - Implement configuration validation and error reporting
+    - _Requirements: 18.6, 20.6, 22.7_
+
+- [ ] 22. Final Infrastructure Checkpoint
+  - Ensure all infrastructure tests pass and systems are properly integrated
+  - Verify authentication, publishing, notifications, and backup systems work correctly
+  - Test error handling and recovery procedures
+  - Ask the user if questions arise about infrastructure implementation
+
 ## Notes
 
-- Tasks marked with `*` are optional and can be skipped for faster MVP
 - Each task references specific requirements for traceability
 - Checkpoints ensure incremental validation of agent personalities and interactions
 - Property tests validate universal correctness properties with minimum 100 iterations
 - Unit tests validate specific personality behaviors and edge cases
 - Python backend handles all AI orchestration while frontend remains minimal static HTML
+- All tests are required for comprehensive system validation

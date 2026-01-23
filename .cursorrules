@@ -52,8 +52,9 @@ Muffin Pan Recipes is a high-volume, AI-driven recipe site focused on "Muffin Ti
 - [ ] Technical changes are logged to `project-tracker/data/WARDEN_LOG.yaml`.
 - [ ] `00_Index_*.md` is updated with recent activity.
 - [ ] Code validated (no hardcoded paths, no secrets exposed).
-- [ ] Code review completed (if significant architectural changes).
-- [ ] [Project-specific DoD item]
+    - [ ] Code review completed (if significant architectural changes).
+    - [ ] **Safety:** All file deletions use `send2trash` (Python) or `trash` (Bash). NO `rm` or `shutil.rmtree`.
+    - [ ] [Project-specific DoD item]
 
 ## 🚀 Execution Commands
 - Environment: `{venv_activation}`

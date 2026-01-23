@@ -1,0 +1,74 @@
+{
+  "recipe_id": "e7dcf02c",
+  "title": "Grilled Cheese Muffin Cups",
+  "concept": "Grilled Cheese Muffin Cups",
+  "description": "",
+  "ingredients": [
+    {
+      "item": "unsalted butter, divided",
+      "amount": "1 cup",
+      "notes": "2 sticks"
+    },
+    {
+      "item": "granulated sugar",
+      "amount": "1/2 cup",
+      "notes": ""
+    },
+    {
+      "item": "onion",
+      "amount": "1 large",
+      "notes": "thinly sliced"
+    },
+    {
+      "item": "fig jam",
+      "amount": "1/4 cup",
+      "notes": "such as Bonne Maman"
+    },
+    {
+      "item": "of artisanal bread , cut into 1-inch pieces",
+      "amount": "12 slices",
+      "notes": "such as brioche or challah"
+    },
+    {
+      "item": "grated Gruy\u00e8re cheese",
+      "amount": "1/2 cup",
+      "notes": "such as Emmental or Sbrinz work well too"
+    },
+    {
+      "item": "grated Parmesan cheese",
+      "amount": "1/4 cup",
+      "notes": ""
+    },
+    {
+      "item": "and pepper",
+      "amount": "Salt",
+      "notes": "to taste"
+    }
+  ],
+  "instructions": [
+    "Preheat the oven to 375\u00b0F (190\u00b0C). Line a standard 12-cup muffin tin with parchment paper.",
+    "In a small saucepan, caramelize the onions over medium heat for 20-25 minutes, stirring occasionally. Add the granulated sugar and cook for an additional 5 minutes. Set aside to cool.",
+    "In a separate pan, melt 1/4 cup (1/2 stick) of butter over medium heat. Add the bread pieces and toast until golden brown, about 3-4 minutes per side. Set aside.",
+    "In the same pan used for the bread, add the remaining 1/4 cup (1/2 stick) of butter. Once melted, sprinkle the Gruy\u00e8re cheese over the bottom of each muffin cup. Top with a toasted bread piece and a spoonful of caramelized onions. Drizzle with fig jam.",
+    "Sprinkle the Parmesan cheese over the top of each muffin cup. Season with salt and pepper to taste.",
+    "Bake for 12-15 minutes, or until the cheese is melted and bubbly."
+  ],
+  "servings": 12,
+  "prep_time_minutes": 15,
+  "cook_time_minutes": 20,
+  "difficulty": "medium",
+  "photos": [
+    "muffin_shot_01.jpg",
+    "muffin_shot_02.jpg",
+    "muffin_shot_03.jpg"
+  ],
+  "featured_photo": "muffin_shot_01.jpg",
+  "tags": [],
+  "category": "savory",
+  "slug": "grilled-cheese-muffin-cups",
+  "seo_description": null,
+  "created_by": "AI Creative Team",
+  "created_at": "2026-01-23T08:08:56.104833",
+  "published_at": null,
+  "story_id": "bf8b1bd0"
+}

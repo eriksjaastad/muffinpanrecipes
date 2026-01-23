@@ -1,0 +1,103 @@
+{
+  "recipe_id": "8a6a51da",
+  "title": "Mini Shepherd's Pies in a Muffin Tin",
+  "concept": "Mini Shepherd's Pies",
+  "description": "The humble shepherd's pie, elevated to an art form by its diminutive yet delectable presentation. Like the great Nigel Slater, who once mused on the joys of simple, rustic fare, we find ourselves drawn to this miniature masterpiece, each individual serving a testament to the power of comfort food. The scent of sizzling onions and garlic wafts from the oven, transporting us to the rolling hills of rural England, where traditional lamb pies were born.\n\nAs we assemble our miniaturized version, ground lamb takes center stage, its rich flavor a nod to the hearty traditions of the British countryside. Mixed mushrooms, sliced into delicate crescents, add an earthy depth, their texture evoking the tender flesh of a well-cooked roast. Thyme, that most English of herbs, lends a subtle nuance, its slightly bitter note expertly balanced by the tang of Worcestershire sauce.\n\nThis recipe is not merely a convenience, but an invitation to slow down and savor each bite. As you carefully layer your mixture in the muffin tin, the anticipation builds \u2013 will this be the perfect accompaniment to a cozy evening with friends, or a satisfying repast after a long day's work? The possibilities are endless, much like the memories we forge around the dinner table.\n\nAs I recall my own grandmother's stories of Sunday lunches spent around the kitchen table, I'm reminded that, even in our most mundane routines, there lies an opportunity for warmth and connection. Miniature shepherd's pies, each a self-contained package of love and care, invite us to rekindle this sense of community, one delicious bite at a time.",
+  "ingredients": [
+    {
+      "item": "ground lamb",
+      "amount": "1 lb",
+      "notes": "450g"
+    },
+    {
+      "item": "mixed mushrooms , sliced",
+      "amount": "2 cups",
+      "notes": "250g"
+    },
+    {
+      "item": "onion",
+      "amount": "1 large",
+      "notes": "diced"
+    },
+    {
+      "item": "garlic",
+      "amount": "3 cloves",
+      "notes": "minced"
+    },
+    {
+      "item": "dried thyme",
+      "amount": "1 tsp",
+      "notes": ""
+    },
+    {
+      "item": "Worcestershire sauce",
+      "amount": "1 tsp",
+      "notes": ""
+    },
+    {
+      "item": "and pepper",
+      "amount": "Salt",
+      "notes": "to taste"
+    },
+    {
+      "item": "all-purpose flour",
+      "amount": "2 tbsp",
+      "notes": ""
+    },
+    {
+      "item": "beef broth",
+      "amount": "2 cups",
+      "notes": "475ml"
+    },
+    {
+      "item": "butter",
+      "amount": "2 tbsp",
+      "notes": ""
+    },
+    {
+      "item": "medium-sized potatoes , peeled and diced",
+      "amount": "4-6",
+      "notes": " Russet or Idaho work well"
+    },
+    {
+      "item": "grated cheddar cheese",
+      "amount": "1/4 cup",
+      "notes": "Cabot Clothbound Cheddar or similar"
+    },
+    {
+      "item": "parsley, chopped",
+      "amount": "Fresh",
+      "notes": "optional"
+    }
+  ],
+  "instructions": [
+    "Preheat oven to 375\u00b0F (190\u00b0C). Grease a standard 12-cup muffin tin with butter or non-stick cooking spray.",
+    "In a large skillet over medium-high heat, cook the ground lamb until browned, breaking it up into small pieces as it cooks.",
+    "Add the sliced mushrooms, diced onion, garlic, thyme, and Worcestershire sauce to the skillet. Cook until the vegetables are tender, about 5-7 minutes.",
+    "Stir in the flour and cook for 1 minute.",
+    "Gradually add the beef broth to the skillet, whisking constantly to avoid lumps. Bring the mixture to a simmer and cook until it thickens slightly, about 3-4 minutes. Season with salt and pepper to taste.",
+    "In a separate pot, boil the diced potatoes in salted water until they are tender, about 15-20 minutes. Drain the potatoes and mash with butter, salt, and pepper until smooth.",
+    "Divide the lamb and mushroom mixture evenly among the muffin cups, filling each about 3/4 of the way full.",
+    "Top each muffin cup with a dollop of mashed potato, spreading it to cover the filling completely.",
+    "Sprinkle grated cheddar cheese over the potatoes.",
+    "Bake the mini shepherd's pies in the preheated oven for 25-30 minutes, or until the potatoes are golden brown and the filling is hot and bubbly."
+  ],
+  "servings": 12,
+  "prep_time_minutes": 25,
+  "cook_time_minutes": 30,
+  "difficulty": "medium",
+  "photos": [
+    "muffin_shot_01.jpg",
+    "muffin_shot_02.jpg",
+    "muffin_shot_03.jpg"
+  ],
+  "featured_photo": "muffin_shot_01.jpg",
+  "tags": [],
+  "category": "savory",
+  "slug": "mini-shepherd's-pies",
+  "seo_description": null,
+  "created_by": "AI Creative Team",
+  "created_at": "2026-01-23T08:36:44.203397",
+  "published_at": null,
+  "story_id": "ae1bb2fe"
+}
