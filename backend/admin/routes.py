@@ -366,11 +366,15 @@ def create_routes(app: FastAPI):
     
     # ==================== NEWSLETTER ROUTES ====================
     
+    class NewsletterSubscribeRequest(BaseModel):
+        """Newsletter subscription request."""
+        email: str
+    
     @app.post("/api/newsletter/subscribe")
-    async def newsletter_subscribe(email: str):
+    async def newsletter_subscribe(request_data: NewsletterSubscribeRequest):
         """Public endpoint for newsletter subscription."""
         manager = NewsletterManager()
-        result = await manager.subscribe(email)
+        result = await manager.subscribe(request_data.email)
         
         if result["success"]:
             return {"success": True, "message": "Successfully subscribed to newsletter!"}
