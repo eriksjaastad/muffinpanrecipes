@@ -22,7 +22,7 @@ logger = get_logger(__name__)
 class BakerAgent(Agent):
     """
     Margaret Chen - The Baker
-    
+
     A skilled traditionalist who mutters her way through modern food trends
     while secretly perfecting recipes nobody asked her to improve.
     """
@@ -32,25 +32,25 @@ class BakerAgent(Agent):
     ) -> TaskResult:
         """
         Execute baking-related tasks with Margaret's personality.
-        
+
         Task types:
         - create_recipe: Develop a muffin tin recipe
         - review_recipe: Review and critique a recipe
         - test_recipe: Test and refine a recipe
         """
         logger.info(f"Margaret: Executing {task.type} task")
-        
+
         # Margaret measures twice and checks ratios
         if "extra_quality_validation" in approach.extra_steps:
             logger.debug("Margaret: Double-checking ratios...")
-        
+
         # Check for triggers
         triggered = False
         for trigger in ["matcha", "activated charcoal", "edible flowers"]:
             if trigger.lower() in task.content.lower():
                 triggered = True
                 logger.debug(f"Margaret: *mutters under breath about {trigger}*")
-        
+
         if task.type == "create_recipe":
             return self._create_recipe(task, approach, context, triggered)
         elif task.type == "review_recipe":
@@ -63,41 +63,71 @@ class BakerAgent(Agent):
     def _create_recipe(
         self, task: Task, approach: TaskApproach, context: MemoryContext, triggered: bool
     ) -> TaskResult:
-        """Create a muffin tin recipe with Margaret's expertise."""
-        
+        """Create a muffin tin recipe with Margaret's expertise using LLM."""
+
         # Extract recipe concept from task
-        concept = task.content
-        
-        # Margaret's approach: traditional technique, proper ratios, maybe a mutter
-        components = {
-            "concept": concept,
-            "ingredients": self._generate_ingredients(concept, triggered),
-            "instructions": self._generate_instructions(concept, approach),
-            "margaret_notes": []
+        concept = task.context.get("concept", task.content)
+        # Clean up any prompt leakage
+        if concept.startswith("Create a muffin tin recipe for:"):
+            concept = concept.replace("Create a muffin tin recipe for:", "").strip()
+
+        logger.info(f"Margaret: Developing recipe for '{concept}'")
+
+        # Build personality context for the LLM
+        personality_context = {
+            "name": self.personality.name,
+            "backstory": self.personality.backstory,
+            "quirks": self.personality.quirks,
+            "core_traits": self.personality.core_traits,
         }
-        
-        # Add personality notes based on approach
+
+        # Generate recipe using LLM
+        try:
+            ollama = get_ollama_client()
+            recipe_data = ollama.generate_recipe(
+                concept=concept,
+                personality_context=personality_context,
+            )
+            logger.info(f"Margaret: Recipe generated - {recipe_data.get('title', concept)}")
+        except Exception as e:
+            logger.error(f"Margaret: LLM generation failed: {e}")
+            # Fall back to basic structure with error note
+            recipe_data = self._fallback_recipe(concept)
+
+        # Ensure concept is preserved in output (tests expect this)
+        recipe_data["concept"] = concept
+
+        # Add Margaret's personality notes
+        margaret_notes = []
         if triggered:
-            components["margaret_notes"].append("*mutters* Fine. If they want trendy...")
-        
+            margaret_notes.append("*mutters* Fine. If they want trendy...")
+
         if approach.modifications and "prefer_traditional_approach" in approach.modifications:
-            components["margaret_notes"].append("At least we're doing the technique correctly.")
-        
-        # Margaret always includes temperature notes
-        components["margaret_notes"].append("Check oven temp with a thermometer. Don't trust the dial.")
-        
+            margaret_notes.append("At least we're doing the technique correctly.")
+
+        margaret_notes.append("Check oven temp with a thermometer. Don't trust the dial.")
+
+        if recipe_data.get("chef_notes"):
+            margaret_notes.append(recipe_data["chef_notes"])
+
+        recipe_data["margaret_notes"] = margaret_notes
+
+        # Build insights based on what was generated
         insights = [
             "Verified ratios match traditional formulations",
             "Considered structural integrity in muffin tin format",
         ]
-        
+
         if triggered:
             insights.append("Incorporated trendy ingredient while maintaining proper technique")
-        
+
+        if recipe_data.get("description"):
+            insights.append(f"Created: {recipe_data['title']}")
+
         return TaskResult(
             task_id=task.id,
             success=True,
-            output=components,
+            output=recipe_data,
             insights=insights,
             personality_notes=[
                 "Margaret measured ingredients twice",
@@ -106,51 +136,39 @@ class BakerAgent(Agent):
             ],
         )
 
-    def _generate_ingredients(self, concept: str, triggered: bool) -> list:
-        """Generate ingredient list with proper ratios."""
-        # This is a placeholder - in a real implementation, we'd use Ollama here
-        # For now, return a structured ingredient list
-        ingredients = [
-            {"item": "all-purpose flour", "amount": "2 cups", "notes": "measured correctly"},
-            {"item": "eggs", "amount": "2 large", "notes": "room temperature"},
-            {"item": "butter", "amount": "1/2 cup", "notes": "melted and cooled"},
-            {"item": "milk", "amount": "1 cup", "notes": "whole milk preferred"},
-            {"item": "baking powder", "amount": "2 tsp", "notes": "check freshness"},
-            {"item": "salt", "amount": "1/2 tsp", "notes": "kosher salt"},
-        ]
-        
-        if triggered:
-            ingredients.append({"item": "matcha powder", "amount": "1 tbsp", "notes": "*sigh*"})
-        
-        return ingredients
-
-    def _generate_instructions(self, concept: str, approach: TaskApproach) -> list:
-        """Generate detailed instructions with Margaret's precision."""
-        instructions = [
-            "Preheat oven to 375°F (verify with oven thermometer)",
-            "Grease muffin tin thoroughly - use butter, not spray",
-            "Mix dry ingredients in one bowl, wet in another (basic technique matters)",
-            "Combine wet and dry with minimal mixing - don't overdevelop the gluten",
-            "Fill cups 2/3 full - this isn't approximate, it's 2/3",
-            "Bake 18-22 minutes until top springs back when touched",
-            "Let cool in pan 5 minutes, then turn out onto wire rack",
-        ]
-        
-        if "extra_quality_validation" in approach.extra_steps:
-            instructions.append("Check doneness with toothpick in center - should come out clean")
-        
-        return instructions
+    def _fallback_recipe(self, concept: str) -> Dict[str, Any]:
+        """Fallback recipe structure when LLM is unavailable."""
+        logger.warning(f"Using fallback recipe for: {concept}")
+        return {
+            "title": concept,
+            "concept": concept,
+            "description": f"A classic muffin tin preparation of {concept}.",
+            "servings": 12,
+            "prep_time": 15,
+            "cook_time": 20,
+            "difficulty": "medium",
+            "category": "savory",
+            "ingredients": [
+                {"item": "See recipe notes", "amount": "", "notes": "LLM unavailable"},
+            ],
+            "instructions": [
+                "Preheat oven to 375°F",
+                "Prepare muffin tin with non-stick spray",
+                "Recipe generation unavailable - please try again",
+            ],
+            "chef_notes": "LLM was unavailable. Margaret is not pleased.",
+        }
 
     def _review_recipe(
         self, task: Task, approach: TaskApproach, context: MemoryContext
     ) -> TaskResult:
         """Review a recipe with Margaret's critical eye."""
-        
+
         review_notes = [
             "Checked ratios - they're... acceptable",
             "Technique is mostly sound",
         ]
-        
+
         # Margaret always finds something
         criticism = random.choice([
             "Could be more precise with measurements",
@@ -159,7 +177,7 @@ class BakerAgent(Agent):
             "Doesn't specify what 'room temperature' means",
         ])
         review_notes.append(criticism)
-        
+
         return TaskResult(
             task_id=task.id,
             success=True,
@@ -193,7 +211,7 @@ class BakerAgent(Agent):
     def get_emotional_response(self, task: Task, result: TaskResult) -> EmotionalResponse:
         """
         Generate Margaret's emotional response to task outcomes.
-        
+
         She's grumpy but professional. Success brings quiet satisfaction,
         failure brings irritation at herself.
         """
@@ -202,7 +220,7 @@ class BakerAgent(Agent):
             trigger.lower() in task.content.lower()
             for trigger in self.personality.triggers
         )
-        
+
         if not result.success:
             # Margaret is harder on herself than others
             intensity = -0.6
@@ -215,13 +233,13 @@ class BakerAgent(Agent):
             # Quiet professional satisfaction
             intensity = 0.4
             description = "Fine. Recipe is solid. Ratios are correct."
-        
+
         # Perfectionism adds pressure
         if self.personality.core_traits.get("perfectionism", 0) > 0.7:
             if result.success:
                 intensity -= 0.1  # Even success has anxiety
                 description += " Could be better though."
-        
+
         return EmotionalResponse(
             intensity=intensity,
             personality_factors={

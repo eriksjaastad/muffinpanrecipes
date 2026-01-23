@@ -57,12 +57,17 @@ def test_complete_recipe_production_workflow():
         expected_roles = {"baker", "art_director", "copywriter", "creative_director", "site_architect"}
         assert agent_roles == expected_roles, "All agents should have contributed"
         
-        # Verify files were saved
-        recipe_file = tmp_path / "output" / "recipes" / f"{recipe.slug}.json"
+        # Verify files were saved (PRD 10.5 structure: recipes/pending/{recipe_id}.json)
+        recipe_file = tmp_path / "output" / "recipes" / "pending" / f"{recipe.recipe_id}.json"
         story_file = tmp_path / "output" / "stories" / f"story_{story.story_id}.json"
-        
-        assert recipe_file.exists(), "Recipe should be saved to file"
-        assert story_file.exists(), "Story should be saved to file"
+
+        assert recipe_file.exists(), f"Recipe should be saved to file: {recipe_file}"
+        assert story_file.exists(), f"Story should be saved to file: {story_file}"
+
+        # Verify recipe has pending status
+        from backend.data.recipe import Recipe, RecipeStatus
+        loaded_recipe = Recipe.load_from_file(recipe_file)
+        assert loaded_recipe.status == RecipeStatus.PENDING, "New recipes should have pending status"
 
 
 def test_agent_personalities_persist_through_production():

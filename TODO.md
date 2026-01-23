@@ -1,6 +1,6 @@
 # Muffin Pan Recipes — Roadmap
 
-**Last Update:** January 4, 2026
+**Last Update:** January 23, 2026
 **Status:** 🧁 PHASE 4: THE "VESSEL" EXPANSION (Graduated to Production Ready)
 
 ---
@@ -20,29 +20,121 @@ If the format works, you've essentially built a reality show where the cast impr
 
 ---
 
-## 🚀 NEXT SESSION: AI Creative Team (January 23, 2026)
+## 🚀 CURRENT SESSION: AI Creative Team (January 23, 2026)
 
-**Status:** Core backend complete (31 tests passing). Frontend and polish remaining.
+**Status:** LLM integration complete! Margaret (baker) and Marcus (copywriter) now generate real content. Discord notifications working. **BUT** recipes have nowhere to go yet.
 
-### 🔴 FIRST: Proof of Life
-Before touching frontend, run one REAL recipe through the orchestrator:
-```python
-from backend.orchestrator import RecipeOrchestrator
-orchestrator = RecipeOrchestrator()
-recipe, story = orchestrator.produce_recipe("Savory Breakfast Egg Muffins")
-```
-Review the output JSON. Do Margaret and Marcus's voices come through? If personalities feel flat, fix that before making it pretty. If they sing, proceed to frontend.
+### ✅ COMPLETED THIS SESSION
+- [x] **Proof of Life** - Recipes generate with real ingredients and instructions
+- [x] **LLM Integration (Margaret)** - Baker generates unique muffin tin recipes via Ollama
+- [x] **LLM Integration (Marcus)** - Copywriter writes 2000+ char literary descriptions
+- [x] **Discord Notifications** - Webhook sends recipe alerts when ready for review
+- [x] **Test Suite Updated** - 31 tests passing with realistic recipe inputs
+- [x] **Recipe Storage (A1)** - Recipes persist to JSON with status tracking (pending→approved→published)
 
-### 🟡 Task 10: Frontend Updates
-- [ ] Featured recipe section (above existing grid - DO NOT break grid)
-- [ ] Newsletter signup form (between featured and grid)
-- [ ] Story preview section with curated creative process content
-- [ ] Link to dedicated story page showing full creation process
+---
 
-### 🟡 Task 12: Configuration & Management Tools
+## 📊 HONEST INVENTORY: What We Have vs Don't Have
+
+### ✅ What EXISTS
+| Component | Status | Notes |
+|-----------|--------|-------|
+| Static site | ✅ Live | 10 recipes on muffinpanrecipes.com |
+| Homepage + grid | ✅ Works | Category filtering, mobile-responsive |
+| Recipe pages | ✅ Works | 10 static HTML pages (Jan 4 content) |
+| Vercel deployment | ✅ Live | Auto-deploy from GitHub |
+| LLM recipe generation | ✅ Works | Margaret generates real recipes |
+| LLM descriptions | ✅ Works | Marcus writes 2000+ char literary descriptions |
+| Discord notifications | ✅ Works | Alerts when recipes are generated |
+| Recipe storage | ✅ Works | JSON files in data/recipes/{pending,approved,published}/ |
+| Test suite | ✅ Passing | 31 tests |
+
+### ❌ What DOESN'T EXIST
+| Gap | Impact | Priority |
+|-----|--------|----------|
+| **Recipe → HTML pipeline** | Can't publish new recipes to site | 🔴 Critical |
+| **Admin dashboard** | No UI to manage anything | 🔴 Critical |
+| **Google OAuth** | No authentication | 🟡 High |
+| **Review URLs** | Can't preview before publish | 🟡 High |
+| **Recipe of the week** | No featured content | 🟡 High |
+| **Newsletter signup** | Can't capture audience | 🟡 High |
+| **Email address/system** | No email for muffinpanrecipes.com | 🟡 High |
+| **Story/BTS pages** | AI personalities have no public presence | 🔵 Medium |
+| **Image generation** | Using placeholders (Phase 3 done but not connected) | 🔵 Medium |
+
+### 📈 Pipeline Stage Status
+
+| Stage | Agent | Status | Notes |
+|-------|-------|--------|-------|
+| 1. Recipe Development | Margaret (Baker) | ✅ Working | LLM generates real recipes |
+| 2. Photography | Julian (Art Director) | ⚠️ Placeholder | No image gen connected |
+| 3. Copywriting | Marcus (Copywriter) | ✅ Working | LLM writes 2000+ char descriptions |
+| 4. Creative Review | Steph (Creative Director) | ⚠️ Placeholder | Always approves (no real review) |
+| 5. Human Review | Erik | ❌ Missing | No admin dashboard |
+| 6. Deployment | Devon (Site Architect) | ⚠️ Disconnected | build_site.py exists, not in pipeline |
+| 7. Social Distribution | TBD | ❌ Missing | Not started |
+| Revision Loop | — | ❌ Missing | No implementation |
+| Screenwriter | — | ⚠️ Partial | Moments captured, no agent |
+
+**See full workflow:** [Documents/WORKFLOW_DIAGRAM.md](Documents/WORKFLOW_DIAGRAM.md)
+
+---
+
+## 🔴 PHASE A: Make Generated Recipes Usable (CURRENT PRIORITY)
+
+### A1: Recipe Storage ✅ COMPLETE
+- [x] **Save recipes to JSON** - Persist to `data/recipes/pending/{recipe_id}.json`
+- [x] **Recipe status tracking** - RecipeStatus enum (pending → approved → published → rejected)
+- [x] **Status transitions** - `recipe.transition_status()` moves files between directories
+- [x] **Include story data** - CreationStory saved alongside recipe
+
+### A2: Recipe Publishing Pipeline → **LIGHT PATH**
+> Existing `build_site.py` + <3 files = Light Path per Project-workflow.md
+
+- [ ] **Recipe → HTML generator** - Extend `build_site.py` to handle new recipes
+- [ ] **Image placeholder handling** - Use placeholder until real image exists
+- [ ] **Deployment trigger** - Push approved recipes to Vercel
+- [ ] **Status update** - Mark recipe as `published` after deploy
+
+### A3 + A4: Admin Dashboard + Auth → **NEEDS KIRO SPECS**
+> Substantial new work (FastAPI app, multiple routes, auth) = Full Workflow
+
+**Action Required:** Create new Kiro spec for admin-dashboard feature before implementation.
+- PRD Section 10.5 has intent (API endpoints, auth requirements)
+- Kiro will generate: EARS requirements, design, tasks
+
+Planned scope:
+- [ ] **Google OAuth** - Login with Google account
+- [ ] **FastAPI app** - `/admin` routes with protected access
+- [ ] **Recipe list view** - See all pending/approved/published
+- [ ] **Recipe detail/preview** - Full preview before approval
+- [ ] **Approve/Reject/Publish** - Move recipes through pipeline
+
+---
+
+## 🟡 PHASE B: Frontend Enhancements
+
+### B1: Homepage Updates
+- [ ] **Recipe of the week section** - Featured content above grid
+- [ ] **Newsletter signup form** - Email capture UI
+
+### B2: Email System
+- [ ] **Set up email address** - hello@muffinpanrecipes.com or similar
+- [ ] **Newsletter backend** - Store signups, send emails
+
+### B3: Story/Behind-the-Scenes
+- [ ] **Story page template** - Show creative process
+- [ ] **Story preview on recipe pages** - Link to full story
+
+---
+
+## 🔵 PHASE C: Configuration & Management
+
 - [ ] Agent configuration viewer/editor
 - [ ] Pipeline monitoring dashboard
 - [ ] Agent performance metrics
+
+---
 
 ### Reference
 - Kiro specs: `.kiro/specs/ai-creative-team/`

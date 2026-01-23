@@ -4,16 +4,26 @@ Recipe and CreationStory data models.
 These models represent the final output of the AI Creative Team.
 """
 
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Literal
 from datetime import datetime
 from pathlib import Path
+from enum import Enum
 import json
+import shutil
 
 from pydantic import BaseModel, Field
 
 from backend.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+class RecipeStatus(str, Enum):
+    """Recipe lifecycle states per PRD Section 10.5."""
+    PENDING = "pending"
+    APPROVED = "approved"
+    PUBLISHED = "published"
+    REJECTED = "rejected"
 
 
 class Recipe(BaseModel):
@@ -55,41 +65,127 @@ class Recipe(BaseModel):
     slug: str = Field(description="URL-friendly slug")
     seo_description: Optional[str] = None
     
+    # Status and lifecycle (PRD Section 10.5)
+    status: RecipeStatus = Field(
+        default=RecipeStatus.PENDING,
+        description="Recipe lifecycle status: pending → approved → published (or rejected)"
+    )
+    updated_at: datetime = Field(default_factory=datetime.now)
+    review_notes: Optional[str] = Field(
+        default=None, description="Notes from human review (Erik)"
+    )
+
     # Creation tracking
     created_by: str = Field(default="AI Creative Team", description="Creator attribution")
     created_at: datetime = Field(default_factory=datetime.now)
     published_at: Optional[datetime] = None
-    
+
     # Story reference
     story_id: Optional[str] = Field(
         default=None, description="Reference to CreationStory"
     )
     
-    def save_to_file(self, output_dir: Path) -> Path:
+    def save_to_file(self, output_dir: Path, use_status_dir: bool = True) -> Path:
         """
         Save recipe to JSON file.
-        
+
         Args:
-            output_dir: Directory to save recipe
-            
+            output_dir: Base directory for recipe storage (e.g., data/recipes)
+            use_status_dir: If True, saves to status subdirectory (pending/, approved/, etc.)
+
         Returns:
             Path to saved file
         """
-        output_dir.mkdir(parents=True, exist_ok=True)
-        filepath = output_dir / f"{self.slug}.json"
-        
+        if use_status_dir:
+            # Use status-based directory structure per PRD Section 10.5
+            status_dir = output_dir / self.status.value
+        else:
+            status_dir = output_dir
+
+        status_dir.mkdir(parents=True, exist_ok=True)
+        filepath = status_dir / f"{self.recipe_id}.json"
+
+        # Update timestamp
+        self.updated_at = datetime.now()
+
         with open(filepath, "w") as f:
             json.dump(self.model_dump(mode="json"), f, indent=2, default=str)
-        
-        logger.info(f"Saved recipe: {filepath}")
+
+        logger.info(f"Saved recipe [{self.status.value}]: {filepath}")
         return filepath
-    
+
     @classmethod
     def load_from_file(cls, filepath: Path) -> "Recipe":
         """Load recipe from JSON file."""
         with open(filepath, "r") as f:
             data = json.load(f)
         return cls(**data)
+
+    def transition_status(
+        self,
+        new_status: RecipeStatus,
+        base_dir: Path,
+        notes: Optional[str] = None
+    ) -> Path:
+        """
+        Transition recipe to a new status and move file to appropriate directory.
+
+        Args:
+            new_status: The new status to transition to
+            base_dir: Base directory containing status subdirectories
+            notes: Optional review notes (for reject/approve)
+
+        Returns:
+            Path to the new file location
+        """
+        old_status = self.status
+        old_filepath = base_dir / old_status.value / f"{self.recipe_id}.json"
+
+        # Update status
+        self.status = new_status
+        self.updated_at = datetime.now()
+
+        if notes:
+            self.review_notes = notes
+
+        if new_status == RecipeStatus.PUBLISHED:
+            self.published_at = datetime.now()
+
+        # Save to new location
+        new_filepath = self.save_to_file(base_dir, use_status_dir=True)
+
+        # Remove old file if it exists and is different
+        if old_filepath.exists() and old_filepath != new_filepath:
+            old_filepath.unlink()
+            logger.info(f"Removed old file: {old_filepath}")
+
+        logger.info(f"Transitioned recipe {self.recipe_id}: {old_status.value} → {new_status.value}")
+        return new_filepath
+
+    @classmethod
+    def list_by_status(cls, base_dir: Path, status: RecipeStatus) -> List["Recipe"]:
+        """
+        List all recipes with a given status.
+
+        Args:
+            base_dir: Base directory containing status subdirectories
+            status: The status to filter by
+
+        Returns:
+            List of Recipe objects
+        """
+        status_dir = base_dir / status.value
+        if not status_dir.exists():
+            return []
+
+        recipes = []
+        for filepath in status_dir.glob("*.json"):
+            try:
+                recipes.append(cls.load_from_file(filepath))
+            except Exception as e:
+                logger.error(f"Failed to load recipe from {filepath}: {e}")
+
+        return recipes
 
 
 class AgentContribution(BaseModel):

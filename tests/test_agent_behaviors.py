@@ -5,7 +5,7 @@ Feature: ai-creative-team
 """
 
 import pytest
-from hypothesis import given, strategies as st
+from hypothesis import given, strategies as st, settings
 from pathlib import Path
 
 from backend.agents.factory import create_agent, load_personality_config
@@ -13,11 +13,21 @@ from backend.core.task import Task
 from backend.memory.agent_memory import AgentMemory
 
 
-# Strategy for recipe concepts
-recipe_concepts = st.text(min_size=10, max_size=100)
+# Strategy for recipe concepts - realistic food names, not random Unicode
+recipe_concepts = st.sampled_from([
+    "Chocolate Chip Muffins",
+    "Savory Breakfast Egg Cups",
+    "Mini Meatloaf Bites",
+    "Spinach Artichoke Dip Cups",
+    "Apple Cinnamon Oat Muffins",
+    "BBQ Pulled Pork Cups",
+    "Blueberry Lemon Muffins",
+    "Mini Quiche Lorraine",
+])
 
 
 # Feature: ai-creative-team, Property 4: Baker Recipe Creation
+@settings(deadline=60000, max_examples=2)  # 60s deadline for LLM calls, limited examples
 @given(recipe_concept=recipe_concepts)
 def test_baker_recipe_creation(recipe_concept: str) -> None:
     """

@@ -1,0 +1,87 @@
+{
+  "recipe_id": "c6908e77",
+  "title": "Cinnamon Swirl Banana Nut Muffin Bites",
+  "concept": "Banana Nut Muffins",
+  "description": "In the warmth of autumn, when the air is crisp and the scent of wood smoke wafts through the streets, our memories of childhood mornings begin to stir. Do you remember the excitement of waking up early on Sundays, only to find a plate of golden-brown muffin tops, freshly baked in the oven? The anticipation of taking that first bite, the crunch of the topping giving way to the softness within, and the sweet, comforting taste of home.\n\nIt's this sense of nostalgia that we've captured in our Cinnamon Swirl Banana Nut Muffin Bites. These bite-sized morsels are a modern twist on the classic Sunday morning treat, with the added delight of being easy to devour on-the-go. The sweetness of ripe bananas and the warmth of cinnamon evoke memories of lazy mornings spent lounging by the kitchen table, watching as our parents expertly juggle mixing bowls and baking sheets.\n\nTo create these muffin bites, we'll need just a few simple ingredients: all-purpose flour, granulated sugar, baking powder, ground cinnamon, salt, unsalted butter, melted. But it's not just about the sum of their parts - it's about how they come together to form something greater than the whole. The tender crumb of the banana, the crunch of toasted nuts, and the sweetness of cinnamon all blend together in perfect harmony.\n\nAs we work on these muffin bites, let us remember that even in the simplest moments, there is beauty to be found. The gentle lapping of the butter against the sides of the bowl, the soft whoosh of sugar as it dissolves into the liquid, and the satisfying crunch of nuts toasted to perfection - each step is a reminder that the art of baking is not just about following a recipe, but about coaxing beauty from the ordinary.\n\nAs these muffin bites emerge from the oven, golden-brown and fragrant, we're reminded that sometimes it's the smallest pleasures in life that bring us the greatest joy. And so let us savor each bite, and cherish the memories that they evoke.",
+  "ingredients": [
+    {
+      "item": "all-purpose flour",
+      "amount": "2 3/4 cups",
+      "notes": "King Arthur Unbleached All-Purpose Flour"
+    },
+    {
+      "item": "granulated sugar",
+      "amount": "1 cup",
+      "notes": "C&H Pure Cane Granulated Sugar"
+    },
+    {
+      "item": "baking powder",
+      "amount": "2 teaspoons",
+      "notes": "Clabber Girl Baking Powder"
+    },
+    {
+      "item": "ground cinnamon",
+      "amount": "1 teaspoon",
+      "notes": "McCormick Ground Cinnamon"
+    },
+    {
+      "item": "salt",
+      "amount": "1/4 teaspoon",
+      "notes": "Maldon Sea Salt"
+    },
+    {
+      "item": "unsalted butter, melted",
+      "amount": "1/2 cup",
+      "notes": "Kerrygold Unsalted Butter"
+    },
+    {
+      "item": "eggs",
+      "amount": "2 large",
+      "notes": ""
+    },
+    {
+      "item": "ripe bananas",
+      "amount": "2",
+      "notes": "mashed"
+    },
+    {
+      "item": "chopped pecans",
+      "amount": "1/4 cup",
+      "notes": "C&H Pecan Halves"
+    },
+    {
+      "item": "honey",
+      "amount": "1 tablespoon",
+      "notes": ""
+    }
+  ],
+  "instructions": [
+    "Preheat the oven to 375\u00b0F (190\u00b0C) with a rack positioned in the center of the oven.",
+    "Line a standard 12-cup muffin tin with paper liners, leaving about 1/4 inch of parchment at the top for easy removal.",
+    "In a medium bowl, whisk together flour, sugar, baking powder, cinnamon, and salt.",
+    "In a large bowl, combine melted butter, eggs, mashed bananas, chopped pecans, and honey. Whisk until smooth.",
+    "Add the dry ingredients to the wet ingredients, mixing on low speed until just combined (about 30 seconds).",
+    "Divide the batter evenly among 12 muffin cups, filling each about 2/3 full.",
+    "Use a spoon to create a swirl pattern in each cup by dolloping a small amount of batter onto the surface and then using your finger or a knife to create a spiral design.",
+    "Bake for 18-20 minutes or until the edges are golden brown and the centers are set.",
+    "Remove from the oven and let cool completely in the tin before serving."
+  ],
+  "servings": 12,
+  "prep_time_minutes": 30,
+  "cook_time_minutes": 18,
+  "difficulty": "medium",
+  "photos": [
+    "muffin_shot_01.jpg",
+    "muffin_shot_02.jpg",
+    "muffin_shot_03.jpg"
+  ],
+  "featured_photo": "muffin_shot_01.jpg",
+  "tags": [],
+  "category": "savory/snack/breakfast",
+  "slug": "banana-nut-muffins",
+  "seo_description": null,
+  "created_by": "AI Creative Team",
+  "created_at": "2026-01-23T08:36:16.431790",
+  "published_at": null,
+  "story_id": "63b344f2"
+}

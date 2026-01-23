@@ -1,0 +1,51 @@
+{
+  "recipe_id": "0fbc5ca5",
+  "title": "Mini Pepperoni Pizza Bites with Garlic Parmesan Crust",
+  "concept": "Pepperoni Pizza Bites",
+  "description": "In the quaint Italian towns that dot the rolling hills of Tuscany, snack time was always a celebration. Children would gather 'round their nonnas, watching as she carefully crafted miniature pizzas in the family kitchen. The air was alive with laughter and the scent of freshly baked bread, the promise of which still wafts through the valleys like a warm breeze on a summer's day.\n\nThese Mini Pepperoni Pizza Bites with Garlic Parmesan Crust are the distillation of that afternoon ritual \u2013 a delicious marriage of love, nostalgia, and simplicity. The crispy garlic parmesan crust is reminiscent of those golden-brown focaccias served at family gatherings, its crunchy texture giving way to a rich, savory flavor. Meanwhile, the tangy tomato sauce serves as a nod to the generations of women who lovingly crafted sauces from scratch, their secret recipes passed down through the years like treasured heirlooms.\n\nAnd then there's the filling \u2013 the crowning glory of these diminutive masterpieces. A delicate balance of melted mozzarella and pepperoni slices, each one carefully selected for its perfect balance of flavor and texture. Together, they create a flavor profile that is at once both familiar and excitingly new.\n\nAs you assemble these bite-sized wonders in your muffin tin, the kitchen begins to feel like an Italian trattoria \u2013 the kind of place where time stands still and all that matters is sharing stories over steaming plates of food. And when the timer finally goes off, signaling the pizza bites' tender, golden-brown arrival, you'll be rewarded with a culinary experience that's equal parts comfort food and celebration.",
+  "ingredients": [
+    {
+      "item": "the Garlic Parmesan Crust:",
+      "amount": "For",
+      "notes": ""
+    },
+    {
+      "item": "the Tomato Sauce:",
+      "amount": "For",
+      "notes": ""
+    },
+    {
+      "item": "the Filling:",
+      "amount": "For",
+      "notes": ""
+    }
+  ],
+  "instructions": [
+    "Preheat your oven to 425\u00b0F (220\u00b0C). Line a standard 12-cup muffin tin with paper liners.",
+    "In a medium bowl, mix together the softened butter and Parmesan cheese until well combined. Add the minced garlic and chopped parsley; mix until smooth.",
+    "Divide the Garlic Parmesan Crust mixture evenly among the 12 muffin cups. Use your fingers or a small offset spatula to press the crust mixture into each cup, making sure to cover the bottom and sides of the tin.",
+    "Bake the crusts for 8-10 minutes, or until lightly browned. Let cool slightly.",
+    "In a separate bowl, mix together the crushed tomatoes, olive oil, salt, and pepper. Stir in the chopped basil.",
+    "Place a cooked crust into each muffin cup. Spoon about 1 tablespoon of the Tomato Sauce over the crust, followed by a slice of mozzarella cheese and a few slices of pepperoni.",
+    "Bake for an additional 10-12 minutes, or until the cheese is melted and bubbly.",
+    "Remove from the oven and let cool in the tin for 2-3 minutes before transferring to a wire rack to cool completely."
+  ],
+  "servings": 12,
+  "prep_time_minutes": 20,
+  "cook_time_minutes": 18,
+  "difficulty": "medium",
+  "photos": [
+    "muffin_shot_01.jpg",
+    "muffin_shot_02.jpg",
+    "muffin_shot_03.jpg"
+  ],
+  "featured_photo": "muffin_shot_01.jpg",
+  "tags": [],
+  "category": "savory snack/bite-sized appetizer",
+  "slug": "pepperoni-pizza-bites",
+  "seo_description": null,
+  "created_by": "AI Creative Team",
+  "created_at": "2026-01-23T08:35:48.505063",
+  "published_at": null,
+  "story_id": "8e8d7e7b"
+}

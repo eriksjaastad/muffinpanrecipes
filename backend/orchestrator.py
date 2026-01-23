@@ -19,6 +19,7 @@ from backend.data.recipe import Recipe, CreationStory, AgentContribution
 from backend.data.agent_profile import AgentProfile
 from backend.core.task import Task
 from backend.utils.logging import get_logger
+from backend.utils.discord import notify_recipe_ready
 
 logger = get_logger(__name__)
 
@@ -38,19 +39,29 @@ class RecipeOrchestrator:
     ):
         """
         Initialize the orchestrator.
-        
+
         Args:
-            data_dir: Directory for recipe and story output
+            data_dir: Base directory for all data storage
             message_storage: Directory for message history
             memory_storage: Directory for agent memories
         """
-        # Storage paths
-        self.data_dir = data_dir or Path("data/recipes_output")
+        # Storage paths - PRD Section 10.5 structure
+        self.data_dir = data_dir or Path("data")
+        self.recipes_dir = self.data_dir / "recipes"  # Contains pending/, approved/, published/, rejected/
+        self.stories_dir = self.data_dir / "stories"
         self.message_storage = message_storage or Path("data/messages")
         self.memory_storage = memory_storage or Path("data/agent_memories")
-        
-        # Create directories
-        for dir_path in [self.data_dir, self.message_storage, self.memory_storage]:
+
+        # Create directories including status subdirectories
+        for dir_path in [
+            self.recipes_dir / "pending",
+            self.recipes_dir / "approved",
+            self.recipes_dir / "published",
+            self.recipes_dir / "rejected",
+            self.stories_dir,
+            self.message_storage,
+            self.memory_storage
+        ]:
             dir_path.mkdir(parents=True, exist_ok=True)
         
         # Initialize systems
@@ -179,16 +190,24 @@ class RecipeOrchestrator:
             # Finalize creation story
             self._finalize_story()
             
-            # Save outputs
-            recipe.save_to_file(self.data_dir / "recipes")
-            self.current_story.save_to_file(self.data_dir / "stories")
+            # Save outputs - recipes go to pending/ for human review
+            recipe.save_to_file(self.recipes_dir, use_status_dir=True)
+            self.current_story.save_to_file(self.stories_dir)
             
             logger.info(f"\n{'='*70}")
             logger.info(f"✅ RECIPE PRODUCTION COMPLETE: {recipe.title}")
             logger.info(f"   Recipe ID: {recipe_id}")
             logger.info(f"   Story ID: {story_id}")
             logger.info(f"{'='*70}\n")
-            
+
+            # Send Discord notification for review
+            notify_recipe_ready(
+                recipe_title=recipe.title,
+                recipe_id=recipe_id,
+                description_preview=recipe.description,
+                ingredient_count=len(recipe.ingredients),
+            )
+
             return recipe, self.current_story
             
         except Exception as e:
@@ -323,16 +342,21 @@ class RecipeOrchestrator:
         # Generate slug
         slug = concept.lower().replace(" ", "-")[:50]
         
+        # Use baker's description if copywriter didn't provide one
+        description = copy_text.get("body", "") or recipe_data.get("description", "")
+
         recipe = Recipe(
             recipe_id=recipe_id,
-            title=recipe_data.get("concept", concept),
+            title=recipe_data.get("title", concept),
             concept=concept,
-            description=copy_text.get("body", ""),
+            description=description,
             ingredients=recipe_data.get("ingredients", []),
             instructions=recipe_data.get("instructions", []),
-            servings=12,
-            prep_time_minutes=15,
-            cook_time_minutes=20,
+            servings=recipe_data.get("servings", 12),
+            prep_time_minutes=recipe_data.get("prep_time", 15),
+            cook_time_minutes=recipe_data.get("cook_time", 20),
+            difficulty=recipe_data.get("difficulty", "medium"),
+            category=recipe_data.get("category", "savory"),
             photos=photos,
             featured_photo=photos[0] if photos else None,
             slug=slug,

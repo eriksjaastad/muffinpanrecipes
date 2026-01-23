@@ -1,0 +1,91 @@
+{
+  "recipe_id": "2e8e19ec",
+  "title": "Honey Butter Cornbread Muffin Bites",
+  "concept": "Honey Butter Cornbread Muffins",
+  "description": "In the sweltering summer afternoons of my childhood, our grandmother's porch was a veritable haven. The air vibrated with the hum of cicadas and the sweet scent of honeysuckle wafted from the nearby gardens. It was there that I first tasted the quintessential comfort food of my family: cornbread. Made with love and care by my mother, who had learned the recipe from her own grandmother, it was more than just a warm biscuit - it was a taste of home.\n\nAs I grew older, our grandmother's porch became a place where generations gathered to share stories and laughter. And at the center of every gathering was the cornbread. Freshly baked in a cast-iron skillet, its crumbly edges giving way to a moist, slightly sweet interior. My mother would often let it cool before slicing it thinly, revealing the golden honey that had been drizzled upon its surface. Those moments on my grandmother's porch are etched into my memory like the ridges on a well-worn cornmeal.\n\nYears have passed since those idyllic days, but the essence of our family's cornbread recipe has remained unchanged. It is in these Honey Butter Cornbread Muffin Bites that I've distilled the love and warmth of those afternoons into something bite-sized and shareable. To recreate this experience, simply combine the ingredients in a bowl - the all-purpose flour, cornmeal, salt, baking soda, black pepper - each one imbued with its own unique character. Then, add the buttermilk, which will lend its tangy freshness to the mixture.\n\nAs you pour the batter into a greased muffin tin, imagine your own porch gathering unfolding before you: children's laughter, the clinking of glasses, and the comforting smell of cornbread wafting through the air. Bake until golden, then drizzle with a pat of honey butter - its sweetness mingling with the savory richness of the cornmeal.\n\nAs these muffin bites emerge from the oven, they'll be infused with the same warmth and love that has defined our family's traditions for generations. And when you take your first bite, I hope the memories of my grandmother's porch come flooding back, too - a testament to the power of food to transcend time and conjure up the past.",
+  "ingredients": [
+    {
+      "item": "all-purpose flour",
+      "amount": "1 1/2 cups",
+      "notes": "190g"
+    },
+    {
+      "item": "cornmeal",
+      "amount": "1 cup",
+      "notes": "200g"
+    },
+    {
+      "item": "salt",
+      "amount": "1 teaspoon",
+      "notes": "Maldon Sea Salt"
+    },
+    {
+      "item": "baking soda",
+      "amount": "1/2 teaspoon",
+      "notes": "Clabber Girl Baking Soda"
+    },
+    {
+      "item": "black pepper",
+      "amount": "1/4 teaspoon",
+      "notes": "Pepperidge Farm Black Pepper"
+    },
+    {
+      "item": "buttermilk",
+      "amount": "1 cup",
+      "notes": "235ml"
+    },
+    {
+      "item": "eggs",
+      "amount": "2 large",
+      "notes": ""
+    },
+    {
+      "item": "unsalted butter, melted",
+      "amount": "2 tablespoons",
+      "notes": "Kerrygold Unsalted Butter"
+    },
+    {
+      "item": "honey",
+      "amount": "2 tablespoons",
+      "notes": "Clover Honey"
+    },
+    {
+      "item": "vanilla extract",
+      "amount": "1 teaspoon",
+      "notes": "Madagascar Bourbon Vanilla Extract"
+    },
+    {
+      "item": "chopped fresh chives or scallions",
+      "amount": "2 tablespoons",
+      "notes": "optional"
+    }
+  ],
+  "instructions": [
+    "Preheat the oven to 400\u00b0F (200\u00b0C) with a rack in the center position.",
+    "In a medium bowl, whisk together flour, cornmeal, salt, baking soda, and black pepper.",
+    "In a large bowl, whisk together buttermilk, eggs, melted butter, honey, and vanilla extract until well combined.",
+    "Add the dry ingredients to the wet ingredients and stir until just combined. Do not overmix.",
+    "Divide the batter evenly among the 12 muffin cups, filling each about 2/3 full.",
+    "Sprinkle the tops with chopped chives or scallions, if using.",
+    "Bake for 18-20 minutes or until the edges are golden brown and a toothpick inserted into the center of a muffin comes out clean.",
+    "Remove from the oven and let cool in the tin for 5 minutes before transferring to a wire rack to cool completely."
+  ],
+  "servings": 12,
+  "prep_time_minutes": 20,
+  "cook_time_minutes": 18,
+  "difficulty": "medium",
+  "photos": [
+    "muffin_shot_01.jpg",
+    "muffin_shot_02.jpg",
+    "muffin_shot_03.jpg"
+  ],
+  "featured_photo": "muffin_shot_01.jpg",
+  "tags": [],
+  "category": "breakfast/snack",
+  "slug": "honey-butter-cornbread-muffins",
+  "seo_description": null,
+  "created_by": "AI Creative Team",
+  "created_at": "2026-01-23T08:35:05.808307",
+  "published_at": null,
+  "story_id": "20fda243"
+}

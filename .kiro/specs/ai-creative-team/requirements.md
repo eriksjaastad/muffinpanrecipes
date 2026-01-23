@@ -20,6 +20,13 @@ The AI Creative Team System is the core feature that orchestrates multiple AI pe
 - **Future_Team_Expansion**: Framework for adding Screenwriter(s) and Social Media Specialist agents to create richer content and team dynamics
 - **Season**: A planned batch of 10-20 recipes with defined character arcs and themes
 - **Grumpy_Review**: Quality control process where the Creative Director provides critical feedback
+- **Recipe_State**: The current status of a recipe in the system (pending, approved, published, rejected)
+- **Publishing_Pipeline**: Automated system that converts approved recipes to static HTML and deploys to Vercel
+- **Admin_Authentication**: Google OAuth-based security system for protecting administrative functions
+- **Newsletter_System**: Email subscription management system for building audience engagement
+- **Discord_Notifications**: Webhook-based notification system for monitoring team activity and system events
+- **Admin_API**: Authenticated REST endpoints for administrative recipe and system management
+- **Backup_System**: Automated data protection and recovery system for all recipe and agent data
 
 ## Requirements
 
@@ -222,3 +229,113 @@ The AI Creative Team System is the core feature that orchestrates multiple AI pe
 7. THE System SHALL ensure gossip feels authentic to each agent's personality (e.g., the Art Director gossiping about the Baker's "pedestrian" ingredient choices)
 
 ### Requirement 13: Newsletter Signup Integration
+
+**User Story:** As a website visitor, I want to sign up for a newsletter about new recipes, so that I can stay updated on the latest muffin tin creations.
+
+#### Acceptance Criteria
+
+1. THE System SHALL display a newsletter signup form between the featured recipe section and the recipe grid
+2. WHEN a user enters an email address, THE System SHALL validate the email format before accepting the subscription
+3. WHEN a valid email is submitted, THE System SHALL store the subscription and provide confirmation feedback
+4. THE System SHALL style the newsletter signup section with muffin-themed design elements that complement the existing website aesthetic
+5. WHEN an invalid email format is submitted, THE System SHALL display an appropriate error message and not store the invalid email
+
+### Requirement 16: Recipe Storage and Lifecycle Management
+
+**User Story:** As a system administrator, I want recipes to be stored with proper state management, so that I can track recipe progress and maintain data integrity throughout the creative process.
+
+#### Acceptance Criteria
+
+1. THE System SHALL store recipes in four distinct states: pending, approved, published, and rejected
+2. WHEN a recipe is created by the Baker, THE System SHALL initially store it in pending state
+3. WHEN the Creative Director approves a recipe, THE System SHALL transition it from pending to approved state
+4. WHEN the Creative Director rejects a recipe, THE System SHALL transition it to rejected state with feedback
+5. WHEN an approved recipe is deployed to the website, THE System SHALL transition it to published state
+6. THE System SHALL maintain a complete audit trail of all state transitions with timestamps and responsible agents
+7. THE System SHALL prevent direct transitions between non-adjacent states (e.g., pending cannot go directly to published)
+
+### Requirement 17: Publishing Pipeline and Static Site Generation
+
+**User Story:** As a Site Architect, I want to convert approved recipes to static HTML and deploy them automatically, so that the website stays updated with new content without manual intervention.
+
+#### Acceptance Criteria
+
+1. WHEN a recipe reaches approved state, THE System SHALL automatically generate static HTML files for the recipe
+2. THE System SHALL create recipe pages that include the recipe content, images, and curated creation story
+3. WHEN static files are generated, THE System SHALL automatically deploy them to Vercel hosting platform
+4. THE System SHALL update the main recipe grid to include the newly published recipe
+5. WHEN deployment is successful, THE System SHALL update the recipe state to published
+6. IF deployment fails, THEN THE System SHALL log the error and notify the Site Architect for manual intervention
+7. THE System SHALL maintain the existing static site structure and styling while adding new recipe content
+
+### Requirement 18: Authentication System for Admin Access
+
+**User Story:** As an administrator, I want secure access to admin functions through Google OAuth, so that I can manage the system while ensuring only authorized users have access.
+
+#### Acceptance Criteria
+
+1. THE System SHALL implement Google OAuth 2.0 for administrator authentication
+2. WHEN an admin attempts to access protected routes, THE System SHALL redirect to Google OAuth login if not authenticated
+3. WHEN OAuth authentication is successful, THE System SHALL create a secure session for the admin user
+4. THE System SHALL restrict access to admin API endpoints to authenticated users only
+5. WHEN an admin session expires, THE System SHALL require re-authentication before allowing access to protected resources
+6. THE System SHALL maintain a whitelist of authorized admin email addresses
+7. WHEN an unauthorized user attempts to authenticate, THE System SHALL deny access even with valid Google credentials
+
+### Requirement 19: Email System and Newsletter Management
+
+**User Story:** As a marketing manager, I want to collect and manage newsletter subscriptions, so that I can build an audience for the muffin tin recipe content.
+
+#### Acceptance Criteria
+
+1. THE System SHALL store newsletter email subscriptions in a persistent database
+2. WHEN a user subscribes to the newsletter, THE System SHALL send a confirmation email to verify the subscription
+3. THE System SHALL provide an unsubscribe mechanism in all newsletter communications
+4. WHEN a user clicks unsubscribe, THE System SHALL remove their email from the subscription list and confirm the removal
+5. THE System SHALL validate email addresses for proper format before storing subscriptions
+6. THE System SHALL prevent duplicate subscriptions for the same email address
+7. THE System SHALL provide admin interface for viewing and managing newsletter subscriptions
+
+### Requirement 20: Discord Notification System
+
+**User Story:** As a team coordinator, I want to receive Discord notifications for key system events, so that I can monitor the creative team's progress and respond to issues promptly.
+
+#### Acceptance Criteria
+
+1. THE System SHALL send Discord webhook notifications when recipes are created, approved, rejected, or published
+2. WHEN an agent encounters an error or conflict, THE System SHALL send a Discord notification with details
+3. WHEN the Creative Director rejects a recipe, THE System SHALL send a Discord notification including the feedback
+4. THE System SHALL send daily summary notifications showing recipe pipeline status and agent activity
+5. WHEN system errors occur, THE System SHALL send immediate Discord alerts with error details and affected components
+6. THE System SHALL allow configuration of Discord webhook URLs and notification preferences
+7. THE System SHALL format Discord messages with appropriate formatting and emoji to make them easily readable
+
+### Requirement 21: Admin API Endpoints for Recipe Management
+
+**User Story:** As an administrator, I want API endpoints to manage recipes and system state, so that I can perform administrative tasks and troubleshoot issues when needed.
+
+#### Acceptance Criteria
+
+1. THE System SHALL provide authenticated API endpoints for viewing all recipes in any state (pending, approved, published, rejected)
+2. THE System SHALL provide API endpoints for manually transitioning recipe states when needed for troubleshooting
+3. THE System SHALL provide API endpoints for viewing agent status, memory, and recent activity
+4. THE System SHALL provide API endpoints for triggering manual recipe production workflows
+5. THE System SHALL provide API endpoints for viewing and managing newsletter subscriptions
+6. THE System SHALL require authentication for all admin API endpoints using the same OAuth system as the web interface
+7. THE System SHALL log all admin API usage with timestamps, user identification, and actions performed
+8. THE System SHALL provide API endpoints for viewing system health, error logs, and performance metrics
+
+### Requirement 22: Data Backup and Recovery Procedures
+
+**User Story:** As a system administrator, I want automated backup and recovery procedures, so that I can protect against data loss and restore system state when needed.
+
+#### Acceptance Criteria
+
+1. THE System SHALL automatically backup all recipe data, agent memories, and system state daily
+2. THE System SHALL store backups in multiple locations including cloud storage for redundancy
+3. WHEN backups are created, THE System SHALL verify backup integrity and completeness
+4. THE System SHALL maintain backup retention policy keeping daily backups for 30 days and weekly backups for 6 months
+5. THE System SHALL provide recovery procedures for restoring from backups with minimal data loss
+6. WHEN system corruption is detected, THE System SHALL automatically attempt recovery from the most recent valid backup
+7. THE System SHALL provide admin interface for manually triggering backups and viewing backup status
+8. THE System SHALL send notifications when backup operations fail or when storage space is running low
