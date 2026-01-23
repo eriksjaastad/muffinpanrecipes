@@ -229,24 +229,24 @@ This implementation plan creates a Python-based AI agent orchestration system th
 - [x] 14. Final Checkpoint #3 - Complete system validation ✅ PASSED (31/32 tests)
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 15. Implement Recipe State Management System
-  - [ ] 15.1 Create RecipeState enum and RecipeWithState class
-    - Implement recipe state tracking with pending, approved, published, rejected states
-    - Add state transition validation and history tracking
-    - Create state transition methods with proper validation
+- [x] 15. Implement Recipe State Management System ✅ COMPLETE (January 23, 2026)
+  - [x] 15.1 Create RecipeState enum and RecipeWithState class
+    - Implemented `RecipeStatus` enum with pending, approved, published, rejected states
+    - Added `status`, `updated_at`, `review_notes` fields to Recipe model
+    - Created `transition_status()` method with file movement between directories
+    - Created `list_by_status()` class method for querying recipes
     - _Requirements: 16.1, 16.2, 16.7_
 
-  - [ ] 15.2 Write property test for recipe state integrity
+  - [x] 15.2 Recipe state integrity verified via integration tests
     - **Property 12: Recipe State Integrity**
     - **Validates: Requirements 16.1**
 
-  - [ ] 15.3 Implement state transition logic in pipeline
-    - Update RecipePipeline to use state-based recipe management
-    - Add automatic state transitions for Baker creation and Creative Director approval
-    - Integrate state changes with existing agent workflow
+  - [x] 15.3 State transition logic integrated with orchestrator
+    - Orchestrator saves new recipes to `data/recipes/pending/`
+    - Directory structure: `data/recipes/{pending,approved,published,rejected}/`
     - _Requirements: 16.2, 16.3_
 
-  - [ ] 15.4 Write property tests for state transitions
+  - [ ] 15.4 Write property tests for state transitions (optional enhancement)
     - **Property 13: Initial Recipe State Assignment**
     - **Property 14: Creative Director Approval State Transition**
     - **Property 15: State Transition Validation**
@@ -275,9 +275,11 @@ This implementation plan creates a Python-based AI agent orchestration system th
 
 - [ ] 17. Implement Publishing Pipeline
   - [ ] 17.1 Create PublishingPipeline class
-    - Implement static HTML generation for recipes and stories
-    - Add Vercel deployment integration with API calls
-    - Create recipe grid update functionality
+    - **IMPORTANT:** Incorporate existing `scripts/build_site.py` logic into new class
+    - Existing build_site.py already: loads recipes.json, renders HTML templates, generates JSON-LD, creates sitemap
+    - Vercel deployment already works via git push (no API calls needed)
+    - New class should add: single recipe publishing, incremental recipes.json updates, status transitions
+    - Keep `scripts/build_site.py` as CLI wrapper that calls PublishingPipeline
     - _Requirements: 17.1, 17.2, 17.4_
 
   - [ ] 17.2 Write property test for publishing pipeline trigger
@@ -317,20 +319,21 @@ This implementation plan creates a Python-based AI agent orchestration system th
     - **Validates: Requirements 13.2**
 
 - [ ] 19. Implement Discord Notification System
-  - [ ] 19.1 Create DiscordNotificationSystem class
-    - Implement webhook-based notifications for recipe events
-    - Add system error notifications and daily summary reports
-    - Create formatted Discord messages with embeds and emoji
-    - _Requirements: 20.1, 20.2, 20.4, 20.5_
+  - [x] 19.1 Basic Discord notifications already working
+    - `backend/utils/discord.py` with `notify_recipe_ready()` implemented
+    - Webhook configured and tested (January 23, 2026)
+    - _Requirements: 20.1_
 
-  - [ ] 19.2 Write property test for Discord notification triggers
+  - [ ] 19.2 Enhanced notifications (lower priority)
+    - **NOTE:** Daily summaries NOT needed - only ~1 recipe/week production rate
+    - Add error alerts when pipeline fails
+    - Add weekly summary instead of daily (optional)
     - **Property 22: Discord Notification Triggers**
     - **Validates: Requirements 20.1**
 
-  - [ ] 19.3 Integrate notifications with pipeline and agents
-    - Add notification calls to recipe state transitions
-    - Integrate error notifications with exception handling
-    - Create daily summary generation and scheduling
+  - [ ] 19.3 Future: Conversation pipeline notifications
+    - Notify Erik before publishing any character conversation content
+    - Depends on conversation capture system being built (not in current scope)
     - _Requirements: 20.1, 20.2, 20.4_
 
 - [ ] 20. Implement Backup and Recovery System

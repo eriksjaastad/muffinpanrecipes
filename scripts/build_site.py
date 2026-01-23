@@ -1,190 +1,129 @@
-import os
+"""
+Site builder CLI - thin wrapper around PublishingPipeline.
+
+This script maintains backward compatibility while delegating
+all logic to the new backend.publishing.pipeline module.
+"""
+
 import sys
-import json
-import logging
-import shutil
-import html
-import re
+import argparse
 from pathlib import Path
-from datetime import datetime
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+from backend.publishing.pipeline import PublishingPipeline
+from backend.utils.logging import get_logger
 
-def parse_duration(duration_str):
-    """Converts 'X mins' to ISO 8601 duration 'PTXM'"""
-    if not duration_str:
-        return "PT0M"
-    
-    # Extract numbers using regex
-    match = re.search(r'(\d+)', duration_str)
-    if match:
-        minutes = match.group(1)
-        return f"PT{minutes}M"
-    
-    return "PT0M"
+logger = get_logger(__name__)
+
 
 def main():
-    # Get project root path
-    project_root = Path(os.getenv("PROJECT_ROOT", Path(__file__).parent.parent))
-    logger.info(f"--- 🧁 Muffin Pan Recipes: Site Builder ---")
-    logger.info(f"Project root: {project_root}")
-
-    # Define paths
-    src_dir = project_root / "src"
-    recipes_json_path = src_dir / "recipes.json"
-    template_path = src_dir / "templates" / "recipe_page.html"
-    recipes_output_dir = src_dir / "recipes"
-
-    # 1. Clean Slate: Clear existing recipes directory
+    """Main CLI entry point for site building."""
+    parser = argparse.ArgumentParser(
+        description="Build the Muffin Pan Recipes site"
+    )
+    parser.add_argument(
+        "--no-commit",
+        action="store_true",
+        help="Skip git commit after building"
+    )
+    parser.add_argument(
+        "--no-push",
+        action="store_true",
+        help="Skip git push after building (implies --no-commit for push only)"
+    )
+    parser.add_argument(
+        "--rebuild",
+        action="store_true",
+        help="Full site rebuild from published recipes (default: use recipes.json)"
+    )
+    
+    args = parser.parse_args()
+    
+    logger.info("--- 🧁 Muffin Pan Recipes: Site Builder ---")
+    
+    # Initialize pipeline
+    pipeline = PublishingPipeline(
+        auto_commit=not args.no_commit,
+        auto_push=not args.no_push
+    )
+    
     try:
-        if recipes_output_dir.exists():
+        if args.rebuild:
+            # Full rebuild from PUBLISHED recipes in data/
+            logger.info("Mode: Full site rebuild from published recipes")
+            success = pipeline.rebuild_site()
+        else:
+            # Legacy mode: rebuild from src/recipes.json
+            # This is the default to maintain backward compatibility
+            logger.info("Mode: Legacy build from src/recipes.json")
+            success = _legacy_build(pipeline)
+        
+        if success:
+            logger.info("✨ SITE BUILD SUCCESSFUL")
+            logger.info("--------------------------------------------------")
+            sys.exit(0)
+        else:
+            logger.error("❌ SITE BUILD FAILED")
+            sys.exit(1)
+            
+    except Exception as e:
+        logger.error(f"❌ Build error: {e}", exc_info=True)
+        sys.exit(1)
+
+
+def _legacy_build(pipeline: PublishingPipeline) -> bool:
+    """
+    Legacy build mode that uses src/recipes.json as source.
+    
+    This maintains backward compatibility with the old build_site.py behavior.
+    In the future, this will be replaced with publishing from approved recipes.
+    """
+    import json
+    
+    # Load recipes.json directly
+    if not pipeline.recipes_json_path.exists():
+        logger.error(f"recipes.json not found at {pipeline.recipes_json_path}")
+        return False
+    
+    with open(pipeline.recipes_json_path, "r") as f:
+        data = json.load(f)
+        recipes = data.get("recipes", data) if isinstance(data, dict) else data
+    
+    logger.info(f"Loaded {len(recipes)} recipes from recipes.json")
+    
+    # Load template
+    template_content = pipeline._load_template()
+    
+    # Clear recipes directory
+    if pipeline.recipes_output_dir.exists():
+        import shutil
+        try:
             from send2trash import send2trash
-            send2trash(str(recipes_output_dir))
-            logger.info(f"Clean Slate: Moved old recipes directory to Trash.")
-        recipes_output_dir.mkdir(parents=True, exist_ok=True)
-    except Exception as e:
-        logger.error(f"❌ Failed to clear recipes directory: {e}")
-        sys.exit(1)
-
-    # 2. Load Data
-    try:
-        if not recipes_json_path.exists():
-            logger.error(f"❌ recipes.json not found at {recipes_json_path}")
-            sys.exit(1)
-        with open(recipes_json_path, "r") as f:
-            data = json.load(f)
-            # Handle both list and object structures
-            recipes = data.get("recipes", data) if isinstance(data, dict) else data
-        logger.info(f"Loaded {len(recipes)} recipes.")
-    except Exception as e:
-        logger.error(f"❌ Failed to load recipes: {e}")
-        sys.exit(1)
-
-    # 3. Load Template
-    try:
-        if not template_path.exists():
-            logger.error(f"❌ Template not found at {template_path}")
-            sys.exit(1)
-        with open(template_path, "r") as f:
-            template_content = f.read()
-    except Exception as e:
-        logger.error(f"❌ Failed to load template: {e}")
-        sys.exit(1)
-
-    # 4. Bake Recipes
-    generated_urls = []
+            send2trash(str(pipeline.recipes_output_dir))
+            logger.info("Moved old recipes directory to trash")
+        except ImportError:
+            shutil.rmtree(pipeline.recipes_output_dir)
+            logger.info("Deleted old recipes directory")
+    
+    pipeline.recipes_output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate pages for each recipe
     for recipe in recipes:
         slug = recipe.get("slug")
         title = recipe.get("title")
         
         if not slug:
-            logger.warning(f"⚠️ Skipping recipe with missing slug: {title}")
+            logger.warning(f"Skipping recipe with missing slug: {title}")
             continue
-
-        try:
-            recipe_dir = recipes_output_dir / slug
-            recipe_dir.mkdir(parents=True, exist_ok=True)
-
-            # Pre-render lists with HTML escaping
-            ingredients_html = "\n".join([
-                f'<li class="border-b border-gray-50 pb-2">{html.escape(i)}</li>' 
-                for i in recipe.get("ingredients", [])
-            ])
-            instructions_html = "\n".join([
-                f'<li class="flex gap-4"><span class="font-serif text-terracotta font-bold italic text-xl">{(idx + 1):02d}</span><span>{html.escape(step)}</span></li>'
-                for idx, step in enumerate(recipe.get("instructions", []))
-            ])
-
-            # Pre-render JSON-LD (json.dumps handles escaping for JSON content)
-            prep_iso = parse_duration(recipe.get("prep"))
-            cook_iso = parse_duration(recipe.get("cook"))
-            
-            json_ld = {
-                "@context": "https://schema.org/",
-                "@type": "Recipe",
-                "name": title,
-                "description": recipe.get("description"),
-                "prepTime": prep_iso,
-                "cookTime": cook_iso,
-                "recipeYield": recipe.get("yield"),
-                "recipeCategory": recipe.get("category"),
-                "recipeIngredient": recipe.get("ingredients"),
-                "recipeInstructions": [{"@type": "HowToStep", "text": i} for i in recipe.get("instructions", [])]
-            }
-            json_ld_script = f'<script type="application/ld+json">{json.dumps(json_ld)}</script>'
-
-            # Inject data
-            page_content = template_content
-            replacements = {
-                "{{ slug }}": slug,
-                "{{ title }}": html.escape(title),
-                "{{ description }}": html.escape(recipe.get("description", "")),
-                "{{ image_path }}": recipe.get("image", ""),
-                "{{ category }}": html.escape(recipe.get("category", "")),
-                "{{ prep_time }}": html.escape(recipe.get("prep", "")),
-                "{{ cook_time }}": html.escape(recipe.get("cook", "")),
-                "{{ yield }}": html.escape(recipe.get("yield", "")),
-                "{{ ingredients_list }}": ingredients_html,
-                "{{ instructions_list }}": instructions_html,
-                "{{ json_ld }}": json_ld_script
-            }
-
-            for placeholder, value in replacements.items():
-                page_content = page_content.replace(placeholder, str(value))
-
-            # Save page
-            output_file = recipe_dir / "index.html"
-            with open(output_file, "w") as f:
-                f.write(page_content)
-            
-            generated_urls.append(f"recipes/{slug}")
-            logger.info(f"✅ Baked: {title}")
-
-        except Exception as e:
-            logger.error(f"❌ Failed to bake {title}: {e}")
-            sys.exit(1)
-
-    # 5. Generate Sitemap
-    try:
-        today = datetime.now().strftime("%Y-%m-%d")
-        sitemap_content = [
-            '<?xml version="1.0" encoding="UTF-8"?>',
-            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
-            '  <url>',
-            '    <loc>https://muffinpanrecipes.com/</loc>',
-            f'    <lastmod>{today}</lastmod>',
-            '    <priority>1.0</priority>',
-            '  </url>'
-        ]
-
-        for path in generated_urls:
-            sitemap_content.extend([
-                '  <url>',
-                f'    <loc>https://muffinpanrecipes.com/{path}</loc>',
-                f'    <lastmod>{today}</lastmod>',
-                '    <priority>0.8</priority>',
-                '  </url>'
-            ])
-
-        sitemap_content.append('</urlset>')
         
-        sitemap_path = src_dir / "sitemap.xml"
-        with open(sitemap_path, "w") as f:
-            f.write("\n".join(sitemap_content))
-        logger.info(f"✅ Generated sitemap with {len(generated_urls) + 1} URLs.")
+        html_content = pipeline._generate_recipe_html(template_content, recipe)
+        pipeline._save_recipe_page(slug, html_content)
+        logger.info(f"✅ Baked: {title}")
+    
+    # Regenerate sitemap (recipes.json is already up to date)
+    pipeline._generate_sitemap()
+    
+    return True
 
-    except Exception as e:
-        logger.error(f"❌ Failed to generate sitemap: {e}")
-        sys.exit(1)
-
-    logger.info(f"\n✨ SITE BUILD SUCCESSFUL")
-    logger.info(f"--------------------------------------------------")
 
 if __name__ == "__main__":
     main()
-
