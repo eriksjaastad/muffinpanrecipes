@@ -35,6 +35,8 @@ htmlcov/
 *.swp
 *.swo
 *~
+*.backup
+
 
 # Project specific
 .env
@@ -54,3 +56,35 @@ Thumbs.db
 # Node
 node_modules/
 .grepai/
+
+
+<!-- project-scaffolding template appended -->
+
+# Virtual environments
+venv/
+env/
+.venv/
+node_modules/
+
+# Data and caches
+data/
+*.db
+*.sqlite
+__pycache__/
+.pytest_cache/
+.coverage
+
+# Environment and secrets
+.env
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+

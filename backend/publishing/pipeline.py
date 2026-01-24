@@ -414,14 +414,9 @@ class PublishingPipeline:
             
             # Clear and rebuild recipes directory
             if self.recipes_output_dir.exists():
-                import shutil
-                try:
-                    from send2trash import send2trash
-                    send2trash(str(self.recipes_output_dir))
-                    logger.info("Moved old recipes directory to trash")
-                except ImportError:
-                    shutil.rmtree(self.recipes_output_dir)
-                    logger.info("Deleted old recipes directory")
+                from send2trash import send2trash
+                send2trash(str(self.recipes_output_dir))
+                logger.info("Moved old recipes directory to trash")
             
             self.recipes_output_dir.mkdir(parents=True, exist_ok=True)
             

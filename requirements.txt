@@ -2,4 +2,4 @@ requests
 python-dotenv
 openai
 Pillow
-
+send2trash

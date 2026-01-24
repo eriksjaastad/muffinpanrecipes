@@ -20,14 +20,17 @@ An AI-driven experimental recipe platform focused exclusively on "Muffin Tin Mea
 - **Architecture:** Lean static site (HTML/Tailwind) deployed via Vercel.
 
 ## 🏗️ Key Components
-- **The Brain:** AI-driven recipe generator (Markdown-first).
-- **The Hands:** Automated deployment pipeline (GitHub -> Vercel).
-- **The Face:** Clean, fast-loading UI focused on "Jump to Recipe" utility.
 
-## 📋 Project Status
-**Current Phase:** Phase 3.3 (Content Moat) - 100% Complete
-**Progress:** Site transitioned to a full Static Site Generation (SSG) model with unique URLs and rich social metadata for all 10 recipes.
-**Next Step:** Build the "Editorial Command Center" (Phase 3.4) for local administration and scaling.
+- `backend/` - FastAPI admin dashboard and AI agent orchestration
+- `src/` - Static site (recipes, HTML, CSS)
+- `scripts/` - Build and deployment tools
+- `data/` - Recipe storage by status (pending, approved, published, rejected)
+
+## 📋 Status
+
+**Current Phase:** Phase 4 - AI Creative Team Integration (in progress)
+**Last Updated:** 2026-01-23
+**Next Steps:** Complete weekly update automation, Admin dashboard testing, Newsletter setup
 
 ## 🚀 Recent Activity
 

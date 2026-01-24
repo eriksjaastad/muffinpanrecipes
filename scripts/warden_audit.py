@@ -117,18 +117,22 @@ def check_dangerous_functions(project_root: pathlib.Path) -> list:
     """
     dangerous_patterns = [
         'os.remove', 'os.unlink', 'shutil.rmtree',  # Dangerous functions
+        'rm -rf', 'rm ',                           # Dangerous shell commands
         '/Us' + 'ers/', '/ho' + 'me/',  # macOS/Linux absolute paths
         'C:\\' + '\\', 'C:/'       # Windows absolute paths
     ]
     found_issues = []
     
     # Simple walk and check to avoid external dependency for basic audit
-    for file_path in project_root.rglob('*.py'):
+    for file_path in project_root.rglob('*'):
         # Skip certain directories
-        if any(part in file_path.parts for part in ['venv', 'node_modules', '.git', '__pycache__']):
+        if any(part in file_path.parts for part in ['venv', 'node_modules', '.git', '__pycache__', '_trash']):
             continue
             
-        if file_path.name == 'warden_audit.py': # Exclude self
+        if file_path.name == 'warden_audit.py' or file_path.name == 'validate_project.py': # Exclude self and validator
+            continue
+
+        if not file_path.suffix in ['.py', '.sh', '.js', '.ts', '.md']:
             continue
 
         # Determine if test file
@@ -142,7 +146,7 @@ def check_dangerous_functions(project_root: pathlib.Path) -> list:
                         is_hardcoded_path = pattern in ['/Us' + 'ers/', '/ho' + 'me/', 'C:\\' + '\\', 'C:/']
                         if is_hardcoded_path:
                             severity = Severity.P1
-                        elif pattern in ['os.remove', 'os.unlink', 'shutil.rmtree']:
+                        elif pattern in ['os.remove', 'os.unlink', 'shutil.rmtree', 'rm -rf', 'rm ']:
                             severity = Severity.P2 if is_test_file else Severity.P0
                         else:
                             severity = Severity.P3
@@ -168,6 +172,7 @@ def check_dangerous_functions_fast(project_root: pathlib.Path) -> list:
 
     dangerous_patterns = [
         'os.remove', 'os.unlink', 'shutil.rmtree',
+        'rm -rf', 'rm ',
         '/Us' + 'ers/', '/ho' + 'me/',
         'C:\\' + '\\', 'C:/'
     ]
@@ -188,7 +193,7 @@ def check_dangerous_functions_fast(project_root: pathlib.Path) -> list:
                 for file_path in result.stdout.strip().split('\n'):
                     if file_path:  # Skip empty lines
                         path_obj = pathlib.Path(file_path)
-                        if path_obj.name == 'warden_audit.py':
+                        if path_obj.name == 'warden_audit.py' or path_obj.name == 'validate_project.py':
                             continue
                         
                         is_test_file = 'test' in path_obj.parts or path_obj.name.startswith('test_')

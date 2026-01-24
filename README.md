@@ -38,7 +38,6 @@ See the `Documents/` directory for detailed documentation:
 - **Status:** #status/active
 
 
-
 <!-- project-scaffolding template appended -->
 
 # [PROJECT_NAME]
@@ -62,24 +61,7 @@ See the `Documents/` directory for detailed documentation:
 - [Architecture Overview](Documents/ARCHITECTURE_OVERVIEW.md)
 - [Operations Guide](Documents/OPERATIONS_GUIDE.md)
 
-## Development Resources
-- [[muffinpanrecipes/WARDEN_LOG.yaml|WARDEN_LOG.yaml]]
-- [[muffinpanrecipes/package-lock.json|package-lock.json]]
-- [[muffinpanrecipes/scripts/warden_audit.py|warden_audit.py]]
-
 ## Status
 - **Current Phase:** [Phase Name]
 - **Status:** #status/active
 
-## Related Documentation
-
-- [[LOCAL_MODEL_LEARNINGS]] - local AI
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
-- [[architecture_patterns]] - architecture
-- [[cloud_gpu_setup]] - cloud GPU
-- [[prompt_engineering_guide]] - prompt engineering
-- [[deployment_patterns]] - deployment
-- [[performance_optimization]] - performance
-- [[recipe_system]] - recipe generation
-- [[muffinpanrecipes/README]] - Muffin Pan Recipes
-- [[project-scaffolding/README]] - Project Scaffolding
