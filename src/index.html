@@ -135,7 +135,7 @@
         </section>
 
         <!-- Editorial Grid -->
-        <h2 class="font-serif text-4xl mb-12 text-center">All Recipes</h2>
+        <h2 class="font-serif text-4xl mb-12 text-center">Recipes</h2>
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-16" id="recipe-grid">
             <!-- Grid items will be populated here -->
         </div>
@@ -209,11 +209,19 @@
             container.appendChild(placeholder);
         }
 
+        function getFeaturedRecipe() {
+            return recipes.length > 0 ? recipes[0] : null;
+        }
+
         function renderGrid(filter = 'All') {
             const grid = document.getElementById('recipe-grid');
             grid.innerHTML = '';
 
-            recipes.filter(r => filter === 'All' || r.category === filter).forEach(recipe => {
+            const featured = getFeaturedRecipe();
+            recipes
+                .filter(r => r !== featured)
+                .filter(r => filter === 'All' || r.category === filter)
+                .forEach(recipe => {
                 const card = `
                     <a href="/recipes/${recipe.slug}" class="recipe-grid-card group block">
                         <div class="aspect-[4/5] bg-gray-50 mb-6 overflow-hidden relative">
@@ -251,7 +259,7 @@
             if (recipes.length === 0) return;
 
             // Pick the first recipe as featured (or you can randomize, or pick by slug)
-            const featured = recipes[0];
+            const featured = getFeaturedRecipe();
             const featuredSection = document.getElementById('featured-recipe');
 
             featuredSection.innerHTML = `

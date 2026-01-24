@@ -25,7 +25,7 @@ Audit files in order of their potential to infect the ecosystem:
 ## 🏛️ Part 2: The Two-Layer Defense Model
 
 ### Layer 1: Robotic Scan (Gatekeeper)
-A mechanical script (`pre_review_scan.sh`) that catches hardcoded paths, secrets, and silent errors. A single "FAIL" blocks the AI/Human review.
+A mechanical script (`pre_review_scan.sh`) that catches hardcoded paths, secrets, and silent errors. A single "FAIL" blocks the AI/Human review. This is integrated into the `Project-workflow.md` (lives at projects root) as the mandatory Gate 0.
 
 ### Layer 2: Cognitive Audit (Architect Work)
 AI Architects focus on judgment-heavy tasks that automation misses:
@@ -54,6 +54,12 @@ Every `subprocess.run` call must follow the **Production Standard**:
 For projects that generate files:
 *   **Schema Enforcement:** Generated markdown must be validated against the project's frontmatter taxonomy.
 *   **Escape Verbatim:** Verbatim text (like transcripts) must be escaped or truncated to prevent breaking YAML parser logic.
+
+### 4. Placeholder Integrity (Gate 2)
+Every scaffolded project must be validated for unfilled template placeholders:
+*   **The Check:** Run `scripts/validate_project.py` or `scripts/audit_all_projects.py`.
+*   **The Standard:** Zero results for `{{VAR}}` patterns in any `.md`, `.py`, or `.sh` files.
+*   **The Enforcement:** A single unfilled placeholder triggers a **Scaffolding Failure** alert to Discord.
 
 ---
 
@@ -91,6 +97,7 @@ Use the **RISEN Framework** (Role, Instructions, Steps, Expectations, Narrowing)
 | **M1** | **Robot** | No hardcoded `/Users/` or `/home/` paths | Paste `grep` output (all files) |
 | **M2** | **Robot** | No silent `except: pass` patterns | Paste `grep` output (Python files) |
 | **M3** | **Robot** | No API keys (`sk-...`) in code/templates | Paste `grep` output |
+| **M4** | **Robot** | Zero unfilled `{{VAR}}` placeholders | Paste `validate_project.py` output |
 | **P1** | **DNA** | Templates contain no machine-specific data | List files checked in `templates/` |
 | **P2** | **DNA** | `.cursorrules` is portable | Verify path placeholders used |
 | **T1** | **Tests** | Inverse Audit: What do tests MISS? | Map "Dark Territory" |
@@ -108,16 +115,18 @@ Use the **RISEN Framework** (Role, Instructions, Steps, Expectations, Narrowing)
 ---
 
 ## 🛠️ Immediate Action Items
-- [ ] **Task 1:** Finalize `scripts/pre_review_scan.sh` as the mandatory Gate 0.
+- [x] **Task 1:** Finalize `scripts/pre_review_scan.sh` as the mandatory Gate 0.
 - [ ] **Task 2:** Refactor `test_scripts_follow_standards.py` to `test_ecosystem_dna_integrity.py`.
 - [ ] **Task 3:** Establish the "Vault" protocol for the local `.env` record of API keys.
+- [x] **Task 4:** Implement `scripts/audit_all_projects.py` for ecosystem-wide placeholder scanning.
 
 ---
-**Protocol Authorized by:** The Super Manager (Gemini 3 Flash)
+**Protocol Authorized by:** The Phase 5 Judge (Super Manager)
 **Strategic Alignment:** Infrastructure (Root)
 
 ## Related Documentation
 
+- [[Project-workflow]] - master workflow at projects root
 - [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
 - [[LOCAL_MODEL_LEARNINGS]] - local AI
 - [[architecture_patterns]] - architecture
@@ -126,3 +135,4 @@ Use the **RISEN Framework** (Role, Instructions, Steps, Expectations, Narrowing)
 - [[ai_model_comparison]] - AI models
 - [[security_patterns]] - security
 - [[agent-skills-library/README]] - Agent Skills
+

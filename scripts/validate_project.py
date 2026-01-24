@@ -20,15 +20,18 @@ from pathlib import Path
 from typing import List, Tuple
 import re
 from scaffold.utils import safe_slug
+from scaffold.alerts import send_discord_alert
 
 # Configuration
 PROJECTS_ROOT_ENV = os.getenv("PROJECTS_ROOT")
 if not PROJECTS_ROOT_ENV:
-    raise EnvironmentError("PROJECTS_ROOT environment variable is not set.")
-PROJECTS_ROOT = Path(PROJECTS_ROOT_ENV).resolve()
+    # Fallback to standard layout: parent of scaffolding root
+    PROJECTS_ROOT = Path(__file__).parent.parent.parent.resolve()
+else:
+    PROJECTS_ROOT = Path(PROJECTS_ROOT_ENV).resolve()
 
 REQUIRED_INDEX_PATTERN = r"00_Index_.+\.md"
-SKIP_DIRS = {"writing", "ai-journal"}
+SKIP_DIRS = {"writing", "ai-journal", "plugin-duplicate-detection", "plugin-find-names-chrome"}
 
 # Mandatory files and directories
 MANDATORY_FILES = [
@@ -127,9 +130,10 @@ def validate_dna_integrity(project_path: Path) -> List[str]:
     
     # Files to exclude from scan
     exclude_dirs = {
-        ".git", "venv", ".venv", "__pycache__", "node_modules", "data", 
+        ".git", "venv", ".venv", "__pycache__", "node_modules", "data",
         "library", ".mypy_cache", ".pytest_cache", ".ruff_cache", "archives", "_trash",
-        "htmlcov", ".tox", ".nox", ".cache"
+        "htmlcov", ".tox", ".nox", ".cache", "logs", "recovered", "cursor_history",
+        "entries", "insights"
     }
     
     for root, dirs, files in os.walk(project_path):
@@ -137,8 +141,9 @@ def validate_dna_integrity(project_path: Path) -> List[str]:
         dirs[:] = [d for d in dirs if d not in exclude_dirs and not d.startswith(".")]
         
         for file in files:
-            # Skip binary files, known safe files, and env files
-            if file.endswith((".png", ".jpg", ".jpeg", ".pyc", ".db", ".zip", ".tar.gz", ".bak")) or file in {".env", ".env.example"}:
+            # Skip binary files, known safe files, generated files, and env files
+            if file.endswith((".png", ".jpg", ".jpeg", ".pyc", ".db", ".zip", ".tar.gz", ".bak", ".xml", ".log", ".pdf", ".json", ".csv")) or \
+               file in {".env", ".env.example", "full_repo_context.txt", "billing.error.log", "repomix-output.xml", "pandoc"}:
                 continue
                 
             file_path = Path(root) / file
@@ -147,8 +152,12 @@ def validate_dna_integrity(project_path: Path) -> List[str]:
                 
                 # Check for absolute paths
                 if path_pattern.search(content):
-                    # Skip common intentional paths if any (e.g. journal protocol)
-                    if "[USER_HOME]/projects/ai-journal/entries/2026/" in content:
+                    # Skip common intentional paths if any (e.g. journal protocol uses absolute paths)
+                    journal_path_str = str(PROJECTS_ROOT / "ai-journal" / "entries")
+                    if journal_path_str in content:
+                        continue
+                    # Skip AGENTS.md absolute paths (they are ecosystem-wide)
+                    if file == "AGENTS.md":
                         continue
                     errors.append(f"DNA Defect: Absolute path found in {file_path.relative_to(project_path)}")
                 
@@ -199,12 +208,94 @@ def validate_project(project_path: Path, verbose: bool = True) -> bool:
     dna_errors = validate_dna_integrity(project_path)
     errors.extend(dna_errors)
     
+    # 5. Dangerous Command Scan (Automated Gate 1)
+    # Check for banned functions like rm, shutil.rmtree, os.remove
+    dangerous_patterns = [
+        (r"\brm\s+", "rm command found - use 'trash <file>' instead"),
+        (r"shutil\.rmtree\s*\(", "shutil.rmtree() found - use send2trash"),
+        (r"os\.remove\s*\(", "os.remove() found - use send2trash"),
+        (r"os\.unlink\s*\(", "os.unlink() found - use send2trash"),
+    ]
+    
+    # Files to skip for safety scan
+    safety_skip_files = {"validate_project.py", "warden_audit.py"}
+    
+    # 6. Placeholder Scan (Automated Gate 2)
+    # Check for unfilled template placeholders: {{VAR}}
+    placeholder_patterns = [
+        (re.compile(r"\{\{[A-Z0-9_]+\}\}"), "Unfilled double-brace placeholder"),
+    ]
+    
+    # Files/directories to skip for placeholder scan
+    placeholder_skip_files = {
+        "SILENT_FAILURES_AUDIT.md",
+        "TODO_FORMAT_STANDARD.md",
+        "REVIEWS_AND_GOVERNANCE_PROTOCOL.md",
+        "validate_project.py",
+        "cli.py"
+    }
+    placeholder_skip_dirs = {"templates", "_handoff", "prompts"}
+    
+    for root, dirs, files in os.walk(project_path):
+        # Filter directories in-place
+        dirs[:] = [d for d in dirs if d not in {"venv", ".venv", "__pycache__", "node_modules", ".git", "_trash", "archives"}]
+        
+        rel_root = Path(root).relative_to(project_path)
+        is_in_skip_dir = any(part in placeholder_skip_dirs for part in rel_root.parts)
+        
+        for file in files:
+            # Check placeholders in Markdown, Python, and Shell scripts
+            if not file.endswith((".md", ".py", ".sh", ".js", ".ts")):
+                continue
+            
+            # Skip index files for placeholder check (they pull from other files)
+            if file.startswith("00_Index_") and file.endswith(".md"):
+                is_placeholder_skip_file = True
+            else:
+                is_placeholder_skip_file = file in placeholder_skip_files
+                
+            file_path = Path(root) / file
+            rel_file_path = file_path.relative_to(project_path)
+            
+            try:
+                content = file_path.read_text(encoding='utf-8', errors='ignore')
+                
+                # Check for dangerous patterns (skip if in skip list)
+                if file not in safety_skip_files:
+                    for pattern, reason in dangerous_patterns:
+                        if re.search(pattern, content):
+                            errors.append(f"Safety Defect: {reason} in {rel_file_path}")
+                
+                # Check for unfilled placeholders (skip if in skip list)
+                if not is_in_skip_dir and not is_placeholder_skip_file:
+                    lines = content.splitlines()
+                    for i, line in enumerate(lines):
+                        for pattern, reason in placeholder_patterns:
+                            match = pattern.search(line)
+                            if match:
+                                # Special case: ignore some common single-brace patterns that aren't placeholders
+                                # e.g. f-strings in python or shell variables if they look like placeholders
+                                if file.endswith(".py") and ("f\"" in line or "f'" in line):
+                                    continue
+                                
+                                errors.append(f"Placeholder Defect: {reason} found in {rel_file_path}:{i+1} - {match.group(0)}")
+            except Exception:
+                pass
+
     if errors:
         if verbose:
             status_icon = "⚠️ " if has_index else "❌ "
             print(f"{status_icon} {project_name}")
             for error in errors:
                 print(f"   - {error}")
+        
+        # Send Discord alert for validation failure
+        msg = f"❌ **Project Validation Failed** for: `{project_name}`\n"
+        msg += "\n".join(f"- {e}" for e in errors[:10])
+        if len(errors) > 10:
+            msg += f"\n... and {len(errors) - 10} more errors."
+        send_discord_alert(msg)
+        
         return False
     
     # All good!

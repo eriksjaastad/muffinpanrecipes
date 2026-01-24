@@ -95,14 +95,9 @@ def _legacy_build(pipeline: PublishingPipeline) -> bool:
     
     # Clear recipes directory
     if pipeline.recipes_output_dir.exists():
-        import shutil
-        try:
-            from send2trash import send2trash
-            send2trash(str(pipeline.recipes_output_dir))
-            logger.info("Moved old recipes directory to trash")
-        except ImportError:
-            shutil.rmtree(pipeline.recipes_output_dir)
-            logger.info("Deleted old recipes directory")
+        from send2trash import send2trash
+        send2trash(str(pipeline.recipes_output_dir))
+        logger.info("Moved old recipes directory to trash")
     
     pipeline.recipes_output_dir.mkdir(parents=True, exist_ok=True)
     
