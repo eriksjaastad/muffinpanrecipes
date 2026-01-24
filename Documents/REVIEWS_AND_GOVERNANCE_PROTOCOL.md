@@ -126,13 +126,12 @@ Use the **RISEN Framework** (Role, Instructions, Steps, Expectations, Narrowing)
 
 ## Related Documentation
 
-- [[Project-workflow]] - master workflow at projects root
-- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
-- [[LOCAL_MODEL_LEARNINGS]] - local AI
-- [[architecture_patterns]] - architecture
-- [[automation_patterns]] - automation
-- [[prompt_engineering_guide]] - prompt engineering
-- [[ai_model_comparison]] - AI models
-- [[security_patterns]] - security
-- [[agent-skills-library/README]] - Agent Skills
+- [Project Workflow](../Project-workflow.md) - master workflow at projects root
+- [Doppler Secrets Management](Documents/reference/DOPPLER_SECRETS_MANAGEMENT.md) - secrets management
+- [Local Model Learnings](Documents/reference/LOCAL_MODEL_LEARNINGS.md) - local AI
+- [Automation Reliability](patterns/automation-reliability.md) - automation
+- [Tiered AI Sprint Planning](patterns/tiered-ai-sprint-planning.md) - prompt engineering
+- [AI Model Cost Comparison](Documents/reference/MODEL_COST_COMPARISON.md) - AI models
+- [Safety Systems](patterns/safety-systems.md) - security
+- [Agent Skills Library](../agent-skills-library/README.md) - Agent Skills
 

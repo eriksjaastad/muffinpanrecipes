@@ -393,7 +393,7 @@ created: 2026-01-23
 
 ### Wikilinks
 - Use `[[document-name]]` for cross-references
-- Link to `[[00_Index_muffinpanrecipes]]` for project documentation hubs
+- Link to ``00_Index_*.md`` for project documentation hubs
 
 ---
 
@@ -411,17 +411,13 @@ created: 2026-01-23
 
 ## Related Documentation
 
-- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
-- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
-- [[LOCAL_MODEL_LEARNINGS]] - local AI
-- [[trustworthy_ai_report]] - AI safety
-- [[architecture_patterns]] - architecture
-- [[cost_management]] - cost management
-- [[prompt_engineering_guide]] - prompt engineering
-- [[queue_processing_guide]] - queue/workflow
-- [[ai_model_comparison]] - AI models
-- [[orchestration_patterns]] - orchestration
-- [[security_patterns]] - security
-- [[session_documentation]] - session notes
-- [[testing_strategy]] - testing/QA
-- [[agent-skills-library/README]] - Agent Skills
+- [Code Review Anti-Patterns](Documents/reference/CODE_REVIEW_ANTI_PATTERNS.md) - code review
+- [Doppler Secrets Management](Documents/reference/DOPPLER_SECRETS_MANAGEMENT.md) - secrets management
+- [Local Model Learnings](Documents/reference/LOCAL_MODEL_LEARNINGS.md) - local AI
+- [Trustworthy AI Report](Documents/reports/trustworthy_ai_report.md) - AI safety
+- [Cost Management](Documents/reference/MODEL_COST_COMPARISON.md) - cost management
+- [Tiered AI Sprint Planning](patterns/tiered-ai-sprint-planning.md) - prompt engineering
+- [AI Model Cost Comparison](Documents/reference/MODEL_COST_COMPARISON.md) - AI models
+- [AI Team Orchestration](patterns/ai-team-orchestration.md) - orchestration
+- [Safety Systems](patterns/safety-systems.md) - security
+- [Agent Skills Library](../agent-skills-library/README.md) - Agent Skills

@@ -72,8 +72,6 @@ description: "A short, punchy 1-2 sentence description for SEO."
 
 ## Related Documentation
 
-- [[prompt_engineering_guide]] - prompt engineering
-- [[ai_model_comparison]] - AI models
-- [[performance_optimization]] - performance
-- [[recipe_system]] - recipe generation
-- [[muffinpanrecipes/README]] - Muffin Pan Recipes
+- [Tiered AI Sprint Planning](patterns/tiered-ai-sprint-planning.md) - prompt engineering
+- [AI Model Cost Comparison](Documents/reference/MODEL_COST_COMPARISON.md) - AI models
+- [README](README) - Muffin Pan Recipes

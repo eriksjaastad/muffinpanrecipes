@@ -29,9 +29,9 @@ See the `Documents/` directory for detailed documentation:
 - [Recipe Schema](Documents/core/RECIPE_SCHEMA.md)
 
 ## Development Resources
-- [[muffinpanrecipes/WARDEN_LOG.yaml|WARDEN_LOG.yaml]]
-- [[muffinpanrecipes/package-lock.json|package-lock.json]]
-- [[muffinpanrecipes/scripts/warden_audit.py|warden_audit.py]]
+- [WARDEN_LOG.yaml|WARDEN_LOG.yaml](WARDEN_LOG.yaml|WARDEN_LOG.yaml)
+- [package-lock.json|package-lock.json](package-lock.json|package-lock.json)
+- [scripts/warden_audit.py|warden_audit.py](scripts/warden_audit.py|warden_audit.py)
 
 ## Status
 - **Current Phase:** Phase 1: AI Recipe Engine

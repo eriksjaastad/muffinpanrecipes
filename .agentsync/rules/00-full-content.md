@@ -29,6 +29,6 @@ Muffin Pan Recipes is a high-volume, AI-driven recipe site focused on "Muffin Ti
 - **No Fluff:** Priority is the "Jump to Recipe" experience.
 
 ## 📖 Reference Links
-- [[00_Index_MuffinPanRecipes]]
-- [[RECIPE_SCHEMA]]
-- [[ARCHITECTURAL_DECISIONS]]
+- `00_Index_*.md`
+- [Recipe Schema](Documents/core/RECIPE_SCHEMA.md)
+- [Architectural Decisions](Documents/core/ARCHITECTURAL_DECISIONS.md)

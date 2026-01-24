@@ -239,6 +239,6 @@ Fix the four critical issues. Then you have an SEO engine that actually works.
 
 ## Related Documentation
 
-- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
-- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [Code Review Anti-Patterns](Documents/reference/CODE_REVIEW_ANTI_PATTERNS.md) - code review
+- [Doppler Secrets Management](Documents/reference/DOPPLER_SECRETS_MANAGEMENT.md) - secrets management
 

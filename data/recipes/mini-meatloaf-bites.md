@@ -64,6 +64,5 @@ A full-sized meatloaf often suffers from an uneven cook or a soggy middle. The m
 
 ## Related Documentation
 
-- [[prompt_engineering_guide]] - prompt engineering
-- [[ai_model_comparison]] - AI models
-- [[recipe_system]] - recipe generation
+- [Tiered AI Sprint Planning](patterns/tiered-ai-sprint-planning.md) - prompt engineering
+- [AI Model Cost Comparison](Documents/reference/MODEL_COST_COMPARISON.md) - AI models

@@ -59,9 +59,5 @@ find . -name "CODE_REVIEW_ARCHITECTURE_REVIEWER.md"
 
 ## Related Documentation
 
-- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
-- [[architecture_patterns]] - architecture
-- [[dashboard_architecture]] - dashboard/UI
-- [[queue_processing_guide]] - queue/workflow
-- [[case_studies]] - examples
-- [[security_patterns]] - security
+- [Code Review Anti-Patterns](Documents/reference/CODE_REVIEW_ANTI_PATTERNS.md) - code review
+- [Safety Systems](patterns/safety-systems.md) - security
