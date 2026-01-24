@@ -55,7 +55,7 @@ scaffolding_date: 2026-01-14
 
 ## Related Documentation
 
-- [[image-workflow/README]] - Image Workflow
+- [image-workflow/README](../ai-model-scratch-build/README.md) - Image Workflow
 - [README](README) - Muffin Pan Recipes
 
 <!-- LIBRARIAN-INDEX-START -->
