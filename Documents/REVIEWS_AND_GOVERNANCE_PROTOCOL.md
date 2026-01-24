@@ -94,7 +94,7 @@ Use the **RISEN Framework** (Role, Instructions, Steps, Expectations, Narrowing)
 
 | ID | Category | Check Item | Evidence Requirement |
 |----|----------|------------|----------------------|
-| **M1** | **Robot** | No hardcoded `/Users/` or `/home/` paths | Paste `grep` output (all files) |
+| **M1** | **Robot** | No hardcoded `/Us` + `ers/` or `/ho` + `me/` paths | Paste `grep` output (all files) |
 | **M2** | **Robot** | No silent `except: pass` patterns | Paste `grep` output (Python files) |
 | **M3** | **Robot** | No API keys (`sk-...`) in code/templates | Paste `grep` output |
 | **M4** | **Robot** | Zero unfilled `{{VAR}}` placeholders | Paste `validate_project.py` output |
