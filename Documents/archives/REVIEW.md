@@ -440,6 +440,6 @@ Before writing one more line of code, fix the portability issues. Before scaling
 
 ## Related Documentation
 
-- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
-- [[DOPPLER_SECRETS_MANAGEMENT]] - secrets management
+- [Code Review Anti-Patterns](Documents/reference/CODE_REVIEW_ANTI_PATTERNS.md) - code review
+- [Doppler Secrets Management](Documents/reference/DOPPLER_SECRETS_MANAGEMENT.md) - secrets management
 

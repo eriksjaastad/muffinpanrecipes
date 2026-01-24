@@ -58,10 +58,4 @@ The Muffin Tin is more than a baking tool; it is a **rigid, predictable, modular
 
 ## Related Documentation
 
-- [[architecture_patterns]] - architecture
-- [[dashboard_architecture]] - dashboard/UI
-- [[database_setup]] - database
-- [[deployment_patterns]] - deployment
-- [[performance_optimization]] - performance
-- [[recipe_system]] - recipe generation
-- [[muffinpanrecipes/README]] - Muffin Pan Recipes
+- [README](README) - Muffin Pan Recipes

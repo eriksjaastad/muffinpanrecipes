@@ -39,7 +39,5 @@ Always output in clean Markdown. Do not include any commentary outside the Markd
 
 ## Related Documentation
 
-- [[prompt_engineering_guide]] - prompt engineering
-- [[case_studies]] - examples
-- [[recipe_system]] - recipe generation
-- [[security_patterns]] - security
+- [Tiered AI Sprint Planning](patterns/tiered-ai-sprint-planning.md) - prompt engineering
+- [Safety Systems](patterns/safety-systems.md) - security

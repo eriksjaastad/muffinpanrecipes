@@ -32,6 +32,5 @@ When generating for a specific recipe, replace the following:
 
 ## Related Documentation
 
-- [[prompt_engineering_guide]] - prompt engineering
-- [[recipe_system]] - recipe generation
-- [[muffinpanrecipes/README]] - Muffin Pan Recipes
+- [Tiered AI Sprint Planning](patterns/tiered-ai-sprint-planning.md) - prompt engineering
+- [README](README) - Muffin Pan Recipes

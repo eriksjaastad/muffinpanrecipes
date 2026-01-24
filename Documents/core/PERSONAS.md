@@ -80,11 +80,8 @@ This document defines the specialized AI identities that manage the content, aes
 
 ## Related Documentation
 
-- [[LOCAL_MODEL_LEARNINGS]] - local AI
-- [[cloud_gpu_setup]] - cloud GPU
-- [[prompt_engineering_guide]] - prompt engineering
-- [[orchestration_patterns]] - orchestration
-- [[performance_optimization]] - performance
-- [[recipe_system]] - recipe generation
-- [[security_patterns]] - security
-- [[muffinpanrecipes/README]] - Muffin Pan Recipes
+- [Local Model Learnings](Documents/reference/LOCAL_MODEL_LEARNINGS.md) - local AI
+- [Tiered AI Sprint Planning](patterns/tiered-ai-sprint-planning.md) - prompt engineering
+- [AI Team Orchestration](patterns/ai-team-orchestration.md) - orchestration
+- [Safety Systems](patterns/safety-systems.md) - security
+- [README](README) - Muffin Pan Recipes

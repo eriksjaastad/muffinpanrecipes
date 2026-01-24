@@ -184,5 +184,5 @@ This is what a production system looks like.
 
 ## Related Documentation
 
-- [[CODE_REVIEW_ANTI_PATTERNS]] - code review
+- [Code Review Anti-Patterns](Documents/reference/CODE_REVIEW_ANTI_PATTERNS.md) - code review
 

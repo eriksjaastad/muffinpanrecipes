@@ -509,14 +509,11 @@ Things to try or investigate:
 
 ## Related Documentation
 
-- [[LOCAL_MODEL_LEARNINGS]] - local AI
+- [Local Model Learnings](Documents/reference/LOCAL_MODEL_LEARNINGS.md) - local AI
 - [[PROJECT_STRUCTURE_STANDARDS]] - project structure
-- [[cost_management]] - cost management
-- [[prompt_engineering_guide]] - prompt engineering
-- [[ai_model_comparison]] - AI models
-- [[case_studies]] - examples
-- [[orchestration_patterns]] - orchestration
-- [[performance_optimization]] - performance
-- [[security_patterns]] - security
-- [[testing_strategy]] - testing/QA
+- [Cost Management](Documents/reference/MODEL_COST_COMPARISON.md) - cost management
+- [Tiered AI Sprint Planning](patterns/tiered-ai-sprint-planning.md) - prompt engineering
+- [AI Model Cost Comparison](Documents/reference/MODEL_COST_COMPARISON.md) - AI models
+- [AI Team Orchestration](patterns/ai-team-orchestration.md) - orchestration
+- [Safety Systems](patterns/safety-systems.md) - security
 - [[project-tracker/README]] - Project Tracker

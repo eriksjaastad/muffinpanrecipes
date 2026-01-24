@@ -130,6 +130,5 @@ One of the major AI personality projects in the ecosystem. The testbed for "AIs 
 
 ## Related Documentation
 
-- [[ai_model_comparison]] - AI models
-- [[recipe_system]] - recipe generation
-- [[muffinpanrecipes/README]] - Muffin Pan Recipes
+- [AI Model Cost Comparison](Documents/reference/MODEL_COST_COMPARISON.md) - AI models
+- [README](README) - Muffin Pan Recipes

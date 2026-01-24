@@ -36,8 +36,6 @@ The goal is to evoke a sense of high-end, minimalist cookery. Images should feel
 
 ## Related Documentation
 
-- [[architecture_patterns]] - architecture
-- [[prompt_engineering_guide]] - prompt engineering
+- [Tiered AI Sprint Planning](patterns/tiered-ai-sprint-planning.md) - prompt engineering
 - [[portfolio_content]] - portfolio/career
-- [[recipe_system]] - recipe generation
-- [[muffinpanrecipes/README]] - Muffin Pan Recipes
+- [README](README) - Muffin Pan Recipes
