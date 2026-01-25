@@ -60,18 +60,77 @@ scaffolding_date: 2026-01-14
 
 <!-- LIBRARIAN-INDEX-START -->
 
-### File Index
+### Subdirectories
+
+| Directory | Files | Description |
+| :--- | :---: | :--- |
+| [Documents/](Documents/README.md) | 4 | *Auto-generated index. Last updated: 2026-01-24* |
+| [backend/](backend/README.md) | 3 | Python-based multi-agent orchestration system for Muffin Pan Recipes. |
+
+### Files
 
 | File | Description |
 | :--- | :--- |
 | [AGENTS.md](AGENTS.md) | <!-- project-scaffolding template appended --> |
 | [CLAUDE.md](CLAUDE.md) | <!-- AUTO-GENERATED from .agentsync/rules/ - Do not edit directly --> |
+| [Documents/README.md](Documents/README.md) | *Auto-generated index. Last updated: 2026-01-24* |
+| [Documents/REVIEWS_AND_GOVERNANCE_PROTOCOL.md](Documents/REVIEWS_AND_GOVERNANCE_PROTOCOL.md) | **Date:** 2026-01-07 |
+| [Documents/WORKFLOW_DIAGRAM.md](Documents/WORKFLOW_DIAGRAM.md) | This document defines the complete workflow for producing a recipe, from initial idea to published c... |
+| [Documents/character-creation-vision-v1.md](Documents/character-creation-vision-v1.md) | **Date:** January 14, 2026 |
+| [Documents/core/ARCHITECTURAL_DECISIONS.md](Documents/core/ARCHITECTURAL_DECISIONS.md) | **Status:** Accepted |
+| [Documents/core/IMAGE_PROMPTS.md](Documents/core/IMAGE_PROMPTS.md) | This document serves as the "Source of Truth" for maintaining a consistent visual identity across Mu... |
+| [Documents/core/IMAGE_STYLE_GUIDE.md](Documents/core/IMAGE_STYLE_GUIDE.md) | This document defines the visual identity for all food photography on MuffinPanRecipes.com. To maint... |
+| [Documents/core/PERSONAS.md](Documents/core/PERSONAS.md) | This document defines the specialized AI identities that manage the content, aesthetics, and social ... |
+| [Documents/core/RECIPE_SCHEMA.md](Documents/core/RECIPE_SCHEMA.md) | All AI-generated recipes for Muffin Pan Recipes must follow this standard Markdown structure to ensu... |
+| [Documents/core/SYSTEM_PROMPT_RECIPES.md](Documents/core/SYSTEM_PROMPT_RECIPES.md) | You are the "Muffin Pan Chef," a specialized culinary AI architect who creates recipes exclusively d... |
+| [Documents/patterns/code-review-standard.md](Documents/patterns/code-review-standard.md) | **Status:** Proven Pattern |
+| [Documents/patterns/learning-loop-pattern.md](Documents/patterns/learning-loop-pattern.md) | > **Purpose:** Guide for creating reinforcement learning cycles in any project |
+| [Documents/reference/LOCAL_MODEL_LEARNINGS.md](Documents/reference/LOCAL_MODEL_LEARNINGS.md) | > **Purpose:** Institutional memory for working with local AI models (Ollama) |
 | [ERIKS_TODO.md](ERIKS_TODO.md) | Erik's To-Do List |
 | [PRD.md](PRD.md) | > **Note:** This PRD captures intent and constraints. Detailed specifications (EARS requirements, sc... |
 | [README.md](README.md) | Muffin Pan Recipes |
 | [TODO.md](TODO.md) | Muffin Pan Recipes — Roadmap |
 | [WARDEN_LOG.yaml](WARDEN_LOG.yaml) | No description available. |
 | [agent to agent communication.md](agent to agent communication.md) | I hear you—I was conflating two different "memory" systems because they both involve agents and data... |
+| [backend/README.md](backend/README.md) | Python-based multi-agent orchestration system for Muffin Pan Recipes. |
+| [backend/__init__.py](backend/__init__.py) | AI Creative Team System for Muffin Pan Recipes. |
+| [backend/admin/__init__.py](backend/admin/__init__.py) | Admin dashboard API and routes. |
+| [backend/admin/app.py](backend/admin/app.py) | FastAPI application for the admin dashboard. |
+| [backend/admin/routes.py](backend/admin/routes.py) | Admin dashboard routes and endpoints. |
+| [backend/agents/__init__.py](backend/agents/__init__.py) | Agent implementations package. |
+| [backend/agents/art_director.py](backend/agents/art_director.py) | Art Director Agent - Julian Torres |
+| [backend/agents/baker.py](backend/agents/baker.py) | Baker Agent - Margaret Chen |
+| [backend/agents/copywriter.py](backend/agents/copywriter.py) | Editorial Copywriter Agent - Marcus Reid |
+| [backend/agents/creative_director.py](backend/agents/creative_director.py) | Creative Director Agent - Stephanie 'Steph' Whitmore |
+| [backend/agents/factory.py](backend/agents/factory.py) | Factory for creating agents and loading personality configurations. |
+| [backend/agents/site_architect.py](backend/agents/site_architect.py) | Site Architect Agent - Devon Park |
+| [backend/auth/__init__.py](backend/auth/__init__.py) | Authentication module for admin access control. |
+| [backend/auth/middleware.py](backend/auth/middleware.py) | FastAPI middleware for authentication and authorization. |
+| [backend/auth/oauth.py](backend/auth/oauth.py) | Google OAuth 2.0 authentication flow. |
+| [backend/auth/session.py](backend/auth/session.py) | Session management for authenticated admin users. |
+| [backend/core/__init__.py](backend/core/__init__.py) | Core interfaces and base classes for the AI Creative Team system. |
+| [backend/core/agent.py](backend/core/agent.py) | Base Agent class for the AI Creative Team system. |
+| [backend/core/personality.py](backend/core/personality.py) | Personality configuration system for AI agents. |
+| [backend/core/task.py](backend/core/task.py) | Task definitions for agent execution. |
+| [backend/core/types.py](backend/core/types.py) | Common type definitions for the AI Creative Team system. |
+| [backend/memory/__init__.py](backend/memory/__init__.py) | Agent memory system for personality development and experience tracking. |
+| [backend/memory/agent_memory.py](backend/memory/agent_memory.py) | Agent memory system for personality-focused storage and development. |
+| [backend/messaging/__init__.py](backend/messaging/__init__.py) | Inter-agent messaging system. |
+| [backend/messaging/message_handler.py](backend/messaging/message_handler.py) | Message handler for inter-agent communication. |
+| [backend/messaging/message_system.py](backend/messaging/message_system.py) | Global Message System for agent-to-agent communication. |
+| [backend/newsletter/__init__.py](backend/newsletter/__init__.py) | Newsletter subscription management. |
+| [backend/newsletter/manager.py](backend/newsletter/manager.py) | Newsletter subscription manager. |
+| [backend/orchestrator.py](backend/orchestrator.py) | Integration Orchestrator - Coordinates the entire AI Creative Team system. |
+| [backend/pipeline/__init__.py](backend/pipeline/__init__.py) | Recipe pipeline package - orchestrates recipe creation process. |
+| [backend/pipeline/recipe_pipeline.py](backend/pipeline/recipe_pipeline.py) | Recipe Pipeline Controller |
+| [backend/publishing/__init__.py](backend/publishing/__init__.py) | Publishing pipeline for transforming approved recipes into live site content. |
+| [backend/publishing/pipeline.py](backend/publishing/pipeline.py) | Publishing pipeline for transforming approved recipes into live site content. |
+| [backend/publishing/templates.py](backend/publishing/templates.py) | Template rendering utilities for the publishing pipeline. |
+| [backend/utils/__init__.py](backend/utils/__init__.py) | Utility functions for the AI Creative Team system. |
+| [backend/utils/discord.py](backend/utils/discord.py) | Discord webhook integration for recipe review notifications. |
+| [backend/utils/errors.py](backend/utils/errors.py) | Custom exception classes for the AI Creative Team system. |
+| [backend/utils/logging.py](backend/utils/logging.py) | Logging configuration for the AI Creative Team system. |
+| [backend/utils/ollama.py](backend/utils/ollama.py) | Ollama integration for AI-powered agent behavior. |
 | [package-lock.json](package-lock.json) | No description available. |
 | [package.json](package.json) | No description available. |
 | [pyproject.toml](pyproject.toml) | No description available. |
