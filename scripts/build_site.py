@@ -35,30 +35,41 @@ def main():
         action="store_true",
         help="Full site rebuild from published recipes (default: use recipes.json)"
     )
+    parser.add_argument(
+        "--dry-run", "-n",
+        action="store_true",
+        help="Show what would be built without writing files"
+    )
     
     args = parser.parse_args()
     
     logger.info("--- 🧁 Muffin Pan Recipes: Site Builder ---")
     
+    if args.dry_run:
+        logger.info("🏜️ DRY-RUN MODE: No files will be written")
+    
     # Initialize pipeline
     pipeline = PublishingPipeline(
-        auto_commit=not args.no_commit,
-        auto_push=not args.no_push
+        auto_commit=not args.no_commit and not args.dry_run,
+        auto_push=not args.no_push and not args.dry_run
     )
     
     try:
         if args.rebuild:
             # Full rebuild from PUBLISHED recipes in data/
             logger.info("Mode: Full site rebuild from published recipes")
-            success = pipeline.rebuild_site()
+            success = pipeline.rebuild_site() if not args.dry_run else _dry_run_rebuild(pipeline)
         else:
             # Legacy mode: rebuild from src/recipes.json
             # This is the default to maintain backward compatibility
             logger.info("Mode: Legacy build from src/recipes.json")
-            success = _legacy_build(pipeline)
+            success = _legacy_build(pipeline, dry_run=args.dry_run)
         
         if success:
-            logger.info("✨ SITE BUILD SUCCESSFUL")
+            if args.dry_run:
+                logger.info("✨ DRY-RUN COMPLETE (no changes made)")
+            else:
+                logger.info("✨ SITE BUILD SUCCESSFUL")
             logger.info("--------------------------------------------------")
             sys.exit(0)
         else:
@@ -70,7 +81,7 @@ def main():
         sys.exit(1)
 
 
-def _legacy_build(pipeline: PublishingPipeline) -> bool:
+def _legacy_build(pipeline: PublishingPipeline, dry_run: bool = False) -> bool:
     """
     Legacy build mode that uses src/recipes.json as source.
     
@@ -93,13 +104,16 @@ def _legacy_build(pipeline: PublishingPipeline) -> bool:
     # Load template
     template_content = pipeline._load_template()
     
-    # Clear recipes directory
-    if pipeline.recipes_output_dir.exists():
-        from send2trash import send2trash
-        send2trash(str(pipeline.recipes_output_dir))
-        logger.info("Moved old recipes directory to trash")
-    
-    pipeline.recipes_output_dir.mkdir(parents=True, exist_ok=True)
+    if not dry_run:
+        # Clear recipes directory
+        if pipeline.recipes_output_dir.exists():
+            from send2trash import send2trash
+            send2trash(str(pipeline.recipes_output_dir))
+            logger.info("Moved old recipes directory to trash")
+        
+        pipeline.recipes_output_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        logger.info(f"[DRY-RUN] Would clear: {pipeline.recipes_output_dir}")
     
     # Generate pages for each recipe
     for recipe in recipes:
@@ -111,12 +125,27 @@ def _legacy_build(pipeline: PublishingPipeline) -> bool:
             continue
         
         html_content = pipeline._generate_recipe_html(template_content, recipe)
-        pipeline._save_recipe_page(slug, html_content)
-        logger.info(f"✅ Baked: {title}")
+        
+        if dry_run:
+            logger.info(f"[DRY-RUN] Would bake: {title} → src/recipes/{slug}/index.html")
+        else:
+            pipeline._save_recipe_page(slug, html_content)
+            logger.info(f"✅ Baked: {title}")
     
     # Regenerate sitemap (recipes.json is already up to date)
-    pipeline._generate_sitemap()
+    if not dry_run:
+        pipeline._generate_sitemap()
+    else:
+        logger.info(f"[DRY-RUN] Would generate sitemap with {len(recipes)} recipes")
     
+    return True
+
+
+def _dry_run_rebuild(pipeline: PublishingPipeline) -> bool:
+    """Dry-run version of rebuild_site."""
+    logger.info(f"[DRY-RUN] Would load template from: {pipeline.template_path}")
+    logger.info(f"[DRY-RUN] Would clear: {pipeline.recipes_output_dir}")
+    logger.info(f"[DRY-RUN] Would regenerate sitemap")
     return True
 
 
