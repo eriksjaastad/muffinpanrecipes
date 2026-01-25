@@ -21,6 +21,7 @@ from backend.data.recipe import Recipe, RecipeStatus
 from backend.publishing.templates import render_recipe_page, generate_json_ld
 from backend.utils.logging import get_logger
 from backend.utils.discord import notify_recipe_ready
+from backend.utils.atomic import atomic_write, atomic_write_json
 
 logger = get_logger(__name__)
 
@@ -92,9 +93,8 @@ class PublishingPipeline:
                 return {"recipes": []}
     
     def _save_recipes_index(self, data: Dict[str, Any]) -> None:
-        """Save the recipes index back to src/recipes.json."""
-        with open(self.recipes_json_path, "w") as f:
-            json.dump(data, f, indent=2)
+        """Save the recipes index back to src/recipes.json using atomic write."""
+        atomic_write_json(self.recipes_json_path, data)
         logger.info(f"Updated recipes index: {len(data['recipes'])} recipes")
     
     def _recipe_to_web_format(self, recipe: Recipe) -> Dict[str, Any]:
@@ -140,7 +140,7 @@ class PublishingPipeline:
     
     def _save_recipe_page(self, slug: str, html_content: str) -> Path:
         """
-        Save recipe HTML to src/recipes/{slug}/index.html.
+        Save recipe HTML to src/recipes/{slug}/index.html using atomic write.
         
         Args:
             slug: Recipe slug
@@ -153,8 +153,7 @@ class PublishingPipeline:
         recipe_dir.mkdir(parents=True, exist_ok=True)
         
         output_file = recipe_dir / "index.html"
-        with open(output_file, "w") as f:
-            f.write(html_content)
+        atomic_write(output_file, html_content)
         
         logger.info(f"Saved recipe page: {output_file}")
         return output_file
@@ -185,7 +184,7 @@ class PublishingPipeline:
         self._save_recipes_index(index)
     
     def _generate_sitemap(self) -> None:
-        """Generate sitemap.xml with all published recipes."""
+        """Generate sitemap.xml with all published recipes using atomic write."""
         index = self._load_recipes_index()
         
         today = datetime.now().strftime("%Y-%m-%d")
@@ -212,8 +211,7 @@ class PublishingPipeline:
         
         sitemap_content.append('</urlset>')
         
-        with open(self.sitemap_path, "w") as f:
-            f.write("\n".join(sitemap_content))
+        atomic_write(self.sitemap_path, "\n".join(sitemap_content))
         
         logger.info(f"Generated sitemap with {len(index['recipes']) + 1} URLs")
     
@@ -237,6 +235,7 @@ class PublishingPipeline:
                 ["git", "add", "src/"],
                 cwd=self.project_root,
                 check=True,
+                timeout=30,
                 capture_output=True
             )
             
@@ -246,6 +245,7 @@ class PublishingPipeline:
                 ["git", "commit", "-m", commit_msg],
                 cwd=self.project_root,
                 check=True,
+                timeout=30,
                 capture_output=True
             )
             logger.info(f"Git commit created: {commit_msg}")
@@ -256,6 +256,7 @@ class PublishingPipeline:
                     ["git", "push"],
                     cwd=self.project_root,
                     check=True,
+                    timeout=60,
                     capture_output=True
                 )
                 logger.info("Git push successful - Vercel deployment triggered")
