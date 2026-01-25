@@ -4,8 +4,9 @@ trigger: always_on
 
 # Antigravity Rules for muffinpanrecipes
 
-<!-- AUTO-GENERATED from .agentsync/rules/ - Do not edit directly -->
-<!-- Run: uv run $TOOLS_ROOT/agentsync/sync_rules.py muffinpanrecipes -->
+<!-- AGENTSYNC:START - Do not edit between markers -->
+<!-- To modify synced rules: Edit .agentsync/rules/*.md, then run: -->
+<!-- uv run $TOOLS_ROOT/agentsync/sync_rules.py muffinpanrecipes -->
 
 # AGENTS.md - Source of Truth for AI Agents
 
@@ -38,4 +39,5 @@ Muffin Pan Recipes is a high-volume, AI-driven recipe site focused on "Muffin Ti
 - [Recipe Schema](Documents/core/RECIPE_SCHEMA.md)
 - [Architectural Decisions](Documents/core/ARCHITECTURAL_DECISIONS.md)
 
-<!-- Source of truth: .agentsync/rules/ -->
+<!-- Source: .agentsync/rules/*.md -->
+<!-- AGENTSYNC:END - Custom rules below this line are preserved -->
