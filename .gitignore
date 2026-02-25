@@ -88,3 +88,7 @@ Thumbs.db
 # Node
 node_modules/
 .grepai/
+
+# Outcome verification (holdout set — not visible to workers)
+SCENARIOS.md
+EVIDENCE.md
