@@ -205,9 +205,9 @@ def create_routes(app: FastAPI):
         recipe_id: str,
         session_id: str = Depends(require_auth)
     ):
-        """Get full recipe details for review."""
+        """Get full recipe details as JSON."""
         data_dir = app.state.project_root / "data" / "recipes"
-        
+
         # Find recipe in any status directory
         recipe = None
         for status in RecipeStatus:
@@ -218,11 +218,39 @@ def create_routes(app: FastAPI):
                     break
             except Exception as e:
                 logger.error(f"Error loading recipe {recipe_id}: {e}")
-        
+
         if not recipe:
             raise HTTPException(status_code=404, detail="Recipe not found")
-        
+
         return recipe.model_dump(mode="json")
+
+    @app.get("/admin/recipes/{recipe_id}/view", response_class=HTMLResponse)
+    async def view_recipe_detail(
+        request: Request,
+        recipe_id: str,
+        session_id: str = Depends(require_auth)
+    ):
+        """Render recipe detail review page."""
+        data_dir = app.state.project_root / "data" / "recipes"
+        templates = app.state.templates
+
+        recipe = None
+        for status in RecipeStatus:
+            filepath = data_dir / status.value / f"{recipe_id}.json"
+            if filepath.exists():
+                recipe = Recipe.load_from_file(filepath)
+                break
+
+        if not recipe:
+            raise HTTPException(status_code=404, detail="Recipe not found")
+
+        return templates.TemplateResponse(
+            "recipe_detail.html",
+            {
+                "request": request,
+                "recipe": recipe.model_dump(mode="json"),
+            },
+        )
     
     @app.post("/admin/recipes/{recipe_id}/approve")
     async def approve_recipe(
