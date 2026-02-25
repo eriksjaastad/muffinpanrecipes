@@ -32,6 +32,17 @@
     </section>
 
     <section class="bg-white shadow rounded-lg p-6">
+      <h3 class="text-lg font-semibold text-gray-900 mb-3">Hero Image</h3>
+      {% if recipe.featured_photo %}
+        <img src="{{ recipe.featured_photo }}" alt="{{ recipe.title }}" class="w-full max-w-2xl rounded border" />
+      {% else %}
+        <p class="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-3">
+          No hero image is attached yet for this recipe. This run used text-only output and still needs an image pass.
+        </p>
+      {% endif %}
+    </section>
+
+    <section class="bg-white shadow rounded-lg p-6">
       <h3 class="text-lg font-semibold text-gray-900 mb-3">Ingredients</h3>
       <ul class="list-disc pl-5 space-y-1 text-gray-800">
         {% for ing in recipe.ingredients %}
