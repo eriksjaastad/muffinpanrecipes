@@ -167,8 +167,9 @@ class RecipeOrchestrator:
             logger.info(f"\n{'='*70}")
             logger.info("STAGE 4: Creative Review (Steph Whitmore - Creative Director)")
             logger.info(f"{'='*70}")
-            approved = self._execute_stage_review(recipe_id)
-            
+            approved, review_output = self._execute_stage_review(recipe_id)
+            self._record_creative_dialogue(recipe_id, concept, recipe_data, copy_text, review_output)
+
             if approved:
                 self.pipeline.advance_stage(recipe_id)  # FINAL_APPROVAL
                 self.pipeline.advance_stage(recipe_id)  # DEPLOYMENT
@@ -283,7 +284,7 @@ class RecipeOrchestrator:
         
         return result.output
     
-    def _execute_stage_review(self, recipe_id: str) -> bool:
+    def _execute_stage_review(self, recipe_id: str) -> tuple[bool, Dict]:
         """Execute creative director's review stage."""
         cd = self.agents["creative_director"]
         
@@ -304,10 +305,50 @@ class RecipeOrchestrator:
             personality_moments=result.personality_notes
         )
         
-        # Check approval
+        # Check approval (support both old and new response shapes)
         approved = result.output.get("approved", True)
-        return approved
+        if "decision" in result.output and result.output["decision"] == "approved_with_minor_revisions":
+            approved = True
+
+        return approved, result.output
     
+    def _record_creative_dialogue(
+        self,
+        recipe_id: str,
+        concept: str,
+        recipe_data: Dict,
+        copy_text: Dict,
+        review_output: Dict,
+    ) -> None:
+        """Capture visible character dialogue and screenwriter tension notes."""
+        if not self.current_story:
+            return
+
+        baker_title = recipe_data.get("title", concept)
+        copy_body = (copy_text.get("body") or "").strip()
+        copy_sample = copy_body[:140] + ("..." if len(copy_body) > 140 else "")
+
+        cd_suggestions = review_output.get("suggestions", [])
+        cd_note = cd_suggestions[0] if cd_suggestions else "Portion structure is close, but the headline needs sharper tension."
+
+        dialogue_lines = [
+            f'Margaret (Baker): "The structure is solid. I won\'t apologize for proper ratios in {baker_title}."',
+            f'Steph (Creative Director): "I love the backbone here. But can we tighten this pass? {cd_note}"',
+            f'Marcus (Copywriter): "I gave it a literary pass. Sample: {copy_sample or "No copy sample yet."}"',
+            'Screenwriter: "Tension logged — Margaret defends craft, Steph pushes for polish, Marcus tries to romanticize the crumb."',
+        ]
+
+        for line in dialogue_lines:
+            self.pipeline.active_recipes[recipe_id].messages.append(line)
+
+        self.current_story.add_conflict(
+            description="Baker vs Creative Director on tradition vs market-facing polish",
+            between=["Margaret Chen", "Steph Whitmore", "Marcus Reid"],
+            resolution="Approved with minor revisions framing; baker structure preserved, copy sharpened.",
+        )
+
+        self.current_story.personality_highlights.extend(dialogue_lines)
+
     def _execute_stage_deployment(self, recipe_id: str) -> None:
         """Execute site architect's deployment stage."""
         site_architect = self.agents["site_architect"]
@@ -387,7 +428,11 @@ class RecipeOrchestrator:
             story_parts.append(f"\n## {contrib.agent_name} - {contrib.contribution_type}\n")
             if contrib.personality_moments:
                 story_parts.extend([f"- {moment}" for moment in contrib.personality_moments])
-        
+
+        if self.current_story.personality_highlights:
+            story_parts.append("\n## Writers Room Feed (Screenwriter Capture)\n")
+            story_parts.extend([f"- {line}" for line in self.current_story.personality_highlights])
+
         self.current_story.full_story = "\n".join(story_parts)
         
         # Set completion time
