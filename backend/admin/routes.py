@@ -244,11 +244,26 @@ def create_routes(app: FastAPI):
         if not recipe:
             raise HTTPException(status_code=404, detail="Recipe not found")
 
+        recipe_payload = recipe.model_dump(mode="json")
+        image_url = None
+        featured = recipe_payload.get("featured_photo")
+
+        if isinstance(featured, str) and featured.strip():
+            featured = featured.strip()
+            if featured.startswith("http://") or featured.startswith("https://"):
+                image_url = featured
+            else:
+                candidate = app.state.project_root / "src" / "assets" / "images" / featured
+                if candidate.exists():
+                    image_url = f"/static/assets/images/{featured}"
+
+        recipe_payload["image_url"] = image_url
+
         return templates.TemplateResponse(
             "recipe_detail.html",
             {
                 "request": request,
-                "recipe": recipe.model_dump(mode="json"),
+                "recipe": recipe_payload,
             },
         )
     
