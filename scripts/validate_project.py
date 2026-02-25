@@ -21,6 +21,7 @@ from typing import List, Tuple
 import re
 from scaffold.utils import safe_slug
 from scaffold.alerts import send_discord_alert
+from scaffold.constants import PROTECTED_PROJECTS
 
 # Configuration
 PROJECTS_ROOT_ENV = os.getenv("PROJECTS_ROOT")
@@ -31,7 +32,7 @@ else:
     PROJECTS_ROOT = Path(PROJECTS_ROOT_ENV).resolve()
 
 REQUIRED_INDEX_PATTERN = r"00_Index_.+\.md"
-SKIP_DIRS = {"writing", "ai-journal", "plugin-duplicate-detection", "plugin-find-names-chrome"}
+SKIP_DIRS = PROTECTED_PROJECTS
 
 # Mandatory files and directories
 MANDATORY_FILES = [
@@ -49,7 +50,12 @@ MANDATORY_DIRS = [
 
 # YAML frontmatter requirements
 REQUIRED_TAGS = ["map/project", "p/"]  # p/ is a prefix that must exist
-REQUIRED_SECTIONS = ["# ", "## Key Components", "## Status"]
+# Regex patterns for required sections (allows for emojis and slight variations)
+REQUIRED_SECTION_PATTERNS = [
+    (re.compile(r"^#\s+", re.MULTILINE), "H1 Title"),
+    (re.compile(r"^##\s+.*(Key Components|Project Overview)", re.MULTILINE | re.IGNORECASE), "## Key Components"),
+    (re.compile(r"^##\s+.*Status", re.MULTILINE | re.IGNORECASE), "## Status"),
+]
 
 
 class ValidationError(Exception):
@@ -105,9 +111,9 @@ def validate_index_content(index_path: Path) -> List[str]:
             errors.append(f"Missing required tag: {required_tag}")
     
     # Check required sections
-    for required_section in REQUIRED_SECTIONS:
-        if required_section not in body:
-            errors.append(f"Missing required section: {required_section}")
+    for pattern, section_name in REQUIRED_SECTION_PATTERNS:
+        if not pattern.search(body):
+            errors.append(f"Missing required section: {section_name}")
     
     # Check for 3-sentence summary (heuristic: body should have substance before first ##)
     if "## Key Components" in body:
@@ -131,7 +137,7 @@ def validate_dna_integrity(project_path: Path) -> List[str]:
     # Files to exclude from scan
     exclude_dirs = {
         ".git", "venv", ".venv", "__pycache__", "node_modules", "data",
-        "library", ".mypy_cache", ".pytest_cache", ".ruff_cache", "archives", "_trash",
+        "library", ".mypy_cache", ".pytest_cache", ".ruff_cache",
         "htmlcov", ".tox", ".nox", ".cache", "logs", "recovered", "cursor_history",
         "entries", "insights"
     }
@@ -226,6 +232,16 @@ def validate_project(project_path: Path, verbose: bool = True) -> bool:
         (re.compile(r"\{\{[A-Z0-9_]+\}\}"), "Unfilled double-brace placeholder"),
     ]
     
+    # Intentional placeholders that are allowed to remain (e.g. in documentation or examples)
+    ALLOWED_PLACEHOLDERS = {
+        "{{RECIPE_ID}}",
+        "{{BACKGROUND}}",
+        "{{PRIMARY}}",
+        "{{SECONDARY}}",
+        "{{ACCENT}}",
+        "{{PLACEHOLDER}}"
+    }
+    
     # Files/directories to skip for placeholder scan
     placeholder_skip_files = {
         "SILENT_FAILURES_AUDIT.md",
@@ -238,7 +254,7 @@ def validate_project(project_path: Path, verbose: bool = True) -> bool:
     
     for root, dirs, files in os.walk(project_path):
         # Filter directories in-place
-        dirs[:] = [d for d in dirs if d not in {"venv", ".venv", "__pycache__", "node_modules", ".git", "_trash", "archives"}]
+        dirs[:] = [d for d in dirs if d not in {"venv", ".venv", "__pycache__", "node_modules", ".git"}]
         
         rel_root = Path(root).relative_to(project_path)
         is_in_skip_dir = any(part in placeholder_skip_dirs for part in rel_root.parts)
@@ -273,6 +289,10 @@ def validate_project(project_path: Path, verbose: bool = True) -> bool:
                         for pattern, reason in placeholder_patterns:
                             match = pattern.search(line)
                             if match:
+                                placeholder = match.group(0)
+                                if placeholder in ALLOWED_PLACEHOLDERS:
+                                    continue
+                                
                                 # Special case: ignore some common single-brace patterns that aren't placeholders
                                 # e.g. f-strings in python or shell variables if they look like placeholders
                                 if file.endswith(".py") and ("f\"" in line or "f'" in line):

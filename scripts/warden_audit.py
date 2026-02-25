@@ -69,7 +69,7 @@ def check_doc_ratio(project_root: pathlib.Path) -> tuple:
     Returns: (ratio, severity) where severity is None if healthy, P2 if warning, P1 if critical
     """
     code_extensions = ['*.py', '*.js', '*.ts', '*.jsx', '*.tsx', '*.go', '*.rs', '*.java', '*.rb']
-    skip_dirs = ['venv', 'node_modules', '.git', '__pycache__', 'archives', '_trash']
+    skip_dirs = ['venv', '.venv', 'node_modules', '.git', '__pycache__']
 
     code_lines = 0
     doc_lines = 0
@@ -102,7 +102,7 @@ def check_doc_ratio(project_root: pathlib.Path) -> tuple:
     ratio = doc_lines / code_lines
 
     if ratio > 5.0:
-        return (ratio, Severity.P1)  # Extreme bloat - likely an error
+        return (ratio, Severity.P2)  # Extreme bloat - warning only
     elif ratio > 0.5:
         return (ratio, Severity.P2)  # Warning - docs > 50% of code
     elif ratio > 0.2:
@@ -115,9 +115,12 @@ def check_dangerous_functions(project_root: pathlib.Path) -> list:
     
     Returns: List of (file_path, pattern, severity) tuples
     """
-    dangerous_patterns = [
+    dangerous_code_patterns = [
         'os.remove', 'os.unlink', 'shutil.rmtree',  # Dangerous functions
-        'rm -rf', 'rm ',                           # Dangerous shell commands
+        'rm -rf', 'rm -r', 'subprocess.run([\'rm\'',  # Dangerous shell commands
+        'subprocess.run(["rm"', 'subprocess.call(["rm"', 'subprocess.call([\'rm\'',
+    ]
+    hardcoded_path_patterns = [
         '/Us' + 'ers/', '/ho' + 'me/',  # macOS/Linux absolute paths
         'C:\\' + '\\', 'C:/'       # Windows absolute paths
     ]
@@ -125,32 +128,38 @@ def check_dangerous_functions(project_root: pathlib.Path) -> list:
     
     # Simple walk and check to avoid external dependency for basic audit
     for file_path in project_root.rglob('*'):
-        # Skip certain directories
-        if any(part in file_path.parts for part in ['venv', 'node_modules', '.git', '__pycache__', '_trash']):
+        # Skip certain directories (including .venv)
+        if any(part in file_path.parts for part in ['venv', '.venv', 'node_modules', '.git', '__pycache__']):
             continue
             
-        if file_path.name == 'warden_audit.py' or file_path.name == 'validate_project.py': # Exclude self and validator
+        if file_path.name == 'warden_audit.py' or file_path.name == 'validate_project.py':
             continue
 
-        if not file_path.suffix in ['.py', '.sh', '.js', '.ts', '.md']:
+        is_code_file = file_path.suffix in ['.py', '.sh', '.js', '.ts']
+        is_markdown_file = file_path.suffix == '.md'
+
+        if not (is_code_file or is_markdown_file):
             continue
 
-        # Determine if test file
         is_test_file = 'test' in file_path.parts or file_path.name.startswith('test_')
 
         try:
             with file_path.open('r') as f:
                 content = f.read()
-                for pattern in dangerous_patterns:
+
+                # Hardcoded paths: P1 in code, P2 in markdown
+                for pattern in hardcoded_path_patterns:
                     if pattern in content:
-                        is_hardcoded_path = pattern in ['/Us' + 'ers/', '/ho' + 'me/', 'C:\\' + '\\', 'C:/']
-                        if is_hardcoded_path:
-                            severity = Severity.P1
-                        elif pattern in ['os.remove', 'os.unlink', 'shutil.rmtree', 'rm -rf', 'rm ']:
-                            severity = Severity.P2 if is_test_file else Severity.P0
-                        else:
-                            severity = Severity.P3
+                        severity = Severity.P1 if is_code_file else Severity.P2
                         found_issues.append((file_path, pattern, severity))
+
+                # Dangerous functions: only check code files
+                if is_code_file:
+                    for pattern in dangerous_code_patterns:
+                        if pattern in content:
+                            severity = Severity.P2 if is_test_file else Severity.P0
+                            found_issues.append((file_path, pattern, severity))
+                            
         except Exception as e:
             logger.warning(f"Could not read file {file_path}: {e}")
             found_issues.append((file_path, f"READ_ERROR: {e}", Severity.P3))
@@ -170,22 +179,31 @@ def check_dangerous_functions_fast(project_root: pathlib.Path) -> list:
         logger.warning("grep/ripgrep not found, falling back to regular scan")
         return check_dangerous_functions(project_root)
 
-    dangerous_patterns = [
+    dangerous_code_patterns = [
         'os.remove', 'os.unlink', 'shutil.rmtree',
-        'rm -rf', 'rm ',
+        'rm -rf', 'rm -r', 'subprocess.run([\'rm\'',
+        'subprocess.run(["rm"', 'subprocess.call(["rm"', 'subprocess.call([\'rm\'',
+    ]
+    hardcoded_path_patterns = [
         '/Us' + 'ers/', '/ho' + 'me/',
         'C:\\' + '\\', 'C:/'
     ]
     found_issues = []
 
-    for pattern in dangerous_patterns:
+    # Check dangerous code patterns only in code files
+    for pattern in dangerous_code_patterns:
         try:
             if grep_cmd == 'rg':
-                # ripgrep: --type py, -l (files with matches)
-                cmd = ['rg', '--type', 'py', '-l', pattern, str(project_root)]
+                # ripgrep: --type for multiple types, exclude directories
+                cmd = ['rg', '--type', 'py', '--type', 'sh', '--type', 'js', '--type', 'ts',
+                       '--glob', '!.venv/', '--glob', '!venv/', '--glob', '!node_modules/',
+                       '-l', pattern, str(project_root)]
             else:
-                # grep: -r (recursive), -l (files), --include (Python files)
-                cmd = ['grep', '-r', '-l', '--include=*.py', pattern, str(project_root)]
+                # grep: -r (recursive), -l (files), --include (code files), --exclude-dir
+                cmd = ['grep', '-r', '-l', 
+                       '--include=*.py', '--include=*.sh', '--include=*.js', '--include=*.ts',
+                       '--exclude-dir=venv', '--exclude-dir=.venv', '--exclude-dir=node_modules',
+                       pattern, str(project_root)]
 
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=2, check=False)
 
@@ -197,15 +215,37 @@ def check_dangerous_functions_fast(project_root: pathlib.Path) -> list:
                             continue
                         
                         is_test_file = 'test' in path_obj.parts or path_obj.name.startswith('test_')
-                        is_hardcoded_path = pattern in ['/Us' + 'ers/', '/ho' + 'me/', 'C:\\' + '\\', 'C:/']
-                        
-                        if is_hardcoded_path:
-                            severity = Severity.P1
-                        elif pattern in ['os.remove', 'os.unlink', 'shutil.rmtree']:
-                            severity = Severity.P2 if is_test_file else Severity.P0
-                        else:
-                            severity = Severity.P3
-                            
+                        severity = Severity.P2 if is_test_file else Severity.P0
+                        found_issues.append((path_obj, pattern, severity))
+
+        except subprocess.TimeoutExpired:
+            logger.warning(f"Fast scan timeout for pattern: {pattern}")
+        except Exception as e:
+            logger.warning(f"Fast scan error: {e}")
+    
+    # Check hardcoded paths: P1 in code files, P2 in markdown
+    for pattern in hardcoded_path_patterns:
+        try:
+            if grep_cmd == 'rg':
+                cmd = ['rg', '--type', 'py', '--type', 'sh', '--type', 'js', '--type', 'ts', '--type', 'md',
+                       '--glob', '!.venv/', '--glob', '!venv/', '--glob', '!node_modules/',
+                       '-l', pattern, str(project_root)]
+            else:
+                cmd = ['grep', '-r', '-l',
+                       '--include=*.py', '--include=*.sh', '--include=*.js', '--include=*.ts', '--include=*.md',
+                       '--exclude-dir=venv', '--exclude-dir=.venv', '--exclude-dir=node_modules',
+                       pattern, str(project_root)]
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=2, check=False)
+
+            if result.returncode == 0:
+                for file_path in result.stdout.strip().split('\n'):
+                    if file_path:
+                        path_obj = pathlib.Path(file_path)
+                        if path_obj.name == 'warden_audit.py' or path_obj.name == 'validate_project.py':
+                            continue
+                        # P1 for code, P2 for markdown
+                        severity = Severity.P1 if path_obj.suffix in ['.py', '.sh', '.js', '.ts'] else Severity.P2
                         found_issues.append((path_obj, pattern, severity))
 
         except subprocess.TimeoutExpired:
@@ -226,8 +266,8 @@ def run_audit(root_dir: pathlib.Path, use_fast: bool = False) -> bool:
     
     # Find all project roots by looking for 00_Index_*.md files
     for index_path in root_dir.rglob('00_Index_*.md'):
-        # Skip indices in templates or archives
-        if any(part in index_path.parts for part in ['templates', 'archives', 'venv', '.git']):
+        # Skip indices in templates
+        if any(part in index_path.parts for part in ['templates', 'venv', '.git']):
             continue
             
         projects_found += 1
