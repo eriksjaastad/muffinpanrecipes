@@ -1,29 +1,4 @@
 
-<!-- SCAFFOLD:START - Do not edit between markers -->
-# muffinpanrecipes
-
-Brief description of the project's purpose
-
-## Quick Start
-
-```bash
-# Setup
-pip install -r requirements.txt
-
-# Run
-python main.py
-```
-
-## Documentation
-
-See the `Documents/` directory for detailed documentation.
-
-## Status
-
-- **Current Phase:** Foundation
-- **Status:** #status/active
-
-<!-- SCAFFOLD:END - Custom content below is preserved -->
 # Muffin Pan Recipes
 
 An AI-driven experimental recipe platform focused exclusively on "Muffin Tin Meals." This project explores high-volume content generation, niche SEO optimization, and automated deployment to Vercel.
@@ -55,9 +30,9 @@ See the `Documents/` directory for detailed documentation:
 - [Recipe Schema](Documents/core/RECIPE_SCHEMA.md)
 
 ## Development Resources
-- [WARDEN_LOG.yaml|WARDEN_LOG.yaml](WARDEN_LOG.yaml|WARDEN_LOG.yaml)
-- [package-lock.json|package-lock.json](package-lock.json|package-lock.json)
-- [scripts/warden_audit.py|warden_audit.py](scripts/warden_audit.py|warden_audit.py)
+- [WARDEN_LOG.yaml](WARDEN_LOG.yaml)
+- [package-lock.json](package-lock.json)
+- [scripts/warden_audit.py](scripts/warden_audit.py)
 
 ## Status
 - **Current Phase:** Phase 1: AI Recipe Engine
