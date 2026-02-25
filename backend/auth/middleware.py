@@ -8,6 +8,8 @@ Provides:
 """
 
 from typing import Optional
+from urllib.parse import quote
+
 from fastapi import Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 
@@ -98,13 +100,13 @@ async def require_auth(
     """
     if not session_id:
         logger.warning(f"Unauthorized access attempt to {request.url.path}")
-        
-        # Return 401 with redirect URL in headers
-        # The frontend can handle the redirect
+
+        # Browser-friendly redirect to login, preserving destination.
+        redirect_target = quote(request.url.path, safe="/")
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=status.HTTP_307_TEMPORARY_REDIRECT,
             detail="Authentication required",
-            headers={"Location": "/auth/login"}
+            headers={"Location": f"/auth/login?redirect={redirect_target}"},
         )
     
     return session_id
