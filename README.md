@@ -1,3 +1,29 @@
+
+<!-- SCAFFOLD:START - Do not edit between markers -->
+# muffinpanrecipes
+
+Brief description of the project's purpose
+
+## Quick Start
+
+```bash
+# Setup
+pip install -r requirements.txt
+
+# Run
+python main.py
+```
+
+## Documentation
+
+See the `Documents/` directory for detailed documentation.
+
+## Status
+
+- **Current Phase:** Foundation
+- **Status:** #status/active
+
+<!-- SCAFFOLD:END - Custom content below is preserved -->
 # Muffin Pan Recipes
 
 An AI-driven experimental recipe platform focused exclusively on "Muffin Tin Meals." This project explores high-volume content generation, niche SEO optimization, and automated deployment to Vercel.
@@ -36,32 +62,3 @@ See the `Documents/` directory for detailed documentation:
 ## Status
 - **Current Phase:** Phase 1: AI Recipe Engine
 - **Status:** #status/active
-
-
-<!-- project-scaffolding template appended -->
-
-# [PROJECT_NAME]
-
-[Brief 2-3 sentence description of the project.]
-
-## Quick Start
-
-### Installation
-```bash
-# [Add installation steps here]
-```
-
-### Usage
-```bash
-# [Add usage steps here]
-```
-
-## Documentation
-See the `Documents/` directory for detailed documentation:
-- [Architecture Overview](Documents/ARCHITECTURE_OVERVIEW.md)
-- [Operations Guide](Documents/OPERATIONS_GUIDE.md)
-
-## Status
-- **Current Phase:** [Phase Name]
-- **Status:** #status/active
-

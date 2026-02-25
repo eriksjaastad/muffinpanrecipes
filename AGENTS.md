@@ -1,9 +1,33 @@
-<!-- project-scaffolding template appended -->
-
+<!-- SCAFFOLD:START - Do not edit between markers -->
 # AGENTS.md - Ecosystem Constitution (SSOT)
 
 > The single source of truth for hierarchy, workflow, and AI collaboration philosophy.
 > This document is universal across all projects.
+> **Start here:** Read `README.md` first. The auto-generated section at the top has this project's purpose, entry points, and key commands.
+
+---
+
+## 🛡️ UNIVERSAL GOVERNANCE RULES
+
+### 1. The "Trash, Don't Delete" Policy
+- **Rule:** NEVER use `rm`, `unlink`, or `shred`. Permanent deletion is forbidden.
+- **Enforcement:** Use `trash <file>` (CLI) or `send2trash` (Python).
+- **No workarounds:** Do not use `find -delete` or other indirect deletion methods.
+- **Why:** Allows recovery from accidental deletions.
+- **If trash is missing:** STOP and ask the user.
+
+### 2. DNA Integrity (Portability)
+- **Rule:** NO hardcoded absolute paths (e.g., `/Users/erik/...`).
+- **Enforcement:** Use relative paths or environment variables.
+
+### 3. Security Sentinel
+- **Rule:** NEVER hard-code API keys or secrets.
+- **Enforcement:** Use project-specific `.env` files and `os.getenv()`.
+
+### 4. No Hook Bypass
+- **Rule:** NEVER use `--no-verify` or `-n` with git commit or push.
+- **Why:** Pre-commit hooks exist to catch security issues and code quality problems. Bypassing them defeats the entire safety system.
+- **Enforcement:** Fix the issue, don't bypass the hook.
 
 ---
 
@@ -16,7 +40,7 @@
 ### 2. The Super Manager (Strategy & Context)
 - **Role:** Strategic Planner and Prompt Engineer
 - **Scope:** Cross-project context and task planning
-- **Current Model:** [Gemini 3 Flash / Claude / as needed]
+- **Current Model:** Claude or Gemini (as available)
 - **Constraint:** **STRICTLY PROHIBITED** from writing code or using tools
 - **Mandate:**
   - Drafts prompts and **[ACCEPTANCE CRITERIA]** for Workers
@@ -26,7 +50,7 @@
 
 ### 3. The Floor Manager (QA, Messenger & File Operator)
 - **Role:** Orchestrator, Quality Assurance Lead, Context Bridge, Draft Gatekeeper, and Primary File Operator.
-- **Current Model:** [Gemini 3 Flash / Claude / as needed]
+- **Current Model:** Claude or Gemini (as available)
 - **Tools:** Ollama MCP (`ollama_run`, `ollama_run_many`), Shell tool, File tools, Draft Gate.
 - **Constraint:** **STRICTLY PROHIBITED** from generating logic or writing code.
 - **Mandate:**
@@ -226,7 +250,7 @@ When a feature requires 3+ prompts, use **Staged Prompt Engineering**:
 - Break work into **Individual Prompts** (5-10 min each) with built-in verification
 - End with a **Verification Prompt** that tests all components together
 
-See: `agent-skills-library/playbooks/staged-prompt-engineering/` for templates.
+Claude Code skills for workflow phases are deployed to `~/.claude/skills/` and activate automatically.
 
 ---
 
@@ -235,7 +259,8 @@ See: `agent-skills-library/playbooks/staged-prompt-engineering/` for templates.
 - NEVER modify `.env` or `venv/`
 - NEVER install dependencies globally. Use a project-local virtual environment or tool-managed environment (e.g., `venv`, `uv`, `pipx`, `poetry`).
 - NEVER hard-code API keys, secrets, or credentials in script files. Use `.env` and `os.getenv()`
-- NEVER use absolute paths (e.g., `/Us` + `ers/erik/...`). Use relative paths or environment variables
+- NEVER use absolute paths (e.g., `/Users/erik/...`). Use relative paths or environment variables
+- NEVER use `--no-verify` or `-n` with git commit/push. Pre-commit hooks exist to catch problems. Fix the issue, don't bypass the hook.
 - ALWAYS update `EXTERNAL_RESOURCES.yaml` when adding external services
 - ALWAYS use retry logic and cost tracking for API calls
 
@@ -252,10 +277,10 @@ See: `agent-skills-library/playbooks/staged-prompt-engineering/` for templates.
 ## 📔 JOURNAL ENTRY PROTOCOL (UNIVERSAL)
 
 **Location:** `{PROJECTS_ROOT}/ai-journal/entries/YYYY/`
-**Format:** `YYYY-MM-DDTHH-MM-SSZ__Claude 3.5 Sonnet-floor-manager__{descriptive-title}.md` (UTC)
+**Format:** `YYYY-MM-DDTHH-MM-SSZ__{model}-{role}__{descriptive-title}.md` (UTC)
 
 ### Role Identification
-Include your role in the filename `floor-manager` tag:
+Include your role in the filename `{role}` tag:
 - **super-manager:** Strategic oversight, high-fidelity planning
 - **floor-manager:** Implementation, debugging, tool execution
 - **worker:** Specific code generation, task completion
@@ -377,23 +402,23 @@ Every `.md` file should include:
 ```yaml
 ---
 tags:
-  - p/muffinpanrecipes
+  - p/{{PROJECT_NAME}}
   - type/[pattern|template|tool|journal-entry]
   - domain/[relevant-domain]
 status: #status/[active|archived|draft]
-created: 2026-01-23
+created: {{DATE}}
 ---
 ```
 
 ### Tag Taxonomy
-- `#p/muffinpanrecipes` — Project namespace
+- `#p/{{PROJECT_NAME}}` — Project namespace
 - `#type/[pattern|template|tool]` — Document type
 - `#domain/[meta|trading|image|etc]` — Subject domain
 - `#status/[active|archived]` — Current state
 
-### Wikilinks
-- Use `[document name](path/to/document.md)` for cross-references
-- Link to ``00_Index_*.md`` for project documentation hubs
+### Documentation Links
+- Use standard markdown links: `[Document Name](path/to/document.md)`
+- Link to the project index file: `00_Index_*.md`
 
 ---
 
@@ -411,13 +436,21 @@ created: 2026-01-23
 
 ## Related Documentation
 
-- [Code Review Anti-Patterns](Documents/reference/CODE_REVIEW_ANTI_PATTERNS.md) - code review
-- [Doppler Secrets Management](Documents/reference/DOPPLER_SECRETS_MANAGEMENT.md) - secrets management
-- [Local Model Learnings](Documents/reference/LOCAL_MODEL_LEARNINGS.md) - local AI
-- [Trustworthy AI Report](Documents/reports/trustworthy_ai_report.md) - AI safety
-- [Cost Management](Documents/reference/MODEL_COST_COMPARISON.md) - cost management
-- [Tiered AI Sprint Planning](patterns/tiered-ai-sprint-planning.md) - prompt engineering
-- [AI Model Cost Comparison](Documents/reference/MODEL_COST_COMPARISON.md) - AI models
-- [AI Team Orchestration](patterns/ai-team-orchestration.md) - orchestration
-- [Safety Systems](patterns/safety-systems.md) - security
-- [Agent Skills Library](../agent-skills-library/README.md) - Agent Skills
+### Project Documentation
+These documents are copied to each project during scaffolding:
+- [Code Review Anti-Patterns](Documents/reference/CODE_REVIEW_ANTI_PATTERNS.md) - Anti-patterns to avoid in code reviews
+- [Local Model Learnings](Documents/reference/LOCAL_MODEL_LEARNINGS.md) - Lessons learned from working with local AI models
+- [Reviews and Governance Protocol](Documents/REVIEWS_AND_GOVERNANCE_PROTOCOL.md) - Full audit checklist and evidence requirements
+
+### Pattern Library
+Located in `patterns/` directory of project-scaffolding:
+- [AI Team Orchestration](patterns/ai-team-orchestration.md) - Multi-agent workflow patterns
+- [Safety Systems](patterns/safety-systems.md) - Data protection and security patterns
+- [Tiered AI Sprint Planning](patterns/tiered-ai-sprint-planning.md) - Cost-effective AI usage
+- [Learning Loop Pattern](patterns/learning-loop-pattern.md) - Reinforcement learning cycles
+
+### Ecosystem Resources
+Cross-project resources (relative paths from project root):
+- [Project Scaffolding](../project-scaffolding/README.md) - This scaffolding system
+- Claude Code Skills: `~/.claude/skills/` (18 skills, activate automatically)
+<!-- SCAFFOLD:END - Custom content below is preserved -->

@@ -51,7 +51,7 @@ An AI-driven experimental recipe platform focused exclusively on "Muffin Tin Mea
 - [Image Style Guide](Documents/core/IMAGE_STYLE_GUIDE.md)
 
 scaffolding_version: 1.0.0
-scaffolding_date: 2026-01-14
+scaffolding_date: 2026-01-27
 
 ## Related Documentation
 
@@ -64,7 +64,7 @@ scaffolding_date: 2026-01-14
 
 | Directory | Files | Description |
 | :--- | :---: | :--- |
-| [Documents/](Documents/README.md) | 4 | *Auto-generated index. Last updated: 2026-01-24* |
+| [Documents/](Documents/README.md) | 5 | *Auto-generated index. Last updated: 2026-01-24* |
 | [backend/](backend/README.md) | 3 | Python-based multi-agent orchestration system for Muffin Pan Recipes. |
 
 ### Files
@@ -73,6 +73,8 @@ scaffolding_date: 2026-01-14
 | :--- | :--- |
 | [AGENTS.md](AGENTS.md) | <!-- project-scaffolding template appended --> |
 | [CLAUDE.md](CLAUDE.md) | <!-- AUTO-GENERATED from .agentsync/rules/ - Do not edit directly --> |
+| [DECISIONS.md](DECISIONS.md) | > *Documenting WHY we made decisions, not just WHAT we built.* |
+| [Documents/CONTEXT_CEILING_STRATEGY.md](Documents/CONTEXT_CEILING_STRATEGY.md) | Context ceiling refers to the maximum amount of text (measured in tokens) that can be safely sent to... |
 | [Documents/README.md](Documents/README.md) | *Auto-generated index. Last updated: 2026-01-24* |
 | [Documents/REVIEWS_AND_GOVERNANCE_PROTOCOL.md](Documents/REVIEWS_AND_GOVERNANCE_PROTOCOL.md) | **Date:** 2026-01-07 |
 | [Documents/WORKFLOW_DIAGRAM.md](Documents/WORKFLOW_DIAGRAM.md) | This document defines the complete workflow for producing a recipe, from initial idea to published c... |
@@ -85,11 +87,12 @@ scaffolding_date: 2026-01-14
 | [Documents/core/SYSTEM_PROMPT_RECIPES.md](Documents/core/SYSTEM_PROMPT_RECIPES.md) | You are the "Muffin Pan Chef," a specialized culinary AI architect who creates recipes exclusively d... |
 | [Documents/patterns/code-review-standard.md](Documents/patterns/code-review-standard.md) | **Status:** Proven Pattern |
 | [Documents/patterns/learning-loop-pattern.md](Documents/patterns/learning-loop-pattern.md) | > **Purpose:** Guide for creating reinforcement learning cycles in any project |
+| [Documents/reference/CODE_REVIEW_ANTI_PATTERNS.md](Documents/reference/CODE_REVIEW_ANTI_PATTERNS.md) | This database tracks recurring defects found in the project-scaffolding ecosystem. Use this as a ref... |
 | [Documents/reference/LOCAL_MODEL_LEARNINGS.md](Documents/reference/LOCAL_MODEL_LEARNINGS.md) | > **Purpose:** Institutional memory for working with local AI models (Ollama) |
 | [ERIKS_TODO.md](ERIKS_TODO.md) | Erik's To-Do List |
 | [PRD.md](PRD.md) | > **Note:** This PRD captures intent and constraints. Detailed specifications (EARS requirements, sc... |
 | [README.md](README.md) | Muffin Pan Recipes |
-| [TODO.md](TODO.md) | Muffin Pan Recipes — Roadmap |
+| [REVIEWS_AND_GOVERNANCE_PROTOCOL.md](REVIEWS_AND_GOVERNANCE_PROTOCOL.md) | This file is managed by sync_governance.py and will be OVERWRITTEN on the next sync. |
 | [WARDEN_LOG.yaml](WARDEN_LOG.yaml) | No description available. |
 | [agent to agent communication.md](agent to agent communication.md) | I hear you—I was conflating two different "memory" systems because they both involve agents and data... |
 | [backend/README.md](backend/README.md) | Python-based multi-agent orchestration system for Muffin Pan Recipes. |
@@ -127,6 +130,7 @@ scaffolding_date: 2026-01-14
 | [backend/publishing/pipeline.py](backend/publishing/pipeline.py) | Publishing pipeline for transforming approved recipes into live site content. |
 | [backend/publishing/templates.py](backend/publishing/templates.py) | Template rendering utilities for the publishing pipeline. |
 | [backend/utils/__init__.py](backend/utils/__init__.py) | Utility functions for the AI Creative Team system. |
+| [backend/utils/atomic.py](backend/utils/atomic.py) | Atomic file writing utilities. |
 | [backend/utils/discord.py](backend/utils/discord.py) | Discord webhook integration for recipe review notifications. |
 | [backend/utils/errors.py](backend/utils/errors.py) | Custom exception classes for the AI Creative Team system. |
 | [backend/utils/logging.py](backend/utils/logging.py) | Logging configuration for the AI Creative Team system. |

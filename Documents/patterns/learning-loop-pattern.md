@@ -389,11 +389,9 @@ If no → New learning discovered. Document and reinforce.
 ## Related Documentation
 
 - [Local Model Learnings](Documents/reference/LOCAL_MODEL_LEARNINGS.md) - local AI
-- [[PROJECT_STRUCTURE_STANDARDS]] - project structure
 - [Automation Reliability](patterns/automation-reliability.md) - automation
 - [Cost Management](Documents/reference/MODEL_COST_COMPARISON.md) - cost management
 - [Tiered AI Sprint Planning](patterns/tiered-ai-sprint-planning.md) - prompt engineering
 - [AI Model Cost Comparison](Documents/reference/MODEL_COST_COMPARISON.md) - AI models
-- [[data_quality_patterns]] - data quality
 - [Safety Systems](patterns/safety-systems.md) - security
 - [Project Scaffolding](../project-scaffolding/README.md) - Project Scaffolding
