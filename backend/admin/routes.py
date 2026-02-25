@@ -74,7 +74,6 @@ def create_routes(app: FastAPI):
     @app.get("/auth/callback")
     async def oauth_callback(
         request: Request,
-        response: Response,
         code: str,
         state: str
     ):
@@ -100,11 +99,10 @@ def create_routes(app: FastAPI):
             user_info=user_info
         )
         
-        # Set session cookie
-        create_session_cookie(response, session.session_id)
-        
-        # Redirect to dashboard
-        return RedirectResponse(url="/admin/")
+        # Redirect to dashboard + set session cookie on that response
+        redirect_response = RedirectResponse(url="/admin/")
+        create_session_cookie(redirect_response, session.session_id)
+        return redirect_response
     
     @app.get("/auth/logout")
     async def logout(
