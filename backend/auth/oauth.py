@@ -187,13 +187,10 @@ class GoogleOAuth:
             Decoded token claims
         """
         try:
-            # For production, we should verify the signature using Google's JWKS
-            # For now, we'll decode without verification (less secure but simpler)
-            # TODO: Implement full JWT verification with JWKS
-            decoded = jwt.decode(
-                id_token,
-                options={"verify_signature": False}  # Development mode
-            )
+            # For production, verify signature using Google's JWKS.
+            # Development mode: parse unverified claims only.
+            # TODO: Implement full JWT verification with JWKS.
+            decoded = jwt.get_unverified_claims(id_token)
             
             # Verify issuer
             if decoded.get("iss") not in ["https://accounts.google.com", "accounts.google.com"]:
