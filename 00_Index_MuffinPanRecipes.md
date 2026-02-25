@@ -45,7 +45,8 @@ An AI-driven experimental recipe platform focused exclusively on "Muffin Tin Mea
 - 2026-01-04: [Architecture] Content Moat: Transition to Static Site Generation (SSG)
 - 2026-01-04: [Performance] Image optimization and lazy loading implementation
 ## 📖 Reference Links
-- [Root TODO](../TODO.md)
+- [Intentions](INTENTIONS.md)
+- [Project DoD](PROJECT_DOD.md)
 - [Architectural Decisions](Documents/core/ARCHITECTURAL_DECISIONS.md)
 - [Recipe Schema](Documents/core/RECIPE_SCHEMA.md)
 - [Image Style Guide](Documents/core/IMAGE_STYLE_GUIDE.md)
@@ -89,7 +90,7 @@ scaffolding_date: 2026-01-27
 | [Documents/patterns/learning-loop-pattern.md](Documents/patterns/learning-loop-pattern.md) | > **Purpose:** Guide for creating reinforcement learning cycles in any project |
 | [Documents/reference/CODE_REVIEW_ANTI_PATTERNS.md](Documents/reference/CODE_REVIEW_ANTI_PATTERNS.md) | This database tracks recurring defects found in the project-scaffolding ecosystem. Use this as a ref... |
 | [Documents/reference/LOCAL_MODEL_LEARNINGS.md](Documents/reference/LOCAL_MODEL_LEARNINGS.md) | > **Purpose:** Institutional memory for working with local AI models (Ollama) |
-| [ERIKS_TODO.md](ERIKS_TODO.md) | Erik's To-Do List |
+| [INTENTIONS.md](INTENTIONS.md) | Outcomes-first intentions and success evidence |
 | [PRD.md](PRD.md) | > **Note:** This PRD captures intent and constraints. Detailed specifications (EARS requirements, sc... |
 | [README.md](README.md) | Muffin Pan Recipes |
 | [REVIEWS_AND_GOVERNANCE_PROTOCOL.md](REVIEWS_AND_GOVERNANCE_PROTOCOL.md) | This file is managed by sync_governance.py and will be OVERWRITTEN on the next sync. |

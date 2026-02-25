@@ -38,11 +38,10 @@ SKIP_DIRS = PROTECTED_PROJECTS
 MANDATORY_FILES = [
     "AGENTS.md",
     "CLAUDE.md",
-    ".cursorrules",
-    ".cursorignore",
-    "TODO.md",
     "README.md",
-    ".gitignore"
+    ".gitignore",
+    "PROJECT_DOD.md",
+    "INTENTIONS.md"
 ]
 MANDATORY_DIRS = [
     "Documents"
