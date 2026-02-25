@@ -32,9 +32,13 @@
 - NO absolute paths (e.g., `/Users/erik/...`).
 - Use relative paths or environment variables.
 
-### 3. No Secrets in Code
+### 3. Secrets Management (Doppler)
+- **All secrets are managed via Doppler.** No `.env` files in this project.
+- **Run commands with:** `doppler run -- <command>` (e.g., `doppler run -- python main.py`)
+- Access secrets in code with `os.getenv("SECRET_NAME")` — Doppler injects them at runtime.
 - NEVER hard-code API keys or credentials.
-- Use `.env` files and `os.getenv()`.
+- NEVER read, log, echo, or store secret values in any file, message, or output.
+- If a credential is missing, tell Erik — he manages Doppler directly.
 
 ### 4. No Hook Bypass
 - NEVER use `--no-verify` with git commit or push.
