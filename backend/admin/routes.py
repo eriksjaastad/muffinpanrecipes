@@ -61,16 +61,14 @@ def create_routes(app: FastAPI):
     async def login(request: Request, redirect: Optional[str] = None):
         """Initiate Google OAuth login flow."""
         oauth = app.state.oauth_client
-        
+
         # Generate authorization URL
         auth_url, state = oauth.get_authorization_url()
-        
-        # Store state in session for CSRF protection
-        # (In production, store this in Redis or similar)
-        request.session = {"oauth_state": state}
-        if redirect:
-            request.session["redirect_after_login"] = redirect
-        
+
+        # NOTE: Session middleware is not wired yet, so we do not persist oauth_state
+        # in request.session. Callback currently validates token + authorized email.
+        # TODO: Add SessionMiddleware and strict state verification.
+
         return RedirectResponse(url=auth_url)
     
     @app.get("/auth/callback")
@@ -106,8 +104,7 @@ def create_routes(app: FastAPI):
         create_session_cookie(response, session.session_id)
         
         # Redirect to dashboard
-        redirect_url = getattr(request, "session", {}).get("redirect_after_login", "/admin/")
-        return RedirectResponse(url=redirect_url)
+        return RedirectResponse(url="/admin/")
     
     @app.get("/auth/logout")
     async def logout(
