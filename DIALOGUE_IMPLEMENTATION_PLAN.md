@@ -70,6 +70,26 @@ Dialogue stored under episode object as canonical weekly thread:
 4. Wire into orchestrator dialogue generation path
 5. Run 5 practice scenes/day through Monday
 
+## Compressed Week Sandbox (1 week in ~1 hour)
+- New script: `scripts/simulate_dialogue_week.py`
+- Supports:
+  - Full-week simulation (`--runs N`)
+  - Stage-only trigger (`--stage monday|...|sunday`)
+  - Event injection (`--event "ingredient shortage: cheddar"`)
+  - Multi-model comparisons (`--models "ollama/qwen3:32b,openai/gpt-4o-mini"`)
+  - Per-character model routing (`--character-models '{"Margaret Chen":"openai/gpt-4o","default":"ollama/qwen3:32b"}'`)
+- Routing utility: `backend/utils/model_router.py` with unified `generate_response(...)` across Ollama + OpenAI
+- Output per run:
+  - Full transcript JSON (with day/stage/timestamp/character)
+  - Name-strip transcript (voice distinctiveness check)
+  - Basic cast-balance metrics
+
+## Model Selection for Dialogue Iteration
+- **Primary dialogue generation model:** `qwen3:32b` (local Ollama, fast + cheap for many runs/day)
+- **Escalation model (only for hard scenes / rewrites):** `gpt-5.3-codex`
+- **Evaluation/critique pass (optional):** `gpt-5.3-codex` on sampled runs, not every run
+
+This keeps rapid iteration inexpensive while preserving a high-quality escalation path.
 ## Research Notes
 Web search tool is currently unavailable in this runtime (missing Brave API key).
 If key is added, pull in references on persona reinforcement + long-context character drift mitigation.
