@@ -103,10 +103,19 @@ An AI-driven content platform disguised as a recipe website. The recipes are rea
 - Reviews PRs against acceptance criteria before merge.
 - Does NOT write implementation code for this project.
 
-### Codex / Other Agents (Workers)
+### Codex (Super Manager)
+- Owns planning, prioritization, architecture direction, QA gates, and PR strategy.
+- **Must delegate implementation coding to worker coding agents/models.**
+- Reviews worker output, requests revisions, then prepares final PR.
+
+### Other Agents (Workers)
 - Implement features, fix bugs, write tests.
 - Always work on branches, always submit PRs.
 - Follow the DOD outcomes as your north star.
+
+### Mandatory Pre-PR Sync
+- Before opening/updating any PR, run: `./scripts/pre_pr_sync.sh`
+- This ensures work is rebased on latest `origin/main` and prevents stale PR drift.
 
 ---
 
