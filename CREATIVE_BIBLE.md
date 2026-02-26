@@ -197,44 +197,139 @@ The writers' room itself becomes a drama. Their debates, their storylines, their
 
 ## Technical Notes (for Codex)
 
-### Dialogue Data Model
-Each recipe includes a `dialogue` array capturing the week's conversation:
+### The Episode — Core Data Model
+
+**The unit of content is the EPISODE, not the recipe.** An episode is one week of the show. The recipe lives inside the episode. Everything that happened that week — dialogue, images, story arcs — belongs to the episode.
 
 ```json
 {
-  "recipe_id": "crispy-jalapeno-corn-dog-muffin-bites",
+  "episode_id": "2026-W09",
+  "week_start": "2026-02-23",
+  "week_end": "2026-03-01",
+  "status": "draft | scheduled | published",
+  "publish_at": "2026-03-01T17:00:00-05:00",
+
+  "recipe": {
+    "recipe_id": "crispy-jalapeno-corn-dog-muffin-bites",
+    "title": "Crispy Jalapeño Corn Dog Muffin Bites",
+    "description": "...",
+    "ingredients": [],
+    "instructions": [],
+    "chef_notes": "..."
+  },
+
+  "images": {
+    "winner": "data/images/crispy-jalapeno-corn-dog-muffin-bites/editorial.png",
+    "variants": [
+      {
+        "style": "editorial",
+        "path": "data/images/crispy-jalapeno-corn-dog-muffin-bites/editorial.png",
+        "selected": true,
+        "julian_notes": "The negative space here is doing real work."
+      },
+      {
+        "style": "action_steam",
+        "path": "data/images/crispy-jalapeno-corn-dog-muffin-bites/action_steam.png",
+        "selected": false,
+        "julian_notes": "Too literal. We're not a stock photo site."
+      },
+      {
+        "style": "the_spread",
+        "path": "data/images/crispy-jalapeno-corn-dog-muffin-bites/the_spread.png",
+        "selected": false,
+        "julian_notes": "Beautiful but it buries the hero. The muffin isn't the star here."
+      }
+    ]
+  },
+
   "dialogue": [
     {
       "day": "monday",
       "character": "margaret",
-      "stage": "brainstorm",
-      "message": "I keep thinking about state fair food...",
-      "timestamp": "2026-02-24T09:15:00Z"
+      "message": "I keep thinking about state fair food. What if we did corn dogs but in the tin?",
+      "timestamp": "2026-02-24T09:15:00-05:00"
     },
     {
       "day": "monday",
       "character": "marcus",
-      "stage": "brainstorm",
       "message": "Corn dogs in a muffin tin. Say that out loud and tell me it doesn't sell itself.",
-      "timestamp": "2026-02-24T09:22:00Z"
+      "timestamp": "2026-02-24T09:22:00-05:00"
+    },
+    {
+      "day": "tuesday",
+      "character": "margaret",
+      "message": "First test batch. The ratio is off — too much cornmeal, not enough structure.",
+      "timestamp": "2026-02-25T10:30:00-05:00"
+    },
+    {
+      "day": "tuesday",
+      "character": "steph",
+      "message": "I think maybe we could possibly... add jalapeño? Is that too much?",
+      "timestamp": "2026-02-25T11:05:00-05:00"
+    },
+    {
+      "day": "tuesday",
+      "character": "margaret",
+      "message": "That's not too much. That's the first good idea you've had all week.",
+      "timestamp": "2026-02-25T11:06:00-05:00"
     }
-  ]
+  ],
+
+  "story_arc": {
+    "a_plot": "Can Margaret make corn dogs work in a muffin tin without compromising the ratio?",
+    "b_plot": "Julian is having a bad week — his latest Instagram post got 12 likes.",
+    "tension_day": "friday",
+    "resolution": "Steph's jalapeño suggestion saves the recipe. Margaret almost says thank you."
+  }
 }
 ```
 
-### Generation Rules
-- Each character has a distinct voice (see character descriptions above)
+### Episode Lifecycle
+
+```
+Monday:    Episode created, status = "draft"
+Mon-Sat:   Dialogue accumulates as pipeline stages run
+Saturday:  Recipe approved, images selected, status = "scheduled"
+Sunday:    Auto-publish at 5:00 PM ET, status = "published"
+```
+
+### Episode Rules
+- **One episode per week.** Episode ID is the ISO week (`2026-W09`).
+- **Everything belongs to the episode.** Recipe, images, dialogue, story arc — all nested inside.
+- **Dialogue accumulates over the week.** Each pipeline stage adds messages as it runs.
+- **All 3 image variants are kept.** Julian's selection notes are content (Wednesday's story beat).
+- **`publish_at` is sacred.** 5:00 PM ET Sunday. The queue auto-publishes. No manual intervention unless Erik vetoes.
+- **Episodes are archived, never deleted.** Past episodes are the back catalog.
+
+### Querying Episodes
+- Current week's dialogue for daily drops: filter `dialogue` by `day`
+- Past episodes for archive page: all episodes with `status = "published"`
+- Upcoming: episode with `status = "scheduled"`
+
+### Dialogue Generation Rules
+- Each character has a distinct voice — read `backend/data/agent_personalities.json` before generating ANY dialogue
 - Dialogue must feel conversational, not scripted
 - Include natural crosstalk — interruptions, callbacks to earlier remarks
 - Not every day needs every character
 - Vary which day carries the most tension week to week
 - B-plots can span multiple weeks (unresolved threads are good)
+- Reference the signature phrases and behavioral quirks from the personality files
 
 ### Publishing
-The recipe page includes:
-1. The finished recipe (ingredients, steps, photo)
-2. "Behind the Recipe" — the week's story, presented as narrative or dialogue excerpts
-3. Character avatars/names for attribution
+The recipe page on Sunday includes:
+1. Hero image (Julian's winner)
+2. The full recipe (ingredients, steps, chef notes)
+3. "The Group Chat" — the week's dialogue thread, scrollable, styled as chat bubbles
+4. Episode archive link to past weeks
+
+### No Silent Fallbacks
+If any stage of the pipeline fails (image generation, model call, API error):
+1. **Stop.** Do not substitute placeholder content.
+2. **Investigate.** Log the error, diagnose the root cause.
+3. **Fix and retry.** Restart the failed stage.
+4. **Escalate if stuck.** Message Erik via Discord.
+
+A recipe with no image is better than a recipe that shipped with fake content because a fallback hid the failure. The six-day cadence exists precisely so there's time to fix things before Sunday.
 
 ---
 
