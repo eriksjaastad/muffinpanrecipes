@@ -85,6 +85,42 @@ def notify_recipe_ready(
         return False
 
 
+def notify_pipeline_failure(
+    recipe_id: str,
+    concept: str,
+    stage: str,
+    error_message: str,
+) -> bool:
+    """Send a loud failure alert so pipeline issues are never silent."""
+    if not DISCORD_WEBHOOK_URL:
+        logger.warning("Discord webhook URL not configured for failure alert")
+        return False
+
+    embed = {
+        "title": "🚨 Pipeline Failure",
+        "description": f"Recipe pipeline stopped for **{concept}**",
+        "color": 0xE74C3C,
+        "fields": [
+            {"name": "Recipe ID", "value": recipe_id, "inline": True},
+            {"name": "Failed Stage", "value": stage or "unknown", "inline": True},
+            {"name": "Error", "value": (error_message[:900] or "unknown error"), "inline": False},
+        ],
+    }
+
+    payload = {"embeds": [embed]}
+
+    try:
+        response = httpx.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10.0)
+        if response.status_code == 204:
+            logger.info("Pipeline failure notification sent")
+            return True
+        logger.error(f"Discord failure notification failed: {response.status_code} - {response.text}")
+        return False
+    except Exception as e:
+        logger.error(f"Discord failure notification error: {e}")
+        return False
+
+
 def notify_batch_complete(
     recipe_count: int,
     recipe_titles: list[str],

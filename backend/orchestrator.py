@@ -19,7 +19,7 @@ from backend.data.recipe import Recipe, CreationStory, AgentContribution
 from backend.data.agent_profile import AgentProfile
 from backend.core.task import Task
 from backend.utils.logging import get_logger
-from backend.utils.discord import notify_recipe_ready
+from backend.utils.discord import notify_recipe_ready, notify_pipeline_failure
 
 logger = get_logger(__name__)
 
@@ -212,7 +212,16 @@ class RecipeOrchestrator:
             return recipe, self.current_story
 
         except Exception as e:
-            logger.error(f"Error during recipe production: {e}", exc_info=True)
+            stage = "unknown"
+            if recipe_id in self.pipeline.active_recipes:
+                stage = self.pipeline.active_recipes[recipe_id].current_stage.value
+            logger.error(f"Error during recipe production at stage '{stage}': {e}", exc_info=True)
+            notify_pipeline_failure(
+                recipe_id=recipe_id,
+                concept=concept,
+                stage=stage,
+                error_message=str(e),
+            )
             raise
 
     def _execute_stage_baker(self, recipe_id: str, concept: str) -> Dict:
