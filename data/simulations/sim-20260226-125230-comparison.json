@@ -1,0 +1,18 @@
+{
+  "generated_at": "2026-02-26T12:52:51.603771",
+  "concept": "Brown Butter Pecan Tassies",
+  "mode": "ollama",
+  "prompt_style": "full",
+  "models": [
+    "openai/gpt-4o-mini"
+  ],
+  "results": [
+    {
+      "model": "openai/gpt-4o-mini",
+      "run": 1,
+      "path": "/Users/eriksjaastad/projects/muffinpanrecipes/data/simulations/sim-20260226-125230-brown-butter-pecan-tassies-openai_gpt-4o-mini-full-run1-full-week.json",
+      "qa": 93,
+      "real_inference": true
+    }
+  ]
+}

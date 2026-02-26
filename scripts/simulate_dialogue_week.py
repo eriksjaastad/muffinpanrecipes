@@ -51,6 +51,16 @@ DAY_PROMPT = {
     "sunday": "Publish at 5pm sharp. Final short messages only.",
 }
 
+DAY_STAGE_DIRECTIONS = {
+    "monday": "Slack pings stack up as the team races to lock the concept.",
+    "tuesday": "Test trays cool on the rack while ratio notes keep changing.",
+    "wednesday": "Julian drops fresh lighting tests and everyone debates the hero shot.",
+    "thursday": "Draft copy is open in shared docs with comments arriving in bursts.",
+    "friday": "Final review is tense as approvals hinge on tiny fixes.",
+    "saturday": "Deployment prep is mostly quiet until one staging snag interrupts flow.",
+    "sunday": "Publish window is close and everyone is watching the clock.",
+}
+
 PROHIBITED = [
     "as an ai",
     "i can't",
@@ -59,6 +69,14 @@ PROHIBITED = [
     "let me know if",
     "happy to help",
     "great question",
+]
+
+PROMPT_ECHO_PATTERNS = [
+    "day:",
+    "scene goal:",
+    "deadline pressure:",
+    "write this character's next message",
+    "injected event",
 ]
 
 
@@ -114,6 +132,14 @@ def choose_model(character: str, default_model: str, mapping: dict[str, str] | N
     return mapping.get(character, mapping.get("default", default_model))
 
 
+def deadline_for_day(day: str) -> str:
+    if day == "thursday":
+        return "3:00 PM local"
+    if day == "saturday":
+        return "12:00 PM local"
+    return "5:00 PM local"
+
+
 def generate_turn(
     persona: dict[str, Any],
     concept: str,
@@ -124,6 +150,8 @@ def generate_turn(
     event: str | None,
     model: str,
     mode: str,
+    prompt_style: str,
+    day_turn: int,
 ) -> str:
     if mode == "template":
         sig = persona["communication_style"].get("signature_phrases", ["Right."])
@@ -134,15 +162,33 @@ def generate_turn(
     history = "\n".join(recent_lines[-8:]) if recent_lines else "(no prior messages)"
     event_line = f"Injected event: {event}" if event else "Injected event: none"
 
-    prompt = (
-        f"Episode concept: {concept}\n"
-        f"Day: {day.title()} ({stage})\n"
-        f"Deadline pressure: {deadline}\n"
-        f"Scene goal: {DAY_PROMPT[day]}\n"
-        f"{event_line}\n"
-        f"Recent chat:\n{history}\n\n"
-        "Write this character's next message. Keep it natural and specific."
-    )
+    if prompt_style == "scene":
+        if day_turn == 1:
+            scene_sentence = (
+                f"{DAY_STAGE_DIRECTIONS[day]} {DAY_PROMPT[day]}"
+            )
+            deadline_sentence = f"Deadline today is {deadline}."
+            prompt = (
+                f"Episode concept: {concept}\n"
+                f"Day: {day.title()} ({stage})\n"
+                f"Scene context: {scene_sentence}\n"
+                f"Time pressure: {deadline_sentence}\n"
+                f"{event_line}\n"
+                f"Recent chat:\n{history}\n\n"
+                "What do you say next?"
+            )
+        else:
+            prompt = f"Recent chat:\n{history}\n\nWhat do you say next?"
+    else:
+        prompt = (
+            f"Episode concept: {concept}\n"
+            f"Day: {day.title()} ({stage})\n"
+            f"Deadline pressure: {deadline}\n"
+            f"Scene goal: {DAY_PROMPT[day]}\n"
+            f"{event_line}\n"
+            f"Recent chat:\n{history}\n\n"
+            "Write this character's next message. Keep it natural and specific."
+        )
     msg = generate_response(
         prompt=prompt,
         system_prompt=build_system_prompt(persona),
@@ -150,6 +196,43 @@ def generate_turn(
         temperature=0.8,
     ).strip()
     return " ".join(msg.split())
+
+
+def is_prompt_echo(text: str) -> bool:
+    t = text.lower()
+    return any(p in t for p in PROMPT_ECHO_PATTERNS)
+
+
+def token_set(text: str) -> set[str]:
+    return set(re.findall(r"[a-z']+", text.lower()))
+
+
+def pairwise_overlap_penalty(messages: list[Message]) -> tuple[float, dict[str, float]]:
+    by_char: dict[str, list[str]] = {}
+    for m in messages:
+        by_char.setdefault(m.character, []).append(m.message)
+
+    joined = {c: " ".join(lines) for c, lines in by_char.items()}
+    chars = sorted(joined.keys())
+    if len(chars) < 2:
+        return 0.0, {}
+
+    overlaps: dict[str, float] = {}
+    penalty = 0.0
+    for i, c1 in enumerate(chars):
+        s1 = token_set(joined[c1])
+        if not s1:
+            continue
+        for c2 in chars[i + 1 :]:
+            s2 = token_set(joined[c2])
+            if not s2:
+                continue
+            jacc = len(s1 & s2) / max(1, len(s1 | s2))
+            key = f"{c1} <> {c2}"
+            overlaps[key] = round(jacc, 3)
+            if jacc > 0.62:
+                penalty += (jacc - 0.62) * 45
+    return round(penalty, 2), overlaps
 
 
 def score_quality(messages: list[Message], personas: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -179,20 +262,53 @@ def score_quality(messages: list[Message], personas: dict[str, dict[str, Any]]) 
         vals = list(avg_len_by_character.values())
         distinctiveness_spread = max(vals) - min(vals)
 
-    score = 100
-    score -= prohibited_hits * 12
-    score += min(12, int(signature_rate * 20))
-    score += min(10, int(rhythm_variation / 2))
-    score += min(10, int(distinctiveness_spread))
-    score = max(0, min(100, score))
+    prompt_echo_hits = sum(1 for msg in lowered if is_prompt_echo(msg))
+    min_content_failures = sum(1 for l in lengths if l < 4)
+    overlap_penalty, overlaps = pairwise_overlap_penalty(messages)
+
+    # Hard fail if the model appears to be echoing prompt instructions.
+    if prompt_echo_hits > 0:
+        score = 0
+    else:
+        score = 72
+        score -= prohibited_hits * 14
+        score += min(10, int(signature_rate * 18))
+        score += min(8, int(rhythm_variation / 2))
+        score += min(8, int(distinctiveness_spread))
+        score -= min_content_failures * 8
+        score -= int(overlap_penalty)
+        score = max(0, min(100, score))
 
     return {
         "score": score,
         "prohibited_hits": prohibited_hits,
+        "prompt_echo_hits": prompt_echo_hits,
+        "min_content_failures": min_content_failures,
+        "cross_character_overlap_penalty": overlap_penalty,
+        "pairwise_lexical_overlap": overlaps,
         "rhythm_variation": rhythm_variation,
         "signature_hits": per_character_signature_hits,
         "avg_length_by_character": avg_len_by_character,
         "distinctiveness_spread": round(distinctiveness_spread, 2),
+    }
+
+
+def verify_real_inference(messages: list[Message], mode: str) -> dict[str, Any]:
+    lowered = [m.message.lower() for m in messages]
+    template_fingerprints = sum(
+        1
+        for msg in lowered
+        if "deadline is" in msg or "lock one decision now" in msg
+    )
+    echo_hits = sum(1 for msg in lowered if is_prompt_echo(msg))
+    unique_lines = len(set(m.message.strip() for m in messages))
+    is_real = mode != "template" and echo_hits == 0 and template_fingerprints == 0 and unique_lines >= max(1, len(messages) // 2)
+    return {
+        "mode": mode,
+        "real_inference": is_real,
+        "template_fingerprints": template_fingerprints,
+        "prompt_echo_hits": echo_hits,
+        "unique_lines": unique_lines,
     }
 
 
@@ -204,6 +320,7 @@ def run_simulation(
     injected_event: str | None,
     ticks_per_day: int,
     mode: str,
+    prompt_style: str,
     character_models: dict[str, str] | None,
 ) -> dict[str, Any]:
     personas = load_personas()
@@ -220,7 +337,7 @@ def run_simulation(
             speaker = names[tick % len(names)]
             persona = personas[speaker]
             ts = start + timedelta(days=day_i, minutes=tick * (480 // max(1, ticks_per_day)))
-            deadline = "5:00 PM local" if day not in ("thursday", "saturday") else ("3:00 PM local" if day == "thursday" else "12:00 PM local")
+            deadline = deadline_for_day(day)
             model = choose_model(speaker, default_model, character_models)
 
             line = generate_turn(
@@ -233,6 +350,8 @@ def run_simulation(
                 event=injected_event,
                 model=model,
                 mode=mode,
+                prompt_style=prompt_style,
+                day_turn=tick + 1,
             )
             recent_lines.append(f"{speaker.split()[0]}: {line}")
             messages.append(Message(day=day, stage=stage, character=speaker, message=line, timestamp=ts.isoformat(), model=model))
@@ -244,10 +363,12 @@ def run_simulation(
         by_model[m.model] = by_model.get(m.model, 0) + 1
 
     qa = score_quality(messages, personas)
+    inference_check = verify_real_inference(messages, mode)
     return {
         "run": run_index,
         "concept": concept,
         "default_model": default_model,
+        "prompt_style": prompt_style,
         "character_models": character_models or {},
         "generated_at": datetime.now().isoformat(),
         "messages": [m.__dict__ for m in messages],
@@ -258,6 +379,7 @@ def run_simulation(
             "balance": by_character,
             "model_usage": by_model,
         },
+        "inference_check": inference_check,
         "qa": qa,
     }
 
@@ -277,6 +399,7 @@ def main() -> None:
     parser.add_argument("--event", default=None)
     parser.add_argument("--ticks-per-day", type=int, default=6)
     parser.add_argument("--mode", choices=["ollama", "template"], default="ollama")
+    parser.add_argument("--prompt-style", choices=["scene", "full"], default="full")
     args = parser.parse_args()
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -297,20 +420,33 @@ def main() -> None:
                 injected_event=args.event,
                 ticks_per_day=args.ticks_per_day,
                 mode=args.mode,
+                prompt_style=args.prompt_style,
                 character_models=character_models,
             )
             suffix = f"{args.stage}" if args.stage else "full-week"
             safe_model = model.replace("/", "_").replace(":", "-")
-            out_path = OUT_DIR / f"sim-{stamp}-{concept_slug}-{safe_model}-run{i}-{suffix}.json"
+            out_path = OUT_DIR / f"sim-{stamp}-{concept_slug}-{safe_model}-{args.prompt_style}-run{i}-{suffix}.json"
             out_path.write_text(json.dumps(result, indent=2))
-            all_results.append({"model": model, "run": i, "path": str(out_path), "qa": result["qa"]["score"]})
+            all_results.append(
+                {
+                    "model": model,
+                    "run": i,
+                    "path": str(out_path),
+                    "qa": result["qa"]["score"],
+                    "real_inference": result["inference_check"]["real_inference"],
+                }
+            )
             print(f"saved: {out_path}")
-            print(f"messages: {result['metrics']['message_count']} | cast: {result['metrics']['unique_characters']} | qa={result['qa']['score']}")
+            print(
+                f"messages: {result['metrics']['message_count']} | cast: {result['metrics']['unique_characters']} "
+                f"| qa={result['qa']['score']} | real_inference={result['inference_check']['real_inference']}"
+            )
 
     comparison = {
         "generated_at": datetime.now().isoformat(),
         "concept": args.concept,
         "mode": args.mode,
+        "prompt_style": args.prompt_style,
         "models": models,
         "results": all_results,
     }

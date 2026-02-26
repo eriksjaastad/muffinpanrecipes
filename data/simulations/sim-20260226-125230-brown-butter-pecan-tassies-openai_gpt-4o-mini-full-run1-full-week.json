@@ -1,0 +1,194 @@
+{
+  "run": 1,
+  "concept": "Brown Butter Pecan Tassies",
+  "default_model": "openai/gpt-4o-mini",
+  "prompt_style": "full",
+  "character_models": {},
+  "generated_at": "2026-02-26T12:52:51.602215",
+  "messages": [
+    {
+      "day": "monday",
+      "stage": "brainstorm",
+      "character": "Margaret Chen",
+      "message": "Alright, let\u2019s focus on the brown butter pecan tassies. We\u2019re not reinventing the wheel here\u2014just perfecting it. Should we start with a classic crust or try something new?",
+      "timestamp": "2026-02-26T09:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "monday",
+      "stage": "brainstorm",
+      "character": "Marcus Reid",
+      "message": "If I may offer some context, Margaret, the classic crust certainly has its merits, but might we explore the narrative arc of a cookie crust instead? It could add a delightful texture contrast while also introducing a unique element to the familiar flavor profile. What do you think?",
+      "timestamp": "2026-02-26T13:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "tuesday",
+      "stage": "recipe_development",
+      "character": "Margaret Chen",
+      "message": "*mutters under breath* A cookie crust? Fine. FINE. But let\u2019s not lose the buttery richness we need. Stick with a ratio that complements the filling, not overwhelms it.",
+      "timestamp": "2026-02-27T09:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "tuesday",
+      "stage": "recipe_development",
+      "character": "Stephanie 'Steph' Whitmore",
+      "message": "I think maybe we could possibly start with the classic crust to ensure we nail down that buttery richness, but I love Marcus's idea too! What if we have a hybrid approach?",
+      "timestamp": "2026-02-27T13:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "wednesday",
+      "stage": "photography",
+      "character": "Julian Torres",
+      "message": "I'm thinking about the visual language here\u2014if we go with the classic crust, we can showcase its texture beautifully, but a cookie crust could introduce a more playful element. What if we style it to highlight that contrast?",
+      "timestamp": "2026-02-28T09:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "wednesday",
+      "stage": "photography",
+      "character": "Stephanie 'Steph' Whitmore",
+      "message": "I love that direction, Julian! Maybe we could do a side-by-side comparison in the final shots? Classic on one side, cookie on the other, to really capture that contrast. Does that make sense? No? That's fair! What do YOU think?",
+      "timestamp": "2026-02-28T13:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "thursday",
+      "stage": "copywriting",
+      "character": "Marcus Reid",
+      "message": "I appreciate the hybrid approach, Stephanie! If we embrace both crusts, we can weave a narrative of tradition meeting innovation\u2014each bite could evoke nostalgia while also surprising the palate. Shall we craft the copy to reflect that duality?",
+      "timestamp": "2026-03-01T09:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "thursday",
+      "stage": "copywriting",
+      "character": "Stephanie 'Steph' Whitmore",
+      "message": "Sorry, but could we maybe focus on the classic crust for the copy first? Once we have that nailed down, we can definitely highlight the cookie crust as a fun twist later. I just want to make sure we don\u2019t lose that buttery richness! What do you think?",
+      "timestamp": "2026-03-01T13:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "friday",
+      "stage": "final_review",
+      "character": "Margaret Chen",
+      "message": "Alright, let\u2019s settle on the classic crust first. We need to showcase that buttery goodness. Once we have it perfect, then we can play with the cookie idea. Deal?",
+      "timestamp": "2026-03-02T09:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "friday",
+      "stage": "final_review",
+      "character": "Stephanie 'Steph' Whitmore",
+      "message": "Great! I\u2019m really glad we're aligned on the classic crust first. Let\u2019s make sure it shines! Once we have the buttery richness nailed down, we can absolutely explore that cookie twist. Sound good?",
+      "timestamp": "2026-03-02T13:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "saturday",
+      "stage": "deployment",
+      "character": "Devon Park",
+      "message": "Alright team, sounds like we\u2019re set on the classic crust for now. I\u2019ll push the staging update by EOD so we can review everything together. Let\u2019s make sure it\u2019s buttery perfection!",
+      "timestamp": "2026-03-03T09:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "saturday",
+      "stage": "deployment",
+      "character": "Margaret Chen",
+      "message": "*mutters under breath* We need to watch the baking time closely with that classic crust. Too long, and we lose that flakiness. Let\u2019s aim for golden, not brown.",
+      "timestamp": "2026-03-03T13:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "sunday",
+      "stage": "publish",
+      "character": "Stephanie 'Steph' Whitmore",
+      "message": "Absolutely, Margaret! I\u2019m on it. I think maybe we could possibly set a timer for 15 minutes before checking? Just to be safe. We really want that perfect flakiness!",
+      "timestamp": "2026-03-04T09:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "sunday",
+      "stage": "publish",
+      "character": "Margaret Chen",
+      "message": "Fine. FINE. But let\u2019s not forget, checking too early can mess with the crust. Let it develop that color before we start poking around.",
+      "timestamp": "2026-03-04T13:00:00",
+      "model": "openai/gpt-4o-mini"
+    }
+  ],
+  "name_strip_transcript": [
+    "Alright, let\u2019s focus on the brown butter pecan tassies. We\u2019re not reinventing the wheel here\u2014just perfecting it. Should we start with a classic crust or try something new?",
+    "If I may offer some context, Margaret, the classic crust certainly has its merits, but might we explore the narrative arc of a cookie crust instead? It could add a delightful texture contrast while also introducing a unique element to the familiar flavor profile. What do you think?",
+    "*mutters under breath* A cookie crust? Fine. FINE. But let\u2019s not lose the buttery richness we need. Stick with a ratio that complements the filling, not overwhelms it.",
+    "I think maybe we could possibly start with the classic crust to ensure we nail down that buttery richness, but I love Marcus's idea too! What if we have a hybrid approach?",
+    "I'm thinking about the visual language here\u2014if we go with the classic crust, we can showcase its texture beautifully, but a cookie crust could introduce a more playful element. What if we style it to highlight that contrast?",
+    "I love that direction, Julian! Maybe we could do a side-by-side comparison in the final shots? Classic on one side, cookie on the other, to really capture that contrast. Does that make sense? No? That's fair! What do YOU think?",
+    "I appreciate the hybrid approach, Stephanie! If we embrace both crusts, we can weave a narrative of tradition meeting innovation\u2014each bite could evoke nostalgia while also surprising the palate. Shall we craft the copy to reflect that duality?",
+    "Sorry, but could we maybe focus on the classic crust for the copy first? Once we have that nailed down, we can definitely highlight the cookie crust as a fun twist later. I just want to make sure we don\u2019t lose that buttery richness! What do you think?",
+    "Alright, let\u2019s settle on the classic crust first. We need to showcase that buttery goodness. Once we have it perfect, then we can play with the cookie idea. Deal?",
+    "Great! I\u2019m really glad we're aligned on the classic crust first. Let\u2019s make sure it shines! Once we have the buttery richness nailed down, we can absolutely explore that cookie twist. Sound good?",
+    "Alright team, sounds like we\u2019re set on the classic crust for now. I\u2019ll push the staging update by EOD so we can review everything together. Let\u2019s make sure it\u2019s buttery perfection!",
+    "*mutters under breath* We need to watch the baking time closely with that classic crust. Too long, and we lose that flakiness. Let\u2019s aim for golden, not brown.",
+    "Absolutely, Margaret! I\u2019m on it. I think maybe we could possibly set a timer for 15 minutes before checking? Just to be safe. We really want that perfect flakiness!",
+    "Fine. FINE. But let\u2019s not forget, checking too early can mess with the crust. Let it develop that color before we start poking around."
+  ],
+  "metrics": {
+    "message_count": 14,
+    "unique_characters": 5,
+    "balance": {
+      "Margaret Chen": 5,
+      "Marcus Reid": 2,
+      "Stephanie 'Steph' Whitmore": 5,
+      "Julian Torres": 1,
+      "Devon Park": 1
+    },
+    "model_usage": {
+      "openai/gpt-4o-mini": 14
+    }
+  },
+  "inference_check": {
+    "mode": "ollama",
+    "real_inference": true,
+    "template_fingerprints": 0,
+    "prompt_echo_hits": 0,
+    "unique_lines": 14
+  },
+  "qa": {
+    "score": 93,
+    "prohibited_hits": 0,
+    "prompt_echo_hits": 0,
+    "min_content_failures": 0,
+    "cross_character_overlap_penalty": 0.0,
+    "pairwise_lexical_overlap": {
+      "Devon Park <> Julian Torres": 0.102,
+      "Devon Park <> Marcus Reid": 0.076,
+      "Devon Park <> Margaret Chen": 0.134,
+      "Devon Park <> Stephanie 'Steph' Whitmore": 0.144,
+      "Julian Torres <> Marcus Reid": 0.22,
+      "Julian Torres <> Margaret Chen": 0.144,
+      "Julian Torres <> Stephanie 'Steph' Whitmore": 0.153,
+      "Marcus Reid <> Margaret Chen": 0.082,
+      "Marcus Reid <> Stephanie 'Steph' Whitmore": 0.174,
+      "Margaret Chen <> Stephanie 'Steph' Whitmore": 0.218
+    },
+    "rhythm_variation": 24,
+    "signature_hits": {
+      "Margaret Chen": 4,
+      "Marcus Reid": 0,
+      "Stephanie 'Steph' Whitmore": 0,
+      "Julian Torres": 0,
+      "Devon Park": 0
+    },
+    "avg_length_by_character": {
+      "Devon Park": 35,
+      "Marcus Reid": 43.5,
+      "Margaret Chen": 28.8,
+      "Stephanie 'Steph' Whitmore": 38.2,
+      "Julian Torres": 40
+    },
+    "distinctiveness_spread": 14.7
+  }
+}

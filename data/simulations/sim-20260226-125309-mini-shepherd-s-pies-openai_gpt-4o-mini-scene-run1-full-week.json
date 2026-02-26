@@ -1,0 +1,194 @@
+{
+  "run": 1,
+  "concept": "Mini Shepherd's Pies",
+  "default_model": "openai/gpt-4o-mini",
+  "prompt_style": "scene",
+  "character_models": {},
+  "generated_at": "2026-02-26T12:53:28.094256",
+  "messages": [
+    {
+      "day": "monday",
+      "stage": "brainstorm",
+      "character": "Margaret Chen",
+      "message": "*mutters under breath* Mini Shepherd's Pies sound fine, but let's remember\u2014don't underestimate the importance of a good crust. Ratio matters; too soggy and it\u2019s just a mess.",
+      "timestamp": "2026-02-26T09:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "monday",
+      "stage": "brainstorm",
+      "character": "Marcus Reid",
+      "message": "If I may offer some context, Margaret, the crust's integrity not only supports the filling but also serves as a metaphor for life's delicate balance\u2014perhaps even echoing the structural challenges faced by protagonists in a well-crafted narrative.",
+      "timestamp": "2026-02-26T13:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "tuesday",
+      "stage": "recipe_development",
+      "character": "Margaret Chen",
+      "message": "That's... quite poetic, Marcus. But if the crust fails, the whole thing crumbles. Let's focus on actual ratios instead of metaphors, shall we?",
+      "timestamp": "2026-02-27T09:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "tuesday",
+      "stage": "recipe_development",
+      "character": "Stephanie 'Steph' Whitmore",
+      "message": "I think maybe we could possibly revisit the crust ratios after we've settled on the filling flavors? Just to ensure everything ties together nicely. What do YOU think? I'm really interested in your perspective.",
+      "timestamp": "2026-02-27T13:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "wednesday",
+      "stage": "photography",
+      "character": "Julian Torres",
+      "message": "I'm thinking about the visual language here\u2014can we talk about the narrative the plate is telling? The crust needs to be the focal point for that, right?",
+      "timestamp": "2026-02-28T09:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "wednesday",
+      "stage": "photography",
+      "character": "Stephanie 'Steph' Whitmore",
+      "message": "Sorry, but could we maybe focus on the flavors first and then see how the crust complements them visually? I just want to make sure everyone feels heard.",
+      "timestamp": "2026-02-28T13:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "thursday",
+      "stage": "copywriting",
+      "character": "Marcus Reid",
+      "message": "I was pondering how the interplay of flavors and crust could evoke a narrative arc of comfort and nostalgia, much like the classic stories of familial love\u2014yet, if we neglect the crust, do we not risk undermining the entire tale?",
+      "timestamp": "2026-03-01T09:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "thursday",
+      "stage": "copywriting",
+      "character": "Stephanie 'Steph' Whitmore",
+      "message": "I love that! Also, what if we create a balance between the flavors and the crust in our presentation? Maybe we could outline the key flavors first, then circle back to the crust?",
+      "timestamp": "2026-03-01T13:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "friday",
+      "stage": "final_review",
+      "character": "Margaret Chen",
+      "message": "Fine. FINE. But if we don't nail the crust ratios now, we'll regret it later. Trust me, soggy crusts are not the way to evoke nostalgia.",
+      "timestamp": "2026-03-02T09:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "friday",
+      "stage": "final_review",
+      "character": "Stephanie 'Steph' Whitmore",
+      "message": "I totally understand, Margaret! Let's prioritize the crust ratios then, but maybe we can note flavor ideas alongside? That way, we keep both elements in mind as we move forward. What do you think?",
+      "timestamp": "2026-03-02T13:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "saturday",
+      "stage": "deployment",
+      "character": "Devon Park",
+      "message": "Hey everyone, sounds like a solid plan! Let\u2019s finalize those crust ratios first to avoid any soggy situations, then we can brainstorm filling flavors. Time's ticking!",
+      "timestamp": "2026-03-03T09:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "saturday",
+      "stage": "deployment",
+      "character": "Margaret Chen",
+      "message": "*mutters under breath* Ratios first, flavors second. Just remember, too much moisture will ruin everything. We need precision, not guesswork. We should test a batch before finalizing anything.",
+      "timestamp": "2026-03-03T13:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "sunday",
+      "stage": "publish",
+      "character": "Stephanie 'Steph' Whitmore",
+      "message": "Okay, let\u2019s focus on those crust ratios first, and then we can test a batch for flavors. I think that\u2019ll help us avoid any last-minute issues. Sound good?",
+      "timestamp": "2026-03-04T09:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "sunday",
+      "stage": "publish",
+      "character": "Margaret Chen",
+      "message": "That's a start, but let's not just settle for 'good.' We need the perfect balance. I\u2019ll prepare the test batch; we can adjust ratios as we go.",
+      "timestamp": "2026-03-04T13:00:00",
+      "model": "openai/gpt-4o-mini"
+    }
+  ],
+  "name_strip_transcript": [
+    "*mutters under breath* Mini Shepherd's Pies sound fine, but let's remember\u2014don't underestimate the importance of a good crust. Ratio matters; too soggy and it\u2019s just a mess.",
+    "If I may offer some context, Margaret, the crust's integrity not only supports the filling but also serves as a metaphor for life's delicate balance\u2014perhaps even echoing the structural challenges faced by protagonists in a well-crafted narrative.",
+    "That's... quite poetic, Marcus. But if the crust fails, the whole thing crumbles. Let's focus on actual ratios instead of metaphors, shall we?",
+    "I think maybe we could possibly revisit the crust ratios after we've settled on the filling flavors? Just to ensure everything ties together nicely. What do YOU think? I'm really interested in your perspective.",
+    "I'm thinking about the visual language here\u2014can we talk about the narrative the plate is telling? The crust needs to be the focal point for that, right?",
+    "Sorry, but could we maybe focus on the flavors first and then see how the crust complements them visually? I just want to make sure everyone feels heard.",
+    "I was pondering how the interplay of flavors and crust could evoke a narrative arc of comfort and nostalgia, much like the classic stories of familial love\u2014yet, if we neglect the crust, do we not risk undermining the entire tale?",
+    "I love that! Also, what if we create a balance between the flavors and the crust in our presentation? Maybe we could outline the key flavors first, then circle back to the crust?",
+    "Fine. FINE. But if we don't nail the crust ratios now, we'll regret it later. Trust me, soggy crusts are not the way to evoke nostalgia.",
+    "I totally understand, Margaret! Let's prioritize the crust ratios then, but maybe we can note flavor ideas alongside? That way, we keep both elements in mind as we move forward. What do you think?",
+    "Hey everyone, sounds like a solid plan! Let\u2019s finalize those crust ratios first to avoid any soggy situations, then we can brainstorm filling flavors. Time's ticking!",
+    "*mutters under breath* Ratios first, flavors second. Just remember, too much moisture will ruin everything. We need precision, not guesswork. We should test a batch before finalizing anything.",
+    "Okay, let\u2019s focus on those crust ratios first, and then we can test a batch for flavors. I think that\u2019ll help us avoid any last-minute issues. Sound good?",
+    "That's a start, but let's not just settle for 'good.' We need the perfect balance. I\u2019ll prepare the test batch; we can adjust ratios as we go."
+  ],
+  "metrics": {
+    "message_count": 14,
+    "unique_characters": 5,
+    "balance": {
+      "Margaret Chen": 5,
+      "Marcus Reid": 2,
+      "Stephanie 'Steph' Whitmore": 5,
+      "Julian Torres": 1,
+      "Devon Park": 1
+    },
+    "model_usage": {
+      "openai/gpt-4o-mini": 14
+    }
+  },
+  "inference_check": {
+    "mode": "ollama",
+    "real_inference": true,
+    "template_fingerprints": 0,
+    "prompt_echo_hits": 0,
+    "unique_lines": 14
+  },
+  "qa": {
+    "score": 95,
+    "prohibited_hits": 0,
+    "prompt_echo_hits": 0,
+    "min_content_failures": 0,
+    "cross_character_overlap_penalty": 0.0,
+    "pairwise_lexical_overlap": {
+      "Devon Park <> Julian Torres": 0.087,
+      "Devon Park <> Marcus Reid": 0.071,
+      "Devon Park <> Margaret Chen": 0.093,
+      "Devon Park <> Stephanie 'Steph' Whitmore": 0.147,
+      "Julian Torres <> Marcus Reid": 0.062,
+      "Julian Torres <> Margaret Chen": 0.056,
+      "Julian Torres <> Stephanie 'Steph' Whitmore": 0.071,
+      "Marcus Reid <> Margaret Chen": 0.125,
+      "Marcus Reid <> Stephanie 'Steph' Whitmore": 0.142,
+      "Margaret Chen <> Stephanie 'Steph' Whitmore": 0.175
+    },
+    "rhythm_variation": 16,
+    "signature_hits": {
+      "Margaret Chen": 3,
+      "Marcus Reid": 0,
+      "Stephanie 'Steph' Whitmore": 2,
+      "Julian Torres": 1,
+      "Devon Park": 0
+    },
+    "avg_length_by_character": {
+      "Marcus Reid": 41,
+      "Stephanie 'Steph' Whitmore": 32.6,
+      "Margaret Chen": 28.6,
+      "Devon Park": 28,
+      "Julian Torres": 29
+    },
+    "distinctiveness_spread": 13
+  }
+}

@@ -1,0 +1,194 @@
+{
+  "run": 1,
+  "concept": "Brown Butter Pecan Tassies",
+  "default_model": "openai/gpt-4o-mini",
+  "prompt_style": "scene",
+  "character_models": {},
+  "generated_at": "2026-02-26T12:54:23.670528",
+  "messages": [
+    {
+      "day": "monday",
+      "stage": "brainstorm",
+      "character": "Margaret Chen",
+      "message": "Alright team, I think brown butter pecan tassies have potential, but we can't overlook the crust. It needs to balance the richness. *mutters under breath* Ratio matters, you know?",
+      "timestamp": "2026-02-26T09:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "monday",
+      "stage": "brainstorm",
+      "character": "Marcus Reid",
+      "message": "If I may offer some context, Margaret, the crust indeed serves as a counterpoint to the filling's decadence; much like a well-crafted narrative arc, it must support rather than overshadow the core experience.",
+      "timestamp": "2026-02-26T13:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "tuesday",
+      "stage": "recipe_development",
+      "character": "Margaret Chen",
+      "message": "Fine. FINE. Just remember, if that crust doesn't hold up, we might as well toss the whole batch. *mutters calculations under breath* Keep your eye on the ratios, people.",
+      "timestamp": "2026-02-27T09:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "tuesday",
+      "stage": "recipe_development",
+      "character": "Stephanie 'Steph' Whitmore",
+      "message": "I think maybe we could possibly brainstorm some crust ideas that complement the filling without overpowering it? I just want to make sure everyone feels heard. What do you think?",
+      "timestamp": "2026-02-27T13:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "wednesday",
+      "stage": "photography",
+      "character": "Julian Torres",
+      "message": "I'm thinking about the visual language here. The crust's texture should echo the warmth of the brown butter\u2014can we use a contrasting plate to highlight that? Let's push this further.",
+      "timestamp": "2026-02-28T09:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "wednesday",
+      "stage": "photography",
+      "character": "Stephanie 'Steph' Whitmore",
+      "message": "I love that! Also, what if we considered a nut-based crust to enhance the pecan flavor? Does that make sense? No? That's fair. Just a thought!",
+      "timestamp": "2026-02-28T13:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "thursday",
+      "stage": "copywriting",
+      "character": "Marcus Reid",
+      "message": "There's a literary tradition of using contrasts to elevate the theme\u2014much like a nut-based crust could enhance our pecan filling. I propose we explore a balance that captivates both palate and eye.",
+      "timestamp": "2026-03-01T09:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "thursday",
+      "stage": "copywriting",
+      "character": "Stephanie 'Steph' Whitmore",
+      "message": "Sorry, but could we maybe discuss the practicality of a nut-based crust? I think it could be great, but I just want to make sure we\u2019re all on the same page.",
+      "timestamp": "2026-03-01T13:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "friday",
+      "stage": "final_review",
+      "character": "Margaret Chen",
+      "message": "*mutters under breath* A nut-based crust might work, but it better have the right texture. If it crumbles, we\u2019re done for. Let's focus on the execution, not just the concept.",
+      "timestamp": "2026-03-02T09:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "friday",
+      "stage": "final_review",
+      "character": "Stephanie 'Steph' Whitmore",
+      "message": "I completely agree, Margaret! Execution is key. Maybe we could possibly outline some testing methods to ensure the texture is just right before we finalize anything? I\u2019m really interested in your thoughts on that.",
+      "timestamp": "2026-03-02T13:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "saturday",
+      "stage": "deployment",
+      "character": "Devon Park",
+      "message": "Yeah, let\u2019s prioritize testing that crust mixture. We can automate some of the mixing process to maintain consistency. I\u2019ll whip up a quick script for that!",
+      "timestamp": "2026-03-03T09:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "saturday",
+      "stage": "deployment",
+      "character": "Margaret Chen",
+      "message": "*mutters under breath* Consistency is important, but don\u2019t forget to taste at every stage. Automation can't replace your palate. Let\u2019s not rush this. Perfecting takes time.",
+      "timestamp": "2026-03-03T13:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "sunday",
+      "stage": "publish",
+      "character": "Stephanie 'Steph' Whitmore",
+      "message": "Absolutely, Margaret! Tasting is crucial. Maybe we could schedule a quick tasting session after testing? I just want to make sure we hit all the right notes before publishing.",
+      "timestamp": "2026-03-04T09:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "sunday",
+      "stage": "publish",
+      "character": "Margaret Chen",
+      "message": "*mutters under breath* Fine. FINE. But remember, we need to follow the ratios carefully. Too many variables can ruin the whole thing. Let\u2019s do this right, people.",
+      "timestamp": "2026-03-04T13:00:00",
+      "model": "openai/gpt-4o-mini"
+    }
+  ],
+  "name_strip_transcript": [
+    "Alright team, I think brown butter pecan tassies have potential, but we can't overlook the crust. It needs to balance the richness. *mutters under breath* Ratio matters, you know?",
+    "If I may offer some context, Margaret, the crust indeed serves as a counterpoint to the filling's decadence; much like a well-crafted narrative arc, it must support rather than overshadow the core experience.",
+    "Fine. FINE. Just remember, if that crust doesn't hold up, we might as well toss the whole batch. *mutters calculations under breath* Keep your eye on the ratios, people.",
+    "I think maybe we could possibly brainstorm some crust ideas that complement the filling without overpowering it? I just want to make sure everyone feels heard. What do you think?",
+    "I'm thinking about the visual language here. The crust's texture should echo the warmth of the brown butter\u2014can we use a contrasting plate to highlight that? Let's push this further.",
+    "I love that! Also, what if we considered a nut-based crust to enhance the pecan flavor? Does that make sense? No? That's fair. Just a thought!",
+    "There's a literary tradition of using contrasts to elevate the theme\u2014much like a nut-based crust could enhance our pecan filling. I propose we explore a balance that captivates both palate and eye.",
+    "Sorry, but could we maybe discuss the practicality of a nut-based crust? I think it could be great, but I just want to make sure we\u2019re all on the same page.",
+    "*mutters under breath* A nut-based crust might work, but it better have the right texture. If it crumbles, we\u2019re done for. Let's focus on the execution, not just the concept.",
+    "I completely agree, Margaret! Execution is key. Maybe we could possibly outline some testing methods to ensure the texture is just right before we finalize anything? I\u2019m really interested in your thoughts on that.",
+    "Yeah, let\u2019s prioritize testing that crust mixture. We can automate some of the mixing process to maintain consistency. I\u2019ll whip up a quick script for that!",
+    "*mutters under breath* Consistency is important, but don\u2019t forget to taste at every stage. Automation can't replace your palate. Let\u2019s not rush this. Perfecting takes time.",
+    "Absolutely, Margaret! Tasting is crucial. Maybe we could schedule a quick tasting session after testing? I just want to make sure we hit all the right notes before publishing.",
+    "*mutters under breath* Fine. FINE. But remember, we need to follow the ratios carefully. Too many variables can ruin the whole thing. Let\u2019s do this right, people."
+  ],
+  "metrics": {
+    "message_count": 14,
+    "unique_characters": 5,
+    "balance": {
+      "Margaret Chen": 5,
+      "Marcus Reid": 2,
+      "Stephanie 'Steph' Whitmore": 5,
+      "Julian Torres": 1,
+      "Devon Park": 1
+    },
+    "model_usage": {
+      "openai/gpt-4o-mini": 14
+    }
+  },
+  "inference_check": {
+    "mode": "ollama",
+    "real_inference": true,
+    "template_fingerprints": 0,
+    "prompt_echo_hits": 0,
+    "unique_lines": 14
+  },
+  "qa": {
+    "score": 92,
+    "prohibited_hits": 0,
+    "prompt_echo_hits": 0,
+    "min_content_failures": 0,
+    "cross_character_overlap_penalty": 0.0,
+    "pairwise_lexical_overlap": {
+      "Devon Park <> Julian Torres": 0.146,
+      "Devon Park <> Marcus Reid": 0.122,
+      "Devon Park <> Margaret Chen": 0.119,
+      "Devon Park <> Stephanie 'Steph' Whitmore": 0.107,
+      "Julian Torres <> Marcus Reid": 0.077,
+      "Julian Torres <> Margaret Chen": 0.098,
+      "Julian Torres <> Stephanie 'Steph' Whitmore": 0.065,
+      "Marcus Reid <> Margaret Chen": 0.127,
+      "Marcus Reid <> Stephanie 'Steph' Whitmore": 0.144,
+      "Margaret Chen <> Stephanie 'Steph' Whitmore": 0.152
+    },
+    "rhythm_variation": 7,
+    "signature_hits": {
+      "Margaret Chen": 6,
+      "Marcus Reid": 0,
+      "Stephanie 'Steph' Whitmore": 2,
+      "Julian Torres": 0,
+      "Devon Park": 0
+    },
+    "avg_length_by_character": {
+      "Marcus Reid": 35,
+      "Stephanie 'Steph' Whitmore": 31,
+      "Julian Torres": 34,
+      "Margaret Chen": 30,
+      "Devon Park": 28
+    },
+    "distinctiveness_spread": 7
+  }
+}
