@@ -1,0 +1,194 @@
+{
+  "run": 1,
+  "concept": "Jalape\u00f1o Corn Dog Bites",
+  "default_model": "openai/gpt-4o-mini",
+  "prompt_style": "full",
+  "character_models": {},
+  "generated_at": "2026-02-26T12:51:23.138105",
+  "messages": [
+    {
+      "day": "monday",
+      "stage": "brainstorm",
+      "character": "Margaret Chen",
+      "message": "*mutters under breath* Jalape\u00f1o corn dog bites? Why not just make them properly? I suppose that could work... if you want it to fail. What's wrong with a classic?",
+      "timestamp": "2026-02-26T09:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "monday",
+      "stage": "brainstorm",
+      "character": "Marcus Reid",
+      "message": "If I may offer some context, Margaret, one could argue that innovation often breathes new life into traditional dishes. Proust once extolled madeleines, and what is a corn dog but a beautifully fried nostalgia?",
+      "timestamp": "2026-02-26T13:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "tuesday",
+      "stage": "recipe_development",
+      "character": "Margaret Chen",
+      "message": "Marcus, nostalgia doesn\u2019t come from playing with jalape\u00f1os. It comes from mastering the base. Let\u2019s focus on getting the batter right before we start tossing in surprises, alright?",
+      "timestamp": "2026-02-27T09:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "tuesday",
+      "stage": "recipe_development",
+      "character": "Stephanie 'Steph' Whitmore",
+      "message": "I think maybe we could possibly focus on balancing the flavors? Margaret, your classic approach is so valuable, but what if we do a small test batch with just a hint of jalape\u00f1o to see how it plays? Does that make sense? No? That's fair.",
+      "timestamp": "2026-02-27T13:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "wednesday",
+      "stage": "photography",
+      "character": "Julian Torres",
+      "message": "I'm thinking about the visual language here\u2014these jalape\u00f1o corn dog bites need to tell a story of fusion without losing the essence of the classic. Let\u2019s showcase that contrast.",
+      "timestamp": "2026-02-28T09:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "wednesday",
+      "stage": "photography",
+      "character": "Stephanie 'Steph' Whitmore",
+      "message": "I love that, Julian! Also, what if we styled the bites on a rustic wooden board to emphasize that fusion? We could add some classic condiments on the side for contrast too, right?",
+      "timestamp": "2026-02-28T13:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "thursday",
+      "stage": "copywriting",
+      "character": "Marcus Reid",
+      "message": "I appreciate the focus on balancing flavors, Stephanie. Perhaps we could explore an evocative headline like \"A Spicy Twist on a Timeless Classic\"? It captures both innovation and nostalgia.",
+      "timestamp": "2026-03-01T09:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "thursday",
+      "stage": "copywriting",
+      "character": "Stephanie 'Steph' Whitmore",
+      "message": "Sorry, but could we maybe explore a headline that emphasizes the fun aspect? Like \u201cKick Up Your Corn Dog Game with Jalape\u00f1o Bites\u201d? It feels more inviting, right?",
+      "timestamp": "2026-03-01T13:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "friday",
+      "stage": "final_review",
+      "character": "Margaret Chen",
+      "message": "Fine. FINE. But let\u2019s not lose the integrity of the original while we\u2019re busy playing around with \u201cfun\u201d headlines. Remember, focus on the execution first.",
+      "timestamp": "2026-03-02T09:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "friday",
+      "stage": "final_review",
+      "character": "Stephanie 'Steph' Whitmore",
+      "message": "Okay team, I think we\u2019re making progress! Let\u2019s finalize our approach by 5 PM. Margaret, can we agree on the batter first, then maybe test the jalape\u00f1o idea? What do YOU think?",
+      "timestamp": "2026-03-02T13:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "saturday",
+      "stage": "deployment",
+      "character": "Devon Park",
+      "message": "Hey team, I\u2019ll whip up a quick prototype of the jalape\u00f1o corn dog bites this morning. Should be ready for testing by 11 AM. Let\u2019s see how the flavors balance out!",
+      "timestamp": "2026-03-03T09:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "saturday",
+      "stage": "deployment",
+      "character": "Margaret Chen",
+      "message": "*mutters under breath* Let's keep the batter traditional and get our ratios right first. If the jalape\u00f1o's too strong, we\u2019ll lose the corn dog essence. Test a small batch\u2014fine.",
+      "timestamp": "2026-03-03T13:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "sunday",
+      "stage": "publish",
+      "character": "Stephanie 'Steph' Whitmore",
+      "message": "Great, Devon! I think that will give us a solid starting point. Let\u2019s make sure to take notes on the flavor balance so we can adjust the recipe if needed. Sound good?",
+      "timestamp": "2026-03-04T09:00:00",
+      "model": "openai/gpt-4o-mini"
+    },
+    {
+      "day": "sunday",
+      "stage": "publish",
+      "character": "Margaret Chen",
+      "message": "Just remember, if we start tweaking flavors, we might need to adjust the cooking times too. Let's not forget about the Maillard reaction\u2014it's crucial for that perfect crust.",
+      "timestamp": "2026-03-04T13:00:00",
+      "model": "openai/gpt-4o-mini"
+    }
+  ],
+  "name_strip_transcript": [
+    "*mutters under breath* Jalape\u00f1o corn dog bites? Why not just make them properly? I suppose that could work... if you want it to fail. What's wrong with a classic?",
+    "If I may offer some context, Margaret, one could argue that innovation often breathes new life into traditional dishes. Proust once extolled madeleines, and what is a corn dog but a beautifully fried nostalgia?",
+    "Marcus, nostalgia doesn\u2019t come from playing with jalape\u00f1os. It comes from mastering the base. Let\u2019s focus on getting the batter right before we start tossing in surprises, alright?",
+    "I think maybe we could possibly focus on balancing the flavors? Margaret, your classic approach is so valuable, but what if we do a small test batch with just a hint of jalape\u00f1o to see how it plays? Does that make sense? No? That's fair.",
+    "I'm thinking about the visual language here\u2014these jalape\u00f1o corn dog bites need to tell a story of fusion without losing the essence of the classic. Let\u2019s showcase that contrast.",
+    "I love that, Julian! Also, what if we styled the bites on a rustic wooden board to emphasize that fusion? We could add some classic condiments on the side for contrast too, right?",
+    "I appreciate the focus on balancing flavors, Stephanie. Perhaps we could explore an evocative headline like \"A Spicy Twist on a Timeless Classic\"? It captures both innovation and nostalgia.",
+    "Sorry, but could we maybe explore a headline that emphasizes the fun aspect? Like \u201cKick Up Your Corn Dog Game with Jalape\u00f1o Bites\u201d? It feels more inviting, right?",
+    "Fine. FINE. But let\u2019s not lose the integrity of the original while we\u2019re busy playing around with \u201cfun\u201d headlines. Remember, focus on the execution first.",
+    "Okay team, I think we\u2019re making progress! Let\u2019s finalize our approach by 5 PM. Margaret, can we agree on the batter first, then maybe test the jalape\u00f1o idea? What do YOU think?",
+    "Hey team, I\u2019ll whip up a quick prototype of the jalape\u00f1o corn dog bites this morning. Should be ready for testing by 11 AM. Let\u2019s see how the flavors balance out!",
+    "*mutters under breath* Let's keep the batter traditional and get our ratios right first. If the jalape\u00f1o's too strong, we\u2019ll lose the corn dog essence. Test a small batch\u2014fine.",
+    "Great, Devon! I think that will give us a solid starting point. Let\u2019s make sure to take notes on the flavor balance so we can adjust the recipe if needed. Sound good?",
+    "Just remember, if we start tweaking flavors, we might need to adjust the cooking times too. Let's not forget about the Maillard reaction\u2014it's crucial for that perfect crust."
+  ],
+  "metrics": {
+    "message_count": 14,
+    "unique_characters": 5,
+    "balance": {
+      "Margaret Chen": 5,
+      "Marcus Reid": 2,
+      "Stephanie 'Steph' Whitmore": 5,
+      "Julian Torres": 1,
+      "Devon Park": 1
+    },
+    "model_usage": {
+      "openai/gpt-4o-mini": 14
+    }
+  },
+  "inference_check": {
+    "mode": "ollama",
+    "real_inference": true,
+    "template_fingerprints": 0,
+    "prompt_echo_hits": 0,
+    "unique_lines": 14
+  },
+  "qa": {
+    "score": 90,
+    "prohibited_hits": 0,
+    "prompt_echo_hits": 0,
+    "min_content_failures": 0,
+    "cross_character_overlap_penalty": 0.0,
+    "pairwise_lexical_overlap": {
+      "Devon Park <> Julian Torres": 0.196,
+      "Devon Park <> Marcus Reid": 0.075,
+      "Devon Park <> Margaret Chen": 0.117,
+      "Devon Park <> Stephanie 'Steph' Whitmore": 0.151,
+      "Julian Torres <> Marcus Reid": 0.078,
+      "Julian Torres <> Margaret Chen": 0.139,
+      "Julian Torres <> Stephanie 'Steph' Whitmore": 0.118,
+      "Marcus Reid <> Margaret Chen": 0.13,
+      "Marcus Reid <> Stephanie 'Steph' Whitmore": 0.16,
+      "Margaret Chen <> Stephanie 'Steph' Whitmore": 0.215
+    },
+    "rhythm_variation": 19,
+    "signature_hits": {
+      "Margaret Chen": 4,
+      "Marcus Reid": 0,
+      "Stephanie 'Steph' Whitmore": 1,
+      "Julian Torres": 0,
+      "Devon Park": 0
+    },
+    "avg_length_by_character": {
+      "Devon Park": 33,
+      "Margaret Chen": 30.2,
+      "Julian Torres": 32,
+      "Marcus Reid": 31.5,
+      "Stephanie 'Steph' Whitmore": 34.8
+    },
+    "distinctiveness_spread": 4.6
+  }
+}
