@@ -49,7 +49,11 @@ def create_admin_app(
     
     # Initialize auth components
     if not session_manager:
-        session_manager = SessionManager(session_duration_hours=24)
+        session_manager = SessionManager(
+            session_duration_hours=24,
+            persist_to_file=True,
+            storage_path=(project_root or Path.cwd()) / "data" / "sessions.json",
+        )
     
     if not oauth_client:
         oauth_client = GoogleOAuth()
@@ -66,7 +70,12 @@ def create_admin_app(
     templates_dir = Path(__file__).parent / "templates"
     templates_dir.mkdir(exist_ok=True)
     app.state.templates = Jinja2Templates(directory=str(templates_dir))
-    
+
+    # Serve project static assets for admin previews (images, css, etc.)
+    static_root = app.state.project_root / "src"
+    if static_root.exists():
+        app.mount("/static", StaticFiles(directory=str(static_root)), name="static")
+
     # Include routes
     create_routes(app)
     
