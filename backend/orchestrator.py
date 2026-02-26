@@ -19,7 +19,7 @@ from backend.data.recipe import Recipe, CreationStory, AgentContribution
 from backend.data.agent_profile import AgentProfile
 from backend.core.task import Task
 from backend.utils.logging import get_logger
-from backend.utils.discord import notify_recipe_ready
+from backend.utils.discord import notify_recipe_ready, notify_pipeline_failure
 
 logger = get_logger(__name__)
 
@@ -27,10 +27,10 @@ logger = get_logger(__name__)
 class RecipeOrchestrator:
     """
     Main orchestrator for AI Creative Team recipe production.
-    
+
     Coordinates agents, messaging, pipeline, and output generation.
     """
-    
+
     def __init__(
         self,
         data_dir: Path = None,
@@ -63,67 +63,67 @@ class RecipeOrchestrator:
             self.memory_storage
         ]:
             dir_path.mkdir(parents=True, exist_ok=True)
-        
+
         # Initialize systems
         self.message_system = MessageSystem(storage_path=self.message_storage)
         self.pipeline = RecipePipeline()
-        
+
         # Initialize agents
         self.agents: Dict[str, any] = {}
         self._initialize_agents()
-        
+
         # Track current recipe production
         self.current_recipe_id: Optional[str] = None
         self.current_story: Optional[CreationStory] = None
-        
+
         logger.info("RecipeOrchestrator initialized")
-    
+
     def _initialize_agents(self) -> None:
         """Initialize all five agents with memory and messaging."""
         agent_roles = ["baker", "creative_director", "art_director", "copywriter", "site_architect"]
-        
+
         for role in agent_roles:
             # Create agent
             agent = create_agent(role)
-            
+
             # Set up memory
             memory = AgentMemory(agent_role=role, storage_path=self.memory_storage)
             agent.set_memory(memory)
-            
+
             # Set up message handler
             handler = MessageHandler(role, self.message_system)
             agent.set_message_handler(handler)
-            
+
             # Register with message system
             self.message_system.register_agent(role, agent.receive_message)
-            
+
             # Store agent
             self.agents[role] = agent
-            
+
             logger.info(f"Initialized agent: {role} ({agent.personality.name})")
-    
+
     def produce_recipe(self, concept: str) -> tuple[Recipe, CreationStory]:
         """
         Produce a complete recipe with creation story.
-        
+
         This is the main entry point for recipe production.
-        
+
         Args:
             concept: The recipe concept/idea
-            
+
         Returns:
             Tuple of (Recipe, CreationStory)
         """
         logger.info(f"=" * 70)
         logger.info(f"STARTING RECIPE PRODUCTION: {concept}")
         logger.info(f"=" * 70)
-        
+
         # Generate IDs
         recipe_id = str(uuid.uuid4())[:8]
         story_id = str(uuid.uuid4())[:8]
-        
+
         self.current_recipe_id = recipe_id
-        
+
         # Initialize creation story
         self.current_story = CreationStory(
             story_id=story_id,
@@ -132,15 +132,15 @@ class RecipeOrchestrator:
             summary="",
             full_story=""
         )
-        
+
         # Start recipe in pipeline
         context = self.pipeline.start_recipe(recipe_id, concept)
-        
+
         # Execute pipeline stages
         recipe_data = {}
         photos = []
         copy_text = {}
-        
+
         try:
             # Stage 1: Recipe Development (Baker)
             logger.info(f"\n{'='*70}")
@@ -148,52 +148,53 @@ class RecipeOrchestrator:
             logger.info(f"{'='*70}")
             recipe_data = self._execute_stage_baker(recipe_id, concept)
             self.pipeline.advance_stage(recipe_id, work_product=recipe_data)
-            
+
             # Stage 2: Photography (Art Director)
             logger.info(f"\n{'='*70}")
             logger.info("STAGE 2: Photography (Julian Torres - Art Director)")
             logger.info(f"{'='*70}")
             photos = self._execute_stage_photography(recipe_id, recipe_data)
             self.pipeline.advance_stage(recipe_id, work_product={"photos": photos})
-            
+
             # Stage 3: Copywriting (Editorial Copywriter)
             logger.info(f"\n{'='*70}")
             logger.info("STAGE 3: Copywriting (Marcus Reid - Editorial Copywriter)")
             logger.info(f"{'='*70}")
             copy_text = self._execute_stage_copywriting(recipe_id, concept, recipe_data)
             self.pipeline.advance_stage(recipe_id, work_product=copy_text)
-            
+
             # Stage 4: Creative Review (Creative Director)
             logger.info(f"\n{'='*70}")
             logger.info("STAGE 4: Creative Review (Steph Whitmore - Creative Director)")
             logger.info(f"{'='*70}")
-            approved = self._execute_stage_review(recipe_id)
-            
+            approved, review_output = self._execute_stage_review(recipe_id)
+            self._record_creative_dialogue(recipe_id, concept, recipe_data, copy_text, review_output)
+
             if approved:
                 self.pipeline.advance_stage(recipe_id)  # FINAL_APPROVAL
                 self.pipeline.advance_stage(recipe_id)  # DEPLOYMENT
-            
+
             # Stage 5: Deployment (Site Architect)
             logger.info(f"\n{'='*70}")
             logger.info("STAGE 5: Deployment (Devon Park - Site Architect)")
             logger.info(f"{' ='*70}")
             self._execute_stage_deployment(recipe_id)
-            
+
             # Advance to COMPLETE
             logger.info(f"Advancing recipe {recipe_id} from DEPLOYMENT to COMPLETE")
             final_stage = self.pipeline.advance_stage(recipe_id)
             logger.info(f"Recipe {recipe_id} advanced to: {final_stage}")
-            
+
             # Compile final recipe
             recipe = self._compile_recipe(recipe_id, concept, recipe_data, photos, copy_text)
-            
+
             # Finalize creation story
             self._finalize_story()
-            
+
             # Save outputs - recipes go to pending/ for human review
             recipe.save_to_file(self.recipes_dir, use_status_dir=True)
             self.current_story.save_to_file(self.stories_dir)
-            
+
             logger.info(f"\n{'='*70}")
             logger.info(f"✅ RECIPE PRODUCTION COMPLETE: {recipe.title}")
             logger.info(f"   Recipe ID: {recipe_id}")
@@ -209,23 +210,34 @@ class RecipeOrchestrator:
             )
 
             return recipe, self.current_story
-            
+
         except Exception as e:
-            logger.error(f"Error during recipe production: {e}", exc_info=True)
+            stage = "unknown"
+            if recipe_id in self.pipeline.active_recipes:
+                stage = self.pipeline.active_recipes[recipe_id].current_stage.value
+            logger.error(f"Error during recipe production at stage '{stage}': {e}", exc_info=True)
+            notify_pipeline_failure(
+                recipe_id=recipe_id,
+                concept=concept,
+                stage=stage,
+                error_message=str(e),
+            )
             raise
-    
+
     def _execute_stage_baker(self, recipe_id: str, concept: str) -> Dict:
         """Execute baker's recipe development stage."""
         baker = self.agents["baker"]
-        
+
         task = Task(
             type="create_recipe",
             content=f"Create a muffin tin recipe for: {concept}",
             context={"recipe_id": recipe_id, "concept": concept}
         )
-        
+
         result = baker.process_task(task)
-        
+        if not result.success:
+            raise RuntimeError(f"Baker stage failed: {result.output}")
+
         # Record contribution
         self.current_story.add_contribution(
             agent_name=baker.personality.name,
@@ -234,21 +246,23 @@ class RecipeOrchestrator:
             decisions=result.insights,
             personality_moments=result.personality_notes
         )
-        
+
         return result.output
-    
+
     def _execute_stage_photography(self, recipe_id: str, recipe_data: Dict) -> List[str]:
         """Execute art director's photography stage."""
         art_director = self.agents["art_director"]
-        
+
         task = Task(
             type="photograph_recipe",
             content=f"Photograph this recipe",
             context={"recipe_id": recipe_id, "recipe_data": recipe_data}
         )
-        
+
         result = art_director.process_task(task)
-        
+        if not result.success:
+            raise RuntimeError(f"Art Director stage failed: {result.output}")
+
         # Record contribution
         self.current_story.add_contribution(
             agent_name=art_director.personality.name,
@@ -257,21 +271,23 @@ class RecipeOrchestrator:
             decisions=result.insights,
             personality_moments=result.personality_notes
         )
-        
+
         return result.output.get("selected_shots", [])
-    
+
     def _execute_stage_copywriting(self, recipe_id: str, concept: str, recipe_data: Dict) -> Dict:
         """Execute copywriter's description stage."""
         copywriter = self.agents["copywriter"]
-        
+
         task = Task(
             type="write_description",
             content=f"Write description for {concept}",
             context={"recipe_id": recipe_id, "recipe_data": recipe_data, "target_word_count": 200}
         )
-        
+
         result = copywriter.process_task(task)
-        
+        if not result.success:
+            raise RuntimeError(f"Copywriter stage failed: {result.output}")
+
         # Record contribution
         self.current_story.add_contribution(
             agent_name=copywriter.personality.name,
@@ -280,21 +296,23 @@ class RecipeOrchestrator:
             decisions=result.insights,
             personality_moments=result.personality_notes
         )
-        
+
         return result.output
-    
-    def _execute_stage_review(self, recipe_id: str) -> bool:
+
+    def _execute_stage_review(self, recipe_id: str) -> tuple[bool, Dict]:
         """Execute creative director's review stage."""
         cd = self.agents["creative_director"]
-        
+
         task = Task(
             type="review_package",
             content="Review complete recipe package",
             context={"recipe_id": recipe_id}
         )
-        
+
         result = cd.process_task(task)
-        
+        if not result.success:
+            raise RuntimeError(f"Creative Director stage failed: {result.output}")
+
         # Record contribution
         self.current_story.add_contribution(
             agent_name=cd.personality.name,
@@ -303,23 +321,65 @@ class RecipeOrchestrator:
             decisions=result.insights,
             personality_moments=result.personality_notes
         )
-        
-        # Check approval
+
+        # Check approval (support both old and new response shapes)
         approved = result.output.get("approved", True)
-        return approved
-    
+        if "decision" in result.output and result.output["decision"] == "approved_with_minor_revisions":
+            approved = True
+
+        return approved, result.output
+
+    def _record_creative_dialogue(
+        self,
+        recipe_id: str,
+        concept: str,
+        recipe_data: Dict,
+        copy_text: Dict,
+        review_output: Dict,
+    ) -> None:
+        """Capture visible character dialogue and screenwriter tension notes."""
+        if not self.current_story:
+            return
+
+        baker_title = recipe_data.get("title", concept)
+        copy_body = (copy_text.get("body") or "").strip()
+        copy_sample = copy_body[:140] + ("..." if len(copy_body) > 140 else "")
+
+        cd_suggestions = review_output.get("suggestions", [])
+        cd_note = cd_suggestions[0] if cd_suggestions else "Portion structure is close, but the headline needs sharper tension."
+
+        dialogue_lines = [
+            f'Margaret (Baker): "The structure is solid. I won\'t apologize for proper ratios in {baker_title}."',
+            f'Steph (Creative Director): "I love the backbone here. But can we tighten this pass? {cd_note}"',
+            f'Marcus (Copywriter): "I gave it a literary pass. Sample: {copy_sample or "No copy sample yet."}"',
+            'Screenwriter: "Tension logged - Margaret defends craft, Steph pushes for polish, Marcus tries to romanticize the crumb."',
+        ]
+
+        for line in dialogue_lines:
+            self.pipeline.active_recipes[recipe_id].messages.append(line)
+
+        self.current_story.add_conflict(
+            description="Baker vs Creative Director on tradition vs market-facing polish",
+            between=["Margaret Chen", "Steph Whitmore", "Marcus Reid"],
+            resolution="Approved with minor revisions framing; baker structure preserved, copy sharpened.",
+        )
+
+        self.current_story.personality_highlights.extend(dialogue_lines)
+
     def _execute_stage_deployment(self, recipe_id: str) -> None:
         """Execute site architect's deployment stage."""
         site_architect = self.agents["site_architect"]
-        
+
         task = Task(
             type="deploy_recipe",
             content="Deploy recipe to website",
             context={"recipe_id": recipe_id}
         )
-        
+
         result = site_architect.process_task(task)
-        
+        if not result.success:
+            raise RuntimeError(f"Site Architect stage failed: {result.output}")
+
         # Record contribution
         self.current_story.add_contribution(
             agent_name=site_architect.personality.name,
@@ -328,7 +388,7 @@ class RecipeOrchestrator:
             decisions=result.insights,
             personality_moments=result.personality_notes
         )
-    
+
     def _compile_recipe(
         self,
         recipe_id: str,
@@ -338,10 +398,10 @@ class RecipeOrchestrator:
         copy_text: Dict
     ) -> Recipe:
         """Compile final recipe from all stage outputs."""
-        
+
         # Generate slug
         slug = concept.lower().replace(" ", "-")[:50]
-        
+
         # Use baker's description if copywriter didn't provide one
         description = copy_text.get("body", "") or recipe_data.get("description", "")
 
@@ -362,14 +422,14 @@ class RecipeOrchestrator:
             slug=slug,
             story_id=self.current_story.story_id if self.current_story else None
         )
-        
+
         return recipe
-    
+
     def _finalize_story(self) -> None:
         """Finalize the creation story."""
         if not self.current_story:
             return
-        
+
         # Compile summary from contributions
         summary_parts = []
         for contrib in self.current_story.agent_contributions:
@@ -378,25 +438,29 @@ class RecipeOrchestrator:
                     f"{contrib.agent_name} ({contrib.contribution_type}): "
                     f"{contrib.personality_moments[0]}"
                 )
-        
+
         self.current_story.summary = " | ".join(summary_parts[:3])  # First 3
-        
+
         # Compile full story
         story_parts = [f"# How We Made This Recipe\n"]
         for contrib in self.current_story.agent_contributions:
             story_parts.append(f"\n## {contrib.agent_name} - {contrib.contribution_type}\n")
             if contrib.personality_moments:
                 story_parts.extend([f"- {moment}" for moment in contrib.personality_moments])
-        
+
+        if self.current_story.personality_highlights:
+            story_parts.append("\n## Writers Room Feed (Screenwriter Capture)\n")
+            story_parts.extend([f"- {line}" for line in self.current_story.personality_highlights])
+
         self.current_story.full_story = "\n".join(story_parts)
-        
+
         # Set completion time
         self.current_story.completed_at = datetime.now()
-        
+
         # Get message stats
         stats = self.message_system.get_statistics()
         self.current_story.total_messages = stats.get("total_messages", 0)
-    
+
     def get_agent_profiles(self) -> Dict[str, AgentProfile]:
         """Get current profiles for all agents."""
         profiles = {}
@@ -404,14 +468,14 @@ class RecipeOrchestrator:
             profile = AgentProfile.create_from_agent(agent, f"{role}_profile")
             profiles[role] = profile
         return profiles
-    
+
     def save_agent_profiles(self) -> None:
         """Save all agent profiles to disk."""
         profiles_dir = self.data_dir / "agent_profiles"
         profiles_dir.mkdir(parents=True, exist_ok=True)
-        
+
         for role, agent in self.agents.items():
             profile = AgentProfile.create_from_agent(agent, f"{role}_profile")
             profile.save_to_file(profiles_dir)
-        
+
         logger.info(f"Saved {len(self.agents)} agent profiles")

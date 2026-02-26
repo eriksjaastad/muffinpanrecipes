@@ -5,9 +5,24 @@ An AI-driven experimental recipe platform focused exclusively on "Muffin Tin Mea
 
 ## Quick Start
 
+### Runtime Bootstrap (uv + Python 3.12)
+
+```bash
+# One-time on macOS
+brew install uv python@3.12
+
+# From project root
+uv venv --python /opt/homebrew/bin/python3.12 --clear .venv
+uv sync --python /opt/homebrew/bin/python3.12
+
+# Verify
+uv run pytest tests/test_discord_review_link.py tests/test_creative_dialogue.py -q
+```
+
 ### Development
 1. Clone the repository.
-2. Open `src/index.html` in your browser to view the prototype.
+2. Run the bootstrap steps above.
+3. Open `src/index.html` in your browser to view the prototype.
 
 ### Deployment
 1. The project is configured for Vercel via `vercel.json`.

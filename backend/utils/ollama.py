@@ -1,6 +1,7 @@
 """Ollama integration for AI-powered agent behavior."""
 
 import json
+import os
 import re
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
@@ -13,7 +14,10 @@ logger = get_logger(__name__)
 class OllamaConfig(BaseModel):
     """Configuration for Ollama model usage."""
 
-    default_model: str = Field(default="llama3.2", description="Default model to use")
+    default_model: str = Field(
+        default_factory=lambda: os.getenv("OLLAMA_MODEL", "qwen3:32b"),
+        description="Default model to use"
+    )
     temperature: float = Field(default=0.8, ge=0.0, le=2.0, description="Sampling temperature")
     max_tokens: int = Field(default=2000, description="Maximum tokens in response")
 
