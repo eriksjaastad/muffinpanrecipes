@@ -195,6 +195,66 @@ The writers' room itself becomes a drama. Their debates, their storylines, their
 
 ---
 
+## Making the Characters Real — The Hard Problem
+
+This is the thing that makes or breaks the whole project. Not the pipeline, not the deployment, not the recipe quality — the **dialogue**. If Margaret sounds like Margaret and Marcus sounds like Marcus, we have a show. If they all sound like "helpful AI assistant writing in a character voice," we have nothing.
+
+This section exists to help you think about dialogue generation the way a showrunner thinks about their writers' room.
+
+### The Test That Matters
+
+Strip the character names from a conversation. Read just the messages. Can you tell who's talking? If you can — if Margaret's messages feel different from Marcus's in rhythm, vocabulary, emotional temperature — the voices are working. If they all read the same with different topics, they're not.
+
+This is the bar. Everything below is about how to clear it.
+
+### What the Research Says
+
+There's real academic and practical work on making LLMs stay in character. Here's what actually matters for us:
+
+**1. Persona cards are our foundation.** The character definitions in `backend/data/agent_personalities.json` are detailed — backstories, internal contradictions, signature phrases, relationship dynamics, behavioral quirks. These are the raw material. They need to be present in every single dialogue generation call. Not summarized, not abbreviated. The full card. The model needs all of it to find the character's voice.
+
+**2. Scene context drives voice more than personality alone.** A character card says who Margaret IS. But what she SAYS depends on: Who's she talking to? What day is it? How close is the deadline? Did someone just say something that hits one of her triggers? The scene setup — who's in the room, what just happened, what the tension is — is as important as the personality file.
+
+**3. The role chain technique.** Don't just tell the model "you are Margaret, write her message." Have it reason through the character first: *Given Margaret's relationship with Steph, given that it's Tuesday and the recipe draft is due at 5 PM, given that Steph just suggested adding jalapeño — how does Margaret feel about this? What would she actually say?* This self-questioning step prevents the model from defaulting to generic responses.
+
+**4. Characters drift without reinforcement.** Over a long conversation or across multiple generation calls, characters flatten. They lose their edges. They start sounding polite and helpful instead of prickly and specific. The fix: re-inject the full persona card at every generation call. Include the recent dialogue history so the model maintains continuity. Never assume the character will "stay" — actively hold them in place.
+
+**5. Internal contradictions are where the magic lives.** Margaret checks Instagram engagement while ranting about Instagram culture. Marcus puts more effort into muffin copy than he ever put into his novel. Julian mocks food bloggers while using their techniques. These contradictions are what make characters feel human. Lean into them. A character who is perfectly consistent is boring. A character who is consistently *inconsistent in specific ways* is real.
+
+### What Makes Sitcom Dialogue Work
+
+The shows we're drawing from (Friends, Seinfeld, Cheers) have patterns worth understanding:
+
+- **Characters have verbal signatures.** Not catchphrases — patterns. One character speaks in short fragments. Another over-explains. Another asks questions instead of making statements. Margaret mutters. Marcus references obscure writers. Steph hedges everything with "I think maybe we could possibly..." These patterns should be audible in every message.
+
+- **Reactions are as important as statements.** Half of great dialogue is how characters respond to each other. Margaret's one-word dismissal of Julian's styling idea. Marcus quoting something Margaret said and her not remembering saying it. Devon's silence that says more than anyone else's paragraph.
+
+- **Subtext carries the scene.** The characters rarely say what they actually mean. Margaret says "Fine. FINE." when she means "I hate this but I can't argue with it." Steph says "What do YOU think?" when she means "I'm terrified of making the wrong call." The words and the meaning should be different.
+
+- **Comedy comes from character, not jokes.** Julian explaining his "visual language" theory for 15 minutes isn't a joke — it's Julian. Margaret muttering calculations under her breath isn't a bit — it's who she is. The humor emerges from personality collisions, not from trying to be funny.
+
+### The Prompt Structure That Works
+
+When generating a dialogue turn, the model needs these layers (in this order):
+
+1. **The full character card** from `agent_personalities.json` — backstory, traits, relationships, signature phrases, contradictions, triggers
+2. **Scene context** — day of the week, pipeline stage, deadline pressure, who's in the conversation, what just happened
+3. **Episode context** — the A-plot (recipe challenge), B-plot (character moment), where the tension should land this week
+4. **Dialogue history** — everything said so far in this episode, so the model can react to what's been said and build on it
+5. **Generation instruction** — which character is speaking, how long the message should be, any specific beats to hit
+
+The instruction should be minimal. Don't over-direct. If the character card and scene context are rich enough, the model will find the right thing to say. Over-directing produces dialogue that sounds written. Under-directing with rich context produces dialogue that sounds spoken.
+
+### Your Goal This Week
+
+Monday is when Episode 1 starts. Between now and then, your job is to get comfortable generating dialogue that passes the name-strip test. Experiment. Generate a conversation, read it back, ask yourself: does Margaret sound like a 54-year-old James Beard nominee who's bitter about Instagram? Does Marcus sound like a failed novelist who accidentally found his calling in muffin copy?
+
+If they don't, adjust the prompting approach. Try giving the model more scene context. Try the role-chain self-questioning technique. Try including more of the relationship dynamics. The personality files are rich — the question is how to extract that richness into actual dialogue.
+
+This is the creative work. The pipeline is plumbing. This is the show.
+
+---
+
 ## Technical Notes (for Codex)
 
 ### The Episode — Core Data Model
