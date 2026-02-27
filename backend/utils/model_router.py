@@ -6,16 +6,22 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 
-# Fail-closed OpenAI model policy: only cheap models unless explicitly allowlisted.
+# Fail-closed OpenAI model policy.
+# OWNER RULE (do not relax without explicit Erik approval):
+# Allowed models are ONLY: gpt-5-mini, gpt-5-nano, gpt-5.1
 DEFAULT_OPENAI_ALLOWLIST = {
-    "gpt-4o-mini",
-    "gpt-4.1-mini",
-    "gpt-4.1-nano",
-    "gpt-5-nano",
     "gpt-5-mini",
+    "gpt-5-nano",
+    "gpt-5.1",
 }
 
 HARD_BLOCKED_MODELS = {
+    "gpt-5",
+    "gpt-5.2",
+    "gpt-5.3-codex",
+    "gpt-5.2-codex",
+    "gpt-5.1-codex",
+    "gpt-5.1-codex-max",
     "gpt-5-pro",
     "gpt-5.2-pro",
     "gpt-5.2-pro-2025-12-11",
