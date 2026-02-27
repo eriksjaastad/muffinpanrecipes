@@ -54,11 +54,9 @@ def list_openai_models() -> list[str]:
     discovered = [f"openai/{m}" for m in data["allowlisted_chat_models"]]
 
     preferred = [
-        "openai/gpt-4o-mini",
-        "openai/gpt-4.1-mini",
-        "openai/gpt-4.1-nano",
         "openai/gpt-5-mini",
         "openai/gpt-5-nano",
+        "openai/gpt-5.1",
     ]
 
     picked: list[str] = []
@@ -202,7 +200,7 @@ def reason_from_output(output: str) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--full-week-models", default="ollama/qwen3:32b,openai/gpt-4o-mini,openai/gpt-4.1-mini,openai/gpt-4.1-nano")
+    parser.add_argument("--full-week-models", default="ollama/qwen3:32b,openai/gpt-5-mini,openai/gpt-5-nano,openai/gpt-5.1")
     args = parser.parse_args()
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
