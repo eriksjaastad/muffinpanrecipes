@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulation Viewer | Muffin Pan Recipes Admin</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .bubble { max-width: 78%; }
+    </style>
+</head>
+<body class="bg-slate-100 min-h-screen">
+<header class="bg-white border-b border-slate-200">
+    <div class="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900">🗨️ Simulation Conversation Viewer</h1>
+            <p class="text-sm text-slate-600">Run transcripts from <code>data/simulations</code></p>
+        </div>
+        <div class="flex gap-3">
+            <a href="/admin/" class="text-sm px-3 py-2 rounded bg-slate-200 text-slate-800 hover:bg-slate-300">Dashboard</a>
+            <a href="/auth/logout" class="text-sm px-3 py-2 rounded bg-slate-900 text-white hover:bg-slate-700">Logout</a>
+        </div>
+    </div>
+</header>
+
+<main class="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8 space-y-5">
+    <form method="get" action="/admin/simulations" class="bg-white border border-slate-200 rounded-lg p-4 grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+        <div>
+            <label class="text-xs font-semibold uppercase tracking-wide text-slate-500">Concept filter</label>
+            <input type="text" name="concept_filter" value="{{ concept_filter }}" placeholder="e.g. Corn Dog" class="mt-1 w-full border border-slate-300 rounded px-3 py-2 text-sm" />
+        </div>
+        <div>
+            <label class="text-xs font-semibold uppercase tracking-wide text-slate-500">Model filter</label>
+            <input type="text" name="model_filter" value="{{ model_filter }}" placeholder="e.g. gpt-4o" class="mt-1 w-full border border-slate-300 rounded px-3 py-2 text-sm" />
+        </div>
+        <div>
+            <label class="text-xs font-semibold uppercase tracking-wide text-slate-500">Run file</label>
+            <select name="selected_file" class="mt-1 w-full border border-slate-300 rounded px-3 py-2 text-sm">
+                {% for run in runs %}
+                <option value="{{ run.filename }}" {% if selected_file == run.filename %}selected{% endif %}>
+                    {{ run.generated_at or 'n/a' }} · {{ run.concept }} ({{ run.message_count }} msgs)
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="flex gap-2">
+            <button type="submit" class="px-4 py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">Apply</button>
+            <a href="/admin/simulations" class="px-4 py-2 rounded bg-slate-200 text-slate-800 text-sm font-medium hover:bg-slate-300">Reset</a>
+        </div>
+        <p class="md:col-span-4 text-xs text-slate-500">Showing {{ filtered_count }} of {{ total_runs }} runs.</p>
+    </form>
+
+    {% if selected_run %}
+    <section class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div class="lg:col-span-2 bg-white border border-slate-200 rounded-lg p-4 h-[75vh] overflow-y-auto space-y-3">
+            {% for msg in selected_run.messages %}
+            <div class="flex {% if loop.index0 % 2 == 0 %}justify-start{% else %}justify-end{% endif %}">
+                <div class="bubble px-4 py-3 rounded-2xl {% if loop.index0 % 2 == 0 %}bg-slate-200 text-slate-900 rounded-bl-sm{% else %}bg-blue-600 text-white rounded-br-sm{% endif %}">
+                    <div class="flex flex-wrap items-center gap-2 mb-1">
+                        <span class="text-xs font-semibold {% if loop.index0 % 2 == 0 %}text-slate-700{% else %}text-blue-100{% endif %}">{{ msg.character or 'Unknown Speaker' }}</span>
+                        <span class="text-[11px] uppercase tracking-wide px-2 py-0.5 rounded {% if loop.index0 % 2 == 0 %}bg-slate-300 text-slate-700{% else %}bg-blue-500 text-blue-100{% endif %}">{{ msg.day or 'n/a' }} / {{ msg.stage or 'n/a' }}</span>
+                        {% if msg.timestamp %}
+                        <span class="text-[11px] {% if loop.index0 % 2 == 0 %}text-slate-500{% else %}text-blue-100{% endif %}">{{ msg.timestamp }}</span>
+                        {% endif %}
+                    </div>
+                    <p class="text-sm leading-relaxed whitespace-pre-wrap">{{ msg.message }}</p>
+                    {% if msg.model %}
+                    <p class="mt-2 text-[11px] {% if loop.index0 % 2 == 0 %}text-slate-500{% else %}text-blue-100{% endif %}">model: {{ msg.model }}</p>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <aside class="bg-white border border-slate-200 rounded-lg p-4 h-[75vh] overflow-y-auto space-y-5">
+            <div>
+                <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wide">Run info</h2>
+                <dl class="mt-2 text-sm text-slate-700 space-y-2">
+                    <div><dt class="font-medium">File</dt><dd class="break-all text-xs">{{ selected_run.filename }}</dd></div>
+                    <div><dt class="font-medium">Concept</dt><dd>{{ selected_run.concept }}</dd></div>
+                    <div><dt class="font-medium">Generated at</dt><dd>{{ selected_run.generated_at or 'n/a' }}</dd></div>
+                    <div><dt class="font-medium">Prompt style</dt><dd>{{ selected_run.prompt_style or 'n/a' }}</dd></div>
+                    <div><dt class="font-medium">Mode</dt><dd>{{ selected_run.mode or 'n/a' }}</dd></div>
+                    <div><dt class="font-medium">Message count</dt><dd>{{ selected_run.message_count }}</dd></div>
+                </dl>
+            </div>
+
+            <div>
+                <h3 class="text-sm font-semibold text-slate-500 uppercase tracking-wide">Participating models</h3>
+                <ul class="mt-2 space-y-1 text-sm">
+                    {% for model in selected_run.models %}
+                    <li class="px-2 py-1 rounded bg-slate-100 text-slate-700">{{ model }}</li>
+                    {% else %}
+                    <li class="text-slate-500 text-sm">No model data</li>
+                    {% endfor %}
+                </ul>
+                {% if selected_run.default_model %}
+                <p class="mt-2 text-xs text-slate-500">default_model: {{ selected_run.default_model }}</p>
+                {% endif %}
+            </div>
+
+            <div>
+                <h3 class="text-sm font-semibold text-slate-500 uppercase tracking-wide">Character model overrides</h3>
+                <ul class="mt-2 space-y-1 text-sm">
+                    {% for character, model in selected_run.character_models.items() %}
+                    <li class="px-2 py-1 rounded bg-slate-100 text-slate-700"><span class="font-medium">{{ character }}</span>: {{ model }}</li>
+                    {% else %}
+                    <li class="text-slate-500 text-sm">None</li>
+                    {% endfor %}
+                </ul>
+            </div>
+
+            <div>
+                <h3 class="text-sm font-semibold text-slate-500 uppercase tracking-wide">Day totals</h3>
+                <ul class="mt-2 space-y-1 text-sm">
+                    {% for day, count in selected_run.day_counts.items() %}
+                    <li class="flex justify-between px-2 py-1 rounded bg-slate-100"><span>{{ day }}</span><span>{{ count }}</span></li>
+                    {% else %}
+                    <li class="text-slate-500 text-sm">No day metadata</li>
+                    {% endfor %}
+                </ul>
+            </div>
+
+            <div>
+                <h3 class="text-sm font-semibold text-slate-500 uppercase tracking-wide">Stage totals</h3>
+                <ul class="mt-2 space-y-1 text-sm">
+                    {% for stage, count in selected_run.stage_counts.items() %}
+                    <li class="flex justify-between px-2 py-1 rounded bg-slate-100"><span>{{ stage }}</span><span>{{ count }}</span></li>
+                    {% else %}
+                    <li class="text-slate-500 text-sm">No stage metadata</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </aside>
+    </section>
+    {% else %}
+    <section class="bg-white border border-slate-200 rounded-lg p-8 text-center text-slate-500">
+        No simulation files found in <code>data/simulations</code>.
+    </section>
+    {% endif %}
+</main>
+</body>
+</html>
