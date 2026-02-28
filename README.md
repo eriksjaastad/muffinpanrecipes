@@ -52,3 +52,24 @@ See the `Documents/` directory for detailed documentation:
 ## Status
 - **Current Phase:** Phase 1: AI Recipe Engine
 - **Status:** #status/active
+
+
+## Admin Simulation Viewer (MVP)
+
+- Route: `/admin/simulations` (requires existing admin login)
+- Reads local files from `data/simulations/*.json`
+- Includes:
+  - run selector (latest-first)
+  - quick concept/model filters
+  - chat-style transcript bubbles with speaker/day/stage/timestamp
+  - run info panel (generated_at, concept, prompt_style, participating models)
+
+### Optional screenshot/export note
+
+To save a quick local screenshot for sharing:
+
+```bash
+# while admin is running locally on :8000 and you are logged in
+npx playwright screenshot http://localhost:8000/admin/simulations Documents/simulations-viewer-sample.png
+```
+
