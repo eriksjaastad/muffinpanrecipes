@@ -70,9 +70,11 @@ The dialogue surfaces in real-time (or appears to) throughout the week. The audi
 The dialogue is presented as a **group text message thread**. No narrator, no context, no "meet the team" page. The reader is dropped into a conversation already in progress.
 
 **What it looks like:**
-- Chat bubbles with character first names and small avatars
+- Group-chat style bubbles with the character's **first name** visible in each bubble
+- Bubbles alternate sides (left/right) like a real messaging app thread
+- Default bubble treatment for MVP: **blue chat bubbles** with readable contrast
+- Small avatar next to each message cluster
 - Timestamps (time of day, not date — keeps it feeling live)
-- Different bubble colors per character
 - Natural message cadence — some rapid-fire, some gaps
 
 **What it doesn't have:**

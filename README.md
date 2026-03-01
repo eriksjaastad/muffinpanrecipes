@@ -24,6 +24,19 @@ uv run pytest tests/test_discord_review_link.py tests/test_creative_dialogue.py 
 2. Run the bootstrap steps above.
 3. Open `src/index.html` in your browser to view the prototype.
 
+### Secrets Runtime (Doppler)
+
+This project expects runtime secrets from Doppler (not `.env` files).
+
+```bash
+# Example: run admin app with injected secrets
+cd <repo-root>
+doppler run -- uv run python -m backend.admin.app
+
+# Example: run local E2E pipeline with injected secrets
+doppler run -- uv run python scripts/run_first_e2e_recipe.py
+```
+
 ### Deployment
 1. The project is configured for Vercel via `vercel.json`.
 2. Push to `main` to trigger an automatic deployment.
@@ -35,7 +48,7 @@ This project leverages the central **SSH Agent** for high-end image generation o
 This project uses a 4-step automated photography pipeline to generate and select high-end visuals.
 
 1. **`scripts/generate_image_prompts.py`**: Analyzes recipes and generates 3 high-key SDXL prompts per recipe using AI Router (Local DeepSeek-R1 or Cloud).
-2. **`scripts/trigger_generation.py`**: Handshakes with Mission Control to upload jobs and scripts to Cloudflare R2.
+2. **`scripts/trigger_generation.py`**: Uploads jobs and helper scripts to Cloudflare R2 (native boto3 uploader, no 3d-pose-factory dependency).
 3. **`scripts/direct_harvest.py` (RunPod)**: Executed on a remote GPU pod to generate the images directly via Stability AI API, bypassing Blender buffer issues.
 4. **`scripts/art_director.py` (Local)**: The Art Director agent reviews the generated variants from `__temp_harvest/` and moves the winner to `src/assets/images/`.
 
@@ -52,3 +65,23 @@ See the `Documents/` directory for detailed documentation:
 ## Status
 - **Current Phase:** Phase 1: AI Recipe Engine
 - **Status:** #status/active
+
+
+## Admin Simulation Viewer (MVP)
+
+- Route: `/admin/simulations` (requires existing admin login)
+- Reads local files from `data/simulations/*.json`
+- Includes:
+  - run selector (latest-first)
+  - quick concept/model filters
+  - chat-style transcript bubbles with speaker/day/stage/timestamp
+  - run info panel (generated_at, concept, prompt_style, participating models)
+
+### Optional screenshot/export note
+
+To save a quick local screenshot for sharing:
+
+```bash
+# while admin is running locally on :8000 and you are logged in
+npx playwright screenshot http://localhost:8000/admin/simulations Documents/simulations-viewer-sample.png
+```
