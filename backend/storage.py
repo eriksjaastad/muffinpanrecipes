@@ -30,6 +30,9 @@ from pathlib import Path
 from typing import Any, Optional
 
 from backend.config import config
+from backend.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -58,14 +61,15 @@ class _FilesystemBackend:
     def list_episodes(self) -> list[dict]:
         """Return episode summary dicts sorted newest first."""
         if not EPISODES_DIR.exists():
+            logger.warning(f"Episodes directory does not exist: {EPISODES_DIR}")
             return []
         results = []
         for p in sorted(EPISODES_DIR.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True):
             try:
                 data = json.loads(p.read_text())
                 results.append({"episode_id": p.stem, **data})
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(f"Skipping invalid episode file {p.name}: {exc}")
         return results
 
     def load_simulation(self, sim_id: str) -> Optional[dict]:
@@ -82,6 +86,7 @@ class _FilesystemBackend:
     def list_simulations(self, limit: int = 100) -> list[dict]:
         """Return simulation summary dicts sorted newest first."""
         if not SIMULATIONS_DIR.exists():
+            logger.warning(f"Simulations directory does not exist: {SIMULATIONS_DIR}")
             return []
         results = []
         paths = sorted(SIMULATIONS_DIR.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True)
@@ -89,8 +94,8 @@ class _FilesystemBackend:
             try:
                 data = json.loads(p.read_text())
                 results.append({"sim_id": p.stem, "path": str(p), **data})
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(f"Skipping invalid simulation file {p.name}: {exc}")
         return results
 
     def save_image(self, relative_path: str, image_bytes: bytes) -> str:
@@ -124,6 +129,11 @@ class _CloudBackend:
     def __init__(self) -> None:
         self._blob_token = os.environ.get("BLOB_READ_WRITE_TOKEN", "")
         self._fs = _FilesystemBackend()  # fallback for local data
+        if not self._blob_token:
+            logger.warning(
+                "BLOB_READ_WRITE_TOKEN not set — cloud storage will fall back to "
+                "local filesystem. On Vercel, data will NOT persist across cold starts."
+            )
 
     def _has_cloud(self) -> bool:
         return bool(self._blob_token)

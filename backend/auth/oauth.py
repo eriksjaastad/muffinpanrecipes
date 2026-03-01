@@ -10,16 +10,25 @@ Handles the complete OAuth flow:
 """
 
 import os
+import time
 from typing import Optional, Dict, Any
 from urllib.parse import urlencode
 import secrets
 
 import httpx
-from jose import jwt, JWTError
+from jose import jwt, jwk, JWTError
 
 from backend.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# JWKS cache — Google rotates keys infrequently; cache avoids hitting the
+# JWKS endpoint on every login while still picking up rotations.
+# ---------------------------------------------------------------------------
+_jwks_cache: Optional[Dict[str, Any]] = None
+_jwks_cache_expiry: float = 0.0
+_JWKS_CACHE_TTL = 3600  # 1 hour
 
 
 class GoogleOAuth:
@@ -177,36 +186,51 @@ class GoogleOAuth:
                 logger.error(f"Token exchange error: {e}", exc_info=True)
                 return None
     
+    async def _fetch_jwks(self) -> Dict[str, Any]:
+        """Fetch Google's JWKS (JSON Web Key Set) with caching."""
+        global _jwks_cache, _jwks_cache_expiry
+
+        now = time.monotonic()
+        if _jwks_cache is not None and now < _jwks_cache_expiry:
+            return _jwks_cache
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(self.JWKS_URI, timeout=10.0)
+            response.raise_for_status()
+            _jwks_cache = response.json()
+            _jwks_cache_expiry = now + _JWKS_CACHE_TTL
+            logger.info("Refreshed Google JWKS cache")
+            return _jwks_cache
+
     async def _verify_id_token(self, id_token: str) -> Optional[Dict[str, Any]]:
         """
-        Verify and decode Google ID token.
-        
+        Verify and decode Google ID token using JWKS signature verification.
+
         Args:
             id_token: JWT ID token from Google
-            
+
         Returns:
-            Decoded token claims
+            Decoded token claims if signature + claims are valid, None otherwise.
         """
         try:
-            # For production, verify signature using Google's JWKS.
-            # Development mode: parse unverified claims only.
-            # TODO: Implement full JWT verification with JWKS.
-            decoded = jwt.get_unverified_claims(id_token)
-            
-            # Verify issuer
-            if decoded.get("iss") not in ["https://accounts.google.com", "accounts.google.com"]:
-                logger.error(f"Invalid issuer: {decoded.get('iss')}")
-                return None
-            
-            # Verify audience
-            if decoded.get("aud") != self.client_id:
-                logger.error("Invalid audience")
-                return None
-            
+            # Fetch Google's public keys and verify the signature.
+            google_jwks = await self._fetch_jwks()
+
+            decoded = jwt.decode(
+                id_token,
+                google_jwks,
+                algorithms=["RS256"],
+                audience=self.client_id,
+                issuer=["https://accounts.google.com", "accounts.google.com"],
+            )
+
             return decoded
-            
+
         except JWTError as e:
             logger.error(f"ID token verification failed: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"JWKS fetch or token verification error: {e}", exc_info=True)
             return None
     
     def is_email_authorized(self, email: str) -> bool:

@@ -108,12 +108,14 @@ def create_session_cookie(response: Response, token: str, max_age: int = 86400) 
         token: Signed JWT token
         max_age: Cookie max age in seconds (default: 24 hours)
     """
+    from backend.config import config
+
     response.set_cookie(
         key="session_token",
         value=token,
         max_age=max_age,
         httponly=True,
-        secure=True,
+        secure=not config.is_local_dev,
         samesite="lax",
     )
 
