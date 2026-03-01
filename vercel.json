@@ -5,25 +5,27 @@
             "src": "backend/admin/app.py",
             "use": "@vercel/python",
             "config": {
-                "maxLambdaSize": "50mb"
+                "maxLambdaSize": "50mb",
+                "maxDuration": 300
             }
+        },
+        {
+            "src": "src/**",
+            "use": "@vercel/static"
         }
     ],
-    "cleanUrls": true,
-    "redirects": [
+    "routes": [
         {
-            "source": "/(.*)",
+            "src": "/(.*)",
+            "headers": { "Location": "https://muffinpanrecipes.com/$1" },
             "has": [
                 {
                     "type": "host",
                     "value": "www.muffinpanrecipes.com"
                 }
             ],
-            "destination": "https://muffinpanrecipes.com/$1",
-            "permanent": true
-        }
-    ],
-    "routes": [
+            "status": 301
+        },
         {
             "src": "/api/(.*)",
             "dest": "backend/admin/app.py"
@@ -95,11 +97,6 @@
             "schedule": "0 0 * * 1"
         }
     ],
-    "functions": {
-        "backend/admin/app.py": {
-            "maxDuration": 300
-        }
-    },
     "env": {
         "PYTHONPATH": "."
     }
