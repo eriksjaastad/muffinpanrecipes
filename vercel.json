@@ -9,6 +9,20 @@
             }
         }
     ],
+    "cleanUrls": true,
+    "redirects": [
+        {
+            "source": "/(.*)",
+            "has": [
+                {
+                    "type": "host",
+                    "value": "www.muffinpanrecipes.com"
+                }
+            ],
+            "destination": "https://muffinpanrecipes.com/$1",
+            "permanent": true
+        }
+    ],
     "routes": [
         {
             "src": "/api/(.*)",
@@ -25,6 +39,30 @@
         {
             "src": "/health",
             "dest": "backend/admin/app.py"
+        },
+        {
+            "src": "/recipes/([^/]+)$",
+            "dest": "/src/recipes/$1/index.html"
+        },
+        {
+            "src": "/assets/(.*)",
+            "dest": "/src/assets/$1"
+        },
+        {
+            "src": "/sitemap\\.xml",
+            "dest": "/src/sitemap.xml"
+        },
+        {
+            "src": "/robots\\.txt",
+            "dest": "/src/robots.txt"
+        },
+        {
+            "src": "/recipes\\.json",
+            "dest": "/src/recipes.json"
+        },
+        {
+            "src": "/(.*)",
+            "dest": "/src/index.html"
         }
     ],
     "crons": [
