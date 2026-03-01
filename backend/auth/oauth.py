@@ -56,7 +56,8 @@ class GoogleOAuth:
         """
         self.client_id = client_id or os.getenv("GOOGLE_CLIENT_ID")
         self.client_secret = client_secret or os.getenv("GOOGLE_CLIENT_SECRET")
-        self.redirect_uri = redirect_uri
+        # GOOGLE_REDIRECT_URI env var overrides the default for Vercel/production deployments.
+        self.redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", redirect_uri)
         
         # Parse authorized emails from env or parameter
         if authorized_emails:
