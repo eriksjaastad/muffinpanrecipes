@@ -31,6 +31,9 @@ from pydantic import BaseModel
 
 from backend.config import config
 from backend.storage import storage
+from backend.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 # Lazy imports of heavy pipeline modules so the router can load even
 # if orchestrator dependencies are missing in non-pipeline environments.
@@ -140,7 +143,8 @@ def _generate_dialogue(stage: str, concept: str, image_paths: list[str] | None =
         )
         return result.get("messages", [])
     except Exception as e:
-        return []  # dialogue is non-fatal
+        logger.warning(f"Dialogue generation failed for stage={stage}: {e}")
+        return []  # dialogue is non-fatal — pipeline continues without it
 
 
 class StageRequest(BaseModel):

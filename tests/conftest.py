@@ -1,5 +1,11 @@
 """Pytest configuration and shared fixtures for testing."""
 
+import os
+
+# Tests always run in local dev context — set before any backend imports
+# so that _Config singleton picks it up and JWT fallback key is allowed.
+os.environ.setdefault("LOCAL_DEV", "true")
+
 import pytest
 from pathlib import Path
 from typing import Dict, Any

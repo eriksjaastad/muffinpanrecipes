@@ -12,10 +12,14 @@ Provides:
 
 from pathlib import Path
 from typing import Optional, List
+import hashlib
+import hmac
 import json
 import os
+import re
 import subprocess
 import sys
+import time
 from datetime import datetime
 
 from fastapi import FastAPI, Request, HTTPException, Depends, status
@@ -26,9 +30,73 @@ from backend.data.recipe import Recipe, RecipeStatus
 from backend.publishing.pipeline import PublishingPipeline
 from backend.newsletter.manager import NewsletterManager
 from backend.auth.middleware import require_auth, create_session_cookie, clear_session_cookie
+from backend.auth.session import _get_jwt_secret
 from backend.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Path-safety helpers (Governance H4)
+# ---------------------------------------------------------------------------
+_SAFE_ID_RE = re.compile(r"^[a-zA-Z0-9_\-]+$")
+
+_OAUTH_STATE_MAX_AGE = 600  # 10 minutes
+
+
+def _sanitize_id(value: str, label: str = "id") -> str:
+    """Reject IDs that contain path separators or traversal sequences.
+
+    Governance H4 requires all user-input paths to be sanitized.
+    """
+    if not value or not _SAFE_ID_RE.match(value):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid {label}: must be alphanumeric, hyphens, or underscores only",
+        )
+    return value
+
+
+def _sign_oauth_state(state: str) -> str:
+    """Create an HMAC-signed, timestamped state cookie value."""
+    ts = str(int(time.time()))
+    payload = f"{state}|{ts}"
+    sig = hmac.new(_get_jwt_secret().encode(), payload.encode(), hashlib.sha256).hexdigest()
+    return f"{payload}|{sig}"
+
+
+def _verify_oauth_state(cookie_value: str, callback_state: str) -> bool:
+    """Verify the signed state cookie matches the callback state parameter."""
+    if not cookie_value:
+        return False
+    parts = cookie_value.split("|")
+    if len(parts) != 3:
+        return False
+    stored_state, ts_str, sig = parts
+
+    # Verify HMAC signature
+    expected_payload = f"{stored_state}|{ts_str}"
+    expected_sig = hmac.new(
+        _get_jwt_secret().encode(), expected_payload.encode(), hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        logger.warning("OAuth state cookie signature mismatch")
+        return False
+
+    # Verify state matches
+    if not hmac.compare_digest(stored_state, callback_state):
+        logger.warning("OAuth state parameter mismatch")
+        return False
+
+    # Verify not expired
+    try:
+        ts = int(ts_str)
+        if time.time() - ts > _OAUTH_STATE_MAX_AGE:
+            logger.warning("OAuth state cookie expired")
+            return False
+    except ValueError:
+        return False
+
+    return True
 
 STAGE_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 STAGE_LABELS = {
@@ -106,6 +174,11 @@ def _load_simulation_runs(sim_dir: Path, limit: int = 100) -> List[dict]:
         })
 
     runs.sort(key=lambda r: r['generated_at_dt'], reverse=True)
+
+    # Governance E4: zero-result sanity check
+    if sim_dir.exists() and not runs:
+        logger.warning(f"Simulation directory {sim_dir} exists but yielded 0 valid runs")
+
     return runs[:limit]
 
 
@@ -180,14 +253,22 @@ def create_routes(app: FastAPI):
         """Initiate Google OAuth login flow."""
         oauth = app.state.oauth_client
 
-        # Generate authorization URL
+        # Generate authorization URL with CSRF state parameter
         auth_url, state = oauth.get_authorization_url()
 
-        # NOTE: Session middleware is not wired yet, so we do not persist oauth_state
-        # in request.session. Callback currently validates token + authorized email.
-        # TODO: Add SessionMiddleware and strict state verification.
-
-        return RedirectResponse(url=auth_url)
+        # Store signed state in a short-lived cookie for verification on callback.
+        # This avoids needing server-side sessions (works on Vercel serverless).
+        response = RedirectResponse(url=auth_url)
+        from backend.config import config
+        response.set_cookie(
+            key="oauth_state",
+            value=_sign_oauth_state(state),
+            max_age=_OAUTH_STATE_MAX_AGE,
+            httponly=True,
+            secure=not config.is_local_dev,
+            samesite="lax",
+        )
+        return response
     
     @app.get("/auth/callback")
     async def oauth_callback(
@@ -198,6 +279,15 @@ def create_routes(app: FastAPI):
         """Handle OAuth callback from Google."""
         oauth = app.state.oauth_client
         session_manager = app.state.session_manager
+
+        # Verify CSRF state parameter against signed cookie
+        state_cookie = request.cookies.get("oauth_state", "")
+        if not _verify_oauth_state(state_cookie, state):
+            logger.warning("OAuth callback rejected: state verification failed")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Invalid OAuth state — possible CSRF. Please try logging in again.",
+            )
 
         # Exchange code for tokens and get user info
         user_info = await oauth.handle_callback(code, state)
@@ -214,9 +304,10 @@ def create_routes(app: FastAPI):
             user_info=user_info
         )
 
-        # Redirect to dashboard + set JWT cookie on that response
+        # Redirect to dashboard + set JWT cookie; clear the one-time state cookie
         redirect_response = RedirectResponse(url="/admin/")
         create_session_cookie(redirect_response, token)
+        redirect_response.delete_cookie(key="oauth_state")
         return redirect_response
     
     @app.get("/auth/logout")
@@ -312,6 +403,7 @@ def create_routes(app: FastAPI):
         user: dict = Depends(require_auth)
     ):
         """Get full recipe details as JSON."""
+        _sanitize_id(recipe_id, "recipe_id")
         data_dir = app.state.project_root / "data" / "recipes"
 
         # Find recipe in any status directory
@@ -337,6 +429,7 @@ def create_routes(app: FastAPI):
         user: dict = Depends(require_auth)
     ):
         """Render recipe detail review page."""
+        _sanitize_id(recipe_id, "recipe_id")
         data_dir = app.state.project_root / "data" / "recipes"
         templates = app.state.templates
 
@@ -380,6 +473,7 @@ def create_routes(app: FastAPI):
         user: dict = Depends(require_auth)
     ):
         """Move recipe from pending to approved."""
+        _sanitize_id(recipe_id, "recipe_id")
         data_dir = app.state.project_root / "data" / "recipes"
         
         # Load recipe
@@ -411,6 +505,7 @@ def create_routes(app: FastAPI):
         user: dict = Depends(require_auth)
     ):
         """Move recipe to rejected with notes."""
+        _sanitize_id(recipe_id, "recipe_id")
         data_dir = app.state.project_root / "data" / "recipes"
         
         # Find recipe (could be pending or approved)
@@ -446,6 +541,7 @@ def create_routes(app: FastAPI):
         user: dict = Depends(require_auth)
     ):
         """Publish approved recipe to live site."""
+        _sanitize_id(recipe_id, "recipe_id")
         # Initialize publishing pipeline
         pipeline = PublishingPipeline(
             project_root=app.state.project_root,
@@ -713,6 +809,7 @@ def create_routes(app: FastAPI):
         user: dict = Depends(require_auth),
     ):
         """Full stage-by-stage viewer for a single episode."""
+        _sanitize_id(episode_id, "episode_id")
         templates = app.state.templates
         episodes_dir = app.state.project_root / "data" / "episodes"
         ep_path = episodes_dir / f"{episode_id}.json"
@@ -739,6 +836,8 @@ def create_routes(app: FastAPI):
         user: dict = Depends(require_auth),
     ):
         """Trigger a compressed full-week dry run for an episode in the background."""
+        _sanitize_id(episode_id, "episode_id")
+
         project_root = app.state.project_root
         script = project_root / "scripts" / "run_compressed_week.py"
 
@@ -755,8 +854,13 @@ def create_routes(app: FastAPI):
             except Exception:
                 pass
 
-        # Fire and forget — runs in background so the HTTP response returns immediately
+        # Fire and forget — runs in background so the HTTP response returns immediately.
+        # Governance H1: output goes to a log file (not DEVNULL) for post-mortem.
+        logs_dir = project_root / "data" / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        log_file = logs_dir / f"episode_run_{episode_id}.log"
         try:
+            log_fh = open(log_file, "w")
             subprocess.Popen(
                 [
                     sys.executable, str(script),
@@ -766,8 +870,8 @@ def create_routes(app: FastAPI):
                 ],
                 cwd=str(project_root),
                 env={**os.environ, "PYTHONPATH": str(project_root)},
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=log_fh,
+                stderr=subprocess.STDOUT,
             )
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to start run: {e}")

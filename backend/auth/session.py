@@ -24,9 +24,21 @@ DEFAULT_SESSION_HOURS = 24
 
 
 def _get_jwt_secret() -> str:
-    """Get JWT signing secret from environment."""
+    """Get JWT signing secret from environment.
+
+    In production (Vercel), raises RuntimeError if JWT_SECRET is missing.
+    In local dev, falls back to an insecure key with a loud warning.
+    """
     secret = os.environ.get("JWT_SECRET", "")
     if not secret:
+        # Import here to avoid circular dependency at module load
+        from backend.config import config
+
+        if not config.is_local_dev:
+            raise RuntimeError(
+                "JWT_SECRET env var is not set. This is required in production. "
+                "Check Doppler sync or Vercel environment variables."
+            )
         logger.warning("JWT_SECRET not set — using insecure fallback (local dev only)")
         return "dev-insecure-fallback-key-do-not-use-in-production"
     return secret
