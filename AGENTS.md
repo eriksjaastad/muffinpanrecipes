@@ -39,6 +39,7 @@
 - NEVER hard-code API keys or credentials.
 - NEVER read, log, echo, or store secret values in any file, message, or output.
 - If a credential is missing, tell Erik — he manages Doppler directly.
+- Before any env-dependent pipeline/test run, execute the preflight checklist in `OPENCLAW_PREFLIGHT.md`.
 
 ### 4. No Hook Bypass
 - NEVER use `--no-verify` with git commit or push.

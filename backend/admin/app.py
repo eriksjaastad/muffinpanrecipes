@@ -46,13 +46,15 @@ def create_admin_app(
         description="Admin interface for recipe review and publishing",
         version="0.1.0"
     )
+
+    resolved_project_root = project_root or Path.cwd()
     
     # Initialize auth components
     if not session_manager:
         session_manager = SessionManager(
             session_duration_hours=24,
             persist_to_file=True,
-            storage_path=(project_root or Path.cwd()) / "data" / "sessions.json",
+            storage_path=resolved_project_root / "data" / "sessions.json",
         )
     
     if not oauth_client:
@@ -64,7 +66,7 @@ def create_admin_app(
     # Store components in app state
     app.state.session_manager = session_manager
     app.state.oauth_client = oauth_client
-    app.state.project_root = project_root or Path.cwd()
+    app.state.project_root = resolved_project_root
     
     # Set up Jinja2 templates
     templates_dir = Path(__file__).parent / "templates"
