@@ -10,8 +10,6 @@ import tempfile
 import shutil
 from pathlib import Path
 from typing import Union
-from send2trash import send2trash
-
 from backend.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -60,11 +58,16 @@ def atomic_write(path: Union[str, Path], content: str) -> None:
             logger.debug(f"Atomically wrote: {path}")
             
         except Exception as e:
-            # Clean up temp file on failure (send to trash, don't hard delete)
+            # Clean up temp file on failure
             try:
-                send2trash(temp_path)
-            except Exception:
-                pass
+                from send2trash import send2trash as _trash
+                _trash(temp_path)
+            except (ImportError, Exception):
+                # Fallback for Vercel/Lambda where send2trash isn't available
+                try:
+                    Path(temp_path).unlink(missing_ok=True)
+                except OSError:
+                    pass
             raise
             
     except Exception as e:
