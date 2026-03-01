@@ -3,14 +3,14 @@
 
 Examples:
   PYTHONPATH=. .venv/bin/python scripts/simulate_dialogue_week.py \
-    --concept "Jalapeño Corn Dog Bites" --runs 3 --models "ollama/qwen3:32b,openai/gpt-4o-mini"
+    --concept "Jalapeño Corn Dog Bites" --runs 3 --models "ollama/qwen3:32b,openai/gpt-5-mini"
 
   PYTHONPATH=. .venv/bin/python scripts/simulate_dialogue_week.py \
     --concept "Mini Shepherd's Pies" --stage friday --event "ingredient shortage: cheddar"
 
   PYTHONPATH=. .venv/bin/python scripts/simulate_dialogue_week.py \
     --concept "Brown Butter Pecan Tassies" \
-    --character-models '{"Margaret Chen":"openai/gpt-4o","default":"ollama/qwen3:32b"}'
+    --character-models '{"Margaret Chen":"openai/gpt-5.1","default":"ollama/qwen3:32b"}'
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import argparse
 import json
 import random
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from statistics import mean
@@ -69,7 +69,23 @@ PROHIBITED = [
     "let me know if",
     "happy to help",
     "great question",
+    "\u2014",  # em dash — hard AI tell
+    "\u2013",  # en dash
+    "\u2019",  # right single quote / curly apostrophe (e.g. ’s, let’s)
+    "\u201c",  # left curly double quote
+    "\u201d",  # right curly double quote
 ]
+
+# Variable message counts by day (min, max). Sampled fresh each run.
+TICKS_RANGE: dict[str, tuple[int, int]] = {
+    "monday":    (6, 10),  # heated concept debate
+    "tuesday":   (4, 6),   # focused recipe dev
+    "wednesday": (4, 6),   # photography + image refs (may have fewer because messages are longer)
+    "thursday":  (3, 5),   # copywriting
+    "friday":    (5, 8),   # approval discussion
+    "saturday":  (2, 3),   # quiet deploy
+    "sunday":    (2, 3),   # short celebratory wrap
+}
 
 PROMPT_ECHO_PATTERNS = [
     "day:",
@@ -88,6 +104,7 @@ class Message:
     message: str
     timestamp: str
     model: str
+    attachments: list[str] = field(default_factory=list)  # image paths for Wednesday photography messages
 
 
 def load_personas() -> dict[str, dict[str, Any]]:
@@ -235,9 +252,134 @@ def pairwise_overlap_penalty(messages: list[Message]) -> tuple[float, dict[str, 
     return round(penalty, 2), overlaps
 
 
+def _cross_char_phrase_penalty(messages: list[Message]) -> tuple[float, list[str]]:
+    """Penalise phrases that appear verbatim in >1 character's messages."""
+    by_char: dict[str, list[str]] = {}
+    for m in messages:
+        by_char.setdefault(m.character, []).append(m.message.lower())
+
+    # Build 3-word n-grams per character
+    def ngrams(text: str, n: int = 3) -> set[str]:
+        words = re.findall(r"[a-z']+", text)
+        return {" ".join(words[i:i+n]) for i in range(len(words) - n + 1)}
+
+    char_ngrams: dict[str, set[str]] = {c: set() for c in by_char}
+    for c, msgs in by_char.items():
+        for msg in msgs:
+            char_ngrams[c] |= ngrams(msg)
+
+    repeated: list[str] = []
+    chars = list(char_ngrams)
+    for i, c1 in enumerate(chars):
+        for c2 in chars[i+1:]:
+            shared = char_ngrams[c1] & char_ngrams[c2]
+            # Only flag phrases longer than stop-word noise
+            meaningful = [p for p in shared if not all(w in {"the","a","an","and","or","in","on","is","it","to","of","at","we","i"} for w in p.split())]
+            repeated.extend(meaningful[:3])  # cap output
+
+    penalty = min(20.0, len(repeated) * 3.0)
+    return round(penalty, 2), repeated[:10]
+
+
+def _participation_balance(messages: list[Message], total: int) -> tuple[float, dict[str, float]]:
+    """Penalise severely underrepresented characters (<10% share) and warn on >40%."""
+    by_char: dict[str, int] = {}
+    for m in messages:
+        by_char[m.character] = by_char.get(m.character, 0) + 1
+
+    fractions: dict[str, float] = {c: round(cnt / max(total, 1), 3) for c, cnt in by_char.items()}
+    penalty = 0.0
+    for c, frac in fractions.items():
+        if by_char[c] < 2:  # severely underrepresented
+            penalty += 5.0
+        elif frac < 0.10:
+            penalty += 2.0
+        elif frac > 0.40:
+            penalty += 2.0  # one character monopolising
+    return round(penalty, 2), fractions
+
+
+def _conflict_bonus(messages: list[Message]) -> int:
+    """Award bonus points if characters push back or disagree."""
+    conflict_markers = ["but", "i disagree", "no,", "that won't", "not sure", "wait,", "hold on", "actually,", "i don't think", "problem is", "issue is", "we need to", "we can't"]
+    hits = sum(1 for m in messages if any(p in m.message.lower() for p in conflict_markers))
+    return min(5, hits)  # up to +5
+
+
+def _stage_coherence_penalty(messages: list[Message]) -> float:
+    """Penalise if a later day's content is too lexically similar to an earlier day (topic stagnation)."""
+    by_day: dict[str, list[str]] = {}
+    for m in messages:
+        by_day.setdefault(m.day, []).append(m.message.lower())
+
+    days = list(by_day.keys())
+    if len(days) < 2:
+        return 0.0
+
+    day_tokens: dict[str, set[str]] = {d: token_set(" ".join(msgs)) for d, msgs in by_day.items()}
+
+    penalty = 0.0
+    for i in range(1, len(days)):
+        prev = day_tokens[days[i-1]]
+        curr = day_tokens[days[i]]
+        if not prev or not curr:
+            continue
+        overlap = len(prev & curr) / max(1, len(prev | curr))
+        if overlap > 0.60:
+            penalty += (overlap - 0.60) * 30  # proportional penalty
+
+    return round(min(penalty, 15.0), 2)
+
+
+def _formal_name_penalty(messages: list[Message]) -> int:
+    """Penalise messages using full character names in overly formal constructions."""
+    # Patterns like "Thanks, Margaret" / "I agree with Julian" / "As Marcus mentioned"
+    formal_pattern = re.compile(
+        r"\b(thanks|thank you|i agree with|as \w+ mentioned|great idea,|good point,)\b",
+        re.IGNORECASE,
+    )
+    hits = sum(1 for m in messages if formal_pattern.search(m.message))
+    return hits
+
+
 def score_quality(messages: list[Message], personas: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """
+    Scoring categories (base = 72):
+    1.  Prohibited phrases: -14 per hit
+    2.  Em dash/en dash/curly quotes (\u2014\u2013\u2019\u201C\u201D): hard fail → 0
+    3.  Prompt echo: hard fail → 0
+    4.  Signature phrase usage: +up to 10
+    5.  Rhythm/length variation: +up to 8
+    6.  Distinctiveness spread: +up to 8
+    7.  Min-content failures (<4 words): -8 per hit
+    8.  Cross-character lexical overlap (Jaccard): penalty via pairwise_overlap_penalty()
+    9.  Cross-character phrase repetition: -3 per shared 3-gram, max -20
+    10. Participation balance: -2/-5 per under/over-represented character
+    11. Conflict/disagreement bonus: +up to 5
+    12. Stage coherence (topic stagnation): up to -15
+    13. Formal name usage: -1 per hit
+    """
     lowered = [m.message.lower() for m in messages]
     prohibited_hits = sum(sum(1 for p in PROHIBITED if p in msg) for msg in lowered)
+
+    # Hard fail on em dash, en dash, or curly quotes — all strong AI formatting tells
+    TYPOGRAPHIC_TELLS = ("\u2014", "\u2013", "\u2019", "\u201c", "\u201d")
+    em_dash_hits = sum(1 for msg in [m.message for m in messages] if any(t in msg for t in TYPOGRAPHIC_TELLS))
+    if em_dash_hits > 0:
+        return {
+            "score": 0,
+            "prohibited_hits": prohibited_hits,
+            "em_dash_hits": em_dash_hits,
+            "prompt_echo_hits": 0,
+            "min_content_failures": 0,
+            "cross_character_overlap_penalty": 0.0,
+            "pairwise_lexical_overlap": {},
+            "rhythm_variation": 0,
+            "signature_hits": {},
+            "avg_length_by_character": {},
+            "distinctiveness_spread": 0.0,
+            "hard_fail_reason": "typographic_tell_detected",  # em dash, en dash, or curly quotes
+        }
 
     lengths = [len(re.findall(r"\w+", m.message)) for m in messages] or [0]
     rhythm_variation = (max(lengths) - min(lengths)) if lengths else 0
@@ -266,7 +408,14 @@ def score_quality(messages: list[Message], personas: dict[str, dict[str, Any]]) 
     min_content_failures = sum(1 for l in lengths if l < 4)
     overlap_penalty, overlaps = pairwise_overlap_penalty(messages)
 
-    # Hard fail if the model appears to be echoing prompt instructions.
+    # New scoring rules (#4970)
+    phrase_penalty, repeated_phrases = _cross_char_phrase_penalty(messages)
+    balance_penalty, participation = _participation_balance(messages, len(messages))
+    conflict_bonus = _conflict_bonus(messages)
+    coherence_penalty = _stage_coherence_penalty(messages)
+    formal_penalty = _formal_name_penalty(messages)
+
+    # Hard fail if prompt echo detected
     if prompt_echo_hits > 0:
         score = 0
     else:
@@ -277,6 +426,11 @@ def score_quality(messages: list[Message], personas: dict[str, dict[str, Any]]) 
         score += min(8, int(distinctiveness_spread))
         score -= min_content_failures * 8
         score -= int(overlap_penalty)
+        score -= int(phrase_penalty)       # cross-char phrase repetition
+        score -= int(balance_penalty)      # participation imbalance
+        score += conflict_bonus            # disagreement/tension
+        score -= int(coherence_penalty)    # topic stagnation
+        score -= formal_penalty            # "Thanks, Margaret" -1 each
         score = max(0, min(100, score))
 
     return {
@@ -290,6 +444,13 @@ def score_quality(messages: list[Message], personas: dict[str, dict[str, Any]]) 
         "signature_hits": per_character_signature_hits,
         "avg_length_by_character": avg_len_by_character,
         "distinctiveness_spread": round(distinctiveness_spread, 2),
+        "cross_char_phrase_penalty": phrase_penalty,
+        "repeated_phrases_sample": repeated_phrases,
+        "participation_balance": participation,
+        "participation_penalty": balance_penalty,
+        "conflict_bonus": conflict_bonus,
+        "stage_coherence_penalty": coherence_penalty,
+        "formal_name_penalty": formal_penalty,
     }
 
 
@@ -312,6 +473,48 @@ def verify_real_inference(messages: list[Message], mode: str) -> dict[str, Any]:
     }
 
 
+def _distribute_images_wednesday(
+    messages: list[Message],
+    image_paths: list[str],
+    day: str,
+) -> None:
+    """Inject image attachments into Wednesday messages in a mood-driven way.
+
+    Three delivery patterns, chosen randomly each run:
+    - 'dump'    : All 3 in Julian's first Wednesday message (grumpy/efficient)
+    - 'scatter' : One image per message, with dialogue between each
+    - 'two_one' : First 2 together, third later after some back-and-forth
+    """
+    if not image_paths or day != "wednesday":
+        return
+
+    wednesday_msgs = [m for m in messages if m.day == "wednesday"]
+    if not wednesday_msgs:
+        return
+
+    julian_msgs = [m for m in wednesday_msgs if "Julian" in m.character]
+    if not julian_msgs:
+        julian_msgs = wednesday_msgs  # fallback: any wednesday speaker
+
+    style = random.choice(["dump", "scatter", "two_one"])
+
+    if style == "dump" or len(julian_msgs) == 1:
+        # All 3 images in one message — Julian is in no mood to narrate
+        julian_msgs[0].attachments = image_paths[:3]
+
+    elif style == "scatter":
+        # One image per Julian message, discussion happens in between
+        for i, img in enumerate(image_paths[:3]):
+            if i < len(julian_msgs):
+                julian_msgs[i].attachments = [img]
+
+    else:  # two_one
+        # First 2 together ("here's what I've got so far"), third after debate
+        julian_msgs[0].attachments = image_paths[:2]
+        if len(julian_msgs) > 1:
+            julian_msgs[-1].attachments = image_paths[2:3]
+
+
 def run_simulation(
     concept: str,
     default_model: str,
@@ -322,6 +525,7 @@ def run_simulation(
     mode: str,
     prompt_style: str,
     character_models: dict[str, str] | None,
+    image_paths: list[str] | None = None,  # 3 image paths from photography stage
 ) -> dict[str, Any]:
     personas = load_personas()
     start = datetime.now().replace(hour=9, minute=0, second=0, microsecond=0)
@@ -333,10 +537,18 @@ def run_simulation(
         stage = DAY_STAGE[day]
         names = participants_for_day(day)
 
-        for tick in range(ticks_per_day):
+        # Variable message count — sample fresh each day/run
+        if ticks_per_day > 0:
+            # Caller passed explicit count (e.g. pipeline stage calling with ticks_per_day=4)
+            day_ticks = ticks_per_day
+        else:
+            lo, hi = TICKS_RANGE.get(day, (4, 6))
+            day_ticks = random.randint(lo, hi)
+
+        for tick in range(day_ticks):
             speaker = names[tick % len(names)]
             persona = personas[speaker]
-            ts = start + timedelta(days=day_i, minutes=tick * (480 // max(1, ticks_per_day)))
+            ts = start + timedelta(days=day_i, minutes=tick * (480 // max(1, day_ticks)))
             deadline = deadline_for_day(day)
             model = choose_model(speaker, default_model, character_models)
 
@@ -355,6 +567,10 @@ def run_simulation(
             )
             recent_lines.append(f"{speaker.split()[0]}: {line}")
             messages.append(Message(day=day, stage=stage, character=speaker, message=line, timestamp=ts.isoformat(), model=model))
+
+        # After all Wednesday messages are generated, distribute image attachments
+        if day == "wednesday" and image_paths:
+            _distribute_images_wednesday(messages, image_paths, day)
 
     by_character: dict[str, int] = {}
     by_model: dict[str, int] = {}

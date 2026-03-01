@@ -112,7 +112,7 @@ def generate_triple_plate_prompts(router, recipe):
     
     if result.error:
         logger.warning(f"  ⚠️ Local tier (DeepSeek) failed for {recipe['title']}: {result.error}. Attempting 'cheap' tier fallback.")
-        # Fallback to cheap tier (e.g., gpt-4o-mini or similar) if local failed
+        # Fallback to cheap tier (e.g., gpt-5-mini or similar) if local failed
         result = router.chat([
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_request}

@@ -40,7 +40,7 @@ def pick_winner_metadata(recipe_id, recipe_title, variant_metadata):
     Uses AI Router to pick the best variant based on the STYLE GUIDE 
     by comparing the generated descriptions/metadata.
     """
-    router = AIRouter(expensive_model="gpt-4o")
+    router = AIRouter(expensive_model="gpt-5.1")
     
     with open(STYLE_GUIDE_PATH, 'r') as f:
         style_guide = f.read()

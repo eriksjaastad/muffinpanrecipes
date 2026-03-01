@@ -131,7 +131,7 @@ def assignment_variants() -> dict[str, dict[str, str]]:
     v1 = dict(base)
     v1.update(
         {
-            "default": "openai/gpt-4o-mini",
+            "default": "openai/gpt-5-mini",
             "Devon Park": "ollama/qwen3:32b",
         }
     )
@@ -139,11 +139,11 @@ def assignment_variants() -> dict[str, dict[str, str]]:
     v2 = dict(base)
     v2.update(
         {
-            "default": "openai/gpt-4o-mini",
-            "Margaret Chen": "openai/gpt-4o",
-            "Stephanie 'Steph' Whitmore": "openai/gpt-4o-mini",
-            "Julian Torres": "openai/gpt-4o",
-            "Marcus Reid": "openai/gpt-4o-mini",
+            "default": "openai/gpt-5-mini",
+            "Margaret Chen": "openai/gpt-5.1",
+            "Stephanie 'Steph' Whitmore": "openai/gpt-5-mini",
+            "Julian Torres": "openai/gpt-5.1",
+            "Marcus Reid": "openai/gpt-5-mini",
             "Devon Park": "ollama/qwen3:32b",
         }
     )
@@ -152,10 +152,10 @@ def assignment_variants() -> dict[str, dict[str, str]]:
     v3.update(
         {
             "default": "ollama/qwen3:32b",
-            "Margaret Chen": "openai/gpt-4o",
-            "Stephanie 'Steph' Whitmore": "openai/gpt-4o-mini",
+            "Margaret Chen": "openai/gpt-5.1",
+            "Stephanie 'Steph' Whitmore": "openai/gpt-5-mini",
             "Julian Torres": "ollama/qwen3:32b",
-            "Marcus Reid": "openai/gpt-4o-mini",
+            "Marcus Reid": "openai/gpt-5-mini",
             "Devon Park": "ollama/qwen3:32b",
         }
     )
