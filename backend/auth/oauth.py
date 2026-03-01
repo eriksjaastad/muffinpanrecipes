@@ -127,25 +127,28 @@ class GoogleOAuth:
         try:
             # Exchange code for tokens
             token_data = await self._exchange_code_for_tokens(code)
-            
+
             if not token_data:
                 return None
-            
+
             # Verify and decode ID token
-            user_info = await self._verify_id_token(token_data.get("id_token"))
-            
+            user_info = await self._verify_id_token(
+                token_data.get("id_token"),
+                access_token=token_data.get("access_token"),
+            )
+
             if not user_info:
                 return None
-            
+
             # Check if email is authorized
             email = user_info.get("email")
             if not self.is_email_authorized(email):
                 logger.warning(f"Unauthorized email attempted login: {email}")
                 return None
-            
+
             logger.info(f"Successful authentication for: {email}")
             return user_info
-            
+
         except Exception as e:
             logger.error(f"OAuth callback error: {e}", exc_info=True)
             return None
@@ -202,7 +205,7 @@ class GoogleOAuth:
             logger.info("Refreshed Google JWKS cache")
             return _jwks_cache
 
-    async def _verify_id_token(self, id_token: str) -> Optional[Dict[str, Any]]:
+    async def _verify_id_token(self, id_token: str, access_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         Verify and decode Google ID token using JWKS signature verification.
 
@@ -222,6 +225,7 @@ class GoogleOAuth:
                 algorithms=["RS256"],
                 audience=self.client_id,
                 issuer=["https://accounts.google.com", "accounts.google.com"],
+                access_token=access_token,
             )
 
             return decoded
