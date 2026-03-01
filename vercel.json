@@ -1,0 +1,68 @@
+{
+    "version": 2,
+    "builds": [
+        {
+            "src": "backend/admin/app.py",
+            "use": "@vercel/python",
+            "config": {
+                "maxLambdaSize": "50mb"
+            }
+        }
+    ],
+    "routes": [
+        {
+            "src": "/api/(.*)",
+            "dest": "backend/admin/app.py"
+        },
+        {
+            "src": "/admin/(.*)",
+            "dest": "backend/admin/app.py"
+        },
+        {
+            "src": "/auth/(.*)",
+            "dest": "backend/admin/app.py"
+        },
+        {
+            "src": "/health",
+            "dest": "backend/admin/app.py"
+        }
+    ],
+    "crons": [
+        {
+            "path": "/api/cron/monday",
+            "schedule": "30 14 * * 1"
+        },
+        {
+            "path": "/api/cron/tuesday",
+            "schedule": "30 14 * * 2"
+        },
+        {
+            "path": "/api/cron/wednesday",
+            "schedule": "30 14 * * 3"
+        },
+        {
+            "path": "/api/cron/thursday",
+            "schedule": "30 14 * * 4"
+        },
+        {
+            "path": "/api/cron/friday",
+            "schedule": "30 14 * * 5"
+        },
+        {
+            "path": "/api/cron/saturday",
+            "schedule": "30 14 * * 6"
+        },
+        {
+            "path": "/api/cron/sunday",
+            "schedule": "0 0 * * 1"
+        }
+    ],
+    "functions": {
+        "backend/admin/app.py": {
+            "maxDuration": 300
+        }
+    },
+    "env": {
+        "PYTHONPATH": "."
+    }
+}

@@ -169,7 +169,7 @@ def _generate_openai(
 def generate_response(
     prompt: str,
     system_prompt: Optional[str] = None,
-    model: str = "ollama/qwen3:32b",
+    model: str = "ollama/coding:current",
     temperature: float = 0.8,
 ) -> str:
     routed = parse_model(model)

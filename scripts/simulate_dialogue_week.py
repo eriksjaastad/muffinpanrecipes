@@ -607,7 +607,7 @@ def parse_models(raw: str) -> list[str]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compressed weekly dialogue simulator")
     parser.add_argument("--concept", required=True)
-    parser.add_argument("--model", default="ollama/qwen3:32b", help="Single default model")
+    parser.add_argument("--model", default="ollama/coding:current", help="Single default model")
     parser.add_argument("--models", default=None, help="Comma-separated models for comparison")
     parser.add_argument("--character-models", default=None, help="JSON map of character=>model, with optional default")
     parser.add_argument("--runs", type=int, default=1)
