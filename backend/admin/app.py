@@ -21,6 +21,7 @@ from backend.auth.session import SessionManager
 from backend.auth.middleware import init_auth_middleware
 from backend.admin.routes import create_routes
 from backend.admin.cron_routes import router as cron_router
+from backend.config import config
 from backend.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -51,11 +52,13 @@ def create_admin_app(
     resolved_project_root = project_root or Path.cwd()
     
     # Initialize auth components
+    # On Vercel, serverless functions have a read-only filesystem — sessions stay in-memory only.
+    # On local dev, persist sessions to disk so they survive server restarts.
     if not session_manager:
         session_manager = SessionManager(
             session_duration_hours=24,
-            persist_to_file=True,
-            storage_path=resolved_project_root / "data" / "sessions.json",
+            persist_to_file=config.is_local_dev,
+            storage_path=resolved_project_root / "data" / "sessions.json" if config.is_local_dev else None,
         )
     
     if not oauth_client:
@@ -99,12 +102,13 @@ def create_admin_app(
     return app
 
 
+# Module-level app instance — Vercel's @vercel/python runtime imports this directly.
+# Also used by `uvicorn backend.admin.app:app` for local dev.
+app = create_admin_app()
+
+
 if __name__ == "__main__":
-    # Development server
     import uvicorn
-    
-    app = create_admin_app()
-    
     uvicorn.run(
         app,
         host="0.0.0.0",
