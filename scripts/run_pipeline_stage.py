@@ -19,6 +19,7 @@ if str(ROOT) not in sys.path:
 
 from backend.data.recipe import CreationStory  # noqa: E402
 from backend.orchestrator import RecipeOrchestrator  # noqa: E402
+from backend.storage import storage  # noqa: E402
 from backend.utils.discord import notify_pipeline_failure, notify_recipe_ready  # noqa: E402
 from scripts.simulate_dialogue_week import run_simulation  # noqa: E402
 
@@ -33,13 +34,15 @@ STAGE_TO_ROLE = {
     "sunday": "publish",
 }
 
-# Default model used for dialogue generation via run_simulation()
-DIALOGUE_MODEL = "ollama/qwen3:32b"
+# Production pipeline model — always OpenAI for Vercel deployment.
+# The simulator (simulate_dialogue_week.py) still accepts --model ollama/... for local R&D.
+DIALOGUE_MODEL = "openai/gpt-5-mini"
 
 
-def load_episode(path: Path) -> dict:
-    if path.exists():
-        return json.loads(path.read_text())
+def load_episode(episode_id: str) -> dict:
+    data = storage.load_episode(episode_id)
+    if data:
+        return data
     return {
         "episode_id": None,
         "created_at": datetime.now().isoformat(),
@@ -47,12 +50,11 @@ def load_episode(path: Path) -> dict:
         "events": [],
         "recipe_id": None,
         "concept": None,
-        "dry_run": False,
     }
 
 
-def save_episode(path: Path, ep: dict) -> None:
-    path.write_text(json.dumps(ep, indent=2))
+def save_episode(episode_id: str, ep: dict) -> None:
+    storage.save_episode(episode_id, ep)
 
 
 def _bootstrap_orchestrator(orchestrator: RecipeOrchestrator, recipe_id: str, concept: str) -> None:
@@ -82,7 +84,7 @@ def _generate_stage_dialogue(stage: str, concept: str, image_paths: list[str] | 
             stage_only=stage,
             injected_event=None,
             ticks_per_day=0,       # 0 = use variable TICKS_RANGE per day (natural variation)
-            mode="ollama",
+            mode="openai",
             prompt_style="scene",
             character_models=None,
             image_paths=image_paths or [],
@@ -105,13 +107,12 @@ def main() -> None:
     args = parser.parse_args()
 
     EPISODES_DIR.mkdir(parents=True, exist_ok=True)
-    ep_path = EPISODES_DIR / f"{args.episode}.json"
-    ep = load_episode(ep_path)
+    ep_path = EPISODES_DIR / f"{args.episode}.json"  # used only for summary print
+    ep = load_episode(args.episode)
     ep["episode_id"] = args.episode
-    if args.dry_run:
-        ep["dry_run"] = True
-
-    dry_run = ep.get("dry_run", False)
+    # dry_run comes from the CLI flag only — do NOT persist or read from episode JSON.
+    # This prevents a previous --dry-run from locking future real runs.
+    dry_run = args.dry_run
     prefix = "[DRY RUN] " if dry_run else ""
 
     # Lazy orchestrator init — data_dir=EPISODES_DIR.parent points to data/
@@ -219,7 +220,7 @@ def main() -> None:
         stage_entry["status"] = "complete"
         stage_entry["completed_at"] = datetime.now().isoformat()
         ep["events"].append(f"{stage_key}: complete")
-        save_episode(ep_path, ep)
+        save_episode(args.episode, ep)
 
         # Discord success notification (only if --notify and not dry-run)
         if args.notify and not dry_run:
@@ -238,7 +239,7 @@ def main() -> None:
         stage_entry["error"] = str(e)
         stage_entry["failed_at"] = datetime.now().isoformat()
         ep["events"].append(f"{stage_key}: failed — {e}")
-        save_episode(ep_path, ep)
+        save_episode(args.episode, ep)
 
         notify_pipeline_failure(
             recipe_id=f"{args.episode}-{stage_key}",

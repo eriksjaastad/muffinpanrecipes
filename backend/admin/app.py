@@ -20,6 +20,7 @@ from backend.auth.oauth import GoogleOAuth
 from backend.auth.session import SessionManager
 from backend.auth.middleware import init_auth_middleware
 from backend.admin.routes import create_routes
+from backend.admin.cron_routes import router as cron_router
 from backend.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -78,8 +79,11 @@ def create_admin_app(
     if static_root.exists():
         app.mount("/static", StaticFiles(directory=str(static_root)), name="static")
 
-    # Include routes
+    # Include admin UI routes
     create_routes(app)
+
+    # Include cron API routes (/api/cron/monday ... /api/cron/sunday)
+    app.include_router(cron_router)
     
     # Startup event
     @app.on_event("startup")

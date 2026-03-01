@@ -99,8 +99,10 @@ async def require_auth(
     Raises:
         HTTPException: 401 if not authenticated (with redirect to login)
     """
-    # LOCAL_DEV bypass — no OAuth required when running locally
-    if os.environ.get("LOCAL_DEV") == "true":
+    # LOCAL_DEV bypass — no OAuth required when running locally.
+    # Uses backend.config instead of raw os.environ for consistent environment detection.
+    from backend.config import config  # local import to avoid circular at module level
+    if config.auth_bypass:
         return "local-dev-session"
 
     if not session_id:

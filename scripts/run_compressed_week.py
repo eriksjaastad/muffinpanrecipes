@@ -28,6 +28,10 @@ from backend.utils.discord import notify_pipeline_failure
 ROOT = Path(__file__).resolve().parents[1]
 EPISODES_DIR = ROOT / "data" / "episodes"
 
+# Note: secrets (STABILITY_API_KEY etc.) are injected by 'doppler run --' in cron commands.
+# When running manually, prefix with: doppler run -- python scripts/run_compressed_week.py ...
+
+
 STAGES = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
 STAGE_LABELS = {
@@ -41,7 +45,7 @@ STAGE_LABELS = {
 }
 
 
-def run_stage(stage: str, episode_id: str, concept: str) -> tuple[bool, str]:
+def run_stage(stage: str, episode_id: str, concept: str, dry_run: bool = False) -> tuple[bool, str]:
     """Run a single stage via run_pipeline_stage.py and return (ok, output)."""
     cmd = [
         sys.executable,
@@ -49,8 +53,9 @@ def run_stage(stage: str, episode_id: str, concept: str) -> tuple[bool, str]:
         "--stage", stage,
         "--episode", episode_id,
         "--concept", concept,
-        "--dry-run",  # always dry-run in compressed mode
     ]
+    if dry_run:
+        cmd.append("--dry-run")
     try:
         result = subprocess.run(
             cmd,
@@ -133,11 +138,12 @@ def print_summary(episode_id: str, concept: str, results: list[dict], elapsed: f
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Compressed full-week dry run")
+    parser = argparse.ArgumentParser(description="Compressed full-week pipeline runner")
     parser.add_argument("--concept", required=True, help="Recipe concept, e.g. 'Lemon Ricotta Breakfast Muffins'")
     parser.add_argument("--episode-id", required=True, help="Episode ID, e.g. '2026-W10-test'")
     parser.add_argument("--delay", type=int, default=60, help="Seconds to wait between stages (default: 60)")
     parser.add_argument("--stages", default=",".join(STAGES), help="Comma-separated stages to run (default: all)")
+    parser.add_argument("--dry-run", action="store_true", help="Pass --dry-run to each stage (no publishing, no Stability AI)")
     args = parser.parse_args()
 
     stages_to_run = [s.strip() for s in args.stages.split(",") if s.strip()]
@@ -148,8 +154,9 @@ def main() -> None:
 
     EPISODES_DIR.mkdir(parents=True, exist_ok=True)
 
+    mode_label = "[DRY RUN] " if args.dry_run else ""
     print(f"\n{'='*60}")
-    print(f"  [DRY RUN] Compressed Week — {args.episode_id}")
+    print(f"  {mode_label}Compressed Week — {args.episode_id}")
     print(f"  Concept:  {args.concept}")
     print(f"  Stages:   {' → '.join(stages_to_run)}")
     print(f"  Delay:    {args.delay}s between stages")
@@ -163,7 +170,7 @@ def main() -> None:
         label = STAGE_LABELS.get(stage, stage)
         print(f"[{i+1}/{len(stages_to_run)}] Running {stage} ({label})...")
 
-        ok, output = run_stage(stage, args.episode_id, args.concept)
+        ok, output = run_stage(stage, args.episode_id, args.concept, dry_run=args.dry_run)
         results.append({"stage": stage, "ok": ok, "error": output if not ok else ""})
 
         for line in output.splitlines():
