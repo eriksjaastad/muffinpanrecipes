@@ -18,7 +18,7 @@ import subprocess
 import sys
 from datetime import datetime
 
-from fastapi import FastAPI, Request, Response, HTTPException, Depends, status
+from fastapi import FastAPI, Request, HTTPException, Depends, status
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from pydantic import BaseModel
 
@@ -198,60 +198,51 @@ def create_routes(app: FastAPI):
         """Handle OAuth callback from Google."""
         oauth = app.state.oauth_client
         session_manager = app.state.session_manager
-        
-        # Verify state (CSRF protection)
-        # In production, check against stored state
-        
+
         # Exchange code for tokens and get user info
         user_info = await oauth.handle_callback(code, state)
-        
+
         if not user_info:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Authentication failed"
             )
-        
-        # Create session
-        session = session_manager.create_session(
+
+        # Create JWT token (stateless — no server-side session)
+        token = session_manager.create_token(
             email=user_info["email"],
             user_info=user_info
         )
-        
-        # Redirect to dashboard + set session cookie on that response
+
+        # Redirect to dashboard + set JWT cookie on that response
         redirect_response = RedirectResponse(url="/admin/")
-        create_session_cookie(redirect_response, session.session_id)
+        create_session_cookie(redirect_response, token)
         return redirect_response
     
     @app.get("/auth/logout")
-    async def logout(
-        request: Request,
-        response: Response,
-        session_id: Optional[str] = Depends(require_auth)
-    ):
-        """Logout and clear session."""
-        if session_id:
-            app.state.session_manager.delete_session(session_id)
-        
+    async def logout(request: Request):
+        """Logout and clear JWT session cookie."""
+        response = RedirectResponse(url="/")
         clear_session_cookie(response)
-        return RedirectResponse(url="/")
+        return response
     
     # ==================== ADMIN DASHBOARD ====================
     
     @app.get("/admin/", response_class=HTMLResponse)
     async def admin_dashboard(
         request: Request,
-        session_id: str = Depends(require_auth)
+        user: dict = Depends(require_auth)
     ):
         """Admin dashboard home with statistics."""
         templates = app.state.templates
         data_dir = app.state.project_root / "data" / "recipes"
-        
+
         # Get counts by status
         pending_recipes = Recipe.list_by_status(data_dir, RecipeStatus.PENDING)
         approved_recipes = Recipe.list_by_status(data_dir, RecipeStatus.APPROVED)
         published_recipes = Recipe.list_by_status(data_dir, RecipeStatus.PUBLISHED)
         rejected_recipes = Recipe.list_by_status(data_dir, RecipeStatus.REJECTED)
-        
+
         stats = {
             "pending": len(pending_recipes),
             "approved": len(approved_recipes),
@@ -259,17 +250,14 @@ def create_routes(app: FastAPI):
             "rejected": len(rejected_recipes),
             "total": len(pending_recipes) + len(approved_recipes) + len(published_recipes) + len(rejected_recipes)
         }
-        
-        # Get session info
-        session = app.state.session_manager.get_session(session_id)
-        
+
         return templates.TemplateResponse(
             "dashboard.html",
             {
                 "request": request,
                 "stats": stats,
-                "user_email": session.email if session else "Unknown",
-                "recent_pending": pending_recipes[:5],  # Show 5 most recent
+                "user_email": user.get("email", "Unknown"),
+                "recent_pending": pending_recipes[:5],
             }
         )
     
@@ -277,7 +265,7 @@ def create_routes(app: FastAPI):
     async def list_recipes(
         request: Request,
         status_filter: Optional[str] = None,
-        session_id: str = Depends(require_auth)
+        user: dict = Depends(require_auth)
     ):
         """
         List recipes, optionally filtered by status.
@@ -321,7 +309,7 @@ def create_routes(app: FastAPI):
     @app.get("/admin/recipes/{recipe_id}")
     async def get_recipe_detail(
         recipe_id: str,
-        session_id: str = Depends(require_auth)
+        user: dict = Depends(require_auth)
     ):
         """Get full recipe details as JSON."""
         data_dir = app.state.project_root / "data" / "recipes"
@@ -346,7 +334,7 @@ def create_routes(app: FastAPI):
     async def view_recipe_detail(
         request: Request,
         recipe_id: str,
-        session_id: str = Depends(require_auth)
+        user: dict = Depends(require_auth)
     ):
         """Render recipe detail review page."""
         data_dir = app.state.project_root / "data" / "recipes"
@@ -389,7 +377,7 @@ def create_routes(app: FastAPI):
     async def approve_recipe(
         recipe_id: str,
         request_data: ApproveRequest,
-        session_id: str = Depends(require_auth)
+        user: dict = Depends(require_auth)
     ):
         """Move recipe from pending to approved."""
         data_dir = app.state.project_root / "data" / "recipes"
@@ -420,7 +408,7 @@ def create_routes(app: FastAPI):
     async def reject_recipe(
         recipe_id: str,
         request_data: RejectRequest,
-        session_id: str = Depends(require_auth)
+        user: dict = Depends(require_auth)
     ):
         """Move recipe to rejected with notes."""
         data_dir = app.state.project_root / "data" / "recipes"
@@ -455,7 +443,7 @@ def create_routes(app: FastAPI):
     async def publish_recipe(
         recipe_id: str,
         request_data: PublishRequest,
-        session_id: str = Depends(require_auth)
+        user: dict = Depends(require_auth)
     ):
         """Publish approved recipe to live site."""
         # Initialize publishing pipeline
@@ -489,7 +477,7 @@ def create_routes(app: FastAPI):
         selected_file: Optional[str] = None,
         concept_filter: Optional[str] = None,
         model_filter: Optional[str] = None,
-        session_id: str = Depends(require_auth),
+        user: dict = Depends(require_auth),
     ):
         """Browse local simulation transcripts in a chat-style UI."""
         templates = app.state.templates
@@ -534,7 +522,7 @@ def create_routes(app: FastAPI):
         )
 
     @app.get("/admin/agents")
-    async def get_agent_status(session_id: str = Depends(require_auth)):
+    async def get_agent_status(user: dict = Depends(require_auth)):
         """Get status of AI agents."""
         # Placeholder - in future, this could check agent mood/status from files
         return {
@@ -561,7 +549,7 @@ def create_routes(app: FastAPI):
         }
     
     @app.post("/admin/generate")
-    async def trigger_generation(session_id: str = Depends(require_auth)):
+    async def trigger_generation(user: dict = Depends(require_auth)):
         """Trigger new recipe generation."""
         # Placeholder - would call orchestrator
         return {
@@ -588,7 +576,7 @@ def create_routes(app: FastAPI):
             raise HTTPException(status_code=400, detail=result.get("error", "Subscription failed"))
     
     @app.get("/admin/newsletter/subscribers")
-    async def newsletter_list_subscribers(session_id: str = Depends(require_auth)):
+    async def newsletter_list_subscribers(user: dict = Depends(require_auth)):
         """Admin endpoint to list all newsletter subscribers."""
         manager = NewsletterManager()
         subscribers = await manager.list_subscribers()
@@ -703,7 +691,7 @@ def create_routes(app: FastAPI):
     @app.get("/admin/episodes", response_class=HTMLResponse)
     async def admin_episodes(
         request: Request,
-        session_id: str = Depends(require_auth),
+        user: dict = Depends(require_auth),
     ):
         """Browse full-week episode production logs."""
         templates = app.state.templates
@@ -722,7 +710,7 @@ def create_routes(app: FastAPI):
     async def admin_episode_detail(
         request: Request,
         episode_id: str,
-        session_id: str = Depends(require_auth),
+        user: dict = Depends(require_auth),
     ):
         """Full stage-by-stage viewer for a single episode."""
         templates = app.state.templates
@@ -748,7 +736,7 @@ def create_routes(app: FastAPI):
     @app.post("/admin/episodes/{episode_id}/run")
     async def admin_episode_run(
         episode_id: str,
-        session_id: str = Depends(require_auth),
+        user: dict = Depends(require_auth),
     ):
         """Trigger a compressed full-week dry run for an episode in the background."""
         project_root = app.state.project_root

@@ -17,11 +17,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 
 from backend.auth.oauth import GoogleOAuth
-from backend.auth.session import SessionManager
+from backend.auth.session import JWTSessionManager
 from backend.auth.middleware import init_auth_middleware
 from backend.admin.routes import create_routes
 from backend.admin.cron_routes import router as cron_router
-from backend.config import config
 from backend.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -29,7 +28,7 @@ logger = get_logger(__name__)
 
 def create_admin_app(
     project_root: Optional[Path] = None,
-    session_manager: Optional[SessionManager] = None,
+    session_manager: Optional[JWTSessionManager] = None,
     oauth_client: Optional[GoogleOAuth] = None
 ) -> FastAPI:
     """
@@ -37,7 +36,7 @@ def create_admin_app(
     
     Args:
         project_root: Project root directory
-        session_manager: Configured SessionManager (creates new if None)
+        session_manager: Configured JWTSessionManager (creates new if None)
         oauth_client: Configured GoogleOAuth client (creates new if None)
         
     Returns:
@@ -52,14 +51,10 @@ def create_admin_app(
     resolved_project_root = project_root or Path.cwd()
     
     # Initialize auth components
-    # On Vercel, serverless functions have a read-only filesystem — sessions stay in-memory only.
-    # On local dev, persist sessions to disk so they survive server restarts.
+    # JWT sessions are stateless — no server-side storage needed.
+    # Works on Vercel serverless (no cold-start session loss).
     if not session_manager:
-        session_manager = SessionManager(
-            session_duration_hours=24,
-            persist_to_file=config.is_local_dev,
-            storage_path=resolved_project_root / "data" / "sessions.json" if config.is_local_dev else None,
-        )
+        session_manager = JWTSessionManager(session_duration_hours=24)
     
     if not oauth_client:
         oauth_client = GoogleOAuth()
@@ -74,7 +69,6 @@ def create_admin_app(
     
     # Set up Jinja2 templates
     templates_dir = Path(__file__).parent / "templates"
-    templates_dir.mkdir(exist_ok=True)
     app.state.templates = Jinja2Templates(directory=str(templates_dir))
 
     # Serve project static assets for admin previews (images, css, etc.)
