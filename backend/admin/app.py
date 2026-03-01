@@ -76,6 +76,11 @@ def create_admin_app(
     if static_root.exists():
         app.mount("/static", StaticFiles(directory=str(static_root)), name="static")
 
+    # Serve generated pipeline images (Stability AI output stored in data/images/)
+    data_images = app.state.project_root / "data" / "images"
+    data_images.mkdir(parents=True, exist_ok=True)
+    app.mount("/data-images", StaticFiles(directory=str(data_images)), name="data_images")
+
     # Include admin UI routes
     create_routes(app)
 
