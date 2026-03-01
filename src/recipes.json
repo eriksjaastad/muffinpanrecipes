@@ -229,6 +229,33 @@
         "Fold in chocolate chips.",
         "Bake for 18-20 mins."
       ]
+    },
+    {
+      "slug": "crispy-hash-brown-egg-cups-with-cheddar",
+      "title": "Crispy Hash Brown Egg Cups with Sharp Cheddar",
+      "category": "breakfast/savory",
+      "image": "data/images/0b00f02f/editorial.png",
+      "description": "In the alchemy of the morning kitchen, where sunlight slants like a benediction over cast-iron skillets and the scent of roasted coffee hums a low, insistent hymn, there exists a dish that is both relic and revelation: the hash brown, reborn as a cup of golden defiance. These crispy egg cups\u2014nestled in their muffin tin cradle, each a miniature monument to heartland ingenuity\u2014are the story of a Russet potato, humble and unassuming, transformed by human hands into something resembling sunlight solidified. You squeeze the moisture from its shreds, a ritual as old as the first breakfasts shared around communal fires, and coat it in olive oil, salt, and the ghost of garlic, until it becomes a lattice of crunch, a vessel waiting to be filled. Then, the eggs: liquid alchemy poured into the mold, their yolks still trembling with the promise of unspooling life, and the sharp cheddar, that tangy counterpoint to the earthy potato, melting like a whispered confession. To cook is to curate memories, and here, in this 25-minute symphony of heat and patience, you conjure the smell of roadside diners and the warmth of a\u7076\u53f0 (stove) tended by someone who loves you. M.F.K. Fisher once wrote that \u201cfood is our common ground,\u201d and in these cups, crisp on the edges, custardy within, that common ground becomes a portable breakfast, a handheld hymn to the quiet magic of ingredients that know their purpose. You will eat them standing by the window, fork in hand, and think of all the mornings you\u2019ve lived and those yet to come.",
+      "prep": "20 mins",
+      "cook": "25 mins",
+      "yield": "12 portions",
+      "ingredients": [
+        "4 medium Russet potatoes , shredded and excess moisture squeezed out",
+        "1 tbsp olive oil",
+        "1 tsp fine sea salt",
+        "\u00bd tsp freshly ground black pepper",
+        "\u00bd tsp garlic powder",
+        "12 large eggs",
+        "1 cup grated sharp Cheddar cheese , divided",
+        "Optional: 1 tbsp unsalted butter, melted"
+      ],
+      "instructions": [
+        "**Prep the Tin**: Preheat oven to 400\u00b0F (200\u00b0C). Grease a 12-cup muffin tin thoroughly with butter or non-stick spray.",
+        "**Hash Brown Layer**: In a large bowl, combine shredded potatoes, olive oil, \u00be tsp salt, \u00bd tsp black pepper, and garlic powder. Mix until evenly coated. Divide mixture evenly among muffin cups, pressing firmly to form a compact, even layer. Bake for 15\u201318 minutes, or until golden and crispy.",
+        "**Add Eggs and Cheese**: Carefully crack 1 egg into each cup. Top each with 1 tbsp grated Cheddar. Sprinkle remaining \u00bc tsp salt and \u00bc tsp pepper over the eggs.",
+        "**Finish Baking**: Return to oven and bake for 10\u201312 minutes, or until eggs are set (center should wobble slightly if desired). Avoid overbaking to prevent rubbery eggs.",
+        "**Rest and Serve**: Let sit for 2\u20133 minutes to firm up. Run a small knife around edges if needed, then invert onto plates or serve directly in the tin."
+      ]
     }
   ]
 }

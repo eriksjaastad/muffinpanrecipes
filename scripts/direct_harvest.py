@@ -5,7 +5,6 @@ import base64
 import sys
 import logging
 from pathlib import Path
-from dotenv import load_dotenv
 
 # Configure logging
 logging.basicConfig(
@@ -14,9 +13,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Load environment variables from .env file
-load_dotenv()
-
 # Configuration
 # Default to /workspace for RunPod, or local project root for local runs
 WORKSPACE_ROOT = Path(os.getenv("WORKSPACE_ROOT", "/workspace" if os.path.exists("/workspace") else Path(__file__).parent.parent))
@@ -24,7 +20,7 @@ JOBS_FILE = os.getenv("JOBS_FILE", str(WORKSPACE_ROOT / "image_generation_jobs.j
 OUTPUT_ROOT = os.getenv("OUTPUT_ROOT", str(WORKSPACE_ROOT / "output" / "muffin_pan"))
 API_KEY = os.getenv("STABILITY_API_KEY")
 if not API_KEY:
-    sys.exit("❌ Error: STABILITY_API_KEY not set in .env")
+    sys.exit("❌ Error: STABILITY_API_KEY missing from environment (use `doppler run -- ...`)")
 
 ENGINE_ID = "stable-diffusion-xl-1024-v1-0" 
 

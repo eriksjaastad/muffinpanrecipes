@@ -12,6 +12,8 @@ Provides:
 
 from pathlib import Path
 from typing import Optional, List
+import json
+from datetime import datetime
 
 from fastapi import FastAPI, Request, Response, HTTPException, Depends, status
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
@@ -24,6 +26,103 @@ from backend.auth.middleware import require_auth, create_session_cookie, clear_s
 from backend.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+def _safe_parse_iso(value: Optional[str]) -> datetime:
+    """Best-effort parser for ISO-ish timestamps."""
+    if not value:
+        return datetime.min
+
+    normalized = value.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        return datetime.min
+
+
+def _load_simulation_runs(sim_dir: Path, limit: int = 100) -> List[dict]:
+    """Load simulation JSON files and return newest-first summary rows."""
+    runs: List[dict] = []
+
+    if not sim_dir.exists():
+        return runs
+
+    for path in sim_dir.glob('*.json'):
+        try:
+            payload = json.loads(path.read_text(encoding='utf-8'))
+        except Exception as exc:
+            logger.warning(f"Skipping invalid simulation file {path.name}: {exc}")
+            continue
+
+        messages = payload.get('messages') or []
+        if not isinstance(messages, list):
+            messages = []
+
+        message_models = {m.get('model') for m in messages if isinstance(m, dict) and m.get('model')}
+
+        character_models = payload.get('character_models') or {}
+        character_model_values = set()
+        if isinstance(character_models, dict):
+            character_model_values = {v for v in character_models.values() if isinstance(v, str) and v}
+
+        models = sorted({
+            *message_models,
+            *(payload.get('models') or []),
+            payload.get('default_model'),
+            *character_model_values,
+        } - {None, ''})
+
+        generated_at = payload.get('generated_at')
+        runs.append({
+            'filename': path.name,
+            'filepath': str(path),
+            'generated_at': generated_at,
+            'generated_at_dt': _safe_parse_iso(generated_at),
+            'concept': payload.get('concept') or 'Unknown concept',
+            'prompt_style': payload.get('prompt_style') or 'unknown',
+            'default_model': payload.get('default_model'),
+            'models': models,
+            'message_count': len(messages),
+            'has_messages': len(messages) > 0,
+            'raw': payload,
+        })
+
+    runs.sort(key=lambda r: r['generated_at_dt'], reverse=True)
+    return runs[:limit]
+
+
+def _build_selected_simulation(run: dict) -> dict:
+    """Expand a run row into template-friendly details."""
+    payload = run['raw']
+    messages = payload.get('messages') or []
+
+    day_counts: dict[str, int] = {}
+    stage_counts: dict[str, int] = {}
+
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+        day = msg.get('day')
+        stage = msg.get('stage')
+        if day:
+            day_counts[day] = day_counts.get(day, 0) + 1
+        if stage:
+            stage_counts[stage] = stage_counts.get(stage, 0) + 1
+
+    return {
+        'filename': run['filename'],
+        'concept': run['concept'],
+        'generated_at': run['generated_at'],
+        'prompt_style': run['prompt_style'],
+        'default_model': payload.get('default_model'),
+        'character_models': payload.get('character_models') or {},
+        'models': run['models'],
+        'messages': messages,
+        'day_counts': day_counts,
+        'stage_counts': stage_counts,
+        'message_count': len(messages),
+        'run': payload.get('run'),
+        'mode': payload.get('mode'),
+    }
 
 
 # Request/Response models
@@ -365,6 +464,56 @@ def create_routes(app: FastAPI):
             "new_status": "published"
         }
     
+    @app.get("/admin/simulations", response_class=HTMLResponse)
+    async def admin_simulations(
+        request: Request,
+        selected_file: Optional[str] = None,
+        concept_filter: Optional[str] = None,
+        model_filter: Optional[str] = None,
+        session_id: str = Depends(require_auth),
+    ):
+        """Browse local simulation transcripts in a chat-style UI."""
+        templates = app.state.templates
+        simulations_dir = app.state.project_root / 'data' / 'simulations'
+
+        all_runs = _load_simulation_runs(simulations_dir)
+
+        filtered_runs = all_runs
+        if concept_filter:
+            needle = concept_filter.strip().lower()
+            filtered_runs = [r for r in filtered_runs if needle in (r['concept'] or '').lower()]
+
+        if model_filter:
+            needle = model_filter.strip().lower()
+            filtered_runs = [
+                r
+                for r in filtered_runs
+                if any(needle in model.lower() for model in r['models'])
+            ]
+
+        selected_run = None
+        if filtered_runs:
+            if selected_file:
+                selected_run = next((r for r in filtered_runs if r['filename'] == selected_file), None)
+            if selected_run is None:
+                selected_run = filtered_runs[0]
+
+        selected_payload = _build_selected_simulation(selected_run) if selected_run else None
+
+        return templates.TemplateResponse(
+            'simulations.html',
+            {
+                'request': request,
+                'runs': filtered_runs,
+                'selected_run': selected_payload,
+                'selected_file': selected_file or (selected_run['filename'] if selected_run else None),
+                'concept_filter': concept_filter or '',
+                'model_filter': model_filter or '',
+                'total_runs': len(all_runs),
+                'filtered_count': len(filtered_runs),
+            },
+        )
+
     @app.get("/admin/agents")
     async def get_agent_status(session_id: str = Depends(require_auth)):
         """Get status of AI agents."""

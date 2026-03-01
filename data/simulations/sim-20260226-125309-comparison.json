@@ -1,0 +1,18 @@
+{
+  "generated_at": "2026-02-26T12:53:28.095708",
+  "concept": "Mini Shepherd's Pies",
+  "mode": "ollama",
+  "prompt_style": "scene",
+  "models": [
+    "openai/gpt-4o-mini"
+  ],
+  "results": [
+    {
+      "model": "openai/gpt-4o-mini",
+      "run": 1,
+      "path": "/Users/eriksjaastad/projects/muffinpanrecipes/data/simulations/sim-20260226-125309-mini-shepherd-s-pies-openai_gpt-4o-mini-scene-run1-full-week.json",
+      "qa": 95,
+      "real_inference": true
+    }
+  ]
+}
