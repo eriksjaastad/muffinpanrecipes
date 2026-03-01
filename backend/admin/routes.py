@@ -13,6 +13,9 @@ Provides:
 from pathlib import Path
 from typing import Optional, List
 import json
+import os
+import subprocess
+import sys
 from datetime import datetime
 
 from fastapi import FastAPI, Request, Response, HTTPException, Depends, status
@@ -26,6 +29,18 @@ from backend.auth.middleware import require_auth, create_session_cookie, clear_s
 from backend.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+STAGE_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+STAGE_LABELS = {
+    "monday": "Brainstorm",
+    "tuesday": "Recipe Dev",
+    "wednesday": "Photography",
+    "thursday": "Copywriting",
+    "friday": "Final Review",
+    "saturday": "Deployment",
+    "sunday": "Publish",
+}
+
 
 def _safe_parse_iso(value: Optional[str]) -> datetime:
     """Best-effort parser for ISO-ish timestamps."""
@@ -56,6 +71,10 @@ def _load_simulation_runs(sim_dir: Path, limit: int = 100) -> List[dict]:
         messages = payload.get('messages') or []
         if not isinstance(messages, list):
             messages = []
+
+        # Skip benchmark comparison/summary sidecars — they have no messages
+        if not messages and 'results' in payload:
+            continue
 
         message_models = {m.get('model') for m in messages if isinstance(m, dict) and m.get('model')}
 
@@ -579,4 +598,194 @@ def create_routes(app: FastAPI):
             "total": len(subscribers)
         }
     
+    # ==================== EPISODE VIEWER ====================
+
+    def _load_episodes(episodes_dir: Path) -> list[dict]:
+        """Load and summarize all episode JSON files, newest first."""
+        episodes = []
+        if not episodes_dir.exists():
+            return episodes
+        for path in sorted(episodes_dir.glob("*.json"), reverse=True):
+            try:
+                data = json.loads(path.read_text())
+                stages = data.get("stages", {})
+                completed = sum(1 for s in stages.values() if s.get("status") == "complete")
+                failed = sum(1 for s in stages.values() if s.get("status") == "failed")
+                total = 7  # mon–sun
+
+                # Determine overall episode status
+                if failed:
+                    ep_status = "partial"
+                elif completed == total:
+                    ep_status = "complete"
+                elif completed > 0:
+                    ep_status = "in_progress"
+                else:
+                    ep_status = "empty"
+
+                episodes.append({
+                    "episode_id": data.get("episode_id", path.stem),
+                    "concept": data.get("concept", "Unknown"),
+                    "created_at": data.get("created_at", ""),
+                    "published_at": data.get("published_at"),
+                    "dry_run": data.get("dry_run", False),
+                    "recipe_id": data.get("recipe_id"),
+                    "completed_stages": completed,
+                    "failed_stages": failed,
+                    "total_stages": total,
+                    "status": ep_status,
+                    "filename": path.name,
+                })
+            except Exception as exc:
+                logger.warning(f"Skipping invalid episode file {path.name}: {exc}")
+        return episodes
+
+    def _build_episode_detail(data: dict) -> dict:
+        """Build template-friendly detail from raw episode JSON."""
+        stages_raw = data.get("stages", {})
+        stages = []
+        for key in STAGE_ORDER:
+            entry = stages_raw.get(key)
+            if entry is None:
+                stages.append({
+                    "key": key,
+                    "label": STAGE_LABELS.get(key, key),
+                    "present": False,
+                    "status": "not_started",
+                    "data": {},
+                })
+                continue
+
+            dialogue = entry.get("dialogue", [])
+            # Normalise dialogue: could be list[str] or list[dict]
+            dialogue_lines = []
+            for msg in dialogue:
+                if isinstance(msg, dict):
+                    character = msg.get("character") or msg.get("speaker") or "Agent"
+                    text = msg.get("message") or msg.get("text") or str(msg)
+                    day = msg.get("day", "")
+                    model = msg.get("model", "")
+                    dialogue_lines.append({"character": character, "text": text, "day": day, "model": model})
+                elif isinstance(msg, str):
+                    dialogue_lines.append({"character": "Agent", "text": msg, "day": "", "model": ""})
+
+            recipe_data = entry.get("recipe_data", {})
+            image_paths_raw = entry.get("image_paths") or []
+            stages.append({
+                "key": key,
+                "label": STAGE_LABELS.get(key, key),
+                "present": True,
+                "status": entry.get("status", "unknown"),
+                "started_at": entry.get("started_at", ""),
+                "completed_at": entry.get("completed_at", ""),
+                "error": entry.get("error"),
+                "recipe_title": recipe_data.get("title") if recipe_data else None,
+                "ingredient_count": len(recipe_data.get("ingredients", [])) if recipe_data else 0,
+                "dialogue": dialogue_lines,
+                "dialogue_count": len(dialogue_lines),
+                "image_paths": image_paths_raw,
+                "approved": entry.get("approved"),
+                "deployment_status": entry.get("deployment_status"),
+                "published": entry.get("published"),
+                "data": entry,
+            })
+        return {
+            "episode_id": data.get("episode_id", ""),
+            "concept": data.get("concept", ""),
+            "created_at": data.get("created_at", ""),
+            "published_at": data.get("published_at"),
+            "dry_run": data.get("dry_run", False),
+            "recipe_id": data.get("recipe_id"),
+            "events": data.get("events", []),
+            "stages": stages,
+        }
+
+    @app.get("/admin/episodes", response_class=HTMLResponse)
+    async def admin_episodes(
+        request: Request,
+        session_id: str = Depends(require_auth),
+    ):
+        """Browse full-week episode production logs."""
+        templates = app.state.templates
+        episodes_dir = app.state.project_root / "data" / "episodes"
+        episodes = _load_episodes(episodes_dir)
+        return templates.TemplateResponse(
+            "episodes.html",
+            {
+                "request": request,
+                "episodes": episodes,
+                "total": len(episodes),
+            },
+        )
+
+    @app.get("/admin/episodes/{episode_id}", response_class=HTMLResponse)
+    async def admin_episode_detail(
+        request: Request,
+        episode_id: str,
+        session_id: str = Depends(require_auth),
+    ):
+        """Full stage-by-stage viewer for a single episode."""
+        templates = app.state.templates
+        episodes_dir = app.state.project_root / "data" / "episodes"
+        ep_path = episodes_dir / f"{episode_id}.json"
+
+        if not ep_path.exists():
+            raise HTTPException(status_code=404, detail=f"Episode not found: {episode_id}")
+
+        data = json.loads(ep_path.read_text())
+        episode = _build_episode_detail(data)
+
+        return templates.TemplateResponse(
+            "episode_detail.html",
+            {
+                "request": request,
+                "episode": episode,
+            },
+        )
+
+
+
+    @app.post("/admin/episodes/{episode_id}/run")
+    async def admin_episode_run(
+        episode_id: str,
+        session_id: str = Depends(require_auth),
+    ):
+        """Trigger a compressed full-week dry run for an episode in the background."""
+        project_root = app.state.project_root
+        script = project_root / "scripts" / "run_compressed_week.py"
+
+        if not script.exists():
+            raise HTTPException(status_code=500, detail="run_compressed_week.py not found")
+
+        # Read episode file to get the concept
+        ep_path = project_root / "data" / "episodes" / f"{episode_id}.json"
+        concept = "Weekly Muffin Pan Recipe"
+        if ep_path.exists():
+            try:
+                ep_data = json.loads(ep_path.read_text())
+                concept = ep_data.get("concept", concept)
+            except Exception:
+                pass
+
+        # Fire and forget — runs in background so the HTTP response returns immediately
+        try:
+            subprocess.Popen(
+                [
+                    sys.executable, str(script),
+                    "--concept", concept,
+                    "--episode-id", episode_id,
+                    "--delay", "5",   # 5s between stages for admin preview speed
+                ],
+                cwd=str(project_root),
+                env={**os.environ, "PYTHONPATH": str(project_root)},
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to start run: {e}")
+
+        return JSONResponse({"message": f"Compressed week run started for episode {episode_id}. Refresh in ~2 minutes to see results."})
+
     logger.info("Admin routes configured")
+
+

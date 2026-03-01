@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ episode.episode_id }} | Episode Viewer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        .bubble {
+            max-width: 78%;
+        }
+
+        .img-attachment {
+            transition: transform 0.15s;
+        }
+
+        .img-attachment:hover {
+            transform: scale(1.03);
+        }
+    </style>
+</head>
+
+<body class="bg-slate-100 min-h-screen">
+
+    <header class="bg-white border-b border-slate-200">
+        <div class="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
+            <div>
+                <div class="flex items-center gap-3 flex-wrap">
+                    <h1 class="text-2xl font-bold text-slate-900">{{ episode.episode_id }}</h1>
+                    {% if episode.dry_run %}
+                    <span class="text-xs px-2 py-0.5 rounded-full bg-violet-100 text-violet-700">DRY RUN</span>
+                    {% endif %}
+                </div>
+                <p class="text-sm text-slate-500 mt-0.5">{{ episode.concept }}</p>
+            </div>
+            <div class="flex gap-3 flex-wrap justify-end">
+                <button id="run-btn" onclick="runCompressedWeek('{{ episode.episode_id }}')"
+                    class="text-sm px-3 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 font-medium">
+                    ▶ Run Compressed Week
+                </button>
+                <a href="/admin/episodes"
+                    class="text-sm px-3 py-2 rounded bg-slate-200 text-slate-800 hover:bg-slate-300">← All Episodes</a>
+                <a href="/admin/"
+                    class="text-sm px-3 py-2 rounded bg-slate-200 text-slate-800 hover:bg-slate-300">Dashboard</a>
+                <a href="/auth/logout"
+                    class="text-sm px-3 py-2 rounded bg-slate-900 text-white hover:bg-slate-700">Logout</a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Run status banner (hidden by default) -->
+    <div id="run-banner" class="hidden bg-blue-50 border-b border-blue-200 px-4 py-3 text-sm text-blue-800 text-center">
+        <span id="run-status-text">Starting compressed week run…</span>
+    </div>
+
+    <main class="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8 space-y-5">
+
+        <!-- Meta bar -->
+        <div class="bg-white border border-slate-200 rounded-lg p-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div>
+                <dt class="text-xs uppercase tracking-wide text-slate-500 font-semibold">Recipe ID</dt>
+                <dd class="mt-1 font-mono text-slate-800">{{ episode.recipe_id or '—' }}</dd>
+            </div>
+            <div>
+                <dt class="text-xs uppercase tracking-wide text-slate-500 font-semibold">Created</dt>
+                <dd class="mt-1 text-slate-700">{{ episode.created_at or '—' }}</dd>
+            </div>
+            <div>
+                <dt class="text-xs uppercase tracking-wide text-slate-500 font-semibold">Published</dt>
+                <dd class="mt-1 text-slate-700">{{ episode.published_at or 'Not published' }}</dd>
+            </div>
+            <div>
+                <dt class="text-xs uppercase tracking-wide text-slate-500 font-semibold">Events</dt>
+                <dd class="mt-1 text-slate-700">{{ episode.events | length }}</dd>
+            </div>
+        </div>
+
+        <!-- Stage cards -->
+        {% for stage in episode.stages %}
+        <section class="bg-white border border-slate-200 rounded-lg overflow-hidden">
+
+            <!-- Stage header -->
+            <div class="flex items-center justify-between px-5 py-3 border-b border-slate-100
+            {% if not stage.present %}bg-slate-50
+            {% elif stage.status == 'complete' %}bg-emerald-50
+            {% elif stage.status == 'failed' %}bg-red-50
+            {% elif stage.status == 'in_progress' %}bg-blue-50
+            {% else %}bg-slate-50{% endif %}">
+                <div class="flex items-center gap-3">
+                    <span class="font-semibold text-slate-900">{{ stage.label }}</span>
+                    <span class="text-xs text-slate-500 capitalize">{{ stage.key }}</span>
+
+                    {% if not stage.present %}
+                    <span class="text-xs px-2 py-0.5 rounded-full bg-slate-200 text-slate-500">Not Started</span>
+                    {% elif stage.status == 'complete' %}
+                    <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">✅ Complete</span>
+                    {% elif stage.status == 'failed' %}
+                    <span class="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700">❌ Failed</span>
+                    {% elif stage.status == 'in_progress' %}
+                    <span class="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">🔵 Running</span>
+                    {% endif %}
+
+                    {% if stage.key == 'wednesday' and stage.image_paths %}
+                    <span class="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">📷 {{ stage.image_paths |
+                        length }} images</span>
+                    {% endif %}
+                </div>
+
+                {% if stage.present %}
+                <div class="text-xs text-slate-400 text-right">
+                    {% if stage.started_at %}
+                    <span>Started {{ stage.started_at[:16] }}</span>
+                    {% endif %}
+                    {% if stage.completed_at %}
+                    <span class="ml-2">→ Done {{ stage.completed_at[:16] }}</span>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+
+            {% if stage.present %}
+            <div class="px-5 py-4 space-y-4">
+
+                {% if stage.error %}
+                <div class="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-700">
+                    <strong>Error:</strong> {{ stage.error }}
+                </div>
+                {% endif %}
+
+                <!-- Wednesday: show all 3 image variants side-by-side -->
+                {% if stage.key == 'wednesday' and stage.image_paths %}
+                <div>
+                    <h3 class="text-xs uppercase tracking-wide text-slate-500 font-semibold mb-2">
+                        📷 Generated Images ({{ stage.image_paths | length }})
+                    </h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        {% for img_path in stage.image_paths %}
+                        <div class="group relative">
+                            {% set img_variants = ['editorial', 'action_steam', 'the_spread'] %}
+                            {% set variant_label = img_variants[loop.index0] if loop.index0 < img_variants|length
+                                else 'variant ' ~ loop.index %} <div
+                                class="aspect-square bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
+                                <img src="/static/images/{{ img_path | replace(episode.episode_id ~ '/', '') | urlencode }}"
+                                    onerror="this.parentElement.innerHTML='<div class=\'flex items-center justify-center h-full text-slate-400 text-xs text-center p-2\'><div><div class=\'text-2xl mb-1\'>📷</div><div>{{ img_path }}</div></div></div>'"
+                                    class="img-attachment w-full h-full object-cover cursor-zoom-in"
+                                    onclick="openLightbox('{{ img_path }}')" alt="{{ variant_label }}">
+                        </div>
+                        <p class="mt-1 text-xs text-center text-slate-500 capitalize">{{ variant_label }}</p>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Stage columns: metadata + dialogue -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+
+                <!-- Stage metadata -->
+                <div class="space-y-3">
+                    {% if stage.recipe_title %}
+                    <dl class="text-sm">
+                        <dt class="text-xs uppercase tracking-wide text-slate-500 font-semibold">Recipe</dt>
+                        <dd class="mt-1 font-medium text-slate-900">{{ stage.recipe_title }}</dd>
+                        <dd class="text-slate-500">{{ stage.ingredient_count }} ingredient{{ '' if
+                            stage.ingredient_count == 1 else 's' }}</dd>
+                    </dl>
+                    {% endif %}
+
+                    {% if stage.approved is not none %}
+                    <dl class="text-sm">
+                        <dt class="text-xs uppercase tracking-wide text-slate-500 font-semibold">Review Decision</dt>
+                        <dd
+                            class="mt-1 {% if stage.approved %}text-emerald-700 font-medium{% else %}text-red-600 font-medium{% endif %}">
+                            {{ '✅ Approved' if stage.approved else '❌ Not Approved' }}
+                        </dd>
+                    </dl>
+                    {% endif %}
+
+                    {% if stage.deployment_status %}
+                    <dl class="text-sm">
+                        <dt class="text-xs uppercase tracking-wide text-slate-500 font-semibold">Deployment</dt>
+                        <dd class="mt-1 text-slate-700">{{ stage.deployment_status }}</dd>
+                    </dl>
+                    {% endif %}
+
+                    {% if stage.published %}
+                    <dl class="text-sm">
+                        <dt class="text-xs uppercase tracking-wide text-slate-500 font-semibold">Published</dt>
+                        <dd class="mt-1 text-emerald-700 font-medium">✅ Yes</dd>
+                    </dl>
+                    {% endif %}
+
+                    {% if not stage.recipe_title and not stage.error and stage.approved is none and not
+                    stage.deployment_status and not stage.image_paths %}
+                    <p class="text-sm text-slate-400 italic">No additional metadata for this stage.</p>
+                    {% endif %}
+                </div>
+
+                <!-- Dialogue column -->
+                <div>
+                    {% if stage.dialogue %}
+                    <h3 class="text-xs uppercase tracking-wide text-slate-500 font-semibold mb-2">
+                        Dialogue ({{ stage.dialogue_count }} message{{ '' if stage.dialogue_count == 1 else 's' }})
+                    </h3>
+                    <div class="space-y-2 max-h-80 overflow-y-auto pr-1">
+                        {% for msg in stage.dialogue %}
+                        <div class="flex {% if loop.index0 % 2 == 0 %}justify-start{% else %}justify-end{% endif %}">
+                            <div
+                                class="bubble px-3 py-2 rounded-2xl text-sm
+                                {% if loop.index0 % 2 == 0 %}bg-slate-100 text-slate-900 rounded-bl-sm{% else %}bg-blue-600 text-white rounded-br-sm{% endif %}">
+                                <p
+                                    class="text-[11px] font-semibold mb-0.5 {% if loop.index0 % 2 == 0 %}text-slate-600{% else %}text-blue-100{% endif %}">
+                                    {{ msg.character }}
+                                </p>
+                                <p class="leading-relaxed whitespace-pre-wrap">{{ msg.text }}</p>
+
+                                <!-- Inline image attachments (Wednesday photography messages) -->
+                                {% if msg.attachments %}
+                                <div class="mt-2 grid grid-cols-{{ [msg.attachments | length, 3] | min }} gap-1.5">
+                                    {% for att in msg.attachments %}
+                                    <div class="rounded-lg overflow-hidden bg-slate-200 aspect-square w-20 h-20">
+                                        <img src="{{ att }}"
+                                            onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"
+                                            class="img-attachment w-full h-full object-cover cursor-zoom-in"
+                                            onclick="openLightbox('{{ att }}')" alt="Photo option {{ loop.index }}">
+                                        <div style="display:none"
+                                            class="w-full h-full items-center justify-center text-[10px] text-slate-500 p-1 text-center">
+                                            📷<br>{{ att | truncate(20) }}
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                                {% endif %}
+
+                                {% if msg.model %}
+                                <p
+                                    class="text-[10px] mt-1 {% if loop.index0 % 2 == 0 %}text-slate-400{% else %}text-blue-100{% endif %}">
+                                    {{ msg.model }}</p>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <p class="text-sm text-slate-400 italic">No dialogue recorded for this stage.</p>
+                    {% endif %}
+                </div>
+            </div>
+            </div>
+            {% endif %}
+        </section>
+        {% endfor %}
+
+        <!-- Event log -->
+        {% if episode.events %}
+        <section class="bg-white border border-slate-200 rounded-lg p-4">
+            <h2 class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">Event Log</h2>
+            <ul class="space-y-1">
+                {% for event in episode.events %}
+                <li class="text-sm text-slate-700 font-mono bg-slate-50 rounded px-3 py-1.5">{{ event }}</li>
+                {% endfor %}
+            </ul>
+        </section>
+        {% endif %}
+
+    </main>
+
+    <!-- Lightbox -->
+    <div id="lightbox" class="hidden fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
+        onclick="closeLightbox()">
+        <img id="lightbox-img" src="" alt="Full size image"
+            class="max-w-full max-h-full rounded-lg shadow-2xl object-contain">
+    </div>
+
+    <script>
+        function openLightbox(src) {
+            document.getElementById('lightbox-img').src = src;
+            document.getElementById('lightbox').classList.remove('hidden');
+        }
+        function closeLightbox() {
+            document.getElementById('lightbox').classList.add('hidden');
+        }
+
+        async function runCompressedWeek(episodeId) {
+            const btn = document.getElementById('run-btn');
+            const banner = document.getElementById('run-banner');
+            const statusText = document.getElementById('run-status-text');
+
+            btn.disabled = true;
+            btn.textContent = '⏳ Running…';
+            btn.classList.replace('bg-emerald-600', 'bg-slate-400');
+            banner.classList.remove('hidden');
+            statusText.textContent = 'Compressed week run started — this may take several minutes. Refresh the page to see stage results as they complete.';
+
+            try {
+                const resp = await fetch(`/admin/episodes/${episodeId}/run`, { method: 'POST' });
+                const data = await resp.json();
+                if (resp.ok) {
+                    statusText.textContent = `✅ Run complete: ${data.message || 'All stages finished.'}`;
+                    setTimeout(() => location.reload(), 3000);
+                } else {
+                    statusText.textContent = `❌ Run failed: ${data.detail || 'Unknown error'}`;
+                    btn.disabled = false;
+                    btn.textContent = '▶ Run Compressed Week';
+                    btn.classList.replace('bg-slate-400', 'bg-emerald-600');
+                }
+            } catch (e) {
+                statusText.textContent = `❌ Network error: ${e.message}`;
+                btn.disabled = false;
+                btn.textContent = '▶ Run Compressed Week';
+                btn.classList.replace('bg-slate-400', 'bg-emerald-600');
+            }
+        }
+    </script>
+</body>
+
+</html>

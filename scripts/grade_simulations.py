@@ -154,7 +154,7 @@ def write_benchmark_markdown(results: list[dict[str, Any]], out_path: Path) -> N
         top = ranking[0][1]
         lines.append(f"- Primary: **{top}**")
         lines.append("- Guardrails: enforce prompt-echo hard fail + min-content + cross-character overlap penalties.")
-        lines.append("- Judge pass: keep `openai/gpt-4o` for final weekly grading.")
+        lines.append("- Judge pass: keep `openai/gpt-5.1` for final weekly grading.")
     else:
         lines.append("- No successful graded runs.")
 
@@ -164,7 +164,7 @@ def write_benchmark_markdown(results: list[dict[str, Any]], out_path: Path) -> N
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pattern", default="data/simulations/sim-*.json")
-    parser.add_argument("--judge-model", default="openai/gpt-4o")
+    parser.add_argument("--judge-model", default="openai/gpt-5.1")
     parser.add_argument("--limit", type=int, default=200)
     parser.add_argument("--report", default="data/simulations/grading-report.json")
     parser.add_argument("--markdown", default="data/simulations/BENCHMARK_RESULTS.md")

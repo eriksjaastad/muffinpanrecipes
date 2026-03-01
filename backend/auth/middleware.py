@@ -7,6 +7,7 @@ Provides:
 - Automatic redirect to login for unauthenticated users
 """
 
+import os
 from typing import Optional
 from urllib.parse import quote
 
@@ -98,6 +99,10 @@ async def require_auth(
     Raises:
         HTTPException: 401 if not authenticated (with redirect to login)
     """
+    # LOCAL_DEV bypass — no OAuth required when running locally
+    if os.environ.get("LOCAL_DEV") == "true":
+        return "local-dev-session"
+
     if not session_id:
         logger.warning(f"Unauthorized access attempt to {request.url.path}")
 

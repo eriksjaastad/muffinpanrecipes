@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,11 +8,14 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Inter', sans-serif; }
+        body {
+            font-family: 'Inter', sans-serif;
+        }
     </style>
 </head>
+
 <body class="bg-gray-50">
-    
+
     <!-- Header -->
     <header class="bg-white shadow">
         <div class="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8 flex justify-between items-center">
@@ -22,10 +26,10 @@
             <a href="/auth/logout" class="text-sm text-gray-600 hover:text-gray-900">Logout</a>
         </div>
     </header>
-    
+
     <!-- Main Content -->
     <main class="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
-        
+
         <!-- Stats Cards -->
         <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
             <div class="bg-white overflow-hidden shadow rounded-lg">
@@ -33,7 +37,8 @@
                     <div class="flex items-center">
                         <div class="flex-shrink-0 bg-yellow-400 rounded-md p-3">
                             <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
                         </div>
                         <div class="ml-5 w-0 flex-1">
@@ -45,13 +50,14 @@
                     </div>
                 </div>
             </div>
-            
+
             <div class="bg-white overflow-hidden shadow rounded-lg">
                 <div class="p-5">
                     <div class="flex items-center">
                         <div class="flex-shrink-0 bg-green-500 rounded-md p-3">
                             <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M5 13l4 4L19 7" />
                             </svg>
                         </div>
                         <div class="ml-5 w-0 flex-1">
@@ -63,13 +69,14 @@
                     </div>
                 </div>
             </div>
-            
+
             <div class="bg-white overflow-hidden shadow rounded-lg">
                 <div class="p-5">
                     <div class="flex items-center">
                         <div class="flex-shrink-0 bg-blue-500 rounded-md p-3">
                             <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
                             </svg>
                         </div>
                         <div class="ml-5 w-0 flex-1">
@@ -81,13 +88,14 @@
                     </div>
                 </div>
             </div>
-            
+
             <div class="bg-white overflow-hidden shadow rounded-lg">
                 <div class="p-5">
                     <div class="flex items-center">
                         <div class="flex-shrink-0 bg-gray-400 rounded-md p-3">
                             <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
                         </div>
                         <div class="ml-5 w-0 flex-1">
@@ -100,7 +108,7 @@
                 </div>
             </div>
         </div>
-        
+
         <!-- Recent Pending Recipes -->
         <div class="bg-white shadow rounded-lg">
             <div class="px-6 py-4 border-b border-gray-200">
@@ -115,25 +123,20 @@
                             <div>
                                 <h3 class="text-lg font-medium text-gray-900">{{ recipe.title }}</h3>
                                 <p class="text-sm text-gray-500">{{ recipe.description[:100] }}...</p>
-                                <p class="mt-1 text-xs text-gray-400">Created: {{ recipe.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+                                <p class="mt-1 text-xs text-gray-400">Created: {{ recipe.created_at.strftime('%Y-%m-%d
+                                    %H:%M') }}</p>
                             </div>
                             <div class="flex space-x-2">
-                                <button 
-                                    onclick="approveRecipe('{{ recipe.recipe_id }}')"
-                                    class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition"
-                                >
+                                <button onclick="approveRecipe('{{ recipe.recipe_id }}')"
+                                    class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition">
                                     Approve
                                 </button>
-                                <button 
-                                    onclick="rejectRecipe('{{ recipe.recipe_id }}')"
-                                    class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition"
-                                >
+                                <button onclick="rejectRecipe('{{ recipe.recipe_id }}')"
+                                    class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition">
                                     Reject
                                 </button>
-                                <a 
-                                    href="/admin/recipes/{{ recipe.recipe_id }}/view" 
-                                    class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
-                                >
+                                <a href="/admin/recipes/{{ recipe.recipe_id }}/view"
+                                    class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition">
                                     View Details
                                 </a>
                             </div>
@@ -146,45 +149,54 @@
                 {% endif %}
             </div>
         </div>
-        
+
         <!-- Quick Actions -->
         <div class="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
-            <a href="/admin/recipes?status_filter=pending" class="block p-6 bg-white shadow rounded-lg hover:bg-gray-50 transition">
+            <a href="/admin/recipes?status_filter=pending"
+                class="block p-6 bg-white shadow rounded-lg hover:bg-gray-50 transition">
                 <h3 class="text-lg font-semibold text-gray-900 mb-2">Review Pending</h3>
                 <p class="text-sm text-gray-600">Review all recipes awaiting approval</p>
             </a>
-            
-            <a href="/admin/recipes?status_filter=approved" class="block p-6 bg-white shadow rounded-lg hover:bg-gray-50 transition">
+
+            <a href="/admin/recipes?status_filter=approved"
+                class="block p-6 bg-white shadow rounded-lg hover:bg-gray-50 transition">
                 <h3 class="text-lg font-semibold text-gray-900 mb-2">Publish Approved</h3>
                 <p class="text-sm text-gray-600">Publish approved recipes to the live site</p>
             </a>
-            
+
             <a href="/admin/simulations" class="block p-6 bg-white shadow rounded-lg hover:bg-gray-50 transition">
                 <h3 class="text-lg font-semibold text-gray-900 mb-2">View Simulated Dialogues</h3>
                 <p class="text-sm text-gray-600">Browse group-text style simulation transcripts</p>
             </a>
 
-            <button onclick="generateRecipe()" class="block w-full p-6 bg-white shadow rounded-lg hover:bg-gray-50 transition text-left">
+            <a href="/admin/episodes" class="block p-6 bg-white shadow rounded-lg hover:bg-gray-50 transition">
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">📅 Episode Log</h3>
+                <p class="text-sm text-gray-600">Browse full-week production records with per-stage details and dialogue
+                </p>
+            </a>
+
+            <button onclick="generateRecipe()"
+                class="block w-full p-6 bg-white shadow rounded-lg hover:bg-gray-50 transition text-left">
                 <h3 class="text-lg font-semibold text-gray-900 mb-2">Generate New Recipe</h3>
                 <p class="text-sm text-gray-600">Trigger AI agents to create a new recipe</p>
             </button>
         </div>
-        
+
     </main>
-    
+
     <script>
         async function approveRecipe(recipeId) {
             if (!confirm('Approve this recipe?')) return;
-            
+
             try {
                 const response = await fetch(`/admin/recipes/${recipeId}/approve`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ notes: null })
                 });
-                
+
                 const data = await response.json();
-                
+
                 if (data.success) {
                     alert('Recipe approved!');
                     location.reload();
@@ -195,20 +207,20 @@
                 alert('Error: ' + error.message);
             }
         }
-        
+
         async function rejectRecipe(recipeId) {
             const notes = prompt('Rejection reason (required):');
             if (!notes) return;
-            
+
             try {
                 const response = await fetch(`/admin/recipes/${recipeId}/reject`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ notes: notes })
                 });
-                
+
                 const data = await response.json();
-                
+
                 if (data.success) {
                     alert('Recipe rejected');
                     location.reload();
@@ -219,10 +231,10 @@
                 alert('Error: ' + error.message);
             }
         }
-        
+
         async function generateRecipe() {
             if (!confirm('Trigger new recipe generation?')) return;
-            
+
             try {
                 const response = await fetch('/admin/generate', { method: 'POST' });
                 const data = await response.json();
@@ -233,4 +245,5 @@
         }
     </script>
 </body>
+
 </html>
