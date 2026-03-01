@@ -860,19 +860,19 @@ def create_routes(app: FastAPI):
         logs_dir.mkdir(parents=True, exist_ok=True)
         log_file = logs_dir / f"episode_run_{episode_id}.log"
         try:
-            log_fh = open(log_file, "w")
-            subprocess.Popen(
-                [
-                    sys.executable, str(script),
-                    "--concept", concept,
-                    "--episode-id", episode_id,
-                    "--delay", "5",   # 5s between stages for admin preview speed
-                ],
-                cwd=str(project_root),
-                env={**os.environ, "PYTHONPATH": str(project_root)},
-                stdout=log_fh,
-                stderr=subprocess.STDOUT,
-            )
+            with open(log_file, "w") as log_fh:
+                subprocess.Popen(
+                    [
+                        sys.executable, str(script),
+                        "--concept", concept,
+                        "--episode-id", episode_id,
+                        "--delay", "5",   # 5s between stages for admin preview speed
+                    ],
+                    cwd=str(project_root),
+                    env={**os.environ, "PYTHONPATH": str(project_root)},
+                    stdout=log_fh,
+                    stderr=subprocess.STDOUT,
+                )
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to start run: {e}")
 
