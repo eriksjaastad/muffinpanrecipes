@@ -1,49 +1,40 @@
-# Dialogue Prompt Style A/B Results
+# Dialogue Benchmark Results
 
-Date: 2026-02-26
-Script: `scripts/simulate_dialogue_week.py`
-Model: `openai/gpt-4o-mini`
-Config: `--runs 1 --ticks-per-day 2 --mode ollama`
+Generated: 2026-02-26T13:37:32.271507
 
-## Test Matrix (5 concepts × 2 prompt styles)
+## Ranked Models / Configs
+- **openai/gpt-4.1-mini-2025-04-14**: combined=88.0 (judge=85.0, qa=100.0, runs=1)
+- **openai/gpt-4-1106-preview**: combined=84.0 (judge=80.0, qa=100.0, runs=4)
+- **openai/gpt-4.1-mini**: combined=80.0 (judge=75.0, qa=100.0, runs=4)
+- **openai/gpt-4.1**: combined=80.0 (judge=75.0, qa=100.0, runs=4)
+- **openai/gpt-4-turbo**: combined=80.0 (judge=75.0, qa=100.0, runs=4)
+- **openai/gpt-4-0613**: combined=80.0 (judge=75.0, qa=100.0, runs=4)
+- **openai/gpt-4-turbo-preview**: combined=78.0 (judge=72.5, qa=100.0, runs=4)
+- **openai/gpt-4-turbo-2024-04-09**: combined=78.0 (judge=72.5, qa=100.0, runs=4)
+- **openai/gpt-4**: combined=78.0 (judge=72.5, qa=100.0, runs=4)
+- **ollama/qwen3:32b**: combined=77.33 (judge=71.67, qa=100.0, runs=3)
+- **openai/gpt-3.5-turbo-1106**: combined=77.0 (judge=71.25, qa=100.0, runs=4)
+- **openai/gpt-4.1-2025-04-14**: combined=76.0 (judge=70.0, qa=100.0, runs=4)
+- **openai/gpt-3.5-turbo-16k**: combined=76.0 (judge=70.0, qa=100.0, runs=4)
+- **openai/gpt-3.5-turbo-0125**: combined=76.0 (judge=70.0, qa=100.0, runs=4)
+- **openai/gpt-3.5-turbo**: combined=76.0 (judge=70.0, qa=100.0, runs=4)
+- **openai/gpt-4-0125-preview**: combined=75.0 (judge=68.75, qa=100.0, runs=4)
 
-| Concept | Full QA | Scene QA | Delta (Scene-Full) |
-|---|---:|---:|---:|
-| Jalapeño Corn Dog Bites | 90 | 97 | +7 |
-| Mini Shepherd's Pies | 94 | 95 | +1 |
-| Lemon Ricotta Breakfast Muffins | 94 | 96 | +2 |
-| Korean BBQ Meatball Cups | 79 | 91 | +12 |
-| Brown Butter Pecan Tassies | 93 | 92 | -1 |
+## Best Pairings
+- Margaret Chen and Julian Torres: mentioned 4 runs
+- Margaret Chen & Stephanie Whitmore: mentioned 2 runs
+- Marcus Reid and Margaret Chen: mentioned 1 runs
+- Margaret Chen & Marcus Reid: mentioned 1 runs
+- Margaret Chen and Stephanie 'Steph' Whitmore: mentioned 1 runs
+- Margaret Chen & Stephanie 'Steph' Whitmore: mentioned 1 runs
 
-## Aggregate
+## Weak Characters
+- Margaret Chen: flagged 8 runs
+- Stephanie 'Steph' Whitmore: flagged 3 runs
+- Devon Park: flagged 1 runs
+- Julian Torres: flagged 1 runs
 
-- Full average QA: **90.0**
-- Scene average QA: **94.2**
-- Net lift from scene style: **+4.2**
-- Real inference check: **10/10 true**
-
-## Qualitative read
-
-- `scene` style reduced prompt echo risk by removing structured labels on turn 2+.
-- Turn-1 scene setup + explicit deadline gave stronger situational grounding without forcing template-like outputs.
-- One concept regressed slightly (`Brown Butter Pecan Tassies`, -1), but overall gains were consistent.
-
-## Recommendation
-
-Adopt `--prompt-style scene` as the default for dialogue simulations and keep `full` for backward-compat and diagnostics.
-
-## Output artifacts
-
-### Full style
-- `data/simulations/sim-20260226-125103-jalape-o-corn-dog-bites-openai_gpt-4o-mini-full-run1-full-week.json`
-- `data/simulations/sim-20260226-125123-mini-shepherd-s-pies-openai_gpt-4o-mini-full-run1-full-week.json`
-- `data/simulations/sim-20260226-125147-lemon-ricotta-breakfast-muffins-openai_gpt-4o-mini-full-run1-full-week.json`
-- `data/simulations/sim-20260226-125208-korean-bbq-meatball-cups-openai_gpt-4o-mini-full-run1-full-week.json`
-- `data/simulations/sim-20260226-125230-brown-butter-pecan-tassies-openai_gpt-4o-mini-full-run1-full-week.json`
-
-### Scene style
-- `data/simulations/sim-20260226-125251-jalape-o-corn-dog-bites-openai_gpt-4o-mini-scene-run1-full-week.json`
-- `data/simulations/sim-20260226-125309-mini-shepherd-s-pies-openai_gpt-4o-mini-scene-run1-full-week.json`
-- `data/simulations/sim-20260226-125328-lemon-ricotta-breakfast-muffins-openai_gpt-4o-mini-scene-run1-full-week.json`
-- `data/simulations/sim-20260226-125346-korean-bbq-meatball-cups-openai_gpt-4o-mini-scene-run1-full-week.json`
-- `data/simulations/sim-20260226-125403-brown-butter-pecan-tassies-openai_gpt-4o-mini-scene-run1-full-week.json`
+## Recommended Config
+- Primary: **openai/gpt-4.1-mini-2025-04-14**
+- Guardrails: enforce prompt-echo hard fail + min-content + cross-character overlap penalties.
+- Judge pass: keep `openai/gpt-4o` for final weekly grading.
