@@ -8,7 +8,6 @@ os.environ.setdefault("LOCAL_DEV", "true")
 
 import pytest
 from pathlib import Path
-from typing import Dict, Any
 from hypothesis import settings, Verbosity
 
 from backend.core.personality import PersonalityConfig, CommunicationStyle

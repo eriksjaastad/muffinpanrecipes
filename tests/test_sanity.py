@@ -1,9 +1,7 @@
 """Basic sanity tests to verify core framework setup."""
 
-import pytest
 from backend.core.personality import PersonalityConfig, CommunicationStyle
-from backend.core.task import Task, TaskApproach
-from backend.core.types import MessageType
+from backend.core.task import Task
 
 
 def test_personality_config_creation(sample_personality_config: PersonalityConfig) -> None:

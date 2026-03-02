@@ -63,11 +63,11 @@ margaret.memory.record_interaction(
 )
 
 # Add a formative experience manually to demonstrate the system
-from backend.memory.agent_memory import Experience, RelationshipEvent
-from datetime import datetime
+from backend.memory.agent_memory import Experience, RelationshipEvent  # noqa: E402
+from datetime import datetime, timezone  # noqa: E402
 
 experience = Experience(
-    timestamp=datetime.now(),
+    timestamp=datetime.now(timezone.utc),
     task_type="recipe_critique",
     outcome=False,  # Felt like failure to Margaret
     emotional_impact=-0.85,  # High negative impact
@@ -90,7 +90,7 @@ if "creative_director" not in margaret.memory.relationship_history:
     margaret.memory.relationship_history["creative_director"] = []
 
 relationship_event = RelationshipEvent(
-    timestamp=datetime.now(),
+    timestamp=datetime.now(timezone.utc),
     other_agent="creative_director",
     interaction_type="harsh_critique",
     emotional_valence=-0.9,
@@ -98,15 +98,15 @@ relationship_event = RelationshipEvent(
 )
 margaret.memory.relationship_history["creative_director"].append(relationship_event)
 
-print(f"💔 Harsh critique recorded")
+print("💔 Harsh critique recorded")
 print(f"   Emotional impact: {experience.emotional_impact}")
-print(f"   Formative experience added")
+print("   Formative experience added")
 print(f"💾 Formative experiences: {len(margaret.memory.formative_experiences)}")
 print(f"💾 Emotional responses: {len(margaret.memory.emotional_responses)}")
 
 # Save memory
 margaret.memory._save_memory()
-print(f"\n💾 Saved memory to disk")
+print("\n💾 Saved memory to disk")
 
 # ============================================================================
 print("\n" + "=" * 70)
@@ -117,7 +117,7 @@ margaret_reloaded = create_agent("baker")
 margaret_memory_reloaded = AgentMemory(agent_role="baker", storage_path=test_storage)
 margaret_reloaded.set_memory(margaret_memory_reloaded)
 
-print(f"\n🔄 Reloaded Margaret from disk")
+print("\n🔄 Reloaded Margaret from disk")
 print(f"   Formative experiences loaded: {len(margaret_reloaded.memory.formative_experiences)}")
 print(f"   Emotional responses loaded: {len(margaret_reloaded.memory.emotional_responses)}")
 print(f"   Relationships loaded: {list(margaret_reloaded.memory.relationship_history.keys())}")
@@ -136,14 +136,14 @@ task2 = Task(
     }
 )
 
-print(f"\n📝 Task: Create trendy muffin for Steph (matcha + edible flowers)")
-print(f"   Triggers: matcha, edible flowers (Margaret's dislikes)")
-print(f"   From: creative_director (who recently criticized her)")
+print("\n📝 Task: Create trendy muffin for Steph (matcha + edible flowers)")
+print("   Triggers: matcha, edible flowers (Margaret's dislikes)")
+print("   From: creative_director (who recently criticized her)")
 
 # Get memory context BEFORE executing
 context_before = margaret_reloaded.memory.get_relevant_context(task2)
 
-print(f"\n🧠 Memory Context Retrieved:")
+print("\n🧠 Memory Context Retrieved:")
 print(f"   Past experiences with similar tasks: {len(context_before.relevant_experiences)}")
 print(f"   Emotional state: {context_before.emotional_state:.2f}")
 print(f"   Relationship with creative_director: {context_before.relationship_factors.get('creative_director', 'none')}")
@@ -152,13 +152,13 @@ print(f"   Relationship with creative_director: {context_before.relationship_fac
 result2 = margaret_reloaded.process_task(task2)
 emotion2 = margaret_reloaded.get_emotional_response(task2, result2)
 
-print(f"\n😠 Margaret's Response:")
+print("\n😠 Margaret's Response:")
 print(f"   Intensity: {emotion2.intensity:.2f}")
 print(f"   Description: {emotion2.description}")
 print(f"   Task completed: {result2.success}")
 
 # Check if memory influenced behavior
-print(f"\n📊 Memory Influence Analysis:")
+print("\n📊 Memory Influence Analysis:")
 print(f"   Emotional state carried over: {context_before.emotional_state != 0.0}")
 print(f"   Has formative experiences: {len(context_before.relevant_experiences) > 0}")
 print(f"   Relationship tension: {'creative_director' in context_before.relationship_factors}")
@@ -184,7 +184,7 @@ print(f"   Relevant experiences: {len(context_before.relevant_experiences)}")
 
 all_pass = test_1 and test_2 and test_3
 
-print(f"\n" + "=" * 70)
+print("\n" + "=" * 70)
 if all_pass:
     print("🎉 ALL TESTS PASSED!")
     print("   ✅ High-impact experiences create formative memories")

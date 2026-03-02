@@ -3,7 +3,6 @@
 import html
 import json
 import re
-from pathlib import Path
 from typing import Dict, List, Any
 
 from backend.utils.logging import get_logger

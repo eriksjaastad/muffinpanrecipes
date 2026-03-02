@@ -20,7 +20,7 @@ import json
 import random
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from statistics import mean
 from typing import Any
@@ -174,7 +174,7 @@ def build_system_prompt(persona: dict[str, Any]) -> str:
         f"Backstory: {persona['backstory']}\n"
         f"Traits: {persona['core_traits']}\n"
         f"Speech patterns (use as OCCASIONAL spice, NOT in every message - vary your openings): {comm.get('signature_phrases', [])}\n"
-        f"Behavioral quirks: {persona.get('behavioral_quirks', [])}\n"
+        f"Behavioral quirks (note: email habits like signing with an initial do NOT apply in group chat): {persona.get('behavioral_quirks', [])}\n"
         f"Triggers: {persona.get('triggers', [])}\n"
         f"Internal contradictions: {persona.get('internal_contradictions', [])}\n"
         f"Relationships: {persona.get('relationships', {})}\n"
@@ -468,7 +468,7 @@ def score_quality(messages: list[Message], personas: dict[str, dict[str, Any]]) 
         distinctiveness_spread = max(vals) - min(vals)
 
     prompt_echo_hits = sum(1 for msg in lowered if is_prompt_echo(msg))
-    min_content_failures = sum(1 for l in lengths if l < 4)
+    min_content_failures = sum(1 for msg_len in lengths if msg_len < 4)
     overlap_penalty, overlaps = pairwise_overlap_penalty(messages)
 
     # New scoring rules (#4970)
@@ -591,7 +591,7 @@ def run_simulation(
     image_paths: list[str] | None = None,  # 3 image paths from photography stage
 ) -> dict[str, Any]:
     personas = load_personas()
-    start = datetime.now().replace(hour=9, minute=0, second=0, microsecond=0)
+    start = datetime.now(timezone.utc).replace(hour=9, minute=0, second=0, microsecond=0)
     messages: list[Message] = []
     recent_lines: list[str] = []
 
@@ -649,7 +649,7 @@ def run_simulation(
         "default_model": default_model,
         "prompt_style": prompt_style,
         "character_models": character_models or {},
-        "generated_at": datetime.now().isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "messages": [m.__dict__ for m in messages],
         "name_strip_transcript": [m.message for m in messages],
         "metrics": {
@@ -686,7 +686,7 @@ def main() -> None:
     character_models = json.loads(args.character_models) if args.character_models else None
 
     all_results: list[dict[str, Any]] = []
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     concept_slug = re.sub(r"[^a-z0-9]+", "-", args.concept.lower()).strip("-")[:48]
 
     for model in models:
@@ -722,7 +722,7 @@ def main() -> None:
             )
 
     comparison = {
-        "generated_at": datetime.now().isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "concept": args.concept,
         "mode": args.mode,
         "prompt_style": args.prompt_style,

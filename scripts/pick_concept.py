@@ -5,9 +5,9 @@ Scores candidates on muffin pan adaptability, novelty vs recent episodes,
 seasonal fit, and sweet/savory balance, then does a weighted random pick.
 
 Usage:
-  PYTHONPATH=. .venv/bin/python scripts/pick_concept.py
-  PYTHONPATH=. .venv/bin/python scripts/pick_concept.py --dry-run
-  PYTHONPATH=. .venv/bin/python scripts/pick_concept.py --count 3
+  PYTHONPATH=. uv run scripts/pick_concept.py
+  PYTHONPATH=. uv run scripts/pick_concept.py --dry-run
+  PYTHONPATH=. uv run scripts/pick_concept.py --count 3
 """
 
 from __future__ import annotations
@@ -203,7 +203,7 @@ def pick_concept(dry_run: bool = False, count: int = 1) -> list[str]:
         # Filter out recently used
         fallbacks = [f for f in fallbacks if f.lower() not in recent]
         selected = random.sample(fallbacks, min(count, len(fallbacks)))
-        print(f"\n[fallback] No candidates scraped — using curated list.")
+        print("\n[fallback] No candidates scraped — using curated list.")
         for c in selected:
             print(f"  ✅ {c}")
         return selected

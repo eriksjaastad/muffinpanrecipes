@@ -125,7 +125,7 @@ def test_agent_memory_evolution():
         
         # Get initial memory state
         baker = orchestrator.agents["baker"]
-        initial_experience_count = len(baker.memory.formative_experiences)
+        _initial_experience_count = len(baker.memory.formative_experiences)
         initial_emotional_count = len(baker.memory.emotional_responses)
         
         # Produce first recipe

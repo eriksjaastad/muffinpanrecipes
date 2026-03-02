@@ -7,7 +7,7 @@ import argparse
 import glob
 import json
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -125,7 +125,7 @@ def write_benchmark_markdown(results: list[dict[str, Any]], out_path: Path) -> N
     lines = [
         "# Dialogue Benchmark Results",
         "",
-        f"Generated: {datetime.now().isoformat()}",
+        f"Generated: {datetime.now(timezone.utc).isoformat()}",
         "",
         "## Ranked Models / Configs",
     ]
@@ -182,7 +182,7 @@ def main() -> None:
             print(f"failed: {f} :: {e}")
 
     report = {
-        "generated_at": datetime.now().isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "judge_model": args.judge_model,
         "count": len(results),
         "results": results,

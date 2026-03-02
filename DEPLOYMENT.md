@@ -52,7 +52,7 @@ vercel link     # link to Vercel project
 
 ### 3. Run locally
 ```bash
-LOCAL_DEV=true PYTHONPATH=. doppler run -- .venv/bin/uvicorn \
+LOCAL_DEV=true PYTHONPATH=. doppler run -- uv run uvicorn \
   backend.admin.app:create_admin_app --factory --reload --port 8000
 ```
 

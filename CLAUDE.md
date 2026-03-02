@@ -15,7 +15,7 @@
 
 ## Commands
 
-- **Run:** `python main.py`
+- **Run:** `uv run main.py`
 - **Test:** `pytest`
 
 # Workflow

@@ -4,10 +4,9 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,7 +44,7 @@ def load_episode(episode_id: str) -> dict:
         return data
     return {
         "episode_id": None,
-        "created_at": datetime.now().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
         "stages": {},
         "events": [],
         "recipe_id": None,
@@ -136,7 +135,7 @@ def main() -> None:
 
     stage_entry: dict = {
         "stage": role,
-        "started_at": datetime.now().isoformat(),
+        "started_at": datetime.now(timezone.utc).isoformat(),
         "status": "in_progress",
         "concept": concept,
     }
@@ -189,7 +188,7 @@ def main() -> None:
             stage_entry["deployment_status"] = "staged"
 
         elif stage_key == "sunday":
-            ep["published_at"] = datetime.now().isoformat()
+            ep["published_at"] = datetime.now(timezone.utc).isoformat()
             stage_entry["published"] = True
             if not dry_run:
                 print(f"Publishing episode {args.episode}...")
@@ -218,7 +217,7 @@ def main() -> None:
 
         # Mark stage complete
         stage_entry["status"] = "complete"
-        stage_entry["completed_at"] = datetime.now().isoformat()
+        stage_entry["completed_at"] = datetime.now(timezone.utc).isoformat()
         ep["events"].append(f"{stage_key}: complete")
         save_episode(args.episode, ep)
 
@@ -237,7 +236,7 @@ def main() -> None:
     except Exception as e:
         stage_entry["status"] = "failed"
         stage_entry["error"] = str(e)
-        stage_entry["failed_at"] = datetime.now().isoformat()
+        stage_entry["failed_at"] = datetime.now(timezone.utc).isoformat()
         ep["events"].append(f"{stage_key}: failed — {e}")
         save_episode(args.episode, ep)
 

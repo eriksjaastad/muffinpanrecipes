@@ -5,11 +5,9 @@ Creative Director Agent - Stephanie 'Steph' Whitmore
 Good intentions but struggles with decisiveness. Wants everyone to feel heard.
 """
 
-from typing import Any
 import random
 
 from backend.core.agent import Agent
-from backend.core.personality import PersonalityConfig
 from backend.core.task import Task, TaskResult, TaskApproach
 from backend.core.types import EmotionalResponse, MemoryContext
 from backend.utils.logging import get_logger

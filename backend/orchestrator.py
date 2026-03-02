@@ -13,9 +13,9 @@ import uuid
 from backend.agents.factory import create_agent
 from backend.messaging.message_system import MessageSystem
 from backend.messaging.message_handler import MessageHandler
-from backend.pipeline.recipe_pipeline import RecipePipeline, PipelineStage
+from backend.pipeline.recipe_pipeline import RecipePipeline
 from backend.memory.agent_memory import AgentMemory
-from backend.data.recipe import Recipe, CreationStory, AgentContribution
+from backend.data.recipe import Recipe, CreationStory
 from backend.data.agent_profile import AgentProfile
 from backend.core.task import Task
 from backend.utils.logging import get_logger
@@ -114,9 +114,9 @@ class RecipeOrchestrator:
         Returns:
             Tuple of (Recipe, CreationStory)
         """
-        logger.info(f"=" * 70)
+        logger.info("=" * 70)
         logger.info(f"STARTING RECIPE PRODUCTION: {concept}")
-        logger.info(f"=" * 70)
+        logger.info("=" * 70)
 
         # Generate IDs
         recipe_id = str(uuid.uuid4())[:8]
@@ -134,7 +134,7 @@ class RecipeOrchestrator:
         )
 
         # Start recipe in pipeline
-        context = self.pipeline.start_recipe(recipe_id, concept)
+        _context = self.pipeline.start_recipe(recipe_id, concept)
 
         # Execute pipeline stages
         recipe_data = {}
@@ -256,7 +256,7 @@ class RecipeOrchestrator:
 
         task = Task(
             type="photograph_recipe",
-            content=f"Photograph this recipe",
+            content="Photograph this recipe",
             context={"recipe_id": recipe_id, "recipe_data": recipe_data}
         )
 
@@ -422,7 +422,7 @@ class RecipeOrchestrator:
         self.current_story.summary = " | ".join(summary_parts[:3])  # First 3
 
         # Compile full story
-        story_parts = [f"# How We Made This Recipe\n"]
+        story_parts = ["# How We Made This Recipe\n"]
         for contrib in self.current_story.agent_contributions:
             story_parts.append(f"\n## {contrib.agent_name} - {contrib.contribution_type}\n")
             if contrib.personality_moments:

@@ -16,7 +16,7 @@ from urllib.parse import urlencode
 import secrets
 
 import httpx
-from jose import jwt, jwk, JWTError
+from jose import jwt, JWTError
 
 from backend.utils.logging import get_logger
 
