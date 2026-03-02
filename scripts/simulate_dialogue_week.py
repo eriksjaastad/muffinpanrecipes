@@ -197,6 +197,121 @@ def deadline_for_day(day: str) -> str:
     return "5:00 PM local"
 
 
+def _deadline_meridiem(deadline: str) -> str | None:
+    m = re.search(r"\b(AM|PM)\b", deadline, re.IGNORECASE)
+    return m.group(1).lower() if m else None
+
+
+def _normalize_time_notation(text: str, deadline: str) -> str:
+    """Normalize chat times to explicit style like '4:00 pm'."""
+    meridiem = _deadline_meridiem(deadline)
+
+    # 4pm / 4 pm -> 4:00 pm
+    text = re.sub(
+        r"\b([1-9]|1[0-2])\s*(am|pm)\b",
+        lambda m: f"{m.group(1)}:00 {m.group(2).lower()}",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    # 4:00 (without am/pm) -> 4:00 pm when deadline gives a meridiem hint
+    if meridiem:
+        text = re.sub(
+            r"\b([1-9]|1[0-2]):([0-5][0-9])\b(?!\s*(?:am|pm)\b)",
+            lambda m: f"{m.group(1)}:{m.group(2)} {meridiem}",
+            text,
+            flags=re.IGNORECASE,
+        )
+        # by 5 / at 3 / due 4 -> by 5:00 pm / at 3:00 pm / due 4:00 pm
+        text = re.sub(
+            r"\b(by|at|due)\s+([1-9]|1[0-2])\b(?!\s*[:0-9]|(?:\s*(?:am|pm)\b))",
+            lambda m: f"{m.group(1)} {m.group(2)}:00 {meridiem}",
+            text,
+            flags=re.IGNORECASE,
+        )
+
+    return text
+
+
+def _canonicalize_flour_ricotta_ratios(text: str) -> str:
+    """Canonicalize ratio wording to flour:ricotta to avoid contradictory phrasing."""
+    number = r"\d+(?:\.\d+)?"
+
+    # "1:1 flour to ricotta" -> "1:1 flour:ricotta"
+    text = re.sub(
+        rf"\b({number})\s*:\s*({number})\s*flour\s+to\s+ricotta\b",
+        lambda m: f"{m.group(1)}:{m.group(2)} flour:ricotta",
+        text,
+        flags=re.IGNORECASE,
+    )
+    # "1:1 ricotta to flour" -> "1:1 flour:ricotta" (swap values)
+    text = re.sub(
+        rf"\b({number})\s*:\s*({number})\s*ricotta\s+to\s+flour\b",
+        lambda m: f"{m.group(2)}:{m.group(1)} flour:ricotta",
+        text,
+        flags=re.IGNORECASE,
+    )
+    # "1:1 flour:ricotta" (already canonical shape)
+    text = re.sub(
+        rf"\b({number})\s*:\s*({number})\s*flour\s*:\s*ricotta\b",
+        lambda m: f"{m.group(1)}:{m.group(2)} flour:ricotta",
+        text,
+        flags=re.IGNORECASE,
+    )
+    # "1:1 ricotta:flour" -> "1:1 flour:ricotta" (swap values)
+    text = re.sub(
+        rf"\b({number})\s*:\s*({number})\s*ricotta\s*:\s*flour\b",
+        lambda m: f"{m.group(2)}:{m.group(1)} flour:ricotta",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text
+
+
+def _jaccard_similarity(a: str, b: str) -> float:
+    ta = token_set(a)
+    tb = token_set(b)
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / max(1, len(ta | tb))
+
+
+def _is_repetitive_candidate(candidate: str, recent_lines: list[str], threshold: float = 0.72) -> bool:
+    """Detect near-duplicate wording against recent messages."""
+    recent_msgs = []
+    for line in recent_lines[-6:]:
+        parts = line.split(": ", 1)
+        recent_msgs.append(parts[1] if len(parts) == 2 else line)
+    return any(_jaccard_similarity(candidate.lower(), prev.lower()) >= threshold for prev in recent_msgs)
+
+
+def _shared_trigram_with_recent(candidate: str, recent_lines: list[str]) -> bool:
+    candidate_tokens = re.findall(r"[a-z']+", candidate.lower())
+    if len(candidate_tokens) < 3:
+        return False
+    candidate_ngrams = {
+        " ".join(candidate_tokens[i:i+3]) for i in range(len(candidate_tokens) - 2)
+    }
+    if not candidate_ngrams:
+        return False
+
+    stop = {"the", "a", "an", "and", "or", "in", "on", "is", "it", "to", "of", "at", "we", "i"}
+    meaningful = {ng for ng in candidate_ngrams if not all(w in stop for w in ng.split())}
+    if not meaningful:
+        return False
+
+    for line in recent_lines[-6:]:
+        parts = line.split(": ", 1)
+        prev = parts[1] if len(parts) == 2 else line
+        prev_tokens = re.findall(r"[a-z']+", prev.lower())
+        if len(prev_tokens) < 3:
+            continue
+        prev_ngrams = {" ".join(prev_tokens[i:i+3]) for i in range(len(prev_tokens) - 2)}
+        if meaningful & prev_ngrams:
+            return True
+    return False
+
+
 def generate_turn(
     persona: dict[str, Any],
     concept: str,
@@ -253,7 +368,23 @@ def generate_turn(
         model=model,
         temperature=0.8,
     ).strip()
+    if _is_repetitive_candidate(msg, recent_lines) or _shared_trigram_with_recent(msg, recent_lines):
+        rewrite_prompt = (
+            f"Recent chat:\n{history}\n\n"
+            f"Your draft is too repetitive:\n{msg}\n\n"
+            "Rewrite ONE message with different structure and new specific detail. "
+            "Do not repeat existing phrasing."
+        )
+        msg = generate_response(
+            prompt=rewrite_prompt,
+            system_prompt=build_system_prompt(persona),
+            model=model,
+            temperature=0.9,
+        ).strip()
+
     msg = sanitize_typographic_tells(msg)
+    msg = _normalize_time_notation(msg, deadline)
+    msg = _canonicalize_flour_ricotta_ratios(msg)
     return " ".join(msg.split())
 
 
