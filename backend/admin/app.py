@@ -142,9 +142,9 @@ def create_admin_app(
 # directly via the `app` name. Also used by `uvicorn backend.admin.app:app`
 # for local dev.
 #
-# Use a lazy wrapper to avoid import-time side effects (OAuth, middleware,
-# static mounts) when importing in tests or other contexts. The wrapper
-# creates the app on first access.
+# Import-time side effects (OAuth, middleware, static mounts) are intentional
+# here: Vercel requires a module-level ASGI app object. Use `get_app()` in
+# tests and other contexts that need to avoid those side effects.
 # ---------------------------------------------------------------------------
 
 _app_instance: Optional[FastAPI] = None
@@ -162,27 +162,10 @@ def get_app() -> FastAPI:
     return _app_instance
 
 
-class _LazyApp:
-    """Lazy app wrapper that defers creation until first access.
-    
-    This allows importing the module without triggering side effects
-    (OAuth, middleware, static mounts). The app is created on first
-    attribute access, which Vercel/uvicorn will trigger when they
-    try to use it.
-    """
-
-    def __getattr__(self, name: str):
-        """Forward all attribute access to the real app, creating it if needed."""
-        app = get_app()
-        return getattr(app, name)
-
-    def __call__(self, *args, **kwargs):
-        """Allow calling the app as ASGI app."""
-        return get_app()(*args, **kwargs)
-
-
-# Module-level `app` for Vercel / uvicorn — lazily created on first access.
-app = _LazyApp()  # type: ignore
+# Module-level `app` for Vercel / uvicorn — created eagerly at import time.
+# Vercel's @vercel/python runtime requires a real ASGI app object (not a proxy).
+# Use `get_app()` in tests to avoid import-time side effects.
+app = create_admin_app()
 
 
 if __name__ == "__main__":
