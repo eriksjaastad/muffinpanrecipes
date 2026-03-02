@@ -169,7 +169,7 @@ def main():
             "prompts": prompts
         }
         jobs.append(job)
-        print(f"  ✅ Done.")
+        print("  ✅ Done.")
     
     # Save jobs
     with open(OUTPUT_JOBS_FILE, 'w') as f:

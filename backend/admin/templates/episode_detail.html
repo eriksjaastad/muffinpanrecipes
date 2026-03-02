@@ -44,6 +44,12 @@
                     class="text-sm px-3 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 font-medium">
                     ▶ Run Compressed Week
                 </button>
+                {% if not episode.published_at %}
+                <button id="delete-btn" onclick="deleteEpisode('{{ episode.episode_id }}')"
+                    class="text-sm px-3 py-2 rounded bg-red-600 text-white hover:bg-red-700 font-medium">
+                    🗑 Delete Episode
+                </button>
+                {% endif %}
                 <a href="/admin/episodes"
                     class="text-sm px-3 py-2 rounded bg-slate-200 text-slate-800 hover:bg-slate-300">← All Episodes</a>
                 <a href="/admin/"
@@ -315,6 +321,37 @@
                 btn.disabled = false;
                 btn.textContent = '▶ Run Compressed Week';
                 btn.classList.replace('bg-slate-400', 'bg-emerald-600');
+            }
+        }
+
+        async function deleteEpisode(episodeId) {
+            if (!confirm(`Delete episode "${episodeId}" and its associated images?\n\nThis is IRREVERSIBLE. The episode JSON and image files will be moved to trash.`)) {
+                return;
+            }
+            const deleteBtn = document.getElementById('delete-btn');
+            if (deleteBtn) {
+                deleteBtn.disabled = true;
+                deleteBtn.textContent = '⏳ Deleting…';
+            }
+            try {
+                const resp = await fetch(`/admin/episodes/${episodeId}`, { method: 'DELETE' });
+                const data = await resp.json();
+                if (resp.ok) {
+                    alert(`✅ Deleted: ${data.message || 'Episode deleted.'}`);
+                    window.location.href = '/admin/episodes';
+                } else {
+                    alert(`❌ Delete failed: ${data.detail || 'Unknown error'}`);
+                    if (deleteBtn) {
+                        deleteBtn.disabled = false;
+                        deleteBtn.textContent = '🗑 Delete Episode';
+                    }
+                }
+            } catch (e) {
+                alert(`❌ Network error: ${e.message}`);
+                if (deleteBtn) {
+                    deleteBtn.disabled = false;
+                    deleteBtn.textContent = '🗑 Delete Episode';
+                }
             }
         }
     </script>

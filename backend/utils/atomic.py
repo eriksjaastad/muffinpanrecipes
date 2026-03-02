@@ -57,7 +57,7 @@ def atomic_write(path: Union[str, Path], content: str) -> None:
             
             logger.debug(f"Atomically wrote: {path}")
             
-        except Exception as e:
+        except Exception:
             # Clean up temp file on failure
             try:
                 from send2trash import send2trash as _trash

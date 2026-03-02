@@ -4,10 +4,9 @@ Property-based tests for Recipe Pipeline Controller.
 Feature: ai-creative-team
 """
 
-import pytest
 from hypothesis import given, strategies as st
 
-from backend.pipeline.recipe_pipeline import RecipePipeline, PipelineStage, RecipeContext
+from backend.pipeline.recipe_pipeline import RecipePipeline, PipelineStage
 from backend.agents.factory import create_agent
 
 
@@ -106,7 +105,7 @@ def test_creative_director_review_consistency() -> None:
     Validates: Requirements 6.1, 6.2
     """
     pipeline = RecipePipeline()
-    cd = create_agent("creative_director")
+    _cd = create_agent("creative_director")
     
     # Create a recipe
     recipe_id = "test_review"
@@ -213,9 +212,9 @@ def test_pipeline_statistics() -> None:
     pipeline = RecipePipeline()
     
     # Start multiple recipes at different stages
-    r1 = pipeline.start_recipe("recipe1", "Concept 1")
-    r2 = pipeline.start_recipe("recipe2", "Concept 2")
-    r3 = pipeline.start_recipe("recipe3", "Concept 3")
+    _r1 = pipeline.start_recipe("recipe1", "Concept 1")
+    _r2 = pipeline.start_recipe("recipe2", "Concept 2")
+    _r3 = pipeline.start_recipe("recipe3", "Concept 3")
     
     # Advance them to different stages
     pipeline.advance_stage("recipe1")  # To RECIPE_DEVELOPMENT

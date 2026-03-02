@@ -38,6 +38,6 @@ doppler run -- sh -lc 'if [ -n "$STABILITY_API_KEY" ]; then echo "STABILITY_API_
 ## Examples
 
 ```bash
-doppler run -- .venv/bin/python scripts/validate_env.py
-doppler run -- .venv/bin/python scripts/run_first_e2e_recipe.py
+doppler run -- uv run scripts/validate_env.py
+doppler run -- uv run scripts/run_first_e2e_recipe.py
 ```

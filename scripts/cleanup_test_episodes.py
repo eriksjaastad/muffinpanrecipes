@@ -4,8 +4,8 @@ Cleanup script for test episodes and their associated images.
 Identifies episodes with dry_run=true or "-test" in the ID and handles deletion.
 
 Usage:
-    python scripts/cleanup_test_episodes.py             # Dry run (shows what would be deleted)
-    python scripts/cleanup_test_episodes.py --confirm   # Actually delete
+    uv run scripts/cleanup_test_episodes.py             # Dry run (shows what would be deleted)
+    uv run scripts/cleanup_test_episodes.py --confirm   # Actually delete
 """
 from __future__ import annotations
 import argparse

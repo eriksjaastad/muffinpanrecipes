@@ -4,14 +4,12 @@ Property-based tests for the Message System.
 Feature: ai-creative-team
 """
 
-import pytest
 import tempfile
 from hypothesis import given, strategies as st
 from pathlib import Path
 
 from backend.messaging.message_system import MessageSystem
 from backend.messaging.message_handler import MessageHandler
-from backend.core.agent import Message
 from backend.core.types import MessageType
 
 

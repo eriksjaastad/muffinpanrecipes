@@ -1,9 +1,8 @@
 """Ollama integration for AI-powered agent behavior."""
 
-import json
 import os
 import re
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 from backend.utils.logging import get_logger

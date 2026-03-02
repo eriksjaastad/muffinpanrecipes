@@ -14,11 +14,11 @@ import os
 import json
 import subprocess
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 
 from backend.data.recipe import Recipe, RecipeStatus
-from backend.publishing.templates import render_recipe_page, generate_json_ld
+from backend.publishing.templates import render_recipe_page
 from backend.utils.logging import get_logger
 from backend.utils.discord import notify_recipe_ready
 from backend.utils.atomic import atomic_write, atomic_write_json
@@ -79,7 +79,7 @@ class PublishingPipeline:
             Dictionary with 'recipes' key containing list of recipe data
         """
         if not self.recipes_json_path.exists():
-            logger.warning(f"recipes.json not found, creating new one")
+            logger.warning("recipes.json not found, creating new one")
             return {"recipes": []}
         
         with open(self.recipes_json_path, "r") as f:

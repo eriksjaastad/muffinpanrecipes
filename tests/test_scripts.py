@@ -4,8 +4,6 @@ Tests for scripts module.
 These are smoke tests to ensure scripts are importable and have expected entry points.
 """
 
-import pytest
-from pathlib import Path
 
 
 class TestBuildSite:
@@ -112,7 +110,6 @@ class TestScriptDryRuns:
     
     def test_build_site_dry_run_parser(self):
         """Verify build_site has --dry-run argument."""
-        from scripts import build_site
         import argparse
         
         # Create a parser similar to build_site.main()

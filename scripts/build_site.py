@@ -7,7 +7,6 @@ all logic to the new backend.publishing.pipeline module.
 
 import sys
 import argparse
-from pathlib import Path
 
 from backend.publishing.pipeline import PublishingPipeline
 from backend.utils.logging import get_logger
@@ -145,7 +144,7 @@ def _dry_run_rebuild(pipeline: PublishingPipeline) -> bool:
     """Dry-run version of rebuild_site."""
     logger.info(f"[DRY-RUN] Would load template from: {pipeline.template_path}")
     logger.info(f"[DRY-RUN] Would clear: {pipeline.recipes_output_dir}")
-    logger.info(f"[DRY-RUN] Would regenerate sitemap")
+    logger.info("[DRY-RUN] Would regenerate sitemap")
     return True
 
 

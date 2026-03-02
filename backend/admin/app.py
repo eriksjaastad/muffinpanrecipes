@@ -14,8 +14,6 @@ from typing import Optional
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
-from starlette.middleware.base import BaseHTTPMiddleware
 
 from backend.auth.oauth import GoogleOAuth
 from backend.auth.session import JWTSessionManager

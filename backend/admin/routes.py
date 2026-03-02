@@ -411,9 +411,9 @@ def create_routes(app: FastAPI):
 
         # Find recipe in any status directory
         recipe = None
-        for status in RecipeStatus:
+        for recipe_status in RecipeStatus:
             try:
-                filepath = data_dir / status.value / f"{recipe_id}.json"
+                filepath = data_dir / recipe_status.value / f"{recipe_id}.json"
                 if filepath.exists():
                     recipe = Recipe.load_from_file(filepath)
                     break
@@ -437,8 +437,8 @@ def create_routes(app: FastAPI):
         templates = app.state.templates
 
         recipe = None
-        for status in RecipeStatus:
-            filepath = data_dir / status.value / f"{recipe_id}.json"
+        for recipe_status in RecipeStatus:
+            filepath = data_dir / recipe_status.value / f"{recipe_id}.json"
             if filepath.exists():
                 recipe = Recipe.load_from_file(filepath)
                 break
@@ -487,7 +487,7 @@ def create_routes(app: FastAPI):
         recipe = Recipe.load_from_file(filepath)
         
         # Transition to approved
-        new_path = recipe.transition_status(
+        _new_path = recipe.transition_status(
             RecipeStatus.APPROVED,
             data_dir,
             notes=request_data.notes
@@ -513,8 +513,8 @@ def create_routes(app: FastAPI):
         
         # Find recipe (could be pending or approved)
         recipe = None
-        for status in [RecipeStatus.PENDING, RecipeStatus.APPROVED]:
-            filepath = data_dir / status.value / f"{recipe_id}.json"
+        for recipe_status in [RecipeStatus.PENDING, RecipeStatus.APPROVED]:
+            filepath = data_dir / recipe_status.value / f"{recipe_id}.json"
             if filepath.exists():
                 recipe = Recipe.load_from_file(filepath)
                 break
@@ -523,7 +523,7 @@ def create_routes(app: FastAPI):
             raise HTTPException(status_code=404, detail="Recipe not found")
         
         # Transition to rejected
-        new_path = recipe.transition_status(
+        _new_path = recipe.transition_status(
             RecipeStatus.REJECTED,
             data_dir,
             notes=request_data.notes
@@ -874,6 +874,56 @@ def create_routes(app: FastAPI):
         )
 
 
+
+
+
+    @app.delete("/admin/episodes/{episode_id}")
+    async def admin_episode_delete(
+        episode_id: str,
+        user: dict = Depends(require_auth),
+    ):
+        """Delete a non-published episode and its associated images (moved to trash)."""
+        _sanitize_id(episode_id, "episode_id")
+        episodes_dir = app.state.project_root / "data" / "episodes"
+        ep_path = episodes_dir / f"{episode_id}.json"
+
+        if not ep_path.exists():
+            raise HTTPException(status_code=404, detail=f"Episode not found: {episode_id}")
+
+        data = json.loads(ep_path.read_text())
+        if data.get("published_at"):
+            raise HTTPException(status_code=403, detail="Cannot delete a published episode.")
+
+        from send2trash import send2trash
+        trashed: list[str] = []
+        errors: list[str] = []
+
+        recipe_id = data.get("recipe_id")
+        images_base = app.state.project_root / "src" / "assets" / "images"
+        paths_to_trash: list[Path] = [ep_path]
+        if recipe_id:
+            image_dir = images_base / recipe_id
+            featured = images_base / f"{recipe_id}.png"
+            if image_dir.exists():
+                paths_to_trash.append(image_dir)
+            if featured.exists():
+                paths_to_trash.append(featured)
+
+        for p in paths_to_trash:
+            try:
+                send2trash(str(p))
+                trashed.append(str(p))
+            except Exception as exc:
+                errors.append(f"{p}: {exc}")
+
+        if errors:
+            logger.warning(f"Episode delete partial errors for {episode_id}: {errors}")
+
+        return JSONResponse({
+            "message": f"Episode {episode_id} deleted ({len(trashed)} items trashed).",
+            "trashed": trashed,
+            "errors": errors,
+        })
 
     @app.post("/admin/episodes/{episode_id}/run")
     async def admin_episode_run(

@@ -2,12 +2,10 @@ import os
 import json
 import shutil
 import sys
-import html
-import re
 import argparse
 from pathlib import Path
 from PIL import Image
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Set up paths
 PROJECT_ROOT = Path(os.getenv("PROJECT_ROOT", Path(__file__).parent.parent))
@@ -21,7 +19,7 @@ def safe_move_to_archive(src_path, dry_run=False):
     """Moves a file to the archive, appending a timestamp if it already exists."""
     dest_path = ARCHIVE_DIR / src_path.name
     if dest_path.exists():
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         new_name = f"{src_path.stem}_{timestamp}{src_path.suffix}"
         dest_path = ARCHIVE_DIR / new_name
     
@@ -46,7 +44,7 @@ def main():
     converted_count = 0
     skipped_count = 0
 
-    print(f"--- 🧁 Muffin Pan Recipes: Image Optimizer ---")
+    print("--- 🧁 Muffin Pan Recipes: Image Optimizer ---")
     print(f"Scanning: {IMAGES_DIR}")
     
     if args.dry_run:

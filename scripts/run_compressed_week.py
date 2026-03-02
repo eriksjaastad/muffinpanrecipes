@@ -5,10 +5,10 @@ For testing the full week before trusting the daily cron. Always runs in
 dry-run mode (no publishing, no git push).
 
 Examples:
-  PYTHONPATH=. .venv/bin/python scripts/run_compressed_week.py \
+  PYTHONPATH=. uv run scripts/run_compressed_week.py \
     --concept "Lemon Ricotta Breakfast Muffins" --episode-id "2026-W10-test"
 
-  PYTHONPATH=. .venv/bin/python scripts/run_compressed_week.py \
+  PYTHONPATH=. uv run scripts/run_compressed_week.py \
     --concept "mini shepherds pies" --episode-id "2026-W10-test" --delay 30
 """
 
@@ -20,10 +20,9 @@ import os
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
-from backend.utils.discord import notify_pipeline_failure
 
 ROOT = Path(__file__).resolve().parents[1]
 EPISODES_DIR = ROOT / "data" / "episodes"
@@ -85,7 +84,7 @@ def print_summary(episode_id: str, concept: str, results: list[dict], elapsed: f
     stages_data = ep.get("stages", {})
 
     print("\n" + "=" * 60)
-    print(f"  COMPRESSED WEEK SUMMARY")
+    print("  COMPRESSED WEEK SUMMARY")
     print(f"  Episode:   {episode_id}")
     print(f"  Concept:   {concept}")
     print(f"  Elapsed:   {elapsed:.1f}s")
@@ -160,7 +159,7 @@ def main() -> None:
     print(f"  Concept:  {args.concept}")
     print(f"  Stages:   {' → '.join(stages_to_run)}")
     print(f"  Delay:    {args.delay}s between stages")
-    print(f"  Started:  {datetime.now().isoformat()}")
+    print(f"  Started:  {datetime.now(timezone.utc).isoformat()}")
     print(f"{'='*60}\n")
 
     results: list[dict] = []

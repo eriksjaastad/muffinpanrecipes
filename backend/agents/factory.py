@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Optional
 
 from backend.core.personality import PersonalityConfig, CommunicationStyle
 from backend.utils.logging import get_logger

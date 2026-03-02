@@ -83,7 +83,7 @@ def main():
     with open(JOBS_FILE, "r") as f:
         try:
             jobs = json.load(f)
-        except Exception as e:
+        except Exception:
             f.seek(0)
             content = f.read()
             jobs = json.loads(content)

@@ -6,6 +6,9 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 
+from backend.utils.logging import get_logger
+from backend.utils.ollama import get_ollama_client
+
 # Fail-closed OpenAI model policy.
 # OWNER RULE (do not relax without explicit Erik approval):
 # Allowed models are ONLY: gpt-5-mini, gpt-5-nano, gpt-5.1
@@ -30,8 +33,6 @@ HARD_BLOCKED_MODELS = {
     "o1-pro-2025-03-19",
 }
 
-from backend.utils.logging import get_logger
-from backend.utils.ollama import get_ollama_client
 
 logger = get_logger(__name__)
 

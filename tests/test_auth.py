@@ -2,7 +2,6 @@
 
 import os
 import time
-import pytest
 
 from backend.auth.oauth import GoogleOAuth
 from backend.auth.session import JWTSessionManager

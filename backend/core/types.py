@@ -1,8 +1,7 @@
 """Common type definitions for the AI Creative Team system."""
 
 from enum import Enum
-from typing import Any, Dict, List, Optional
-from datetime import datetime
+from typing import Any, Dict, List
 from pydantic import BaseModel, Field
 
 

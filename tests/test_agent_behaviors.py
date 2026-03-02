@@ -4,11 +4,10 @@ Property-based tests for specific agent behaviors.
 Feature: ai-creative-team
 """
 
-import pytest
 from hypothesis import given, strategies as st, settings
 from pathlib import Path
 
-from backend.agents.factory import create_agent, load_personality_config
+from backend.agents.factory import create_agent
 from backend.core.task import Task
 from backend.memory.agent_memory import AgentMemory
 

@@ -13,7 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -45,7 +45,7 @@ def run_cmd(cmd: list[str], timeout: int = 25) -> tuple[bool, str]:
 
 
 def list_openai_models() -> list[str]:
-    ok, out = run_cmd([".venv/bin/python", str(LIST)])
+    ok, out = run_cmd(["uv", "run", str(LIST)])
     if not ok:
         raise RuntimeError(f"failed to list models: {out}")
     marker = "=== json ==="
@@ -85,7 +85,8 @@ def load_existing_monday_attempts() -> dict[str, int]:
 
 def quick_attempt(model: str, run_tag: str) -> tuple[bool, str]:
     cmd = [
-        ".venv/bin/python",
+        "uv",
+        "run",
         str(SIM),
         "--concept",
         MONDAY_CONCEPT,
@@ -107,7 +108,8 @@ def quick_attempt(model: str, run_tag: str) -> tuple[bool, str]:
 
 def run_full_week(model: str, concept: str, prompt_style: str = "scene") -> tuple[bool, str]:
     cmd = [
-        ".venv/bin/python",
+        "uv",
+        "run",
         str(SIM),
         "--concept",
         concept,
@@ -165,7 +167,8 @@ def assignment_variants() -> dict[str, dict[str, str]]:
 
 def run_assignment_variant(name: str, mapping: dict[str, str]) -> tuple[bool, str]:
     cmd = [
-        ".venv/bin/python",
+        "uv",
+        "run",
         str(SIM),
         "--concept",
         "Mini Shepherd's Pies",
@@ -274,7 +277,7 @@ def main() -> None:
         )
 
     summary = {
-        "generated_at": datetime.now().isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "openai_models_total": len(models),
         "compatibility": compatibility,
         "deep_runs": deep_runs,

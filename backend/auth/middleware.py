@@ -11,7 +11,6 @@ from typing import Optional, Dict, Any
 from urllib.parse import quote
 
 from fastapi import Depends, HTTPException, Request, Response, status
-from fastapi.responses import RedirectResponse
 
 from backend.auth.session import JWTSessionManager
 from backend.utils.logging import get_logger

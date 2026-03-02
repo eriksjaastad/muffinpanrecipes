@@ -6,11 +6,9 @@ in month one. Uses tech jargon to hide gaps while actually learning what
 he pretended to know.
 """
 
-from typing import Any
 import random
 
 from backend.core.agent import Agent
-from backend.core.personality import PersonalityConfig
 from backend.core.task import Task, TaskResult, TaskApproach
 from backend.core.types import EmotionalResponse, MemoryContext
 from backend.utils.logging import get_logger
@@ -99,16 +97,7 @@ class SiteArchitectAgent(Agent):
     ) -> TaskResult:
         """Fix bugs efficiently (after Googling frantically)."""
         
-        # Devon doesn't know the answer immediately
-        googling_phase = {
-            "queries": [
-                task.content + " stack overflow",
-                "how to fix " + task.content[:30],
-                "best practices for " + task.content[:20],
-            ],
-            "tabs_opened": random.randint(8, 15),
-            "time_spent": "12 minutes",
-        }
+        # Devon doesn't know the answer immediately — opens 8–15 tabs, spends 12 minutes Googling
         
         # But he figures it out
         fix = {
@@ -235,7 +224,7 @@ class SiteArchitectAgent(Agent):
         
         Generally unbothered but scared of being exposed. Quietly proud when things work.
         """
-        outcome = result.output.get("actually_worked", result.success)
+        _outcome = result.output.get("actually_worked", result.success)
         
         if not result.success:
             # Panic: this might expose him

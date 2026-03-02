@@ -4,14 +4,12 @@ Property-based tests for Agent personality persistence and initialization.
 Feature: ai-creative-team
 """
 
-import pytest
 from hypothesis import given, strategies as st
 from pathlib import Path
-import json
-from typing import Dict
+from typing import Any
 
 from backend.core.personality import PersonalityConfig, CommunicationStyle
-from backend.core.agent import Agent, Message
+from backend.core.agent import Agent
 from backend.core.task import Task, TaskResult
 from backend.core.types import EmotionalResponse, MemoryContext
 from backend.memory.agent_memory import AgentMemory
@@ -223,7 +221,7 @@ def test_memory_persistence_across_agent_instances(tmp_path: Path) -> None:
 
     # Create and process a task
     task = Task(type="test_task", content="Test task", default_strategy="standard")
-    result = agent1.process_task(task)
+    _result = agent1.process_task(task)
 
     # Verify memory was recorded
     assert len(memory1.emotional_responses) > 0 or len(memory1.formative_experiences) > 0
