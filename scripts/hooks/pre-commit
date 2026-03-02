@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# pre-commit hook: Block unauthorized writes to src/recipes/ and src/recipes.json
+# pre-commit hook: Detect writes to protected publishing paths.
 #
 # These paths are managed exclusively by the PublishingPipeline.
-# Commits that touch them must include [publish] in the commit message.
+# The commit-msg hook will enforce the 'publish:' marker requirement.
+#
+# NOTE: COMMIT_EDITMSG is not available at pre-commit time (only at commit-msg).
+# This hook only detects protected paths and warns; commit-msg enforces the marker.
 #
 # Policy: --no-verify bypasses are FORBIDDEN. Fix the root cause instead.
 # See AGENTS.md § Publishing Protocol for the approved publishing flow.
@@ -18,20 +21,8 @@ changed_files=$(git diff --cached --name-only)
 
 for pattern in "${PROTECTED_PATTERNS[@]}"; do
     if echo "$changed_files" | grep -qE "$pattern"; then
-        # Allow if commit message contains [publish] or starts with publish:
-        # Read commit message from COMMIT_EDITMSG if available (interactive),
-        # or skip message check and block (for non-interactive/scripted commits).
-        msg_file="${GIT_DIR:-$(git rev-parse --git-dir)}/COMMIT_EDITMSG"
-        if [[ -f "$msg_file" ]]; then
-            commit_msg=$(cat "$msg_file")
-            if echo "$commit_msg" | grep -qiE '(\[publish\]|^publish:)'; then
-                echo "✅ pre-commit: publish marker found — allowing src/recipes/ change."
-                exit 0
-            fi
-        fi
-
         echo ""
-        echo "🛑 BLOCKED: Direct write to protected publishing path."
+        echo "⚠️  WARNING: Commit touches protected publishing paths."
         echo ""
         echo "   Files affected:"
         echo "$changed_files" | grep -E "$pattern" | sed 's/^/   - /'
@@ -39,13 +30,12 @@ for pattern in "${PROTECTED_PATTERNS[@]}"; do
         echo "   src/recipes/ and src/recipes.json are managed ONLY by the"
         echo "   PublishingPipeline (backend/publishing/pipeline.py)."
         echo ""
-        echo "   To commit a legitimate publish, use the admin dashboard"
-        echo "   or include [publish] in your commit message:"
-        echo "     git commit -m 'publish: Recipe name [publish]'"
+        echo "   Your commit message MUST include 'publish:' or '[publish]'"
+        echo "     git commit -m 'publish: Recipe name'"
+        echo "     git commit -m 'Recipe name [publish]'"
         echo ""
-        echo "   Policy: --no-verify is FORBIDDEN. Fix the root cause."
-        echo ""
-        exit 1
+        # Pre-commit only warns; commit-msg hook will enforce the marker
+        exit 0
     fi
 done
 

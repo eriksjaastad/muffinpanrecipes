@@ -433,62 +433,89 @@ def create_routes(app: FastAPI):
         user: dict = Depends(require_auth)
     ):
         """Render recipe detail review page."""
-        _sanitize_id(recipe_id, "recipe_id")
         data_dir = app.state.project_root / "data" / "recipes"
         templates = app.state.templates
 
-        recipe = None
-        for recipe_status in RecipeStatus:
-            filepath = data_dir / recipe_status.value / f"{recipe_id}.json"
-            if filepath.exists():
-                try:
-                    recipe = Recipe.load_from_file(filepath)
-                except Exception as e:
-                    logger.error(f"Error loading recipe {recipe_id}: {e}")
-                    return templates.TemplateResponse(
-                        "recipe_detail.html",
-                        {
-                            "request": request,
-                            "recipe": None,
-                            "error": f"Failed to load recipe data: {e}",
-                        },
-                        status_code=500,
-                    )
-                break
-
-        if not recipe:
+        try:
+            _sanitize_id(recipe_id, "recipe_id")
+        except HTTPException as e:
+            # Invalid ID format — render error template instead of raising
             return templates.TemplateResponse(
                 "recipe_detail.html",
                 {
                     "request": request,
                     "recipe": None,
-                    "error": f"Recipe '{recipe_id}' not found.",
+                    "error": e.detail,
                 },
-                status_code=404,
+                status_code=e.status_code,
             )
 
-        recipe_payload = recipe.model_dump(mode="json")
-        image_url = None
-        featured = recipe_payload.get("featured_photo")
+        try:
 
-        if isinstance(featured, str) and featured.strip():
-            featured = featured.strip()
-            if featured.startswith("http://") or featured.startswith("https://"):
-                image_url = featured
-            else:
-                candidate = app.state.project_root / "src" / "assets" / "images" / featured
-                if candidate.exists():
-                    image_url = f"/assets/images/{featured}"
+            recipe = None
+            for recipe_status in RecipeStatus:
+                filepath = data_dir / recipe_status.value / f"{recipe_id}.json"
+                if filepath.exists():
+                    try:
+                        recipe = Recipe.load_from_file(filepath)
+                    except Exception as e:
+                        logger.error(f"Error loading recipe {recipe_id}: {e}")
+                        return templates.TemplateResponse(
+                            "recipe_detail.html",
+                            {
+                                "request": request,
+                                "recipe": None,
+                                "error": f"Failed to load recipe data: {e}",
+                            },
+                            status_code=500,
+                        )
+                    break
 
-        recipe_payload["image_url"] = image_url
+            if not recipe:
+                return templates.TemplateResponse(
+                    "recipe_detail.html",
+                    {
+                        "request": request,
+                        "recipe": None,
+                        "error": f"Recipe '{recipe_id}' not found.",
+                    },
+                    status_code=404,
+                )
 
-        return templates.TemplateResponse(
-            "recipe_detail.html",
-            {
-                "request": request,
-                "recipe": recipe_payload,
-            },
-        )
+            recipe_payload = recipe.model_dump(mode="json")
+            image_url = None
+            featured = recipe_payload.get("featured_photo")
+
+            if isinstance(featured, str) and featured.strip():
+                featured = featured.strip()
+                if featured.startswith("http://") or featured.startswith("https://"):
+                    image_url = featured
+                else:
+                    candidate = app.state.project_root / "src" / "assets" / "images" / featured
+                    if candidate.exists():
+                        image_url = f"/assets/images/{featured}"
+
+            recipe_payload["image_url"] = image_url
+
+            return templates.TemplateResponse(
+                "recipe_detail.html",
+                {
+                    "request": request,
+                    "recipe": recipe_payload,
+                },
+            )
+        except Exception as e:
+            # Catch any other unexpected exceptions and render error template
+            logger.error(f"Error rendering recipe detail: {e}", exc_info=True)
+            return templates.TemplateResponse(
+                "recipe_detail.html",
+                {
+                    "request": request,
+                    "recipe": None,
+                    "error": "An unexpected error occurred while loading the recipe.",
+                },
+                status_code=500,
+            )
     
     @app.post("/admin/recipes/{recipe_id}/approve")
     async def approve_recipe(

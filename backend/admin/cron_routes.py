@@ -216,7 +216,7 @@ async def cron_monday(request: Request, body: StageRequest = StageRequest()):
     concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
     ep["concept"] = concept
 
-    try:
+    with _run_stage(ep, "monday"):
         import uuid
         if not ep.get("recipe_id"):
             ep["recipe_id"] = str(uuid.uuid4())[:8]
@@ -242,15 +242,10 @@ async def cron_monday(request: Request, body: StageRequest = StageRequest()):
         ep["events"].append("monday: complete")
         storage.save_episode(episode_id, ep)
 
-        return _stage_response("monday", episode_id, concept, {
-            "recipe_title": recipe_data.get("title", concept) if recipe_data else concept,
-            "dialogue_messages": len(dialogue),
-        })
-
-    except Exception as e:
-        ep.setdefault("stages", {})["monday"] = {"status": "failed", "error": str(e)}
-        storage.save_episode(episode_id, ep)
-        raise HTTPException(status_code=500, detail=str(e))
+    return _stage_response("monday", episode_id, concept, {
+        "recipe_title": recipe_data.get("title", concept) if recipe_data else concept,
+        "dialogue_messages": len(dialogue),
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +259,7 @@ async def cron_tuesday(request: Request, body: StageRequest = StageRequest()):
     ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
     concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
 
-    try:
+    with _run_stage(ep, "tuesday"):
         dialogue = _generate_dialogue("tuesday", concept)
         ep["stages"]["tuesday"] = {
             "stage": "recipe_development",
@@ -276,12 +271,8 @@ async def cron_tuesday(request: Request, body: StageRequest = StageRequest()):
         }
         ep["events"].append("tuesday: complete")
         storage.save_episode(episode_id, ep)
-        return _stage_response("tuesday", episode_id, concept, {"dialogue_messages": len(dialogue)})
 
-    except Exception as e:
-        ep.setdefault("stages", {})["tuesday"] = {"status": "failed", "error": str(e)}
-        storage.save_episode(episode_id, ep)
-        raise HTTPException(status_code=500, detail=str(e))
+    return _stage_response("tuesday", episode_id, concept, {"dialogue_messages": len(dialogue)})
 
 
 # ---------------------------------------------------------------------------
@@ -296,7 +287,7 @@ async def cron_wednesday(request: Request, body: StageRequest = StageRequest()):
     concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
     recipe_data = ep.get("stages", {}).get("monday", {}).get("recipe_data", {})
 
-    try:
+    with _run_stage(ep, "wednesday"):
         RecipeOrchestrator = _get_orchestrator()
         from backend.storage import EPISODES_DIR
         orchestrator = RecipeOrchestrator(data_dir=EPISODES_DIR.parent)
@@ -325,16 +316,11 @@ async def cron_wednesday(request: Request, body: StageRequest = StageRequest()):
         ep["events"].append("wednesday: complete")
         storage.save_episode(episode_id, ep)
 
-        return _stage_response("wednesday", episode_id, concept, {
-            "images_generated": len(image_paths),
-            "image_urls": image_urls,
-            "dialogue_messages": len(dialogue),
-        })
-
-    except Exception as e:
-        ep.setdefault("stages", {})["wednesday"] = {"status": "failed", "error": str(e)}
-        storage.save_episode(episode_id, ep)
-        raise HTTPException(status_code=500, detail=str(e))
+    return _stage_response("wednesday", episode_id, concept, {
+        "images_generated": len(image_paths),
+        "image_urls": image_urls,
+        "dialogue_messages": len(dialogue),
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -349,7 +335,7 @@ async def cron_thursday(request: Request, body: StageRequest = StageRequest()):
     concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
     recipe_data = ep.get("stages", {}).get("monday", {}).get("recipe_data", {})
 
-    try:
+    with _run_stage(ep, "thursday"):
         RecipeOrchestrator = _get_orchestrator()
         from backend.storage import EPISODES_DIR
         orchestrator = RecipeOrchestrator(data_dir=EPISODES_DIR.parent)
@@ -370,15 +356,11 @@ async def cron_thursday(request: Request, body: StageRequest = StageRequest()):
         }
         ep["events"].append("thursday: complete")
         storage.save_episode(episode_id, ep)
-        return _stage_response("thursday", episode_id, concept, {
-            "copy_preview": (copy_text or "")[:80],
-            "dialogue_messages": len(dialogue),
-        })
 
-    except Exception as e:
-        ep.setdefault("stages", {})["thursday"] = {"status": "failed", "error": str(e)}
-        storage.save_episode(episode_id, ep)
-        raise HTTPException(status_code=500, detail=str(e))
+    return _stage_response("thursday", episode_id, concept, {
+        "copy_preview": (copy_text or "")[:80],
+        "dialogue_messages": len(dialogue),
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -392,7 +374,7 @@ async def cron_friday(request: Request, body: StageRequest = StageRequest()):
     ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
     concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
 
-    try:
+    with _run_stage(ep, "friday"):
         RecipeOrchestrator = _get_orchestrator()
         from backend.storage import EPISODES_DIR
         orchestrator = RecipeOrchestrator(data_dir=EPISODES_DIR.parent)
@@ -414,15 +396,11 @@ async def cron_friday(request: Request, body: StageRequest = StageRequest()):
         }
         ep["events"].append("friday: complete")
         storage.save_episode(episode_id, ep)
-        return _stage_response("friday", episode_id, concept, {
-            "approved": approved,
-            "dialogue_messages": len(dialogue),
-        })
 
-    except Exception as e:
-        ep.setdefault("stages", {})["friday"] = {"status": "failed", "error": str(e)}
-        storage.save_episode(episode_id, ep)
-        raise HTTPException(status_code=500, detail=str(e))
+    return _stage_response("friday", episode_id, concept, {
+        "approved": approved,
+        "dialogue_messages": len(dialogue),
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -436,7 +414,7 @@ async def cron_saturday(request: Request, body: StageRequest = StageRequest()):
     ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
     concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
 
-    try:
+    with _run_stage(ep, "saturday"):
         RecipeOrchestrator = _get_orchestrator()
         from backend.storage import EPISODES_DIR
         orchestrator = RecipeOrchestrator(data_dir=EPISODES_DIR.parent)
@@ -457,12 +435,8 @@ async def cron_saturday(request: Request, body: StageRequest = StageRequest()):
         }
         ep["events"].append("saturday: complete")
         storage.save_episode(episode_id, ep)
-        return _stage_response("saturday", episode_id, concept, {"dialogue_messages": len(dialogue)})
 
-    except Exception as e:
-        ep.setdefault("stages", {})["saturday"] = {"status": "failed", "error": str(e)}
-        storage.save_episode(episode_id, ep)
-        raise HTTPException(status_code=500, detail=str(e))
+    return _stage_response("saturday", episode_id, concept, {"dialogue_messages": len(dialogue)})
 
 
 # ---------------------------------------------------------------------------
@@ -476,7 +450,7 @@ async def cron_sunday(request: Request, body: StageRequest = StageRequest()):
     ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
     concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
 
-    try:
+    with _run_stage(ep, "sunday"):
         dialogue = _generate_dialogue("sunday", concept)
 
         # Verify critical prior stages completed before publishing
@@ -500,15 +474,11 @@ async def cron_sunday(request: Request, body: StageRequest = StageRequest()):
         }
         ep["events"].append("sunday: complete (published)")
         storage.save_episode(episode_id, ep)
-        return _stage_response("sunday", episode_id, concept, {
-            "published": True,
-            "dialogue_messages": len(dialogue),
-        })
 
-    except Exception as e:
-        ep.setdefault("stages", {})["sunday"] = {"status": "failed", "error": str(e)}
-        storage.save_episode(episode_id, ep)
-        raise HTTPException(status_code=500, detail=str(e))
+    return _stage_response("sunday", episode_id, concept, {
+        "published": True,
+        "dialogue_messages": len(dialogue),
+    })
 
 
 # ---------------------------------------------------------------------------

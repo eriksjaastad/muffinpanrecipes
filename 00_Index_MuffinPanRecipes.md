@@ -65,8 +65,10 @@ scaffolding_date: 2026-01-27
 
 | Directory | Files | Description |
 | :--- | :---: | :--- |
-| [Documents/](Documents/README.md) | 5 | *Auto-generated index. Last updated: 2026-01-24* |
+| [Documents/](Documents/README.md) | 4 | *Auto-generated index. Last updated: 2026-01-24* |
 | [backend/](backend/README.md) | 5 | Python-based multi-agent orchestration system for Muffin Pan Recipes. |
+| [docs/](docs/) | 1 | No description available. |
+| [reviews/](reviews/) | 1 | No description available. |
 
 ### Files
 
@@ -74,14 +76,12 @@ scaffolding_date: 2026-01-27
 | :--- | :--- |
 | [AGENTS.md](AGENTS.md) | <!-- project-scaffolding template appended --> |
 | [CLAUDE.md](CLAUDE.md) | <!-- AUTO-GENERATED from .agentsync/rules/ - Do not edit directly --> |
-| [CODE_REVIEW_GOVERNANCE_COMPLIANCE_2026-03-01.md](CODE_REVIEW_GOVERNANCE_COMPLIANCE_2026-03-01.md) | **Reviewer:** Claude (Opus 4.6) |
 | [CREATIVE_BIBLE.md](CREATIVE_BIBLE.md) | > The show bible for our weekly serialized content. This is a living document. |
 | [DECISIONS.md](DECISIONS.md) | > *Documenting WHY we made decisions, not just WHAT we built.* |
-| [DEPLOYMENT.md](DEPLOYMENT.md) | | Layer | Local Dev | Vercel Production | |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Layer |
 | [DIALOGUE_IMPLEMENTATION_PLAN.md](DIALOGUE_IMPLEMENTATION_PLAN.md) | Goal: Ship reliable, character-consistent weekly dialogue by Monday. |
 | [Documents/CONTEXT_CEILING_STRATEGY.md](Documents/CONTEXT_CEILING_STRATEGY.md) | Context ceiling refers to the maximum amount of text (measured in tokens) that can be safely sent to... |
 | [Documents/README.md](Documents/README.md) | *Auto-generated index. Last updated: 2026-01-24* |
-| [Documents/REVIEWS_AND_GOVERNANCE_PROTOCOL.md](Documents/REVIEWS_AND_GOVERNANCE_PROTOCOL.md) | **Date:** 2026-01-07 |
 | [Documents/WORKFLOW_DIAGRAM.md](Documents/WORKFLOW_DIAGRAM.md) | This document defines the complete workflow for producing a recipe, from initial idea to published c... |
 | [Documents/character-creation-vision-v1.md](Documents/character-creation-vision-v1.md) | **Date:** January 14, 2026 |
 | [Documents/core/ARCHITECTURAL_DECISIONS.md](Documents/core/ARCHITECTURAL_DECISIONS.md) | **Status:** Accepted |
@@ -110,6 +110,7 @@ scaffolding_date: 2026-01-27
 | [backend/admin/app.py](backend/admin/app.py) | FastAPI application for the admin dashboard. |
 | [backend/admin/cron_routes.py](backend/admin/cron_routes.py) | Vercel Cron API routes for the Muffin Pan Recipes pipeline. |
 | [backend/admin/routes.py](backend/admin/routes.py) | Admin dashboard routes and endpoints. |
+| [backend/admin/static/tailwind.css](backend/admin/static/tailwind.css) | No description available. |
 | [backend/agents/__init__.py](backend/agents/__init__.py) | Agent implementations package. |
 | [backend/agents/art_director.py](backend/agents/art_director.py) | Art Director Agent - Julian Torres |
 | [backend/agents/baker.py](backend/agents/baker.py) | Baker Agent - Margaret Chen |
@@ -149,10 +150,13 @@ scaffolding_date: 2026-01-27
 | [backend/utils/model_router.py](backend/utils/model_router.py) | Unified model router for Ollama + OpenAI-compatible dialogue generation. |
 | [backend/utils/ollama.py](backend/utils/ollama.py) | Ollama integration for AI-powered agent behavior. |
 | [backend/utils/publish_schedule.py](backend/utils/publish_schedule.py) | Publish scheduling utilities (DST-aware). |
+| [docs/publishing-pipeline-audit.md](docs/publishing-pipeline-audit.md) | **Date:** 2026-03-02 |
 | [package-lock.json](package-lock.json) | No description available. |
 | [package.json](package.json) | No description available. |
 | [pyproject.toml](pyproject.toml) | No description available. |
-| [requirements.txt](requirements.txt) | No description available. |
+| [reviews/admin-backend-code-review.md](reviews/admin-backend-code-review.md) | **Reviewer:** Claude Code |
+| [tailwind.config.js](tailwind.config.js) | No description available. |
+| [tailwind.css](tailwind.css) | No description available. |
 | [uv.lock](uv.lock) | No description available. |
 | [vercel.json](vercel.json) | No description available. |
 
