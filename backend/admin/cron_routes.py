@@ -21,6 +21,7 @@ Usage:
 from __future__ import annotations
 import hmac
 import os
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -161,6 +162,28 @@ def _save_stage_failure(ep: dict, stage: str, error: Exception) -> None:
     """Write a failed-stage marker and persist the episode."""
     ep.setdefault("stages", {})[stage] = {"status": "failed", "error": str(error)}
     storage.save_episode(ep["episode_id"], ep)
+
+
+
+@contextmanager
+def _run_stage(ep: dict, stage: str):
+    """Context manager: saves a failure record and re-raises on any exception.
+
+    Replaces the 7x copy-paste try/except boilerplate in cron handlers:
+
+        with _run_stage(ep, "monday"):
+            ... stage logic ...
+
+    On success the caller is responsible for saving the episode.
+    On failure, writes {status: failed, error: ...} and re-raises as HTTP 500.
+    """
+    try:
+        yield
+    except HTTPException:
+        raise  # let explicit HTTP errors through unchanged
+    except Exception as e:
+        _save_stage_failure(ep, stage, e)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ---------------------------------------------------------------------------

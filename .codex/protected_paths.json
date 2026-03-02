@@ -1,0 +1,16 @@
+{
+    "protected_paths": [
+        "src/recipes/",
+        "src/recipes.json"
+    ],
+    "policy": "These paths are exclusively managed by the PublishingPipeline (backend/publishing/pipeline.py). No agent, script, or direct edit may write to them without the [publish] commit marker or publish: prefix.",
+    "allowed_writers": [
+        "backend/publishing/pipeline.py",
+        "backend/publishing/templates.py"
+    ],
+    "enforcement": [
+        "scripts/hooks/pre-commit — blocks staged changes without publish marker",
+        "scripts/hooks/commit-msg — blocks commit messages without [publish] or publish:"
+    ],
+    "bypass_policy": "--no-verify is FORBIDDEN. Escalate to the Conductor if blocked."
+}

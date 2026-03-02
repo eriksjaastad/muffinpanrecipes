@@ -39,11 +39,11 @@ for pattern in "${PROTECTED_PATTERNS[@]}"; do
         echo "   src/recipes/ and src/recipes.json are managed ONLY by the"
         echo "   PublishingPipeline (backend/publishing/pipeline.py)."
         echo ""
-        echo "   To commit a legitimate publish, use the admin dashboard or"
-        echo "   include [publish] in your commit message:"
+        echo "   To commit a legitimate publish, use the admin dashboard"
+        echo "   or include [publish] in your commit message:"
         echo "     git commit -m 'publish: Recipe name [publish]'"
         echo ""
-        echo "   NOT RECOMMENDED: git commit --no-verify (bypasses safety)"
+        echo "   Policy: --no-verify is FORBIDDEN. Fix the root cause."
         echo ""
         exit 1
     fi

@@ -445,11 +445,27 @@ def create_routes(app: FastAPI):
                     recipe = Recipe.load_from_file(filepath)
                 except Exception as e:
                     logger.error(f"Error loading recipe {recipe_id}: {e}")
-                    raise HTTPException(status_code=500, detail="Failed to load recipe data")
+                    return templates.TemplateResponse(
+                        "recipe_detail.html",
+                        {
+                            "request": request,
+                            "recipe": None,
+                            "error": f"Failed to load recipe data: {e}",
+                        },
+                        status_code=500,
+                    )
                 break
 
         if not recipe:
-            raise HTTPException(status_code=404, detail="Recipe not found")
+            return templates.TemplateResponse(
+                "recipe_detail.html",
+                {
+                    "request": request,
+                    "recipe": None,
+                    "error": f"Recipe '{recipe_id}' not found.",
+                },
+                status_code=404,
+            )
 
         recipe_payload = recipe.model_dump(mode="json")
         image_url = None
