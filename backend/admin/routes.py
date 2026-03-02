@@ -17,8 +17,8 @@ import hmac
 import json
 import os
 import re
-import subprocess
-import sys
+import asyncio
+import httpx
 import time
 from datetime import datetime
 
@@ -34,6 +34,9 @@ from backend.auth.session import _get_jwt_secret
 from backend.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+# Module-level rate limit storage for newsletter subscription (3 req / IP / min)
+_SUBSCRIBE_RATE_LIMITS: dict[str, list[float]] = {}
 
 # ---------------------------------------------------------------------------
 # Path-safety helpers (Governance H4)
@@ -454,7 +457,7 @@ def create_routes(app: FastAPI):
             else:
                 candidate = app.state.project_root / "src" / "assets" / "images" / featured
                 if candidate.exists():
-                    image_url = f"/static/assets/images/{featured}"
+                    image_url = f"/assets/images/{featured}"
 
         recipe_payload["image_url"] = image_url
 
@@ -661,11 +664,28 @@ def create_routes(app: FastAPI):
         email: str
     
     @app.post("/api/newsletter/subscribe")
-    async def newsletter_subscribe(request_data: NewsletterSubscribeRequest):
-        """Public endpoint for newsletter subscription."""
+    async def newsletter_subscribe(request: Request, request_data: NewsletterSubscribeRequest):
+        """Public endpoint for newsletter subscription with rate limiting (3 req/IP/min)."""
+        client_ip = request.client.host if request.client else "unknown"
+        now = time.time()
+
+        # Sliding-window: keep only timestamps within the last 60 seconds
+        timestamps = _SUBSCRIBE_RATE_LIMITS.get(client_ip, [])
+        timestamps = [ts for ts in timestamps if now - ts < 60]
+
+        if len(timestamps) >= 3:
+            logger.warning(f"Newsletter rate limit exceeded for IP: {client_ip}")
+            raise HTTPException(
+                status_code=429,
+                detail="Too many requests. Please try again later.",
+            )
+
+        timestamps.append(now)
+        _SUBSCRIBE_RATE_LIMITS[client_ip] = timestamps
+
         manager = NewsletterManager()
         result = await manager.subscribe(request_data.email)
-        
+
         if result["success"]:
             return {"success": True, "message": "Successfully subscribed to newsletter!"}
         else:
@@ -703,9 +723,33 @@ def create_routes(app: FastAPI):
                 elif completed == total:
                     ep_status = "complete"
                 elif completed > 0:
-                    ep_status = "in_progress"
+                    # Check if stale — last activity > 2 hours ago
+                    last_activity = max(
+                        (s.get("completed_at") or s.get("started_at") or "")
+                        for s in stages.values()
+                    )
+                    if last_activity:
+                        from datetime import datetime, timezone, timedelta
+                        try:
+                            last_dt = datetime.fromisoformat(last_activity)
+                            if last_dt.tzinfo is None:
+                                last_dt = last_dt.replace(tzinfo=timezone.utc)
+                            stale = datetime.now(timezone.utc) - last_dt > timedelta(hours=2)
+                        except (ValueError, TypeError):
+                            stale = False
+                    else:
+                        stale = False
+                    ep_status = "stopped" if stale else "in_progress"
                 else:
                     ep_status = "empty"
+
+                # Build per-stage status map for progress bar
+                stages_map = {}
+                for day in ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"):
+                    if day in stages:
+                        stages_map[day] = stages[day].get("status", "unknown")
+                    else:
+                        stages_map[day] = "not_started"
 
                 episodes.append({
                     "episode_id": data.get("episode_id", path.stem),
@@ -718,6 +762,7 @@ def create_routes(app: FastAPI):
                     "failed_stages": failed,
                     "total_stages": total,
                     "status": ep_status,
+                    "stages_map": stages_map,
                     "filename": path.name,
                 })
             except Exception as exc:
@@ -835,16 +880,11 @@ def create_routes(app: FastAPI):
         episode_id: str,
         user: dict = Depends(require_auth),
     ):
-        """Trigger a compressed full-week dry run for an episode in the background."""
+        """Trigger a compressed full-week run by calling /api/cron/{stage} routes sequentially."""
         _sanitize_id(episode_id, "episode_id")
 
-        project_root = app.state.project_root
-        script = project_root / "scripts" / "run_compressed_week.py"
-
-        if not script.exists():
-            raise HTTPException(status_code=500, detail="run_compressed_week.py not found")
-
         # Read episode file to get the concept
+        project_root = app.state.project_root
         ep_path = project_root / "data" / "episodes" / f"{episode_id}.json"
         concept = "Weekly Muffin Pan Recipe"
         if ep_path.exists():
@@ -854,29 +894,43 @@ def create_routes(app: FastAPI):
             except Exception:
                 pass
 
-        # Fire and forget — runs in background so the HTTP response returns immediately.
-        # Governance H1: output goes to a log file (not DEVNULL) for post-mortem.
-        logs_dir = project_root / "data" / "logs"
-        logs_dir.mkdir(parents=True, exist_ok=True)
-        log_file = logs_dir / f"episode_run_{episode_id}.log"
-        try:
-            with open(log_file, "w") as log_fh:
-                subprocess.Popen(
-                    [
-                        sys.executable, str(script),
-                        "--concept", concept,
-                        "--episode-id", episode_id,
-                        "--delay", "5",   # 5s between stages for admin preview speed
-                    ],
-                    cwd=str(project_root),
-                    env={**os.environ, "PYTHONPATH": str(project_root)},
-                    stdout=log_fh,
-                    stderr=subprocess.STDOUT,
-                )
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to start run: {e}")
+        # Call each cron stage in order via HTTP (same as Vercel would).
+        # In LOCAL_DEV the CRON_SECRET check is bypassed, any bearer value works.
+        cron_secret = os.environ.get("CRON_SECRET", "local-dev-secret")
+        stages = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+        base_url = "http://127.0.0.1:8000"
+        headers = {"Authorization": f"Bearer {cron_secret}", "Content-Type": "application/json"}
+        payload = {"episode_id": episode_id, "concept": concept}
+        stage_results = []
 
-        return JSONResponse({"message": f"Compressed week run started for episode {episode_id}. Refresh in ~2 minutes to see results."})
+        async with httpx.AsyncClient(timeout=320.0) as client:
+            for stage in stages:
+                try:
+                    resp = await client.post(
+                        f"{base_url}/api/cron/{stage}",
+                        json=payload,
+                        headers=headers,
+                    )
+                    stage_results.append({
+                        "stage": stage,
+                        "status_code": resp.status_code,
+                        "ok": resp.status_code == 200,
+                        "detail": resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text[:120],
+                    })
+                    logger.info(f"Cron stage {stage} -> {resp.status_code}")
+                except Exception as exc:
+                    logger.warning(f"Cron stage {stage} failed: {exc}")
+                    stage_results.append({"stage": stage, "ok": False, "error": str(exc)})
+
+                # Brief pause between stages so Vercel-style sequential pacing is preserved
+                if stage != stages[-1]:
+                    await asyncio.sleep(2)
+
+        completed = sum(1 for r in stage_results if r.get("ok"))
+        return JSONResponse({
+            "message": f"Compressed week run complete for episode {episode_id}: {completed}/{len(stages)} stages succeeded.",
+            "stages": stage_results,
+        })
 
     logger.info("Admin routes configured")
 

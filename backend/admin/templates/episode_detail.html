@@ -146,7 +146,7 @@
                             {% set variant_label = img_variants[loop.index0] if loop.index0 < img_variants|length
                                 else 'variant ' ~ loop.index %} <div
                                 class="aspect-square bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
-                                <img src="/static/images/{{ img_path | replace(episode.episode_id ~ '/', '') | urlencode }}"
+                                <img src="/{{ img_path | replace('src/', '') }}"
                                     onerror="this.parentElement.innerHTML='<div class=\'flex items-center justify-center h-full text-slate-400 text-xs text-center p-2\'><div><div class=\'text-2xl mb-1\'>📷</div><div>{{ img_path }}</div></div></div>'"
                                     class="img-attachment w-full h-full object-cover cursor-zoom-in"
                                     onclick="openLightbox('{{ img_path }}')" alt="{{ variant_label }}">

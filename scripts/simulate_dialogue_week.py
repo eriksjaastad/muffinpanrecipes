@@ -2,13 +2,13 @@
 """Run compressed one-week dialogue simulations with model comparisons.
 
 Examples:
-  PYTHONPATH=. .venv/bin/python scripts/simulate_dialogue_week.py \
+  PYTHONPATH=. uv run scripts/simulate_dialogue_week.py \
     --concept "Jalapeño Corn Dog Bites" --runs 3 --models "ollama/qwen3:32b,openai/gpt-5-mini"
 
-  PYTHONPATH=. .venv/bin/python scripts/simulate_dialogue_week.py \
+  PYTHONPATH=. uv run scripts/simulate_dialogue_week.py \
     --concept "Mini Shepherd's Pies" --stage friday --event "ingredient shortage: cheddar"
 
-  PYTHONPATH=. .venv/bin/python scripts/simulate_dialogue_week.py \
+  PYTHONPATH=. uv run scripts/simulate_dialogue_week.py \
     --concept "Brown Butter Pecan Tassies" \
     --character-models '{"Margaret Chen":"openai/gpt-5.1","default":"ollama/qwen3:32b"}'
 """
@@ -56,9 +56,47 @@ DAY_STAGE_DIRECTIONS = {
     "tuesday": "Test trays cool on the rack while ratio notes keep changing.",
     "wednesday": "Julian drops fresh lighting tests and everyone debates the hero shot.",
     "thursday": "Draft copy is open in shared docs with comments arriving in bursts.",
-    "friday": "Final review is tense as approvals hinge on tiny fixes.",
-    "saturday": "Deployment prep is mostly quiet until one staging snag interrupts flow.",
+    "friday": "Final review is tense as approvals hinge on tiny fixes. Devon Park (site architect) joins to confirm deployment readiness.",
+    "saturday": "Devon Park (site architect) leads deployment prep - mostly quiet execution until a staging snag interrupts flow.",
     "sunday": "Publish window is close and everyone is watching the clock.",
+}
+
+DAY_ARC = {
+    "monday": (
+        "SETUP: Someone floats the concept - raw, half-formed, maybe divisive. "
+        "TENSION: Another character challenges it or suggests something that pulls in a different direction. They don't agree easily. "
+        "RESOLUTION: The team locks a direction under deadline pressure. Not everyone is happy about it."
+    ),
+    "tuesday": (
+        "SETUP: A specific technical problem surfaces - ratios, technique, or a substitution that seems wrong. "
+        "TENSION: Margaret is skeptical or frustrated. Someone pushes back on her. The outcome isn't obvious. "
+        "RESOLUTION: A decision is made and the recipe is confirmed, even if reluctantly."
+    ),
+    "wednesday": (
+        "SETUP: Julian has a strong visual opinion. He shares it like it's obvious. "
+        "TENSION: Someone disagrees with his aesthetic call. Creative egos clash. "
+        "RESOLUTION: The hero shot is chosen. Julian may or may not get his way."
+    ),
+    "thursday": (
+        "SETUP: Marcus shares copy. It's too long, too literary, or too something. "
+        "TENSION: Margaret edits it harshly. Steph tries to mediate without offending anyone. "
+        "RESOLUTION: The copy is approved, probably shorter than Marcus wanted."
+    ),
+    "friday": (
+        "SETUP: Final review. Something isn't quite right and someone says so. "
+        "TENSION: Time pressure makes the stakes real. A decision has to be made NOW. "
+        "RESOLUTION: Approved or sent back with specific fixes. No vague feedback."
+    ),
+    "saturday": (
+        "SETUP: Devon is handling deployment. It's mostly quiet. "
+        "TENSION: One small technical snag interrupts the calm. Devon fixes it without drama. "
+        "RESOLUTION: Staged. Brief confirmation. Everyone moves on."
+    ),
+    "sunday": (
+        "SETUP: Publish window is here. "
+        "TENSION: Last-second nerves or one final check. "
+        "RESOLUTION: Published. A moment of warmth or exhausted relief."
+    ),
 }
 
 PROHIBITED = [
@@ -135,11 +173,13 @@ def build_system_prompt(persona: dict[str, Any]) -> str:
         "No narration, no markdown, no role labels.\n\n"
         f"Backstory: {persona['backstory']}\n"
         f"Traits: {persona['core_traits']}\n"
-        f"Signature phrases: {comm.get('signature_phrases', [])}\n"
+        f"Speech patterns (use as OCCASIONAL spice, NOT in every message - vary your openings): {comm.get('signature_phrases', [])}\n"
         f"Behavioral quirks: {persona.get('behavioral_quirks', [])}\n"
         f"Triggers: {persona.get('triggers', [])}\n"
         f"Internal contradictions: {persona.get('internal_contradictions', [])}\n"
-        f"Relationships: {persona.get('relationships', {})}"
+        f"Relationships: {persona.get('relationships', {})}\n"
+        "CRITICAL: Never use em dashes (\u2014), en dashes (\u2013), or curly quotes (\u2018\u2019\u201c\u201d). "
+        "Use plain hyphens and straight apostrophes only."
     )
 
 
@@ -189,6 +229,7 @@ def generate_turn(
                 f"Episode concept: {concept}\n"
                 f"Day: {day.title()} ({stage})\n"
                 f"Scene context: {scene_sentence}\n"
+                f"Story arc: {DAY_ARC[day]}\n"
                 f"Time pressure: {deadline_sentence}\n"
                 f"{event_line}\n"
                 f"Recent chat:\n{history}\n\n"
@@ -212,12 +253,34 @@ def generate_turn(
         model=model,
         temperature=0.8,
     ).strip()
+    msg = sanitize_typographic_tells(msg)
     return " ".join(msg.split())
 
 
 def is_prompt_echo(text: str) -> bool:
     t = text.lower()
     return any(p in t for p in PROMPT_ECHO_PATTERNS)
+
+
+_TYPOGRAPHIC_REPLACEMENTS = [
+    ("\u2014", " - "),   # em dash -> spaced hyphen
+    ("\u2013", " - "),   # en dash -> spaced hyphen
+    ("\u2019", "'"),     # right curly apostrophe -> straight apostrophe
+    ("\u201c", '"'),     # left curly double quote -> straight double quote
+    ("\u201d", '"'),     # right curly double quote -> straight double quote
+]
+
+
+def sanitize_typographic_tells(text: str) -> str:
+    """Strip AI-telltale typographic characters before they reach QA scoring.
+
+    Replaces em dashes, en dashes, and curly quotes with plain ASCII equivalents.
+    Defense-in-depth layer -- the QA scorer still hard-fails on these if any
+    slip through, but sanitizing at generation time prevents wasted runs.
+    """
+    for bad, replacement in _TYPOGRAPHIC_REPLACEMENTS:
+        text = text.replace(bad, replacement)
+    return text
 
 
 def token_set(text: str) -> set[str]:

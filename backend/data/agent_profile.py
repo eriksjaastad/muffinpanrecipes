@@ -2,7 +2,7 @@
 
 from typing import Dict, Any, Optional
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 
 from pydantic import BaseModel, Field
@@ -49,8 +49,8 @@ class AgentProfile(BaseModel):
     success_rate: float = Field(default=1.0, description="Task success rate")
     
     # Metadata
-    created_at: datetime = Field(default_factory=datetime.now)
-    last_active: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_active: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     version: str = Field(default="1.0.0", description="Profile version")
     
     def update_from_memory(self, memory: Any) -> None:
@@ -79,7 +79,7 @@ class AgentProfile(BaseModel):
                     total_weight = sum(weights)
                     self.relationship_scores[agent_role] = weighted_sum / total_weight if total_weight > 0 else 0.0
         
-        self.last_active = datetime.now()
+        self.last_active = datetime.now(timezone.utc)
     
     def save_to_file(self, output_dir: Path) -> Path:
         """

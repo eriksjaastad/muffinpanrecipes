@@ -12,7 +12,7 @@ Muffin Pan Recipes is a high-volume, AI-driven recipe site focused on "Muffin Ti
 - **Frontend:** Static HTML, Tailwind CSS (via CDN for prototype).
 - **Deployment:** Vercel (Automatic GitHub Integration).
 - **Hosting:** Vercel.
-- **AI Strategy:** Gemini 3 Flash for complex logic/prompts; Local models for routine tasks.
+- **AI Strategy:** Single-agent execution (Flash) with browser-based verification. See `.agent/workflows/code-task.md` for the full workflow. Note: Ollama/Mac Mini is currently offline/unavailable for this project.
 
 ## 📋 Definition of Done (DoD)
 - [ ] Recipes follow the `Documents/core/RECIPE_SCHEMA.md`.

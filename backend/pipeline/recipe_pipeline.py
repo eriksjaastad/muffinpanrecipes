@@ -6,7 +6,7 @@ Orchestrates the multi-agent recipe creation process through defined stages.
 
 from enum import Enum
 from typing import Dict, List, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 
 from backend.core.task import Task
@@ -50,8 +50,8 @@ class RecipeContext(BaseModel):
     agent_contributions: Dict[str, List[str]] = Field(default_factory=dict)
     
     # Metadata
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: Optional[datetime] = None
     
     def add_review(self, reviewer: str, approved: bool, feedback: str) -> None:
@@ -60,7 +60,7 @@ class RecipeContext(BaseModel):
             "reviewer": reviewer,
             "approved": approved,
             "feedback": feedback,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         })
     
     def add_revision_request(self, stage: str, reason: str, requested_by: str) -> None:
@@ -69,7 +69,7 @@ class RecipeContext(BaseModel):
             "stage": stage,
             "reason": reason,
             "requested_by": requested_by,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         })
         self.revision_count += 1
     
@@ -176,13 +176,13 @@ class RecipePipeline:
             raise ValueError(f"No next stage defined for {current_stage}")
         
         context.current_stage = next_stage
-        context.updated_at = datetime.now()
+        context.updated_at = datetime.now(timezone.utc)
         
         logger.info(f"Recipe {recipe_id}: {current_stage.value} → {next_stage.value}")
         
         # Check if complete
         if next_stage == PipelineStage.COMPLETE:
-            context.completed_at = datetime.now()
+            context.completed_at = datetime.now(timezone.utc)
             self.completed_recipes.append(context)
             del self.active_recipes[recipe_id]
             logger.info(f"Recipe {recipe_id} COMPLETE!")
@@ -214,7 +214,7 @@ class RecipePipeline:
         context = self.active_recipes[recipe_id]
         context.add_revision_request(stage_to_revise.value, reason, requested_by)
         context.current_stage = stage_to_revise
-        context.updated_at = datetime.now()
+        context.updated_at = datetime.now(timezone.utc)
         
         logger.warning(
             f"Recipe {recipe_id}: Revisions requested for {stage_to_revise.value} by {requested_by}"

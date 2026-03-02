@@ -5,7 +5,7 @@ These models represent the final output of the AI Creative Team.
 """
 
 from typing import List, Dict, Optional, Any, Literal
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from enum import Enum
 import json
@@ -70,14 +70,14 @@ class Recipe(BaseModel):
         default=RecipeStatus.PENDING,
         description="Recipe lifecycle status: pending → approved → published (or rejected)"
     )
-    updated_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     review_notes: Optional[str] = Field(
         default=None, description="Notes from human review (Erik)"
     )
 
     # Creation tracking
     created_by: str = Field(default="AI Creative Team", description="Creator attribution")
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     published_at: Optional[datetime] = None
 
     # Story reference
@@ -106,7 +106,7 @@ class Recipe(BaseModel):
         filepath = status_dir / f"{self.recipe_id}.json"
 
         # Update timestamp
-        self.updated_at = datetime.now()
+        self.updated_at = datetime.now(timezone.utc)
 
         with open(filepath, "w") as f:
             json.dump(self.model_dump(mode="json"), f, indent=2, default=str)
@@ -143,13 +143,13 @@ class Recipe(BaseModel):
 
         # Update status
         self.status = new_status
-        self.updated_at = datetime.now()
+        self.updated_at = datetime.now(timezone.utc)
 
         if notes:
             self.review_notes = notes
 
         if new_status == RecipeStatus.PUBLISHED:
-            self.published_at = datetime.now()
+            self.published_at = datetime.now(timezone.utc)
 
         # Save to new location
         new_filepath = self.save_to_file(base_dir, use_status_dir=True)
@@ -248,7 +248,7 @@ class CreationStory(BaseModel):
     time_to_complete_minutes: Optional[int] = None
     
     # Timeline
-    started_at: datetime = Field(default_factory=datetime.now)
+    started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: Optional[datetime] = None
     
     def save_to_file(self, output_dir: Path) -> Path:

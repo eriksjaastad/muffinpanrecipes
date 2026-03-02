@@ -23,7 +23,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && cd .. && pwd)"
-PY="$ROOT/.venv/bin/python"
+PY="uv run"
 LOG_DIR="$ROOT/logs"
 MARKER="# muffinpanrecipes-cron"
 
@@ -41,7 +41,7 @@ _stage_cmd() {
     local stage="$1"
     local extra="${2:-}"
     # doppler run -- injects STABILITY_API_KEY and all project secrets into the subprocess
-    echo "cd '$ROOT' && PYTHONPATH=. doppler run -- '$PY' scripts/run_pipeline_stage.py --stage $stage --episode \$(date +%G-W%V) $extra >> '$LOG_DIR/cron_${stage}.log' 2>&1"
+    echo "cd '$ROOT' && PYTHONPATH=. doppler run -- $PY scripts/run_pipeline_stage.py --stage $stage --episode \$(date +%G-W%V) $extra >> '$LOG_DIR/cron_${stage}.log' 2>&1"
 }
 
 _compressed_cmd() {
@@ -49,7 +49,7 @@ _compressed_cmd() {
     # doppler run -- injects STABILITY_API_KEY and all project secrets
     # pick_concept.py selects a fresh concept each run for variety
     local delay="${1:-300}"  # default: 5 min between stages
-    echo "cd '$ROOT' && CONCEPT=\$(doppler run -- '$PY' scripts/pick_concept.py 2>/dev/null || echo 'Weekly Muffin Pan Recipe') && PYTHONPATH=. doppler run -- '$PY' scripts/run_compressed_week.py --episode-id \$(date +%G-W%V-test) --concept \"\$CONCEPT\" --delay $delay >> '$LOG_DIR/cron_compressed.log' 2>&1"
+    echo "cd '$ROOT' && CONCEPT=\$(doppler run -- $PY scripts/pick_concept.py 2>/dev/null || echo 'Weekly Muffin Pan Recipe') && PYTHONPATH=. doppler run -- $PY scripts/run_compressed_week.py --episode-id \$(date +%G-W%V-test) --concept \"\$CONCEPT\" --delay $delay >> '$LOG_DIR/cron_compressed.log' 2>&1"
 }
 
 # ---------------------------------------------------------------------------
@@ -92,7 +92,7 @@ install_test() {
 install_production() {
     echo "Picking concept for this week..."
     local concept
-    concept=$(PYTHONPATH=. "$PY" scripts/pick_concept.py 2>/dev/null || echo "Mini Lemon Ricotta Cheesecakes")
+    concept=$(PYTHONPATH=. uv run scripts/pick_concept.py 2>/dev/null || echo "Mini Lemon Ricotta Cheesecakes")
     local episode
     episode=$(date +%G-W%V)
     echo "  Concept: $concept"

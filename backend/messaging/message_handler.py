@@ -2,7 +2,7 @@
 
 from typing import Dict, Any
 from uuid import uuid4
-from datetime import datetime
+from datetime import datetime, timezone
 
 from backend.core.agent import Message
 from backend.core.types import MessageType
@@ -54,7 +54,7 @@ class MessageHandler:
             content=content,
             message_type=message_type,
             context=context or {},
-            timestamp=datetime.now().isoformat(),
+            timestamp=datetime.now(timezone.utc).isoformat(),
         )
 
         logger.info(f"Message: {sender} -> {recipient} [{message_type.value}]")
