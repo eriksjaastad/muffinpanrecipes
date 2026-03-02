@@ -149,9 +149,8 @@
                         {% for img_path in stage.image_paths %}
                         <div class="group relative">
                             {% set img_variants = ['editorial', 'action_steam', 'the_spread'] %}
-                            {% set variant_label = img_variants[loop.index0] if loop.index0 < img_variants|length
-                                else 'variant ' ~ loop.index %} <div
-                                class="aspect-square bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
+                            {% set variant_label = img_variants[loop.index0] if loop.index0 < img_variants|length else 'variant ' ~ loop.index %}
+                            <div class="aspect-square bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
                                 <img src="/{{ img_path | replace('src/', '') }}"
                                     onerror="this.parentElement.innerHTML='<div class=\'flex items-center justify-center h-full text-slate-400 text-xs text-center p-2\'><div><div class=\'text-2xl mb-1\'>📷</div><div>{{ img_path }}</div></div></div>'"
                                     class="img-attachment w-full h-full object-cover cursor-zoom-in"
@@ -226,23 +225,7 @@
                                 </p>
                                 <p class="leading-relaxed whitespace-pre-wrap">{{ msg.text }}</p>
 
-                                <!-- Inline image attachments (Wednesday photography messages) -->
-                                {% if msg.attachments %}
-                                <div class="mt-2 grid grid-cols-3 gap-1.5">
-                                    {% for att in msg.attachments %}
-                                    <div class="rounded-lg overflow-hidden bg-slate-200 aspect-square w-20 h-20">
-                                        <img src="{{ att }}"
-                                            onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"
-                                            class="img-attachment w-full h-full object-cover cursor-zoom-in"
-                                            data-lightbox-src="{{ att }}" alt="Photo option {{ loop.index }}">
-                                        <div style="display:none"
-                                            class="w-full h-full items-center justify-center text-[10px] text-slate-500 p-1 text-center">
-                                            📷<br>{{ att | truncate(20) }}
-                                        </div>
-                                    </div>
-                                    {% endfor %}
-                                </div>
-                                {% endif %}
+                                {# msg.attachments removed: field not populated by pipeline. Images shown in stage image_paths grid above. #}
 
                                 {% if msg.model %}
                                 <p

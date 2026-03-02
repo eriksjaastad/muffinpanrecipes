@@ -8,6 +8,7 @@ Provides a web interface for:
 - Triggering new recipe generation
 """
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
@@ -32,40 +33,49 @@ def create_admin_app(
 ) -> FastAPI:
     """
     Create and configure the admin dashboard FastAPI application.
-    
+
     Args:
         project_root: Project root directory
         session_manager: Configured JWTSessionManager (creates new if None)
         oauth_client: Configured GoogleOAuth client (creates new if None)
-        
+
     Returns:
         Configured FastAPI application
     """
-    app = FastAPI(
-        title="Muffin Pan Recipes - Admin Dashboard",
-        description="Admin interface for recipe review and publishing",
-        version="0.1.0"
-    )
-
     resolved_project_root = project_root or Path.cwd()
-    
+
     # Initialize auth components
     # JWT sessions are stateless — no server-side storage needed.
     # Works on Vercel serverless (no cold-start session loss).
     if not session_manager:
         session_manager = JWTSessionManager(session_duration_hours=24)
-    
+
     if not oauth_client:
         oauth_client = GoogleOAuth()
-    
+
     # Initialize middleware
     init_auth_middleware(session_manager)
-    
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):  # noqa: ANN001
+        # --- startup ---
+        logger.info("Admin dashboard starting...")
+        logger.info(f"Project root: {app.state.project_root}")
+        yield
+        # --- shutdown (nothing to tear down) ---
+
+    app = FastAPI(
+        title="Muffin Pan Recipes - Admin Dashboard",
+        description="Admin interface for recipe review and publishing",
+        version="0.1.0",
+        lifespan=lifespan,
+    )
+
     # Store components in app state
     app.state.session_manager = session_manager
     app.state.oauth_client = oauth_client
     app.state.project_root = resolved_project_root
-    
+
     # Set up Jinja2 templates
     templates_dir = Path(__file__).parent / "templates"
     app.state.templates = Jinja2Templates(directory=str(templates_dir))
@@ -84,8 +94,6 @@ def create_admin_app(
     admin_static = Path(__file__).parent / "static"
     if admin_static.exists():
         app.mount("/admin/static", StaticFiles(directory=str(admin_static)), name="admin_static")
-
-    # data/images/ mount removed — all images now stored in src/assets/images/ served by /static
 
     @app.middleware("http")
     async def add_security_headers(request: Request, call_next):
@@ -120,23 +128,41 @@ def create_admin_app(
 
     # Include cron API routes (/api/cron/monday ... /api/cron/sunday)
     app.include_router(cron_router)
-    
-    # Startup event (TODO: migrate to lifespan= in FastAPI constructor when refactoring app creation)
-    @app.on_event("startup")
-    async def startup_event():
-        logger.info("Admin dashboard starting...")
-        logger.info(f"Project root: {app.state.project_root}")
-    
+
     # Health check endpoint
     @app.get("/health")
     async def health_check():
         return {"status": "healthy", "service": "admin_dashboard"}
-    
+
     return app
 
 
-# Module-level app instance — Vercel's @vercel/python runtime imports this directly.
-# Also used by `uvicorn backend.admin.app:app` for local dev.
+# ---------------------------------------------------------------------------
+# Module-level app instance — Vercel's @vercel/python runtime imports this
+# directly via the `app` name. Also used by `uvicorn backend.admin.app:app`
+# for local dev.
+#
+# Import-time side effects (OAuth, middleware, static mounts) are intentional
+# here: Vercel requires a module-level ASGI app object. Use `get_app()` in
+# tests and other contexts that need to avoid those side effects.
+# ---------------------------------------------------------------------------
+
+_app_instance: Optional[FastAPI] = None
+
+
+def get_app() -> FastAPI:
+    """Return the singleton admin app, creating it lazily on first call.
+
+    Use this in tests and tooling to avoid import-time side effects.
+    Vercel and uvicorn use the module-level `app` variable directly.
+    """
+    global _app_instance
+    if _app_instance is None:
+        _app_instance = create_admin_app()
+    return _app_instance
+
+
+# Module-level `app` for Vercel / uvicorn — created eagerly at import time.
 app = create_admin_app()
 
 
