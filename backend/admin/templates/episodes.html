@@ -33,7 +33,13 @@
     </header>
 
     <main class="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
-        <p class="text-sm text-slate-500 mb-4">{{ total }} episode{{ '' if total == 1 else 's' }} found</p>
+        <p class="text-sm text-slate-500 mb-4">
+            {{ total }} episode{{ '' if total == 1 else 's' }} total
+            {% if max_page > 1 %}
+            &mdash; showing page {{ page }} of {{ max_page }}
+            ({{ episodes | length }} on this page)
+            {% endif %}
+        </p>
 
         {% if episodes %}
         <div class="space-y-3">
@@ -104,8 +110,30 @@
             <p class="text-4xl mb-3">📭</p>
             <p class="text-lg font-medium">No episodes found</p>
             <p class="text-sm mt-1">Run <code class="bg-slate-100 px-1 rounded">scripts/run_pipeline_stage.py</code> or
-                <code class="bg-slate-100 px-1 rounded">scripts/run_compressed_week.py</code> to generate one.</p>
+                <code class="bg-slate-100 px-1 rounded">scripts/run_compressed_week.py</code> to generate one.
+            </p>
         </div>
+        {% endif %}
+
+        {% if max_page > 1 %}
+        <nav class="mt-6 flex items-center justify-between">
+            <div>
+                {% if page > 1 %}
+                <a href="/admin/episodes?page={{ page - 1 }}&page_size={{ page_size }}"
+                    class="text-sm px-4 py-2 rounded bg-white border border-slate-200 text-slate-700 hover:bg-slate-50">
+                    ← Newer
+                </a>
+                {% endif %}
+            </div>
+            <span class="text-sm text-slate-500">Page {{ page }} / {{ max_page }}</span>
+            <div>
+                {% if page < max_page %} <a href="/admin/episodes?page={{ page + 1 }}&page_size={{ page_size }}"
+                    class="text-sm px-4 py-2 rounded bg-white border border-slate-200 text-slate-700 hover:bg-slate-50">
+                    Older →
+                    </a>
+                    {% endif %}
+            </div>
+        </nav>
         {% endif %}
     </main>
 </body>

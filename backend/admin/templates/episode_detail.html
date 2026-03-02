@@ -155,8 +155,7 @@
                                 <img src="/{{ img_path | replace('src/', '') }}"
                                     onerror="this.parentElement.innerHTML='<div class=\'flex items-center justify-center h-full text-slate-400 text-xs text-center p-2\'><div><div class=\'text-2xl mb-1\'>📷</div><div>{{ img_path }}</div></div></div>'"
                                     class="img-attachment w-full h-full object-cover cursor-zoom-in"
-                                    onclick="openLightbox('/{{ img_path | replace('src/', '') }}')"
-                                    alt="{{ variant_label }}">
+                                    data-lightbox-src="/{{ img_path | replace('src/', '') }}" alt="{{ variant_label }}">
                         </div>
                         <p class="mt-1 text-xs text-center text-slate-500 capitalize">{{ variant_label }}</p>
                     </div>
@@ -286,6 +285,15 @@
     </div>
 
     <script>
+        // Lightbox: open via data-lightbox-src attribute (CSP-safe, no inline onclick with template vars)
+        document.addEventListener('click', function (e) {
+            const img = e.target.closest('[data-lightbox-src]');
+            if (img) {
+                openLightbox(img.dataset.lightboxSrc);
+                return;
+            }
+        });
+
         function openLightbox(src) {
             document.getElementById('lightbox-img').src = src;
             document.getElementById('lightbox').classList.remove('hidden');

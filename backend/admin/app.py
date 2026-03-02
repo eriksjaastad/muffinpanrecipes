@@ -75,6 +75,16 @@ def create_admin_app(
     if static_root.exists():
         app.mount("/static", StaticFiles(directory=str(static_root)), name="static")
 
+    # Serve /assets/images/ for local dev (Vercel handles this via rewrites in production)
+    assets_root = static_root / "assets"
+    if assets_root.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_root)), name="assets")
+
+    # Serve compiled Tailwind CSS for admin UI
+    admin_static = Path(__file__).parent / "static"
+    if admin_static.exists():
+        app.mount("/admin/static", StaticFiles(directory=str(admin_static)), name="admin_static")
+
     # data/images/ mount removed — all images now stored in src/assets/images/ served by /static
 
     @app.middleware("http")
