@@ -18,8 +18,8 @@ Usage:
     runs = storage.list_simulations()
 
     # Images
-    url = storage.get_image_url("data/images/abc123/editorial.png")
-    storage.save_image("data/images/abc123/editorial.png", image_bytes)
+    url = storage.get_image_url("src/assets/images/abc123/editorial.png")
+    storage.save_image("src/assets/images/abc123/editorial.png", image_bytes)
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ logger = get_logger(__name__)
 ROOT = Path(__file__).resolve().parents[1]
 EPISODES_DIR = ROOT / "data" / "episodes"
 SIMULATIONS_DIR = ROOT / "data" / "simulations"
-IMAGES_DIR = ROOT / "data" / "images"
+IMAGES_DIR = ROOT / "src" / "assets" / "images"
 
 
 class _FilesystemBackend:
@@ -103,12 +103,14 @@ class _FilesystemBackend:
         dest = ROOT / relative_path
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(image_bytes)
-        # Return URL-style path for templates
-        return f"/{relative_path}"
+        # Strip src/ prefix — static mount serves src/ at /static, assets at /assets
+        url_path = relative_path.removeprefix("src/")
+        return f"/{url_path}"
 
     def get_image_url(self, relative_path: str) -> str:
         """Return URL for serving the image."""
-        return f"/{relative_path}"
+        url_path = relative_path.removeprefix("src/")
+        return f"/{url_path}"
 
     def image_exists(self, relative_path: str) -> bool:
         return (ROOT / relative_path).exists()

@@ -13,7 +13,7 @@ import json
 import re
 from pathlib import Path
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 import httpx
 
@@ -204,7 +204,7 @@ class NewsletterManager:
         subscribers.append({
             "email": email,
             "metadata": metadata or {},
-            "subscribed_at": datetime.now().isoformat(),
+            "subscribed_at": datetime.now(timezone.utc).isoformat(),
             "status": "active"
         })
         
@@ -237,7 +237,7 @@ class NewsletterManager:
         for sub in subscribers:
             if sub.get("email", "").lower() == email.lower():
                 sub["status"] = "unsubscribed"
-                sub["unsubscribed_at"] = datetime.now().isoformat()
+                sub["unsubscribed_at"] = datetime.now(timezone.utc).isoformat()
                 updated = True
         
         if updated:

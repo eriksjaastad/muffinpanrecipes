@@ -56,13 +56,15 @@ An AI-driven content platform disguised as a recipe website. The recipes are rea
 
 | Role | Name | Function | Model |
 |------|------|----------|-------|
-| Baker | Margaret | Recipe development | Ollama (llama3.2) |
-| Creative Director | Steph | Quality gate — approve/reject | DeepSeek-R1 |
-| Art Director | Julian | Image generation & selection | GPT-4o |
-| Copywriter | Marcus | Titles, descriptions, voice | Claude |
-| Site Architect | Devon | HTML/Tailwind, SEO, deploy | Qwen |
-| Social Dispatcher | — | Pinterest, Instagram, TikTok | Gemini Flash |
-| Screenwriter | — | Captures creative tension | Claude |
+| Baker | Margaret | Recipe development | Low-cost subagent |
+| Creative Director | Steph | Quality gate — approve/reject | Low-cost subagent |
+| Art Director | Julian | Image generation & selection | Stability AI (images) + subagent (dialogue) |
+| Copywriter | Marcus | Titles, descriptions, voice | Low-cost subagent |
+| Site Architect | Devon | HTML/Tailwind, SEO, deploy | Low-cost subagent |
+| Social Dispatcher | — | Pinterest, Instagram, TikTok | Low-cost subagent |
+| Screenwriter | — | Captures creative tension | Low-cost subagent |
+
+> **"Low-cost subagent"** = Claude Haiku or GPT-mini on laptop, Ollama (Qwen/DeepSeek) on Mac Mini. Run `hostname` to check.
 
 ### 7-Stage Pipeline
 
@@ -104,9 +106,9 @@ An AI-driven content platform disguised as a recipe website. The recipes are rea
 - Reviews PRs against acceptance criteria before merge.
 - Does NOT write implementation code for this project.
 
-### Codex (Super Manager)
+### Codex (Super Manager on Mac Mini)
 - Owns planning, prioritization, architecture direction, QA gates, and PR strategy.
-- **Must delegate implementation coding to worker coding agents/models.**
+- **Must delegate implementation coding to low-cost subagents.**
 - Reviews worker output, requests revisions, then prepares final PR.
 
 ### Other Agents (Workers)

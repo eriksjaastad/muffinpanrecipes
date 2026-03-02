@@ -7,7 +7,7 @@ pipeline, and data models to produce recipes with creation stories.
 
 from typing import Dict, Optional, List
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 from backend.agents.factory import create_agent
@@ -435,7 +435,7 @@ class RecipeOrchestrator:
         self.current_story.full_story = "\n".join(story_parts)
 
         # Set completion time
-        self.current_story.completed_at = datetime.now()
+        self.current_story.completed_at = datetime.now(timezone.utc)
 
         # Get message stats
         stats = self.message_system.get_statistics()

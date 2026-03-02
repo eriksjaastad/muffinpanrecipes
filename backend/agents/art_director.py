@@ -154,7 +154,7 @@ class ArtDirectorAgent(Agent):
 
         recipe_id = str(task.context.get("recipe_id") or task.id)
         recipe_title = self._recipe_title(task)
-        images_dir = self._repo_root() / "data" / "images" / recipe_id
+        images_dir = self._repo_root() / "src" / "assets" / "images" / recipe_id
         featured_image = self._repo_root() / "src" / "assets" / "images" / f"{recipe_id}.png"
         style_guide_text = self._style_guide_text()
         api_key = os.getenv("STABILITY_API_KEY")
@@ -191,7 +191,7 @@ class ArtDirectorAgent(Agent):
 
         insights = [
             f"Captured {shot_count} frames to get the crumb structure right (emotionally necessary, obviously)",
-            f"Generated 3 styled variants in data/images/{recipe_id}/ and selected '{winner['variant']}' against IMAGE_STYLE_GUIDE",
+            f"Generated 3 styled variants in src/assets/images/{recipe_id}/ and selected '{winner['variant']}' against IMAGE_STYLE_GUIDE",
             f"Winner rationale: {winner['rationale']}",
         ]
         return TaskResult(

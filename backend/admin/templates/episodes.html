@@ -39,6 +39,8 @@
                         <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">✅ Complete</span>
                         {% elif ep.status == 'partial' %}
                         <span class="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">⚠️ Partial</span>
+                        {% elif ep.status == 'stopped' %}
+                        <span class="text-xs px-2 py-0.5 rounded-full bg-slate-200 text-slate-600">⏹ Stopped</span>
                         {% elif ep.status == 'in_progress' %}
                         <span class="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">🔵 In Progress</span>
                         {% else %}
@@ -74,9 +76,11 @@
                 {% set stage_status = ep.get('stages_map', {}).get(k, 'not_started') %}
                 <div class="flex-1 text-center">
                     <div class="h-1.5 rounded
-                        {% if ep.status == 'complete' %}bg-emerald-400
-                        {% elif ep.status == 'partial' %}bg-amber-300
-                        {% elif ep.status == 'in_progress' and loop.index <= ep.completed_stages %}bg-blue-400
+                        {% if stage_status == 'complete' %}
+                            {% if ep.status == 'complete' %}bg-emerald-400
+                            {% elif ep.status == 'stopped' %}bg-slate-400
+                            {% else %}bg-blue-400{% endif %}
+                        {% elif stage_status == 'failed' %}bg-red-400
                         {% else %}bg-slate-200{% endif %}"></div>
                     <span class="text-[10px] text-slate-400">{{ stage_labels[k] }}</span>
                 </div>

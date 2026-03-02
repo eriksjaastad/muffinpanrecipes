@@ -15,7 +15,7 @@ import json
 import subprocess
 from pathlib import Path
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from backend.data.recipe import Recipe, RecipeStatus
 from backend.publishing.templates import render_recipe_page, generate_json_ld
@@ -187,7 +187,7 @@ class PublishingPipeline:
         """Generate sitemap.xml with all published recipes using atomic write."""
         index = self._load_recipes_index()
         
-        today = datetime.now().strftime("%Y-%m-%d")
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         sitemap_content = [
             '<?xml version="1.0" encoding="UTF-8"?>',
             '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',

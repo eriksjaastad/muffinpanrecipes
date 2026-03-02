@@ -15,6 +15,7 @@ from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from backend.auth.oauth import GoogleOAuth
 from backend.auth.session import JWTSessionManager
@@ -76,10 +77,31 @@ def create_admin_app(
     if static_root.exists():
         app.mount("/static", StaticFiles(directory=str(static_root)), name="static")
 
-    # Serve generated pipeline images (Stability AI output stored in data/images/)
-    data_images = app.state.project_root / "data" / "images"
-    data_images.mkdir(parents=True, exist_ok=True)
-    app.mount("/data-images", StaticFiles(directory=str(data_images)), name="data_images")
+    # data/images/ mount removed — all images now stored in src/assets/images/ served by /static
+
+    @app.middleware("http")
+    async def add_security_headers(request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+
+        # CSP: safe for admin dashboard (Tailwind CDN, Google Fonts)
+        csp_parts = [
+            "default-src 'self'",
+            "script-src 'self' 'unsafe-inline' cdn.tailwindcss.com",
+            "style-src 'self' 'unsafe-inline' cdn.tailwindcss.com fonts.googleapis.com",
+            "font-src 'self' fonts.gstatic.com",
+            "img-src 'self' data:",
+            "connect-src 'self'",
+        ]
+        response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
+
+        # HSTS: Only when serving over HTTPS
+        if request.url.scheme == "https":
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+
+        return response
 
     # Include admin UI routes
     create_routes(app)
