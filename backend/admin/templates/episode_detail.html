@@ -40,12 +40,12 @@
                 <p class="text-sm text-slate-500 mt-0.5">{{ episode.concept }}</p>
             </div>
             <div class="flex gap-3 flex-wrap justify-end">
-                <button id="run-btn" onclick="runCompressedWeek('{{ episode.episode_id }}')"
+                <button id="run-btn" data-action="run-week" data-episode-id="{{ episode.episode_id }}"
                     class="text-sm px-3 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 font-medium">
                     ▶ Run Compressed Week
                 </button>
                 {% if not episode.published_at %}
-                <button id="delete-btn" onclick="deleteEpisode('{{ episode.episode_id }}')"
+                <button id="delete-btn" data-action="delete-episode" data-episode-id="{{ episode.episode_id }}"
                     class="text-sm px-3 py-2 rounded bg-red-600 text-white hover:bg-red-700 font-medium">
                     🗑 Delete Episode
                 </button>
@@ -149,8 +149,9 @@
                         {% for img_path in stage.image_paths %}
                         <div class="group relative">
                             {% set img_variants = ['editorial', 'action_steam', 'the_spread'] %}
-                            {% set variant_label = img_variants[loop.index0] if loop.index0 < img_variants|length else 'variant ' ~ loop.index %}
-                            <div class="aspect-square bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
+                            {% set variant_label = img_variants[loop.index0] if loop.index0 < img_variants|length
+                                else 'variant ' ~ loop.index %} <div
+                                class="aspect-square bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
                                 <img src="/{{ img_path | replace('src/', '') }}"
                                     onerror="this.parentElement.innerHTML='<div class=\'flex items-center justify-center h-full text-slate-400 text-xs text-center p-2\'><div><div class=\'text-2xl mb-1\'>📷</div><div>{{ img_path }}</div></div></div>'"
                                     class="img-attachment w-full h-full object-cover cursor-zoom-in"
@@ -225,7 +226,8 @@
                                 </p>
                                 <p class="leading-relaxed whitespace-pre-wrap">{{ msg.text }}</p>
 
-                                {# msg.attachments removed: field not populated by pipeline. Images shown in stage image_paths grid above. #}
+                                {# msg.attachments removed: field not populated by pipeline. Images shown in stage
+                                image_paths grid above. #}
 
                                 {% if msg.model %}
                                 <p
@@ -261,8 +263,7 @@
     </main>
 
     <!-- Lightbox -->
-    <div id="lightbox" class="hidden fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
-        onclick="closeLightbox()">
+    <div id="lightbox" class="hidden fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
         <img id="lightbox-img" src="" alt="Full size image"
             class="max-w-full max-h-full rounded-lg shadow-2xl object-contain">
     </div>
@@ -276,6 +277,24 @@
                 return;
             }
         });
+
+        // Action handlers: run-week and delete-episode via data-* attributes (CSP-safe)
+        document.addEventListener('click', function (e) {
+            const btn = e.target.closest('[data-action]');
+            if (!btn) return;
+
+            const action = btn.dataset.action;
+            const episodeId = btn.dataset.episodeId;
+
+            if (action === 'run-week' && episodeId) {
+                runCompressedWeek(episodeId);
+            } else if (action === 'delete-episode' && episodeId) {
+                deleteEpisode(episodeId);
+            }
+        });
+
+        // Lightbox close on overlay click (CSP-safe, replaces onclick="closeLightbox()")
+        document.getElementById('lightbox')?.addEventListener('click', closeLightbox);
 
         function openLightbox(src) {
             document.getElementById('lightbox-img').src = src;

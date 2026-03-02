@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# commit-msg hook: Enforce [publish] marker on commits that touch protected paths.
+# commit-msg hook: Enforce 'publish:' marker on commits that touch protected paths.
 #
-# pre-commit cannot reliably read the commit message file, so we use
-# a commit-msg hook instead for the message check.
+# COMMIT_MSG_FILE is available to commit-msg hook (not pre-commit).
+# This hook is the actual enforcer for publishing commits.
 #
 # Policy: --no-verify bypasses are FORBIDDEN. Fix the root cause instead.
 # See AGENTS.md § Publishing Protocol for the approved publishing flow.
@@ -21,19 +21,21 @@ changed_files=$(git diff --cached --name-only 2>/dev/null || true)
 
 for pattern in "${PROTECTED_PATTERNS[@]}"; do
     if echo "$changed_files" | grep -qE "$pattern"; then
+        # Accept either '[publish]' or a commit message starting with 'publish:'
         if echo "$commit_msg" | grep -qiE '(\[publish\]|^publish:)'; then
             echo "✅ commit-msg: publish marker found — allowing src/recipes/ change."
             exit 0
         fi
 
         echo ""
-        echo "🛑 BLOCKED: Commit touches protected publishing paths without [publish] marker."
+        echo "🛑 BLOCKED: Commit touches protected publishing paths without a publish marker."
         echo ""
         echo "   Files affected:"
         echo "$changed_files" | grep -E "$pattern" | sed 's/^/   - /'
         echo ""
-        echo "   Add [publish] to your commit message:"
-        echo "     git commit -m 'publish: Recipe name [publish]'"
+        echo "   Add one of these markers:"
+        echo "     git commit -m 'publish: Recipe name'"
+        echo "     git commit -m 'Recipe name [publish]'"
         echo ""
         exit 1
     fi
