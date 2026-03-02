@@ -47,6 +47,13 @@ IMAGES_DIR = ROOT / "src" / "assets" / "images"
 class _FilesystemBackend:
     """Local filesystem storage — used for LOCAL_DEV."""
 
+    def _safe_path(self, relative_path: str) -> Path:
+        """Resolve path and validate it stays under ROOT (prevents path traversal)."""
+        dest = (ROOT / relative_path).resolve()
+        if not dest.is_relative_to(ROOT.resolve()):
+            raise ValueError(f"Path traversal blocked: {relative_path!r}")
+        return dest
+
     def load_episode(self, episode_id: str) -> Optional[dict]:
         path = EPISODES_DIR / f"{episode_id}.json"
         if not path.exists():
@@ -100,7 +107,7 @@ class _FilesystemBackend:
 
     def save_image(self, relative_path: str, image_bytes: bytes) -> str:
         """Save image bytes and return the local URL path."""
-        dest = ROOT / relative_path
+        dest = self._safe_path(relative_path)
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(image_bytes)
         # Strip src/ prefix — static mount serves src/ at /static, assets at /assets
@@ -109,11 +116,12 @@ class _FilesystemBackend:
 
     def get_image_url(self, relative_path: str) -> str:
         """Return URL for serving the image."""
+        self._safe_path(relative_path)  # validate — raises if traversal detected
         url_path = relative_path.removeprefix("src/")
         return f"/{url_path}"
 
     def image_exists(self, relative_path: str) -> bool:
-        return (ROOT / relative_path).exists()
+        return self._safe_path(relative_path).exists()
 
 
 class _CloudBackend:

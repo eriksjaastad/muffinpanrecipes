@@ -9,9 +9,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from enum import Enum
 import json
+import re
 import shutil
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from send2trash import send2trash
 
 from backend.utils.logging import get_logger
 
@@ -28,13 +30,20 @@ class RecipeStatus(str, Enum):
 
 class Recipe(BaseModel):
     """
-    A muffin tin recipe created by the AI Creative Team.
-    
-    This is the primary output product of the system.
+    Represents a recipe produced by the AI Creative Team.
     """
     
     # Identity
-    recipe_id: str = Field(description="Unique identifier")
+    recipe_id: str = Field(description="Unique recipe identifier")
+
+    @field_validator("recipe_id")
+    @classmethod
+    def validate_recipe_id(cls, v: str) -> str:
+        if not re.match(r"^[a-zA-Z0-9_\-]+$", v):
+            raise ValueError(
+                f"recipe_id must only contain letters, digits, hyphens, and underscores. Got: {v!r}"
+            )
+        return v
     title: str = Field(description="Recipe title")
     concept: str = Field(description="The original concept/idea")
     
@@ -154,10 +163,10 @@ class Recipe(BaseModel):
         # Save to new location
         new_filepath = self.save_to_file(base_dir, use_status_dir=True)
 
-        # Remove old file if it exists and is different
+        # Move old file to trash instead of permanent deletion
         if old_filepath.exists() and old_filepath != new_filepath:
-            old_filepath.unlink()
-            logger.info(f"Removed old file: {old_filepath}")
+            send2trash(str(old_filepath))
+            logger.info(f"Trashed old file: {old_filepath}")
 
         logger.info(f"Transitioned recipe {self.recipe_id}: {old_status.value} → {new_status.value}")
         return new_filepath

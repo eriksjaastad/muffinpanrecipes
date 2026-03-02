@@ -17,7 +17,9 @@
     "routes": [
         {
             "src": "/(.*)",
-            "headers": { "Location": "https://muffinpanrecipes.com/$1" },
+            "headers": {
+                "Location": "https://muffinpanrecipes.com/$1"
+            },
             "has": [
                 {
                     "type": "host",
@@ -94,7 +96,7 @@
         },
         {
             "path": "/api/cron/sunday",
-            "schedule": "0 0 * * 1"
+            "schedule": "0 0 * * 0"
         }
     ],
     "env": {
