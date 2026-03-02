@@ -19,7 +19,7 @@ Usage:
 """
 
 from __future__ import annotations
-
+import hmac
 import os
 from datetime import datetime, timezone
 from typing import Optional
@@ -78,7 +78,7 @@ def _verify_cron_secret(request: Request) -> None:
 
     auth_header = request.headers.get("Authorization", "")
     expected = f"Bearer {cron_secret}"
-    if auth_header != expected:
+    if not hmac.compare_digest(auth_header, expected):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing CRON_SECRET",
@@ -442,6 +442,16 @@ async def cron_sunday(request: Request, body: StageRequest = StageRequest()):
     try:
         dialogue = _generate_dialogue("sunday", concept)
 
+        # Verify critical prior stages completed before publishing
+        required_stages = ["monday", "wednesday"]
+        for day in required_stages:
+            stage_status = ep.get("stages", {}).get(day, {}).get("status")
+            if stage_status != "complete":
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot publish: {day} stage incomplete (status={stage_status!r})",
+                )
+
         ep["published_at"] = datetime.now(timezone.utc).isoformat()
         ep["stages"]["sunday"] = {
             "stage": "publish",
@@ -462,3 +472,44 @@ async def cron_sunday(request: Request, body: StageRequest = StageRequest()):
         ep.setdefault("stages", {})["sunday"] = {"status": "failed", "error": str(e)}
         storage.save_episode(episode_id, ep)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Direct-call dispatcher (used by admin run-compressed-week)
+# ---------------------------------------------------------------------------
+
+_STAGE_HANDLERS = {
+    "monday": cron_monday,
+    "tuesday": cron_tuesday,
+    "wednesday": cron_wednesday,
+    "thursday": cron_thursday,
+    "friday": cron_friday,
+    "saturday": cron_saturday,
+    "sunday": cron_sunday,
+}
+
+
+async def execute_cron_stage(stage: str, episode_id: str, concept: str) -> dict:
+    """Execute a cron stage directly in-process (no HTTP round-trip).
+
+    Called by the admin 'Run Compressed Week' button so it works on Vercel
+    (where localhost self-calls fail) and on single-worker dev (no deadlock).
+    """
+    handler = _STAGE_HANDLERS.get(stage)
+    if not handler:
+        raise ValueError(f"Unknown cron stage: {stage!r}")
+    # Bypass cron secret verification — caller is already auth'd via admin UI
+    ep = _load_or_create_episode(episode_id, concept)
+    ep_concept: str = concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
+    dialogue = _generate_dialogue(stage, ep_concept)
+    ep.setdefault("stages", {})[stage] = {
+        "stage": stage,
+        "status": "complete",
+        "concept": ep_concept,
+        "dialogue": dialogue,
+        "completed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    ep.setdefault("events", []).append(f"{stage}: complete")
+    storage.save_episode(episode_id, ep)
+    return {"stage": stage, "episode_id": episode_id, "dialogue_messages": len(dialogue)}
+

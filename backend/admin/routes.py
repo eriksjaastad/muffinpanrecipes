@@ -15,16 +15,14 @@ from typing import Optional, List
 import hashlib
 import hmac
 import json
-import os
 import re
 import asyncio
-import httpx
 import time
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 from fastapi import FastAPI, Request, HTTPException, Depends, status
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from backend.data.recipe import Recipe, RecipeStatus
 from backend.publishing.pipeline import PublishingPipeline
@@ -71,7 +69,7 @@ def _verify_oauth_state(cookie_value: str, callback_state: str) -> bool:
     """Verify the signed state cookie matches the callback state parameter."""
     if not cookie_value:
         return False
-    parts = cookie_value.split("|")
+    parts = cookie_value.split("|", 2)
     if len(parts) != 3:
         return False
     stored_state, ts_str, sig = parts
@@ -662,6 +660,16 @@ def create_routes(app: FastAPI):
     class NewsletterSubscribeRequest(BaseModel):
         """Newsletter subscription request."""
         email: str
+
+        @field_validator("email")
+        @classmethod
+        def validate_email(cls, v: str) -> str:
+            v = v.strip().lower()
+            if len(v) > 254:
+                raise ValueError("Email address too long.")
+            if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", v):
+                raise ValueError("Invalid email address.")
+            return v
     
     @app.post("/api/newsletter/subscribe")
     async def newsletter_subscribe(request: Request, request_data: NewsletterSubscribeRequest):
@@ -672,6 +680,8 @@ def create_routes(app: FastAPI):
         # Sliding-window: keep only timestamps within the last 60 seconds
         timestamps = _SUBSCRIBE_RATE_LIMITS.get(client_ip, [])
         timestamps = [ts for ts in timestamps if now - ts < 60]
+        if not timestamps:
+            _SUBSCRIBE_RATE_LIMITS.pop(client_ip, None)
 
         if len(timestamps) >= 3:
             logger.warning(f"Newsletter rate limit exceeded for IP: {client_ip}")
@@ -729,7 +739,6 @@ def create_routes(app: FastAPI):
                         for s in stages.values()
                     )
                     if last_activity:
-                        from datetime import datetime, timezone, timedelta
                         try:
                             last_dt = datetime.fromisoformat(last_activity)
                             if last_dt.tzinfo is None:
@@ -844,6 +853,8 @@ def create_routes(app: FastAPI):
                 "request": request,
                 "episodes": episodes,
                 "total": len(episodes),
+                "stage_keys": STAGE_ORDER,
+                "stage_labels": {k: STAGE_LABELS.get(k, k[:3].title()) for k in STAGE_ORDER},
             },
         )
 
@@ -899,6 +910,8 @@ def create_routes(app: FastAPI):
         errors: list[str] = []
 
         recipe_id = data.get("recipe_id")
+        if recipe_id:
+            recipe_id = _sanitize_id(recipe_id, "recipe_id")
         images_base = app.state.project_root / "src" / "assets" / "images"
         paths_to_trash: list[Path] = [ep_path]
         if recipe_id:
@@ -946,35 +959,27 @@ def create_routes(app: FastAPI):
 
         # Call each cron stage in order via HTTP (same as Vercel would).
         # In LOCAL_DEV the CRON_SECRET check is bypassed, any bearer value works.
-        cron_secret = os.environ.get("CRON_SECRET", "local-dev-secret")
+        from backend.admin.cron_routes import execute_cron_stage
+
         stages = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
-        base_url = "http://127.0.0.1:8000"
-        headers = {"Authorization": f"Bearer {cron_secret}", "Content-Type": "application/json"}
-        payload = {"episode_id": episode_id, "concept": concept}
         stage_results = []
 
-        async with httpx.AsyncClient(timeout=320.0) as client:
-            for stage in stages:
-                try:
-                    resp = await client.post(
-                        f"{base_url}/api/cron/{stage}",
-                        json=payload,
-                        headers=headers,
-                    )
-                    stage_results.append({
-                        "stage": stage,
-                        "status_code": resp.status_code,
-                        "ok": resp.status_code == 200,
-                        "detail": resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text[:120],
-                    })
-                    logger.info(f"Cron stage {stage} -> {resp.status_code}")
-                except Exception as exc:
-                    logger.warning(f"Cron stage {stage} failed: {exc}")
-                    stage_results.append({"stage": stage, "ok": False, "error": str(exc)})
+        for stage in stages:
+            try:
+                result = await execute_cron_stage(stage, episode_id, concept)
+                stage_results.append({
+                    "stage": stage,
+                    "ok": True,
+                    "detail": result,
+                })
+                logger.info(f"Cron stage {stage} -> complete")
+            except Exception as exc:
+                logger.warning(f"Cron stage {stage} failed: {exc}")
+                stage_results.append({"stage": stage, "ok": False, "error": str(exc)})
 
-                # Brief pause between stages so Vercel-style sequential pacing is preserved
-                if stage != stages[-1]:
-                    await asyncio.sleep(2)
+            # Brief pause between stages for sequential pacing
+            if stage != stages[-1]:
+                await asyncio.sleep(2)
 
         completed = sum(1 for r in stage_results if r.get("ok"))
         return JSONResponse({

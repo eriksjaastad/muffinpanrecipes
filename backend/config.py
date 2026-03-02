@@ -85,7 +85,12 @@ class _Config:
 
     @property
     def auth_bypass(self) -> bool:
-        """True when OAuth should be bypassed (local dev only)."""
+        """True when OAuth should be bypassed (local dev only).
+
+        Explicitly blocked on Vercel — prevents LOCAL_DEV=true leaking to production.
+        """
+        if self._vercel_env:  # We're on Vercel — never bypass auth
+            return False
         return self.is_local_dev
 
     def __repr__(self) -> str:

@@ -92,6 +92,10 @@ def create_admin_app(
             "font-src 'self' fonts.gstatic.com",
             "img-src 'self' data:",
             "connect-src 'self'",
+            "object-src 'none'",
+            "base-uri 'self'",
+            "form-action 'self'",
+            "frame-ancestors 'none'",
         ]
         response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
 
@@ -107,7 +111,7 @@ def create_admin_app(
     # Include cron API routes (/api/cron/monday ... /api/cron/sunday)
     app.include_router(cron_router)
     
-    # Startup event
+    # Startup event (TODO: migrate to lifespan= in FastAPI constructor when refactoring app creation)
     @app.on_event("startup")
     async def startup_event():
         logger.info("Admin dashboard starting...")
