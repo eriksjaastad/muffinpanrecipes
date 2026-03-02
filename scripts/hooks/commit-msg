@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# commit-msg hook: Enforce [publish] marker on commits that touch protected paths.
+#
+# pre-commit cannot reliably read the commit message file, so we use
+# a commit-msg hook instead for the message check.
+#
+# Policy: --no-verify bypasses are FORBIDDEN. Fix the root cause instead.
+# See AGENTS.md § Publishing Protocol for the approved publishing flow.
+
+set -euo pipefail
+
+COMMIT_MSG_FILE="$1"
+commit_msg=$(cat "$COMMIT_MSG_FILE")
+
+PROTECTED_PATTERNS=(
+    "^src/recipes/"
+    "^src/recipes\.json$"
+)
+
+changed_files=$(git diff --cached --name-only 2>/dev/null || true)
+
+for pattern in "${PROTECTED_PATTERNS[@]}"; do
+    if echo "$changed_files" | grep -qE "$pattern"; then
+        if echo "$commit_msg" | grep -qiE '\[publish\]'; then
+            echo "✅ commit-msg: [publish] marker found — allowing src/recipes/ change."
+            exit 0
+        fi
+
+        echo ""
+        echo "🛑 BLOCKED: Commit touches protected publishing paths without [publish] marker."
+        echo ""
+        echo "   Files affected:"
+        echo "$changed_files" | grep -E "$pattern" | sed 's/^/   - /'
+        echo ""
+        echo "   Add [publish] to your commit message:"
+        echo "     git commit -m 'publish: Recipe name [publish]'"
+        echo ""
+        exit 1
+    fi
+done
+
+exit 0

@@ -1,5 +1,6 @@
 {
     "version": 2,
+    "buildCommand": "npm run build:css",
     "builds": [
         {
             "src": "backend/admin/app.py",

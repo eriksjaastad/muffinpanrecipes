@@ -35,6 +35,9 @@ logger = get_logger(__name__)
 
 # Module-level rate limit storage for newsletter subscription (3 req / IP / min)
 _SUBSCRIBE_RATE_LIMITS: dict[str, list[float]] = {}
+_SUBSCRIBE_RATE_LIMITS_LAST_SWEPT: float = 0.0
+_SUBSCRIBE_RATE_LIMITS_SWEEP_INTERVAL: float = 300.0  # sweep every 5 minutes
+_SUBSCRIBE_RATE_LIMITS_MAX_ENTRIES: int = 500         # hard cap on dict size
 
 # ---------------------------------------------------------------------------
 # Path-safety helpers (Governance H4)
@@ -438,7 +441,11 @@ def create_routes(app: FastAPI):
         for recipe_status in RecipeStatus:
             filepath = data_dir / recipe_status.value / f"{recipe_id}.json"
             if filepath.exists():
-                recipe = Recipe.load_from_file(filepath)
+                try:
+                    recipe = Recipe.load_from_file(filepath)
+                except Exception as e:
+                    logger.error(f"Error loading recipe {recipe_id}: {e}")
+                    raise HTTPException(status_code=500, detail="Failed to load recipe data")
                 break
 
         if not recipe:
@@ -677,6 +684,22 @@ def create_routes(app: FastAPI):
         client_ip = request.client.host if request.client else "unknown"
         now = time.time()
 
+        # Periodic sweep: evict all IPs whose timestamps are fully expired
+        global _SUBSCRIBE_RATE_LIMITS_LAST_SWEPT
+        if now - _SUBSCRIBE_RATE_LIMITS_LAST_SWEPT > _SUBSCRIBE_RATE_LIMITS_SWEEP_INTERVAL:
+            stale_keys = [
+                ip for ip, ts_list in _SUBSCRIBE_RATE_LIMITS.items()
+                if not any(now - t < 60 for t in ts_list)
+            ]
+            for k in stale_keys:
+                del _SUBSCRIBE_RATE_LIMITS[k]
+            # Hard cap: if still over limit, evict oldest entries
+            if len(_SUBSCRIBE_RATE_LIMITS) > _SUBSCRIBE_RATE_LIMITS_MAX_ENTRIES:
+                excess = len(_SUBSCRIBE_RATE_LIMITS) - _SUBSCRIBE_RATE_LIMITS_MAX_ENTRIES
+                for k in list(_SUBSCRIBE_RATE_LIMITS.keys())[:excess]:
+                    del _SUBSCRIBE_RATE_LIMITS[k]
+            _SUBSCRIBE_RATE_LIMITS_LAST_SWEPT = now
+
         # Sliding-window: keep only timestamps within the last 60 seconds
         timestamps = _SUBSCRIBE_RATE_LIMITS.get(client_ip, [])
         timestamps = [ts for ts in timestamps if now - ts < 60]
@@ -774,8 +797,10 @@ def create_routes(app: FastAPI):
                     "stages_map": stages_map,
                     "filename": path.name,
                 })
-            except Exception as exc:
+            except (json.JSONDecodeError, KeyError, ValueError) as exc:
                 logger.warning(f"Skipping invalid episode file {path.name}: {exc}")
+            except Exception as exc:
+                logger.error(f"Unexpected error reading episode file {path.name}: {exc}", exc_info=True)
         return episodes
 
     def _build_episode_detail(data: dict) -> dict:
@@ -842,17 +867,33 @@ def create_routes(app: FastAPI):
     async def admin_episodes(
         request: Request,
         user: dict = Depends(require_auth),
+        page: int = 1,
+        page_size: int = 20,
     ):
         """Browse full-week episode production logs."""
         templates = app.state.templates
         episodes_dir = app.state.project_root / "data" / "episodes"
-        episodes = _load_episodes(episodes_dir)
+        all_episodes = _load_episodes(episodes_dir)
+
+        # Sort newest-first by created_at
+        all_episodes.sort(key=lambda e: e.get("created_at", ""), reverse=True)
+        total = len(all_episodes)
+
+        # Clamp page bounds
+        max_page = max(1, (total + page_size - 1) // page_size)
+        page = max(1, min(page, max_page))
+        start = (page - 1) * page_size
+        episodes = all_episodes[start : start + page_size]
+
         return templates.TemplateResponse(
             "episodes.html",
             {
                 "request": request,
                 "episodes": episodes,
-                "total": len(episodes),
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+                "max_page": max_page,
                 "stage_keys": STAGE_ORDER,
                 "stage_labels": {k: STAGE_LABELS.get(k, k[:3].title()) for k in STAGE_ORDER},
             },

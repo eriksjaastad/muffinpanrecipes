@@ -67,7 +67,11 @@ def _verify_cron_secret(request: Request) -> None:
     In LOCAL_DEV mode the check is skipped entirely.
     """
     if config.is_local_dev:
-        return  # bypass in local dev
+        if os.environ.get("VERCEL_ENV"):
+            # Safety guard: LOCAL_DEV must never bypass auth in a Vercel environment
+            logger.warning("CRON_SECRET bypass blocked: VERCEL_ENV is set but LOCAL_DEV=true")
+        else:
+            return  # bypass only in genuine local dev
 
     cron_secret = os.environ.get("CRON_SECRET", "")
     if not cron_secret:
@@ -140,14 +144,23 @@ def _generate_dialogue(stage: str, concept: str, image_paths: list[str] | None =
             image_paths=image_paths or [],
         )
         return result.get("messages", [])
-    except Exception as e:
+    except (ImportError, AttributeError, TypeError, ValueError) as e:
         logger.warning(f"Dialogue generation failed for stage={stage}: {e}")
         return []  # dialogue is non-fatal — pipeline continues without it
+    except Exception as e:
+        logger.error(f"Unexpected dialogue error for stage={stage}: {e}", exc_info=True)
+        return []  # still non-fatal, but logged at ERROR level
 
 
 class StageRequest(BaseModel):
     episode_id: Optional[str] = None   # defaults to current ISO week
     concept: Optional[str] = None      # defaults to stored or generic
+
+
+def _save_stage_failure(ep: dict, stage: str, error: Exception) -> None:
+    """Write a failed-stage marker and persist the episode."""
+    ep.setdefault("stages", {})[stage] = {"status": "failed", "error": str(error)}
+    storage.save_episode(ep["episode_id"], ep)
 
 
 # ---------------------------------------------------------------------------
@@ -188,8 +201,9 @@ async def cron_monday(request: Request, body: StageRequest = StageRequest()):
         RecipeOrchestrator = _get_orchestrator()
         from backend.storage import EPISODES_DIR
         orchestrator = RecipeOrchestrator(data_dir=EPISODES_DIR.parent)
-        if ep["recipe_id"] not in orchestrator.pipeline.active_recipes:
-            orchestrator.pipeline.start_recipe(ep["recipe_id"], concept)
+        # Note: active_recipes check removed — a new orchestrator instance is created
+        # per request so active_recipes is always empty. start_recipe is idempotent.
+        orchestrator.pipeline.start_recipe(ep["recipe_id"], concept)
 
         recipe_data = orchestrator._execute_stage_baker(ep["recipe_id"], concept)
         dialogue = _generate_dialogue("monday", concept)
@@ -264,8 +278,8 @@ async def cron_wednesday(request: Request, body: StageRequest = StageRequest()):
         from backend.storage import EPISODES_DIR
         orchestrator = RecipeOrchestrator(data_dir=EPISODES_DIR.parent)
         recipe_id = ep.get("recipe_id") or "unknown"
-        if recipe_id not in orchestrator.pipeline.active_recipes:
-            orchestrator.pipeline.start_recipe(recipe_id, concept)
+        # active_recipes check removed: orchestrator is per-request, so list is always empty
+        orchestrator.pipeline.start_recipe(recipe_id, concept)
 
         photography_result = orchestrator._execute_stage_photography(recipe_id, recipe_data)
         image_paths: list[str] = photography_result if isinstance(photography_result, list) else []
@@ -317,8 +331,8 @@ async def cron_thursday(request: Request, body: StageRequest = StageRequest()):
         from backend.storage import EPISODES_DIR
         orchestrator = RecipeOrchestrator(data_dir=EPISODES_DIR.parent)
         recipe_id = ep.get("recipe_id") or "unknown"
-        if recipe_id not in orchestrator.pipeline.active_recipes:
-            orchestrator.pipeline.start_recipe(recipe_id, concept)
+        # active_recipes check removed: orchestrator is per-request, so list is always empty
+        orchestrator.pipeline.start_recipe(recipe_id, concept)
 
         copy_text = orchestrator._execute_stage_copywriting(recipe_id, concept, recipe_data)
         dialogue = _generate_dialogue("thursday", concept)
@@ -360,8 +374,8 @@ async def cron_friday(request: Request, body: StageRequest = StageRequest()):
         from backend.storage import EPISODES_DIR
         orchestrator = RecipeOrchestrator(data_dir=EPISODES_DIR.parent)
         recipe_id = ep.get("recipe_id") or "unknown"
-        if recipe_id not in orchestrator.pipeline.active_recipes:
-            orchestrator.pipeline.start_recipe(recipe_id, concept)
+        # active_recipes check removed: orchestrator is per-request, so list is always empty
+        orchestrator.pipeline.start_recipe(recipe_id, concept)
 
         approved, review_output = orchestrator._execute_stage_review(recipe_id)
         dialogue = _generate_dialogue("friday", concept)
@@ -404,8 +418,8 @@ async def cron_saturday(request: Request, body: StageRequest = StageRequest()):
         from backend.storage import EPISODES_DIR
         orchestrator = RecipeOrchestrator(data_dir=EPISODES_DIR.parent)
         recipe_id = ep.get("recipe_id") or "unknown"
-        if recipe_id not in orchestrator.pipeline.active_recipes:
-            orchestrator.pipeline.start_recipe(recipe_id, concept)
+        # active_recipes check removed: orchestrator is per-request, so list is always empty
+        orchestrator.pipeline.start_recipe(recipe_id, concept)
 
         orchestrator._execute_stage_deployment(recipe_id)
         dialogue = _generate_dialogue("saturday", concept)
