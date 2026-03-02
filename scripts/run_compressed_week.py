@@ -43,9 +43,23 @@ STAGE_LABELS = {
     "sunday": "Publish",
 }
 
+DEFAULT_STAGE_TIMEOUT_SECONDS = 300
+STAGE_TIMEOUT_OVERRIDES_SECONDS = {
+    # Monday does the heaviest orchestration work and can legitimately exceed 5m.
+    "monday": 900,
+}
+
+
+def resolve_stage_timeout(stage: str) -> int:
+    return STAGE_TIMEOUT_OVERRIDES_SECONDS.get(stage, DEFAULT_STAGE_TIMEOUT_SECONDS)
+
 
 def run_stage(stage: str, episode_id: str, concept: str, dry_run: bool = False) -> tuple[bool, str]:
     """Run a single stage via run_pipeline_stage.py and return (ok, output)."""
+    timeout_seconds = resolve_stage_timeout(stage)
+    local_env = {**os.environ, "PYTHONPATH": str(ROOT)}
+    # Compressed-week runs are local test workflows; default to filesystem mode.
+    local_env.setdefault("LOCAL_DEV", "true")
     cmd = [
         sys.executable,
         str(ROOT / "scripts" / "run_pipeline_stage.py"),
@@ -61,13 +75,13 @@ def run_stage(stage: str, episode_id: str, concept: str, dry_run: bool = False) 
             cwd=ROOT,
             text=True,
             capture_output=True,
-            timeout=300,
-            env={**os.environ, "PYTHONPATH": str(ROOT)},
+            timeout=timeout_seconds,
+            env=local_env,
         )
         output = (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
         return result.returncode == 0, output.strip()
     except subprocess.TimeoutExpired as e:
-        return False, f"timeout after 300s: {(e.stdout or '')} {(e.stderr or '')}"
+        return False, f"timeout after {timeout_seconds}s: {(e.stdout or '')} {(e.stderr or '')}"
     except Exception as e:
         return False, str(e)
 
@@ -167,7 +181,8 @@ def main() -> None:
 
     for i, stage in enumerate(stages_to_run):
         label = STAGE_LABELS.get(stage, stage)
-        print(f"[{i+1}/{len(stages_to_run)}] Running {stage} ({label})...")
+        timeout_seconds = resolve_stage_timeout(stage)
+        print(f"[{i+1}/{len(stages_to_run)}] Running {stage} ({label}) [timeout={timeout_seconds}s]...")
 
         ok, output = run_stage(stage, args.episode_id, args.concept, dry_run=args.dry_run)
         results.append({"stage": stage, "ok": ok, "error": output if not ok else ""})
