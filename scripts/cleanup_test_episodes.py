@@ -10,8 +10,8 @@ Usage:
 from __future__ import annotations
 import argparse
 import json
-import shutil
 from pathlib import Path
+from send2trash import send2trash
 
 
 def main() -> None:
@@ -74,11 +74,8 @@ def main() -> None:
             rel = item.relative_to(repo_root)
             if args.confirm:
                 try:
-                    if item.is_dir():
-                        shutil.rmtree(item)
-                    else:
-                        item.unlink()
-                    print(f"  [DELETED] {rel}")
+                    send2trash(str(item))
+                    print(f"  [TRASHED] {rel}")
                 except Exception as e:
                     print(f"  [ERROR]   {rel}: {e}")
             else:
