@@ -15,22 +15,10 @@
 </head>
 
 <body class="bg-slate-100 min-h-screen">
-    <header class="bg-white border-b border-slate-200">
-        <div class="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
-            <div>
-                <h1 class="text-2xl font-bold text-slate-900">📅 Episode Log</h1>
-                <p class="text-sm text-slate-500">Full-week production records from <code>data/episodes/</code></p>
-            </div>
-            <div class="flex gap-3">
-                <a href="/admin/"
-                    class="text-sm px-3 py-2 rounded bg-slate-200 text-slate-800 hover:bg-slate-300">Dashboard</a>
-                <a href="/admin/simulations"
-                    class="text-sm px-3 py-2 rounded bg-slate-200 text-slate-800 hover:bg-slate-300">Simulations</a>
-                <a href="/auth/logout"
-                    class="text-sm px-3 py-2 rounded bg-slate-900 text-white hover:bg-slate-700">Logout</a>
-            </div>
-        </div>
-    </header>
+    {% set nav_title = "📅 Episode Log" %}
+    {% set nav_subtitle = "Full-week production records from <code>data/episodes/</code>" %}
+    {% include "_nav.html" %}
+
 
     <main class="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
         <p class="text-sm text-slate-500 mb-4">
