@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Orchestrate OpenAI dialogue benchmarks and write machine-readable summaries.
+"""Orchestrate dialogue benchmarks and write machine-readable summaries.
 
 Phases:
 1) Enumerate accessible OpenAI chat-like models.
 2) Ensure >=2 monday-stage quick-pass attempts per model (using existing runs + new runs).
-3) Run deeper full-week passes for a curated stable subset + Ollama baseline.
+3) Run deeper full-week passes for a curated stable subset.
 4) Run character-model assignment experiments (>=3 variants).
 """
 
@@ -99,7 +99,7 @@ def quick_attempt(model: str, run_tag: str) -> tuple[bool, str]:
         "--ticks-per-day",
         "1",
         "--mode",
-        "ollama",
+        "llm",
         "--event",
         f"compatibility_probe:{run_tag}",
     ]
@@ -120,7 +120,7 @@ def run_full_week(model: str, concept: str, prompt_style: str = "scene") -> tupl
         "--ticks-per-day",
         "3",
         "--mode",
-        "ollama",
+        "llm",
         "--prompt-style",
         prompt_style,
     ]
@@ -134,7 +134,7 @@ def assignment_variants() -> dict[str, dict[str, str]]:
     v1.update(
         {
             "default": "openai/gpt-5-mini",
-            "Devon Park": "ollama/qwen3:32b",
+            "Devon Park": "openai/gpt-5-nano",
         }
     )
 
@@ -146,23 +146,23 @@ def assignment_variants() -> dict[str, dict[str, str]]:
             "Stephanie 'Steph' Whitmore": "openai/gpt-5-mini",
             "Julian Torres": "openai/gpt-5.1",
             "Marcus Reid": "openai/gpt-5-mini",
-            "Devon Park": "ollama/qwen3:32b",
+            "Devon Park": "openai/gpt-5-nano",
         }
     )
 
     v3 = dict(base)
     v3.update(
         {
-            "default": "ollama/qwen3:32b",
+            "default": "anthropic/claude-haiku-4-5-20251001",
             "Margaret Chen": "openai/gpt-5.1",
             "Stephanie 'Steph' Whitmore": "openai/gpt-5-mini",
-            "Julian Torres": "ollama/qwen3:32b",
+            "Julian Torres": "anthropic/claude-haiku-4-5-20251001",
             "Marcus Reid": "openai/gpt-5-mini",
-            "Devon Park": "ollama/qwen3:32b",
+            "Devon Park": "anthropic/claude-haiku-4-5-20251001",
         }
     )
 
-    return {"variant_balanced": v1, "variant_4o_leads": v2, "variant_local_heavy": v3}
+    return {"variant_balanced": v1, "variant_openai_leads": v2, "variant_anthropic_mix": v3}
 
 
 def run_assignment_variant(name: str, mapping: dict[str, str]) -> tuple[bool, str]:
@@ -177,7 +177,7 @@ def run_assignment_variant(name: str, mapping: dict[str, str]) -> tuple[bool, st
         "--ticks-per-day",
         "3",
         "--mode",
-        "ollama",
+        "llm",
         "--character-models",
         json.dumps(mapping),
     ]
@@ -203,7 +203,7 @@ def reason_from_output(output: str) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--full-week-models", default="ollama/qwen3:32b,openai/gpt-5-mini,openai/gpt-5-nano,openai/gpt-5.1")
+    parser.add_argument("--full-week-models", default="openai/gpt-5-mini,openai/gpt-5-nano,openai/gpt-5.1,anthropic/claude-haiku-4-5-20251001")
     args = parser.parse_args()
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)

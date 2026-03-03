@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -33,9 +34,9 @@ STAGE_TO_ROLE = {
     "sunday": "publish",
 }
 
-# Production pipeline model — always OpenAI for Vercel deployment.
-# The simulator (simulate_dialogue_week.py) still accepts --model ollama/... for local R&D.
-DIALOGUE_MODEL = "openai/gpt-5-mini"
+# Default dialogue model. Override via DIALOGUE_MODEL env var or
+# --dialogue-model CLI flag in run_compressed_week.py.
+DIALOGUE_MODEL = os.getenv("DIALOGUE_MODEL", "openai/gpt-5-mini")
 
 
 def load_episode(episode_id: str) -> dict:
@@ -83,7 +84,7 @@ def _generate_stage_dialogue(stage: str, concept: str, image_paths: list[str] | 
             stage_only=stage,
             injected_event=None,
             ticks_per_day=0,       # 0 = use variable TICKS_RANGE per day (natural variation)
-            mode="openai",
+            mode="llm",
             prompt_style="scene",
             character_models=None,
             image_paths=image_paths or [],
@@ -163,10 +164,21 @@ def main() -> None:
         elif stage_key == "wednesday":
             # Wednesday = Photography: generate 3 image variants, capture paths
             recipe_data = ep["stages"].get("monday", {}).get("recipe_data", {})
-            result = orchestrator._execute_stage_photography(recipe_id, recipe_data)
-            # result is a list of selected shot paths from the art director
-            image_paths: list[str] = result if isinstance(result, list) else []
-            stage_entry["photography_data"] = result
+            if dry_run:
+                # Skip Stability AI call in dry-run mode; use placeholders
+                # so downstream dialogue still gets image context.
+                print(f"{prefix}Skipping Stability AI photography (dry-run mode)")
+                image_paths: list[str] = [
+                    "placeholder_1.png",
+                    "placeholder_2.png",
+                    "placeholder_3.png",
+                ]
+                stage_entry["photography_data"] = "dry-run-placeholder"
+            else:
+                result = orchestrator._execute_stage_photography(recipe_id, recipe_data)
+                # result is a list of selected shot paths from the art director
+                image_paths = result if isinstance(result, list) else []
+                stage_entry["photography_data"] = result
             stage_entry["image_paths"] = image_paths
             # Store on episode for later stages to reference
             ep["image_paths"] = image_paths
@@ -232,6 +244,17 @@ def main() -> None:
 
         print(f"{prefix}Stage complete: {stage_key} → {role}")
         print(f"{prefix}Episode file: {ep_path}")
+
+        # Print token/cost summary for this stage
+        from backend.utils.model_router import get_cost_summary
+        import json as _json
+        cost = get_cost_summary()
+        if cost["total_calls"] > 0:
+            print(f"{prefix}Tokens: {cost['total_tokens_in']:,} in + {cost['total_tokens_out']:,} out "
+                  f"= {cost['total_tokens_in'] + cost['total_tokens_out']:,} total "
+                  f"({cost['total_calls']} calls, ~${cost['total_cost']:.4f})")
+            # Machine-readable line for parent process to aggregate
+            print(f"COST_SUMMARY:{_json.dumps(cost)}")
 
     except Exception as e:
         stage_entry["status"] = "failed"

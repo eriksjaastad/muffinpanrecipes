@@ -7,9 +7,9 @@ Usage:
     from backend.config import config
 
     if config.is_local_dev:
-        ...  # filesystem, Ollama, no OAuth
+        ...  # filesystem, no OAuth
     if config.is_vercel:
-        ...  # cloud storage, OpenAI only
+        ...  # cloud storage, production models
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ class _Config:
 
     @property
     def is_local_dev(self) -> bool:
-        """True when LOCAL_DEV=true — local machine, filesystem, Ollama OK."""
+        """True when LOCAL_DEV=true — local machine, filesystem storage."""
         return self._local_dev
 
     @property
@@ -74,13 +74,11 @@ class _Config:
     def dialogue_model(self) -> str:
         """Default model for dialogue generation.
 
-        Always openai/gpt-5-mini in production. LOCAL_DEV can override via
-        DIALOGUE_MODEL_OVERRIDE env var for Ollama benchmarking.
+        Override via DIALOGUE_MODEL env var for benchmarking different providers.
         """
-        if self.is_local_dev:
-            override = os.environ.get("DIALOGUE_MODEL_OVERRIDE", "").strip()
-            if override:
-                return override
+        override = os.environ.get("DIALOGUE_MODEL", "").strip()
+        if override:
+            return override
         return "openai/gpt-5-mini"
 
     @property
