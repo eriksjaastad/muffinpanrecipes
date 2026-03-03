@@ -1,7 +1,7 @@
 """Environment configuration for Muffin Pan Recipes.
 
-Single source of truth for environment detection. Replace all raw
-os.environ.get("LOCAL_DEV") checks with imports from this module.
+Single source of truth for environment detection AND model selection.
+Replace all raw os.environ.get() checks with imports from this module.
 
 Usage:
     from backend.config import config
@@ -10,6 +10,33 @@ Usage:
         ...  # filesystem, no OAuth
     if config.is_vercel:
         ...  # cloud storage, production models
+
+Model Configuration:
+    All model defaults live here. There are three ways to set them,
+    in order of precedence (highest first):
+
+    1. API call body (per-request override):
+       curl -X POST http://localhost:8000/api/cron/monday \\
+         -H "Authorization: Bearer $CRON_SECRET" \\
+         -H "Content-Type: application/json" \\
+         -d '{"concept": "Mini Shepherd Pies", "model": "openai/gpt-5.1"}'
+
+    2. Doppler (per-environment default):
+       doppler secrets set DIALOGUE_MODEL "openai/gpt-5.1" --project muffinpanrecipes --config dev
+       doppler secrets set RECIPE_MODEL "openai/gpt-5.1" --project muffinpanrecipes --config dev
+
+    3. Hardcoded fallback in this file: "openai/gpt-5-mini"
+
+    For the CLI script, use --model or --character-models:
+       PYTHONPATH=. uv run scripts/simulate_dialogue_week.py \\
+         --concept "Mini Shepherd Pies" --model openai/gpt-5.1
+       PYTHONPATH=. uv run scripts/simulate_dialogue_week.py \\
+         --concept "Mini Shepherd Pies" \\
+         --character-models '{"Margaret Chen":"openai/gpt-5.1","default":"openai/gpt-5-mini"}'
+
+    Available models (must be in model_router allowlists):
+      OpenAI:    openai/gpt-5-mini, openai/gpt-5-nano, openai/gpt-5.1
+      Anthropic: anthropic/claude-haiku-4-5-20251001, anthropic/claude-sonnet-4-6
 """
 
 from __future__ import annotations
@@ -74,9 +101,33 @@ class _Config:
     def dialogue_model(self) -> str:
         """Default model for dialogue generation.
 
-        Override via DIALOGUE_MODEL env var for benchmarking different providers.
+        Override via DIALOGUE_MODEL env var or Doppler.
+        Used by: simulate_dialogue_week.py, cron_routes.py dialogue stages.
+
+        Available models (must be in model_router allowlists):
+          OpenAI:    openai/gpt-5-mini, openai/gpt-5-nano, openai/gpt-5.1
+          Anthropic: anthropic/claude-haiku-4-5-20251001, anthropic/claude-sonnet-4-6
+
+        Set via Doppler:  doppler secrets set DIALOGUE_MODEL "openai/gpt-5.1"
+        Set via CLI:      DIALOGUE_MODEL=openai/gpt-5.1 uv run scripts/simulate_dialogue_week.py ...
+        Set via API:      pass --model flag or character_models JSON to simulate_dialogue_week
         """
         override = os.environ.get("DIALOGUE_MODEL", "").strip()
+        if override:
+            return override
+        return "openai/gpt-5-mini"
+
+    @property
+    def recipe_model(self) -> str:
+        """Default model for recipe/copywriting generation.
+
+        Override via RECIPE_MODEL env var or Doppler.
+        Used by: recipe_prompts.py (recipe generation, description generation).
+
+        Same model options as dialogue_model.
+        Set via Doppler:  doppler secrets set RECIPE_MODEL "openai/gpt-5.1"
+        """
+        override = os.environ.get("RECIPE_MODEL", "").strip()
         if override:
             return override
         return "openai/gpt-5-mini"
@@ -95,7 +146,8 @@ class _Config:
         return (
             f"Config(environment={self.environment!r}, "
             f"storage={self.storage_backend!r}, "
-            f"model={self.dialogue_model!r}, "
+            f"dialogue_model={self.dialogue_model!r}, "
+            f"recipe_model={self.recipe_model!r}, "
             f"auth_bypass={self.auth_bypass})"
         )
 

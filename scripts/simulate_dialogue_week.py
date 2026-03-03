@@ -25,6 +25,7 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
+from backend.config import config
 from backend.utils.model_router import generate_response
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -121,8 +122,8 @@ TICKS_RANGE: dict[str, tuple[int, int]] = {
     "wednesday": (4, 6),   # photography + image refs (may have fewer because messages are longer)
     "thursday":  (3, 5),   # copywriting
     "friday":    (5, 8),   # approval discussion
-    "saturday":  (2, 3),   # quiet deploy
-    "sunday":    (2, 3),   # short celebratory wrap
+    "saturday":  (3, 5),   # enough for Devon's snag scene
+    "sunday":    (3, 4),   # brief nervousness + publish + warmth
 }
 
 PROMPT_ECHO_PATTERNS = [
@@ -165,20 +166,88 @@ def participants_for_day(day: str) -> list[str]:
     return ["Stephanie 'Steph' Whitmore", "Margaret Chen", "Marcus Reid"]
 
 
+_CHARACTER_VOICE_GUIDES: dict[str, str] = {
+    "Margaret Chen": (
+        "Margaret speaks in short, clipped sentences. Fragments. Verdicts, not speeches. "
+        "She mutters. She states facts like they're obvious. Dry humor slips out sideways. "
+        "1-3 sentences max. Average message: 8-15 words. "
+        "She is protective of Steph but expresses it as irritation. She respects Marcus's food knowledge "
+        "but finds his verbosity exhausting. She thinks Julian is everything wrong with modern food culture "
+        "but won't admit his photos make her recipes look better. Devon is tolerable because he doesn't small talk. "
+        "Her internal war: she resents Instagram culture but checks engagement numbers. She says she's here for the paycheck "
+        "but works late perfecting recipes nobody asked her to improve. She is deeply lonely and pushes people away with grumpiness."
+    ),
+    "Stephanie 'Steph' Whitmore": (
+        "Steph hedges. She qualifies. She trails off. She apologizes before giving feedback. "
+        "Her sentences are longer because she's padding them with uncertainty. 'I think maybe we could possibly...' "
+        "1-2 longer sentences. Average message: 15-25 words. "
+        "She's terrified of Margaret but desperately wants her approval. She envies Julian's confidence. "
+        "She finds Marcus's over-writing exhausting but is afraid to edit too heavily. "
+        "She knows Devon isn't working full hours but can't address it. "
+        "Her internal war: she has good instincts but doesn't trust them. She craves validation but dismisses compliments. "
+        "She reads about decisive leadership but practices collaborative indecisiveness."
+    ),
+    "Julian Torres": (
+        "Julian is declarative and theory-laden. Confident surface, fragile underneath. "
+        "He speaks in aesthetic terms and art-school vocabulary. References photographers nobody's heard of. "
+        "1-2 sentences. Average message: 12-20 words. "
+        "He's intimidated by Margaret's competence. He finds Steph's indecisiveness frustrating but has learned "
+        "she'll approve anything if he uses enough jargon. He and Marcus have an unspoken rivalry over who's 'the creative one.' "
+        "Devon's indifference to aesthetics annoys him. "
+        "His internal war: he mocks Instagram culture but checks his engagement obsessively. He claims to be above commercial work "
+        "but desperately needs this job. He's actually good at making content but frames everything as ART."
+    ),
+    "Marcus Reid": (
+        "Marcus over-explains. He's literary, referential, always one sentence too many. "
+        "He uses 'whom' in Slack. He can't resist an analogy or a food-history tangent. "
+        "2-3 sentences. Average message: 20-35 words. "
+        "He respects Margaret's food knowledge. He's frustrated Steph won't edit his copy decisively. "
+        "He sees Julian as a competitor for the 'artistic one' title. Devon's apparent lack of ambition baffles him. "
+        "His internal war: he wants to be a serious novelist but is increasingly good at commercial writing. "
+        "He resents the recipe work but puts more effort into it than anyone asks. "
+        "He mourns his novel's failure but hasn't started a second book."
+    ),
+    "Devon Park": (
+        "Devon is efficient and understated. Slightly condescending, then feels bad about it. "
+        "Technical jargon used to hide gaps. Casual. Dry. "
+        "1 sentence max. Average message: 5-12 words. "
+        "He appreciates Margaret's no-small-talk policy. He wishes Steph would just tell him what to do. "
+        "He finds Julian exhausting. He doesn't understand why Marcus writes so much. "
+        "His internal war: he lied to get the job but is honest about the work itself. "
+        "He appears lazy but has high personal standards for his code. "
+        "He automated most of his job and isn't sure if he should tell anyone."
+    ),
+}
+
+
 def build_system_prompt(persona: dict[str, Any]) -> str:
+    name = persona["name"]
     comm = persona["communication_style"]
+    voice_guide = _CHARACTER_VOICE_GUIDES.get(name, "")
+
+    # Build relationship summary as emotional tensions, not data dump
+    relationships = persona.get("relationships", {})
+    rel_lines = []
+    for role, desc in relationships.items():
+        # Take first 2 sentences of each relationship — the emotional core
+        sentences = desc.split(". ")
+        rel_lines.append(f"- {role}: {'. '.join(sentences[:2])}.")
+
     return (
-        f"You are {persona['name']} ({persona['role']}). Stay strictly in character. "
-        "Write ONE group chat message only (max 28 words). "
-        "No narration, no markdown, no role labels.\n\n"
-        f"Backstory: {persona['backstory']}\n"
-        f"Traits: {persona['core_traits']}\n"
-        f"Speech patterns (use as OCCASIONAL spice, NOT in every message - vary your openings): {comm.get('signature_phrases', [])}\n"
-        f"Behavioral quirks (note: email habits like signing with an initial do NOT apply in group chat): {persona.get('behavioral_quirks', [])}\n"
-        f"Triggers: {persona.get('triggers', [])}\n"
-        f"Internal contradictions: {persona.get('internal_contradictions', [])}\n"
-        f"Relationships: {persona.get('relationships', {})}\n"
-        "CRITICAL: Never use em dashes (\u2014), en dashes (\u2013), or curly quotes (\u2018\u2019\u201c\u201d). "
+        f"You are {name} ({persona['role']}). Stay strictly in character.\n"
+        "Write ONE group chat message. No narration, no markdown, no role labels.\n\n"
+        f"WHO YOU ARE:\n{persona['backstory'][:600]}\n\n"
+        f"HOW YOU SPEAK:\n{voice_guide}\n\n"
+        f"SIGNATURE PHRASES (use as OCCASIONAL spice — once or twice a WEEK, not every message):\n"
+        f"{', '.join(comm.get('signature_phrases', []))}\n\n"
+        f"INTERNAL CONTRADICTIONS (these make you human — lean into them):\n"
+        f"{chr(10).join('- ' + c for c in persona.get('internal_contradictions', []))}\n\n"
+        f"KEY RELATIONSHIPS:\n{chr(10).join(rel_lines)}\n\n"
+        f"TRIGGERS (these make you react strongly): {', '.join(persona.get('triggers', []))}\n\n"
+        "RULES:\n"
+        "- Signature phrases are spice, not default. Vary your openings.\n"
+        "- Email habits (signing with initials, etc.) do NOT apply in group chat.\n"
+        "- NEVER use em dashes (\u2014), en dashes (\u2013), or curly quotes (\u2018\u2019\u201c\u201d). "
         "Use plain hyphens and straight apostrophes only."
     )
 
@@ -335,23 +404,53 @@ def generate_turn(
     event_line = f"Injected event: {event}" if event else "Injected event: none"
 
     if prompt_style == "scene":
+        scene_sentence = f"{DAY_STAGE_DIRECTIONS[day]} {DAY_PROMPT[day]}"
+        deadline_sentence = f"Deadline today is {deadline}."
+        arc_summary = _build_dynamic_arc(day, concept)
+
         if day_turn == 1:
-            scene_sentence = (
-                f"{DAY_STAGE_DIRECTIONS[day]} {DAY_PROMPT[day]}"
+            # First message of the day: the speaker introduces the topic,
+            # not reacts to it. Without this, models read the concept from
+            # context and respond as if someone already pitched it off-screen.
+            opener_directive = (
+                "IMPORTANT: You are opening this conversation. Nobody has spoken yet today. "
+                "Introduce or pitch the topic - don't react as if someone else already said it."
             )
-            deadline_sentence = f"Deadline today is {deadline}."
             prompt = (
                 f"Episode concept: {concept}\n"
                 f"Day: {day.title()} ({stage})\n"
                 f"Scene context: {scene_sentence}\n"
-                f"Story arc: {DAY_ARC[day]}\n"
+                f"Story arc: {arc_summary}\n"
                 f"Time pressure: {deadline_sentence}\n"
                 f"{event_line}\n"
                 f"Recent chat:\n{history}\n\n"
+                f"{opener_directive}\n"
                 "What do you say next?"
             )
         else:
-            prompt = f"Recent chat:\n{history}\n\nWhat do you say next?"
+            # Turn 2+: full scene context on EVERY turn — never let the model lose the scene
+            previous_speaker = ""
+            if recent_lines:
+                last_line = recent_lines[-1]
+                previous_speaker = last_line.split(":")[0].strip()
+
+            # Role-chain reasoning — model thinks through the character before speaking
+            name = persona["name"].split()[0]
+            role_chain = (
+                f"Before responding, consider: given {name}'s relationship with {previous_speaker} "
+                f"and what was just said, what does {name} actually feel? "
+                f"What would they want to say vs. what they actually say?\n"
+                "Then write only their message."
+            ) if previous_speaker else "React to what was just said. Stay in the scene."
+
+            prompt = (
+                f"Day: {day.title()} - {stage}. Deadline: {deadline}.\n"
+                f"Scene: {scene_sentence}\n"
+                f"Arc reminder: {arc_summary}\n"
+                f"{event_line}\n"
+                f"Recent chat:\n{history}\n\n"
+                f"{role_chain}"
+            )
     else:
         prompt = (
             f"Episode concept: {concept}\n"
@@ -536,22 +635,106 @@ def _formal_name_penalty(messages: list[Message]) -> int:
     return hits
 
 
+def _voice_pattern_score(messages: list[Message]) -> tuple[int, dict[str, list[str]]]:
+    """Score voice authenticity by checking character-specific speech patterns.
+
+    Returns (bonus points, {character: [patterns matched]}).
+    """
+    by_char: dict[str, list[str]] = {}
+    for m in messages:
+        by_char.setdefault(m.character, []).append(m.message)
+
+    total_bonus = 0
+    pattern_hits: dict[str, list[str]] = {}
+
+    for char, msgs in by_char.items():
+        hits: list[str] = []
+        avg_words = mean([len(re.findall(r"\w+", m)) for m in msgs]) if msgs else 0
+        all_text = " ".join(m.lower() for m in msgs)
+
+        if "Margaret" in char:
+            if avg_words < 15:
+                hits.append(f"terse (avg {avg_words:.0f} words)")
+                total_bonus += 2
+            # Check for sentence fragments (sentences without verbs / very short)
+            fragment_count = sum(1 for m in msgs if len(re.findall(r"\w+", m)) <= 6)
+            if fragment_count >= 1:
+                hits.append(f"fragments ({fragment_count})")
+                total_bonus += 2
+
+        elif "Steph" in char:
+            hedging = ["maybe", "could we", "i think", "possibly", "i'm probably", "sorry", "what do you"]
+            hedge_count = sum(1 for h in hedging if h in all_text)
+            if hedge_count >= 2:
+                hits.append(f"hedging ({hedge_count} markers)")
+                total_bonus += 2
+
+        elif "Julian" in char:
+            aesthetic = ["visual", "negative space", "composition", "aesthetic", "intentional", "lighting", "narrative", "framework"]
+            aesthetic_count = sum(1 for a in aesthetic if a in all_text)
+            if aesthetic_count >= 1:
+                hits.append(f"aesthetic terms ({aesthetic_count})")
+                total_bonus += 2
+
+        elif "Marcus" in char:
+            if avg_words > 20:
+                hits.append(f"verbose (avg {avg_words:.0f} words)")
+                total_bonus += 2
+            # Literary references or analogies
+            literary = ["proust", "fisher", "hemingway", "like a", "as if", "reminds me of", "there's a tradition", "narrative arc"]
+            lit_count = sum(1 for l in literary if l in all_text)
+            if lit_count >= 1:
+                hits.append(f"literary ({lit_count})")
+                total_bonus += 2
+
+        elif "Devon" in char:
+            if avg_words < 12:
+                hits.append(f"minimal (avg {avg_words:.0f} words)")
+                total_bonus += 2
+
+        pattern_hits[char] = hits
+
+    return min(14, total_bonus), pattern_hits
+
+
+def _catchphrase_restraint_bonus(messages: list[Message], personas: dict[str, dict[str, Any]]) -> tuple[int, dict[str, int]]:
+    """Bonus if signature phrases are used sparingly. Penalty if overused."""
+    per_char_hits: dict[str, int] = {}
+    for m in messages:
+        sigs = [s.lower() for s in personas[m.character]["communication_style"].get("signature_phrases", [])]
+        hits = sum(1 for s in sigs if s and s in m.message.lower())
+        per_char_hits[m.character] = per_char_hits.get(m.character, 0) + hits
+
+    max_hits = max(per_char_hits.values()) if per_char_hits else 0
+    total_hits = sum(per_char_hits.values())
+
+    if max_hits <= 1 and total_hits <= 3:
+        # Sparing, natural use — reward
+        return 3, per_char_hits
+    elif max_hits >= 3:
+        # One character hammering catchphrases — penalize
+        return -5, per_char_hits
+    else:
+        return 0, per_char_hits
+
+
 def score_quality(messages: list[Message], personas: dict[str, dict[str, Any]]) -> dict[str, Any]:
     """
     Scoring categories (base = 72):
     1.  Prohibited phrases: -14 per hit
     2.  Em dash/en dash/curly quotes (\u2014\u2013\u2019\u201C\u201D): hard fail → 0
     3.  Prompt echo: hard fail → 0
-    4.  Signature phrase usage: +up to 10
-    5.  Rhythm/length variation: +up to 8
-    6.  Distinctiveness spread: +up to 8
-    7.  Min-content failures (<4 words): -8 per hit
-    8.  Cross-character lexical overlap (Jaccard): penalty via pairwise_overlap_penalty()
-    9.  Cross-character phrase repetition: -3 per shared 3-gram, max -20
-    10. Participation balance: -2/-5 per under/over-represented character
-    11. Conflict/disagreement bonus: +up to 5
-    12. Stage coherence (topic stagnation): up to -15
-    13. Formal name usage: -1 per hit
+    4.  Voice pattern authenticity: +up to 14 (replaces old signature match)
+    5.  Catchphrase restraint: +3 if sparing, -5 if overused
+    6.  Rhythm/length variation: +up to 8
+    7.  Distinctiveness spread: +up to 8
+    8.  Min-content failures (<4 words): -8 per hit
+    9.  Cross-character lexical overlap (Jaccard): penalty via pairwise_overlap_penalty()
+    10. Cross-character phrase repetition: -3 per shared 3-gram, max -20
+    11. Participation balance: -2/-5 per under/over-represented character
+    12. Conflict/disagreement bonus: +up to 5
+    13. Stage coherence (topic stagnation): up to -15
+    14. Formal name usage: -1 per hit
     """
     lowered = [m.message.lower() for m in messages]
     prohibited_hits = sum(sum(1 for p in PROHIBITED if p in msg) for msg in lowered)
@@ -578,15 +761,9 @@ def score_quality(messages: list[Message], personas: dict[str, dict[str, Any]]) 
     lengths = [len(re.findall(r"\w+", m.message)) for m in messages] or [0]
     rhythm_variation = (max(lengths) - min(lengths)) if lengths else 0
 
-    per_character_signature_hits: dict[str, int] = {}
-    for m in messages:
-        sigs = [s.lower() for s in personas[m.character]["communication_style"].get("signature_phrases", [])]
-        per_character_signature_hits[m.character] = per_character_signature_hits.get(m.character, 0) + sum(
-            1 for s in sigs if s and s in m.message.lower()
-        )
-
-    signature_total = sum(per_character_signature_hits.values())
-    signature_rate = signature_total / max(len(messages), 1)
+    # Voice pattern scoring (replaces old exact signature match)
+    voice_bonus, voice_patterns = _voice_pattern_score(messages)
+    catchphrase_bonus, per_character_signature_hits = _catchphrase_restraint_bonus(messages, personas)
 
     avg_len_by_character: dict[str, float] = {}
     for char in set(m.character for m in messages):
@@ -602,7 +779,6 @@ def score_quality(messages: list[Message], personas: dict[str, dict[str, Any]]) 
     min_content_failures = sum(1 for msg_len in lengths if msg_len < 4)
     overlap_penalty, overlaps = pairwise_overlap_penalty(messages)
 
-    # New scoring rules (#4970)
     phrase_penalty, repeated_phrases = _cross_char_phrase_penalty(messages)
     balance_penalty, participation = _participation_balance(messages, len(messages))
     conflict_bonus = _conflict_bonus(messages)
@@ -615,7 +791,8 @@ def score_quality(messages: list[Message], personas: dict[str, dict[str, Any]]) 
     else:
         score = 72
         score -= prohibited_hits * 14
-        score += min(10, int(signature_rate * 18))
+        score += voice_bonus               # voice pattern authenticity (+up to 14)
+        score += catchphrase_bonus          # restraint bonus (+3) or overuse penalty (-5)
         score += min(8, int(rhythm_variation / 2))
         score += min(8, int(distinctiveness_spread))
         score -= min_content_failures * 8
@@ -635,6 +812,9 @@ def score_quality(messages: list[Message], personas: dict[str, dict[str, Any]]) 
         "cross_character_overlap_penalty": overlap_penalty,
         "pairwise_lexical_overlap": overlaps,
         "rhythm_variation": rhythm_variation,
+        "voice_pattern_bonus": voice_bonus,
+        "voice_patterns_matched": voice_patterns,
+        "catchphrase_bonus": catchphrase_bonus,
         "signature_hits": per_character_signature_hits,
         "avg_length_by_character": avg_len_by_character,
         "distinctiveness_spread": round(distinctiveness_spread, 2),
@@ -709,6 +889,226 @@ def _distribute_images_wednesday(
             julian_msgs[-1].attachments = image_paths[2:3]
 
 
+def _build_dynamic_arc(day: str, concept: str, photography_context: dict | None = None) -> str:
+    """Enrich static DAY_ARC with concept-specific tension."""
+    base = DAY_ARC[day]
+
+    if day == "monday":
+        return (
+            f"Margaret pitches '{concept}'. She has opinions about whether this respects the craft. "
+            f"Marcus sees a literary angle in it. Steph worries about audience appeal. "
+            f"{base}"
+        )
+    elif day == "tuesday":
+        return (
+            f"The team is developing the recipe for '{concept}'. Ratios, technique, substitutions. "
+            f"Margaret is skeptical of shortcuts. Someone wants to experiment. "
+            f"{base}"
+        )
+    elif day == "wednesday":
+        winner_variant = ""
+        if photography_context and photography_context.get("winner"):
+            winner_variant = photography_context["winner"].get("variant", "")
+        if winner_variant:
+            return (
+                f"Julian has distinct shots of '{concept}'. Each character has a different favorite. "
+                f"Margaret wants food shown honestly. Julian wants the artistic angle. "
+                f"Steph thinks about feed performance. After real debate, they land on '{winner_variant}'. "
+                f"{base}"
+            )
+        return (
+            f"Julian has three distinct shots of '{concept}'. Each character has a different favorite. "
+            f"Margaret wants food shown honestly. Julian wants the artistic angle. "
+            f"Steph thinks about what performs in feed. They disagree before converging. "
+            f"{base}"
+        )
+    elif day == "thursday":
+        return (
+            f"Marcus shares copy for '{concept}'. It's too long, too literary, or too something. "
+            f"Margaret edits it harshly. Steph tries to mediate. "
+            f"{base}"
+        )
+    elif day == "friday":
+        return (
+            f"Final review of '{concept}'. The recipe was locked Tuesday. "
+            f"Photos were selected Wednesday. Now something isn't quite right. "
+            f"{base}"
+        )
+    elif day == "saturday":
+        return (
+            f"Devon is staging '{concept}' for deployment. It's mostly quiet. "
+            f"{base}"
+        )
+    elif day == "sunday":
+        return (
+            f"Publish window for '{concept}'. The week's work comes to a point. "
+            f"{base}"
+        )
+    return base
+
+
+# Domain keywords that boost a character's likelihood of speaking next
+_DOMAIN_KEYWORDS: dict[str, list[str]] = {
+    "Margaret Chen": ["recipe", "ratio", "batter", "flour", "butter", "oven", "temperature", "dough", "technique", "crust", "filling", "ingredient"],
+    "Stephanie 'Steph' Whitmore": ["approve", "decision", "timeline", "deadline", "team", "consensus", "feedback", "direction", "strategy"],
+    "Julian Torres": ["photo", "shot", "lighting", "angle", "visual", "image", "composition", "negative space", "styling", "aesthetic"],
+    "Marcus Reid": ["copy", "headline", "description", "words", "writing", "draft", "tone", "voice", "narrative", "story"],
+    "Devon Park": ["deploy", "staging", "site", "push", "build", "server", "code", "fix", "automated", "script"],
+}
+
+# Day leads — who opens each day (deterministic)
+_DAY_LEADS: dict[str, str] = {
+    "monday": "Margaret Chen",
+    "tuesday": "Margaret Chen",
+    "wednesday": "Julian Torres",
+    "thursday": "Marcus Reid",
+    "friday": "Margaret Chen",
+    "saturday": "Devon Park",
+    "sunday": "Stephanie 'Steph' Whitmore",
+}
+
+
+def _select_next_speaker(
+    names: list[str],
+    day: str,
+    tick: int,
+    recent_lines: list[str],
+    speak_counts: dict[str, int],
+    total_ticks: int,
+) -> str:
+    """Select next speaker using weighted reactive selection instead of round-robin."""
+    # Turn 1: day's lead character
+    if tick == 0:
+        lead = _DAY_LEADS.get(day, names[0])
+        return lead if lead in names else names[0]
+
+    scores: dict[str, float] = {name: 1.0 for name in names}
+
+    # Who just spoke? Suppress back-to-back
+    last_speaker = ""
+    if recent_lines:
+        last_speaker = recent_lines[-1].split(":")[0].strip()
+    for name in names:
+        first = name.split()[0]
+        if first == last_speaker:
+            scores[name] *= 0.15  # strong suppression, not zero
+
+    # Was this character addressed or referenced in recent messages?
+    last_few = " ".join(recent_lines[-3:]).lower() if recent_lines else ""
+    for name in names:
+        first = name.split()[0].lower()
+        if first in last_few:
+            # Don't boost if they were the one speaking (already counted above)
+            if first != last_speaker.lower():
+                scores[name] *= 2.5
+
+    # Domain relevance — was their topic area mentioned?
+    for name in names:
+        keywords = _DOMAIN_KEYWORDS.get(name, [])
+        if any(kw in last_few for kw in keywords):
+            scores[name] *= 1.8
+
+    # Hasn't spoken in a while? Boost
+    for name in names:
+        count = speak_counts.get(name, 0)
+        if count == 0 and tick >= 2:
+            scores[name] *= 3.0  # strong pull for silent characters
+        elif tick > 0 and count > 0:
+            # Check recency — how many turns since they last spoke
+            recency = 0
+            first = name.split()[0]
+            for line in reversed(recent_lines):
+                if line.split(":")[0].strip() == first:
+                    break
+                recency += 1
+            if recency >= 3:
+                scores[name] *= 1.5 + (recency - 3) * 0.3
+
+    # Cap any character at ~40% of day's messages
+    max_count = max(1, int(total_ticks * 0.4))
+    for name in names:
+        if speak_counts.get(name, 0) >= max_count:
+            scores[name] *= 0.05
+
+    # Weighted random selection
+    total = sum(scores.values())
+    if total <= 0:
+        return random.choice(names)
+    r = random.random() * total
+    cumulative = 0.0
+    for name in names:
+        cumulative += scores[name]
+        if r <= cumulative:
+            return name
+    return names[-1]
+
+
+def _build_photography_scene_direction(photography_context: dict | None, day: str) -> str | None:
+    """Build dynamic scene direction based on photography results.
+
+    Returns a scene override string or None to use the default.
+    """
+    if not photography_context or not isinstance(photography_context, dict):
+        return None
+
+    reshoot_happened = photography_context.get("reshoot_happened", False)
+    winner = photography_context.get("winner", {})
+    winner_variant = winner.get("variant", "unknown")
+    winner_round = winner.get("round", 1)
+
+    # Build human-readable variant descriptions for the characters to reference
+    rounds = photography_context.get("rounds", [])
+    variant_descriptions = {
+        "macro_closeup": "extreme close-up (one item filling the frame, crumb detail, shallow focus)",
+        "overhead_flatlay": "overhead flat lay (full tin from above, everything in focus, geometric)",
+        "hero_threequarter": "hero three-quarter angle (2-3 items on a board, one broken open, warm and inviting)",
+    }
+    shot_list = []
+    last_round = rounds[-1] if rounds else {}
+    for v in last_round.get("variants", []):
+        desc = variant_descriptions.get(v["variant"], v["variant"])
+        shot_list.append(f"'{v['variant']}' - {desc}")
+    shots_text = "; ".join(shot_list) if shot_list else "three distinctly different angles"
+
+    if day == "wednesday":
+        if reshoot_happened:
+            rejection = ""
+            if rounds and not rounds[0].get("passed", True):
+                rejection = rounds[0].get("rejection_reason", "the shots all looked the same")
+            return (
+                f"Julian drops the first batch of photos and it's a disaster - {rejection}. "
+                "Steph calls it out immediately. Panic about the timeline. "
+                "'Can we even reshoot by Thursday?' Julian pushes back but agrees to a rush reshoot. "
+                f"He delivers a second batch with three new angles: {shots_text}. "
+                "Now the team has to pick the hero image. Each character has a different favorite. "
+                "They argue about which shot tells the right story for this recipe. "
+                f"After real debate, they land on '{winner_variant}' as the hero."
+            )
+        else:
+            return (
+                f"Julian drops three distinctly different shots: {shots_text}. "
+                "Now the team has to pick the hero image - the ONE shot that represents this recipe everywhere. "
+                "Each character has a strong opinion about which shot should lead. "
+                "Julian has his artistic preference. Margaret cares about showing the food honestly. "
+                "Steph is thinking about what performs in feed. They disagree before converging. "
+                f"After real debate, they land on '{winner_variant}' as the hero."
+            )
+    elif day == "friday":
+        if reshoot_happened:
+            return (
+                f"Final review is tense. Julian's rush reshoot on Wednesday saved the week - "
+                f"the '{winner_variant}' from round {winner_round} is the hero. "
+                "Devon Park joins to confirm deployment readiness. Small fixes and sign-off."
+            )
+        else:
+            return (
+                f"Final review. Julian's '{winner_variant}' was selected as hero on Wednesday. "
+                "Devon Park joins to confirm deployment readiness. Approvals hinge on tiny fixes."
+            )
+
+    return None
+
+
 def run_simulation(
     concept: str,
     default_model: str,
@@ -720,6 +1120,7 @@ def run_simulation(
     prompt_style: str,
     character_models: dict[str, str] | None,
     image_paths: list[str] | None = None,  # 3 image paths from photography stage
+    photography_context: dict | None = None,  # full photography data with rounds/reshoot
 ) -> dict[str, Any]:
     personas = load_personas()
     start = datetime.now(timezone.utc).replace(hour=9, minute=0, second=0, microsecond=0)
@@ -731,6 +1132,13 @@ def run_simulation(
         stage = DAY_STAGE[day]
         names = participants_for_day(day)
 
+        # Override scene direction if photography context provides one
+        photo_scene = _build_photography_scene_direction(photography_context, day)
+        if photo_scene:
+            # Temporarily override for this day's generation
+            _original_direction = DAY_STAGE_DIRECTIONS.get(day, "")
+            DAY_STAGE_DIRECTIONS[day] = photo_scene
+
         # Variable message count — sample fresh each day/run
         if ticks_per_day > 0:
             # Caller passed explicit count (e.g. pipeline stage calling with ticks_per_day=4)
@@ -739,8 +1147,17 @@ def run_simulation(
             lo, hi = TICKS_RANGE.get(day, (4, 6))
             day_ticks = random.randint(lo, hi)
 
+        # Wednesday with photography context needs enough messages for hero debate
+        if day == "wednesday" and photography_context:
+            if photography_context.get("reshoot_happened"):
+                day_ticks = max(day_ticks, 10)  # panic + reshoot + hero debate
+            else:
+                day_ticks = max(day_ticks, 7)  # drop shots + disagree + converge on hero
+
+        speak_counts: dict[str, int] = {name: 0 for name in names}
         for tick in range(day_ticks):
-            speaker = names[tick % len(names)]
+            speaker = _select_next_speaker(names, day, tick, recent_lines, speak_counts, day_ticks)
+            speak_counts[speaker] = speak_counts.get(speaker, 0) + 1
             persona = personas[speaker]
             ts = start + timedelta(days=day_i, minutes=tick * (480 // max(1, day_ticks)))
             deadline = deadline_for_day(day)
@@ -765,6 +1182,10 @@ def run_simulation(
         # After all Wednesday messages are generated, distribute image attachments
         if day == "wednesday" and image_paths:
             _distribute_images_wednesday(messages, image_paths, day)
+
+        # Restore original scene direction if we overrode it
+        if photo_scene:
+            DAY_STAGE_DIRECTIONS[day] = _original_direction
 
     by_character: dict[str, int] = {}
     by_model: dict[str, int] = {}
@@ -801,7 +1222,7 @@ def parse_models(raw: str) -> list[str]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compressed weekly dialogue simulator")
     parser.add_argument("--concept", required=True)
-    parser.add_argument("--model", default="openai/gpt-5-mini", help="Single default model")
+    parser.add_argument("--model", default=config.dialogue_model, help=f"Single default model (current: {config.dialogue_model})")
     parser.add_argument("--models", default=None, help="Comma-separated models for comparison")
     parser.add_argument("--character-models", default=None, help="JSON map of character=>model, with optional default")
     parser.add_argument("--runs", type=int, default=1)
