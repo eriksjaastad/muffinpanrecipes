@@ -19,9 +19,18 @@ import os
 from pathlib import Path
 from typing import List, Tuple
 import re
-from scaffold.utils import safe_slug
-from scaffold.alerts import send_discord_alert
-from scaffold.constants import PROTECTED_PROJECTS
+try:
+    from scaffold.utils import safe_slug
+    from scaffold.alerts import send_discord_alert
+    from scaffold.constants import PROTECTED_PROJECTS
+except ModuleNotFoundError:
+    def safe_slug(value: str) -> str:
+        return value.lower().strip().replace(" ", "-")
+
+    def send_discord_alert(*_args, **_kwargs) -> None:
+        return None
+
+    PROTECTED_PROJECTS = []
 
 # Configuration
 PROJECTS_ROOT_ENV = os.getenv("PROJECTS_ROOT")

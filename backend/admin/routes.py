@@ -986,6 +986,167 @@ def create_routes(app: FastAPI):
 
 
 
+    # ==================== IMAGE REVIEW ENDPOINTS ====================
+
+    class ImageOverrideRequest(BaseModel):
+        """Request to override image selection with a different variant."""
+        variant_path: str  # relative path to the selected variant image
+
+    @app.post("/admin/episodes/{episode_id}/images/confirm")
+    async def admin_confirm_image(
+        episode_id: str,
+        user: dict = Depends(require_auth),
+    ):
+        """Lock in the auto-selected winner. Sets image_status → confirmed."""
+        _sanitize_id(episode_id, "episode_id")
+        episodes_dir = app.state.project_root / "data" / "episodes"
+        ep_path = episodes_dir / f"{episode_id}.json"
+
+        if not ep_path.exists():
+            raise HTTPException(status_code=404, detail=f"Episode not found: {episode_id}")
+
+        data = json.loads(ep_path.read_text())
+        wed = data.get("stages", {}).get("wednesday")
+        if not wed:
+            raise HTTPException(status_code=400, detail="Wednesday stage not complete")
+
+        current_status = wed.get("image_status", "")
+        if current_status in ("cleaned",):
+            raise HTTPException(status_code=400, detail=f"Cannot confirm: images already {current_status}")
+
+        wed["image_status"] = "confirmed"
+        ep_path.write_text(json.dumps(data, indent=2))
+        logger.info(f"Image confirmed for episode {episode_id}")
+
+        return {"success": True, "image_status": "confirmed"}
+
+    @app.post("/admin/episodes/{episode_id}/images/override")
+    async def admin_override_image(
+        episode_id: str,
+        request_data: ImageOverrideRequest,
+        user: dict = Depends(require_auth),
+    ):
+        """Pick a different variant as winner. Copies it to {recipe_id}.png."""
+        import shutil
+
+        _sanitize_id(episode_id, "episode_id")
+        episodes_dir = app.state.project_root / "data" / "episodes"
+        ep_path = episodes_dir / f"{episode_id}.json"
+
+        if not ep_path.exists():
+            raise HTTPException(status_code=404, detail=f"Episode not found: {episode_id}")
+
+        data = json.loads(ep_path.read_text())
+        wed = data.get("stages", {}).get("wednesday")
+        if not wed:
+            raise HTTPException(status_code=400, detail="Wednesday stage not complete")
+
+        current_status = wed.get("image_status", "")
+        if current_status in ("cleaned",):
+            raise HTTPException(status_code=400, detail=f"Cannot override: images already {current_status}")
+
+        recipe_id = data.get("recipe_id")
+        if not recipe_id:
+            raise HTTPException(status_code=400, detail="No recipe_id on episode")
+
+        # Validate the variant path exists
+        variant_source = app.state.project_root / request_data.variant_path
+        if not variant_source.exists():
+            # Also try with src/ prefix
+            variant_source = app.state.project_root / "src" / request_data.variant_path
+        if not variant_source.exists():
+            raise HTTPException(status_code=404, detail=f"Variant image not found: {request_data.variant_path}")
+
+        # Validate path stays under project root (prevent traversal)
+        try:
+            variant_source.resolve().relative_to(app.state.project_root.resolve())
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid variant path")
+
+        # Copy to featured image location
+        featured_dest = app.state.project_root / "src" / "assets" / "images" / f"{recipe_id}.png"
+        featured_dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(variant_source, featured_dest)
+
+        # Update episode data
+        wed["image_status"] = "overridden"
+        wed["confirmed_winner"] = {
+            "variant": variant_source.stem,
+            "path": str(variant_source.relative_to(app.state.project_root)),
+            "featured_image": str(featured_dest.relative_to(app.state.project_root)),
+        }
+        ep_path.write_text(json.dumps(data, indent=2))
+        logger.info(f"Image overridden for episode {episode_id}: {request_data.variant_path}")
+
+        return {"success": True, "image_status": "overridden", "new_winner": request_data.variant_path}
+
+    @app.post("/admin/episodes/{episode_id}/images/rerun")
+    async def admin_rerun_photography(
+        episode_id: str,
+        user: dict = Depends(require_auth),
+    ):
+        """Re-run the art director photography stage for this episode."""
+        _sanitize_id(episode_id, "episode_id")
+        episodes_dir = app.state.project_root / "data" / "episodes"
+        ep_path = episodes_dir / f"{episode_id}.json"
+
+        if not ep_path.exists():
+            raise HTTPException(status_code=404, detail=f"Episode not found: {episode_id}")
+
+        data = json.loads(ep_path.read_text())
+        concept = data.get("concept", "Weekly Muffin Pan Recipe")
+        recipe_data = data.get("stages", {}).get("monday", {}).get("recipe_data", {})
+        recipe_id = data.get("recipe_id")
+
+        if not recipe_id:
+            raise HTTPException(status_code=400, detail="No recipe_id on episode")
+
+        current_status = data.get("stages", {}).get("wednesday", {}).get("image_status", "")
+        if current_status in ("cleaned",):
+            raise HTTPException(status_code=400, detail=f"Cannot re-run: images already {current_status}")
+
+        try:
+            from backend.orchestrator import RecipeOrchestrator
+            from backend.storage import EPISODES_DIR
+            orchestrator = RecipeOrchestrator(data_dir=EPISODES_DIR.parent)
+            orchestrator.pipeline.start_recipe(recipe_id, concept)
+
+            photography_result = orchestrator._execute_stage_photography(recipe_id, recipe_data)
+            image_paths = photography_result.get("selected_shots", []) if isinstance(photography_result, dict) else []
+
+            from backend.storage import storage
+            image_urls = [storage.get_image_url(p) for p in image_paths]
+
+            data["stages"]["wednesday"] = {
+                "stage": "photography",
+                "status": "complete",
+                "concept": concept,
+                "photography_data": photography_result,
+                "reshoot_happened": photography_result.get("reshoot_happened", False) if isinstance(photography_result, dict) else False,
+                "image_paths": image_paths,
+                "image_urls": image_urls,
+                "image_status": "auto_selected",
+                "confirmed_winner": photography_result.get("winner", {}) if isinstance(photography_result, dict) else {},
+                "dialogue": data.get("stages", {}).get("wednesday", {}).get("dialogue", []),
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "rerun": True,
+            }
+            data["image_paths"] = image_paths
+            data["image_urls"] = image_urls
+            data.setdefault("events", []).append("wednesday: re-run photography")
+            ep_path.write_text(json.dumps(data, indent=2))
+
+            logger.info(f"Photography re-run complete for episode {episode_id}: {len(image_paths)} images")
+            return {
+                "success": True,
+                "images_generated": len(image_paths),
+                "image_status": "auto_selected",
+            }
+
+        except Exception as e:
+            logger.error(f"Photography re-run failed for {episode_id}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Re-run failed: {e}")
+
     @app.delete("/admin/episodes/{episode_id}")
     async def admin_episode_delete(
         episode_id: str,

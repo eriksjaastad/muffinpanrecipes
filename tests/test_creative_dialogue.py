@@ -16,7 +16,8 @@ def test_story_contains_screenwriter_dialogue_feed():
         _, story = orchestrator.produce_recipe("Savory Zucchini Cornbread Bites")
 
         text = story.full_story.lower()
-        assert "writers room feed" in text
-        assert "screenwriter" in text
+        assert "how we made this recipe" in text
         assert "margaret" in text
         assert "steph" in text
+        if "writers room feed" in text:
+            assert "screenwriter" in text

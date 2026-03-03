@@ -123,6 +123,26 @@ class _FilesystemBackend:
     def image_exists(self, relative_path: str) -> bool:
         return self._safe_path(relative_path).exists()
 
+    def cleanup_image_variants(self, recipe_id: str) -> list[str]:
+        """Trash the round directories for a recipe. Keeps {recipe_id}.png (the winner).
+
+        Returns list of paths that were trashed.
+        """
+        from send2trash import send2trash
+
+        variant_dir = IMAGES_DIR / recipe_id
+        trashed: list[str] = []
+
+        if variant_dir.exists() and variant_dir.is_dir():
+            try:
+                send2trash(str(variant_dir))
+                trashed.append(str(variant_dir))
+                logger.info(f"Trashed image variants directory: {variant_dir}")
+            except Exception as e:
+                logger.warning(f"Failed to trash {variant_dir}: {e}")
+
+        return trashed
+
 
 class _CloudBackend:
     """Vercel-compatible cloud storage backend.
@@ -206,6 +226,9 @@ class _CloudBackend:
 
     def image_exists(self, relative_path: str) -> bool:
         return self._fs.image_exists(relative_path)
+
+    def cleanup_image_variants(self, recipe_id: str) -> list[str]:
+        return self._fs.cleanup_image_variants(recipe_id)
 
 
 # ---------------------------------------------------------------------------
