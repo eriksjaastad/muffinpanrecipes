@@ -74,7 +74,12 @@ def _bootstrap_orchestrator(orchestrator: RecipeOrchestrator, recipe_id: str, co
     orchestrator.current_recipe_id = recipe_id
 
 
-def _generate_stage_dialogue(stage: str, concept: str, image_paths: list[str] | None = None) -> list[dict]:
+def _generate_stage_dialogue(
+    stage: str,
+    concept: str,
+    image_paths: list[str] | None = None,
+    photography_context: dict | None = None,
+) -> list[dict]:
     """Run the dialogue simulator for a single stage and return messages list."""
     try:
         result = run_simulation(
@@ -88,6 +93,7 @@ def _generate_stage_dialogue(stage: str, concept: str, image_paths: list[str] | 
             prompt_style="scene",
             character_models=None,
             image_paths=image_paths or [],
+            photography_context=photography_context,
         )
         return result.get("messages", [])
     except Exception as e:
@@ -162,7 +168,7 @@ def main() -> None:
             print(f"{prefix}Tuesday: recipe development (dialogue via simulator)")
 
         elif stage_key == "wednesday":
-            # Wednesday = Photography: generate 3 image variants, capture paths
+            # Wednesday = Photography: generate 3 image variants, vision eval, optional reshoot
             recipe_data = ep["stages"].get("monday", {}).get("recipe_data", {})
             if dry_run:
                 # Skip Stability AI call in dry-run mode; use placeholders
@@ -176,9 +182,10 @@ def main() -> None:
                 stage_entry["photography_data"] = "dry-run-placeholder"
             else:
                 result = orchestrator._execute_stage_photography(recipe_id, recipe_data)
-                # result is a list of selected shot paths from the art director
-                image_paths = result if isinstance(result, list) else []
+                # result is now a full dict with rounds, vision eval, winner, selected_shots
+                image_paths = result.get("selected_shots", []) if isinstance(result, dict) else []
                 stage_entry["photography_data"] = result
+                stage_entry["reshoot_happened"] = result.get("reshoot_happened", False) if isinstance(result, dict) else False
             stage_entry["image_paths"] = image_paths
             # Store on episode for later stages to reference
             ep["image_paths"] = image_paths
@@ -208,15 +215,28 @@ def main() -> None:
                 print(f"{prefix}Skipping actual publish (dry-run mode).")
 
         # --- Generate real dialogue for this stage via simulate_dialogue_week ---
-        # Wednesday gets image paths passed in so Julian's messages include photo attachments.
-        # For all other stages, image_paths is empty (no attachments).
+        # Wednesday gets image paths + photography context (reshoot data).
+        # Friday gets photography context for hero shot awareness.
         # Dialogue generation is non-fatal: failure is logged, stage still completes.
         print(f"{prefix}Generating dialogue for {stage_key}...")
         stage_image_paths = stage_entry.get("image_paths") or ep.get("image_paths") or []
+
+        # Build photography_context for Wednesday and Friday
+        photo_ctx: dict | None = None
+        if stage_key == "wednesday":
+            photo_data = stage_entry.get("photography_data")
+            if isinstance(photo_data, dict):
+                photo_ctx = photo_data
+        elif stage_key == "friday":
+            wed_data = ep.get("stages", {}).get("wednesday", {}).get("photography_data")
+            if isinstance(wed_data, dict):
+                photo_ctx = wed_data
+
         dialogue_messages = _generate_stage_dialogue(
             stage_key,
             concept,
             image_paths=stage_image_paths if stage_key == "wednesday" else None,
+            photography_context=photo_ctx,
         )
         if dialogue_messages:
             stage_entry["dialogue"] = dialogue_messages

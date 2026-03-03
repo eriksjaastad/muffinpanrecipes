@@ -20,8 +20,12 @@ from backend.core.agent import Agent
 from backend.core.task import Task, TaskResult, TaskApproach
 from backend.core.types import EmotionalResponse, MemoryContext
 from backend.utils.logging import get_logger
+from backend.utils.model_router import generate_vision_response
 
 logger = get_logger(__name__)
+
+# Vision evaluation model — cheap, vision-capable
+_VISION_MODEL = os.getenv("VISION_EVAL_MODEL", "openai/gpt-5-mini")
 
 
 class ArtDirectorAgent(Agent):
@@ -32,7 +36,14 @@ class ArtDirectorAgent(Agent):
     pseudo-intellectual photo theory. Actually talented but terrified.
     """
 
-    _VARIANTS: tuple[str, ...] = ("editorial", "action_steam", "the_spread")
+    _VARIANTS: tuple[str, ...] = ("macro_closeup", "overhead_flatlay", "hero_threequarter")
+
+    # Per-variant negative prompts to prevent convergence
+    _VARIANT_NEGATIVES: dict[str, str] = {
+        "macro_closeup": "full tin visible, bird's eye view, overhead angle, multiple items, wide shot",
+        "overhead_flatlay": "shallow depth of field, bokeh, single item, macro, close-up, low angle",
+        "hero_threequarter": "extreme close-up, overhead, bird's eye, flat lay, 90 degree angle, macro",
+    }
 
     def execute_task_with_personality(
         self, task: Task, approach: TaskApproach, context: MemoryContext
@@ -67,67 +78,131 @@ class ArtDirectorAgent(Agent):
         return str(recipe_data.get("title") or task.context.get("concept") or "Muffin Pan Recipe")
 
     def _build_prompt(self, recipe_title: str, variant: str) -> str:
-        base = (
-            f"Professional food photography of {recipe_title} served in a rustic muffin tin. "
-            "Bright, high-key lighting, natural daylight coming from the side. "
-            "Soft shadows on a white marble countertop. "
-            "Shot on 85mm macro lens, f/2.8. Editorial cookbook style, clean, minimalist, highly appetizing. "
-            "No people, no hands, no text, no watermark, no clutter, no dark moody lighting."
-        )
-
-        variant_additions = {
-            "editorial": (
-                " 45-degree angle, tight crop, macro detail on top texture and crumb structure. "
-                "Single hero item with subtle negative space."
+        variant_prompts = {
+            "macro_closeup": (
+                f"Extreme close-up food photography of {recipe_title}. "
+                "15-degree low angle, ONE single item filling the entire frame. "
+                "Visible crumb structure, steam wisps, glistening texture detail. "
+                "Shot on 100mm macro lens, f/2.0, razor-thin depth of field. "
+                "Bright, high-key lighting, natural daylight from the side. "
+                "White marble countertop. Editorial cookbook style. "
+                "No full tin visible, no multiple items, no bird's eye view. "
+                "No people, no hands, no text, no watermark."
             ),
-            "action_steam": (
-                " Low side angle emphasizing architecture and layering, visible gentle steam plume from fresh bake, "
-                "still clean editorial styling with minimal props."
+            "overhead_flatlay": (
+                f"True 90-degree overhead bird's-eye food photography of {recipe_title} in a rustic muffin tin. "
+                "Full tin visible from directly above, scattered ingredient garnishes around the tin. "
+                "Shot on 35mm lens, f/5.6, everything in sharp focus. "
+                "Bright, high-key lighting, natural daylight. "
+                "White marble countertop with flour dusting and herb sprigs. "
+                "Flat lay editorial style, geometric composition. "
+                "No shallow depth of field, no single item close-up, no low angle. "
+                "No people, no hands, no text, no watermark."
             ),
-            "the_spread": (
-                " 45-degree overhead spread with 3-4 pieces in a rustic weathered muffin tin, "
-                "light dusting of flour and one subtle herb accent, uncluttered composition."
+            "hero_threequarter": (
+                f"Classic hero food photography of {recipe_title} at 30-45 degree angle. "
+                "2-3 items arranged on a rustic wooden board, one broken open showing interior cross-section. "
+                "Shot on 85mm lens, f/2.8, soft background blur. "
+                "Bright, high-key lighting, natural daylight from the side. "
+                "White marble countertop with minimal props - linen napkin, vintage fork. "
+                "Editorial cookbook style, warm and inviting. "
+                "No extreme close-up, no overhead flat lay, no 90 degree angle. "
+                "No people, no hands, no text, no watermark."
             ),
         }
-        return base + variant_additions[variant]
+        return variant_prompts[variant]
 
     def _style_guide_text(self) -> str:
         style_guide_path = self._repo_root() / "Documents" / "core" / "IMAGE_STYLE_GUIDE.md"
         return style_guide_path.read_text(encoding="utf-8") if style_guide_path.exists() else ""
 
-    def _score_variant(self, prompt: str, variant: str, style_guide_text: str) -> tuple[int, str]:
-        normalized = prompt.lower()
-        score = 0
-        hits: list[str] = []
-        criteria = [
-            ("high-key", "high-key lighting"),
-            ("natural daylight", "natural daylight"),
-            ("side", "side lighting"),
-            ("white marble", "white marble surface"),
-            ("rustic muffin tin", "rustic muffin tin"),
-            ("85mm", "85mm macro lens"),
-            ("f/2.8", "f/2.8 shallow depth"),
-            ("no people", "no people"),
-            ("no text", "no text/watermark"),
-            ("no clutter", "minimal clean styling"),
-        ]
-        for keyword, label in criteria:
-            if keyword in normalized:
-                score += 10
-                hits.append(label)
+    def _evaluate_images_vision(
+        self, image_paths: list[dict[str, Any]], recipe_title: str
+    ) -> dict[str, Any]:
+        """Evaluate images using a vision model. Returns per-image scores and pass/fail.
 
-        if variant == "editorial":
-            score += 5
-            hits.append("strong hero-frame emphasis")
+        Falls back to a basic pass if the vision call fails (don't block the pipeline).
+        """
+        import json as _json
 
-        if "cross-section" in style_guide_text.lower() and "layering" in normalized:
-            score += 5
-            hits.append("structural emphasis")
+        images_bytes: list[bytes] = []
+        for info in image_paths:
+            full_path = self._repo_root() / info["path"]
+            if full_path.exists():
+                images_bytes.append(full_path.read_bytes())
 
-        rationale = f"Matched {len(hits)} style guide cues: {', '.join(hits[:5])}{'...' if len(hits) > 5 else ''}."
-        return score, rationale
+        if not images_bytes:
+            logger.warning("Vision eval: no image files found, falling back to pass")
+            return {"passed": True, "fallback": True, "per_image": [], "reason": "no images to evaluate"}
 
-    def _call_stability(self, api_key: str, prompt: str) -> bytes:
+        variant_labels = ", ".join(f"Image {i+1}: {info['variant']}" for i, info in enumerate(image_paths))
+
+        eval_prompt = (
+            f"You are a professional food photography art director evaluating images for '{recipe_title}'.\n\n"
+            f"There are {len(images_bytes)} images. {variant_labels}.\n\n"
+            "Score EACH image on these 5 dimensions (1-5 scale):\n"
+            "1. variety - How different is this from the other images? (angle, distance, composition)\n"
+            "2. quality - Technical quality (focus, exposure, lighting)\n"
+            "3. style_adherence - Does it match the requested style/angle?\n"
+            "4. food_appeal - Does the food look appetizing?\n"
+            "5. composition - Is the framing and arrangement effective?\n\n"
+            "Then decide:\n"
+            "- PASS if average score >= 3.5 AND no image scores below 2.5 on any dimension\n"
+            "- FAIL if images look too similar or any image has serious issues\n\n"
+            "If FAIL, explain what went wrong in 1-2 sentences (this will be used as dialogue).\n"
+            "Pick a recommended winner (best overall image number).\n\n"
+            "Respond ONLY with valid JSON:\n"
+            '{"per_image": [{"image": 1, "variety": X, "quality": X, "style_adherence": X, '
+            '"food_appeal": X, "composition": X, "feedback": "..."}], '
+            '"passed": true/false, "reason": "...", "recommended_winner": 1}'
+        )
+
+        try:
+            raw = generate_vision_response(
+                prompt=eval_prompt,
+                images=images_bytes,
+                model=_VISION_MODEL,
+                temperature=0.3,
+            )
+            # Strip markdown fences if present
+            cleaned = raw.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3]
+            cleaned = cleaned.strip()
+            if cleaned.startswith("json"):
+                cleaned = cleaned[4:].strip()
+
+            result = _json.loads(cleaned)
+
+            # Validate pass criteria ourselves as a safety check
+            per_image = result.get("per_image", [])
+            dimensions = ["variety", "quality", "style_adherence", "food_appeal", "composition"]
+            all_scores = []
+            any_below_threshold = False
+            for img in per_image:
+                for dim in dimensions:
+                    score = img.get(dim, 3.0)
+                    all_scores.append(score)
+                    if score < 2.5:
+                        any_below_threshold = True
+
+            avg_score = sum(all_scores) / max(len(all_scores), 1)
+            result["avg_score"] = round(avg_score, 2)
+            result["passed"] = avg_score >= 3.5 and not any_below_threshold
+
+            return result
+
+        except Exception as e:
+            logger.warning(f"Vision evaluation failed, falling back to pass: {e}")
+            return {"passed": True, "fallback": True, "per_image": [], "reason": f"vision eval error: {e}"}
+
+    def _call_stability(self, api_key: str, prompt: str, variant: str | None = None) -> bytes:
+        base_negative = "people, hands, text, watermark, clutter, dark moody lighting"
+        variant_negative = self._VARIANT_NEGATIVES.get(variant or "", "")
+        negative_prompt = f"{base_negative}, {variant_negative}" if variant_negative else base_negative
+
         response = requests.post(
             "https://api.stability.ai/v2beta/stable-image/generate/core",
             headers={
@@ -136,7 +211,7 @@ class ArtDirectorAgent(Agent):
             },
             data={
                 "prompt": prompt,
-                "negative_prompt": "people, hands, text, watermark, clutter, dark moody lighting",
+                "negative_prompt": negative_prompt,
                 "output_format": "png",
                 "aspect_ratio": "1:1",
             },
@@ -147,69 +222,124 @@ class ArtDirectorAgent(Agent):
             raise RuntimeError(f"Stability API error {response.status_code}: {response.text[:200]}")
         return response.content
 
+    _MAX_ROUNDS = 2  # Generate → evaluate → (optional reshoot) → done
+
+    def _generate_round(
+        self, api_key: str, recipe_title: str, recipe_id: str, round_num: int,
+        feedback: str | None = None,
+    ) -> tuple[list[dict[str, Any]], Path]:
+        """Generate 3 variants for a single round. Returns (variant_outputs, round_dir)."""
+        round_dir = self._repo_root() / "src" / "assets" / "images" / recipe_id / f"round_{round_num}"
+        variant_outputs: list[dict[str, Any]] = []
+
+        for variant in self._VARIANTS:
+            prompt = self._build_prompt(recipe_title, variant)
+            if feedback and round_num > 1:
+                prompt += f" RESHOOT NOTE: Previous batch rejected. Feedback: {feedback}"
+
+            image_bytes = self._call_stability(api_key, prompt, variant=variant)
+            out_path = round_dir / f"{variant}.png"
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_bytes(image_bytes)
+
+            variant_outputs.append({
+                "variant": variant,
+                "path": str(out_path.relative_to(self._repo_root())),
+                "prompt": prompt,
+            })
+
+        return variant_outputs, round_dir
+
     def _photograph_recipe(
         self, task: Task, approach: TaskApproach, context: MemoryContext
     ) -> TaskResult:
-        """Photograph with excessive perfectionism and pretentious commentary."""
+        """Photograph with vision evaluation and reshoot-as-story-beat."""
 
         recipe_id = str(task.context.get("recipe_id") or task.id)
         recipe_title = self._recipe_title(task)
-        images_dir = self._repo_root() / "src" / "assets" / "images" / recipe_id
         featured_image = self._repo_root() / "src" / "assets" / "images" / f"{recipe_id}.png"
-        style_guide_text = self._style_guide_text()
         api_key = os.getenv("STABILITY_API_KEY")
         if not api_key:
             raise RuntimeError("STABILITY_API_KEY not configured; stopping pipeline")
 
         shot_count = random.randint(35, 55)
-        generated_with = "stability_api"
-        variant_outputs: list[dict[str, Any]] = []
+        rounds: list[dict[str, Any]] = []
+        winner_info: dict[str, Any] | None = None
 
-        for variant in self._VARIANTS:
-            prompt = self._build_prompt(recipe_title, variant)
-            out_path = images_dir / f"{variant}.png"
-            score, rationale = self._score_variant(prompt, variant, style_guide_text)
-
-            image_bytes = self._call_stability(api_key, prompt)
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            out_path.write_bytes(image_bytes)
-
-            variant_outputs.append(
-                {
-                    "variant": variant,
-                    "path": str(out_path.relative_to(self._repo_root())),
-                    "prompt": prompt,
-                    "style_score": score,
-                    "rationale": rationale,
-                }
+        for round_num in range(1, self._MAX_ROUNDS + 1):
+            feedback = rounds[-1]["vision_evaluation"].get("reason") if rounds else None
+            variant_outputs, round_dir = self._generate_round(
+                api_key, recipe_title, recipe_id, round_num, feedback=feedback,
             )
 
-        winner = max(variant_outputs, key=lambda item: (item["style_score"], -self._VARIANTS.index(item["variant"])))
-        winner_source = self._repo_root() / winner["path"]
+            # Vision evaluation
+            vision_eval = self._evaluate_images_vision(variant_outputs, recipe_title)
+
+            # Attach per-image scores to variant outputs
+            per_image = vision_eval.get("per_image", [])
+            for i, vo in enumerate(variant_outputs):
+                if i < len(per_image):
+                    vo["scores"] = per_image[i]
+
+            round_data = {
+                "round": round_num,
+                "variants": variant_outputs,
+                "vision_evaluation": vision_eval,
+                "passed": vision_eval.get("passed", True),
+            }
+            if not vision_eval.get("passed", True):
+                round_data["rejection_reason"] = vision_eval.get("reason", "Vision evaluation failed")
+
+            rounds.append(round_data)
+
+            if vision_eval.get("passed", True):
+                # Pick winner from vision recommendation or best-scored
+                rec = vision_eval.get("recommended_winner", 1)
+                winner_idx = max(0, min(rec - 1, len(variant_outputs) - 1))
+                winner_info = {
+                    **variant_outputs[winner_idx],
+                    "round": round_num,
+                }
+                break
+
+        # If no winner after all rounds, pick first variant from last round
+        if winner_info is None:
+            last_variants = rounds[-1]["variants"]
+            winner_info = {**last_variants[0], "round": len(rounds)}
+
+        # Copy winner to featured image location
+        winner_source = self._repo_root() / winner_info["path"]
         featured_image.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(winner_source, featured_image)
+        winner_info["featured_image"] = str(featured_image.relative_to(self._repo_root()))
+
+        reshoot_happened = len(rounds) > 1
+
+        # Collect all image paths across all rounds for backward compat
+        all_paths = []
+        for r in rounds:
+            for v in r["variants"]:
+                all_paths.append(v["path"])
 
         insights = [
-            f"Captured {shot_count} frames to get the crumb structure right (emotionally necessary, obviously)",
-            f"Generated 3 styled variants in src/assets/images/{recipe_id}/ and selected '{winner['variant']}' against IMAGE_STYLE_GUIDE",
-            f"Winner rationale: {winner['rationale']}",
+            f"Captured {shot_count} frames across {len(rounds)} round(s)",
+            f"Selected '{winner_info['variant']}' from round {winner_info['round']} as hero shot",
         ]
+        if reshoot_happened:
+            insights.append(f"Round 1 rejected: {rounds[0].get('rejection_reason', 'unknown')}")
+            insights.append("Rush reshoot completed under deadline pressure")
+
         return TaskResult(
             task_id=task.id,
             success=True,
             output={
                 "recipe_id": recipe_id,
                 "total_shots": shot_count,
-                "selected_shots": [v["path"] for v in variant_outputs],
-                "variants": variant_outputs,
-                "winner": {
-                    "variant": winner["variant"],
-                    "path": winner["path"],
-                    "style_score": winner["style_score"],
-                    "rationale": winner["rationale"],
-                    "featured_image": str(featured_image.relative_to(self._repo_root())),
-                },
-                "generated_with": generated_with,
+                "rounds": rounds,
+                "winner": winner_info,
+                "reshoot_happened": reshoot_happened,
+                "selected_shots": all_paths,  # backward compat
+                "generated_with": "stability_api",
                 "lighting_setups": random.randint(4, 7),
                 "styling_notes": [
                     "Explored the negative space on the plate",
@@ -230,7 +360,7 @@ class ArtDirectorAgent(Agent):
                 "Wore all black to the shoot",
                 "Adjusted lighting 12 times",
                 "Muttered about 'commercial constraints'",
-            ],
+            ] + (["Had a mini panic attack about the reshoot timeline"] if reshoot_happened else []),
         )
 
     def _review_visuals(

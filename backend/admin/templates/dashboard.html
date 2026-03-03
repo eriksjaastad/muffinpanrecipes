@@ -14,18 +14,12 @@
     </style>
 </head>
 
-<body class="bg-gray-50">
+<body class="bg-slate-100">
 
-    <!-- Header -->
-    <header class="bg-white shadow">
-        <div class="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8 flex justify-between items-center">
-            <div>
-                <h1 class="text-3xl font-bold text-gray-900">🧁 Admin Dashboard</h1>
-                <p class="mt-1 text-sm text-gray-600">Logged in as: {{ user_email }}</p>
-            </div>
-            <a href="/auth/logout" class="text-sm text-gray-600 hover:text-gray-900">Logout</a>
-        </div>
-    </header>
+    {% set nav_title = "🧁 Admin Dashboard" %}
+    {% set nav_subtitle = "Logged in as: " ~ user_email %}
+    {% include "_nav.html" %}
+
 
     <!-- Main Content -->
     <main class="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
