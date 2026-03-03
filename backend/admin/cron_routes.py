@@ -12,10 +12,18 @@ Timeout budget:
   Vercel Pro plan allows up to 300s function timeout — set in vercel.json.
 
 Usage:
-    # Trigger manually (dev):
+    # Trigger manually (dev) with default model:
     curl -X POST http://localhost:8000/api/cron/monday \
       -H "Authorization: Bearer $CRON_SECRET" \
       -H "Content-Type: application/json"
+
+    # Override dialogue model per request:
+    curl -X POST http://localhost:8000/api/cron/monday \
+      -H "Authorization: Bearer $CRON_SECRET" \
+      -H "Content-Type: application/json" \
+      -d '{"concept": "Mini Shepherd Pies", "model": "openai/gpt-5.1"}'
+
+    # Available models: see backend/config.py docstring for full list.
 """
 
 from __future__ import annotations
@@ -104,9 +112,6 @@ STAGE_TO_ROLE = {
     "sunday": "publish",
 }
 
-DIALOGUE_MODEL = config.dialogue_model  # "openai/gpt-5-mini" in production
-
-
 def _current_episode_id() -> str:
     """Return the ISO week episode ID, e.g. '2026-W09'."""
     now = datetime.now(timezone.utc)
@@ -128,13 +133,25 @@ def _load_or_create_episode(episode_id: str, concept: str) -> dict:
     }
 
 
-def _generate_dialogue(stage: str, concept: str, image_paths: list[str] | None = None) -> list[dict]:
-    """Run dialogue simulator for a single stage. Non-fatal on failure."""
+def _generate_dialogue(
+    stage: str,
+    concept: str,
+    image_paths: list[str] | None = None,
+    photography_context: dict | None = None,
+    model: str | None = None,
+) -> list[dict]:
+    """Run dialogue simulator for a single stage. Non-fatal on failure.
+
+    Args:
+        model: Override dialogue model. Pass from API request body.
+               Defaults to config.dialogue_model (DIALOGUE_MODEL env / Doppler).
+    """
+    use_model = model or config.dialogue_model
     try:
         run_simulation = _get_run_simulation()
         result = run_simulation(
             concept=concept,
-            default_model=DIALOGUE_MODEL,
+            default_model=use_model,
             run_index=1,
             stage_only=stage,
             injected_event=None,
@@ -143,6 +160,7 @@ def _generate_dialogue(stage: str, concept: str, image_paths: list[str] | None =
             prompt_style="scene",
             character_models=None,
             image_paths=image_paths or [],
+            photography_context=photography_context,
         )
         return result.get("messages", [])
     except (ImportError, AttributeError, TypeError, ValueError) as e:
@@ -156,6 +174,7 @@ def _generate_dialogue(stage: str, concept: str, image_paths: list[str] | None =
 class StageRequest(BaseModel):
     episode_id: Optional[str] = None   # defaults to current ISO week
     concept: Optional[str] = None      # defaults to stored or generic
+    model: Optional[str] = None        # override dialogue model (e.g. "openai/gpt-5.1")
 
 
 def _save_stage_failure(ep: dict, stage: str, error: Exception) -> None:
@@ -229,7 +248,7 @@ async def cron_monday(request: Request, body: StageRequest = StageRequest()):
         orchestrator.pipeline.start_recipe(ep["recipe_id"], concept)
 
         recipe_data = orchestrator._execute_stage_baker(ep["recipe_id"], concept)
-        dialogue = _generate_dialogue("monday", concept)
+        dialogue = _generate_dialogue("monday", concept, model=body.model)
 
         ep["stages"]["monday"] = {
             "stage": "brainstorm",
@@ -260,7 +279,7 @@ async def cron_tuesday(request: Request, body: StageRequest = StageRequest()):
     concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
 
     with _run_stage(ep, "tuesday"):
-        dialogue = _generate_dialogue("tuesday", concept)
+        dialogue = _generate_dialogue("tuesday", concept, model=body.model)
         ep["stages"]["tuesday"] = {
             "stage": "recipe_development",
             "status": "complete",
@@ -296,16 +315,23 @@ async def cron_wednesday(request: Request, body: StageRequest = StageRequest()):
         orchestrator.pipeline.start_recipe(recipe_id, concept)
 
         photography_result = orchestrator._execute_stage_photography(recipe_id, recipe_data)
-        image_paths: list[str] = photography_result if isinstance(photography_result, list) else []
+        # photography_result is now a full dict with rounds, vision eval, winner, selected_shots
+        image_paths: list[str] = photography_result.get("selected_shots", []) if isinstance(photography_result, dict) else []
         image_urls = [storage.get_image_url(p) for p in image_paths]
 
-        dialogue = _generate_dialogue("wednesday", concept, image_paths=image_paths)
+        dialogue = _generate_dialogue(
+            "wednesday", concept,
+            image_paths=image_paths,
+            photography_context=photography_result if isinstance(photography_result, dict) else None,
+            model=body.model,
+        )
 
         ep["stages"]["wednesday"] = {
             "stage": "photography",
             "status": "complete",
             "concept": concept,
             "photography_data": photography_result,
+            "reshoot_happened": photography_result.get("reshoot_happened", False) if isinstance(photography_result, dict) else False,
             "image_paths": image_paths,
             "image_urls": image_urls,
             "dialogue": dialogue,
@@ -344,7 +370,7 @@ async def cron_thursday(request: Request, body: StageRequest = StageRequest()):
         orchestrator.pipeline.start_recipe(recipe_id, concept)
 
         copy_text = orchestrator._execute_stage_copywriting(recipe_id, concept, recipe_data)
-        dialogue = _generate_dialogue("thursday", concept)
+        dialogue = _generate_dialogue("thursday", concept, model=body.model)
 
         ep["stages"]["thursday"] = {
             "stage": "copywriting",
@@ -383,7 +409,11 @@ async def cron_friday(request: Request, body: StageRequest = StageRequest()):
         orchestrator.pipeline.start_recipe(recipe_id, concept)
 
         approved, review_output = orchestrator._execute_stage_review(recipe_id)
-        dialogue = _generate_dialogue("friday", concept)
+
+        # Pass photography context from Wednesday to Friday dialogue for hero shot awareness
+        wed_photo_data = ep.get("stages", {}).get("wednesday", {}).get("photography_data")
+        friday_photo_ctx = wed_photo_data if isinstance(wed_photo_data, dict) else None
+        dialogue = _generate_dialogue("friday", concept, photography_context=friday_photo_ctx, model=body.model)
 
         ep["stages"]["friday"] = {
             "stage": "final_review",
@@ -423,7 +453,7 @@ async def cron_saturday(request: Request, body: StageRequest = StageRequest()):
         orchestrator.pipeline.start_recipe(recipe_id, concept)
 
         orchestrator._execute_stage_deployment(recipe_id)
-        dialogue = _generate_dialogue("saturday", concept)
+        dialogue = _generate_dialogue("saturday", concept, model=body.model)
 
         ep["stages"]["saturday"] = {
             "stage": "deployment",
@@ -451,7 +481,7 @@ async def cron_sunday(request: Request, body: StageRequest = StageRequest()):
     concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
 
     with _run_stage(ep, "sunday"):
-        dialogue = _generate_dialogue("sunday", concept)
+        dialogue = _generate_dialogue("sunday", concept, model=body.model)
 
         # Verify critical prior stages completed before publishing
         required_stages = ["monday", "wednesday"]
@@ -485,30 +515,28 @@ async def cron_sunday(request: Request, body: StageRequest = StageRequest()):
 # Direct-call dispatcher (used by admin run-compressed-week)
 # ---------------------------------------------------------------------------
 
-_STAGE_HANDLERS = {
-    "monday": cron_monday,
-    "tuesday": cron_tuesday,
-    "wednesday": cron_wednesday,
-    "thursday": cron_thursday,
-    "friday": cron_friday,
-    "saturday": cron_saturday,
-    "sunday": cron_sunday,
-}
 
+async def execute_cron_stage_stub(stage: str, episode_id: str, concept: str, model: str | None = None) -> dict:
+    """SIMULATION ONLY — Execute a cron stage stub in-process (no HTTP round-trip).
 
-async def execute_cron_stage(stage: str, episode_id: str, concept: str) -> dict:
-    """Execute a cron stage directly in-process (no HTTP round-trip).
+    IMPORTANT: This function does NOT run the real orchestrator or generate
+    recipes/images. It records dialogue simulation and marks the stage complete
+    in the episode JSON. It exists so the admin 'Run Compressed Week' button
+    works on Vercel (localhost self-calls fail) and in single-worker dev
+    (no deadlock), simulating a week without actual pipeline costs.
 
-    Called by the admin 'Run Compressed Week' button so it works on Vercel
-    (where localhost self-calls fail) and on single-worker dev (no deadlock).
+    For the real per-stage pipeline, use the /api/cron/{stage} HTTP endpoints.
+
+    Args:
+        model: Override dialogue model (e.g. "openai/gpt-5.1"). Falls back to config.
     """
-    handler = _STAGE_HANDLERS.get(stage)
-    if not handler:
+    valid_stages = {"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
+    if stage not in valid_stages:
         raise ValueError(f"Unknown cron stage: {stage!r}")
     # Bypass cron secret verification — caller is already auth'd via admin UI
     ep = _load_or_create_episode(episode_id, concept)
     ep_concept: str = concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
-    dialogue = _generate_dialogue(stage, ep_concept)
+    dialogue = _generate_dialogue(stage, ep_concept, model=model)
     ep.setdefault("stages", {})[stage] = {
         "stage": stage,
         "status": "complete",
@@ -518,5 +546,11 @@ async def execute_cron_stage(stage: str, episode_id: str, concept: str) -> dict:
     }
     ep.setdefault("events", []).append(f"{stage}: complete")
     storage.save_episode(episode_id, ep)
-    return {"stage": stage, "episode_id": episode_id, "dialogue_messages": len(dialogue)}
+    return {
+        "stage": stage,
+        "episode_id": episode_id,
+        "dialogue_messages": len(dialogue),
+        "mode": "simulation",
+        "note": "Simulation-only: no orchestrator run, no recipes/images generated",
+    }
 

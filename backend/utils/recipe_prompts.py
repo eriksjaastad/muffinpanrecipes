@@ -6,18 +6,18 @@ routed through generate_response() so any provider works.
 
 from __future__ import annotations
 
-import os
 import re
 from typing import Any, Dict, Optional
 
+from backend.config import config
 from backend.utils.logging import get_logger
 from backend.utils.model_router import generate_response
 
 logger = get_logger(__name__)
 
 # Default model for recipe/copywriting generation.
-# Override via RECIPE_MODEL env var.
-DEFAULT_RECIPE_MODEL = os.getenv("RECIPE_MODEL", "openai/gpt-5-mini")
+# Centralized in backend/config.py — override via RECIPE_MODEL env var or Doppler.
+DEFAULT_RECIPE_MODEL = config.recipe_model
 
 
 # ---------------------------------------------------------------------------

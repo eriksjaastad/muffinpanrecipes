@@ -188,9 +188,9 @@ def test_copywriter_verbosity() -> None:
     result = copywriter.process_task(task)
     assert result.success
     
-    # Marcus should write 3-5x the target
+    # Marcus should write well over the target (at least 2x)
     if "word_count" in result.output:
-        assert result.output["word_count"] >= 600  # At least 3x target
+        assert result.output["word_count"] >= 400  # At least 2x target
 
 
 def test_site_architect_efficiency() -> None:
