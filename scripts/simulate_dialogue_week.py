@@ -100,6 +100,26 @@ DAY_ARC = {
     ),
 }
 
+_DAY_OPENER_CONTEXT = {
+    "monday": "Start of a new week. You're arriving fresh (or not). Open the group chat or walk into the kitchen.",
+    "tuesday": "Day two. Picking up from yesterday's concept lock. Check in before diving into recipe work.",
+    "wednesday": "Photo day. Arriving at the set or dropping into the chat with visual work to share.",
+    "thursday": "Copy day. Opening your laptop or checking messages with writing on your mind.",
+    "friday": "End of the working week. Final review energy. Whatever's on your mind about wrapping this up.",
+    "saturday": "Weekend deployment. Quieter energy. Brief check-in before getting to work.",
+    "sunday": "Publish day. The anticipation is real. A quick word before the final push.",
+}
+
+_DAY_CLOSER_CONTEXT = {
+    "monday": "Concept is locked (or close enough). Confirm what was decided and sign off for the day.",
+    "tuesday": "Recipe draft is done. Close out the work session.",
+    "wednesday": "Hero shot is picked. Sign off - maybe a last comment about the images.",
+    "thursday": "Copy is submitted. Wrap up the writing discussion.",
+    "friday": "Review verdict is in. Close the week's creative work.",
+    "saturday": "Staging is done. Brief sign-off.",
+    "sunday": "It's published. A moment of relief, warmth, or exhaustion. Say goodnight.",
+}
+
 PROHIBITED = [
     "as an ai",
     "i can't",
@@ -393,6 +413,7 @@ def generate_turn(
     mode: str,
     prompt_style: str,
     day_turn: int,
+    is_last_turn: bool = False,
 ) -> str:
     if mode == "template":
         sig = persona["communication_style"].get("signature_phrases", ["Right."])
@@ -413,8 +434,12 @@ def generate_turn(
             # not reacts to it. Without this, models read the concept from
             # context and respond as if someone already pitched it off-screen.
             opener_directive = (
-                "IMPORTANT: You are opening this conversation. Nobody has spoken yet today. "
-                "Introduce or pitch the topic - don't react as if someone else already said it."
+                "IMPORTANT: You are opening this conversation. Nobody has spoken yet today.\n"
+                "STRUCTURE: Your FIRST sentence must be a greeting or arrival moment - "
+                "'Morning', 'Hey all', 'Just got in', etc. Even one word counts. "
+                "Your SECOND sentence introduces or pitches the day's topic. "
+                "Do NOT skip the greeting and jump straight into work.\n"
+                f"Arrival context: {_DAY_OPENER_CONTEXT[day]}"
             )
             prompt = (
                 f"Episode concept: {concept}\n"
@@ -452,6 +477,14 @@ def generate_turn(
                 f"{role_chain}"
             )
     else:
+        opener_hint = ""
+        if day_turn == 1:
+            opener_hint = (
+                "\nIMPORTANT: You are opening this conversation. Nobody has spoken yet today. "
+                "Your FIRST sentence must be a greeting or arrival moment. "
+                "Your SECOND sentence introduces the topic. Don't skip the greeting.\n"
+                f"Arrival context: {_DAY_OPENER_CONTEXT[day]}\n"
+            )
         prompt = (
             f"Episode concept: {concept}\n"
             f"Day: {day.title()} ({stage})\n"
@@ -459,8 +492,21 @@ def generate_turn(
             f"Scene goal: {DAY_PROMPT[day]}\n"
             f"{event_line}\n"
             f"Recent chat:\n{history}\n\n"
+            f"{opener_hint}"
             "Write this character's next message. Keep it natural and specific."
         )
+
+    # Closer directive for the last message of the day
+    if is_last_turn:
+        prompt += (
+            "\n\nIMPORTANT: This is the LAST message of today's conversation. "
+            "STRUCTURE: Briefly confirm what was decided (one sentence max), "
+            "then END with a sign-off — 'heading out', 'see you tomorrow', 'night', "
+            "'done for today', 'logging off', etc. Your FINAL sentence must be a goodbye or departure. "
+            "Keep it short. Don't introduce new topics or ask questions.\n"
+            f"Wrap-up context: {_DAY_CLOSER_CONTEXT[day]}"
+        )
+
     msg = generate_response(
         prompt=prompt,
         system_prompt=build_system_prompt(persona),
@@ -1175,6 +1221,7 @@ def run_simulation(
                 mode=mode,
                 prompt_style=prompt_style,
                 day_turn=tick + 1,
+                is_last_turn=(tick == day_ticks - 1),
             )
             recent_lines.append(f"{speaker.split()[0]}: {line}")
             messages.append(Message(day=day, stage=stage, character=speaker, message=line, timestamp=ts.isoformat(), model=model))
