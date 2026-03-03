@@ -153,8 +153,9 @@ class RecipeOrchestrator:
             logger.info(f"\n{'='*70}")
             logger.info("STAGE 2: Photography (Julian Torres - Art Director)")
             logger.info(f"{'='*70}")
-            photos = self._execute_stage_photography(recipe_id, recipe_data)
-            self.pipeline.advance_stage(recipe_id, work_product={"photos": photos})
+            photography_result = self._execute_stage_photography(recipe_id, recipe_data)
+            photos = photography_result.get("selected_shots", []) if isinstance(photography_result, dict) else []
+            self.pipeline.advance_stage(recipe_id, work_product={"photos": photos, "photography_data": photography_result})
 
             # Stage 3: Copywriting (Editorial Copywriter)
             logger.info(f"\n{'='*70}")
@@ -250,8 +251,12 @@ class RecipeOrchestrator:
 
         return result.output
 
-    def _execute_stage_photography(self, recipe_id: str, recipe_data: Dict) -> List[str]:
-        """Execute art director's photography stage."""
+    def _execute_stage_photography(self, recipe_id: str, recipe_data: Dict) -> Dict:
+        """Execute art director's photography stage.
+
+        Returns the full photography output dict containing rounds, vision
+        evaluation, reshoot data, winner, and selected_shots for backward compat.
+        """
         art_director = self.agents["art_director"]
 
         task = Task(
@@ -273,7 +278,7 @@ class RecipeOrchestrator:
             personality_moments=result.personality_notes
         )
 
-        return result.output.get("selected_shots", [])
+        return result.output
 
     def _execute_stage_copywriting(self, recipe_id: str, concept: str, recipe_data: Dict) -> Dict:
         """Execute copywriter's description stage."""

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title or 'Error' }} | Muffin Pan Recipes Admin</title>
+    <link href="/admin/static/tailwind.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+
+<body class="bg-slate-100 min-h-screen">
+    {% set nav_title = "🧁 Muffin Pan Recipes Admin" %}
+    {% include "_nav.html" %}
+
+    <main class="max-w-7xl mx-auto px-4 py-16 sm:px-6 lg:px-8 flex justify-center">
+        <div class="bg-white border border-slate-200 rounded-xl p-12 text-center max-w-lg w-full shadow-sm">
+            {% if status_code == 404 %}
+            <p class="text-6xl mb-4">🔍</p>
+            {% else %}
+            <p class="text-6xl mb-4">⚠️</p>
+            {% endif %}
+
+            {% if status_code %}
+            <p class="text-sm font-mono text-slate-400 mb-2">Error {{ status_code }}</p>
+            {% endif %}
+
+            <h2 class="text-xl font-bold text-slate-900 mb-3">{{ title or 'Something went wrong' }}</h2>
+
+            {% if message %}
+            <p class="text-sm text-slate-600 mb-6">{{ message }}</p>
+            {% endif %}
+
+            <a href="/admin/"
+                class="inline-block text-sm px-5 py-2.5 rounded bg-slate-800 text-white hover:bg-slate-700 transition-colors">
+                ← Back to Dashboard
+            </a>
+        </div>
+    </main>
+</body>
+
+</html>

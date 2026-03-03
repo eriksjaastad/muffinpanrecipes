@@ -64,13 +64,17 @@ HARD_BLOCKED_ANTHROPIC_MODELS = {
 # ---------------------------------------------------------------------------
 _COST_PER_M_TOKENS: dict[str, tuple[float, float]] = {
     # (input_cost_per_M, output_cost_per_M)
-    # OpenAI
+    # OpenAI — text
     "gpt-5-mini": (0.30, 1.20),
     "gpt-5-nano": (0.10, 0.40),
     "gpt-5.1": (1.00, 3.00),
-    # Anthropic
+    # OpenAI — vision (image tokens counted as input)
+    "gpt-5-mini:vision": (0.30, 1.20),
+    # Anthropic — text
     "claude-haiku-4-5-20251001": (0.80, 4.00),
     "claude-sonnet-4-6": (3.00, 15.00),
+    # Anthropic — vision
+    "claude-haiku-4-5-20251001:vision": (0.80, 4.00),
 }
 
 # ---------------------------------------------------------------------------
@@ -329,8 +333,149 @@ def _generate_anthropic(
 
 
 # ---------------------------------------------------------------------------
-# Main entry point
+# Vision provider implementations
 # ---------------------------------------------------------------------------
+def _generate_vision_openai(
+    prompt: str,
+    images: list[bytes],
+    system_prompt: Optional[str],
+    model: str,
+    temperature: float,
+) -> str:
+    import base64
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not set")
+
+    try:
+        from openai import OpenAI
+    except Exception as e:
+        raise RuntimeError("openai package is not installed") from e
+
+    client = OpenAI(api_key=api_key)
+
+    # Build content array: text prompt + image_url blocks
+    content: list[dict] = [{"type": "text", "text": prompt}]
+    for img_bytes in images:
+        b64 = base64.b64encode(img_bytes).decode("utf-8")
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/png;base64,{b64}", "detail": "low"},
+        })
+
+    messages: list[dict] = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": content})
+
+    response = client.chat.completions.create(
+        model=model, messages=messages, temperature=temperature,
+    )
+    usage = response.usage
+    _record_cost(
+        "openai", f"{model}:vision",
+        getattr(usage, "prompt_tokens", 0) if usage else 0,
+        getattr(usage, "completion_tokens", 0) if usage else 0,
+    )
+    return (response.choices[0].message.content or "").strip()
+
+
+def _generate_vision_anthropic(
+    prompt: str,
+    images: list[bytes],
+    system_prompt: Optional[str],
+    model: str,
+    temperature: float,
+) -> str:
+    import base64
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
+
+    try:
+        import anthropic
+    except Exception as e:
+        raise RuntimeError("anthropic package is not installed") from e
+
+    client = anthropic.Anthropic(api_key=api_key)
+
+    # Build content array: image blocks + text
+    content: list[dict] = []
+    for img_bytes in images:
+        b64 = base64.b64encode(img_bytes).decode("utf-8")
+        content.append({
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/png", "data": b64},
+        })
+    content.append({"type": "text", "text": prompt})
+
+    kwargs: dict = {
+        "model": model,
+        "max_tokens": 4096,
+        "temperature": temperature,
+        "messages": [{"role": "user", "content": content}],
+    }
+    if system_prompt:
+        kwargs["system"] = system_prompt
+
+    response = client.messages.create(**kwargs)
+    usage = getattr(response, "usage", None)
+    _record_cost(
+        "anthropic", f"{model}:vision",
+        getattr(usage, "input_tokens", 0) if usage else 0,
+        getattr(usage, "output_tokens", 0) if usage else 0,
+    )
+    parts = []
+    for block in response.content:
+        if hasattr(block, "text"):
+            parts.append(block.text)
+    return "\n".join(parts).strip()
+
+
+# ---------------------------------------------------------------------------
+# Main entry points
+# ---------------------------------------------------------------------------
+def generate_vision_response(
+    prompt: str,
+    images: list[bytes],
+    system_prompt: Optional[str] = None,
+    model: str = "openai/gpt-5-mini",
+    temperature: float = 0.3,
+) -> str:
+    """Generate a text response from a vision-capable LLM given images.
+
+    Args:
+        prompt: User prompt text describing what to evaluate.
+        images: List of raw PNG bytes to include in the request.
+        system_prompt: Optional system/persona prompt.
+        model: Provider-prefixed model name.
+        temperature: Sampling temperature.
+
+    Returns:
+        Generated text.
+    """
+    routed = parse_model(model)
+    logger.debug(f"Vision router provider={routed.provider} model={routed.model} images={len(images)}")
+
+    if routed.provider == "openai":
+        ensure_openai_model_allowed(routed.model)
+        return _generate_vision_openai(
+            prompt=prompt, images=images, system_prompt=system_prompt,
+            model=routed.model, temperature=temperature,
+        )
+
+    if routed.provider == "anthropic":
+        ensure_anthropic_model_allowed(routed.model)
+        return _generate_vision_anthropic(
+            prompt=prompt, images=images, system_prompt=system_prompt,
+            model=routed.model, temperature=temperature,
+        )
+
+    raise RuntimeError(f"Unsupported provider for vision: {routed.provider}")
+
+
 def generate_response(
     prompt: str,
     system_prompt: Optional[str] = None,

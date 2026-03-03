@@ -89,6 +89,9 @@ Thumbs.db
 node_modules/
 .grepai/
 
+# Generated images (pipeline test runs — should go to Vercel Blob in prod)
+src/assets/images/
+
 # Outcome verification (holdout set — not visible to workers)
 SCENARIOS.md
 EVIDENCE.md

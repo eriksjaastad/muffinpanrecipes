@@ -1,0 +1,32 @@
+{#
+Shared admin nav partial.
+Usage: {% include "_nav.html" %}
+Optional context variable `nav_title` (str) — used as the page heading in the header.
+Optional context variable `nav_subtitle` (str) — used as the sub-heading below the title.
+For pages that need custom left-side content (episode_detail, etc.) skip this include
+and build the header manually, but keep the right-side nav links identical.
+#}
+<header class="bg-white border-b border-slate-200">
+    <div class="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
+        <div>
+            {% if nav_title %}
+            <h1 class="text-2xl font-bold text-slate-900">{{ nav_title }}</h1>
+            {% endif %}
+            {% if nav_subtitle %}
+            <p class="text-sm text-slate-500 mt-0.5">{{ nav_subtitle | safe }}</p>
+            {% endif %}
+        </div>
+        <div class="flex gap-3 flex-wrap justify-end">
+            <a href="/admin/"
+                class="text-sm px-3 py-2 rounded bg-slate-200 text-slate-800 hover:bg-slate-300">Dashboard</a>
+            <a href="/admin/episodes"
+                class="text-sm px-3 py-2 rounded bg-slate-200 text-slate-800 hover:bg-slate-300">Episodes</a>
+            <a href="/admin/recipes"
+                class="text-sm px-3 py-2 rounded bg-slate-200 text-slate-800 hover:bg-slate-300">Recipes</a>
+            <a href="/admin/simulations"
+                class="text-sm px-3 py-2 rounded bg-slate-200 text-slate-800 hover:bg-slate-300">Simulations</a>
+            <a href="/auth/logout"
+                class="text-sm px-3 py-2 rounded bg-slate-900 text-white hover:bg-slate-700">Logout</a>
+        </div>
+    </div>
+</header>

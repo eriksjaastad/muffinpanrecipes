@@ -356,50 +356,64 @@ def create_routes(app: FastAPI):
             }
         )
     
-    @app.get("/admin/recipes")
+    @app.get("/admin/recipes", response_class=HTMLResponse)
     async def list_recipes(
         request: Request,
         status_filter: Optional[str] = None,
         user: dict = Depends(require_auth)
     ):
         """
-        List recipes, optionally filtered by status.
-        
+        Render recipes list page, optionally filtered by status.
+
         Query params:
             status_filter: pending, approved, published, or rejected
         """
         data_dir = app.state.project_root / "data" / "recipes"
-        
+        templates = app.state.templates
+
         if status_filter:
             try:
                 status_enum = RecipeStatus(status_filter)
                 recipes = Recipe.list_by_status(data_dir, status_enum)
             except ValueError:
-                raise HTTPException(
+                return templates.TemplateResponse(
+                    "admin_error.html",
+                    {
+                        "request": request,
+                        "title": "Invalid Filter",
+                        "message": f"'{status_filter}' is not a valid status. Use: pending, approved, published, or rejected.",
+                        "status_code": 400,
+                    },
                     status_code=400,
-                    detail=f"Invalid status: {status_filter}"
                 )
         else:
             # Get all recipes
             recipes = []
-            for status in RecipeStatus:
-                recipes.extend(Recipe.list_by_status(data_dir, status))
-        
+            for s in RecipeStatus:
+                recipes.extend(Recipe.list_by_status(data_dir, s))
+
         # Sort by updated_at desc
         recipes.sort(key=lambda r: r.updated_at, reverse=True)
-        
-        return {
-            "recipes": [
-                {
-                    "recipe_id": r.recipe_id,
-                    "title": r.title,
-                    "status": r.status.value,
-                    "created_at": r.created_at.isoformat(),
-                    "updated_at": r.updated_at.isoformat(),
-                }
-                for r in recipes
-            ]
-        }
+
+        recipe_rows = [
+            {
+                "recipe_id": r.recipe_id,
+                "title": r.title,
+                "status": r.status.value,
+                "created_at": r.created_at.isoformat(),
+                "updated_at": r.updated_at.isoformat(),
+            }
+            for r in recipes
+        ]
+
+        return templates.TemplateResponse(
+            "recipes.html",
+            {
+                "request": request,
+                "recipes": recipe_rows,
+                "status_filter": status_filter,
+            },
+        )
     
     @app.get("/admin/recipes/{recipe_id}")
     async def get_recipe_detail(
@@ -1043,14 +1057,14 @@ def create_routes(app: FastAPI):
 
         # Call each cron stage in order via HTTP (same as Vercel would).
         # In LOCAL_DEV the CRON_SECRET check is bypassed, any bearer value works.
-        from backend.admin.cron_routes import execute_cron_stage
+        from backend.admin.cron_routes import execute_cron_stage_stub
 
         stages = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
         stage_results = []
 
         for stage in stages:
             try:
-                result = await execute_cron_stage(stage, episode_id, concept)
+                result = await execute_cron_stage_stub(stage, episode_id, concept)
                 stage_results.append({
                     "stage": stage,
                     "ok": True,
@@ -1071,6 +1085,19 @@ def create_routes(app: FastAPI):
             "stages": stage_results,
         })
 
+    @app.get("/admin/{path:path}", response_class=HTMLResponse)
+    async def admin_404(request: Request, path: str, user: dict = Depends(require_auth)):
+        """Catch-all for unknown /admin/* paths — renders styled 404 page."""
+        templates = app.state.templates
+        return templates.TemplateResponse(
+            "admin_error.html",
+            {
+                "request": request,
+                "title": "Page Not Found",
+                "message": f"/admin/{path} doesn't exist.",
+                "status_code": 404,
+            },
+            status_code=404,
+        )
+
     logger.info("Admin routes configured")
-
-

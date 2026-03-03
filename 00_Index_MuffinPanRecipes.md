@@ -148,8 +148,8 @@ scaffolding_date: 2026-01-27
 | [backend/utils/errors.py](backend/utils/errors.py) | Custom exception classes for the AI Creative Team system. |
 | [backend/utils/logging.py](backend/utils/logging.py) | Logging configuration for the AI Creative Team system. |
 | [backend/utils/model_router.py](backend/utils/model_router.py) | Unified model router for Ollama + OpenAI-compatible dialogue generation. |
-| [backend/utils/ollama.py](backend/utils/ollama.py) | Ollama integration for AI-powered agent behavior. |
 | [backend/utils/publish_schedule.py](backend/utils/publish_schedule.py) | Publish scheduling utilities (DST-aware). |
+| [backend/utils/recipe_prompts.py](backend/utils/recipe_prompts.py) | Recipe and description generation via model router. |
 | [docs/publishing-pipeline-audit.md](docs/publishing-pipeline-audit.md) | **Date:** 2026-03-02 |
 | [package-lock.json](package-lock.json) | No description available. |
 | [package.json](package.json) | No description available. |
