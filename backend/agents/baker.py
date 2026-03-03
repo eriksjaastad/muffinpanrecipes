@@ -13,7 +13,7 @@ from backend.core.agent import Agent
 from backend.core.task import Task, TaskResult, TaskApproach
 from backend.core.types import EmotionalResponse, MemoryContext
 from backend.utils.logging import get_logger
-from backend.utils.ollama import get_ollama_client
+from backend.utils.recipe_prompts import generate_recipe
 
 logger = get_logger(__name__)
 
@@ -80,10 +80,9 @@ class BakerAgent(Agent):
             "core_traits": self.personality.core_traits,
         }
 
-        # Generate recipe using LLM
+        # Generate recipe using LLM (routed through model_router)
         try:
-            ollama = get_ollama_client()
-            recipe_data = ollama.generate_recipe(
+            recipe_data = generate_recipe(
                 concept=concept,
                 personality_context=personality_context,
             )

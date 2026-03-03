@@ -3,14 +3,14 @@
 
 Examples:
   PYTHONPATH=. uv run scripts/simulate_dialogue_week.py \
-    --concept "Jalapeño Corn Dog Bites" --runs 3 --models "ollama/qwen3:32b,openai/gpt-5-mini"
+    --concept "Jalapeño Corn Dog Bites" --runs 3 --models "openai/gpt-5-mini,anthropic/claude-haiku-4-5-20251001"
 
   PYTHONPATH=. uv run scripts/simulate_dialogue_week.py \
     --concept "Mini Shepherd's Pies" --stage friday --event "ingredient shortage: cheddar"
 
   PYTHONPATH=. uv run scripts/simulate_dialogue_week.py \
     --concept "Brown Butter Pecan Tassies" \
-    --character-models '{"Margaret Chen":"openai/gpt-5.1","default":"ollama/qwen3:32b"}'
+    --character-models '{"Margaret Chen":"openai/gpt-5.1","default":"openai/gpt-5-mini"}'
 """
 
 from __future__ import annotations
@@ -801,14 +801,14 @@ def parse_models(raw: str) -> list[str]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compressed weekly dialogue simulator")
     parser.add_argument("--concept", required=True)
-    parser.add_argument("--model", default="ollama/coding:current", help="Single default model")
+    parser.add_argument("--model", default="openai/gpt-5-mini", help="Single default model")
     parser.add_argument("--models", default=None, help="Comma-separated models for comparison")
     parser.add_argument("--character-models", default=None, help="JSON map of character=>model, with optional default")
     parser.add_argument("--runs", type=int, default=1)
     parser.add_argument("--stage", choices=DAY_ORDER, default=None)
     parser.add_argument("--event", default=None)
     parser.add_argument("--ticks-per-day", type=int, default=6)
-    parser.add_argument("--mode", choices=["ollama", "template"], default="ollama")
+    parser.add_argument("--mode", choices=["llm", "template"], default="llm")
     parser.add_argument("--prompt-style", choices=["scene", "full"], default="full")
     args = parser.parse_args()
 

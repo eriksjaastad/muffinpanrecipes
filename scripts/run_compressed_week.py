@@ -54,12 +54,24 @@ def resolve_stage_timeout(stage: str) -> int:
     return STAGE_TIMEOUT_OVERRIDES_SECONDS.get(stage, DEFAULT_STAGE_TIMEOUT_SECONDS)
 
 
-def run_stage(stage: str, episode_id: str, concept: str, dry_run: bool = False) -> tuple[bool, str]:
+def run_stage(
+    stage: str,
+    episode_id: str,
+    concept: str,
+    dry_run: bool = False,
+    dialogue_model: str | None = None,
+    recipe_model: str | None = None,
+) -> tuple[bool, str]:
     """Run a single stage via run_pipeline_stage.py and return (ok, output)."""
     timeout_seconds = resolve_stage_timeout(stage)
     local_env = {**os.environ, "PYTHONPATH": str(ROOT)}
     # Compressed-week runs are local test workflows; default to filesystem mode.
     local_env.setdefault("LOCAL_DEV", "true")
+    # Pass model overrides via env vars so run_pipeline_stage.py picks them up
+    if dialogue_model:
+        local_env["DIALOGUE_MODEL"] = dialogue_model
+    if recipe_model:
+        local_env["RECIPE_MODEL"] = recipe_model
     cmd = [
         sys.executable,
         str(ROOT / "scripts" / "run_pipeline_stage.py"),
@@ -86,6 +98,57 @@ def run_stage(stage: str, episode_id: str, concept: str, dry_run: bool = False) 
         return False, str(e)
 
 
+def _extract_cost_data(output: str) -> dict | None:
+    """Extract COST_SUMMARY JSON line from stage output."""
+    for line in output.splitlines():
+        if line.startswith("COST_SUMMARY:"):
+            try:
+                return json.loads(line[len("COST_SUMMARY:"):])
+            except json.JSONDecodeError:
+                pass
+    return None
+
+
+def print_cost_summary(results: list[dict]) -> None:
+    """Aggregate and print cost data from all stage outputs."""
+    totals: dict[str, dict] = {}
+    for r in results:
+        output = r.get("error", "") if not r["ok"] else ""
+        # Cost data is in the stage output (stored in run loop, not in error)
+        # We need to check the full output — pass it through
+        cost = _extract_cost_data(r.get("_output", ""))
+        if not cost:
+            continue
+        for model_key, data in cost.get("by_model", {}).items():
+            if model_key not in totals:
+                totals[model_key] = {"calls": 0, "tokens_in": 0, "tokens_out": 0, "estimated_cost": 0.0}
+            totals[model_key]["calls"] += data["calls"]
+            totals[model_key]["tokens_in"] += data["tokens_in"]
+            totals[model_key]["tokens_out"] += data["tokens_out"]
+            totals[model_key]["estimated_cost"] += data["estimated_cost"]
+
+    if not totals:
+        print("\n  (No cost data collected — costs are only tracked for OpenAI/Anthropic calls)\n")
+        return
+
+    grand_total = sum(m["estimated_cost"] for m in totals.values())
+    grand_calls = sum(m["calls"] for m in totals.values())
+    grand_in = sum(m["tokens_in"] for m in totals.values())
+    grand_out = sum(m["tokens_out"] for m in totals.values())
+
+    print("\n" + "=" * 60)
+    print("  COST SUMMARY")
+    print("=" * 60)
+    for model_key, data in sorted(totals.items()):
+        print(f"  {model_key:40s}  {data['calls']:3d} calls  "
+              f"{data['tokens_in']:7,} in  {data['tokens_out']:7,} out  "
+              f"${data['estimated_cost']:.4f}")
+    print(f"  {'TOTAL':40s}  {grand_calls:3d} calls  "
+          f"{grand_in:7,} in  {grand_out:7,} out  "
+          f"${grand_total:.4f}")
+    print("=" * 60 + "\n")
+
+
 def load_episode(episode_id: str) -> dict:
     path = EPISODES_DIR / f"{episode_id}.json"
     if path.exists():
@@ -110,7 +173,12 @@ def print_summary(episode_id: str, concept: str, results: list[dict], elapsed: f
         ok = r["ok"]
         icon = "✅" if ok else "❌"
         label = STAGE_LABELS.get(stage, stage)
-        print(f"  {icon} {stage:10s} ({label})")
+        cost = _extract_cost_data(r.get("_output", ""))
+        token_info = ""
+        if cost and cost["total_calls"] > 0:
+            total_tokens = cost["total_tokens_in"] + cost["total_tokens_out"]
+            token_info = f"  [{total_tokens:,} tokens, ${cost['total_cost']:.4f}]"
+        print(f"  {icon} {stage:10s} ({label}){token_info}")
 
         stage_data = stages_data.get(stage, {})
         if ok:
@@ -157,6 +225,8 @@ def main() -> None:
     parser.add_argument("--delay", type=int, default=60, help="Seconds to wait between stages (default: 60)")
     parser.add_argument("--stages", default=",".join(STAGES), help="Comma-separated stages to run (default: all)")
     parser.add_argument("--dry-run", action="store_true", help="Pass --dry-run to each stage (no publishing, no Stability AI)")
+    parser.add_argument("--dialogue-model", default=None, help="Override dialogue model (e.g. 'anthropic/claude-haiku-4-5-20251001')")
+    parser.add_argument("--recipe-model", default=None, help="Override recipe generation model (e.g. 'openai/gpt-5-mini')")
     args = parser.parse_args()
 
     stages_to_run = [s.strip() for s in args.stages.split(",") if s.strip()]
@@ -173,6 +243,10 @@ def main() -> None:
     print(f"  Concept:  {args.concept}")
     print(f"  Stages:   {' → '.join(stages_to_run)}")
     print(f"  Delay:    {args.delay}s between stages")
+    if args.dialogue_model:
+        print(f"  Dialogue: {args.dialogue_model}")
+    if args.recipe_model:
+        print(f"  Recipe:   {args.recipe_model}")
     print(f"  Started:  {datetime.now(timezone.utc).isoformat()}")
     print(f"{'='*60}\n")
 
@@ -184,8 +258,13 @@ def main() -> None:
         timeout_seconds = resolve_stage_timeout(stage)
         print(f"[{i+1}/{len(stages_to_run)}] Running {stage} ({label}) [timeout={timeout_seconds}s]...")
 
-        ok, output = run_stage(stage, args.episode_id, args.concept, dry_run=args.dry_run)
-        results.append({"stage": stage, "ok": ok, "error": output if not ok else ""})
+        ok, output = run_stage(
+            stage, args.episode_id, args.concept,
+            dry_run=args.dry_run,
+            dialogue_model=args.dialogue_model,
+            recipe_model=args.recipe_model,
+        )
+        results.append({"stage": stage, "ok": ok, "error": output if not ok else "", "_output": output})
 
         for line in output.splitlines():
             print(f"    {line}")
@@ -202,6 +281,9 @@ def main() -> None:
 
     elapsed = time.monotonic() - start_time
     print_summary(args.episode_id, args.concept, results, elapsed)
+
+    # Aggregate and print cost summary from all stages
+    print_cost_summary(results)
 
     # Exit non-zero if any stage failed
     if any(not r["ok"] for r in results):

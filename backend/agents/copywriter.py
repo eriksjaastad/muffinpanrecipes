@@ -13,7 +13,7 @@ from backend.core.agent import Agent
 from backend.core.task import Task, TaskResult, TaskApproach
 from backend.core.types import EmotionalResponse, MemoryContext
 from backend.utils.logging import get_logger
-from backend.utils.ollama import get_ollama_client
+from backend.utils.recipe_prompts import generate_description
 
 logger = get_logger(__name__)
 
@@ -71,10 +71,9 @@ class CopywriterAgent(Agent):
             "core_traits": self.personality.core_traits,
         }
 
-        # Generate description using LLM
+        # Generate description using LLM (routed through model_router)
         try:
-            ollama = get_ollama_client()
-            description_data = ollama.generate_description(
+            description_data = generate_description(
                 recipe_title=recipe_title,
                 recipe_data=recipe_data,
                 personality_context=personality_context,
