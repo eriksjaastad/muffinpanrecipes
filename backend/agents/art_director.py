@@ -28,6 +28,47 @@ logger = get_logger(__name__)
 _VISION_MODEL = os.getenv("VISION_EVAL_MODEL", "openai/gpt-5-mini")
 
 
+def _average_hash(image_path: Path, hash_size: int = 8) -> int:
+    """Compute average perceptual hash for an image. Returns a 64-bit int."""
+    from PIL import Image
+    img = Image.open(image_path).convert("L").resize((hash_size, hash_size), Image.LANCZOS)
+    pixels = list(img.getdata())
+    avg = sum(pixels) / len(pixels)
+    return sum(1 << i for i, px in enumerate(pixels) if px >= avg)
+
+
+def _hamming_distance(a: int, b: int) -> int:
+    """Count differing bits between two integers."""
+    return bin(a ^ b).count("1")
+
+
+def _check_visual_diversity(image_paths: list[Path], threshold: int = 5) -> bool:
+    """Return True if images are visually diverse (hamming distance >= threshold for all pairs).
+
+    Uses average perceptual hashing. If any pair has hamming distance < threshold
+    (out of 64 bits), the set is considered too similar.
+    """
+    hashes = []
+    for p in image_paths:
+        if p.exists():
+            try:
+                hashes.append(_average_hash(p))
+            except Exception as e:
+                logger.warning(f"Perceptual hash failed for {p}: {e}")
+                continue
+
+    if len(hashes) < 2:
+        return True  # can't compare fewer than 2 images
+
+    for i in range(len(hashes)):
+        for j in range(i + 1, len(hashes)):
+            dist = _hamming_distance(hashes[i], hashes[j])
+            if dist < threshold:
+                logger.info(f"Images {i} and {j} too similar: hamming distance {dist} < {threshold}")
+                return False
+    return True
+
+
 class ArtDirectorAgent(Agent):
     """
     Julian Torres - The Art Director
@@ -146,15 +187,19 @@ class ArtDirectorAgent(Agent):
             "3. style_adherence - Does it match the requested style/angle?\n"
             "4. food_appeal - Does the food look appetizing?\n"
             "5. composition - Is the framing and arrangement effective?\n\n"
+            "Then provide a SET-LEVEL score:\n"
+            "6. set_diversity (1-5) - How different are these images from EACH OTHER? "
+            "Consider angle, distance, composition, styling. "
+            "Score 1 = nearly identical shots, 5 = clearly distinct perspectives.\n\n"
             "Then decide:\n"
-            "- PASS if average score >= 3.5 AND no image scores below 2.5 on any dimension\n"
-            "- FAIL if images look too similar or any image has serious issues\n\n"
+            "- PASS if average per-image score >= 3.5 AND no image scores below 2.5 on any dimension AND set_diversity >= 3.0\n"
+            "- FAIL if images look too similar, set_diversity is low, or any image has serious issues\n\n"
             "If FAIL, explain what went wrong in 1-2 sentences (this will be used as dialogue).\n"
             "Pick a recommended winner (best overall image number).\n\n"
             "Respond ONLY with valid JSON:\n"
             '{"per_image": [{"image": 1, "variety": X, "quality": X, "style_adherence": X, '
             '"food_appeal": X, "composition": X, "feedback": "..."}], '
-            '"passed": true/false, "reason": "...", "recommended_winner": 1}'
+            '"set_diversity": X, "passed": true/false, "reason": "...", "recommended_winner": 1}'
         )
 
         try:
@@ -190,7 +235,8 @@ class ArtDirectorAgent(Agent):
 
             avg_score = sum(all_scores) / max(len(all_scores), 1)
             result["avg_score"] = round(avg_score, 2)
-            result["passed"] = avg_score >= 3.5 and not any_below_threshold
+            set_diversity = result.get("set_diversity", 5.0)
+            result["passed"] = avg_score >= 3.5 and not any_below_threshold and set_diversity >= 3.0
 
             return result
 
@@ -272,8 +318,16 @@ class ArtDirectorAgent(Agent):
                 api_key, recipe_title, recipe_id, round_num, feedback=feedback,
             )
 
+            # Perceptual hash diversity check (belt-and-suspenders with vision eval)
+            phash_paths = [self._repo_root() / vo["path"] for vo in variant_outputs]
+            visually_diverse = _check_visual_diversity(phash_paths)
+
             # Vision evaluation
             vision_eval = self._evaluate_images_vision(variant_outputs, recipe_title)
+            if not visually_diverse:
+                vision_eval["passed"] = False
+                vision_eval["phash_failed"] = True
+                vision_eval.setdefault("reason", "Images are perceptually near-identical (hash check)")
 
             # Attach per-image scores to variant outputs
             per_image = vision_eval.get("per_image", [])

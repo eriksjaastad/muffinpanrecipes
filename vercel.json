@@ -13,6 +13,10 @@
         {
             "src": "src/**",
             "use": "@vercel/static"
+        },
+        {
+            "src": "backend/admin/static/**",
+            "use": "@vercel/static"
         }
     ],
     "routes": [
@@ -32,6 +36,10 @@
         {
             "src": "/api/(.*)",
             "dest": "backend/admin/app.py"
+        },
+        {
+            "src": "/admin/static/(.*)",
+            "dest": "/backend/admin/static/$1"
         },
         {
             "src": "/admin/(.*)",

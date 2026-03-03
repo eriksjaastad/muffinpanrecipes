@@ -143,8 +143,108 @@
                 </div>
                 {% endif %}
 
-                <!-- Wednesday: show all 3 image variants side-by-side -->
-                {% if stage.key == 'wednesday' and stage.image_paths %}
+                <!-- Wednesday: show image variants with review controls -->
+                {% if stage.key == 'wednesday' %}
+
+                {% set image_status = stage.data.get('image_status', '') %}
+                {% set confirmed_winner = stage.data.get('confirmed_winner', {}) %}
+                {% set photography_data = stage.data.get('photography_data', {}) %}
+                {% set rounds = photography_data.get('rounds', []) if photography_data is mapping else [] %}
+
+                <!-- Image status badge -->
+                {% if image_status %}
+                <div class="flex items-center gap-2 mb-3">
+                    <span class="text-xs uppercase tracking-wide text-slate-500 font-semibold">Image Status:</span>
+                    {% if image_status == 'auto_selected' %}
+                    <span class="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Auto-Selected</span>
+                    {% elif image_status == 'confirmed' %}
+                    <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Confirmed</span>
+                    {% elif image_status == 'overridden' %}
+                    <span class="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">Overridden</span>
+                    {% elif image_status == 'cleaned' %}
+                    <span class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">Cleaned Up</span>
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                {% if image_status == 'cleaned' %}
+                <div class="bg-slate-50 border border-slate-200 rounded p-3 text-sm text-slate-500 italic mb-3">
+                    Variant images cleaned up. Only the published winner remains.
+                </div>
+                {% endif %}
+
+                <!-- Action buttons -->
+                {% if image_status and image_status not in ('cleaned',) %}
+                <div class="flex gap-2 mb-3 flex-wrap">
+                    {% if image_status == 'auto_selected' %}
+                    <button data-action="confirm-image" data-episode-id="{{ episode.episode_id }}"
+                        class="text-sm px-3 py-1.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 font-medium">
+                        Confirm Winner
+                    </button>
+                    {% endif %}
+                    {% if image_status not in ('cleaned',) %}
+                    <button data-action="rerun-photography" data-episode-id="{{ episode.episode_id }}"
+                        class="text-sm px-3 py-1.5 rounded bg-amber-600 text-white hover:bg-amber-700 font-medium">
+                        Re-run Photography
+                    </button>
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                <!-- Render images from rounds data (accurate variant names & scores) -->
+                {% if rounds %}
+                {% for round_data in rounds %}
+                <div class="mb-4">
+                    <h3 class="text-xs uppercase tracking-wide text-slate-500 font-semibold mb-2">
+                        Round {{ round_data.get('round', loop.index) }}
+                        {% if round_data.get('passed') %}
+                        <span class="text-emerald-600 ml-1">PASSED</span>
+                        {% else %}
+                        <span class="text-red-600 ml-1">FAILED{% if round_data.get('rejection_reason') %}: {{ round_data.get('rejection_reason')[:80] }}{% endif %}</span>
+                        {% endif %}
+                    </h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        {% for variant in round_data.get('variants', []) %}
+                        {% set variant_name = variant.get('variant', 'unknown') %}
+                        {% set variant_path = variant.get('path', '') %}
+                        {% set scores = variant.get('scores', {}) %}
+                        {% set is_winner = confirmed_winner.get('path', '') == variant_path %}
+                        <div class="group relative">
+                            <div class="aspect-square bg-slate-100 rounded-lg overflow-hidden border-2 {{ 'border-emerald-500 ring-2 ring-emerald-200' if is_winner else 'border-slate-200' }}">
+                                <img src="/{{ variant_path | replace('src/', '') }}"
+                                    onerror="this.parentElement.innerHTML='<div class=\'flex items-center justify-center h-full text-slate-400 text-xs text-center p-2\'><div><div class=\'text-2xl mb-1\'>📷</div><div>{{ variant_path }}</div></div></div>'"
+                                    class="img-attachment w-full h-full object-cover cursor-zoom-in"
+                                    data-lightbox-src="/{{ variant_path | replace('src/', '') }}" alt="{{ variant_name }}">
+                            </div>
+                            <div class="mt-1 flex items-center justify-between">
+                                <p class="text-xs text-slate-500">{{ variant_name | replace('_', ' ') | title }}</p>
+                                {% if is_winner %}
+                                <span class="text-xs px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-medium">WINNER</span>
+                                {% elif image_status not in ('cleaned',) %}
+                                <button data-action="override-image" data-episode-id="{{ episode.episode_id }}"
+                                    data-variant-path="{{ variant_path }}"
+                                    class="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 hover:bg-blue-200 font-medium cursor-pointer">
+                                    Select This
+                                </button>
+                                {% endif %}
+                            </div>
+                            {% if scores %}
+                            <div class="mt-1 text-[10px] text-slate-400 space-x-1">
+                                {% for dim in ['quality', 'style_adherence', 'food_appeal', 'composition', 'variety'] %}
+                                {% if scores.get(dim) is not none %}
+                                <span>{{ dim[:3] }}:{{ scores.get(dim) }}</span>
+                                {% endif %}
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endfor %}
+
+                {% elif stage.image_paths %}
+                <!-- Fallback: show images from image_paths if no rounds data -->
                 <div>
                     <h3 class="text-xs uppercase tracking-wide text-slate-500 font-semibold mb-2">
                         📷 Generated Images ({{ stage.image_paths | length }})
@@ -152,21 +252,20 @@
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         {% for img_path in stage.image_paths %}
                         <div class="group relative">
-                            {% set img_variants = ['editorial', 'action_steam', 'the_spread'] %}
-                            {% set variant_label = img_variants[loop.index0] if loop.index0 < img_variants|length
-                                else 'variant ' ~ loop.index %} <div
-                                class="aspect-square bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
+                            <div class="aspect-square bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
                                 <img src="/{{ img_path | replace('src/', '') }}"
                                     onerror="this.parentElement.innerHTML='<div class=\'flex items-center justify-center h-full text-slate-400 text-xs text-center p-2\'><div><div class=\'text-2xl mb-1\'>📷</div><div>{{ img_path }}</div></div></div>'"
                                     class="img-attachment w-full h-full object-cover cursor-zoom-in"
-                                    data-lightbox-src="/{{ img_path | replace('src/', '') }}" alt="{{ variant_label }}">
+                                    data-lightbox-src="/{{ img_path | replace('src/', '') }}" alt="variant {{ loop.index }}">
+                            </div>
+                            <p class="mt-1 text-xs text-center text-slate-500">Variant {{ loop.index }}</p>
                         </div>
-                        <p class="mt-1 text-xs text-center text-slate-500 capitalize">{{ variant_label }}</p>
+                        {% endfor %}
                     </div>
-                    {% endfor %}
                 </div>
-            </div>
-            {% endif %}
+                {% endif %}
+
+                {% endif %}
 
             <!-- Stage columns: metadata + dialogue -->
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -294,6 +393,12 @@
                 runCompressedWeek(episodeId);
             } else if (action === 'delete-episode' && episodeId) {
                 deleteEpisode(episodeId);
+            } else if (action === 'confirm-image' && episodeId) {
+                confirmImage(episodeId, btn);
+            } else if (action === 'override-image' && episodeId) {
+                overrideImage(episodeId, btn.dataset.variantPath, btn);
+            } else if (action === 'rerun-photography' && episodeId) {
+                rerunPhotography(episodeId, btn);
             }
         });
 
@@ -336,6 +441,76 @@
                 btn.disabled = false;
                 btn.textContent = '▶ Run Compressed Week';
                 btn.classList.replace('bg-slate-400', 'bg-emerald-600');
+            }
+        }
+
+        async function confirmImage(episodeId, btn) {
+            if (!confirm('Confirm the auto-selected winner? This locks in the current selection.')) return;
+            btn.disabled = true;
+            btn.textContent = 'Confirming…';
+            try {
+                const resp = await fetch(`/admin/episodes/${episodeId}/images/confirm`, { method: 'POST' });
+                const data = await resp.json();
+                if (resp.ok) {
+                    alert('Image confirmed.');
+                    location.reload();
+                } else {
+                    alert(`Failed: ${data.detail || 'Unknown error'}`);
+                    btn.disabled = false;
+                    btn.textContent = 'Confirm Winner';
+                }
+            } catch (e) {
+                alert(`Network error: ${e.message}`);
+                btn.disabled = false;
+                btn.textContent = 'Confirm Winner';
+            }
+        }
+
+        async function overrideImage(episodeId, variantPath, btn) {
+            if (!confirm(`Select this variant as the new winner?\n\n${variantPath}`)) return;
+            btn.disabled = true;
+            btn.textContent = 'Selecting…';
+            try {
+                const resp = await fetch(`/admin/episodes/${episodeId}/images/override`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ variant_path: variantPath }),
+                });
+                const data = await resp.json();
+                if (resp.ok) {
+                    alert('Image overridden. New winner set.');
+                    location.reload();
+                } else {
+                    alert(`Failed: ${data.detail || 'Unknown error'}`);
+                    btn.disabled = false;
+                    btn.textContent = 'Select This';
+                }
+            } catch (e) {
+                alert(`Network error: ${e.message}`);
+                btn.disabled = false;
+                btn.textContent = 'Select This';
+            }
+        }
+
+        async function rerunPhotography(episodeId, btn) {
+            if (!confirm('Re-run photography? This will generate new images (costs ~3 Stability API credits).')) return;
+            btn.disabled = true;
+            btn.textContent = 'Generating…';
+            try {
+                const resp = await fetch(`/admin/episodes/${episodeId}/images/rerun`, { method: 'POST' });
+                const data = await resp.json();
+                if (resp.ok) {
+                    alert(`Photography re-run complete: ${data.images_generated} images generated.`);
+                    location.reload();
+                } else {
+                    alert(`Failed: ${data.detail || 'Unknown error'}`);
+                    btn.disabled = false;
+                    btn.textContent = 'Re-run Photography';
+                }
+            } catch (e) {
+                alert(`Network error: ${e.message}`);
+                btn.disabled = false;
+                btn.textContent = 'Re-run Photography';
             }
         }
 

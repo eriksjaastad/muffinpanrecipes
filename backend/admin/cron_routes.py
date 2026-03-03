@@ -334,6 +334,8 @@ async def cron_wednesday(request: Request, body: StageRequest = StageRequest()):
             "reshoot_happened": photography_result.get("reshoot_happened", False) if isinstance(photography_result, dict) else False,
             "image_paths": image_paths,
             "image_urls": image_urls,
+            "image_status": "auto_selected",
+            "confirmed_winner": photography_result.get("winner", {}) if isinstance(photography_result, dict) else {},
             "dialogue": dialogue,
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -493,12 +495,53 @@ async def cron_sunday(request: Request, body: StageRequest = StageRequest()):
                     detail=f"Cannot publish: {day} stage incomplete (status={stage_status!r})",
                 )
 
+        # Wire winner image into recipe featured_photo
+        wed_stage = ep.get("stages", {}).get("wednesday", {})
+        confirmed_winner = wed_stage.get("confirmed_winner", {})
+        featured_image_path = confirmed_winner.get("featured_image", "")
+        if featured_image_path:
+            # Strip src/ prefix for web serving
+            web_image_path = featured_image_path.removeprefix("src/")
+            recipe_id = ep.get("recipe_id")
+            if recipe_id:
+                # Update the recipe's featured_photo so the publishing pipeline picks it up
+                from pathlib import Path as _Path
+                data_dir = _Path(__file__).resolve().parents[1] / "data" / "recipes"
+                from backend.data.recipe import Recipe, RecipeStatus
+                for rs in RecipeStatus:
+                    recipe_path = data_dir / rs.value / f"{recipe_id}.json"
+                    if recipe_path.exists():
+                        try:
+                            recipe = Recipe.load_from_file(recipe_path)
+                            recipe.featured_photo = web_image_path
+                            recipe.save_to_file(data_dir)
+                            logger.info(f"Set featured_photo={web_image_path} on recipe {recipe_id}")
+                        except Exception as e:
+                            logger.warning(f"Failed to set featured_photo on recipe {recipe_id}: {e}")
+                        break
+
+        # Post-publish cleanup: trash variant directories if image was confirmed/overridden
+        image_status = wed_stage.get("image_status", "")
+        published_image_cleaned = False
+        if image_status in ("confirmed", "overridden"):
+            recipe_id = ep.get("recipe_id")
+            if recipe_id:
+                try:
+                    cleaned = storage.cleanup_image_variants(recipe_id)
+                    if cleaned:
+                        logger.info(f"Cleaned up image variants for {recipe_id}: {cleaned}")
+                        wed_stage["image_status"] = "cleaned"
+                        published_image_cleaned = True
+                except Exception as e:
+                    logger.warning(f"Image cleanup failed for {recipe_id}: {e}")
+
         ep["published_at"] = datetime.now(timezone.utc).isoformat()
         ep["stages"]["sunday"] = {
             "stage": "publish",
             "status": "complete",
             "concept": concept,
             "published": True,
+            "image_cleaned": published_image_cleaned,
             "dialogue": dialogue,
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }

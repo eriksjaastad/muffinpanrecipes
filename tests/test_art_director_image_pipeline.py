@@ -22,7 +22,7 @@ def test_art_director_generates_three_variants_and_featured_image(tmp_path: Path
 
     monkeypatch.setattr(agent, "_repo_root", lambda: tmp_path)
     monkeypatch.setenv("STABILITY_API_KEY", "test-key")
-    monkeypatch.setattr(agent, "_call_stability", lambda api_key, prompt: _png_bytes())
+    monkeypatch.setattr(agent, "_call_stability", lambda api_key, prompt, variant=None: _png_bytes())
 
     task = Task(
         type="photograph_recipe",
