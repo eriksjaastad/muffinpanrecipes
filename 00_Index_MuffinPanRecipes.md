@@ -34,16 +34,16 @@ An AI-driven experimental recipe platform focused exclusively on "Muffin Tin Mea
 
 ## 🚀 Recent Activity
 
-- 2026-01-22: feat: AI Creative Team System (Tasks 1-13 Complete)
-- 2026-01-04: [Infrastructure] Add Vercel Speed Insights
-- 2026-01-04: [SEO] Fix social previews and add image dimensions
-- 2026-01-04: Merge pull request #5 from eriksjaastad/claude/code-review-analysis-X4B23
-- 2026-01-04: [Review] Final factory certification (REVIEW_V5.md)
-- 2026-01-04: [Industrialization] Master Archive & SSG Hardening
-- 2026-01-04: Merge pull request #4 from eriksjaastad/claude/code-review-analysis-X4B23
-- 2026-01-04: [Review] Add SSG architecture audit (REVIEW_V4.md)
-- 2026-01-04: [Architecture] Content Moat: Transition to Static Site Generation (SSG)
-- 2026-01-04: [Performance] Image optimization and lazy loading implementation
+- 2026-03-03: feat: Friday photo context threading, Vercel Blob storage, lint fixes (#4980, #5014)
+- 2026-03-03: feat: Image pipeline, test fixes, admin improvements (#5010, #5011, #5012, #5015)
+- 2026-03-03: feat: Dialogue bookends — opening greetings and closing sign-offs (#5016)
+- 2026-03-02: feat: Vision pipeline, admin UI improvements, e2e tests, gitignore images
+- 2026-03-02: feat: Dialogue system rework + centralized model config
+- 2026-03-02: fix: Add trailing newline to episodes.html (#5006)
+- 2026-03-02: feat: Remove Ollama, add Anthropic provider, cost tracking, model override flags
+- 2026-03-02: Merge remote-tracking branch 'origin/codex/dialogue-quality-benchmark'
+- 2026-03-02: fix: improve dialogue quality guards and local run defaults
+- 2026-03-02: fix: Revert _LazyApp — Vercel requires real ASGI app at module level
 ## 📖 Reference Links
 - [Intentions](INTENTIONS.md)
 - [Project DoD](PROJECT_DOD.md)
@@ -67,7 +67,6 @@ scaffolding_date: 2026-01-27
 | :--- | :---: | :--- |
 | [Documents/](Documents/README.md) | 4 | *Auto-generated index. Last updated: 2026-01-24* |
 | [backend/](backend/README.md) | 5 | Python-based multi-agent orchestration system for Muffin Pan Recipes. |
-| [docs/](docs/) | 1 | No description available. |
 | [reviews/](reviews/) | 1 | No description available. |
 
 ### Files
@@ -75,6 +74,8 @@ scaffolding_date: 2026-01-27
 | File | Description |
 | :--- | :--- |
 | [AGENTS.md](AGENTS.md) | <!-- project-scaffolding template appended --> |
+| [AI Character Voice Consistency Research.md](AI Character Voice Consistency Research.md) | The operationalization of autonomous personas within generative environments represents a critical i... |
+| [BOOKEND_TESTING_LOG.md](BOOKEND_TESTING_LOG.md) | Character-driven opening greetings and closing sign-offs for each day's conversation. |
 | [CLAUDE.md](CLAUDE.md) | <!-- AUTO-GENERATED from .agentsync/rules/ - Do not edit directly --> |
 | [CREATIVE_BIBLE.md](CREATIVE_BIBLE.md) | > The show bible for our weekly serialized content. This is a living document. |
 | [DECISIONS.md](DECISIONS.md) | > *Documenting WHY we made decisions, not just WHAT we built.* |
@@ -150,7 +151,6 @@ scaffolding_date: 2026-01-27
 | [backend/utils/model_router.py](backend/utils/model_router.py) | Unified model router for Ollama + OpenAI-compatible dialogue generation. |
 | [backend/utils/publish_schedule.py](backend/utils/publish_schedule.py) | Publish scheduling utilities (DST-aware). |
 | [backend/utils/recipe_prompts.py](backend/utils/recipe_prompts.py) | Recipe and description generation via model router. |
-| [docs/publishing-pipeline-audit.md](docs/publishing-pipeline-audit.md) | **Date:** 2026-03-02 |
 | [package-lock.json](package-lock.json) | No description available. |
 | [package.json](package.json) | No description available. |
 | [pyproject.toml](pyproject.toml) | No description available. |

@@ -202,9 +202,137 @@ v2 directives are a significant improvement. Test next with Claude Sonnet to com
 
 ---
 
+---
+
+## Test 4: GPT-5.1, v2 directives, different concept (variance check)
+**Date:** 2026-03-03
+**Model:** openai/gpt-5.1
+**Concept:** Brown Butter Pecan Tassies
+**File:** `sim-20260304-003819-brown-butter-pecan-tassies-openai_gpt-5.1-full-run1-full-week.json`
+**QA Score:** 76 | **Messages:** 42
+
+### Results — Openers
+| Day | Character | Greeting? | Notes |
+|-----|-----------|-----------|-------|
+| Mon | Margaret | YES | "Morning. We locking Brown Butter Pecan Tassies today..." |
+| Tue | Margaret | YES | "Morning. Starting tassie dough ratios now..." |
+| Wed | Julian | YES | "Heading in now with props and surfaces..." |
+| Thu | Marcus | BORDERLINE | "Quick check-in before I start typing..." — conversational but no greeting |
+| Fri | Margaret | YES | "Morning. Let's get this tray wrapped..." |
+| Sat | Devon | NO | "On it: I am loading the recipe page..." — straight to task |
+| Sun | Steph | NO | "Quick status sweep..." — no greeting |
+
+**Opener hit rate: ~60% (4 clear, 1 borderline, 2 missed)**
+
+### Results — Closers
+| Day | Character | Sign-off? | Notes |
+|-----|-----------|-----------|-------|
+| Mon | Marcus | NO | Summary, no goodbye |
+| Tue | Steph | YES | "before I disappear for a bit" |
+| Wed | Margaret | NO | Gave directions, no sign-off |
+| Thu | Steph | YES | "step away for tonight" |
+| Fri | Marcus | YES | "Before I disappear..." |
+| Sat | Margaret | NO | Summary, no departure |
+| Sun | Marcus | YES | "logging off" |
+
+**Closer hit rate: ~57% (4 clear, 0 borderline, 3 missed)**
+
+### Analysis — concept variance
+| Metric | Shepherd's Pies (Test 2) | Pecan Tassies (Test 4) | Delta |
+|--------|--------------------------|------------------------|-------|
+| Opener hit rate | ~70% | ~60% | -10% |
+| Closer hit rate | ~70% | ~57% | -13% |
+| QA Score | 76 | 76 | 0 |
+
+- **Results are worse with a different concept.** The 70/70 from Test 2 was partially lucky.
+- **Same problem characters:** Devon (Sat opener) and Steph (Sun opener) skip greetings. Margaret skips sign-offs.
+- **Marcus closers are inconsistent** — nails it when he does it ("logging off", "Before I disappear") but sometimes just summarizes.
+- **QA score stable at 76** — bookend compliance doesn't affect quality scoring.
+- **Pattern:** Characters with "efficient" or "anxious" voices resist the directive more. Margaret and Devon skip greetings. Margaret skips sign-offs. The voice guides actively fight the bookend structure.
+
+### Emerging conclusion
+v2 directives land ~60-70% depending on concept/run variance. To push higher, we likely need:
+1. Per-character bookend hints that work WITH the voice guide instead of against it
+2. Fewer prescriptive examples in the closer (reduce "Good session" parrot risk)
+3. Possibly a harder constraint: "Your message MUST start with one of: Morning, Hey, Hi, Alright, Ok"
+
+---
+
+---
+
+## Test 5: GPT-5.1, v3 few-shot anchoring (3 runs)
+**Date:** 2026-03-03
+**Model:** openai/gpt-5.1
+**Concept:** Brown Butter Pecan Tassies (same as Test 4 for comparison)
+**Files:**
+- `sim-20260304-033129-...-run1-full-week.json` (qa=0 — template fallback, Run 1 unreliable)
+- `sim-20260304-033129-...-run2-full-week.json` (qa=78)
+- `sim-20260304-033129-...-run3-full-week.json` (qa=80)
+
+### v3 Changes (from Gemini Deep Research findings)
+
+**1. Few-shot character anchoring** — Added `_CHARACTER_EXAMPLE_MESSAGES` dict with 3 example
+messages per character in `build_system_prompt()`. LAST example is always a greeting/arrival
+moment, exploiting "Last Example Weight" — models weight the final example highest.
+
+**2. Motivation-based opener** — Replaced structural directive:
+- v2: "Your FIRST sentence must be a greeting or arrival moment"
+- v3: "You just arrived. Your first words should reflect that arrival in YOUR voice."
+
+**3. Character-filtered closer** — Removed prescriptive sign-off examples:
+- v2: "END with a sign-off — 'heading out', 'see you tomorrow', 'night'..."
+- v3: "You're leaving. End with a departure in YOUR voice."
+
+### Results — Aggregate (21 day-runs across 3 full weeks)
+
+**Openers: 20/21 = 95%**
+Only miss: Run 1 Tuesday Margaret ("New plan for today:" — no arrival moment)
+
+**Closers: 18/21 = 86%**
+Misses: Run 1 Mon/Tue (Marcus x2 — pure summaries), Run 2 Mon (Steph — conditional plan)
+
+### Cross-version comparison
+
+| Metric | v1 (soft) | v2 (explicit) | v2 (diff concept) | v3 (few-shot) |
+|--------|-----------|---------------|-------------------|---------------|
+| Openers | ~60% | ~70% | ~60% | **95%** |
+| Closers | ~15% | ~70% | ~57% | **86%** |
+| QA Score | 75 | 76 | 76 | 78-80 |
+| Sample size | n=14 | n=14 | n=14 | **n=42** |
+
+### Analysis
+
+- **Openers jumped from ~65% to 95%.** Few-shot examples are doing the heavy lifting. The model
+  sees Margaret's example "Morning. Whose idea was the glaze - because it's wrong." and understands
+  that THIS is what a Margaret greeting looks like. No more conflict with her voice guide.
+
+- **Closers jumped from ~64% to 86%.** Removing prescriptive examples ("logging off", "heading out")
+  and replacing with "in YOUR voice" eliminated the Marcus "Good session" parrot problem. Characters
+  now sign off naturally: Margaret says "my brain is closed," Steph says "go lie quietly in a dark
+  room," Julian says "shutting this laptop."
+
+- **QA scores improved slightly** (76 → 78-80). The few-shot examples may be anchoring voice
+  quality generally, not just bookends.
+
+- **Remaining failure mode:** Marcus on Monday/Tuesday closers — he summarizes decisions eloquently
+  but forgets to actually leave. His voice guide says "always one sentence too many" and that last
+  sentence is another thought, not a goodbye. Could address with a Marcus-specific closer example.
+
+- **Run 1 had qa=0 / real_inference=False** — possible template mode fallback. Runs 2-3 are solid.
+
+### Key Research Insights Applied
+- "Last Example Weight" (Gemini research Section 2) — confirmed effective
+- "Internal Motivation" over structural commands (Section 3) — confirmed effective
+- "Character-filtered sign-offs" (Section 6) — confirmed effective
+- Few-shot > zero-shot for character adherence — confirmed at scale
+
+---
+
 ## Planned Tests
-- [x] Test 1: GPT-5.1 with v1 directives (soft) — 60% opener / 15% closer
-- [x] Test 2: GPT-5.1 with v2 directives (explicit) — 70% opener / 70% closer
-- [x] Test 3: Claude Sonnet with v2 directives — 70% opener / 70% closer, QA 66
-- [ ] Test 4: Gemini (pending API key from Erik)
-- [ ] Test 5: Variance check if needed (same model, different concept)
+- [x] Test 1: GPT-5.1 v1 (soft) — 60%/15%
+- [x] Test 2: GPT-5.1 v2 (explicit) — 70%/70%
+- [x] Test 3: Sonnet 4.6 v2 — 70%/70%, QA 66
+- [x] Test 4: GPT-5.1 v2 different concept — 60%/57%
+- [x] Test 5: GPT-5.1 v3 few-shot x3 runs — **95%/86%**, QA 78-80
+- [ ] Test 6: Gemini comparison (pending API key)
+- [ ] Test 7: Marcus-specific closer example (if we want to push past 86%)
