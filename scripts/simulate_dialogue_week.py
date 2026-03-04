@@ -414,6 +414,7 @@ def generate_turn(
     prompt_style: str,
     day_turn: int,
     is_last_turn: bool = False,
+    photography_context: dict | None = None,
 ) -> str:
     if mode == "template":
         sig = persona["communication_style"].get("signature_phrases", ["Right."])
@@ -427,7 +428,7 @@ def generate_turn(
     if prompt_style == "scene":
         scene_sentence = f"{DAY_STAGE_DIRECTIONS[day]} {DAY_PROMPT[day]}"
         deadline_sentence = f"Deadline today is {deadline}."
-        arc_summary = _build_dynamic_arc(day, concept)
+        arc_summary = _build_dynamic_arc(day, concept, photography_context=photography_context)
 
         if day_turn == 1:
             # First message of the day: the speaker introduces the topic,
@@ -728,7 +729,7 @@ def _voice_pattern_score(messages: list[Message]) -> tuple[int, dict[str, list[s
                 total_bonus += 2
             # Literary references or analogies
             literary = ["proust", "fisher", "hemingway", "like a", "as if", "reminds me of", "there's a tradition", "narrative arc"]
-            lit_count = sum(1 for l in literary if l in all_text)
+            lit_count = sum(1 for term in literary if term in all_text)
             if lit_count >= 1:
                 hits.append(f"literary ({lit_count})")
                 total_bonus += 2
@@ -975,6 +976,26 @@ def _build_dynamic_arc(day: str, concept: str, photography_context: dict | None 
             f"{base}"
         )
     elif day == "friday":
+        winner_variant = ""
+        reshoot_happened = False
+        if photography_context:
+            winner = photography_context.get("winner", {})
+            winner_variant = winner.get("variant", "")
+            reshoot_happened = photography_context.get("reshoot_happened", False)
+        if winner_variant and reshoot_happened:
+            return (
+                f"Final review of '{concept}'. Julian's emergency reshoot Wednesday paid off - "
+                f"the '{winner_variant}' is the hero shot everyone signed off on. "
+                f"But final approval always surfaces something. Someone has a last note. "
+                f"{base}"
+            )
+        elif winner_variant:
+            return (
+                f"Final review of '{concept}'. Julian's '{winner_variant}' was approved Wednesday. "
+                f"Now the full package - recipe, copy, hero image - gets one last look. "
+                f"Someone has a note. It matters. "
+                f"{base}"
+            )
         return (
             f"Final review of '{concept}'. The recipe was locked Tuesday. "
             f"Photos were selected Wednesday. Now something isn't quite right. "
@@ -1222,6 +1243,7 @@ def run_simulation(
                 prompt_style=prompt_style,
                 day_turn=tick + 1,
                 is_last_turn=(tick == day_ticks - 1),
+                photography_context=photography_context,
             )
             recent_lines.append(f"{speaker.split()[0]}: {line}")
             messages.append(Message(day=day, stage=stage, character=speaker, message=line, timestamp=ts.isoformat(), model=model))

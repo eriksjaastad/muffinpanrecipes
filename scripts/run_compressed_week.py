@@ -113,7 +113,6 @@ def print_cost_summary(results: list[dict]) -> None:
     """Aggregate and print cost data from all stage outputs."""
     totals: dict[str, dict] = {}
     for r in results:
-        output = r.get("error", "") if not r["ok"] else ""
         # Cost data is in the stage output (stored in run loop, not in error)
         # We need to check the full output — pass it through
         cost = _extract_cost_data(r.get("_output", ""))
