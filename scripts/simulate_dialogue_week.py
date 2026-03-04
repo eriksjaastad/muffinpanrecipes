@@ -240,6 +240,35 @@ _CHARACTER_VOICE_GUIDES: dict[str, str] = {
 }
 
 
+_CHARACTER_EXAMPLE_MESSAGES: dict[str, list[str]] = {
+    "Margaret Chen": [
+        "The crust ratio is off. Too much butter, not enough structure.",
+        "No. Try it again with less sugar and tell me what happens.",
+        "Morning. Whose idea was the glaze - because it's wrong.",
+    ],
+    "Stephanie 'Steph' Whitmore": [
+        "I think maybe we could try... I don't know, a slightly different angle on the plating?",
+        "Sorry, I just want to make sure we're all on the same page before we commit to anything.",
+        "Hey everyone, just getting settled in - are we still feeling good about yesterday's direction?",
+    ],
+    "Julian Torres": [
+        "The overhead is doing nothing for the texture. We need a 30-degree rake with side light.",
+        "I'm thinking matte surface, single prop, let the food carry the composition.",
+        "Just got in. The light in here is actually usable for once - let's talk shots.",
+    ],
+    "Marcus Reid": [
+        "There's a Nigella-meets-diner quality to these that I think the copy should lean into.",
+        "I've been turning this over and the headline wants to be warmer, less clever, more felt.",
+        "Morning, all. Laptop open, brain mostly engaged - what's our angle today?",
+    ],
+    "Devon Park": [
+        "Staging looks fine. One broken link in the footer.",
+        "Pushed the fix. Should be live in two minutes.",
+        "Hey. What needs deploying.",
+    ],
+}
+
+
 def build_system_prompt(persona: dict[str, Any]) -> str:
     name = persona["name"]
     comm = persona["communication_style"]
@@ -253,11 +282,22 @@ def build_system_prompt(persona: dict[str, Any]) -> str:
         sentences = desc.split(". ")
         rel_lines.append(f"- {role}: {'. '.join(sentences[:2])}.")
 
+    # Few-shot examples — last example demonstrates a greeting/arrival to anchor bookends
+    examples = _CHARACTER_EXAMPLE_MESSAGES.get(name, [])
+    examples_block = ""
+    if examples:
+        formatted = chr(10).join(f'- "{ex}"' for ex in examples)
+        examples_block = (
+            f"EXAMPLE MESSAGES (this is how you sound — match this energy and length):\n"
+            f"{formatted}\n\n"
+        )
+
     return (
         f"You are {name} ({persona['role']}). Stay strictly in character.\n"
         "Write ONE group chat message. No narration, no markdown, no role labels.\n\n"
         f"WHO YOU ARE:\n{persona['backstory'][:600]}\n\n"
         f"HOW YOU SPEAK:\n{voice_guide}\n\n"
+        f"{examples_block}"
         f"SIGNATURE PHRASES (use as OCCASIONAL spice — once or twice a WEEK, not every message):\n"
         f"{', '.join(comm.get('signature_phrases', []))}\n\n"
         f"INTERNAL CONTRADICTIONS (these make you human — lean into them):\n"
@@ -436,10 +476,9 @@ def generate_turn(
             # context and respond as if someone already pitched it off-screen.
             opener_directive = (
                 "IMPORTANT: You are opening this conversation. Nobody has spoken yet today.\n"
-                "STRUCTURE: Your FIRST sentence must be a greeting or arrival moment - "
-                "'Morning', 'Hey all', 'Just got in', etc. Even one word counts. "
-                "Your SECOND sentence introduces or pitches the day's topic. "
-                "Do NOT skip the greeting and jump straight into work.\n"
+                "You just arrived - walked in, logged on, opened the chat. "
+                "Your first words should reflect that arrival moment in YOUR voice. "
+                "Then introduce the day's topic.\n"
                 f"Arrival context: {_DAY_OPENER_CONTEXT[day]}"
             )
             prompt = (
@@ -482,8 +521,8 @@ def generate_turn(
         if day_turn == 1:
             opener_hint = (
                 "\nIMPORTANT: You are opening this conversation. Nobody has spoken yet today. "
-                "Your FIRST sentence must be a greeting or arrival moment. "
-                "Your SECOND sentence introduces the topic. Don't skip the greeting.\n"
+                "You just arrived. Your first words should reflect that arrival in YOUR voice. "
+                "Then introduce the topic.\n"
                 f"Arrival context: {_DAY_OPENER_CONTEXT[day]}\n"
             )
         prompt = (
@@ -501,10 +540,9 @@ def generate_turn(
     if is_last_turn:
         prompt += (
             "\n\nIMPORTANT: This is the LAST message of today's conversation. "
-            "STRUCTURE: Briefly confirm what was decided (one sentence max), "
-            "then END with a sign-off — 'heading out', 'see you tomorrow', 'night', "
-            "'done for today', 'logging off', etc. Your FINAL sentence must be a goodbye or departure. "
-            "Keep it short. Don't introduce new topics or ask questions.\n"
+            "The work is done. You're leaving - closing the laptop, walking out, signing off. "
+            "Briefly confirm what was decided, then end with a departure in YOUR voice. "
+            "Don't introduce new topics or ask questions. Keep it short.\n"
             f"Wrap-up context: {_DAY_CLOSER_CONTEXT[day]}"
         )
 
