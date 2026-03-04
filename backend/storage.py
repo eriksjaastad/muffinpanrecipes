@@ -168,6 +168,15 @@ class _CloudBackend:
     def _has_cloud(self) -> bool:
         return bool(self._blob_token)
 
+    def _blob_key(self, relative_path: str) -> str:
+        """Map a repo-relative path to a stable blob key.
+
+        src/assets/images/abc123/editorial.png -> images/abc123/editorial.png
+        """
+        key = relative_path.removeprefix("src/")
+        key = key.removeprefix("assets/")
+        return key
+
     # --- Episodes ---
 
     def load_episode(self, episode_id: str) -> Optional[dict]:
@@ -212,17 +221,44 @@ class _CloudBackend:
     def save_image(self, relative_path: str, image_bytes: bytes) -> str:
         if not self._has_cloud():
             return self._fs.save_image(relative_path, image_bytes)
-        # TODO: upload to Vercel Blob and return the CDN URL
-        # key = relative_path.replace("data/images/", "images/")
-        # url = vercel_blob_upload(key, image_bytes, token=self._blob_token)
-        # return url
-        return self._fs.save_image(relative_path, image_bytes)  # stub fallback
+
+        import requests as _requests
+
+        key = self._blob_key(relative_path)
+        upload_url = f"https://blob.vercel-storage.com/{key}"
+        headers = {
+            "Authorization": f"Bearer {self._blob_token}",
+            "Content-Type": "image/png",
+            "x-vercel-access": "public",
+        }
+        resp = _requests.put(upload_url, data=image_bytes, headers=headers, timeout=60)
+        resp.raise_for_status()
+        blob_url: str = resp.json()["url"]
+        logger.info(f"Uploaded image to Vercel Blob: {blob_url}")
+        return blob_url
 
     def get_image_url(self, relative_path: str) -> str:
         if not self._has_cloud():
             return self._fs.get_image_url(relative_path)
-        # TODO: return CDN URL from Vercel Blob
-        return self._fs.get_image_url(relative_path)  # stub fallback
+
+        import requests as _requests
+
+        key = self._blob_key(relative_path)
+        # HEAD the blob to check existence and get the canonical URL.
+        # Vercel Blob URLs are at: https://blob.vercel-storage.com/{key}
+        # The response Location or url field gives us the CDN URL.
+        check_url = f"https://blob.vercel-storage.com/{key}"
+        headers = {"Authorization": f"Bearer {self._blob_token}"}
+        try:
+            resp = _requests.head(check_url, headers=headers, timeout=10, allow_redirects=True)
+            if resp.ok:
+                # Use the final URL after any redirects (CDN URL)
+                return resp.url
+        except Exception as e:
+            logger.warning(f"Blob HEAD check failed for {key}: {e}")
+
+        # Fallback: construct URL from known Vercel Blob pattern
+        return f"https://blob.vercel-storage.com/{key}"
 
     def image_exists(self, relative_path: str) -> bool:
         return self._fs.image_exists(relative_path)
