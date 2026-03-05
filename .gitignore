@@ -8,6 +8,11 @@ node_modules/
 
 # Data and caches
 data/
+!backend/data/
+!backend/data/characters/
+!backend/data/characters/*/
+!backend/data/characters/*/bio.md
+!backend/data/characters/*/memory.json
 *.db
 *.sqlite
 __pycache__/

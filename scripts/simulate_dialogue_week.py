@@ -30,6 +30,7 @@ from backend.utils.model_router import generate_response
 
 ROOT = Path(__file__).resolve().parents[1]
 PERSONAS_PATH = ROOT / "backend" / "data" / "agent_personalities.json"
+CHARACTERS_DIR = ROOT / "backend" / "data" / "characters"
 OUT_DIR = ROOT / "data" / "simulations"
 
 DAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
@@ -42,14 +43,87 @@ DAY_STAGE = {
     "saturday": "deployment",
     "sunday": "publish",
 }
-DAY_PROMPT = {
-    "monday": "Concept lock by 5pm. Spark, disagreement, and a decision.",
-    "tuesday": "Recipe draft by 5pm. Ratios, testing, and pressure.",
-    "wednesday": "Final shots by 5pm. Styling and visual arguments.",
-    "thursday": "Copy submitted by 3pm. Headline/tone disagreement.",
-    "friday": "Review by 5pm. Team-wide tension and verdict.",
-    "saturday": "Staging by noon. Quiet execution + small snag.",
-    "sunday": "Publish at 5pm sharp. Final short messages only.",
+DAY_MEETING_GOAL: dict[str, dict[str, str]] = {
+    "monday": {
+        "objective": "Decide which concept the team is making this week",
+        "completion_signal": r"agreed|locked|going with|let's do|that's the one",
+    },
+    "tuesday": {
+        "objective": "Nail down the recipe - ratios, technique, substitutions",
+        "completion_signal": r"recipe works|ratios?.*(good|solid|locked)|finalized",
+    },
+    "wednesday": {
+        "objective": "Choose the hero shot",
+        "completion_signal": r"hero.*(is|shot)|going with|that's the one|locked",
+    },
+    "thursday": {
+        "objective": "Approve the copy",
+        "completion_signal": r"copy.*(approved|good|done|submitted)|approved|ship it",
+    },
+    "friday": {
+        "objective": "Final review verdict - approve or send back",
+        "completion_signal": r"approved|green.?light|good to go|ship|send.?back",
+    },
+    "saturday": {
+        "objective": "Get it staged and verified",
+        "completion_signal": r"staged|deployed|live|looks good|green",
+    },
+    "sunday": {
+        "objective": "Publish",
+        "completion_signal": r"published|live|it's up|went out",
+    },
+}
+
+CHARACTER_DAY_GOALS: dict[str, dict[str, str]] = {
+    "monday": {
+        "Margaret Chen": "You have strong feelings about whether this concept respects the craft.",
+        "Stephanie 'Steph' Whitmore": "You need the team to land on something. Guide without dictating.",
+        "Julian Torres": "You're already thinking about how this will photograph.",
+        "Marcus Reid": "You're looking for the story angle - what makes this worth writing about.",
+        "Devon Park": "You're listening. You'll care when it hits deployment.",
+    },
+    "tuesday": {
+        "Margaret Chen": "This is your domain. The ratios have to be right or it doesn't ship.",
+        "Stephanie 'Steph' Whitmore": "You need the recipe locked today. Keep things moving.",
+        "Julian Torres": "You're thinking about how the final dish will photograph.",
+        "Marcus Reid": "You're tasting and thinking about what story the recipe tells.",
+        "Devon Park": "You're waiting for something to deploy. Not your day.",
+    },
+    "wednesday": {
+        "Margaret Chen": "You want the food shown honestly. No tricks, no garnishes that don't belong.",
+        "Stephanie 'Steph' Whitmore": "You're thinking about what performs in feed. The hero shot matters.",
+        "Julian Torres": "These are YOUR shots. You have a strong opinion about which one leads.",
+        "Marcus Reid": "You see the visual story. You have thoughts about which shot matches the copy.",
+        "Devon Park": "You'll optimize whatever they pick. Not your fight.",
+    },
+    "thursday": {
+        "Margaret Chen": "You'll cut anything that doesn't serve the recipe. No patience for fluff.",
+        "Stephanie 'Steph' Whitmore": "You need the copy approved. Mediate if it gets tense.",
+        "Julian Torres": "You care about how the copy pairs with your images.",
+        "Marcus Reid": "This is YOUR work being reviewed. You've put thought into every word.",
+        "Devon Park": "You'll read it if someone sends it. Probably fine.",
+    },
+    "friday": {
+        "Margaret Chen": "Last chance to catch something wrong. You take this seriously.",
+        "Stephanie 'Steph' Whitmore": "You need a final verdict. Approve or send back - no ambiguity.",
+        "Julian Torres": "You want to make sure your images aren't being undermined by bad layout.",
+        "Marcus Reid": "You're hoping the final package does the writing justice.",
+        "Devon Park": "You're confirming the site is ready to receive this.",
+    },
+    "saturday": {
+        "Margaret Chen": "You're checking the recipe page one more time. Old habit.",
+        "Stephanie 'Steph' Whitmore": "You're anxious until staging is confirmed.",
+        "Julian Torres": "You want to see your photos rendered properly on the site.",
+        "Marcus Reid": "You're reading the live preview, checking your words on the page.",
+        "Devon Park": "This is your show. Deploy, verify, done.",
+    },
+    "sunday": {
+        "Margaret Chen": "Publish day. You won't relax until it's live and correct.",
+        "Stephanie 'Steph' Whitmore": "This is the moment. You're leading the final push.",
+        "Julian Torres": "You want to see the published page. Your photos, live.",
+        "Marcus Reid": "Your words go public today. A mix of pride and dread.",
+        "Devon Park": "Push the button. Make sure nothing breaks.",
+    },
 }
 
 DAY_STAGE_DIRECTIONS = {
@@ -64,34 +138,34 @@ DAY_STAGE_DIRECTIONS = {
 
 DAY_ARC = {
     "monday": (
-        "SETUP: Someone floats the concept - raw, half-formed, maybe divisive. "
-        "TENSION: Another character challenges it or suggests something that pulls in a different direction. They don't agree easily. "
-        "RESOLUTION: The team locks a direction under deadline pressure. Not everyone is happy about it."
+        "SETUP: The concept lands - raw, half-formed, maybe divisive. "
+        "TENSION: Not everyone sees it the same way. The discussion gets real. "
+        "RESOLUTION: A direction is locked. Not everyone is happy about it."
     ),
     "tuesday": (
         "SETUP: A specific technical problem surfaces - ratios, technique, or a substitution that seems wrong. "
-        "TENSION: Margaret is skeptical or frustrated. Someone pushes back on her. The outcome isn't obvious. "
+        "TENSION: Someone is skeptical. Someone pushes back. The outcome isn't obvious. "
         "RESOLUTION: A decision is made and the recipe is confirmed, even if reluctantly."
     ),
     "wednesday": (
-        "SETUP: Julian has a strong visual opinion. He shares it like it's obvious. "
-        "TENSION: Someone disagrees with his aesthetic call. Creative egos clash. "
-        "RESOLUTION: The hero shot is chosen. Julian may or may not get his way."
+        "SETUP: The shots are in. Strong visual opinions surface. "
+        "TENSION: Creative egos clash over which image leads. "
+        "RESOLUTION: The hero shot is chosen. Not everyone got their way."
     ),
     "thursday": (
-        "SETUP: Marcus shares copy. It's too long, too literary, or too something. "
-        "TENSION: Margaret edits it harshly. Steph tries to mediate without offending anyone. "
-        "RESOLUTION: The copy is approved, probably shorter than Marcus wanted."
+        "SETUP: Copy is shared. It's too long, too literary, or too something. "
+        "TENSION: The editing gets personal. Someone mediates. "
+        "RESOLUTION: The copy is approved, probably different than the writer wanted."
     ),
     "friday": (
         "SETUP: Final review. Something isn't quite right and someone says so. "
-        "TENSION: Time pressure makes the stakes real. A decision has to be made NOW. "
+        "TENSION: The stakes are real. A decision has to be made NOW. "
         "RESOLUTION: Approved or sent back with specific fixes. No vague feedback."
     ),
     "saturday": (
-        "SETUP: Devon is handling deployment. It's mostly quiet. "
-        "TENSION: One small technical snag interrupts the calm. Devon fixes it without drama. "
-        "RESOLUTION: Staged. Brief confirmation. Everyone moves on."
+        "SETUP: Deployment. Mostly quiet. "
+        "TENSION: One small technical snag interrupts the calm. Fixed without drama. "
+        "RESOLUTION: Staged. Brief confirmation."
     ),
     "sunday": (
         "SETUP: Publish window is here. "
@@ -149,7 +223,8 @@ TICKS_RANGE: dict[str, tuple[int, int]] = {
 PROMPT_ECHO_PATTERNS = [
     "day:",
     "scene goal:",
-    "deadline pressure:",
+    "the team needs to:",
+    "your goal today:",
     "write this character's next message",
     "injected event",
 ]
@@ -240,6 +315,21 @@ _CHARACTER_VOICE_GUIDES: dict[str, str] = {
 }
 
 
+# Shared behavior rules that apply to ALL characters regardless of personality.
+# These are injected into the system prompt alongside individual voice guides.
+_SHARED_CHARACTER_RULES = (
+    "UNIVERSAL BEHAVIOR (applies to everyone):\n"
+    "- Never use 24-hour time (say '5 pm' not '17:00'). Avoid mentioning specific clock times at all.\n"
+    "- When someone says something to you, acknowledge it before pivoting. Don't ignore people.\n"
+    "- React to what just happened, not to what the prompt told you is coming.\n"
+    "- Don't narrate your own actions ('*adjusts lighting*'). Just talk.\n"
+    "- Don't summarize decisions that haven't been made yet.\n"
+    "- Don't use file names, pixel dimensions, color profiles, or deployment URLs in conversation. "
+    "Talk like a person, not a spec sheet.\n"
+    "- Keep it conversational. This is a group chat, not a formal report."
+)
+
+
 _CHARACTER_EXAMPLE_MESSAGES: dict[str, list[str]] = {
     "Margaret Chen": [
         "The crust ratio is off. Too much butter, not enough structure.",
@@ -269,16 +359,52 @@ _CHARACTER_EXAMPLE_MESSAGES: dict[str, list[str]] = {
 }
 
 
+_CHAR_SLUG_OVERRIDES: dict[str, str] = {
+    "Stephanie 'Steph' Whitmore": "steph-whitmore",
+}
+
+
+def _char_dir_slug(name: str) -> str:
+    """Convert character name to directory slug: 'Margaret Chen' -> 'margaret-chen'."""
+    if name in _CHAR_SLUG_OVERRIDES:
+        return _CHAR_SLUG_OVERRIDES[name]
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+
+def _load_bio(name: str) -> str | None:
+    """Load bio.md for a character if it exists."""
+    bio_path = CHARACTERS_DIR / _char_dir_slug(name) / "bio.md"
+    if bio_path.exists():
+        return bio_path.read_text().strip()
+    return None
+
+
+def _load_memories(name: str) -> list[dict[str, str]]:
+    """Load episode memories for a character (last 2 episodes)."""
+    mem_path = CHARACTERS_DIR / _char_dir_slug(name) / "memory.json"
+    if not mem_path.exists():
+        return []
+    try:
+        data = json.loads(mem_path.read_text())
+        episodes = data.get("episodes", [])
+        return episodes[-2:]  # last 2 episodes
+    except (json.JSONDecodeError, KeyError):
+        return []
+
+
 def build_system_prompt(persona: dict[str, Any]) -> str:
     name = persona["name"]
     comm = persona["communication_style"]
     voice_guide = _CHARACTER_VOICE_GUIDES.get(name, "")
 
+    # Use bio.md if available, fall back to truncated backstory
+    bio = _load_bio(name)
+    who_you_are = bio if bio else persona["backstory"][:600]
+
     # Build relationship summary as emotional tensions, not data dump
     relationships = persona.get("relationships", {})
     rel_lines = []
     for role, desc in relationships.items():
-        # Take first 2 sentences of each relationship — the emotional core
         sentences = desc.split(". ")
         rel_lines.append(f"- {role}: {'. '.join(sentences[:2])}.")
 
@@ -292,19 +418,35 @@ def build_system_prompt(persona: dict[str, Any]) -> str:
             f"{formatted}\n\n"
         )
 
+    # Episode memories — what this character remembers from recent weeks
+    memories = _load_memories(name)
+    memory_block = ""
+    if memories:
+        mem_lines = []
+        for ep in memories:
+            concept = ep.get("concept", "unknown")
+            summary = ep.get("summary", "")
+            mem_lines.append(f"- {concept}: {summary}")
+        memory_block = (
+            "WHAT YOU REMEMBER FROM RECENTLY:\n"
+            + chr(10).join(mem_lines) + "\n\n"
+        )
+
     return (
         f"You are {name} ({persona['role']}). Stay strictly in character.\n"
         "Write ONE group chat message. No narration, no markdown, no role labels.\n\n"
-        f"WHO YOU ARE:\n{persona['backstory'][:600]}\n\n"
+        f"WHO YOU ARE:\n{who_you_are}\n\n"
         f"HOW YOU SPEAK:\n{voice_guide}\n\n"
         f"{examples_block}"
+        f"{memory_block}"
         f"SIGNATURE PHRASES (use as OCCASIONAL spice — once or twice a WEEK, not every message):\n"
         f"{', '.join(comm.get('signature_phrases', []))}\n\n"
         f"INTERNAL CONTRADICTIONS (these make you human — lean into them):\n"
         f"{chr(10).join('- ' + c for c in persona.get('internal_contradictions', []))}\n\n"
         f"KEY RELATIONSHIPS:\n{chr(10).join(rel_lines)}\n\n"
         f"TRIGGERS (these make you react strongly): {', '.join(persona.get('triggers', []))}\n\n"
-        "RULES:\n"
+        f"{_SHARED_CHARACTER_RULES}\n\n"
+        "CHARACTER-SPECIFIC RULES:\n"
         "- Signature phrases are spice, not default. Vary your openings.\n"
         "- Email habits (signing with initials, etc.) do NOT apply in group chat.\n"
         "- NEVER use em dashes (\u2014), en dashes (\u2013), or curly quotes (\u2018\u2019\u201c\u201d). "
@@ -455,6 +597,7 @@ def generate_turn(
     day_turn: int,
     is_last_turn: bool = False,
     photography_context: dict | None = None,
+    phase: str = "active",
 ) -> str:
     if mode == "template":
         sig = persona["communication_style"].get("signature_phrases", ["Right."])
@@ -465,15 +608,30 @@ def generate_turn(
     history = "\n".join(recent_lines[-8:]) if recent_lines else "(no prior messages)"
     event_line = f"Injected event: {event}" if event else "Injected event: none"
 
+    # Meeting goal + character goal for this day
+    goal = DAY_MEETING_GOAL[day]
+    char_name = persona["name"]
+    char_goal = CHARACTER_DAY_GOALS.get(day, {}).get(char_name, "")
+    goal_line = f"The team needs to: {goal['objective']}"
+    char_goal_line = f"Your goal today: {char_goal}" if char_goal else ""
+
+    # Wind-down phase directives
+    phase_directive = ""
+    if phase == "winding_down":
+        phase_directive = (
+            "\nThe main decision has been made. The conversation is cooling down naturally. "
+            "React to what was decided, tie up a loose end, or make a small comment. "
+            "Don't start new debates."
+        )
+    # "closing" phase is handled by the existing closer directive below
+
+    no_clock_line = "Do NOT mention specific clock times."
+
     if prompt_style == "scene":
-        scene_sentence = f"{DAY_STAGE_DIRECTIONS[day]} {DAY_PROMPT[day]}"
-        deadline_sentence = f"Deadline today is {deadline}."
+        scene_sentence = DAY_STAGE_DIRECTIONS[day]
         arc_summary = _build_dynamic_arc(day, concept, photography_context=photography_context)
 
         if day_turn == 1:
-            # First message of the day: the speaker introduces the topic,
-            # not reacts to it. Without this, models read the concept from
-            # context and respond as if someone already pitched it off-screen.
             opener_directive = (
                 "IMPORTANT: You are opening this conversation. Nobody has spoken yet today.\n"
                 "You just arrived - walked in, logged on, opened the chat. "
@@ -486,20 +644,20 @@ def generate_turn(
                 f"Day: {day.title()} ({stage})\n"
                 f"Scene context: {scene_sentence}\n"
                 f"Story arc: {arc_summary}\n"
-                f"Time pressure: {deadline_sentence}\n"
+                f"{goal_line}\n"
+                f"{char_goal_line}\n"
+                f"{no_clock_line}\n"
                 f"{event_line}\n"
                 f"Recent chat:\n{history}\n\n"
                 f"{opener_directive}\n"
                 "What do you say next?"
             )
         else:
-            # Turn 2+: full scene context on EVERY turn — never let the model lose the scene
             previous_speaker = ""
             if recent_lines:
                 last_line = recent_lines[-1]
                 previous_speaker = last_line.split(":")[0].strip()
 
-            # Role-chain reasoning — model thinks through the character before speaking
             name = persona["name"].split()[0]
             role_chain = (
                 f"Before responding, consider: given {name}'s relationship with {previous_speaker} "
@@ -509,11 +667,15 @@ def generate_turn(
             ) if previous_speaker else "React to what was just said. Stay in the scene."
 
             prompt = (
-                f"Day: {day.title()} - {stage}. Deadline: {deadline}.\n"
+                f"Day: {day.title()} - {stage}.\n"
                 f"Scene: {scene_sentence}\n"
                 f"Arc reminder: {arc_summary}\n"
+                f"{goal_line}\n"
+                f"{char_goal_line}\n"
+                f"{no_clock_line}\n"
                 f"{event_line}\n"
                 f"Recent chat:\n{history}\n\n"
+                f"{phase_directive}\n"
                 f"{role_chain}"
             )
     else:
@@ -528,10 +690,12 @@ def generate_turn(
         prompt = (
             f"Episode concept: {concept}\n"
             f"Day: {day.title()} ({stage})\n"
-            f"Deadline pressure: {deadline}\n"
-            f"Scene goal: {DAY_PROMPT[day]}\n"
+            f"{goal_line}\n"
+            f"{char_goal_line}\n"
+            f"{no_clock_line}\n"
             f"{event_line}\n"
             f"Recent chat:\n{history}\n\n"
+            f"{phase_directive}\n"
             f"{opener_hint}"
             "Write this character's next message. Keep it natural and specific."
         )
@@ -569,6 +733,9 @@ def generate_turn(
     msg = sanitize_typographic_tells(msg)
     msg = _normalize_time_notation(msg, deadline)
     msg = _canonicalize_flour_ricotta_ratios(msg)
+    # Strip 24-hour clock references (e.g. "17:42" -> remove the time phrase)
+    msg = re.sub(r"\bat\s+\d{2}:\d{2}\b", "", msg)
+    msg = re.sub(r"\b[012]\d:\d{2}\b", "", msg)
     return " ".join(msg.split())
 
 
@@ -709,6 +876,27 @@ def _stage_coherence_penalty(messages: list[Message]) -> float:
     return round(min(penalty, 15.0), 2)
 
 
+def _deadline_parrot_penalty(messages: list[Message]) -> tuple[float, int]:
+    """Penalise if clock-time references appear in >2 messages per day."""
+    clock_pattern = re.compile(
+        r"\b\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)\b"
+        r"|\b(?:by|at|due)\s+\d{1,2}\s*(?:am|pm|o'clock)\b"
+        r"|\bdeadline\b",
+        re.IGNORECASE,
+    )
+    by_day: dict[str, int] = {}
+    for m in messages:
+        if clock_pattern.search(m.message):
+            by_day[m.day] = by_day.get(m.day, 0) + 1
+
+    total_hits = sum(by_day.values())
+    penalty = 0.0
+    for _day, count in by_day.items():
+        if count > 2:
+            penalty += (count - 2) * 3.0
+    return round(min(penalty, 15.0), 2), total_hits
+
+
 def _formal_name_penalty(messages: list[Message]) -> int:
     """Penalise messages using full character names in overly formal constructions."""
     # Patterns like "Thanks, Margaret" / "I agree with Julian" / "As Marcus mentioned"
@@ -820,6 +1008,7 @@ def score_quality(messages: list[Message], personas: dict[str, dict[str, Any]]) 
     12. Conflict/disagreement bonus: +up to 5
     13. Stage coherence (topic stagnation): up to -15
     14. Formal name usage: -1 per hit
+    15. Deadline parroting: -3 per clock-time ref over 2/day, max -15
     """
     lowered = [m.message.lower() for m in messages]
     prohibited_hits = sum(sum(1 for p in PROHIBITED if p in msg) for msg in lowered)
@@ -869,6 +1058,7 @@ def score_quality(messages: list[Message], personas: dict[str, dict[str, Any]]) 
     conflict_bonus = _conflict_bonus(messages)
     coherence_penalty = _stage_coherence_penalty(messages)
     formal_penalty = _formal_name_penalty(messages)
+    deadline_penalty, deadline_hits = _deadline_parrot_penalty(messages)
 
     # Hard fail if prompt echo detected
     if prompt_echo_hits > 0:
@@ -887,6 +1077,7 @@ def score_quality(messages: list[Message], personas: dict[str, dict[str, Any]]) 
         score += conflict_bonus            # disagreement/tension
         score -= int(coherence_penalty)    # topic stagnation
         score -= formal_penalty            # "Thanks, Margaret" -1 each
+        score -= int(deadline_penalty)     # clock-time parroting
         score = max(0, min(100, score))
 
     return {
@@ -910,6 +1101,8 @@ def score_quality(messages: list[Message], personas: dict[str, dict[str, Any]]) 
         "conflict_bonus": conflict_bonus,
         "stage_coherence_penalty": coherence_penalty,
         "formal_name_penalty": formal_penalty,
+        "deadline_parrot_penalty": deadline_penalty,
+        "deadline_time_hits": deadline_hits,
     }
 
 
@@ -1214,6 +1407,85 @@ def _build_photography_scene_direction(photography_context: dict | None, day: st
     return None
 
 
+def _generate_episode_memories(
+    messages: list[Message],
+    concept: str,
+    personas: dict[str, dict[str, Any]],
+    model: str,
+) -> None:
+    """Generate per-character episode memories after a full week simulation.
+
+    One LLM call per character (~100 tokens output each). Appends to each
+    character's memory.json, keeping at most 3 episodes.
+    """
+    from datetime import date
+
+    week_label = date.today().strftime("%G-W%V")
+
+    # Group messages by character
+    by_char: dict[str, list[str]] = {}
+    for m in messages:
+        by_char.setdefault(m.character, []).append(f"[{m.day}] {m.message}")
+
+    for char_name, char_msgs in by_char.items():
+        if char_name not in personas:
+            continue
+
+        persona = personas[char_name]
+        transcript_excerpt = "\n".join(char_msgs[-15:])  # last 15 messages max
+
+        prompt = (
+            f"Summarize {char_name}'s week in 2 sentences.\n"
+            f"Role: {persona['role']}\n"
+            f"Concept: {concept}\n\n"
+            f"Their messages:\n{transcript_excerpt}\n\n"
+            "Rules:\n"
+            "- Write from their POV in third person past tense\n"
+            "- Focus on relationships and emotions, NOT technical specs\n"
+            "- Include one specific interpersonal moment (a disagreement, a concession, a surprise)\n"
+            "- No file names, pixel dimensions, color profiles, or deployment jargon\n"
+            "- Keep it under 40 words total\n"
+            "- Use plain hyphens and straight quotes only (no em dashes, curly quotes)"
+        )
+
+        try:
+            summary = generate_response(
+                prompt=prompt,
+                system_prompt="You write concise character summaries. Exactly 2 sentences, under 40 words. No technical jargon.",
+                model=model,
+                temperature=0.4,
+            ).strip()
+            summary = sanitize_typographic_tells(summary)
+        except Exception:
+            continue
+
+        # Extract a key moment (first sentence of summary as fallback)
+        sentences = summary.split(". ")
+        key_moment = sentences[-1].rstrip(".") + "." if len(sentences) > 1 else ""
+
+        episode = {
+            "week": week_label,
+            "concept": concept,
+            "summary": summary,
+            "key_moment": key_moment,
+        }
+
+        # Load existing memory, append, keep last 3
+        slug = _char_dir_slug(char_name)
+        mem_path = CHARACTERS_DIR / slug / "memory.json"
+        try:
+            data: dict[str, Any] = json.loads(mem_path.read_text()) if mem_path.exists() else {"episodes": []}
+        except (json.JSONDecodeError, KeyError):
+            data: dict[str, Any] = {"episodes": []}
+
+        data["episodes"].append(episode)
+        data["episodes"] = data["episodes"][-3:]  # keep last 3
+        data["last_updated"] = week_label
+
+        mem_path.parent.mkdir(parents=True, exist_ok=True)
+        mem_path.write_text(json.dumps(data, indent=2))
+
+
 def run_simulation(
     concept: str,
     default_model: str,
@@ -1239,9 +1511,8 @@ def run_simulation(
 
         # Override scene direction if photography context provides one
         photo_scene = _build_photography_scene_direction(photography_context, day)
+        _original_direction = DAY_STAGE_DIRECTIONS.get(day, "")
         if photo_scene:
-            # Temporarily override for this day's generation
-            _original_direction = DAY_STAGE_DIRECTIONS.get(day, "")
             DAY_STAGE_DIRECTIONS[day] = photo_scene
 
         # Variable message count — sample fresh each day/run
@@ -1260,7 +1531,18 @@ def run_simulation(
                 day_ticks = max(day_ticks, 7)  # drop shots + disagree + converge on hero
 
         speak_counts: dict[str, int] = {name: 0 for name in names}
+        goal = DAY_MEETING_GOAL[day]
+        goal_met = False
+
         for tick in range(day_ticks):
+            # Determine conversation phase
+            if tick == day_ticks - 1:
+                turn_phase = "closing"
+            elif goal_met or tick >= day_ticks - 2:
+                turn_phase = "winding_down"
+            else:
+                turn_phase = "active"
+
             speaker = _select_next_speaker(names, day, tick, recent_lines, speak_counts, day_ticks)
             speak_counts[speaker] = speak_counts.get(speaker, 0) + 1
             persona = personas[speaker]
@@ -1282,9 +1564,16 @@ def run_simulation(
                 day_turn=tick + 1,
                 is_last_turn=(tick == day_ticks - 1),
                 photography_context=photography_context,
+                phase=turn_phase,
             )
             recent_lines.append(f"{speaker.split()[0]}: {line}")
             messages.append(Message(day=day, stage=stage, character=speaker, message=line, timestamp=ts.isoformat(), model=model))
+
+            # Check if meeting goal was met (only after a few turns of discussion)
+            if not goal_met and tick >= 2:
+                combined = " ".join(recent_lines[-3:]).lower()
+                if re.search(goal["completion_signal"], combined):
+                    goal_met = True
 
         # After all Wednesday messages are generated, distribute image attachments
         if day == "wednesday" and image_paths:
@@ -1299,6 +1588,10 @@ def run_simulation(
     for m in messages:
         by_character[m.character] = by_character.get(m.character, 0) + 1
         by_model[m.model] = by_model.get(m.model, 0) + 1
+
+    # Generate episode memories after a full week (not single-day runs)
+    if not stage_only and mode == "llm":
+        _generate_episode_memories(messages, concept, personas, default_model)
 
     qa = score_quality(messages, personas)
     inference_check = verify_real_inference(messages, mode)
