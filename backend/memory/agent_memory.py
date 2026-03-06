@@ -61,7 +61,10 @@ class AgentMemory:
         """
         self.agent_role = agent_role
         self.storage_path = storage_path or Path("data/agent_memories")
-        self.storage_path.mkdir(parents=True, exist_ok=True)
+        try:
+            self.storage_path.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass  # Read-only filesystem (Vercel Lambda)
 
         # Memory storage
         self.formative_experiences: List[Experience] = []
