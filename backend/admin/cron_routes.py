@@ -39,6 +39,8 @@ from pydantic import BaseModel
 from backend.config import config
 from backend.storage import storage
 from backend.utils.logging import get_logger
+from backend.utils.discord import notify_judge_failure
+from backend.utils.model_router import generate_judge_response
 
 logger = get_logger(__name__)
 
@@ -171,6 +173,143 @@ def _generate_dialogue(
         return []  # still non-fatal, but logged at ERROR level
 
 
+DAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+
+_JUDGE_SYSTEM_PROMPT = (
+    "You are a senior editorial judge for a food content site. "
+    "5 characters (Margaret, Steph, Julian, Marcus, Devon) collaborate on a muffin-tin recipe each week.\n\n"
+    "CHARACTER RULES:\n"
+    "- Margaret: Blunt, short sentences, zero fluff, standards enforcer\n"
+    "- Steph: Warm, diplomatic, NOT a nervous intern\n"
+    "- Julian: Visual thinker, theatrical, cares about light/composition\n"
+    "- Marcus: Literary, verbose, metaphor-heavy\n"
+    "- Devon: Efficient, understated, speaks only when needed\n\n"
+    "CHECK FOR:\n"
+    "1. HALLUCINATIONS: Wrong ingredients/details not matching the concept\n"
+    "2. CHARACTER BREAKS: Someone wildly out of character\n"
+    "3. CONTINUITY: References to previous days must be accurate\n"
+    "4. NATURALNESS: Should sound like real coworkers\n\n"
+    "Respond with EXACTLY one line: PASS or FAIL followed by a brief reason.\n"
+    "Example: PASS - Characters are distinct, concept is consistent, good tension.\n"
+    "Example: FAIL - Margaret mentions 'brown butter' but this is a corn dog recipe."
+)
+
+
+def _judge_dialogue(
+    concept: str,
+    stage: str,
+    dialogue: list[dict],
+    episode: dict,
+) -> tuple[bool, str]:
+    """Judge today's dialogue with growing context from previous days.
+
+    Returns (passed: bool, verdict: str).
+    """
+    judge_model = config.judge_model
+
+    # Build context from previous days
+    previous_context = []
+    for day in DAY_ORDER:
+        if day == stage:
+            break
+        day_dialogue = episode.get("stages", {}).get(day, {}).get("dialogue", [])
+        if day_dialogue:
+            lines = []
+            for m in day_dialogue:
+                name = m.get("character", "?").split()[0]
+                lines.append(f"{name}: {m.get('message', '')}")
+            previous_context.append(f"=== {day.upper()} ===\n" + "\n".join(lines))
+
+    # Format today's dialogue
+    today_lines = []
+    for m in dialogue:
+        name = m.get("character", "?").split()[0]
+        today_lines.append(f"{name}: {m.get('message', '')}")
+
+    context_section = ""
+    if previous_context:
+        context_section = "PREVIOUS DAYS:\n" + "\n\n".join(previous_context) + "\n\n---\n\n"
+
+    prompt = (
+        f"Recipe concept: {concept}\n\n"
+        f"{context_section}"
+        f"TODAY IS {stage.upper()}:\n"
+        + "\n".join(today_lines)
+        + "\n\nJudge this day. One line: PASS or FAIL with reason."
+    )
+
+    try:
+        verdict = generate_judge_response(
+            prompt=prompt,
+            system_prompt=_JUDGE_SYSTEM_PROMPT,
+            model=judge_model,
+            temperature=0.2,
+        ).strip()
+        passed = verdict.upper().startswith("PASS")
+        logger.info(f"Judge verdict for {stage}: {verdict[:200]}")
+        return passed, verdict
+    except Exception as e:
+        logger.warning(f"Judge failed for {stage}, defaulting to PASS: {e}")
+        return True, f"JUDGE ERROR (defaulting to PASS): {e}"
+
+
+class JudgeFailedError(Exception):
+    """Raised when dialogue fails judge review after all retries."""
+    def __init__(self, stage: str, verdict: str, attempts: int):
+        self.stage = stage
+        self.verdict = verdict
+        self.attempts = attempts
+        super().__init__(f"Judge failed {stage} after {attempts} attempts: {verdict}")
+
+
+def _generate_and_judge_dialogue(
+    stage: str,
+    concept: str,
+    episode: dict,
+    model: str | None = None,
+    image_paths: list[str] | None = None,
+    photography_context: dict | None = None,
+    max_retries: int = 2,
+) -> tuple[list[dict], str]:
+    """Generate dialogue and run judge. Retry on FAIL up to max_retries.
+
+    Returns (dialogue, verdict_str).
+    Raises JudgeFailedError if all retries exhausted — caller should
+    save episode as judge_failed and NOT publish.
+    """
+    verdict = ""
+    dialogue: list[dict] = []
+    total_attempts = 1 + max_retries
+
+    for attempt in range(total_attempts):
+        dialogue = _generate_dialogue(
+            stage, concept,
+            image_paths=image_paths,
+            photography_context=photography_context,
+            model=model,
+        )
+        if not dialogue:
+            return dialogue, "NO DIALOGUE GENERATED"
+
+        passed, verdict = _judge_dialogue(concept, stage, dialogue, episode)
+        if passed:
+            return dialogue, verdict
+
+        logger.warning(f"Judge FAILED {stage} attempt {attempt + 1}/{total_attempts}: {verdict[:200]}")
+
+    # Exhausted retries — notify Erik and pause the episode
+    episode_id = episode.get("episode_id", "unknown")
+    notify_judge_failure(
+        concept=concept,
+        stage=stage,
+        verdict=verdict,
+        episode_id=episode_id,
+        attempts=total_attempts,
+    )
+    logger.error(f"Judge failed all {total_attempts} attempts for {stage}. Episode paused.")
+    raise JudgeFailedError(stage=stage, verdict=verdict, attempts=total_attempts)
+
+
 class StageRequest(BaseModel):
     episode_id: Optional[str] = None   # defaults to current ISO week
     concept: Optional[str] = None      # defaults to stored or generic
@@ -248,7 +387,9 @@ async def cron_monday(request: Request, body: StageRequest = StageRequest()):
         orchestrator.pipeline.start_recipe(ep["recipe_id"], concept)
 
         recipe_data = orchestrator._execute_stage_baker(ep["recipe_id"], concept)
-        dialogue = _generate_dialogue("monday", concept, model=body.model)
+        dialogue, judge_verdict = _generate_and_judge_dialogue(
+            "monday", concept, ep, model=body.model,
+        )
 
         ep["stages"]["monday"] = {
             "stage": "brainstorm",
@@ -256,6 +397,7 @@ async def cron_monday(request: Request, body: StageRequest = StageRequest()):
             "concept": concept,
             "recipe_data": recipe_data,
             "dialogue": dialogue,
+            "judge_verdict": judge_verdict,
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
         ep["events"].append("monday: complete")
@@ -279,13 +421,16 @@ async def cron_tuesday(request: Request, body: StageRequest = StageRequest()):
     concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
 
     with _run_stage(ep, "tuesday"):
-        dialogue = _generate_dialogue("tuesday", concept, model=body.model)
+        dialogue, judge_verdict = _generate_and_judge_dialogue(
+            "tuesday", concept, ep, model=body.model,
+        )
         ep["stages"]["tuesday"] = {
             "stage": "recipe_development",
             "status": "complete",
             "concept": concept,
             "recipe_data_ref": "from monday stage",
             "dialogue": dialogue,
+            "judge_verdict": judge_verdict,
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
         ep["events"].append("tuesday: complete")
@@ -319,8 +464,8 @@ async def cron_wednesday(request: Request, body: StageRequest = StageRequest()):
         image_paths: list[str] = photography_result.get("selected_shots", []) if isinstance(photography_result, dict) else []
         image_urls = [storage.get_image_url(p) for p in image_paths]
 
-        dialogue = _generate_dialogue(
-            "wednesday", concept,
+        dialogue, judge_verdict = _generate_and_judge_dialogue(
+            "wednesday", concept, ep,
             image_paths=image_paths,
             photography_context=photography_result if isinstance(photography_result, dict) else None,
             model=body.model,
@@ -337,6 +482,7 @@ async def cron_wednesday(request: Request, body: StageRequest = StageRequest()):
             "image_status": "auto_selected",
             "confirmed_winner": photography_result.get("winner", {}) if isinstance(photography_result, dict) else {},
             "dialogue": dialogue,
+            "judge_verdict": judge_verdict,
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
         ep["image_paths"] = image_paths
@@ -372,7 +518,9 @@ async def cron_thursday(request: Request, body: StageRequest = StageRequest()):
         orchestrator.pipeline.start_recipe(recipe_id, concept)
 
         copy_text = orchestrator._execute_stage_copywriting(recipe_id, concept, recipe_data)
-        dialogue = _generate_dialogue("thursday", concept, model=body.model)
+        dialogue, judge_verdict = _generate_and_judge_dialogue(
+            "thursday", concept, ep, model=body.model,
+        )
 
         ep["stages"]["thursday"] = {
             "stage": "copywriting",
@@ -380,6 +528,7 @@ async def cron_thursday(request: Request, body: StageRequest = StageRequest()):
             "concept": concept,
             "copy_text": copy_text,
             "dialogue": dialogue,
+            "judge_verdict": judge_verdict,
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
         ep["events"].append("thursday: complete")
@@ -415,7 +564,11 @@ async def cron_friday(request: Request, body: StageRequest = StageRequest()):
         # Pass photography context from Wednesday to Friday dialogue for hero shot awareness
         wed_photo_data = ep.get("stages", {}).get("wednesday", {}).get("photography_data")
         friday_photo_ctx = wed_photo_data if isinstance(wed_photo_data, dict) else None
-        dialogue = _generate_dialogue("friday", concept, photography_context=friday_photo_ctx, model=body.model)
+        dialogue, judge_verdict = _generate_and_judge_dialogue(
+            "friday", concept, ep,
+            photography_context=friday_photo_ctx,
+            model=body.model,
+        )
 
         ep["stages"]["friday"] = {
             "stage": "final_review",
@@ -424,6 +577,7 @@ async def cron_friday(request: Request, body: StageRequest = StageRequest()):
             "approved": approved,
             "review_data": review_output,
             "dialogue": dialogue,
+            "judge_verdict": judge_verdict,
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
         ep["events"].append("friday: complete")
@@ -455,7 +609,9 @@ async def cron_saturday(request: Request, body: StageRequest = StageRequest()):
         orchestrator.pipeline.start_recipe(recipe_id, concept)
 
         orchestrator._execute_stage_deployment(recipe_id)
-        dialogue = _generate_dialogue("saturday", concept, model=body.model)
+        dialogue, judge_verdict = _generate_and_judge_dialogue(
+            "saturday", concept, ep, model=body.model,
+        )
 
         ep["stages"]["saturday"] = {
             "stage": "deployment",
@@ -463,6 +619,7 @@ async def cron_saturday(request: Request, body: StageRequest = StageRequest()):
             "concept": concept,
             "deployment_status": "staged",
             "dialogue": dialogue,
+            "judge_verdict": judge_verdict,
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
         ep["events"].append("saturday: complete")
@@ -483,7 +640,9 @@ async def cron_sunday(request: Request, body: StageRequest = StageRequest()):
     concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
 
     with _run_stage(ep, "sunday"):
-        dialogue = _generate_dialogue("sunday", concept, model=body.model)
+        dialogue, judge_verdict = _generate_and_judge_dialogue(
+            "sunday", concept, ep, model=body.model,
+        )
 
         # Verify critical prior stages completed before publishing
         required_stages = ["monday", "wednesday"]
@@ -543,6 +702,7 @@ async def cron_sunday(request: Request, body: StageRequest = StageRequest()):
             "published": True,
             "image_cleaned": published_image_cleaned,
             "dialogue": dialogue,
+            "judge_verdict": judge_verdict,
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
         ep["events"].append("sunday: complete (published)")

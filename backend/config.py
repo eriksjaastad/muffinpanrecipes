@@ -113,9 +113,12 @@ class _Config:
         Set via API:      pass --model flag or character_models JSON to simulate_dialogue_week
         """
         override = os.environ.get("DIALOGUE_MODEL", "").strip()
-        if override:
-            return override
-        return "openai/gpt-5-mini"
+        if not override:
+            raise RuntimeError(
+                "DIALOGUE_MODEL is not set. Set it via Doppler or environment variable. "
+                "No silent fallback — you must explicitly choose a model."
+            )
+        return override
 
     @property
     def recipe_model(self) -> str:
@@ -128,9 +131,30 @@ class _Config:
         Set via Doppler:  doppler secrets set RECIPE_MODEL "openai/gpt-5.1"
         """
         override = os.environ.get("RECIPE_MODEL", "").strip()
-        if override:
-            return override
-        return "openai/gpt-5-mini"
+        if not override:
+            raise RuntimeError(
+                "RECIPE_MODEL is not set. Set it via Doppler or environment variable. "
+                "No silent fallback — you must explicitly choose a model."
+            )
+        return override
+
+    @property
+    def judge_model(self) -> str:
+        """Model for post-generation quality review (judge tier).
+
+        Expensive models allowed here — this is judgment, not generation.
+        Override via JUDGE_MODEL env var or Doppler.
+
+        Allowed models (JUDGE_ALLOWLIST in model_router):
+          Anthropic: claude-opus-4-6, claude-sonnet-4-6
+          OpenAI:    gpt-5.1, gpt-5.2
+
+        Set via Doppler:  doppler secrets set JUDGE_MODEL "anthropic/claude-opus-4-6"
+        """
+        override = os.environ.get("JUDGE_MODEL", "").strip()
+        if not override:
+            return "anthropic/claude-sonnet-4-6"  # sensible default — cheaper than Opus
+        return override
 
     @property
     def auth_bypass(self) -> bool:

@@ -19,6 +19,7 @@ import argparse
 import json
 import random
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -270,17 +271,20 @@ _CHARACTER_VOICE_GUIDES: dict[str, str] = {
         "but finds his verbosity exhausting. She thinks Julian is everything wrong with modern food culture "
         "but won't admit his photos make her recipes look better. Devon is tolerable because he doesn't small talk. "
         "Her internal war: she resents Instagram culture but checks engagement numbers. She says she's here for the paycheck "
-        "but works late perfecting recipes nobody asked her to improve. She is deeply lonely and pushes people away with grumpiness."
+        "but works late perfecting recipes nobody asked her to improve. She is deeply lonely and pushes people away with grumpiness. "
+        "MAXIMUM 15 words."
     ),
     "Stephanie 'Steph' Whitmore": (
-        "Steph hedges. She qualifies. She trails off. She apologizes before giving feedback. "
-        "Her sentences are longer because she's padding them with uncertainty. 'I think maybe we could possibly...' "
-        "1-2 longer sentences. Average message: 15-25 words. "
+        "Steph hedges, but she hedges DIFFERENTLY every time. She never repeats the same opener twice. "
+        "Sometimes she trails off mid-thought. Sometimes she asks a question instead of stating her opinion. "
+        "Sometimes she over-explains one small thing. Sometimes she just agrees too fast. "
+        "She does NOT open with 'Sorry' more than once in five messages. Vary it. "
+        "1-2 sentences. Average message: 15-25 words. "
         "She's terrified of Margaret but desperately wants her approval. She envies Julian's confidence. "
         "She finds Marcus's over-writing exhausting but is afraid to edit too heavily. "
         "She knows Devon isn't working full hours but can't address it. "
         "Her internal war: she has good instincts but doesn't trust them. She craves validation but dismisses compliments. "
-        "She reads about decisive leadership but practices collaborative indecisiveness."
+        "MAXIMUM 25 words."
     ),
     "Julian Torres": (
         "Julian is declarative and theory-laden. Confident surface, fragile underneath. "
@@ -290,7 +294,8 @@ _CHARACTER_VOICE_GUIDES: dict[str, str] = {
         "she'll approve anything if he uses enough jargon. He and Marcus have an unspoken rivalry over who's 'the creative one.' "
         "Devon's indifference to aesthetics annoys him. "
         "His internal war: he mocks Instagram culture but checks his engagement obsessively. He claims to be above commercial work "
-        "but desperately needs this job. He's actually good at making content but frames everything as ART."
+        "but desperately needs this job. He's actually good at making content but frames everything as ART. "
+        "MAXIMUM 20 words."
     ),
     "Marcus Reid": (
         "Marcus over-explains. He's literary, referential, always one sentence too many. "
@@ -300,7 +305,8 @@ _CHARACTER_VOICE_GUIDES: dict[str, str] = {
         "He sees Julian as a competitor for the 'artistic one' title. Devon's apparent lack of ambition baffles him. "
         "His internal war: he wants to be a serious novelist but is increasingly good at commercial writing. "
         "He resents the recipe work but puts more effort into it than anyone asks. "
-        "He mourns his novel's failure but hasn't started a second book."
+        "He mourns his novel's failure but hasn't started a second book. "
+        "MAXIMUM 35 words."
     ),
     "Devon Park": (
         "Devon is efficient and understated. Slightly condescending, then feels bad about it. "
@@ -310,7 +316,8 @@ _CHARACTER_VOICE_GUIDES: dict[str, str] = {
         "He finds Julian exhausting. He doesn't understand why Marcus writes so much. "
         "His internal war: he lied to get the job but is honest about the work itself. "
         "He appears lazy but has high personal standards for his code. "
-        "He automated most of his job and isn't sure if he should tell anyone."
+        "He automated most of his job and isn't sure if he should tell anyone. "
+        "MAXIMUM 12 words."
     ),
 }
 
@@ -319,13 +326,17 @@ _CHARACTER_VOICE_GUIDES: dict[str, str] = {
 # These are injected into the system prompt alongside individual voice guides.
 _SHARED_CHARACTER_RULES = (
     "UNIVERSAL BEHAVIOR (applies to everyone):\n"
+    "- HARD LIMIT: 1-2 sentences max. If you wrote more than 25 words, rewrite shorter.\n"
+    "- This is a group chat, not an email. Be punchy.\n"
+    "- Talk about the FOOD and the WORK, not the technology. No file names, pixel dimensions, "
+    "color profiles, CMS paths, deployment URLs, CDN references, sRGB, aspect ratios. "
+    "If a non-cook wouldn't say it at dinner, don't say it here.\n"
+    "- Stay in your lane. Only talk about things your role actually cares about.\n"
     "- Never use 24-hour time (say '5 pm' not '17:00'). Avoid mentioning specific clock times at all.\n"
     "- When someone says something to you, acknowledge it before pivoting. Don't ignore people.\n"
     "- React to what just happened, not to what the prompt told you is coming.\n"
     "- Don't narrate your own actions ('*adjusts lighting*'). Just talk.\n"
     "- Don't summarize decisions that haven't been made yet.\n"
-    "- Don't use file names, pixel dimensions, color profiles, or deployment URLs in conversation. "
-    "Talk like a person, not a spec sheet.\n"
     "- Keep it conversational. This is a group chat, not a formal report."
 )
 
@@ -337,8 +348,10 @@ _CHARACTER_EXAMPLE_MESSAGES: dict[str, list[str]] = {
         "Morning. Whose idea was the glaze - because it's wrong.",
     ],
     "Stephanie 'Steph' Whitmore": [
-        "I think maybe we could try... I don't know, a slightly different angle on the plating?",
-        "Sorry, I just want to make sure we're all on the same page before we commit to anything.",
+        "I was thinking about this last night and... okay hear me out.",
+        "Wait, can we go back to what Marcus said? I think there's something there.",
+        "That works. I think? Yeah. That works.",
+        "I don't know, a slightly different angle on the plating maybe?",
         "Hey everyone, just getting settled in - are we still feeling good about yesterday's direction?",
     ],
     "Julian Torres": [
@@ -392,8 +405,13 @@ def _load_memories(name: str) -> list[dict[str, str]]:
         return []
 
 
+_system_prompt_cache: dict[str, str] = {}
+
+
 def build_system_prompt(persona: dict[str, Any]) -> str:
     name = persona["name"]
+    if name in _system_prompt_cache:
+        return _system_prompt_cache[name]
     comm = persona["communication_style"]
     voice_guide = _CHARACTER_VOICE_GUIDES.get(name, "")
 
@@ -432,7 +450,7 @@ def build_system_prompt(persona: dict[str, Any]) -> str:
             + chr(10).join(mem_lines) + "\n\n"
         )
 
-    return (
+    result = (
         f"You are {name} ({persona['role']}). Stay strictly in character.\n"
         "Write ONE group chat message. No narration, no markdown, no role labels.\n\n"
         f"WHO YOU ARE:\n{who_you_are}\n\n"
@@ -452,6 +470,8 @@ def build_system_prompt(persona: dict[str, Any]) -> str:
         "- NEVER use em dashes (\u2014), en dashes (\u2013), or curly quotes (\u2018\u2019\u201c\u201d). "
         "Use plain hyphens and straight apostrophes only."
     )
+    _system_prompt_cache[name] = result
+    return result
 
 
 def choose_model(character: str, default_model: str, mapping: dict[str, str] | None) -> str:
@@ -598,6 +618,7 @@ def generate_turn(
     is_last_turn: bool = False,
     photography_context: dict | None = None,
     phase: str = "active",
+    prior_own_messages: list[str] | None = None,
 ) -> str:
     if mode == "template":
         sig = persona["communication_style"].get("signature_phrases", ["Right."])
@@ -605,8 +626,19 @@ def generate_turn(
         event_bit = f" Also: {event}." if event else ""
         return f"{pick} {day.title()} is {stage}; deadline is {deadline}. For {concept}, lock one decision now.{event_bit}"[:220]
 
-    history = "\n".join(recent_lines[-8:]) if recent_lines else "(no prior messages)"
+    # Turn 1 gets full context; turns 2+ get trimmed history to reduce info dumping
+    history_depth = 8 if day_turn == 1 else 4
+    history = "\n".join(recent_lines[-history_depth:]) if recent_lines else "(no prior messages)"
     event_line = f"Injected event: {event}" if event else "Injected event: none"
+
+    # Anti-repetition: remind character what they already said today
+    self_awareness_block = ""
+    if prior_own_messages and len(prior_own_messages) >= 1:
+        quoted = "\n".join(f"  - \"{m[:120]}\"" for m in prior_own_messages[-4:])
+        self_awareness_block = (
+            f"\nYou already said today:\n{quoted}\n"
+            "Do NOT repeat these phrases, ideas, or sentence structures. Say something new.\n"
+        )
 
     # Meeting goal + character goal for this day
     goal = DAY_MEETING_GOAL[day]
@@ -649,6 +681,7 @@ def generate_turn(
                 f"{no_clock_line}\n"
                 f"{event_line}\n"
                 f"Recent chat:\n{history}\n\n"
+                f"{self_awareness_block}"
                 f"{opener_directive}\n"
                 "What do you say next?"
             )
@@ -666,20 +699,23 @@ def generate_turn(
                 "Then write only their message."
             ) if previous_speaker else "React to what was just said. Stay in the scene."
 
+            reaction_directive = "Your first sentence must respond to what was just said. Don't change the subject.\n"
+
             prompt = (
                 f"Day: {day.title()} - {stage}.\n"
-                f"Scene: {scene_sentence}\n"
-                f"Arc reminder: {arc_summary}\n"
                 f"{goal_line}\n"
                 f"{char_goal_line}\n"
                 f"{no_clock_line}\n"
                 f"{event_line}\n"
                 f"Recent chat:\n{history}\n\n"
+                f"{self_awareness_block}"
+                f"{reaction_directive}"
                 f"{phase_directive}\n"
                 f"{role_chain}"
             )
     else:
         opener_hint = ""
+        reaction_hint = ""
         if day_turn == 1:
             opener_hint = (
                 "\nIMPORTANT: You are opening this conversation. Nobody has spoken yet today. "
@@ -687,6 +723,8 @@ def generate_turn(
                 "Then introduce the topic.\n"
                 f"Arrival context: {_DAY_OPENER_CONTEXT[day]}\n"
             )
+        else:
+            reaction_hint = "Your first sentence must respond to what was just said. Don't change the subject.\n"
         prompt = (
             f"Episode concept: {concept}\n"
             f"Day: {day.title()} ({stage})\n"
@@ -695,6 +733,8 @@ def generate_turn(
             f"{no_clock_line}\n"
             f"{event_line}\n"
             f"Recent chat:\n{history}\n\n"
+            f"{self_awareness_block}"
+            f"{reaction_hint}"
             f"{phase_directive}\n"
             f"{opener_hint}"
             "Write this character's next message. Keep it natural and specific."
@@ -797,29 +837,49 @@ def pairwise_overlap_penalty(messages: list[Message]) -> tuple[float, dict[str, 
     return round(penalty, 2), overlaps
 
 
-def _cross_char_phrase_penalty(messages: list[Message]) -> tuple[float, list[str]]:
+def _cross_char_phrase_penalty(messages: list[Message], concept: str = "") -> tuple[float, list[str]]:
     """Penalise phrases that appear verbatim in >1 character's messages."""
     by_char: dict[str, list[str]] = {}
     for m in messages:
         by_char.setdefault(m.character, []).append(m.message.lower())
 
     # Build 3-word n-grams per character
+    def _ascii(text: str) -> str:
+        return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+
     def ngrams(text: str, n: int = 3) -> set[str]:
-        words = re.findall(r"[a-z']+", text)
+        words = re.findall(r"[a-z']+", _ascii(text))
         return {" ".join(words[i:i+n]) for i in range(len(words) - n + 1)}
+
+    # Build concept n-grams to exclude (recipe name is expected to repeat)
+    normalized_concept = _ascii(concept.lower())
+    concept_words = set(re.findall(r"[a-z']+", normalized_concept))
+    concept_trigrams = ngrams(normalized_concept) if concept else set()
 
     char_ngrams: dict[str, set[str]] = {c: set() for c in by_char}
     for c, msgs in by_char.items():
         for msg in msgs:
             char_ngrams[c] |= ngrams(msg)
 
+    stop = {"the","a","an","and","or","in","on","is","it","to","of","at","we","i"}
     repeated: list[str] = []
     chars = list(char_ngrams)
     for i, c1 in enumerate(chars):
         for c2 in chars[i+1:]:
             shared = char_ngrams[c1] & char_ngrams[c2]
-            # Only flag phrases longer than stop-word noise
-            meaningful = [p for p in shared if not all(w in {"the","a","an","and","or","in","on","is","it","to","of","at","we","i"} for w in p.split())]
+            meaningful = []
+            for p in shared:
+                # Skip stop-word-only phrases
+                if all(w in stop for w in p.split()):
+                    continue
+                # Skip phrases that are subsets of the recipe concept name
+                if p in concept_trigrams:
+                    continue
+                # Skip phrases where all content words are from the concept
+                p_words = set(p.split()) - stop
+                if p_words and p_words <= concept_words:
+                    continue
+                meaningful.append(p)
             repeated.extend(meaningful[:3])  # cap output
 
     penalty = min(20.0, len(repeated) * 3.0)
@@ -991,7 +1051,25 @@ def _catchphrase_restraint_bonus(messages: list[Message], personas: dict[str, di
         return 0, per_char_hits
 
 
-def score_quality(messages: list[Message], personas: dict[str, dict[str, Any]]) -> dict[str, Any]:
+def _message_length_penalty(messages: list[Message]) -> tuple[float, int]:
+    """Penalise verbose messages that break the group-chat feel.
+
+    - Average message length > 30 words: -2 per word over 30 (max -15)
+    - Any single message > 50 words: -3 per occurrence
+    """
+    word_counts = [len(re.findall(r"\w+", m.message)) for m in messages]
+    if not word_counts:
+        return 0.0, 0
+
+    avg = mean(word_counts)
+    avg_penalty = min(15.0, max(0.0, (avg - 30) * 2)) if avg > 30 else 0.0
+    long_hits = sum(1 for wc in word_counts if wc > 50)
+    long_penalty = long_hits * 3.0
+
+    return round(min(15.0, avg_penalty) + long_penalty, 2), long_hits
+
+
+def score_quality(messages: list[Message], personas: dict[str, dict[str, Any]], concept: str = "") -> dict[str, Any]:
     """
     Scoring categories (base = 72):
     1.  Prohibited phrases: -14 per hit
@@ -1009,6 +1087,7 @@ def score_quality(messages: list[Message], personas: dict[str, dict[str, Any]]) 
     13. Stage coherence (topic stagnation): up to -15
     14. Formal name usage: -1 per hit
     15. Deadline parroting: -3 per clock-time ref over 2/day, max -15
+    16. Message length: -2 per word over avg 30, -3 per msg >50 words
     """
     lowered = [m.message.lower() for m in messages]
     prohibited_hits = sum(sum(1 for p in PROHIBITED if p in msg) for msg in lowered)
@@ -1053,12 +1132,13 @@ def score_quality(messages: list[Message], personas: dict[str, dict[str, Any]]) 
     min_content_failures = sum(1 for msg_len in lengths if msg_len < 4)
     overlap_penalty, overlaps = pairwise_overlap_penalty(messages)
 
-    phrase_penalty, repeated_phrases = _cross_char_phrase_penalty(messages)
+    phrase_penalty, repeated_phrases = _cross_char_phrase_penalty(messages, concept=concept)
     balance_penalty, participation = _participation_balance(messages, len(messages))
     conflict_bonus = _conflict_bonus(messages)
     coherence_penalty = _stage_coherence_penalty(messages)
     formal_penalty = _formal_name_penalty(messages)
     deadline_penalty, deadline_hits = _deadline_parrot_penalty(messages)
+    length_penalty, long_message_hits = _message_length_penalty(messages)
 
     # Hard fail if prompt echo detected
     if prompt_echo_hits > 0:
@@ -1078,6 +1158,7 @@ def score_quality(messages: list[Message], personas: dict[str, dict[str, Any]]) 
         score -= int(coherence_penalty)    # topic stagnation
         score -= formal_penalty            # "Thanks, Margaret" -1 each
         score -= int(deadline_penalty)     # clock-time parroting
+        score -= int(length_penalty)       # verbose messages
         score = max(0, min(100, score))
 
     return {
@@ -1103,6 +1184,8 @@ def score_quality(messages: list[Message], personas: dict[str, dict[str, Any]]) 
         "formal_name_penalty": formal_penalty,
         "deadline_parrot_penalty": deadline_penalty,
         "deadline_time_hits": deadline_hits,
+        "message_length_penalty": length_penalty,
+        "long_message_hits": long_message_hits,
     }
 
 
@@ -1531,6 +1614,7 @@ def run_simulation(
                 day_ticks = max(day_ticks, 7)  # drop shots + disagree + converge on hero
 
         speak_counts: dict[str, int] = {name: 0 for name in names}
+        day_messages_by_char: dict[str, list[str]] = {name: [] for name in names}
         goal = DAY_MEETING_GOAL[day]
         goal_met = False
 
@@ -1565,7 +1649,9 @@ def run_simulation(
                 is_last_turn=(tick == day_ticks - 1),
                 photography_context=photography_context,
                 phase=turn_phase,
+                prior_own_messages=day_messages_by_char.get(speaker, []),
             )
+            day_messages_by_char[speaker].append(line)
             recent_lines.append(f"{speaker.split()[0]}: {line}")
             messages.append(Message(day=day, stage=stage, character=speaker, message=line, timestamp=ts.isoformat(), model=model))
 
@@ -1593,7 +1679,7 @@ def run_simulation(
     if not stage_only and mode == "llm":
         _generate_episode_memories(messages, concept, personas, default_model)
 
-    qa = score_quality(messages, personas)
+    qa = score_quality(messages, personas, concept=concept)
     inference_check = verify_real_inference(messages, mode)
     return {
         "run": run_index,
@@ -1631,6 +1717,8 @@ def main() -> None:
     parser.add_argument("--ticks-per-day", type=int, default=6)
     parser.add_argument("--mode", choices=["llm", "template"], default="llm")
     parser.add_argument("--prompt-style", choices=["scene", "full"], default="full")
+    parser.add_argument("--judge", action="store_true", help="Run Opus judge on each day with growing context")
+    parser.add_argument("--judge-model", default=None, help="Override judge model (default: config.judge_model)")
     args = parser.parse_args()
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -1657,6 +1745,55 @@ def main() -> None:
             suffix = f"{args.stage}" if args.stage else "full-week"
             safe_model = model.replace("/", "_").replace(":", "-")
             out_path = OUT_DIR / f"sim-{stamp}-{concept_slug}-{safe_model}-{args.prompt_style}-run{i}-{suffix}.json"
+            # Run judge if requested
+            judge_results: dict[str, str] = {}
+            if args.judge and not args.stage:
+                from backend.utils.model_router import generate_judge_response
+                judge_model = args.judge_model or config.judge_model
+
+                judge_system = (
+                    "You are a senior editorial judge for a food content site. "
+                    "5 characters (Margaret, Steph, Julian, Marcus, Devon) collaborate on a muffin-tin recipe each week.\n\n"
+                    "CHECK FOR: hallucinations (wrong ingredients), character breaks, "
+                    "continuity errors with previous days, pacing issues.\n\n"
+                    "Respond with EXACTLY one line: PASS or FAIL followed by a brief reason.\n"
+                    "Example: PASS - Characters are distinct, concept is consistent.\n"
+                    "Example: FAIL - Margaret mentions 'brown butter' but this is a corn dog recipe."
+                )
+
+                accumulated = []
+                msgs = result["messages"]
+                for day in DAY_ORDER:
+                    day_msgs = [m for m in msgs if m["day"] == day]
+                    if not day_msgs:
+                        continue
+                    transcript = "\n".join(f"{m['character'].split()[0]}: {m['message']}" for m in day_msgs)
+
+                    ctx = ""
+                    if accumulated:
+                        ctx = "PREVIOUS DAYS:\n" + "\n\n".join(accumulated) + "\n\n---\n\n"
+
+                    prompt = (
+                        f"Recipe concept: {args.concept}\n\n{ctx}"
+                        f"TODAY IS {day.upper()}:\n{transcript}\n\n"
+                        "Judge this day. One line: PASS or FAIL with reason."
+                    )
+                    try:
+                        verdict = generate_judge_response(
+                            prompt=prompt, system_prompt=judge_system,
+                            model=judge_model, temperature=0.2,
+                        ).strip()
+                    except Exception as e:
+                        verdict = f"JUDGE ERROR: {e}"
+
+                    judge_results[day] = verdict
+                    status = "PASS" if verdict.upper().startswith("PASS") else "FAIL"
+                    print(f"  judge {day}: {status} — {verdict[:120]}")
+                    accumulated.append(f"=== {day.upper()} ===\n{transcript}")
+
+                result["judge"] = judge_results
+                result["judge_model"] = judge_model
+
             out_path.write_text(json.dumps(result, indent=2))
             all_results.append(
                 {
@@ -1665,6 +1802,7 @@ def main() -> None:
                     "path": str(out_path),
                     "qa": result["qa"]["score"],
                     "real_inference": result["inference_check"]["real_inference"],
+                    "judge": judge_results if args.judge else None,
                 }
             )
             print(f"saved: {out_path}")
