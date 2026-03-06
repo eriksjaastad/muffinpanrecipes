@@ -30,7 +30,8 @@
 - Multiple recipes or batch generation
 
 ## Evidence Required (What proves it)
-- [ ] EVIDENCE.md shows all scenarios green (or SKIP with documented reason)
+- [ ] **EVIDENCE.md shows a full end-to-end run proof** — No pipeline stages are stubbed out or ignored.
+- [ ] **Execution Logs** — Verifiable logs exist for every stage (Baker, Art Director, Copywriter, etc.) showing the actual prompt, response, and artifact created.
 - [ ] The published recipe is accessible at its public URL on muffinpanrecipes.com
 - [ ] Recipe JSON exists in data/recipes/published/ with all required fields populated
 - [ ] Agent memory files show evidence of being read and written during the pipeline run

@@ -3,7 +3,17 @@
 
 An AI-driven experimental recipe platform focused exclusively on "Muffin Tin Meals." This project explores high-volume content generation, niche SEO optimization, and automated deployment to Vercel.
 
-## Quick Start
+> **The Vision:** "If it fits in a muffin pan, it belongs here."
+> **Core Tenets:** Encapsulation, Structural Layering, Modular Scalability, and Medium-Agnosticism (Oven, Fridge, Freezer).
+
+## 🏗️ Architectural Decisions (ADR Summary)
+
+- **AD 001: Static Site Architecture** - High-speed, mobile-first HTML/Tailwind. AI-generated recipes are stored as Markdown/JSON and rendered.
+- **AD 002: Vercel Deployment** - Native GitHub integration for 0-manual-step deployment on push to `main`.
+- **AD 003: "No-Fluff" UI** - Prioritizes "Jump to Recipe" and core content; eliminates clutter common in food blogs.
+- **AD 004: Vercel Root Directory** - `src/` is the web root to keep scripts and raw data private.
+
+## 🚀 Quick Start
 
 ### Runtime Bootstrap (uv + Python 3.12)
 
@@ -32,56 +42,27 @@ This project expects runtime secrets from Doppler (not `.env` files).
 # Example: run admin app with injected secrets
 cd <repo-root>
 doppler run -- uv run python -m backend.admin.app
-
-# Example: run local E2E pipeline with injected secrets
-doppler run -- uv run python scripts/run_first_e2e_recipe.py
 ```
 
-### Deployment
-1. The project is configured for Vercel via `vercel.json`.
-2. Push to `main` to trigger an automatic deployment.
+## 🛠️ Project Structure
 
-## Mission Control (Cloud GPU)
-This project leverages the central **SSH Agent** for high-end image generation on RunPod.
+- `backend/` - [AI Creative Team Orchestration](backend/README.md) (Python/FastAPI)
+- `src/` - [Static Site Source](src/README.md) (HTML/Tailwind/Recipes)
+- `scripts/` - [Automation & Image Pipeline](scripts/README.md) (Python/Shell)
+- `data/` - Recipe storage and simulation logs
+- `Documents/` - Legacy and deep-dive documentation (deprecated in favor of READMEs)
 
-## Image Generation Pipeline
-This project uses a 4-step automated photography pipeline to generate and select high-end visuals.
+## 📡 Image Generation Pipeline
+Leverages a central **SSH Agent** for high-end image generation on RunPod.
 
-1. **`scripts/generate_image_prompts.py`**: Analyzes recipes and generates 3 high-key SDXL prompts per recipe using AI Router (Local DeepSeek-R1 or Cloud).
-2. **`scripts/trigger_generation.py`**: Uploads jobs and helper scripts to Cloudflare R2 (native boto3 uploader, no 3d-pose-factory dependency).
-3. **`scripts/direct_harvest.py` (RunPod)**: Executed on a remote GPU pod to generate the images directly via Stability AI API, bypassing Blender buffer issues.
-4. **`scripts/art_director.py` (Local)**: The Art Director agent reviews the generated variants from `__temp_harvest/` and moves the winner to `src/assets/images/`.
+1. **Prompt Gen:** `scripts/generate_image_prompts.py` (SDXL prompts via DeepSeek-R1).
+2. **Trigger:** `scripts/trigger_generation.py` (Uploads to Cloudflare R2).
+3. **Harvest:** `scripts/direct_harvest.py` (Remote GPU pods generate images via Stability AI).
+4. **Curation:** `scripts/art_director.py` (Agent selects the winner and moves to `src/assets/images/`).
 
-## Documentation
-See the `Documents/` directory for detailed documentation:
-- [Architectural Decisions](Documents/core/ARCHITECTURAL_DECISIONS.md)
-- [Recipe Schema](Documents/core/RECIPE_SCHEMA.md)
-
-## Development Resources
-- [WARDEN_LOG.yaml](WARDEN_LOG.yaml)
-- [package-lock.json](package-lock.json)
-- [scripts/warden_audit.py](scripts/warden_audit.py)
-
-## Status
-- **Current Phase:** Phase 1: AI Recipe Engine
+## 📋 Status
+- **Current Phase:** Phase 4: AI Creative Team Integration
 - **Status:** #status/active
 
-
-## Admin Simulation Viewer (MVP)
-
-- Route: `/admin/simulations` (requires existing admin login)
-- Reads local files from `data/simulations/*.json`
-- Includes:
-  - run selector (latest-first)
-  - quick concept/model filters
-  - chat-style transcript bubbles with speaker/day/stage/timestamp
-  - run info panel (generated_at, concept, prompt_style, participating models)
-
-### Optional screenshot/export note
-
-To save a quick local screenshot for sharing:
-
-```bash
-# while admin is running locally on :8000 and you are logged in
-npx playwright screenshot http://localhost:8000/admin/simulations Documents/simulations-viewer-sample.png
-```
+## 🖥️ Admin Simulation Viewer (MVP)
+Route: `/admin/simulations` - View character-driven dialogue transcripts and recipe generation runs.
