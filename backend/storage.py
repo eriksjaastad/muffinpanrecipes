@@ -208,8 +208,12 @@ class _CloudBackend:
                 return self._fs.load_episode(episode_id)
 
             blob_url = blobs[0]["url"]
+            # Cache-bust: Vercel Blob CDN can serve stale content for ~1-2s
+            # after a PUT. Adding a unique query param forces a fresh read.
+            import time as _time
+            cache_bust = f"?t={int(_time.time() * 1000)}"
             content_resp = _requests.get(
-                blob_url,
+                blob_url + cache_bust,
                 headers=self._auth_headers(),
                 timeout=15,
             )
