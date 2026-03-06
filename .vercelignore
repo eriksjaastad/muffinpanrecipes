@@ -1,0 +1,14 @@
+# Exclude non-deployment files from Vercel CLI uploads
+data/
+!backend/data/
+Documents/
+reviews/
+.kiro/
+.agent/
+*.md
+!README.md
+src/assets/images/
+scripts/
+tests/
+.grepai/
+.claude/
