@@ -53,6 +53,7 @@ class RecipeOrchestrator:
         self.memory_storage = memory_storage or Path("data/agent_memories")
 
         # Create directories including status subdirectories
+        # May fail on read-only filesystems (Vercel Lambda) — non-fatal
         for dir_path in [
             self.recipes_dir / "pending",
             self.recipes_dir / "approved",
@@ -62,7 +63,10 @@ class RecipeOrchestrator:
             self.message_storage,
             self.memory_storage
         ]:
-            dir_path.mkdir(parents=True, exist_ok=True)
+            try:
+                dir_path.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                pass
 
         # Initialize systems
         self.message_system = MessageSystem(storage_path=self.message_storage)

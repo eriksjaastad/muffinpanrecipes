@@ -35,7 +35,10 @@ class MessageSystem:
             storage_path: Path to store message history logs
         """
         self.storage_path = storage_path or Path("data/messages")
-        self.storage_path.mkdir(parents=True, exist_ok=True)
+        try:
+            self.storage_path.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass  # Read-only filesystem (Vercel Lambda)
         
         # Message queues per agent
         self.message_queues: Dict[str, deque] = defaultdict(deque)
