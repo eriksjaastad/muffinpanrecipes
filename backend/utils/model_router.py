@@ -59,6 +59,20 @@ HARD_BLOCKED_ANTHROPIC_MODELS = {
 }
 
 # ---------------------------------------------------------------------------
+# Judge model policy (separate from dialogue — expensive models allowed)
+# Used for post-generation quality review, not content generation.
+# ---------------------------------------------------------------------------
+JUDGE_ALLOWLIST = {
+    # Anthropic
+    "claude-opus-4-6",
+    "claude-sonnet-4-6",
+    # OpenAI
+    "gpt-5.1",
+    "gpt-5.2",
+    # Add Gemini here when provider is wired up
+}
+
+# ---------------------------------------------------------------------------
 # Approximate cost per million tokens (USD) for cost tracking.
 # Conservative estimates — update as pricing changes.
 # ---------------------------------------------------------------------------
@@ -512,3 +526,36 @@ def generate_response(
         )
 
     raise RuntimeError(f"Unsupported provider: {routed.provider}")
+
+
+def generate_judge_response(
+    prompt: str,
+    system_prompt: Optional[str] = None,
+    model: str = "anthropic/claude-opus-4-6",
+    temperature: float = 0.3,
+) -> str:
+    """Generate a response using a judge-tier model.
+
+    Bypasses dialogue allowlists — only checks JUDGE_ALLOWLIST.
+    Used for post-generation quality review, not content generation.
+    Lower temperature by default for more consistent evaluation.
+    """
+    routed = parse_model(model)
+    if routed.model not in JUDGE_ALLOWLIST:
+        raise RuntimeError(
+            f"Model not in judge allowlist: {routed.model}. "
+            f"Allowed: {', '.join(sorted(JUDGE_ALLOWLIST))}"
+        )
+    logger.info(f"Judge router provider={routed.provider} model={routed.model}")
+
+    if routed.provider == "openai":
+        return _generate_openai(
+            prompt=prompt, system_prompt=system_prompt,
+            model=routed.model, temperature=temperature,
+        )
+    if routed.provider == "anthropic":
+        return _generate_anthropic(
+            prompt=prompt, system_prompt=system_prompt,
+            model=routed.model, temperature=temperature,
+        )
+    raise RuntimeError(f"Unsupported provider for judge: {routed.provider}")

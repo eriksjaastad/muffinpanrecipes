@@ -121,6 +121,48 @@ def notify_pipeline_failure(
         return False
 
 
+def notify_judge_failure(
+    concept: str,
+    stage: str,
+    verdict: str,
+    episode_id: str,
+    attempts: int,
+) -> bool:
+    """Alert when the judge fails a day's dialogue after all retries.
+
+    This means the conversation had quality issues that couldn't be fixed
+    by regenerating. Episode is paused — needs manual review.
+    """
+    if not DISCORD_WEBHOOK_URL:
+        logger.warning("Discord webhook URL not configured for judge alert")
+        return False
+
+    embed = {
+        "title": "Judge Failed — Episode Paused",
+        "description": f"**{concept}** — {stage.title()} dialogue failed quality review",
+        "color": 0xE67E22,  # Orange for judge failure (not red — not a crash)
+        "fields": [
+            {"name": "Episode", "value": episode_id, "inline": True},
+            {"name": "Day", "value": stage.title(), "inline": True},
+            {"name": "Attempts", "value": str(attempts), "inline": True},
+            {"name": "Last Verdict", "value": verdict[:900], "inline": False},
+        ],
+    }
+
+    payload = {"embeds": [embed]}
+
+    try:
+        response = httpx.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10.0)
+        if response.status_code == 204:
+            logger.info(f"Judge failure notification sent for {stage}")
+            return True
+        logger.error(f"Discord judge notification failed: {response.status_code}")
+        return False
+    except Exception as e:
+        logger.error(f"Discord judge notification error: {e}")
+        return False
+
+
 def notify_batch_complete(
     recipe_count: int,
     recipe_titles: list[str],
