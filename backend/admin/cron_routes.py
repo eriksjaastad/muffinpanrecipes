@@ -31,6 +31,7 @@ import hmac
 import os
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -40,7 +41,7 @@ from backend.config import config
 from backend.storage import storage
 from backend.utils.logging import get_logger
 from backend.utils.discord import notify_judge_failure
-from backend.utils.model_router import generate_judge_response
+from backend.utils.model_router import generate_judge_response, generate_response
 
 logger = get_logger(__name__)
 
@@ -308,6 +309,106 @@ def _generate_and_judge_dialogue(
     )
     logger.error(f"Judge failed all {total_attempts} attempts for {stage}. Episode paused.")
     raise JudgeFailedError(stage=stage, verdict=verdict, attempts=total_attempts)
+
+
+# ---------------------------------------------------------------------------
+# Per-character episode memories (#5027)
+# ---------------------------------------------------------------------------
+
+_CHARACTERS_DIR = Path(__file__).resolve().parents[1] / "data" / "characters"
+
+_CHAR_SLUG_OVERRIDES: dict[str, str] = {
+    "Stephanie 'Steph' Whitmore": "steph-whitmore",
+}
+
+
+def _char_dir_slug(name: str) -> str:
+    import re as _re
+    if name in _CHAR_SLUG_OVERRIDES:
+        return _CHAR_SLUG_OVERRIDES[name]
+    return _re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+
+def _generate_episode_memories(episode: dict, concept: str) -> None:
+    """Generate per-character memories from a completed episode.
+
+    Called after Sunday publish. One LLM call per character (~100 tokens each).
+    Memories are stored in backend/data/characters/<slug>/memory.json.
+    """
+    import json as _json
+
+    all_dialogue: list[dict] = []
+    for day in DAY_ORDER:
+        day_data = episode.get("stages", {}).get(day, {})
+        all_dialogue.extend(day_data.get("dialogue", []))
+
+    if not all_dialogue:
+        logger.warning("No dialogue in episode — skipping memory generation")
+        return
+
+    # Group messages by character
+    by_char: dict[str, list[str]] = {}
+    for m in all_dialogue:
+        char = m.get("character", "")
+        if char:
+            by_char.setdefault(char, []).append(f"[{m.get('day', '?')}] {m.get('message', '')}")
+
+    week_label = episode.get("episode_id", "unknown")
+    model = config.dialogue_model  # cheap model for summaries
+
+    for char_name, char_msgs in by_char.items():
+        transcript_excerpt = "\n".join(char_msgs[-15:])
+
+        prompt = (
+            f"Summarize {char_name}'s week in 2 sentences.\n"
+            f"Concept: {concept}\n\n"
+            f"Their messages:\n{transcript_excerpt}\n\n"
+            "Rules:\n"
+            "- Write from their POV in third person past tense\n"
+            "- Focus on relationships and emotions, NOT technical specs\n"
+            "- Include one specific interpersonal moment\n"
+            "- Keep it under 40 words total\n"
+            "- Use plain hyphens and straight quotes only"
+        )
+
+        try:
+            summary = generate_response(
+                prompt=prompt,
+                system_prompt="You write concise character summaries. Exactly 2 sentences, under 40 words.",
+                model=model,
+                temperature=0.4,
+            ).strip()
+            # Sanitize typographic tells
+            for bad, good in [("\u2014", " - "), ("\u2013", " - "), ("\u2019", "'"), ("\u201c", '"'), ("\u201d", '"')]:
+                summary = summary.replace(bad, good)
+        except Exception as e:
+            logger.warning(f"Memory generation failed for {char_name}: {e}")
+            continue
+
+        sentences = summary.split(". ")
+        key_moment = sentences[-1].rstrip(".") + "." if len(sentences) > 1 else ""
+
+        mem_entry = {
+            "week": week_label,
+            "concept": concept,
+            "summary": summary,
+            "key_moment": key_moment,
+        }
+
+        slug = _char_dir_slug(char_name)
+        mem_path = _CHARACTERS_DIR / slug / "memory.json"
+        try:
+            data = _json.loads(mem_path.read_text()) if mem_path.exists() else {"episodes": []}
+        except (_json.JSONDecodeError, KeyError):
+            data = {"episodes": []}
+
+        data["episodes"].append(mem_entry)
+        data["episodes"] = data["episodes"][-3:]  # keep last 3
+        data["last_updated"] = week_label
+
+        mem_path.parent.mkdir(parents=True, exist_ok=True)
+        mem_path.write_text(_json.dumps(data, indent=2))
+        logger.info(f"Saved memory for {char_name}: {summary[:80]}")
 
 
 class StageRequest(BaseModel):
@@ -706,6 +807,14 @@ async def cron_sunday(request: Request, body: StageRequest = StageRequest()):
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
         ep["events"].append("sunday: complete (published)")
+
+        # Generate per-character memories from the week's dialogue (#5027)
+        try:
+            _generate_episode_memories(ep, concept)
+            ep["events"].append("sunday: memories generated")
+        except Exception as e:
+            logger.warning(f"Memory generation failed (non-fatal): {e}")
+
         storage.save_episode(episode_id, ep)
 
     return _stage_response("sunday", episode_id, concept, {
