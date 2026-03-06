@@ -162,6 +162,10 @@ class _CloudBackend:
     def __init__(self) -> None:
         self._blob_token = os.environ.get("BLOB_READ_WRITE_TOKEN", "")
         self._fs = _FilesystemBackend()  # fallback for local data
+        # In-memory cache: episode_id -> dict. Populated by save_episode so
+        # that load_episode in the same Lambda invocation gets fresh data
+        # without hitting the CDN (which may serve stale content for seconds).
+        self._episode_cache: dict[str, dict] = {}
         if not self._blob_token and os.environ.get("VERCEL_ENV"):
             raise RuntimeError(
                 "FATAL: Running on Vercel without BLOB_READ_WRITE_TOKEN. "
@@ -198,6 +202,11 @@ class _CloudBackend:
         # stale content for a few seconds. In production (24h between cron stages)
         # this is fine. For rapid testing, callers should add a delay between writes
         # and reads (see scripts/run_full_week.py --stage-delay).
+        # Check in-memory cache first (same Lambda invocation)
+        if episode_id in self._episode_cache:
+            logger.debug(f"load_episode cache hit for {episode_id}")
+            return self._episode_cache[episode_id]
+
         pathname = f"episodes/{episode_id}.json"
         try:
             resp = _requests.get(
@@ -214,7 +223,9 @@ class _CloudBackend:
             blob_url = blobs[0]["url"]
             content_resp = _requests.get(blob_url, timeout=15)
             content_resp.raise_for_status()
-            return content_resp.json()
+            data = content_resp.json()
+            self._episode_cache[episode_id] = data
+            return data
         except Exception as e:
             logger.warning(f"Blob load_episode failed for {episode_id}, falling back to filesystem: {e}")
             return self._fs.load_episode(episode_id)
@@ -246,6 +257,8 @@ class _CloudBackend:
             resp.raise_for_status()
             blob_url = resp.json().get("url", "")
             logger.info(f"Saved episode to Vercel Blob: {blob_url}")
+            # Update in-memory cache so same-invocation reads get fresh data
+            self._episode_cache[episode_id] = data
         except Exception as e:
             logger.error(f"Blob save_episode failed for {episode_id}: {e}")
             raise
