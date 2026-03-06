@@ -218,14 +218,14 @@ def _judge_dialogue(
             lines = []
             for m in day_dialogue:
                 name = m.get("character", "?").split()[0]
-                lines.append(f"{name}: {m.get('message', '')}")
+                lines.append(f"{name}: {' '.join((m.get('message') or '').split())}")
             previous_context.append(f"=== {day.upper()} ===\n" + "\n".join(lines))
 
     # Format today's dialogue
     today_lines = []
     for m in dialogue:
         name = m.get("character", "?").split()[0]
-        today_lines.append(f"{name}: {m.get('message', '')}")
+        today_lines.append(f"{name}: {' '.join((m.get('message') or '').split())}")
 
     context_section = ""
     if previous_context:
@@ -351,7 +351,7 @@ def _generate_episode_memories(episode: dict, concept: str) -> None:
     for m in all_dialogue:
         char = m.get("character", "")
         if char:
-            by_char.setdefault(char, []).append(f"[{m.get('day', '?')}] {m.get('message', '')}")
+            by_char.setdefault(char, []).append(f"[{m.get('day', '?')}] {' '.join((m.get('message') or '').split())}")
 
     week_label = episode.get("episode_id", "unknown")
     model = config.dialogue_model  # cheap model for summaries

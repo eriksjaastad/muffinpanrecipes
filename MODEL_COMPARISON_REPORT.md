@@ -88,7 +88,17 @@ Cost is roughly equivalent between GPT-5.1 and Haiku for this workload.
 | 6 | 77 | 20 | 4 | 6 |
 | 7 | 76 | 18 | 4 | 4 |
 
-## Historical Context (all simulation data)
+## Model Coverage Notes
+
+- **Gemini**: Blocked — no API key configured. Requires #5034 (add Google/Gemini provider to model_router).
+- **Claude Sonnet**: Single run only (QA 66, Mar 3). Insufficient data for statistical comparison. Would need 5+ runs to be meaningful.
+- **GPT-5-mini**: Not included in head-to-head. Tested Mar 4 but with different scorer and accidentally. Known to produce generic characters.
+
+## Historical Context (NOT directly comparable — different scorer/settings)
+
+> These runs used older QA scoring (no concept-aware phrase detection, different message counts).
+> Do NOT compare these numbers to the head-to-head results above.
+
 | Date | Model | Concept | QA | Notes |
 |------|-------|---------|-----|-------|
 | Feb 26 | gpt-4o-mini | Various (5 concepts) | 79-97 | 14 msgs only, old QA scorer |

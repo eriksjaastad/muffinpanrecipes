@@ -649,7 +649,7 @@ def generate_turn(
     # Anti-repetition: remind character what they already said today
     self_awareness_block = ""
     if prior_own_messages and len(prior_own_messages) >= 1:
-        quoted = "\n".join(f"  - \"{m[:120]}\"" for m in prior_own_messages[-4:])
+        quoted = "\n".join(f"  - \"{' '.join(m.split())[:120]}\"" for m in prior_own_messages[-4:])
         self_awareness_block = (
             f"\nYou already said today:\n{quoted}\n"
             "Do NOT repeat these phrases, ideas, or sentence structures. Say something new.\n"
@@ -1529,7 +1529,7 @@ def _generate_episode_memories(
     # Group messages by character
     by_char: dict[str, list[str]] = {}
     for m in messages:
-        by_char.setdefault(m.character, []).append(f"[{m.day}] {m.message}")
+        by_char.setdefault(m.character, []).append(f"[{m.day}] {' '.join(m.message.split())}")
 
     for char_name, char_msgs in by_char.items():
         if char_name not in personas:
