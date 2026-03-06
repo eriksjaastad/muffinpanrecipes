@@ -321,14 +321,56 @@ class ArtDirectorAgent(Agent):
     def _photograph_recipe(
         self, task: Task, approach: TaskApproach, context: MemoryContext
     ) -> TaskResult:
-        """Photograph with vision evaluation and reshoot-as-story-beat."""
+        """
+        Julian's high-stakes photography session.
+        Now actually connects to the real Stability API and prepares the
+        Mission Control (R2/RunPod) handshake.
+        """
+        import json as _json
+        import subprocess
 
         recipe_id = str(task.context.get("recipe_id") or task.id)
         recipe_title = self._recipe_title(task)
-        featured_image = self._images_dir() / f"{recipe_id}.png"
         api_key = os.getenv("STABILITY_API_KEY")
+
+        # 1. Prepare the Job File for Mission Control (R2 / RunPod)
+        # This is the "canonical" way the project tracks generation intent
+        prompts = {variant: self._build_prompt(recipe_title, variant) for variant in self._VARIANTS}
+        job_data = [{
+            "recipe_id": recipe_id,
+            "recipe_title": recipe_title,
+            "prompts": prompts
+        }]
+
+        jobs_file = self._repo_root() / "data" / "image_generation_jobs.json"
+        try:
+            jobs_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(jobs_file, "w") as f:
+                _json.dump(job_data, f, indent=2)
+        except OSError:
+            pass  # Read-only filesystem (Vercel Lambda)
+
+        # 2. Trigger Mission Control Handshake (Upload to R2)
+        handshake_msg = "Skipped (no R2 credentials)"
+        if all(os.getenv(k) for k in ["MUFFINPANRECIPES_R2_ACCESS_KEY_ID", "MUFFINPANRECIPES_R2_SECRET_ACCESS_KEY"]):
+            try:
+                # Run the real script
+                subprocess.run(
+                    ["python", "scripts/trigger_generation.py"],
+                    cwd=str(self._repo_root()),
+                    check=True,
+                    capture_output=True,
+                    text=True
+                )
+                handshake_msg = "SUCCESS: Uploaded to R2 for RunPod harvesting"
+            except Exception as e:
+                logger.error(f"Julian: Mission Control Handshake FAILED: {e}")
+                handshake_msg = f"FAILED: {e}"
+
+        # 3. Generate Images (Direct Stability API)
+        # We do this so the pipeline can continue even if we aren't waiting for the RunPod cron
         if not api_key:
-            raise RuntimeError("STABILITY_API_KEY not configured; stopping pipeline")
+            raise RuntimeError("STABILITY_API_KEY not configured; Julian refuses to work with placeholders.")
 
         shot_count = random.randint(35, 55)
         rounds: list[dict[str, Any]] = []
@@ -336,6 +378,8 @@ class ArtDirectorAgent(Agent):
 
         for round_num in range(1, self._MAX_ROUNDS + 1):
             feedback = rounds[-1]["vision_evaluation"].get("reason") if rounds else None
+            logger.info(f"Julian: Starting generation round {round_num}")
+            
             variant_outputs, round_dir = self._generate_round(
                 api_key, recipe_title, recipe_id, round_num, feedback=feedback,
             )
@@ -385,6 +429,7 @@ class ArtDirectorAgent(Agent):
 
         # Copy winner to featured image location (local temp or repo)
         winner_source = Path(winner_info["local_path"])
+        featured_image = self._images_dir() / f"{recipe_id}.png"
         featured_image.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(winner_source, featured_image)
 
@@ -403,6 +448,7 @@ class ArtDirectorAgent(Agent):
                 all_paths.append(v["path"])
 
         insights = [
+            f"Mission Control Handshake: {handshake_msg}",
             f"Captured {shot_count} frames across {len(rounds)} round(s)",
             f"Selected '{winner_info['variant']}' from round {winner_info['round']} as hero shot",
         ]
@@ -418,9 +464,10 @@ class ArtDirectorAgent(Agent):
                 "total_shots": shot_count,
                 "rounds": rounds,
                 "winner": winner_info,
+                "handshake": handshake_msg,
                 "reshoot_happened": reshoot_happened,
                 "selected_shots": all_paths,  # backward compat
-                "generated_with": "stability_api",
+                "generated_with": "stability_api_core",
                 "lighting_setups": random.randint(4, 7),
                 "styling_notes": [
                     "Explored the negative space on the plate",

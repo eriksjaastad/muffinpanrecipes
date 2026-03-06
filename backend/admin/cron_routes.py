@@ -636,7 +636,7 @@ async def cron_thursday(request: Request, body: StageRequest = StageRequest()):
         storage.save_episode(episode_id, ep)
 
     return _stage_response("thursday", episode_id, concept, {
-        "copy_preview": (copy_text or "")[:80],
+        "copy_preview": (copy_text.get("body", "") if isinstance(copy_text, dict) else str(copy_text or ""))[:80],
         "dialogue_messages": len(dialogue),
     })
 
