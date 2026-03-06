@@ -1,0 +1,510 @@
+{
+  "episode_id": "2026-W10-bookend-a",
+  "created_at": "2026-03-04T16:42:22.462252+00:00",
+  "stages": {
+    "monday": {
+      "stage": "brainstorm",
+      "started_at": "2026-03-04T16:42:22.465295+00:00",
+      "status": "complete",
+      "concept": "Blueberry Lemon Crumble Cups",
+      "recipe_data": {
+        "title": "Blueberry Lemon Crumble Cups",
+        "description": "Individual shortbread-crusted cups filled with a bright lemon-blueberry compote and finished with a crunchy oat-almond crumble. The muffin tin keeps portions perfect while the prebaked shortbread base prevents soggy bottoms \u2014 think pocket-sized fruit crisps with a tender lemon lift.",
+        "servings": 12,
+        "prep_time": 20,
+        "cook_time": 32,
+        "difficulty": "medium",
+        "category": "breakfast",
+        "ingredients": [
+          {
+            "item": "King Arthur All-Purpose Flour",
+            "amount": "1 1/4 cups",
+            "notes": "150 g"
+          },
+          {
+            "item": "granulated sugar",
+            "amount": "1/3 cup",
+            "notes": "67 g"
+          },
+          {
+            "item": "cold unsalted butter, cubed",
+            "amount": "6 tablespoons",
+            "notes": "85 g"
+          },
+          {
+            "item": "fine sea salt",
+            "amount": "1/4 teaspoon",
+            "notes": ""
+          },
+          {
+            "item": "fresh blueberries",
+            "amount": "3 cups",
+            "notes": "450 g"
+          },
+          {
+            "item": "granulated sugar",
+            "amount": "1/2 cup",
+            "notes": "100 g"
+          },
+          {
+            "item": "cornstarch",
+            "amount": "3 tablespoons",
+            "notes": "24 g"
+          },
+          {
+            "item": "cold water",
+            "amount": "3 tablespoons",
+            "notes": "45 ml"
+          },
+          {
+            "item": "of 1 medium lemon , finely grated",
+            "amount": "Zest",
+            "notes": "about 1 tablespoon / 6 g"
+          },
+          {
+            "item": "fresh lemon juice",
+            "amount": "2 tablespoons",
+            "notes": "30 ml"
+          },
+          {
+            "item": "pure vanilla extract",
+            "amount": "1 teaspoon",
+            "notes": ""
+          },
+          {
+            "item": "unsalted butter",
+            "amount": "1 tablespoon",
+            "notes": "14 g"
+          },
+          {
+            "item": "rolled oats",
+            "amount": "3/4 cup",
+            "notes": "60 g"
+          },
+          {
+            "item": "King Arthur All-Purpose Flour",
+            "amount": "3/4 cup",
+            "notes": "95 g"
+          },
+          {
+            "item": "packed light brown sugar",
+            "amount": "1/3 cup",
+            "notes": "70 g"
+          },
+          {
+            "item": "cold unsalted butter, cubed",
+            "amount": "6 tablespoons",
+            "notes": "85 g"
+          },
+          {
+            "item": "sliced almonds",
+            "amount": "1/4 cup",
+            "notes": "30 g"
+          },
+          {
+            "item": "ground cinnamon",
+            "amount": "1/2 teaspoon",
+            "notes": ""
+          },
+          {
+            "item": "fine sea salt",
+            "amount": "1/4 teaspoon",
+            "notes": ""
+          },
+          {
+            "item": "lemon zest",
+            "amount": "1 teaspoon",
+            "notes": "optional, for brightness"
+          },
+          {
+            "item": "sugar for dusting or 12 small dollops of mascarpone or plain Greek yogurt",
+            "amount": "Confectioners\u2019",
+            "notes": "about 1 tablespoon each"
+          }
+        ],
+        "instructions": [
+          "Preheat the oven to 350\u00b0F (175\u00b0C). Put an oven thermometer in the oven if you don\u2019t fully trust the dial \u2014 I do. Grease a standard 12-cup muffin tin lightly with butter or nonstick spray.",
+          "Make the shortbread crust: In a medium bowl, whisk together 1 1/4 cups (150 g) flour, 1/3 cup (67 g) sugar and 1/4 tsp salt. Add the 6 tbsp (85 g) cold cubed butter. Using a pastry cutter or your fingertips, work the butter into the flour until mixture resembles coarse meal with some pea-size pieces. (Measure the flour and butter twice if you must; pastry is fussy.) Press roughly 2 tablespoons of the mixture into the bottom of each muffin cup (about a 1/4\"\u20131/3\" layer), spreading evenly and pressing firmly with the bottom of a measuring cup or a small glass to compact. Bake the crusts 10 minutes at 350\u00b0F to set \u2014 this prevents soggy bases. Remove from oven and let cool while you make the filling.",
+          "Make the blueberry-lemon filling: In a medium saucepan over medium heat combine 3 cups blueberries, 1/2 cup sugar, lemon zest, lemon juice and vanilla. Stir to combine and bring to a gentle simmer. Mix the cornstarch with 3 tbsp cold water to make a slurry and whisk it into the simmering berries. Continue to simmer gently, stirring, until the mixture thickens and the berries begin to burst and the liquid becomes glossy, 3\u20135 minutes. Stir in 1 tablespoon butter until melted and glossy. Remove from heat and let cool 5 minutes (mixture should be warm, not piping hot, when you spoon it into the crust).",
+          "Spoon the filling: Divide the blueberry-lemon compote evenly among the 12 prebaked crusts \u2014 aim for about 2 to 2 1/2 tablespoons per cup (you want the filling to sit below the rim to allow for crumble). Wipe any drips from the tin flange so the crumble will sit cleanly.",
+          "Make the crumble topping: In a bowl combine 3/4 cup oats, 3/4 cup flour (95 g), 1/3 cup packed brown sugar (70 g), 1/2 tsp cinnamon, 1/4 tsp salt and 1 tsp lemon zest if using. Add 6 tbsp (85 g) cold cubed butter and, with a pastry cutter or fingertips, cut the butter into the dry mix until you have coarse crumbs and some pea-sized bits. Stir in 1/4 cup sliced almonds. Distribute the crumble evenly over the filled cups \u2014 about 1 to 1 1/2 tablespoons per cup, lightly pressing so it adheres.",
+          "Bake: Place the muffin tin on a sheet tray (to catch any drips) and bake at 350\u00b0F (175\u00b0C) for 20\u201325 minutes, until the crumble is golden and the filling is bubbling in the center. Rotate the pan once at the 12-minute mark for even browning if your oven has hot spots.",
+          "Cool and unmold: Remove from oven and set the tin on a cooling rack. Let the cups cool in the tin for at least 20 minutes so the filling sets slightly; this makes unmolding neat. Run a thin offset spatula or small knife around the edges and lift the cups out. For best texture, serve warm or at room temperature.",
+          "Finish and serve: Dust with confectioners\u2019 sugar or top each with a tablespoon of mascarpone or Greek yogurt. These are lovely with a drizzle of honey or a small sprig of mint."
+        ],
+        "chef_notes": " - Why prebake the crust: The shortbread is thin and prebaking firms it so berry juices don\u2019t sog the base. Measure flour and butter carefully and keep the butter cold. - If using frozen blueberries: add them frozen to the saucepan (do not thaw) \u2014 you may need an extra minute of simmering to reduce excess water. - Texture notes: If you prefer a chewier crumble, substitute 1/4 cup (30 g) almond flour for 1/4 cup of the all-purpose flour in the crumble. For a gluten-free version, use a 1:1 gluten-free flour and certified gluten-free oats. - Storage: Cooled cups keep in an airtight container in the fridge for up to 3 days. Rewarm briefly (6\u20138 minutes at 300\u00b0F) for best flavor. They also freeze well \u2014 wrap individually and freeze up to 2 months; thaw in the fridge and reheat. - Serving suggestions: For breakfast, serve with a spoonful of plain Greek yogurt and a drizzle of honey. For dessert, warm and serve with vanilla ice cream or a dollop of whipped cr\u00e8me fra\u00eeche. - Margaret\u2019s checklist (true chef habits): I always check the oven thermometer, bring my own whisk, and taste the filling for bright lemon balance before spooning. If the compote tastes flat, add another teaspoon of lemon juice \u2014 acid is the counterpoint to sugar and makes the blueberries sing.",
+        "concept": "Blueberry Lemon Crumble Cups",
+        "margaret_notes": [
+          "At least we're doing the technique correctly.",
+          "Check oven temp with a thermometer. Don't trust the dial.",
+          " - Why prebake the crust: The shortbread is thin and prebaking firms it so berry juices don\u2019t sog the base. Measure flour and butter carefully and keep the butter cold. - If using frozen blueberries: add them frozen to the saucepan (do not thaw) \u2014 you may need an extra minute of simmering to reduce excess water. - Texture notes: If you prefer a chewier crumble, substitute 1/4 cup (30 g) almond flour for 1/4 cup of the all-purpose flour in the crumble. For a gluten-free version, use a 1:1 gluten-free flour and certified gluten-free oats. - Storage: Cooled cups keep in an airtight container in the fridge for up to 3 days. Rewarm briefly (6\u20138 minutes at 300\u00b0F) for best flavor. They also freeze well \u2014 wrap individually and freeze up to 2 months; thaw in the fridge and reheat. - Serving suggestions: For breakfast, serve with a spoonful of plain Greek yogurt and a drizzle of honey. For dessert, warm and serve with vanilla ice cream or a dollop of whipped cr\u00e8me fra\u00eeche. - Margaret\u2019s checklist (true chef habits): I always check the oven thermometer, bring my own whisk, and taste the filling for bright lemon balance before spooning. If the compote tastes flat, add another teaspoon of lemon juice \u2014 acid is the counterpoint to sugar and makes the blueberries sing."
+        ]
+      },
+      "dialogue": [
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "Morning - logged in. Blueberry Lemon Crumble Cups: lemon curd base, fresh blueberries, oat-crumble top. Keep proper ratios, skip the petals, lock the concept by 5:00 pm.",
+          "timestamp": "2026-03-04T09:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "Lock it. No petals. Lemon curd loose-set, minimal butter; toast and cool the oat crumble so it stays crisp on assembly.",
+          "timestamp": "2026-03-04T09:53:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Marcus Reid",
+          "message": "Margaret, your ratios are everything; toast the crumble, let the curd breathe, no petals. If I may offer context, pitch these as small domestic elegies - Steph, cut decisively so we can lock by 5:00 pm.",
+          "timestamp": "2026-03-04T10:46:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, quick note - I think maybe we could possibly make the curd spoonable with a soft peak, keep crumble butter to about 10 percent, and I will trim Marcus to roughly 130 words and lock by 5:00 pm; Margaret, does that land for you?",
+          "timestamp": "2026-03-04T11:39:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Marcus Reid",
+          "message": "There's a long kitchen-lit tradition of making small sweets feel like confessions; for clarity, set the curd at 10:00 pm percent butter by weight - 50 g butter per 500 g curd - cook to 175 F and cool to 120 F for a spoonable, soft peak. Steph, pare this to exactly 130 words and lock the copy by 5:00 pm; Margaret, does that math sit with whom you trust in the pastry lab?",
+          "timestamp": "2026-03-04T12:32:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "Marcus' numbers stand: 50 g butter per 500 g curd, heat to 175 F (79 C) and cool to 120 F (49 C). Strain, chill uncovered 20 minutes to stop carryover; toast oats until nutty, cool fully, keep butter under 10 percent, no petals. Steph, trim to 130 words and lock by 5:00 pm.",
+          "timestamp": "2026-03-04T13:25:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, quick thought - follow Margaret and Marcus' math but portion about 40 g curd per cup and chill in an ice bath to hit spoonable set faster; I'll tighten Marcus to 130 words and finalize by 5:00 pm, Margaret, does that land for you?",
+          "timestamp": "2026-03-04T14:18:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Marcus Reid",
+          "message": "Portion roughly two tablespoons (\u224838 g) curd per cup; plunge the bowl into iced water until spoonable. Toast oats till lightly bronzed, omit any floral garnish. Steph, be ruthless - trim to 130 words; Margaret, whom do you consult on final bench tests?",
+          "timestamp": "2026-03-04T15:11:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, one more thought, I think maybe we could possibly follow Margaret and Marcus on ratios but cool the curd in a shallow metal bowl over ice, stirring gently every 30 seconds for about 3 minutes to get an even spoonable set, toast the oats 4 minutes on a sheet until fragrant and cool on a wire rack, keep crumble butter around 8 to 9 percent, no petals; I will compress Marcus to 130 words and upload the final copy by 5:00 pm, Margaret, does that sit with you?",
+          "timestamp": "2026-03-04T16:04:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-04T16:50:26.793470+00:00"
+    },
+    "tuesday": {
+      "stage": "recipe_development",
+      "started_at": "2026-03-04T16:50:32.168331+00:00",
+      "status": "complete",
+      "concept": "Blueberry Lemon Crumble Cups",
+      "recipe_data_ref": "from monday stage",
+      "dialogue": [
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Margaret Chen",
+          "message": "I'm in, picking up from yesterday's concept lock: Blueberry Lemon Crumble Cups. Trays cooling. Crumble-to-fill ratios still wrong, and no quick starch swaps. Draft on my desk by 5:00 pm.",
+          "timestamp": "2026-03-04T09:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Marcus Reid",
+          "message": "Point well taken, Margaret; one tablespoon cornstarch per 200 g berries, bake 375 F for 18 minutes so the juices bind. Draft on my screen by 5:00 pm; I will trim, despite my novelist heart.",
+          "timestamp": "2026-03-04T10:36:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Margaret Chen",
+          "message": "Too much starch; the filling will gum up. Use 7 g tapioca or 5 g cornstarch per 250 g berries and bake 325 F for 20-22 minutes until juices thicken. I will confirm ratios by 5:00 pm.",
+          "timestamp": "2026-03-04T12:12:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Marcus Reid",
+          "message": "Margaret, whom I defer to on starch, switching to 7 g tapioca per 250 g berries, 4 g lemon zest, macerate 10 minutes, bake 325 F 20-22 minutes. Revised copy to you by 5:00 pm.",
+          "timestamp": "2026-03-04T13:48:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, I think maybe we should confirm: 7 g tapioca per 250 g berries, 4 g lemon zest, macerate 10 minutes, bake 325 F for 20-22 minutes, then chill 10 minutes before plating, does that make sense? No? That's fair.",
+          "timestamp": "2026-03-04T15:24:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-04T16:54:04.790912+00:00"
+    },
+    "wednesday": {
+      "stage": "photography",
+      "started_at": "2026-03-04T16:54:10.190913+00:00",
+      "status": "complete",
+      "concept": "Blueberry Lemon Crumble Cups",
+      "photography_data": "dry-run-placeholder",
+      "image_paths": [
+        "placeholder_1.png",
+        "placeholder_2.png",
+        "placeholder_3.png"
+      ],
+      "dialogue": [
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Julian Torres",
+          "message": "Just walked in - dropping three lighting tests for Blueberry Lemon Crumble Cups. I'm thinking about the visual language here: the 30-degree rake with side light reads as our hero; Margaret will push for honest, Steph will push feed-performance, but we need to lock the final shot by 5:00 pm.",
+          "timestamp": "2026-03-04T09:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": [
+            "placeholder_1.png",
+            "placeholder_2.png",
+            "placeholder_3.png"
+          ]
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Margaret Chen",
+          "message": "Less poetry, more crumbs. Hero has to read texture, filling, and browning.",
+          "timestamp": "2026-03-04T10:20:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Julian Torres",
+          "message": "Margaret's right - emphasize the crisp crumble edge and molten lemon seam; tighter crop, warm side light.",
+          "timestamp": "2026-03-04T11:40:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, Margaret's right about the texture and Julian your light is gorgeous - I think maybe we could possibly do that tighter crop for the hero and also save a looser, feed-friendly crop to test, then lock the winner by 5:00 pm? I'm probably wrong, but does that make sense? No? That's fair.",
+          "timestamp": "2026-03-04T13:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Margaret Chen",
+          "message": "Fine. Close hero: browned topping, curd pooling at the cut, turbinado sugar glint, one fork mark for scale. Also shoot a wider, social-friendly frame for testing; choose the hero by 5:00 pm.",
+          "timestamp": "2026-03-04T14:20:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, quick thought - can we lock a close-up that reads golden crumble, lemon curd oozing and a single fork impression, shot at 85mm for texture, and also capture a more open social frame with the ramekin on a weathered wooden board for context? Can we decide which runs by 5:00 pm? I'm probably wrong, but does that make sense? No? That's fair.",
+          "timestamp": "2026-03-04T15:40:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-04T16:56:23.253816+00:00"
+    },
+    "thursday": {
+      "stage": "copywriting",
+      "started_at": "2026-03-04T16:56:28.670688+00:00",
+      "status": "complete",
+      "concept": "Blueberry Lemon Crumble Cups",
+      "copy_text": {
+        "body": "There is a little domestic theater in a muffin tin: six shallow stages, each waiting for a moment of joyful collapse. These Blueberry Lemon Crumble Cups are the kind of thing MFK Fisher would have tucked into a paean to breakfast\u2014small, modest, a morning sacrament where butter and sugar meet fruit and light. Start with King Arthur All-Purpose Flour because it gives the crumble a sturdiness that still feels tender; mix it with a judicious pinch of fine sea salt and granulated sugar, then work in cold unsalted butter, cubed, until the crumbs hold together like good gossip. The butter should be almost reluctant, as if it knows how much it will improve the world when warmed by the oven.\n\nThe filling is simple: fresh blueberries tossed with a little more granulated sugar, a squeeze of lemon, and the kind of impatient hope that comes from wanting something bright and true at breakfast. Spoon that jewel-toned scatter into each tin, crown with the crumble, and slide the whole thing into the oven; thirty-two minutes is all you need for edges to brown, juices to bubble, and the kitchen to fill with the exact scent of small, domestic triumphs.\n\nThese cups are breakfast in miniature, perfect for a kitchen of one or a Sunday when you invite people you love\u2014whom you have not seen in too long\u2014to spill coffee and stories from the French press. They are the Nigel Slater snack you eat with both hands, and the Ruth Reichl indulgence disguised as civic duty. They store easily, travel politely, and reheated in a skillet they\u2019d pass muster with Elizabeth David herself.\n\nI bring a Moleskine to every meal like superstition, because recipes are also memories, and the grease-smudged notes from a morning when my mother almost burned the blueberries are why I measure my patience as well as my flour. Make these in your muffin tin and you will find how something as small as crumble can reroute the day; how the bright, lemony snap of fruit can make ordinary mornings feel like invitations. Cook them because breakfast deserves ceremony, because flour and butter can perform miracles, and because you will want to eat two before you remember to share one.",
+        "word_count": 360,
+        "target_word_count": 200,
+        "quality": "surprisingly restrained (Marcus must be tired)",
+        "exceeded_target_by": 160,
+        "literary_references": "MFK Fisher once observed about eggs...",
+        "note": "This is actually beautiful. People will share this."
+      },
+      "dialogue": [
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Marcus Reid",
+          "message": "Morning, all, laptop open, Ive dropped the Blueberry Lemon Crumble Cups draft in the shared doc; deadline 3:00 PM. If I may offer some context, I leaned literary on the lead for the nostalgia, though I expect Margaret, whom I adore, will excise heavily and Steph will coax a polite trim, forcing my bad edits.",
+          "timestamp": "2026-03-04T09:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Margaret Chen",
+          "message": "I will cut the literary fat. One crisp lead line, then flavor and technique; copy in by 3:00 PM. Steph, you can smooth the edges.",
+          "timestamp": "2026-03-04T10:36:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, I think maybe we could keep one lyrical lead, then tighten to Margaret's structure, I can smooth and send by 3:00 pm.",
+          "timestamp": "2026-03-04T12:12:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, I can keep the opening image about Grandma's windowsill, tighten the rest to Margaret's crisp lead, and upload a 120-word polish by 3:00 pm.",
+          "timestamp": "2026-03-04T13:48:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Margaret Chen",
+          "message": "Solid. Put fresh lemon zest and a tablespoon of coarse cornmeal in the crumble for crunch. Upload the final to the doc.",
+          "timestamp": "2026-03-04T15:24:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-04T16:59:41.605133+00:00"
+    },
+    "saturday": {
+      "stage": "deployment",
+      "started_at": "2026-03-04T17:04:51.964034+00:00",
+      "status": "complete",
+      "concept": "Blueberry Lemon Crumble Cups",
+      "deployment_status": "staged",
+      "dialogue": [
+        {
+          "day": "saturday",
+          "stage": "deployment",
+          "character": "Devon Park",
+          "message": "Logged in, quiet Saturday; staging Blueberry Lemon Crumble Cups now, target noon, will ping if a snag appears.",
+          "timestamp": "2026-03-04T09:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "saturday",
+          "stage": "deployment",
+          "character": "Devon Park",
+          "message": "Permissions hiccup on assets; fixed, staging done for noon.",
+          "timestamp": "2026-03-04T11:40:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "saturday",
+          "stage": "deployment",
+          "character": "Margaret Chen",
+          "message": "Fine. Staged for noon. Logging off - closing my laptop.",
+          "timestamp": "2026-03-04T14:20:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-04T17:05:18.647074+00:00"
+    },
+    "sunday": {
+      "stage": "publish",
+      "started_at": "2026-03-04T17:05:24.050324+00:00",
+      "status": "complete",
+      "concept": "Blueberry Lemon Crumble Cups",
+      "published": true,
+      "dialogue": [
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Hey team, logged on - publish at 5:00 pm sharp for Blueberry Lemon Crumble Cups. Quick check: assets, copy, schedule? Sorry, tiny nerves.",
+          "timestamp": "2026-03-04T09:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Marcus Reid",
+          "message": "Assets uploaded, copy locked at the warmer headline you suggested, Steph - I caved slightly, whom you may hold accountable. Schedule queued for 5:00 PM; I will watch the publish like a nervous baker.",
+          "timestamp": "2026-03-04T11:40:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Margaret Chen",
+          "message": "Published at 5:00 pm on the dot. Assets and copy queued and locked, Marcus' warmer headline survived. Steph, breathe, logging off, goodnight.",
+          "timestamp": "2026-03-04T14:20:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-04T17:06:24.811153+00:00"
+    }
+  },
+  "events": [
+    "monday: complete",
+    "tuesday: complete",
+    "wednesday: complete",
+    "thursday: complete",
+    "saturday: complete",
+    "sunday: complete"
+  ],
+  "recipe_id": "af6c1df8",
+  "concept": "Blueberry Lemon Crumble Cups",
+  "image_paths": [
+    "placeholder_1.png",
+    "placeholder_2.png",
+    "placeholder_3.png"
+  ],
+  "published_at": "2026-03-04T17:05:24.050577+00:00"
+}

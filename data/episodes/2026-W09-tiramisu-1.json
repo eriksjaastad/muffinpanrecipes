@@ -1,0 +1,160 @@
+{
+  "episode_id": "2026-W09-tiramisu-1",
+  "created_at": "2026-03-01T09:53:14.422672",
+  "stages": {
+    "monday": {
+      "stage": "brainstorm",
+      "started_at": "2026-03-01T09:53:14.425182",
+      "status": "complete",
+      "concept": "Tiramisu Panna Cotta Cups",
+      "recipe_data": {
+        "title": "Tiramisu Panna Cotta Cups",
+        "concept": "Tiramisu Panna Cotta Cups",
+        "description": "A reliable muffin-tin build for Tiramisu Panna Cotta Cups, designed for crispy edges and a tender center.",
+        "servings": 12,
+        "prep_time": 20,
+        "cook_time": 22,
+        "difficulty": "medium",
+        "category": "savory",
+        "ingredients": [
+          {
+            "item": "eggs",
+            "amount": "8 large",
+            "notes": "room temperature"
+          },
+          {
+            "item": "shredded sharp cheddar",
+            "amount": "1 cup",
+            "notes": "packed loosely"
+          },
+          {
+            "item": "milk",
+            "amount": "1/2 cup",
+            "notes": "whole milk preferred"
+          },
+          {
+            "item": "all-purpose flour",
+            "amount": "3/4 cup",
+            "notes": "leveled"
+          },
+          {
+            "item": "melted butter",
+            "amount": "2 tbsp",
+            "notes": "cooled slightly"
+          },
+          {
+            "item": "salt",
+            "amount": "1 tsp",
+            "notes": "fine"
+          },
+          {
+            "item": "black pepper",
+            "amount": "1/2 tsp",
+            "notes": "freshly cracked"
+          },
+          {
+            "item": "chopped green onion",
+            "amount": "1/3 cup",
+            "notes": "optional"
+          }
+        ],
+        "instructions": [
+          "Preheat oven to 375\u00b0F (190\u00b0C). Grease a standard 12-cup muffin tin well.",
+          "Whisk eggs, milk, melted butter, salt, and pepper until fully combined.",
+          "Whisk in flour just until smooth, then fold in cheddar and green onion.",
+          "Divide batter evenly among muffin cups, filling each about 3/4 full.",
+          "Bake 20-24 minutes, until puffed, lightly golden, and just set in the center.",
+          "Rest 5 minutes in pan, then loosen with a thin knife and serve warm."
+        ],
+        "chef_notes": "Use a metal pan for better browning. Let the cups rest before removing so they hold shape.",
+        "margaret_notes": [
+          "At least we're doing the technique correctly.",
+          "Check oven temp with a thermometer. Don't trust the dial.",
+          "Use a metal pan for better browning. Let the cups rest before removing so they hold shape."
+        ]
+      },
+      "completed_at": "2026-03-01T09:53:14.594544"
+    },
+    "tuesday": {
+      "stage": "recipe_development",
+      "started_at": "2026-03-01T09:53:44.894220",
+      "status": "complete",
+      "concept": "Tiramisu Panna Cotta Cups",
+      "recipe_data_ref": "from monday stage",
+      "completed_at": "2026-03-01T09:53:44.981721"
+    },
+    "wednesday": {
+      "stage": "photography",
+      "started_at": "2026-03-01T09:54:15.274262",
+      "status": "failed",
+      "concept": "Tiramisu Panna Cotta Cups",
+      "error": "STABILITY_API_KEY not configured; stopping pipeline",
+      "failed_at": "2026-03-01T09:54:15.274779"
+    },
+    "thursday": {
+      "stage": "copywriting",
+      "started_at": "2026-03-01T09:54:45.536763",
+      "status": "complete",
+      "concept": "Tiramisu Panna Cotta Cups",
+      "copy_text": {
+        "body": "There is a certain poetry in the simple act of cooking. Tiramisu Panna Cotta Cups represents more than mere sustenance\u2014it is a meditation on the intersection of tradition and innovation, of comfort and creativity. The muffin tin, that most humble of vessels, transforms ingredients into something greater than the sum of their parts.",
+        "word_count": 52,
+        "target_word_count": 200,
+        "quality": "placeholder - LLM unavailable",
+        "exceeded_target_by": -148,
+        "literary_references": "MFK Fisher once observed about eggs..."
+      },
+      "completed_at": "2026-03-01T09:54:45.623633"
+    },
+    "friday": {
+      "stage": "final_review",
+      "started_at": "2026-03-01T09:55:15.920741",
+      "status": "complete",
+      "concept": "Tiramisu Panna Cotta Cups",
+      "review_data": {
+        "positive": [
+          "I love this! The concept is really strong.",
+          "Great work on this, seriously."
+        ],
+        "suggestions": [
+          "I think maybe we could possibly adjust the portion sizes? Just a thought.",
+          "Does the title feel... I don't know. What do YOU think?"
+        ],
+        "decision": "approved_with_minor_revisions",
+        "confidence": "low",
+        "notes": "Let's circle back if anyone has concerns?"
+      },
+      "approved": true,
+      "completed_at": "2026-03-01T09:55:15.999567"
+    },
+    "saturday": {
+      "stage": "deployment",
+      "started_at": "2026-03-01T09:55:46.226144",
+      "status": "complete",
+      "concept": "Tiramisu Panna Cotta Cups",
+      "deployment_status": "staged",
+      "completed_at": "2026-03-01T09:55:46.292514"
+    },
+    "sunday": {
+      "stage": "publish",
+      "started_at": "2026-03-01T09:56:16.566890",
+      "status": "complete",
+      "concept": "Tiramisu Panna Cotta Cups",
+      "published": true,
+      "completed_at": "2026-03-01T09:56:16.640441"
+    }
+  },
+  "events": [
+    "monday: complete",
+    "tuesday: complete",
+    "wednesday: failed \u2014 STABILITY_API_KEY not configured; stopping pipeline",
+    "thursday: complete",
+    "friday: complete",
+    "saturday: complete",
+    "sunday: complete"
+  ],
+  "recipe_id": "001b440c",
+  "concept": "Tiramisu Panna Cotta Cups",
+  "dry_run": true,
+  "published_at": "2026-03-01T09:56:16.566935"
+}

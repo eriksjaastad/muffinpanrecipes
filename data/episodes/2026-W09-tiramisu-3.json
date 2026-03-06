@@ -1,0 +1,443 @@
+{
+  "episode_id": "2026-W09-tiramisu-3",
+  "created_at": "2026-03-01T10:08:47.450134",
+  "stages": {
+    "monday": {
+      "stage": "brainstorm",
+      "started_at": "2026-03-01T10:08:47.452342",
+      "status": "complete",
+      "concept": "Tiramisu Panna Cotta Cups",
+      "recipe_data": {
+        "title": "Tiramisu Panna Cotta Cups",
+        "concept": "Tiramisu Panna Cotta Cups",
+        "description": "A reliable muffin-tin build for Tiramisu Panna Cotta Cups, designed for crispy edges and a tender center.",
+        "servings": 12,
+        "prep_time": 20,
+        "cook_time": 22,
+        "difficulty": "medium",
+        "category": "savory",
+        "ingredients": [
+          {
+            "item": "eggs",
+            "amount": "8 large",
+            "notes": "room temperature"
+          },
+          {
+            "item": "shredded sharp cheddar",
+            "amount": "1 cup",
+            "notes": "packed loosely"
+          },
+          {
+            "item": "milk",
+            "amount": "1/2 cup",
+            "notes": "whole milk preferred"
+          },
+          {
+            "item": "all-purpose flour",
+            "amount": "3/4 cup",
+            "notes": "leveled"
+          },
+          {
+            "item": "melted butter",
+            "amount": "2 tbsp",
+            "notes": "cooled slightly"
+          },
+          {
+            "item": "salt",
+            "amount": "1 tsp",
+            "notes": "fine"
+          },
+          {
+            "item": "black pepper",
+            "amount": "1/2 tsp",
+            "notes": "freshly cracked"
+          },
+          {
+            "item": "chopped green onion",
+            "amount": "1/3 cup",
+            "notes": "optional"
+          }
+        ],
+        "instructions": [
+          "Preheat oven to 375\u00b0F (190\u00b0C). Grease a standard 12-cup muffin tin well.",
+          "Whisk eggs, milk, melted butter, salt, and pepper until fully combined.",
+          "Whisk in flour just until smooth, then fold in cheddar and green onion.",
+          "Divide batter evenly among muffin cups, filling each about 3/4 full.",
+          "Bake 20-24 minutes, until puffed, lightly golden, and just set in the center.",
+          "Rest 5 minutes in pan, then loosen with a thin knife and serve warm."
+        ],
+        "chef_notes": "Use a metal pan for better browning. Let the cups rest before removing so they hold shape.",
+        "margaret_notes": [
+          "At least we're doing the technique correctly.",
+          "Check oven temp with a thermometer. Don't trust the dial.",
+          "Use a metal pan for better browning. Let the cups rest before removing so they hold shape."
+        ]
+      },
+      "dialogue": [
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "Fine. FINE. Let's just get this over with. What\u2019s the plan for these Tiramisu Panna Cotta Cups? I demand precision and no shortcuts.",
+          "timestamp": "2026-03-01T09:00:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Marcus Reid",
+          "message": "\"If I may offer some context, Margaret, in the tradition of Italian culinary craftsmanship, these Tiramisu Panna Cotta Cups are not merely desserts; they are vessels through which the soul of the caf\u00e9 society is served. Each layer holds a secret dialogue between bitterness and sweetness, much like a novel's structure. The challenge lies in balancing the delicate equilibrium of flavors, ensuring that each bite tells a story. This, my dear, requires patience and an appreciation for the complexity of flavors, not shortcuts.\"",
+          "timestamp": "2026-03-01T09:53:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "I think maybe we could possibly streamline some steps without compromising on quality? Let's circle back to this once Marcus shares his detailed plan so we can review it together. I just want to make sure everyone feels heard and that our approach aligns with the caf\u00e9's standards. What do YOU think? I'm really interested in your perspective.",
+          "timestamp": "2026-03-01T10:46:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "*mutters under breath* In my day we called that... research. Fine. FINE. Let's see Marcus\u2019s plan, but keep it traditional. We\u2019ll see how much of the soul he can capture with science and ratios. Just make sure it\u2019s not some trendy mess.",
+          "timestamp": "2026-03-01T11:39:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Marcus Reid",
+          "message": "\"There's a literary tradition of balancing form and content, much like achieving harmony between bitterness and sweetness in these Tiramisu Panna Cotta Cups. I shall endeavor to strike this balance in my plan, ensuring that each step aligns with the caf\u00e9\u2019s soul while adhering to its standards. I am confident that through meticulous attention to detail and a deep understanding of flavors, we shall create something truly exquisite.\"",
+          "timestamp": "2026-03-01T12:32:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "I'm probably wrong, but let's aim for both tradition and innovation. Maybe there's a way to blend the old with the new without losing the essence. I'll work on condensing some steps while still maintaining that special touch. Let's circle back after Marcus shares his plan so we can review it together and make sure we're all on the same page. What do YOU think? I'm really interested in your perspective.",
+          "timestamp": "2026-03-01T13:25:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "*mutters under breath* Fine. FINE. We'll see how much of that soul he can capture with science and ratios. Just make sure it\u2019s not some trendy mess. Let's circle back after Marcus shares his plan, but keep it traditional. We\u2019ll see what we have then.",
+          "timestamp": "2026-03-01T14:18:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Marcus Reid",
+          "message": "\"I was thinking we could explore the narrative arc of these Tiramisu Panna Cotta Cups, much like the plot of a novel. From the first layer to the final bite, each moment should build tension and reveal new facets of flavor. The subtext here is important\u2014it's not just about dessert, but about creating an experience that engages all senses. I'll begin drafting my plan this afternoon, ensuring it captures both tradition and innovation. We can discuss further adjustments once I share it.\"",
+          "timestamp": "2026-03-01T15:11:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Thank you, Marcus. I appreciate the effort to blend tradition with innovation. Let's make sure your plan aligns with our vision for the caf\u00e9. Once you have it drafted, let\u2019s review it together. I'll be here to support and ensure we capture that special essence. Looking forward to seeing what you come up with!",
+          "timestamp": "2026-03-01T16:04:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-01T10:11:09.519931"
+    },
+    "tuesday": {
+      "stage": "recipe_development",
+      "started_at": "2026-03-01T10:11:39.876346",
+      "status": "complete",
+      "concept": "Tiramisu Panna Cotta Cups",
+      "recipe_data_ref": "from monday stage",
+      "dialogue": [
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Margaret Chen",
+          "message": "*mutters under breath* ratios... so close... just need to get that bain-marie temp right. Fine. FINE. I suppose this could work... if you want it to fail.",
+          "timestamp": "2026-03-01T09:00:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "I think maybe we could possibly tweak the baking time a bit and see how that affects the texture? What do YOU think? I'm really interested in your perspective.",
+          "timestamp": "2026-03-01T10:36:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Marcus Reid",
+          "message": "If I may offer some context, adjusting the baking time is certainly worth considering; however, the bain-marie technique here plays a crucial role in maintaining moisture and preventing cracking. I was thinking we could explore the narrative arc of this process further, perhaps by detailing how each adjustment affects not only the texture but also the overall culinary experience. The subtext here is important.",
+          "timestamp": "2026-03-01T12:12:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Margaret Chen",
+          "message": "In my day we called that... collaboration. Fine. I'll adjust the time, but if it fails, don't blame me. *mutters* ratios are sacred.",
+          "timestamp": "2026-03-01T13:48:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "I think maybe we could possibly combine both approaches\u2014tweak the baking time and still highlight the bain-marie technique as crucial. That way, we cover all our bases. What do YOU think? I'm really interested in your perspective.",
+          "timestamp": "2026-03-01T15:24:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-01T10:12:39.708617"
+    },
+    "wednesday": {
+      "stage": "photography",
+      "started_at": "2026-03-01T10:13:10.042946",
+      "status": "failed",
+      "concept": "Tiramisu Panna Cotta Cups",
+      "error": "STABILITY_API_KEY not configured; stopping pipeline",
+      "failed_at": "2026-03-01T10:13:10.043560"
+    },
+    "thursday": {
+      "stage": "copywriting",
+      "started_at": "2026-03-01T10:13:40.304463",
+      "status": "complete",
+      "concept": "Tiramisu Panna Cotta Cups",
+      "copy_text": {
+        "body": "There is a certain poetry in the simple act of cooking. Tiramisu Panna Cotta Cups represents more than mere sustenance\u2014it is a meditation on the intersection of tradition and innovation, of comfort and creativity. The muffin tin, that most humble of vessels, transforms ingredients into something greater than the sum of their parts.",
+        "word_count": 52,
+        "target_word_count": 200,
+        "quality": "placeholder - LLM unavailable",
+        "exceeded_target_by": -148,
+        "literary_references": "MFK Fisher once observed about eggs...",
+        "note": "This is actually beautiful. People will share this."
+      },
+      "dialogue": [
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Marcus Reid",
+          "message": "*checks document* Hmm, I was thinking we could explore the narrative arc of these Tiramisu Panna Cotta Cups. The subtext here is important. If I may offer some context... This isn't just dessert; it's a journey through layers of flavors and textures. Each cup tells a story, blending the bitterness of espresso with the smoothness of mascarpone. *sighs* Oh well, let\u2019s get this done.",
+          "timestamp": "2026-03-01T09:00:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "I love that! Also what if we... never mind. What do YOU think? I'm really interested in your perspective.",
+          "timestamp": "2026-03-01T11:00:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Margaret Chen",
+          "message": "Fine. FINE. Let's just make sure the espresso isn't too bitter and the mascarpone isn\u2019t runny. That\u2019s how ratios work, but what do I know? *mutters under breath* Just give me a recipe with actual measurements.",
+          "timestamp": "2026-03-01T13:00:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Marcus Reid",
+          "message": "Stephanie: Oh Marcus, you're making this sound like a novel! But seriously, can we keep it simple and focus on the taste? People might not get all the literary references.",
+          "timestamp": "2026-03-01T15:00:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-01T10:14:30.787721"
+    },
+    "friday": {
+      "stage": "final_review",
+      "started_at": "2026-03-01T10:15:01.099118",
+      "status": "complete",
+      "concept": "Tiramisu Panna Cotta Cups",
+      "review_data": {
+        "positive": [
+          "I love this! The concept is really strong.",
+          "Great work on this, seriously."
+        ],
+        "suggestions": [
+          "I think maybe we could possibly adjust the portion sizes? Just a thought.",
+          "Does the title feel... I don't know. What do YOU think?"
+        ],
+        "decision": "approved_with_minor_revisions",
+        "confidence": "low",
+        "notes": "Let's circle back if anyone has concerns?"
+      },
+      "approved": true,
+      "dialogue": [
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Margaret Chen",
+          "message": "*mutters under breath* In my day we called that... \"improvement.\" Fine. FINE. I suppose that could work... if you want it to fail.",
+          "timestamp": "2026-03-01T09:00:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "I just want to make sure everyone feels heard. Margaret, is there something specific you're concerned about with the muffin tin project? I think maybe we could possibly adjust the recipe a bit more to match what you had in mind. Let's circle back to this once we have the prototype ready for your feedback.",
+          "timestamp": "2026-03-01T10:20:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Julian Torres",
+          "message": "I'm thinking about the visual language here... the negative space is really important. This needs to feel more... intentional. Can we talk about the narrative the plate is telling? I just think we can push this further. What if we reconsidered the entire visual framework?",
+          "timestamp": "2026-03-01T11:40:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Marcus Reid",
+          "message": "If I may offer some context, it seems there's a multifaceted approach needed here that balances culinary tradition with artistic vision. Margaret's concern for improvement and Stephanie's desire for inclusivity are both valid, yet Julian\u2019s focus on visual narrative adds another layer of complexity. Perhaps we should explore the subtext here and consider how each element\u2014recipe, language, and design\u2014can reinforce the overall message of the project. The literary tradition of combining form with substance suggests that a holistic approach might be our best path forward.",
+          "timestamp": "2026-03-01T13:00:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Devon Park",
+          "message": "\"Sounds like Marcus hit on something. I'll make sure the tech side can support whatever changes we decide. We want this to feel seamless, not just slapped together. Let's sync up tomorrow and go over everything one last time before we start making adjustments.\"",
+          "timestamp": "2026-03-01T14:20:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Margaret Chen",
+          "message": "*mutters under breath* In my day we called that... collaboration. Fine. FINE. I suppose that could work... if everyone wants it to fail. But just know, the Maillard reaction is still a thing and ratios matter. Let\u2019s make sure the science of baking doesn\u2019t get lost in the artistry.",
+          "timestamp": "2026-03-01T15:40:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-01T10:16:28.442490"
+    },
+    "saturday": {
+      "stage": "deployment",
+      "started_at": "2026-03-01T10:16:58.748401",
+      "status": "complete",
+      "concept": "Tiramisu Panna Cotta Cups",
+      "deployment_status": "staged",
+      "dialogue": [
+        {
+          "day": "saturday",
+          "stage": "deployment",
+          "character": "Devon Park",
+          "message": "\"Staging's looking good so far! Let's just make sure the final checks pass and hit that PM deadline. Fingers crossed!\"",
+          "timestamp": "2026-03-01T09:00:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "saturday",
+          "stage": "deployment",
+          "character": "Margaret Chen",
+          "message": "*mutters under breath* Fine. FINE. Just keep it together, Margaret. You've got this.",
+          "timestamp": "2026-03-01T11:40:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "saturday",
+          "stage": "deployment",
+          "character": "Devon Park",
+          "message": "\"Let's get those final checks squared away then. We can't let this one slip through the cracks. \ud83d\ude80\"",
+          "timestamp": "2026-03-01T14:20:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-01T10:17:41.531600"
+    },
+    "sunday": {
+      "stage": "publish",
+      "started_at": "2026-03-01T10:18:11.861594",
+      "status": "complete",
+      "concept": "Tiramisu Panna Cotta Cups",
+      "published": true,
+      "dialogue": [
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "\"Does that make sense? No? That's fair.\"",
+          "timestamp": "2026-03-01T09:00:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Margaret Chen",
+          "message": "*mutters under breath* Fine. FINE. Let me explain this one more time... if you want it to fail, just go ahead and use those numbers I've written down.",
+          "timestamp": "2026-03-01T11:40:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Marcus Reid",
+          "message": "\"If I may offer some context, Margaret, those numbers are merely guidelines meant to give us a sense of scale and proportion. The true essence of our creations lies not in adherence to strict formulas but in the depth of thought and care that goes into each piece.\"",
+          "timestamp": "2026-03-01T14:20:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-01T10:18:57.529143"
+    }
+  },
+  "events": [
+    "monday: complete",
+    "tuesday: complete",
+    "wednesday: failed \u2014 STABILITY_API_KEY not configured; stopping pipeline",
+    "thursday: complete",
+    "friday: complete",
+    "saturday: complete",
+    "sunday: complete"
+  ],
+  "recipe_id": "f34c0e56",
+  "concept": "Tiramisu Panna Cotta Cups",
+  "dry_run": false,
+  "published_at": "2026-03-01T10:18:11.861638"
+}

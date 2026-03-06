@@ -1,0 +1,476 @@
+{
+  "episode_id": "2026-W09-strawberry-test",
+  "created_at": "2026-03-01T17:04:53.519368",
+  "stages": {
+    "monday": {
+      "stage": "brainstorm",
+      "started_at": "2026-03-01T17:04:53.522273",
+      "status": "complete",
+      "concept": "Strawberry Summer Cake",
+      "recipe_data": {
+        "title": "Strawberry Summer Cake",
+        "concept": "Strawberry Summer Cake",
+        "description": "A reliable muffin-tin build for Strawberry Summer Cake, designed for crispy edges and a tender center.",
+        "servings": 12,
+        "prep_time": 20,
+        "cook_time": 22,
+        "difficulty": "medium",
+        "category": "savory",
+        "ingredients": [
+          {
+            "item": "eggs",
+            "amount": "8 large",
+            "notes": "room temperature"
+          },
+          {
+            "item": "shredded sharp cheddar",
+            "amount": "1 cup",
+            "notes": "packed loosely"
+          },
+          {
+            "item": "milk",
+            "amount": "1/2 cup",
+            "notes": "whole milk preferred"
+          },
+          {
+            "item": "all-purpose flour",
+            "amount": "3/4 cup",
+            "notes": "leveled"
+          },
+          {
+            "item": "melted butter",
+            "amount": "2 tbsp",
+            "notes": "cooled slightly"
+          },
+          {
+            "item": "salt",
+            "amount": "1 tsp",
+            "notes": "fine"
+          },
+          {
+            "item": "black pepper",
+            "amount": "1/2 tsp",
+            "notes": "freshly cracked"
+          },
+          {
+            "item": "chopped green onion",
+            "amount": "1/3 cup",
+            "notes": "optional"
+          }
+        ],
+        "instructions": [
+          "Preheat oven to 375\u00b0F (190\u00b0C). Grease a standard 12-cup muffin tin well.",
+          "Whisk eggs, milk, melted butter, salt, and pepper until fully combined.",
+          "Whisk in flour just until smooth, then fold in cheddar and green onion.",
+          "Divide batter evenly among muffin cups, filling each about 3/4 full.",
+          "Bake 20-24 minutes, until puffed, lightly golden, and just set in the center.",
+          "Rest 5 minutes in pan, then loosen with a thin knife and serve warm."
+        ],
+        "chef_notes": "Use a metal pan for better browning. Let the cups rest before removing so they hold shape.",
+        "margaret_notes": [
+          "At least we're doing the technique correctly.",
+          "Check oven temp with a thermometer. Don't trust the dial.",
+          "Use a metal pan for better browning. Let the cups rest before removing so they hold shape."
+        ]
+      },
+      "dialogue": [
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "Fine. FINE. Genoise, macerated strawberries, lemon syrup, stabilized whipped cream. No edible flowers or charcoal. Lock by 5pm; I'll nail the recipe.",
+          "timestamp": "2026-03-01T09:00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Marcus Reid",
+          "message": "If I may offer some context, the lemon syrup should rest 12 hours to bloom and the strawberries be macerated with a whisper of balsamic\u2014trust you, of course. M",
+          "timestamp": "2026-03-01T09:48:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Margaret, that direction is perfect. Marcus, can you add the 12-hour syrup rest and whisper of balsamic to the doc? I think maybe we could lock by 5pm?",
+          "timestamp": "2026-03-01T10:36:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "Fine. 12-hour lemon syrup rest. Strawberries: whisper balsamic only. No flowers or charcoal. I\u2019ll proof the doc and lock it by 5. *mutters under breath*",
+          "timestamp": "2026-03-01T11:24:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Marcus Reid",
+          "message": "If I may offer some context, I\u2019ll draft the line\u2014\"Lemon syrup rested 12 hours; strawberries macerated with a whisper of balsamic\"\u2014and drop it into the doc. M",
+          "timestamp": "2026-03-01T12:12:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Thanks Margaret, Marcus\u2014this is great. Sorry, but could we possibly add one line on stabilizing whipped cream? I think maybe we could lock at 5pm?",
+          "timestamp": "2026-03-01T13:00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "Stabilize whipped cream: 1 tsp gelatin per cup\u2014bloom 5 mins, melt, cool; whip to soft peaks and chill. Fine. I\u2019ll lock doc by 5. *mutters under breath*",
+          "timestamp": "2026-03-01T13:48:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Marcus Reid",
+          "message": "If I may offer context, I'd phrase it: 'Stabilize whipped cream: bloom 1 tsp gelatin per cup 5 minutes; melt, cool; whip to soft peaks and chill.' M",
+          "timestamp": "2026-03-01T14:36:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, but can we use Marcus's phrasing and lock by 5pm? I think maybe we could possibly add \"see notes for photos.\" Does that make sense?",
+          "timestamp": "2026-03-01T15:24:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "Fine. Use Marcus's phrasing and add \"see notes for photos.\" I'll proof, tidy gelatin wording if needed, and lock the doc by 5. *mutters under breath*",
+          "timestamp": "2026-03-01T16:12:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-01T17:06:41.549553"
+    },
+    "tuesday": {
+      "stage": "recipe_development",
+      "started_at": "2026-03-01T17:14:41.954195",
+      "status": "complete",
+      "concept": "Strawberry Summer Cake",
+      "recipe_data_ref": "from monday stage",
+      "dialogue": [
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Margaret Chen",
+          "message": "Test trays cooling. I\u2019ll lock ratios and send the draft by 4:30. No edible flowers. Measure twice. *mutters under breath*",
+          "timestamp": "2026-03-01T09:00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Thanks, Margaret \u2014 that sounds perfect. Sorry, quick Q: keep lemon-zest variant or fully nix? I think maybe we could possibly keep a tiny option. Does that make sense?",
+          "timestamp": "2026-03-01T10:36:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Marcus Reid",
+          "message": "If I may offer some context: keep a tiny lemon\u2011zest option for whom brightness is essential \u2014 it livens without grandstanding. Measure twice, Margaret. \u2014M",
+          "timestamp": "2026-03-01T12:12:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Margaret Chen",
+          "message": "Fine. Keep a tiny lemon\u2011zest option \u2014 3g zest per dozen, separate batter, same bake temp. No edible flowers. Measure twice. *mutters under breath*",
+          "timestamp": "2026-03-01T13:48:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Thanks Margaret and Marcus \u2014 perfect. Sorry, small ask: can someone note \"3g zest per dozen, separate batter\" in the doc? I'm probably wrong, but feels important. Thanks!",
+          "timestamp": "2026-03-01T15:24:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-01T17:15:20.611811"
+    },
+    "wednesday": {
+      "stage": "photography",
+      "started_at": "2026-03-01T17:23:20.958048",
+      "status": "complete",
+      "concept": "Strawberry Summer Cake",
+      "photography_data": [
+        "data/images/9f78d1e2/editorial.png",
+        "data/images/9f78d1e2/action_steam.png",
+        "data/images/9f78d1e2/the_spread.png"
+      ],
+      "image_paths": [
+        "data/images/9f78d1e2/editorial.png",
+        "data/images/9f78d1e2/action_steam.png",
+        "data/images/9f78d1e2/the_spread.png"
+      ],
+      "dialogue": [
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Julian Torres",
+          "message": "I'm thinking about the visual language \u2014 lighting tests dropped. Negative space is important. We need one decisive hero; styling: linen, vintage fork, subtle eucalyptus. Final by 5pm.",
+          "timestamp": "2026-03-01T09:00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": [
+            "data/images/9f78d1e2/editorial.png",
+            "data/images/9f78d1e2/action_steam.png",
+            "data/images/9f78d1e2/the_spread.png"
+          ]
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, I think maybe we could possibly warm the lighting slightly and use parsley instead of eucalyptus\u2014feels more homey. Final by 5pm still good? Does that make sense?",
+          "timestamp": "2026-03-01T11:00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Margaret Chen",
+          "message": "Warm the lighting slightly. Parsley, yes \u2014 eucalyptus makes me clench my jaw. One clear hero, linen and vintage fork okay. Decide, Steph. *mutters under breath*",
+          "timestamp": "2026-03-01T13:00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Julian Torres",
+          "message": "Okay, warm lighting, parsley not eucalyptus. One decisive hero, linen and vintage fork. I'm thinking about the visual language here. Final by 5pm.",
+          "timestamp": "2026-03-01T15:00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-01T17:24:18.050383"
+    },
+    "thursday": {
+      "stage": "copywriting",
+      "started_at": "2026-03-01T17:32:18.426050",
+      "status": "complete",
+      "concept": "Strawberry Summer Cake",
+      "copy_text": {
+        "body": "There is a certain poetry in the simple act of cooking. Strawberry Summer Cake represents more than mere sustenance\u2014it is a meditation on the intersection of tradition and innovation, of comfort and creativity. The muffin tin, that most humble of vessels, transforms ingredients into something greater than the sum of their parts.",
+        "word_count": 52,
+        "target_word_count": 200,
+        "quality": "placeholder - LLM unavailable",
+        "exceeded_target_by": -148,
+        "literary_references": "MFK Fisher once observed about eggs..."
+      },
+      "dialogue": [
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Marcus Reid",
+          "message": "If I may offer context: let's keep evocative tone but tighten copy. Proposed headline: 'Strawberry Summer Cake \u2014 Sun, Slice, Memory.' Choose by 1pm; I\u2019ll submit 2:30. M",
+          "timestamp": "2026-03-01T09:00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "I think maybe we could possibly go with \"Strawberry Summer Cake \u2014 Sun, Slice, Memory.\" Marcus, that works for me if no one objects by 1pm?",
+          "timestamp": "2026-03-01T11:40:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Margaret Chen",
+          "message": "Fine. FINE. I like it but trim the florals\u2014'Strawberry Summer Cake \u2014 Slice Into Sunlight.' Clear, evocative, not saccharine. *mutters under breath*",
+          "timestamp": "2026-03-01T14:20:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-01T17:32:50.539451"
+    },
+    "friday": {
+      "stage": "final_review",
+      "started_at": "2026-03-01T17:40:50.860671",
+      "status": "complete",
+      "concept": "Strawberry Summer Cake",
+      "review_data": {
+        "positive": [
+          "I love this! The concept is really strong.",
+          "Great work on this, seriously."
+        ],
+        "suggestions": [],
+        "decision": "approved_with_minor_revisions",
+        "confidence": "low",
+        "notes": "Let's circle back if anyone has concerns?"
+      },
+      "approved": true,
+      "dialogue": [
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Margaret Chen",
+          "message": "5pm final. No eucalyptus garnish. Steph\u2014decide filling now. I'll re-test crumb and glaze, measurements twice. That's not how ratios work, but what do I know. *mutters under breath*",
+          "timestamp": "2026-03-01T09:00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, but could we possibly go lemon curd for the filling \u2014 bright, holds up to bake, easy ratios. I'm probably wrong, but seems safest?",
+          "timestamp": "2026-03-01T10:36:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Julian Torres",
+          "message": "I'm thinking about the visual language here... lemon curd is smart \u2014 bright and bake-stable. Can we finish with a glossy torched meringue ribbon and candied lemon slice?",
+          "timestamp": "2026-03-01T12:12:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Marcus Reid",
+          "message": "If I may offer some context... lemon curd is wise; torched meringue ribbon is dramatic but watch moisture; candied lemon adds nostalgia \u2014 I'll bring French press coffee. M",
+          "timestamp": "2026-03-01T13:48:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Devon Park",
+          "message": "Agree lemon curd. Torched meringue looks great but watch moisture \u2014 reduce filling syrup by 10%. I'll push a fix by EOD.",
+          "timestamp": "2026-03-01T15:24:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-01T17:41:53.123834"
+    },
+    "saturday": {
+      "stage": "deployment",
+      "started_at": "2026-03-01T17:49:53.502716",
+      "status": "complete",
+      "concept": "Strawberry Summer Cake",
+      "deployment_status": "staged",
+      "dialogue": [
+        {
+          "day": "saturday",
+          "stage": "deployment",
+          "character": "Devon Park",
+          "message": "Staging mostly green; hit an image CDN invalidation snag. Rolling a hotfix now \u2014 expect staging clear by 11:45. Yeah I can probably automate that.",
+          "timestamp": "2026-03-01T09:00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "saturday",
+          "stage": "deployment",
+          "character": "Margaret Chen",
+          "message": "Good \u2014 make sure the CDN purge clears all sizes and edge caches; don\u2019t assume TTLs. *mutters under breath* Fine. FINE.",
+          "timestamp": "2026-03-01T11:40:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "saturday",
+          "stage": "deployment",
+          "character": "Devon Park",
+          "message": "Yeah I can probably automate that. Forcing full purge across all sizes and edge caches, validating TTLs. I'll push the hotfix by EOD.",
+          "timestamp": "2026-03-01T14:20:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-01T17:50:17.435879"
+    },
+    "sunday": {
+      "stage": "publish",
+      "started_at": "2026-03-01T17:58:17.801957",
+      "status": "complete",
+      "concept": "Strawberry Summer Cake",
+      "published": true,
+      "dialogue": [
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Okay team \u2014 5:00pm publish is firm for Strawberry Summer Cake. Please confirm image and copy now so I can hit publish. I'm probably wrong, but I need it.",
+          "timestamp": "2026-03-01T09:00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Margaret Chen",
+          "message": "Fine. FINE. Image okay but glaze looks flat in full-res \u2014 increase gloss shot. Copy's fine; change \"fresh\" to \"just-picked.\" You have my approval after that.",
+          "timestamp": "2026-03-01T13:00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-01T17:58:38.168080"
+    }
+  },
+  "events": [
+    "monday: complete",
+    "tuesday: complete",
+    "wednesday: complete",
+    "thursday: complete",
+    "friday: complete",
+    "saturday: complete",
+    "sunday: complete"
+  ],
+  "recipe_id": "9f78d1e2",
+  "concept": "Strawberry Summer Cake",
+  "image_paths": [
+    "data/images/9f78d1e2/editorial.png",
+    "data/images/9f78d1e2/action_steam.png",
+    "data/images/9f78d1e2/the_spread.png"
+  ],
+  "published_at": "2026-03-01T17:58:17.802007"
+}

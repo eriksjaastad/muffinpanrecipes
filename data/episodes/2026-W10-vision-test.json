@@ -1,0 +1,674 @@
+{
+  "episode_id": "2026-W10-vision-test",
+  "created_at": "2026-03-03T02:18:09.363554+00:00",
+  "stages": {
+    "monday": {
+      "stage": "brainstorm",
+      "started_at": "2026-03-03T02:18:09.366822+00:00",
+      "status": "complete",
+      "concept": "Jalape\u00f1o Corn Dog Bites",
+      "recipe_data": {
+        "title": "Jalape\u00f1o Corn Dog Bites (muffin-tin mini corndogs, no sticks)",
+        "description": "Bite-sized, golden cornmeal pockets filled with beef frank pieces, charred jalape\u00f1o, and sharp cheddar \u2014 all baked in a standard 12-cup muffin tin for even, crispy edges and perfect portion control. Includes a quick honey-jalape\u00f1o mustard dipping sauce for sweet-heat balance.",
+        "servings": 12,
+        "prep_time": 15,
+        "cook_time": 16,
+        "difficulty": "easy",
+        "category": "savory",
+        "ingredients": [
+          {
+            "item": "yellow cornmeal, medium grind",
+            "amount": "1 cup",
+            "notes": "140g"
+          },
+          {
+            "item": "all-purpose flour",
+            "amount": "3/4 cup",
+            "notes": "95g"
+          },
+          {
+            "item": "granulated sugar",
+            "amount": "2 tbsp",
+            "notes": ""
+          },
+          {
+            "item": "baking powder",
+            "amount": "2 tsp",
+            "notes": ""
+          },
+          {
+            "item": "kosher salt",
+            "amount": "1 tsp",
+            "notes": ""
+          },
+          {
+            "item": "mustard powder",
+            "amount": "1 tsp",
+            "notes": ""
+          },
+          {
+            "item": "cayenne pepper",
+            "amount": "1/4 tsp",
+            "notes": "optional, for extra heat"
+          },
+          {
+            "item": "eggs",
+            "amount": "2 large",
+            "notes": "room temperature"
+          },
+          {
+            "item": "buttermilk",
+            "amount": "3/4 cup",
+            "notes": "180ml"
+          },
+          {
+            "item": "unsalted butter, melted and cooled slightly",
+            "amount": "3 tbsp",
+            "notes": "45g"
+          },
+          {
+            "item": "whole milk",
+            "amount": "2 tbsp",
+            "notes": "only if batter seems too stiff"
+          },
+          {
+            "item": "jalape\u00f1os",
+            "amount": "2 medium",
+            "notes": "about 3 tbsp charred, seeded, finely diced"
+          },
+          {
+            "item": "sharp cheddar, finely shredded",
+            "amount": "1/2 cup",
+            "notes": "55g"
+          },
+          {
+            "item": "beef hot dogs , each cut in half crosswise to make 12 pieces",
+            "amount": "6",
+            "notes": "e.g., Nathan\u2019s Famous"
+          },
+          {
+            "item": "oil spray or 1 tbsp neutral oil to brush the tin",
+            "amount": "Neutral",
+            "notes": "grapeseed or vegetable"
+          },
+          {
+            "item": "tiny pinch of cornmeal for the bottom of each cup for texture",
+            "amount": "Optional:",
+            "notes": ""
+          },
+          {
+            "item": "mayonnaise",
+            "amount": "1/2 cup",
+            "notes": "115g"
+          },
+          {
+            "item": "Dijon mustard",
+            "amount": "1 tbsp",
+            "notes": "Maille or Grey Poupon"
+          },
+          {
+            "item": "yellow mustard",
+            "amount": "1 tbsp",
+            "notes": ""
+          },
+          {
+            "item": "honey",
+            "amount": "2 tbsp",
+            "notes": ""
+          },
+          {
+            "item": "pickled jalape\u00f1o, minced",
+            "amount": "1 tbsp",
+            "notes": "or 1 tsp minced fresh charred jalape\u00f1o"
+          },
+          {
+            "item": "lime juice",
+            "amount": "1 tsp",
+            "notes": ""
+          },
+          {
+            "item": "of kosher salt",
+            "amount": "Pinch",
+            "notes": ""
+          }
+        ],
+        "instructions": [
+          "Preheat oven to 425\u00b0F (220\u00b0C). Place an oven thermometer in the oven (I don\u2019t trust the dial); preheating fully is important for a crisp exterior.",
+          "Char the jalape\u00f1os: hold whole jalape\u00f1os over an open gas flame or in a hot cast-iron skillet, turning until skins are blistered and blackened all over, about 3\u20135 minutes. Place in a bowl, cover with plastic wrap for 5 minutes, then peel, seed, and finely dice. You should have about 3 tablespoons once diced. (If you prefer milder heat, remove all seeds and ribs.)",
+          "Whisk dry ingredients: in a medium bowl, whisk together cornmeal, flour, sugar, baking powder, kosher salt, mustard powder, and cayenne until evenly combined.",
+          "Whisk wet ingredients: in a separate bowl, beat the eggs lightly, then whisk in buttermilk and melted butter until smooth.",
+          "Combine: pour the wet mixture into the dry and fold gently with a rubber spatula until just combined \u2014 the batter should be thick but spoonable. If it seems too stiff, stir in up to 2 tbsp whole milk. Let batter rest 5 minutes so the cornmeal hydrates (this matters for texture \u2014 measure twice, then rest once).",
+          "Fold-ins: fold in the diced charred jalape\u00f1o and shredded cheddar, folding just until distributed. Do not overmix.",
+          "Prepare muffin tin: lightly spray each cup of a standard 12-cup muffin tin with neutral oil spray or brush with a little oil. For extra crisp bottoms, sprinkle a scant 1/8 tsp cornmeal in each cup and tap out the excess.",
+          "Arrange hot dogs: stand one half-hot dog piece in the center of each prepared muffin cup (skin-side down). The hot dog should sit upright with a little sticking above batter level so it remains juicy \u2014 they sink less in a thick batter than in a pourable one.",
+          "Fill cups: using a spoon or small scoop, divide the batter evenly among the 12 cups, filling to about 3/4 full so there\u2019s room for rising \u2014 roughly 2.5 tbsp batter per cup. Smooth tops lightly with the back of the spoon.",
+          "Bake: bake on the center rack at 425\u00b0F (220\u00b0C) for 12\u201316 minutes, rotating the pan once at 8 minutes if your oven has hot spots. Look for golden-brown tops and crisp edges; a toothpick inserted into the batter (not the hot dog) should come out with only a few moist crumbs.",
+          "Remove and cool briefly: let the bites cool in the tin 4\u20135 minutes. Run a small offset spatula or butter knife around each cup to loosen, then transfer the bites to a wire rack to finish cooling for 3 minutes \u2014 this keeps the exterior crisp.",
+          "Make the dipping sauce: whisk together mayonnaise, Dijon, yellow mustard, honey, minced pickled jalape\u00f1o, lime juice, and a pinch of salt. Taste and adjust honey or mustard to preference.",
+          "Serve: arrange Jalape\u00f1o Corn Dog Bites on a platter with the honey-jalape\u00f1o mustard and extra ketchup or mustard on the side."
+        ],
+        "chef_notes": " - Temperature matters: the 425\u00b0F blast gives the exterior a quick set and crispness while keeping the hot dog interior juicy. I check the oven thermometer before I pop the pan in \u2014 I\u2019ve remeasured the temp twice and adjusted my dial many times. - Batter hydration: resting the batter 5 minutes lets the cornmeal soften; you\u2019ll get a less gritty mouthfeel. If your cornmeal is coarse, add the optional 2 tbsp milk for spreadability. - Jalape\u00f1o control: charring the jalape\u00f1os adds smoky depth that balances the sweetness of the batter and honey in the sauce. Remove seeds/ribs for milder bites; leave some seeds for extra kick. - Cheese: finely shred the cheddar so it melts quickly and distributes without clumping. White cheddar yields a nicer visual contrast. - Make-ahead & reheat: you can bake, cool completely, and freeze on a sheet tray. Reheat from frozen at 350\u00b0F (175\u00b0C) for 10\u201312 minutes until hot and crisp. For reheating from cooled, 350\u00b0F for 6\u20138 minutes. - Variations: swap turkey franks and use a little smoked paprika in the batter for a different flavor; add 2 tbsp canned corn (drained) for corn-studded bites. - Serving: these are great for game day or lunchboxes \u2014 portion-controlled, hand-held, and paired well with pickles and cold beer. If you want \"sticks,\" insert a 1.5-inch wooden skewer into each hot dog half before filling the cups, but note the sticks will be warm to the touch after baking. - Final whisper from my notebook: measure twice, whisk once, and don\u2019t gossip about your grandmother\u2019s cornbread (it won\u2019t help the batter).",
+        "concept": "Jalape\u00f1o Corn Dog Bites",
+        "margaret_notes": [
+          "At least we're doing the technique correctly.",
+          "Check oven temp with a thermometer. Don't trust the dial.",
+          " - Temperature matters: the 425\u00b0F blast gives the exterior a quick set and crispness while keeping the hot dog interior juicy. I check the oven thermometer before I pop the pan in \u2014 I\u2019ve remeasured the temp twice and adjusted my dial many times. - Batter hydration: resting the batter 5 minutes lets the cornmeal soften; you\u2019ll get a less gritty mouthfeel. If your cornmeal is coarse, add the optional 2 tbsp milk for spreadability. - Jalape\u00f1o control: charring the jalape\u00f1os adds smoky depth that balances the sweetness of the batter and honey in the sauce. Remove seeds/ribs for milder bites; leave some seeds for extra kick. - Cheese: finely shred the cheddar so it melts quickly and distributes without clumping. White cheddar yields a nicer visual contrast. - Make-ahead & reheat: you can bake, cool completely, and freeze on a sheet tray. Reheat from frozen at 350\u00b0F (175\u00b0C) for 10\u201312 minutes until hot and crisp. For reheating from cooled, 350\u00b0F for 6\u20138 minutes. - Variations: swap turkey franks and use a little smoked paprika in the batter for a different flavor; add 2 tbsp canned corn (drained) for corn-studded bites. - Serving: these are great for game day or lunchboxes \u2014 portion-controlled, hand-held, and paired well with pickles and cold beer. If you want \"sticks,\" insert a 1.5-inch wooden skewer into each hot dog half before filling the cups, but note the sticks will be warm to the touch after baking. - Final whisper from my notebook: measure twice, whisk once, and don\u2019t gossip about your grandmother\u2019s cornbread (it won\u2019t help the batter)."
+        ]
+      },
+      "dialogue": [
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "Fine. FINE. Jalapeno corn dog bites are fine if we actually respect the batter - proper cornmeal ratio, no boxed mix, crisp shell, no sad pale carnival grease bombs.",
+          "timestamp": "2026-03-03T09:00:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Marcus Reid",
+          "message": "Proust once wrote about madeleines, and what is a corn dog bite but a lowbrow cousin - I am already drafting 300 words on blistered bronze batter and defiant crunch.",
+          "timestamp": "2026-03-03T10:20:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, but could we maybe keep the copy a little tighter on this one, Marcus - like 60 to 80 words max - so Margaret's gorgeous texture work really gets to shine?",
+          "timestamp": "2026-03-03T11:40:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "That's not how ratios work, but what do I know. Keep it tight, Marcus - 60 words, max - and if you write \"pillowy\" I am cutting it with a red pen.",
+          "timestamp": "2026-03-03T13:00:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Marcus Reid",
+          "message": "If I may offer some context, 60 words is haiku territory, but fine - no pillowy, no carnival grease, just crisp bronze, jalapeno heat, and the kind of crunch people hear in memory.",
+          "timestamp": "2026-03-03T14:20:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "I love that! Also what if we... never mind. Marcus, 60 words on that exact vibe sounds perfect, and Margaret, jalapeno heat plus serious crunch is our hero here, agreed?",
+          "timestamp": "2026-03-03T15:40:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-03T02:19:02.786438+00:00"
+    },
+    "tuesday": {
+      "stage": "recipe_development",
+      "started_at": "2026-03-03T02:19:08.170391+00:00",
+      "status": "complete",
+      "concept": "Jalape\u00f1o Corn Dog Bites",
+      "recipe_data_ref": "from monday stage",
+      "dialogue": [
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Margaret Chen",
+          "message": "If we keep this much jalape\u00f1o in a mini format, the batter hydration has to drop 5 percent or the crumb collapses in 8 minutes of hold time. Pick one.",
+          "timestamp": "2026-03-03T09:00:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, but could we maybe dial jalapeno down 10 percent and keep hydration stable so the crumb holds? I want these to be grab-and-go friendly, not structural gambles.",
+          "timestamp": "2026-03-03T10:36:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Marcus Reid",
+          "message": "Keep the current moisture level, trim jalapeno 10 percent, and I will layer the copy with smoke, seeds, and an after-the-fact burn that hits like a late-arriving plot twist.",
+          "timestamp": "2026-03-03T12:12:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Margaret Chen",
+          "message": "Fine. Hydration stays, jalapeno drops 10 percent, but then we bump salt 0.2 percent and toast the cumin longer or it will taste flat. Do not call it mild.",
+          "timestamp": "2026-03-03T13:48:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Love that. Let's lock this: jalapeno minus 10, hydration as-is, salt plus 0.2, longer-toasted cumin. Marcus, please no \"mild\" anywhere, but signal that slow-build heat clearly.",
+          "timestamp": "2026-03-03T15:24:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-03T02:19:21.930427+00:00"
+    },
+    "wednesday": {
+      "stage": "photography",
+      "started_at": "2026-03-03T02:19:27.299688+00:00",
+      "status": "complete",
+      "concept": "Jalape\u00f1o Corn Dog Bites",
+      "photography_data": {
+        "recipe_id": "0abfb4c6",
+        "total_shots": 51,
+        "rounds": [
+          {
+            "round": 1,
+            "variants": [
+              {
+                "variant": "macro_closeup",
+                "path": "src/assets/images/0abfb4c6/round_1/macro_closeup.png",
+                "prompt": "Extreme close-up food photography of Jalape\u00f1o Corn Dog Bites (muffin-tin mini corndogs, no sticks). 15-degree low angle, ONE single item filling the entire frame. Visible crumb structure, steam wisps, glistening texture detail. Shot on 100mm macro lens, f/2.0, razor-thin depth of field. Bright, high-key lighting, natural daylight from the side. White marble countertop. Editorial cookbook style. No full tin visible, no multiple items, no bird's eye view. No people, no hands, no text, no watermark.",
+                "scores": {
+                  "image": 1,
+                  "variety": 4,
+                  "quality": 5,
+                  "style_adherence": 5,
+                  "food_appeal": 5,
+                  "composition": 4,
+                  "feedback": "Gorgeous macro close-up that showcases texture, jalape\u00f1o slices, and cheese beautifully; sharp focus and warm, even lighting make the bites look very appetizing, though the framing is a bit tight and repetitive across the tray."
+                }
+              },
+              {
+                "variant": "overhead_flatlay",
+                "path": "src/assets/images/0abfb4c6/round_1/overhead_flatlay.png",
+                "prompt": "True 90-degree overhead bird's-eye food photography of Jalape\u00f1o Corn Dog Bites (muffin-tin mini corndogs, no sticks) in a rustic muffin tin. Full tin visible from directly above, scattered ingredient garnishes around the tin. Shot on 35mm lens, f/5.6, everything in sharp focus. Bright, high-key lighting, natural daylight. White marble countertop with flour dusting and herb sprigs. Flat lay editorial style, geometric composition. No shallow depth of field, no single item close-up, no low angle. No people, no hands, no text, no watermark.",
+                "scores": {
+                  "image": 2,
+                  "variety": 5,
+                  "quality": 4,
+                  "style_adherence": 5,
+                  "food_appeal": 3.5,
+                  "composition": 4.5,
+                  "feedback": "Strong overhead flatlay with a clear muffin-tin structure and supporting props; technically solid, but the bites look a bit plain and under-garnished compared to the other images, slightly reducing appetite appeal."
+                }
+              },
+              {
+                "variant": "hero_threequarter",
+                "path": "src/assets/images/0abfb4c6/round_1/hero_threequarter.png",
+                "prompt": "Classic hero food photography of Jalape\u00f1o Corn Dog Bites (muffin-tin mini corndogs, no sticks) at 30-45 degree angle. 2-3 items arranged on a rustic wooden board, one broken open showing interior cross-section. Shot on 85mm lens, f/2.8, soft background blur. Bright, high-key lighting, natural daylight from the side. White marble countertop with minimal props - linen napkin, vintage fork. Editorial cookbook style, warm and inviting. No extreme close-up, no overhead flat lay, no 90 degree angle. No people, no hands, no text, no watermark.",
+                "scores": {
+                  "image": 3,
+                  "variety": 5,
+                  "quality": 5,
+                  "style_adherence": 5,
+                  "food_appeal": 5,
+                  "composition": 5,
+                  "feedback": "Excellent three-quarter hero shot with inviting depth, clear jalape\u00f1o garnish, and contextual sides; lighting, focus, and arrangement on the wooden board create a very appetizing, story-driven presentation."
+                }
+              }
+            ],
+            "vision_evaluation": {
+              "per_image": [
+                {
+                  "image": 1,
+                  "variety": 4,
+                  "quality": 5,
+                  "style_adherence": 5,
+                  "food_appeal": 5,
+                  "composition": 4,
+                  "feedback": "Gorgeous macro close-up that showcases texture, jalape\u00f1o slices, and cheese beautifully; sharp focus and warm, even lighting make the bites look very appetizing, though the framing is a bit tight and repetitive across the tray."
+                },
+                {
+                  "image": 2,
+                  "variety": 5,
+                  "quality": 4,
+                  "style_adherence": 5,
+                  "food_appeal": 3.5,
+                  "composition": 4.5,
+                  "feedback": "Strong overhead flatlay with a clear muffin-tin structure and supporting props; technically solid, but the bites look a bit plain and under-garnished compared to the other images, slightly reducing appetite appeal."
+                },
+                {
+                  "image": 3,
+                  "variety": 5,
+                  "quality": 5,
+                  "style_adherence": 5,
+                  "food_appeal": 5,
+                  "composition": 5,
+                  "feedback": "Excellent three-quarter hero shot with inviting depth, clear jalape\u00f1o garnish, and contextual sides; lighting, focus, and arrangement on the wooden board create a very appetizing, story-driven presentation."
+                }
+              ],
+              "passed": true,
+              "reason": "All three angles (macro close-up, overhead flatlay, and three-quarter hero) are distinct, technically strong, and on-brief, with no major weaknesses in any image.",
+              "recommended_winner": 3,
+              "avg_score": 4.67
+            },
+            "passed": true
+          }
+        ],
+        "winner": {
+          "variant": "hero_threequarter",
+          "path": "src/assets/images/0abfb4c6/round_1/hero_threequarter.png",
+          "prompt": "Classic hero food photography of Jalape\u00f1o Corn Dog Bites (muffin-tin mini corndogs, no sticks) at 30-45 degree angle. 2-3 items arranged on a rustic wooden board, one broken open showing interior cross-section. Shot on 85mm lens, f/2.8, soft background blur. Bright, high-key lighting, natural daylight from the side. White marble countertop with minimal props - linen napkin, vintage fork. Editorial cookbook style, warm and inviting. No extreme close-up, no overhead flat lay, no 90 degree angle. No people, no hands, no text, no watermark.",
+          "scores": {
+            "image": 3,
+            "variety": 5,
+            "quality": 5,
+            "style_adherence": 5,
+            "food_appeal": 5,
+            "composition": 5,
+            "feedback": "Excellent three-quarter hero shot with inviting depth, clear jalape\u00f1o garnish, and contextual sides; lighting, focus, and arrangement on the wooden board create a very appetizing, story-driven presentation."
+          },
+          "round": 1,
+          "featured_image": "src/assets/images/0abfb4c6.png"
+        },
+        "reshoot_happened": false,
+        "selected_shots": [
+          "src/assets/images/0abfb4c6/round_1/macro_closeup.png",
+          "src/assets/images/0abfb4c6/round_1/overhead_flatlay.png",
+          "src/assets/images/0abfb4c6/round_1/hero_threequarter.png"
+        ],
+        "generated_with": "stability_api",
+        "lighting_setups": 5,
+        "styling_notes": [
+          "Explored the negative space on the plate",
+          "Considered the visual language of comfort food",
+          "Referenced Irving Penn's still life work (nobody knows his still life work)",
+          "The crumb structure needed to tell a story"
+        ],
+        "props_used": [
+          "Vintage fork from grandmother's collection",
+          "Linen napkin (organic, obviously)",
+          "Marble slab (borrowed, returning tomorrow)"
+        ],
+        "outcome": "exceptional_quality"
+      },
+      "reshoot_happened": false,
+      "image_paths": [
+        "src/assets/images/0abfb4c6/round_1/macro_closeup.png",
+        "src/assets/images/0abfb4c6/round_1/overhead_flatlay.png",
+        "src/assets/images/0abfb4c6/round_1/hero_threequarter.png"
+      ],
+      "dialogue": [
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Julian Torres",
+          "message": "I'm thinking about the visual language here - the hero three-quarter is clearly the lead. Macro is texture B-roll, overhead is grid support. The hero actually tells a story, not just \"party snack.\"",
+          "timestamp": "2026-03-03T09:00:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": [
+            "src/assets/images/0abfb4c6/round_1/macro_closeup.png",
+            "src/assets/images/0abfb4c6/round_1/overhead_flatlay.png",
+            "src/assets/images/0abfb4c6/round_1/hero_threequarter.png"
+          ]
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "I love that! Also what if we... never mind. But could we maybe test a version where the hero leans into \"busy weeknight sanity saver\" so the story reads super fast in feed?",
+          "timestamp": "2026-03-03T11:00:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Margaret Chen",
+          "message": "Fine. If you want weeknight sanity, keep the hero clean - no random props, no hands, just the frittata mid-slice so you see the custard set and the veg definition.",
+          "timestamp": "2026-03-03T13:00:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Julian Torres",
+          "message": "The negative space is really important. We can do both: one clean, almost clinical mid-slice for sanity, and one moodier hero with restrained props. Same base setup, two narratives.",
+          "timestamp": "2026-03-03T15:00:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-03T02:20:17.648838+00:00"
+    },
+    "thursday": {
+      "stage": "copywriting",
+      "started_at": "2026-03-03T02:20:23.058881+00:00",
+      "status": "complete",
+      "concept": "Jalape\u00f1o Corn Dog Bites",
+      "copy_text": {
+        "body": "There is a particular kind of small, domestic magic in a muffin tin. It turns batter into ceremony, makes the ordinary seem purposeful. These Jalape\u00f1o Corn Dog Bites are exactly that \u2014 a carnival memory shrunk to mouthfuls, a county fair wrapped in a crumb that remembers summer and smokiness and the exact sting of a jalape\u00f1o seed. Use medium-grind yellow cornmeal so the texture sings: not gritty, not polenta-smooth, but somewhere between a child's pocketed curiosity and the grown-up comfort of cornbread that has paid attention. All-purpose flour gives the batter the polite structure it needs; a touch of granulated sugar is a wink to the original corn dog, a sugar that makes the savory sing sweeter; baking powder is a small miracle \u2014 the lift that makes each bite pop; kosher salt is honest; mustard powder is clever and necessary, a dry echo of the condiment that has always stood at the elbow of every hot dog and tuck-in. Fold in minced jalape\u00f1o so the pastry remembers heat, not rage.\n\nI think of M.F.K. Fisher when I taste something so plainly domestic that it becomes theological: she wrote about simple food as proof that life continues. Ruth Reichl would have loved these, I suspect, for their earnestness \u2014 not trying to be more than they are. Nigel Slater would eat them in his slippers and call it supper. There is a cuisine of smallness here, of making the muffin tin the stage for something both nostalgic and entirely new. No sticks to wave or lose, just perfect little cylinders of steamed, golden corn crust wrapped around a bit of hot dog (or smoked sausage, if you are feeling serious), a peppery kick at the center, a tender crumb that resists just enough before giving way.\n\nThey bake in sixteen minutes. Try to say that sentence with a pause and feel how ludicrously hopeful it is: sixteen minutes to send a household into a roomful of smiles. These are party food in the best way \u2014 convivial, portable, and born to be dunked. Serve with ketchup, mustard, perhaps a honeyed mayo for those who like to complicate nostalgia. Or do nothing, hand them out warm from the tin, and watch the small war of opinions about the Oxford comma explode into something friendlier (ketchup, mustard, and secrets).\n\nI bring a French press to a lot of cookouts; I bring a Moleskine to more of them than is strictly necessary. I once wrote the opening paragraph of a novel on a paper napkin while waiting for corn batter to set; it was not the best paragraph, but the muffins were excellent. That journalism of the kitchen \u2014 making language and food in the same breath \u2014 is what this recipe asks of you. Measure the cornmeal with the kind of calm you reserve for good decisions; stir in the mustard powder like a small authoritative gesture; treat the jalape\u00f1o with respect (a few seeds for friends, more for the people you like slightly).\n\nThe charm here is structural but tender: the muffin tin corrals the batter into uniform joy, the medium grind cornmeal gives a crumb that acknowledges texture rather than hiding from it, and the mustard powder lifts the flavor into that realm of memory where condiments are flags of identity. Make these when you want to make something mildly showy without performing; make them when you want to recall a fairground and also be at home. They are fussless, quick, and kind of profound if you let them be. Cook them, and then stand back a moment, coffee in hand, and watch the room rearrange itself around a pan of small, golden promises.",
+        "word_count": 606,
+        "target_word_count": 200,
+        "quality": "exceptional - genuinely moving despite the length",
+        "exceeded_target_by": 406,
+        "literary_references": "MFK Fisher once observed about eggs...",
+        "note": "This is actually beautiful. People will share this."
+      },
+      "dialogue": [
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Marcus Reid",
+          "message": "I was thinking we could explore the narrative arc of the corn dog itself, but fine, here is the pared-back headline: \"Jalapeno Corn Dog Bites That Disappear Before Halftime.\"",
+          "timestamp": "2026-03-03T09:00:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        },
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, could we trim the repetition and lean into the convenience a bit more, like: \"Jalapeno Corn Dog Bites, Oven-Baked and Gone Before the Second Quarter\"? Or feel free to top that.",
+          "timestamp": "2026-03-03T10:36:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        },
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Margaret Chen",
+          "message": "If they really bake on a sheet pan, just call it: \"Crispy Jalapeno Corn Dog Bites, Fresh From the Oven and Gone Before the Next Kickoff.\" Clear, specific, and timed to the game.",
+          "timestamp": "2026-03-03T12:12:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        },
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Marcus Reid",
+          "message": "Sheet-pan Jalapeno Corn Dog Bites, Hot in 15 Minutes and Vanishing Before the Commercial Break - I swapped in an actual time cue so it feels like a real game clock.",
+          "timestamp": "2026-03-03T13:48:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        },
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "OK, Marcus, the 15-minute detail is perfect. What about locking it as: \"Sheet-Pan Jalapeno Corn Dog Bites, Game-Ready in 15 Minutes, Gone Before the First Commercial\"?",
+          "timestamp": "2026-03-03T15:24:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-03T02:21:04.979836+00:00"
+    },
+    "friday": {
+      "stage": "final_review",
+      "started_at": "2026-03-03T02:21:10.370420+00:00",
+      "status": "complete",
+      "concept": "Jalape\u00f1o Corn Dog Bites",
+      "review_data": {
+        "positive": [
+          "I love this! The concept is really strong.",
+          "Great work on this, seriously."
+        ],
+        "suggestions": [
+          "I think maybe we could possibly adjust the portion sizes? Just a thought.",
+          "Does the title feel... I don't know. What do YOU think?"
+        ],
+        "decision": "approved_with_minor_revisions",
+        "confidence": "low",
+        "notes": "Let's circle back if anyone has concerns?"
+      },
+      "approved": true,
+      "dialogue": [
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Margaret Chen",
+          "message": "That's not how ratios work, but what do I know - the crumb is greasy and the jalape\u00f1o distribution is patchy. Either we cut 5 percent fat or this does not ship.",
+          "timestamp": "2026-03-03T09:00:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, but could we maybe try a quick A/B - one batch with 5 percent less fat, one with a different cheese ratio - and see which fixes the crumb without losing flavor?",
+          "timestamp": "2026-03-03T10:08:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Julian Torres",
+          "message": "The negative space is really important. If we do both tests, I need two distinct visual narratives: fat-reduced as \"weekday approachable,\" cheese-shift as \"indulgent.\" Flag which is which early.",
+          "timestamp": "2026-03-03T11:16:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Marcus Reid",
+          "message": "If I may offer some context, \"weekday approachable\" reads as joyless austerity - can we call it \"light-but-still-worth-turning-the-oven-on\" and I'll thread that into the fat-reduced variant copy?",
+          "timestamp": "2026-03-03T12:24:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Devon Park",
+          "message": "Yeah I can probably automate that. Just flag the two variants clearly in the CMS and I will wire them to separate tracking so we can see which one people actually finish baking.",
+          "timestamp": "2026-03-03T13:32:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Margaret Chen",
+          "message": "Fine. FINE. I will run two tests: Batch A minus 5 percent fat, Batch B 10 percent more cheese, same total hydration. I am labeling nothing \"weekday approachable.\"",
+          "timestamp": "2026-03-03T14:40:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Love this, thank you. Margaret, can you snap quick phone pics of both batches as they cool? Julian, that ok as temporary stand-ins so we do not block testing?",
+          "timestamp": "2026-03-03T15:48:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-03T02:21:24.631554+00:00"
+    },
+    "saturday": {
+      "stage": "deployment",
+      "started_at": "2026-03-03T02:21:30.013382+00:00",
+      "status": "complete",
+      "concept": "Jalape\u00f1o Corn Dog Bites",
+      "deployment_status": "staged",
+      "dialogue": [
+        {
+          "day": "saturday",
+          "stage": "deployment",
+          "character": "Devon Park",
+          "message": "Yeah I can probably automate that. Kicking off build to staging now, ETA 10 minutes. If nothing weird pops in the logs we can do a final clickthrough by 11:45 pm.",
+          "timestamp": "2026-03-03T09:00:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        },
+        {
+          "day": "saturday",
+          "stage": "deployment",
+          "character": "Margaret Chen",
+          "message": "Fine. FINE. While you romance your logs, I will re-test the bake times; last batch ran hot by 5:00 pm minutes and I am not shipping dry crumb at midnight.",
+          "timestamp": "2026-03-03T13:00:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-03T02:21:33.931657+00:00"
+    },
+    "sunday": {
+      "stage": "publish",
+      "started_at": "2026-03-03T02:21:39.251277+00:00",
+      "status": "complete",
+      "concept": "Jalape\u00f1o Corn Dog Bites",
+      "published": true,
+      "dialogue": [
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, but could we maybe just do one last thumbnail check for mobile, then lock it and publish right at 5:00 pm? I dont want a pixel out of place.",
+          "timestamp": "2026-03-03T09:00:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Margaret Chen",
+          "message": "Fine. FINE. If we are locking at 5:00 pm, I need final word on that eucalyptus garnish thumbnail - it looks like a cough drop ad at 64 pixels.",
+          "timestamp": "2026-03-03T13:00:00+00:00",
+          "model": "openai/gpt-5.1",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-03T02:21:43.067827+00:00"
+    }
+  },
+  "events": [
+    "monday: complete",
+    "tuesday: complete",
+    "wednesday: complete",
+    "thursday: complete",
+    "friday: complete",
+    "saturday: complete",
+    "sunday: complete"
+  ],
+  "recipe_id": "0abfb4c6",
+  "concept": "Jalape\u00f1o Corn Dog Bites",
+  "image_paths": [
+    "src/assets/images/0abfb4c6/round_1/macro_closeup.png",
+    "src/assets/images/0abfb4c6/round_1/overhead_flatlay.png",
+    "src/assets/images/0abfb4c6/round_1/hero_threequarter.png"
+  ],
+  "published_at": "2026-03-03T02:21:39.251543+00:00"
+}

@@ -1,0 +1,580 @@
+{
+  "episode_id": "2026-W10-bookend-c",
+  "created_at": "2026-03-04T16:42:24.927051+00:00",
+  "stages": {
+    "monday": {
+      "stage": "brainstorm",
+      "started_at": "2026-03-04T16:42:24.928751+00:00",
+      "status": "complete",
+      "concept": "Dark Chocolate Espresso Brownie Cups",
+      "recipe_data": {
+        "title": "Dark Chocolate Espresso Brownie Cups with Molten Espresso Ganache",
+        "description": "Intensely fudgy, crackly-topped dark chocolate brownie cups flavored with concentrated espresso and a small molten espresso ganache center. Baked in a standard 12-cup muffin tin, they\u2019re single-serve richness with a whisper of coffee and a flake of sea salt on top for contrast.",
+        "servings": 12,
+        "prep_time": 35,
+        "cook_time": 16,
+        "difficulty": "medium",
+        "category": "dessert",
+        "ingredients": [
+          {
+            "item": "unsalted butter , cut into pieces",
+            "amount": "8 tbsp",
+            "notes": "113 g / 1 stick"
+          },
+          {
+            "item": "Ghirardelli 72% Bittersweet Chocolate, finely chopped",
+            "amount": "8 oz",
+            "notes": "225 g"
+          },
+          {
+            "item": "granulated sugar",
+            "amount": "3/4 cup",
+            "notes": "150 g"
+          },
+          {
+            "item": "light brown sugar, packed",
+            "amount": "1/4 cup",
+            "notes": "50 g"
+          },
+          {
+            "item": "eggs",
+            "amount": "3 large",
+            "notes": "room temperature"
+          },
+          {
+            "item": "pure vanilla extract",
+            "amount": "1 tsp",
+            "notes": ""
+          },
+          {
+            "item": "instant espresso powder dissolved in 1 tbsp hot water",
+            "amount": "2 tsp",
+            "notes": "Medaglia d\u2019Oro or similar"
+          },
+          {
+            "item": "+ 2 tbsp all-purpose flour, spooned and leveled",
+            "amount": "3/4 cup",
+            "notes": "105 g"
+          },
+          {
+            "item": "Dutch-process cocoa powder , sifted",
+            "amount": "2 tbsp",
+            "notes": "15 g"
+          },
+          {
+            "item": "fine sea salt",
+            "amount": "3/4 tsp",
+            "notes": "Diamond Crystal \u2248 3/4 tsp; table salt \u2248 1/2 tsp"
+          },
+          {
+            "item": "dark chocolate , finely chopped",
+            "amount": "2 oz",
+            "notes": "56 g"
+          },
+          {
+            "item": "heavy cream",
+            "amount": "2 tbsp",
+            "notes": "30 ml"
+          },
+          {
+            "item": "instant espresso powder",
+            "amount": "1/2 tsp",
+            "notes": ""
+          },
+          {
+            "item": "sea salt , for sprinkling",
+            "amount": "Flaky",
+            "notes": "Maldon"
+          },
+          {
+            "item": "chocolate-covered espresso beans or 12 toasted cacao nibs",
+            "amount": "12",
+            "notes": "optional garnish"
+          }
+        ],
+        "instructions": [
+          "Preheat oven to 350\u00b0F (175\u00b0C). Center rack. Put an oven thermometer in the oven \u2014 I always double-check the dial; ovens lie.",
+          "Make the ganache: in a small saucepan, bring 2 tbsp heavy cream to a simmer. Remove from heat, stir in 1/2 tsp instant espresso until dissolved. Pour over 2 oz chopped dark chocolate in a small heatproof bowl; let sit 1 minute, then whisk until smooth. Cover and chill in the refrigerator 20\u201330 minutes, until thick but scoopable (should be pipeable with a small spoon or piping bag). Leave ganache in fridge while you make batter.",
+          "Prepare the tin: butter a standard 12-cup muffin tin (rub with a paper towel to get into curves) and dust each cup with cocoa powder, tapping out excess. (Paper liners trap steam and reduce that desirable crackle; I prefer unlined wells dusted with cocoa.)",
+          "Melt chocolate and butter: place 8 oz chopped bittersweet chocolate and 8 tbsp butter in a heatproof bowl over simmering water (double boiler) or microwave in 20\u201325 second bursts, stirring between bursts, until glossy and smooth. Remove from heat and let cool 3\u20134 minutes.",
+          "Add sugars to warm chocolate: whisk in the 3/4 cup granulated sugar and 1/4 cup brown sugar until incorporated and glossy. The sugars should start to melt into the warm chocolate\u2014this helps the crackly top.",
+          "Temper the eggs: whisk the 3 large eggs in a separate bowl until just combined. Whisk eggs into the chocolate mixture briskly, one ladle at a time, so the eggs don\u2019t scramble. Continue until fully incorporated; the batter will become shiny and slightly thickened. Stir in 1 tsp vanilla and the dissolved espresso (2 tsp in 1 tbsp hot water).",
+          "Dry ingredients: sift together 3/4 cup + 2 tbsp all-purpose flour, 2 tbsp Dutch-process cocoa, and 3/4 tsp salt. Fold the dry mix into the chocolate batter with a spatula until just combined \u2014 do not overmix. You want a dense, fudgy batter.",
+          "Portion batter: using a 1.5 tbsp cookie scoop or two spoons, spoon about 3 tablespoons (\u224845 ml) batter into each prepared muffin cup \u2014 this fills each cup to roughly 2/3 full. (I measure twice; you should too.)",
+          "Add ganache centers: remove ganache from fridge. Using a small spoon or a piping bag fitted with a very small round tip, place roughly 1/2 teaspoon ganache in the center of each cup.",
+          "Top and level: spoon an additional 1 tablespoon batter over each ganache dollop to cover, leaving the cup about 3/4 full. Smooth lightly but don\u2019t compress \u2014 you want the batter to rise around the ganache.",
+          "Bake: place tin on center rack and bake 16\u201318 minutes at 350\u00b0F (175\u00b0C). Look for crackly, set tops and slightly jiggly centers \u2014 a toothpick inserted at the edge should come out with moist crumbs, not raw batter. Rotate the tin once halfway through if your oven has hot spots.",
+          "Cool: remove from oven and let brownie cups cool in the tin 12\u201315 minutes. Run a small offset spatula around each cup, then transfer to a wire rack to finish cooling. While still warm, sprinkle each cup with a tiny pinch of flaky sea salt and press a chocolate-covered espresso bean or cacao nib on top if using.",
+          "Serve: best slightly warm (ganache molten). For room-temperature service, rewarm individual cups 8\u201310 seconds in a microwave to revive the center. Optionally serve with lightly sweetened mascarpone or a small scoop of vanilla gelato."
+        ],
+        "chef_notes": " - Measure twice: spoon and level your flour or, better yet, use a kitchen scale. I write ratios in the margins; this one reaches the fudgy/crackly sweet spot because of the chocolate-to-flour ratio. - Chocolate choice matters: use a quality 70\u201372% bittersweet chocolate (Ghirardelli 72% or Valrhona) for depth. The ganache uses the same chocolate so the flavor is cohesive. - Espresso: instant espresso powder (Medaglia d\u2019Oro) gives a clean coffee hit without extra liquid. Dissolve it in the tablespoon of hot water before adding so it disperses evenly. - Don\u2019t overbake: these are fudgy. Overbaking ruins the molten ganache surprise and dries the edges. If in doubt, err on the shorter bake and let residual heat finish them in the tin. - Make-ahead and storage: keep in an airtight container at room temperature for up to 2 days, refrigerated up to 5 days. Rewarm briefly before serving. Ganache can be made ahead and kept chilled up to 3 days. - Serving suggestion: a dollop of lightly sweetened mascarpone (1/2 cup mascarpone + 1/4 cup heavy cream + 2 tbsp powdered sugar, whipped to soft peaks) is lovely alongside. - Tools I always bring: my small whisk and an oven thermometer \u2014 you\u2019ll thank me when your oven isn\u2019t actually 350\u00b0F.",
+        "concept": "Dark Chocolate Espresso Brownie Cups",
+        "margaret_notes": [
+          "At least we're doing the technique correctly.",
+          "Check oven temp with a thermometer. Don't trust the dial.",
+          " - Measure twice: spoon and level your flour or, better yet, use a kitchen scale. I write ratios in the margins; this one reaches the fudgy/crackly sweet spot because of the chocolate-to-flour ratio. - Chocolate choice matters: use a quality 70\u201372% bittersweet chocolate (Ghirardelli 72% or Valrhona) for depth. The ganache uses the same chocolate so the flavor is cohesive. - Espresso: instant espresso powder (Medaglia d\u2019Oro) gives a clean coffee hit without extra liquid. Dissolve it in the tablespoon of hot water before adding so it disperses evenly. - Don\u2019t overbake: these are fudgy. Overbaking ruins the molten ganache surprise and dries the edges. If in doubt, err on the shorter bake and let residual heat finish them in the tin. - Make-ahead and storage: keep in an airtight container at room temperature for up to 2 days, refrigerated up to 5 days. Rewarm briefly before serving. Ganache can be made ahead and kept chilled up to 3 days. - Serving suggestion: a dollop of lightly sweetened mascarpone (1/2 cup mascarpone + 1/4 cup heavy cream + 2 tbsp powdered sugar, whipped to soft peaks) is lovely alongside. - Tools I always bring: my small whisk and an oven thermometer \u2014 you\u2019ll thank me when your oven isn\u2019t actually 350\u00b0F."
+        ]
+      },
+      "dialogue": [
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "Logged in. Pitch: Dark chocolate espresso brownie cups - dense brownie base, espresso ganache, flaky salt; concept lock by 5:00 pm. Respect the chocolate - no gimmicks.",
+          "timestamp": "2026-03-04T09:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Marcus Reid",
+          "message": "If I may offer some context, Margaret's brownie cups read like a short story, espresso punctuation, flaky salt as final sentence. Steph, lock reverent tone; I'll make it less clever, more felt by 5:00 pm.",
+          "timestamp": "2026-03-04T09:53:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "Marcus, spare the prose. Steph, anchor the copy: 70% single-origin chocolate, 1:1 espresso ganache, flaked Maldon.",
+          "timestamp": "2026-03-04T10:46:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, just checking we're aligned: Margaret, specs noted; Marcus, please keep copy reverent and pared, about 70 words by 5:00 pm, ok?",
+          "timestamp": "2026-03-04T11:39:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "Steph, keep the copy compact and precise. Marcus, skip the florid language; write short, clean lines. Use a 12-cup tin, fill cups two thirds, bake 325 F for 14 minutes, cool ten minutes, chill the coffee-infused ganache 30 minutes before piping, finish with coarse sea salt.",
+          "timestamp": "2026-03-04T12:32:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Marcus Reid",
+          "message": "I'll send a compact, respectful draft by 4:30 pm honoring Margaret, bake until edges set and centers still shiver, about 13 minutes. Steph, decide cuts now. I'll tuck one quiet sentence: salt as small confession.",
+          "timestamp": "2026-03-04T13:25:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, I know I might be overstepping, Margaret your method reads cleanly, Marcus could you tighten the hero copy to about seventy words, keep one quiet nod to the salt but make it very spare, move bake temps and tin instructions into the recipe card, and send the trimmed draft by 4:15 pm so we have time to lock at 5:00 pm - does that make sense? No? That's fair.",
+          "timestamp": "2026-03-04T14:18:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "Fine. Steph, decide: lead text 60 to 75 words, start with a single-sentence hook, then two tight tasting lines. Marcus, 65 words max, open with Ecuador 70% couverture and close with the salt as a whisper; confine oven temp, tin size and bake timing to the recipe notes.",
+          "timestamp": "2026-03-04T15:11:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Marcus Reid",
+          "message": "Got it: 65-word lead opening on 70 percent Ecuadorian chocolate, closing with a faint sea salt note; oven, tin and bake specs go in the recipe card. Pared draft at 4:15 pm, then I'll sign off.",
+          "timestamp": "2026-03-04T16:04:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-04T16:50:27.138199+00:00"
+    },
+    "tuesday": {
+      "stage": "recipe_development",
+      "started_at": "2026-03-04T16:50:32.500037+00:00",
+      "status": "complete",
+      "concept": "Dark Chocolate Espresso Brownie Cups",
+      "recipe_data_ref": "from monday stage",
+      "dialogue": [
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Margaret Chen",
+          "message": "Day two. I'm in - trays cooling on the rack and ratio notes keep changing. Deadline 5:00 pm; we lock ratios and technique today, no shortcuts on fat or espresso swaps. Who runs the butter-for-oil test and the instant-espresso substitution right now?",
+          "timestamp": "2026-03-04T09:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, could Julian do a 25 percent butter to light olive oil swap on Tray B and Marcus start instant espresso at 1:1 in batch two? I will log temps and tasting notes.",
+          "timestamp": "2026-03-04T10:36:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Marcus Reid",
+          "message": "Margaret is right to mistrust a straight 1:1 instant swap - espresso chemistry needs blooming. I will run batch two with 1:1 but test two methods: pre-dissolve in warm water and dry-fold, report tasting notes.",
+          "timestamp": "2026-03-04T12:12:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, quick check - Marcus, love both espresso methods; Julian, confirm 25% butter-to-oil Tray B, I'll log temps/tasting and we lock at 5:00 pm?",
+          "timestamp": "2026-03-04T13:48:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Marcus Reid",
+          "message": "Julian swapped a quarter of the butter for light olive oil on the second sheet; Margaret observed reduced caramelization but crisper laminations. I trialed equal-weight instant espresso two ways, hydrating it in 45C water for two minutes before mixing versus folding it in dry and letting it bloom five minutes; Steph logged the temperature curve and tasting scores, and the hydrated version yielded rounder, less astringent cocoa notes, quieter, like a book finally edited.",
+          "timestamp": "2026-03-04T15:24:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-04T16:53:41.956712+00:00"
+    },
+    "wednesday": {
+      "stage": "photography",
+      "started_at": "2026-03-04T16:53:47.389645+00:00",
+      "status": "complete",
+      "concept": "Dark Chocolate Espresso Brownie Cups",
+      "photography_data": "dry-run-placeholder",
+      "image_paths": [
+        "placeholder_1.png",
+        "placeholder_2.png",
+        "placeholder_3.png"
+      ],
+      "dialogue": [
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Julian Torres",
+          "message": "Just got in, dropping three lighting tests for Dark Chocolate Espresso Brownie Cups; I'm pushing low-key chiaroscuro. Hero by 5:00 pm.",
+          "timestamp": "2026-03-04T09:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": [
+            "placeholder_1.png",
+            "placeholder_2.png",
+            "placeholder_3.png"
+          ]
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Wow Julian, these are gorgeous. I think maybe we could possibly pick chiaroscuro if it reads in feed; Margaret included, please vote by 4:00 pm.",
+          "timestamp": "2026-03-04T10:20:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Margaret Chen",
+          "message": "Chiaroscuro hides the texture. Vote mid-light. Shows gloss, crumbs, espresso bloom.",
+          "timestamp": "2026-03-04T11:40:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Julian Torres",
+          "message": "Mid-light flattens the plate; chiaroscuro creates narrative - can we add a soft 45-degree fill to rescue gloss and crumbs while keeping the drama?",
+          "timestamp": "2026-03-04T13:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, can we run Julian's 45-degree fill against Margaret's mid-light as 4:5 and 1:1 600px previews, decide by 4:45 pm? Does that work?",
+          "timestamp": "2026-03-04T14:20:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Margaret Chen",
+          "message": "Hero is Julian's low-key with the 45-degree fill. Keeps drama and shows crumbs. I'm out.",
+          "timestamp": "2026-03-04T15:40:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-04T16:56:09.138072+00:00"
+    },
+    "thursday": {
+      "stage": "copywriting",
+      "started_at": "2026-03-04T16:56:14.526644+00:00",
+      "status": "complete",
+      "concept": "Dark Chocolate Espresso Brownie Cups",
+      "copy_text": {
+        "body": "There is something indecently small and brilliant about a dessert built to fit a muffin tin: a private eruption of chocolate meant for one, a theatrical little collapse of ganache the moment a fork breaches the crust. These Dark Chocolate Espresso Brownie Cups are that quiet spectacle\u2014equal parts old-fashioned brownie comfort and modern, molten mischief\u2014designed to be pulled from the oven in 16 minutes and offered like a secret to anyone whom you trust with a spoon.\n\nStart with butter cut into pieces\u2014so ordinary it reads like a stage direction\u2014because the geometry of melting matters; small pats coax into silence by the hot, finely chopped Ghirardelli 72% bittersweet chocolate so it dissolves into a glossy, bitter-sweet pool that remembers every good thing Ruth Reichl ever said about indulgence and restraint. Granulated sugar gives the top that barely shattering sheen; light brown sugar folds into the mix like an old friend, bringing molasses warmth and a chew that tastes like memory. Eggs are the quiet architects, lending structure and silk; a little pure vanilla rounds the edges like a practiced editor.\n\nWhat I love about the muffin tin (and why Nigel Slater would smile if he had a spare minute) is the way it turns proportion into intimacy. Instead of one monumental tray of brownies to be policed by willpower, you have twelve tiny dramas: crisp rims, dense, fudgy centers, and\u2014if you tuck a spoonful of molten espresso ganache into the middle before baking\u2014an incandescent heart that pours out in a single glorious moment. Make the ganache with a breath of strong espresso (or the potent concentrate from the French press I lug to work every morning), melted with a touch more bittersweet chocolate. Once warm, it is the sort of thing Elizabeth David would have admired for its honesty: pure flavor, no pretense.\n\nThere are domestic decisions embedded in these ingredients\u2014the choice of unsalted butter so you control the seasoning, the insistence on chopping the chocolate finely so it yields quickly and evenly, the tug-of-war between granulated and brown sugar for texture and depth. They are the sorts of small, stubborn preferences you learn to keep in a Moleskine, the kind of notes you make in the margin of a recipe and never quite throw away. MFK Fisher wrote about food as a language of desire; these cups speak that language in short sentences\u2014bitter, sweet, hot, molten, and entirely immediate.\n\nBaking them is a lesson in patience and instant gratification. Sixteen minutes is the magic number: long enough for the edges to set and tease a crispness, short enough that the centers stay floridly liquid. Serve them warm, and they will demand an audience. They are dress-rehearsal-perfect for crowds, but also confessedly selfish\u2014perfect for a night when you want to press something warm into a friend's hand and watch the expression change. They travel well, too; the muffin tin's geometry makes them portable, giftable, and less dangerous than a communal pan of brownies (an argument for moderation, if you insist on making one).\n\nIf you find, as I often do, that the world makes more sense when described through flavor, this recipe is a little essay on contrasts: smoke and sugar, crisp and molten, the civil restraint of butter and the unapologetic ferocity of 72% chocolate. It is a recipe that asks for attention\u2014measurements taken, chocolate chopped, espresso brewed strong\u2014and then rewards you in that precise, extravagant way only chocolate can. Make a batch; let the kitchen smell of steam, coffee, and something fabulously dark. Fold the evidence carefully into napkins, and then, for once, do as MFK might advise\u2014eat it slowly, and tell someone about it.",
+        "word_count": 563,
+        "target_word_count": 200,
+        "quality": "overwrought but competent",
+        "exceeded_target_by": 363,
+        "literary_references": "Elizabeth David knew that the best recipes..."
+      },
+      "dialogue": [
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Marcus Reid",
+          "message": "Morning, all. Draft for Dark Chocolate Espresso Brownie Cups is in the shared doc; it's a touch lyrical because espresso and dark chocolate beg for story, deadline 3:00 pm, Margaret, scalpel; Steph, decide.",
+          "timestamp": "2026-03-04T09:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, I know you asked me to decide, but I think maybe we could possibly keep Marcus's voice while tightening it; Marcus, could you pick your top three lyrical lines to keep, and Margaret, could you flag the rest for lean cuts by 2:15 pm so I can stitch a short final before 3? Does that make sense? No? That's fair.",
+          "timestamp": "2026-03-04T10:36:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Margaret Chen",
+          "message": "Good plan, Steph. Marcus, pick your three lines by 1:30 pm. I'll pare the rest and return clean copy by 2:15 pm.",
+          "timestamp": "2026-03-04T12:12:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Marcus Reid",
+          "message": "I'll pin three keeper lines in the doc by 1:30 pm - the espresso-bloom image, molten chocolate, and a consolatory crumb line. Margaret, whom I trust, wield your scalpel; Steph, please stitch short and honest by 3:00 pm.",
+          "timestamp": "2026-03-04T13:48:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Margaret Chen",
+          "message": "Copy approved. Kept Marcus's three lines, cut the rest; Steph stitched and submitted by 3:00 pm. I'm off.",
+          "timestamp": "2026-03-04T15:24:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-04T16:58:40.236485+00:00"
+    },
+    "friday": {
+      "stage": "final_review",
+      "started_at": "2026-03-04T16:58:45.616808+00:00",
+      "status": "complete",
+      "concept": "Dark Chocolate Espresso Brownie Cups",
+      "review_data": {
+        "positive": [
+          "I love this! The concept is really strong.",
+          "Great work on this, seriously."
+        ],
+        "suggestions": [
+          "I think maybe we could possibly adjust the portion sizes? Just a thought.",
+          "Does the title feel... I don't know. What do YOU think?"
+        ],
+        "decision": "approved_with_minor_revisions",
+        "confidence": "low",
+        "notes": "Let's circle back if anyone has concerns?"
+      },
+      "approved": true,
+      "dialogue": [
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Margaret Chen",
+          "message": "Logged in. Final review - Dark Chocolate Espresso Brownie Cups; something's off with texture and gloss. Decision by 5:00 pm - approve or send back with exact fixes; Steph confirm bake time, Devon confirm deployment readiness.",
+          "timestamp": "2026-03-04T09:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Margaret Chen",
+          "message": "Do not approve. Send it back with these fixes: bake at 320F for 13 minutes; fold eggs into the warm chocolate with four slow spatula turns - no whisking; let batter rest 12 minutes before portioning, tap tins to release big bubbles; cool 7 minutes in the tin then unmold, target shiny domes and about 205F internal. Steph - tell me the temp/time you used just now. Devon - pause deployment until we have retest photos; confirm by 4:15 pm.",
+          "timestamp": "2026-03-04T10:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Marcus Reid",
+          "message": "Not approved; rerun per Margaret, whom I defer to on texture: 320 F for 13 minutes; fold room-temperature eggs into warm chocolate with four slow spatula turns, rest batter 12 minutes before portioning, cool 7 minutes in the tin then unmold, aim for glossy domes and about 205 F internal. Steph, report the oven temp and time you just ran; Devon, hold deployment until retest photos are uploaded and acknowledge by 4:15 pm.",
+          "timestamp": "2026-03-04T11:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Devon Park",
+          "message": "Set a CI hold flag and locked the pipeline; I'm watching the /assets/retests S3 path and won't push any build until I see the new photos and it's past 4:15 pm.",
+          "timestamp": "2026-03-04T12:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Margaret Chen",
+          "message": "Fine. Devon, keep the pipeline locked until 4:16 pm - no pushes or overrides. Steph, state the oven temp and run time and upload retest photos to /assets/retests now; if the cups lack glossy domes or don't register around 205 F we reshoot tomorrow.",
+          "timestamp": "2026-03-04T13:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Julian Torres",
+          "message": "I'm deferring to Margaret; no approve until glossy domes at about 205F are verified and retest RAWs uploaded.",
+          "timestamp": "2026-03-04T14:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, I think maybe we ran a touch hot; I ran them at 320 F for 14 minutes, internal about 203 F, and I added the retest RAWs to /assets/retests. Does that make sense?",
+          "timestamp": "2026-03-04T15:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Devon Park",
+          "message": "Deploy keys disabled and overrides blocked until 4:16 pm; I'm watching /assets/retests for RAWs that show shiny domes with EXIF/internal temps ~205 F and will run a 5-minute visual QA after 4:16 pm before I re-enable the pipeline.",
+          "timestamp": "2026-03-04T16:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-04T17:03:11.530650+00:00"
+    },
+    "saturday": {
+      "stage": "deployment",
+      "started_at": "2026-03-04T17:03:16.954549+00:00",
+      "status": "complete",
+      "concept": "Dark Chocolate Espresso Brownie Cups",
+      "deployment_status": "staged",
+      "dialogue": [
+        {
+          "day": "saturday",
+          "stage": "deployment",
+          "character": "Devon Park",
+          "message": "Logged on, quiet Saturday deploy - staging Dark Chocolate Espresso Brownie Cups for noon, will ping if anything breaks.",
+          "timestamp": "2026-03-04T09:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "saturday",
+          "stage": "deployment",
+          "character": "Margaret Chen",
+          "message": "Fine. Don't overbake the cups - center should still wobble. Ping if staging coughs.",
+          "timestamp": "2026-03-04T11:40:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "saturday",
+          "stage": "deployment",
+          "character": "Devon Park",
+          "message": "Pushed to staging; middle jiggle within tolerance, snapshot and rollback tag 'brownie-nopeak' set, offline till Monday.",
+          "timestamp": "2026-03-04T14:20:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-04T17:04:05.083183+00:00"
+    },
+    "sunday": {
+      "stage": "publish",
+      "started_at": "2026-03-04T17:04:10.473308+00:00",
+      "status": "complete",
+      "concept": "Dark Chocolate Espresso Brownie Cups",
+      "published": true,
+      "dialogue": [
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, I'm in - publish for Dark Chocolate Espresso Brownie Cups at 5:00 pm sharp; can we do one last scan now, please?",
+          "timestamp": "2026-03-04T09:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Marcus Reid",
+          "message": "Okay - I made the cuts you won't, warmed the headline, pared the intro, and uploaded the final copy; we're set for 5:00 pm. I'll be at the keyboard to press publish.",
+          "timestamp": "2026-03-04T11:40:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Margaret Chen",
+          "message": "Marcus hits publish at 5:00 pm sharp. Good work, Steph, I'm logging off. Night.",
+          "timestamp": "2026-03-04T14:20:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-04T17:04:56.631442+00:00"
+    }
+  },
+  "events": [
+    "monday: complete",
+    "tuesday: complete",
+    "wednesday: complete",
+    "thursday: complete",
+    "friday: complete",
+    "saturday: complete",
+    "sunday: complete"
+  ],
+  "recipe_id": "046ce33a",
+  "concept": "Dark Chocolate Espresso Brownie Cups",
+  "image_paths": [
+    "placeholder_1.png",
+    "placeholder_2.png",
+    "placeholder_3.png"
+  ],
+  "published_at": "2026-03-04T17:04:10.473545+00:00"
+}

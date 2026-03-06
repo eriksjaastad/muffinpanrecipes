@@ -1,0 +1,440 @@
+{
+  "episode_id": "2026-W09-tiramisu-2",
+  "created_at": "2026-03-01T09:57:29.250427",
+  "stages": {
+    "monday": {
+      "stage": "brainstorm",
+      "started_at": "2026-03-01T09:57:29.252577",
+      "status": "complete",
+      "concept": "Tiramisu Panna Cotta Cups",
+      "recipe_data": {
+        "title": "Tiramisu Panna Cotta Cups",
+        "concept": "Tiramisu Panna Cotta Cups",
+        "description": "A reliable muffin-tin build for Tiramisu Panna Cotta Cups, designed for crispy edges and a tender center.",
+        "servings": 12,
+        "prep_time": 20,
+        "cook_time": 22,
+        "difficulty": "medium",
+        "category": "savory",
+        "ingredients": [
+          {
+            "item": "eggs",
+            "amount": "8 large",
+            "notes": "room temperature"
+          },
+          {
+            "item": "shredded sharp cheddar",
+            "amount": "1 cup",
+            "notes": "packed loosely"
+          },
+          {
+            "item": "milk",
+            "amount": "1/2 cup",
+            "notes": "whole milk preferred"
+          },
+          {
+            "item": "all-purpose flour",
+            "amount": "3/4 cup",
+            "notes": "leveled"
+          },
+          {
+            "item": "melted butter",
+            "amount": "2 tbsp",
+            "notes": "cooled slightly"
+          },
+          {
+            "item": "salt",
+            "amount": "1 tsp",
+            "notes": "fine"
+          },
+          {
+            "item": "black pepper",
+            "amount": "1/2 tsp",
+            "notes": "freshly cracked"
+          },
+          {
+            "item": "chopped green onion",
+            "amount": "1/3 cup",
+            "notes": "optional"
+          }
+        ],
+        "instructions": [
+          "Preheat oven to 375\u00b0F (190\u00b0C). Grease a standard 12-cup muffin tin well.",
+          "Whisk eggs, milk, melted butter, salt, and pepper until fully combined.",
+          "Whisk in flour just until smooth, then fold in cheddar and green onion.",
+          "Divide batter evenly among muffin cups, filling each about 3/4 full.",
+          "Bake 20-24 minutes, until puffed, lightly golden, and just set in the center.",
+          "Rest 5 minutes in pan, then loosen with a thin knife and serve warm."
+        ],
+        "chef_notes": "Use a metal pan for better browning. Let the cups rest before removing so they hold shape.",
+        "margaret_notes": [
+          "At least we're doing the technique correctly.",
+          "Check oven temp with a thermometer. Don't trust the dial.",
+          "Use a metal pan for better browning. Let the cups rest before removing so they hold shape."
+        ]
+      },
+      "dialogue": [
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "*mutters under breath* I suppose that could work... if you want it to fail. Let's just get this over with, people.",
+          "timestamp": "2026-03-01T09:00:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Marcus Reid",
+          "message": "\"If I may offer some context, Margaret, there is a literary tradition of using seemingly simple elements\u2014like a recipe\u2014to explore complex themes and narratives. I was thinking we could perhaps delve into the narrative arc of this muffin description, finding ways to elevate it beyond mere instructions.\"",
+          "timestamp": "2026-03-01T10:08:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "I think maybe we could possibly explore that idea further? I'd love to hear more about how you envision incorporating a narrative arc into the recipe. What themes are you thinking of highlighting?",
+          "timestamp": "2026-03-01T11:16:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "*mutters under breath* Fine. FINE. I'll give it a try, but let's not get carried away with fancy literary nonsense. Just tell me what you want in bullet points, and we can move on.",
+          "timestamp": "2026-03-01T12:24:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Marcus Reid",
+          "message": "\"There's a literary tradition of using seemingly simple elements\u2014like a recipe\u2014to explore complex themes and narratives. I was thinking we could perhaps delve into the narrative arc of this muffin description, finding ways to elevate it beyond mere instructions.\"",
+          "timestamp": "2026-03-01T13:32:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "I think maybe we could possibly start by outlining the key themes we want to highlight in the recipe, like tradition, simplicity, and joy. Then we can build our narrative around those ideas. What do YOU think? I'm really interested in your perspective.",
+          "timestamp": "2026-03-01T14:40:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "Fine. FINE. Tradition, simplicity, joy\u2014those are good themes. Let's stick to the science of baking and not get lost in literary nonsense. Just give me the bullet points so we can move on.",
+          "timestamp": "2026-03-01T15:48:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-01T09:59:10.377377"
+    },
+    "tuesday": {
+      "stage": "recipe_development",
+      "started_at": "2026-03-01T09:59:40.731424",
+      "status": "complete",
+      "concept": "Tiramisu Panna Cotta Cups",
+      "recipe_data_ref": "from monday stage",
+      "dialogue": [
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Margaret Chen",
+          "message": "Fine. FINE. Just give me the ratios and let's get this over with. I'll mutter under my breath about how much this matters, but I suppose that could work... if you want it to fail.",
+          "timestamp": "2026-03-01T09:00:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "I just want to make sure everyone feels heard. Can you tell me more about why the ratios are so important? Maybe there's a detail I'm missing.",
+          "timestamp": "2026-03-01T10:36:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Marcus Reid",
+          "message": "\"If I may offer some context, Mrs. Margaret, these ratios are not merely arbitrary\u2014they encapsulate centuries of culinary tradition. They ensure the perfect balance between flavor and texture, much like the equilibrium in a well-crafted sentence or paragraph. As for Stephanie, perhaps we could explore the narrative arc of this recipe further? The subtext here is important.\"",
+          "timestamp": "2026-03-01T12:12:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Margaret Chen",
+          "message": "*mutters under breath* In my day we called that... tradition. Ratios are more than just numbers; they're the foundation of flavor and texture. If you mess with them, it's like trying to tell a story without a beginning, middle, or end. Now, if you'll excuse me, I need to measure this flour twice.",
+          "timestamp": "2026-03-01T13:48:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "I think maybe we could possibly start by taking a look at the ratios together and see where adjustments might improve the balance without losing the essence of the recipe's history? I just want to make sure we're honoring the tradition while also innovating slightly. What do YOU think?",
+          "timestamp": "2026-03-01T15:24:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-01T10:00:40.117859"
+    },
+    "wednesday": {
+      "stage": "photography",
+      "started_at": "2026-03-01T10:01:10.419659",
+      "status": "failed",
+      "concept": "Tiramisu Panna Cotta Cups",
+      "error": "STABILITY_API_KEY not configured; stopping pipeline",
+      "failed_at": "2026-03-01T10:01:10.420220"
+    },
+    "thursday": {
+      "stage": "copywriting",
+      "started_at": "2026-03-01T10:01:40.703569",
+      "status": "complete",
+      "concept": "Tiramisu Panna Cotta Cups",
+      "copy_text": {
+        "body": "There is a certain poetry in the simple act of cooking. Tiramisu Panna Cotta Cups represents more than mere sustenance\u2014it is a meditation on the intersection of tradition and innovation, of comfort and creativity. The muffin tin, that most humble of vessels, transforms ingredients into something greater than the sum of their parts.",
+        "word_count": 52,
+        "target_word_count": 200,
+        "quality": "placeholder - LLM unavailable",
+        "exceeded_target_by": -148,
+        "literary_references": "Elizabeth David knew that the best recipes...",
+        "note": "This is actually beautiful. People will share this."
+      },
+      "dialogue": [
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Marcus Reid",
+          "message": "If I may offer some context... the panna cotta cups are a delicate balance of rich tiramisu flavors and creamy custard, encapsulating a moment of indulgence in each bite. There's a literary tradition of exploring the narrative arc through food, much like how Proust once wrote about madeleines, and what is a muffin but a modern interpretation? I was thinking we could explore the narrative arc of these cups, starting with the bitter espresso-soaked sponge cake, moving through the creamy filling that mirrors the layers of memory and longing, and ending with a dusting of cocoa powder that speaks to the bittersweet nature of life itself. The subtext here is important; it's not just dessert, but a journey through flavors and emotions. I've been doing some research... *references an obscure food writer from the 1960s* who spoke about the importance of storytelling in cooking.",
+          "timestamp": "2026-03-01T09:00:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "I think maybe we could possibly explore that narrative further by tying it into the packaging design as well. What if the box itself told a little story about the journey these cups take from espresso to dessert? I'm probably wrong, but... let's circle back to this and see how we can make the experience even more immersive. Does that make sense? No? That's fair.",
+          "timestamp": "2026-03-01T10:36:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Margaret Chen",
+          "message": "*mutters under breath* \"Narrative arc in a muffin tin? Sounds like something from a foodie blog. Let\u2019s just focus on making it taste good and not get too artsy-fartsy.\"",
+          "timestamp": "2026-03-01T12:12:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Marcus Reid",
+          "message": "The subtext here is important, Margaret. It's not just about the flavors; it's about connecting with our audience on an emotional level. Proust didn't write about madeleines without purpose\u2014there was a narrative there, even if he didn\u2019t always spell it out. And storytelling isn\u2019t something we should shy away from in food, especially when it can elevate the experience and make people feel seen. Let's not forget that our work here is more than just recipes\u2014it\u2019s an opportunity to share stories through taste.",
+          "timestamp": "2026-03-01T13:48:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, but could we maybe simplify it a bit? I think Margaret has a point about keeping it accessible. Maybe we focus on the flavors and add a subtle, thematic element instead of a full narrative arc. Let's circle back to this and see what we can come up with that satisfies everyone.",
+          "timestamp": "2026-03-01T15:24:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-01T10:03:05.864513"
+    },
+    "friday": {
+      "stage": "final_review",
+      "started_at": "2026-03-01T10:03:36.241025",
+      "status": "complete",
+      "concept": "Tiramisu Panna Cotta Cups",
+      "review_data": {
+        "positive": [
+          "I love this! The concept is really strong.",
+          "Great work on this, seriously."
+        ],
+        "suggestions": [],
+        "decision": "approved_with_minor_revisions",
+        "confidence": "low",
+        "notes": "Let's circle back if anyone has concerns?"
+      },
+      "approved": true,
+      "dialogue": [
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Margaret Chen",
+          "message": "*mutters under breath* I suppose that could work... if you want it to fail. Just make sure every gram counts, or this whole exercise was for nothing.",
+          "timestamp": "2026-03-01T09:00:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "I just want to make sure everyone feels heard. What do YOU think? I'm really interested in your perspective.",
+          "timestamp": "2026-03-01T10:00:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Julian Torres",
+          "message": "I'm thinking about the visual language here... how can we ensure it's not just a recipe blog but something that truly resonates on a deeper level? Let's make every element intentional, from the eucalyptus garnish to the composition. What if we reconsidered the entire framework to tell a more compelling story with each plate?",
+          "timestamp": "2026-03-01T11:00:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Marcus Reid",
+          "message": "\"If I may offer some context... Every word and ingredient in this recipe holds the potential for narrative exploration. Proust once wrote about madeleines, and what is a muffin but a vessel for memory and emotion? There's a literary tradition of elevating everyday objects to the status of symbols, and I believe we should apply that same philosophy to food blogging. The subtext here is important.\"",
+          "timestamp": "2026-03-01T12:00:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Devon Park",
+          "message": "\"Yeah, let\u2019s make this blog not just about recipes but stories too. Maybe start with optimizing images for faster load times first? Julian, can you give us some tips on the visual elements?\"",
+          "timestamp": "2026-03-01T13:00:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Margaret Chen",
+          "message": "In my day we called that... overthinking it. Just measure twice and bake at 350. But if you want to tell a story, make sure the math still adds up. *mutters* And let\u2019s not forget, the muffin itself should be delicious first, before we get all literary on it.",
+          "timestamp": "2026-03-01T14:00:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "I think maybe we could possibly focus on both the storytelling and the technical aspects equally. Let's circle back to this after we've optimized the images and settled on a clear narrative direction. I love that we're considering every element, but I also want to make sure the muffins are still the star of the show.",
+          "timestamp": "2026-03-01T15:00:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Julian Torres",
+          "message": "The negative space is really important. Every detail matters because it's all part of the bigger story we're trying to tell. Let\u2019s not lose sight of that. We need to make every element intentional, from the eucalyptus garnish to the composition itself. This isn\u2019t just about recipes; it's about elevating food into a form of art. What do you think?",
+          "timestamp": "2026-03-01T16:00:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-01T10:05:27.776691"
+    },
+    "saturday": {
+      "stage": "deployment",
+      "started_at": "2026-03-01T10:05:58.112974",
+      "status": "complete",
+      "concept": "Tiramisu Panna Cotta Cups",
+      "deployment_status": "staged",
+      "dialogue": [
+        {
+          "day": "saturday",
+          "stage": "deployment",
+          "character": "Devon Park",
+          "message": "Yeah I can probably automate that. Let me just double-check the script... it's running smoothly now, so we should be good to go by EOD. \ud83d\ude80",
+          "timestamp": "2026-03-01T09:00:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "saturday",
+          "stage": "deployment",
+          "character": "Margaret Chen",
+          "message": "In my day we called that 'smooth sailing'. Just make sure it holds up under pressure. *mutters* Fine. FINE.",
+          "timestamp": "2026-03-01T11:40:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "saturday",
+          "stage": "deployment",
+          "character": "Devon Park",
+          "message": "*shrugs* Smooth sailing indeed. I'll keep an eye on it. And who doesn't love a good script? \u2615",
+          "timestamp": "2026-03-01T14:20:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-01T10:06:35.121472"
+    },
+    "sunday": {
+      "stage": "publish",
+      "started_at": "2026-03-01T10:07:05.434063",
+      "status": "complete",
+      "concept": "Tiramisu Panna Cotta Cups",
+      "published": true,
+      "dialogue": [
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Let's circle back to this. We need to make sure everything is perfect for the 5pm deadline. Anyone have any last-minute thoughts or concerns we should address before hitting publish?",
+          "timestamp": "2026-03-01T09:00:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Margaret Chen",
+          "message": "*mutters under breath* Fine. FINE. I suppose that could work... if you want it to fail. Just make sure you get those recipes proofread one more time.",
+          "timestamp": "2026-03-01T13:00:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-01T10:07:28.873617"
+    }
+  },
+  "events": [
+    "monday: complete",
+    "tuesday: complete",
+    "wednesday: failed \u2014 STABILITY_API_KEY not configured; stopping pipeline",
+    "thursday: complete",
+    "friday: complete",
+    "saturday: complete",
+    "sunday: complete"
+  ],
+  "recipe_id": "167a27b7",
+  "concept": "Tiramisu Panna Cotta Cups",
+  "dry_run": false,
+  "published_at": "2026-03-01T10:07:05.434102"
+}

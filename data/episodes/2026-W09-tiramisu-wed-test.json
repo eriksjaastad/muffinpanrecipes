@@ -1,0 +1,77 @@
+{
+  "episode_id": "2026-W09-tiramisu-wed-test",
+  "created_at": "2026-03-01T10:16:59.141537",
+  "stages": {
+    "wednesday": {
+      "stage": "photography",
+      "started_at": "2026-03-01T10:16:59.142949",
+      "status": "complete",
+      "concept": "Tiramisu Panna Cotta Cups",
+      "photography_data": [
+        "data/images/40b5e25e/editorial.png",
+        "data/images/40b5e25e/action_steam.png",
+        "data/images/40b5e25e/the_spread.png"
+      ],
+      "image_paths": [
+        "data/images/40b5e25e/editorial.png",
+        "data/images/40b5e25e/action_steam.png",
+        "data/images/40b5e25e/the_spread.png"
+      ],
+      "dialogue": [
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Julian Torres",
+          "message": "I'm thinking about the visual language here... we need to really emphasize the textures of the tiramisu and panna cotta. The negative space is really important. Can we talk about the narrative the plate is telling? I just think we can push this further.",
+          "timestamp": "2026-03-01T09:00:00",
+          "model": "ollama/coding:current",
+          "attachments": [
+            "data/images/40b5e25e/editorial.png",
+            "data/images/40b5e25e/action_steam.png"
+          ]
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "I love that! Also what if we... never mind. Let's circle back to this after lunch. What do YOU think? I'm really interested in your perspective.",
+          "timestamp": "2026-03-01T11:00:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Margaret Chen",
+          "message": "*mutters under breath* Fine. FINE. Narrative and textures, huh? Just remember, it all comes back to the ratios. Let\u2019s make sure we don\u2019t lose sight of that. But yeah, let\u2019s discuss after lunch.",
+          "timestamp": "2026-03-01T13:00:00",
+          "model": "ollama/coding:current",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Julian Torres",
+          "message": "The negative space is crucial for balance. It's giving very... [trails off because he can't articulate it]. Let\u2019s rethink the entire visual framework. What if we introduced an element that contrasts with the textures? Can we find a prop that adds depth without overpowering the dessert itself?",
+          "timestamp": "2026-03-01T15:00:00",
+          "model": "ollama/coding:current",
+          "attachments": [
+            "data/images/40b5e25e/the_spread.png"
+          ]
+        }
+      ],
+      "completed_at": "2026-03-01T10:18:22.577166"
+    }
+  },
+  "events": [
+    "wednesday: complete"
+  ],
+  "recipe_id": "40b5e25e",
+  "concept": "Tiramisu Panna Cotta Cups",
+  "dry_run": false,
+  "image_paths": [
+    "data/images/40b5e25e/editorial.png",
+    "data/images/40b5e25e/action_steam.png",
+    "data/images/40b5e25e/the_spread.png"
+  ]
+}
