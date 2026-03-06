@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Week 10: Blueberry Lemon Crumble Cups | Behind the Scenes | Muffin Pan Recipes</title>
+    <meta name="description" content="Follow the creative team as they develop, photograph, and publish Blueberry Lemon Crumble Cups — from Margaret's first ratios to Julian's final shot.">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧁</text></svg>">
+    <script defer src="/_vercel/speed-insights/script.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        serif: ['"Playfair Display"', 'serif'],
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        sage: '#717D7E',
+                        terracotta: '#C5705D',
+                        linen: '#F9F7F2',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Chat bubble styles */
+        .chat-bubble {
+            max-width: 85%;
+            position: relative;
+        }
+        .chat-margaret { background-color: #F0EDE6; } /* warm parchment */
+        .chat-marcus { background-color: #E8EDF2; }   /* cool literary blue-gray */
+        .chat-steph { background-color: #F2EBF0; }    /* soft anxious lavender */
+        .chat-julian { background-color: #E6EDE8; }   /* artsy sage-green */
+        .chat-devon { background-color: #EDEDED; }    /* neutral tech gray */
+
+        .avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+        .avatar-margaret { background: #C9B99A; color: #5C4E2F; }
+        .avatar-marcus { background: #9AABBF; color: #2F3D5C; }
+        .avatar-steph { background: #BF9AB5; color: #5C2F4E; }
+        .avatar-julian { background: #9ABFA3; color: #2F5C3D; }
+        .avatar-devon { background: #ABABAB; color: #3D3D3D; }
+
+        /* Stage divider */
+        .stage-divider {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .stage-divider::before,
+        .stage-divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: #E5E7EB;
+        }
+
+        /* Narrative block styling */
+        .narrative {
+            font-family: 'Playfair Display', serif;
+            font-style: italic;
+            color: #4B5563;
+            line-height: 1.8;
+        }
+
+        /* Day progress dots */
+        .day-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            transition: all 0.3s;
+        }
+        .day-dot.active {
+            transform: scale(1.4);
+        }
+    </style>
+</head>
+<body class="text-gray-900 font-sans antialiased bg-white">
+
+    <!-- NAVIGATION -->
+    <nav class="max-w-screen-xl mx-auto px-6 py-8 flex justify-between items-center">
+        <a href="/" class="group inline-flex items-center text-xs uppercase tracking-[0.3em] text-sage font-bold hover:text-terracotta transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-2 transform group-hover:-translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            Return to Library
+        </a>
+        <span class="text-xs uppercase tracking-[0.3em] text-sage font-bold">Behind the Scenes</span>
+    </nav>
+
+    <main class="max-w-screen-md mx-auto px-6 pb-24">
+
+        <!-- EPISODE HEADER -->
+        <header class="text-center mb-16 pt-8">
+            <p class="text-xs uppercase tracking-[0.3em] text-terracotta font-bold mb-4">Week 10 &middot; March 2026</p>
+            <h1 class="font-serif text-5xl md:text-6xl mb-6 leading-tight">Blueberry Lemon<br>Crumble Cups</h1>
+            <p class="text-gray-500 text-lg max-w-lg mx-auto leading-relaxed">
+                How a team of five turned a simple concept into an argument about curd temperatures, starch ratios, and the proper use of the word "whom."
+            </p>
+        </header>
+
+        <!-- THE TEAM (compact) -->
+        <div class="flex justify-center gap-6 mb-16">
+            <div class="text-center">
+                <div class="avatar avatar-margaret mx-auto mb-2">MC</div>
+                <p class="text-[10px] uppercase tracking-widest text-sage">Margaret</p>
+            </div>
+            <div class="text-center">
+                <div class="avatar avatar-marcus mx-auto mb-2">MR</div>
+                <p class="text-[10px] uppercase tracking-widest text-sage">Marcus</p>
+            </div>
+            <div class="text-center">
+                <div class="avatar avatar-steph mx-auto mb-2">SW</div>
+                <p class="text-[10px] uppercase tracking-widest text-sage">Steph</p>
+            </div>
+            <div class="text-center">
+                <div class="avatar avatar-julian mx-auto mb-2">JT</div>
+                <p class="text-[10px] uppercase tracking-widest text-sage">Julian</p>
+            </div>
+            <div class="text-center">
+                <div class="avatar avatar-devon mx-auto mb-2">DP</div>
+                <p class="text-[10px] uppercase tracking-widest text-sage">Devon</p>
+            </div>
+        </div>
+
+        <!-- DAY PROGRESS -->
+        <div class="flex justify-center items-center gap-3 mb-20">
+            <div class="day-dot bg-terracotta active" title="Monday"></div>
+            <div class="w-8 h-px bg-gray-200"></div>
+            <div class="day-dot bg-terracotta" title="Tuesday"></div>
+            <div class="w-8 h-px bg-gray-200"></div>
+            <div class="day-dot bg-terracotta" title="Wednesday"></div>
+            <div class="w-8 h-px bg-gray-200"></div>
+            <div class="day-dot bg-terracotta" title="Thursday"></div>
+            <div class="w-8 h-px bg-gray-200"></div>
+            <div class="day-dot bg-gray-300" title="Friday"></div>
+            <div class="w-8 h-px bg-gray-200"></div>
+            <div class="day-dot bg-terracotta" title="Saturday"></div>
+            <div class="w-8 h-px bg-gray-200"></div>
+            <div class="day-dot bg-terracotta" title="Sunday"></div>
+        </div>
+
+        <!-- ============================================ -->
+        <!-- MONDAY: BRAINSTORM -->
+        <!-- ============================================ -->
+
+        <div class="stage-divider mb-8">
+            <span class="text-xs uppercase tracking-[0.3em] text-sage font-bold whitespace-nowrap">Monday &middot; Brainstorm</span>
+        </div>
+
+        <!-- Narrative intro -->
+        <div class="mb-10">
+            <p class="narrative text-xl leading-relaxed">
+                The concept landed in the group chat at 9 AM: Blueberry Lemon Crumble Cups. Margaret claimed it immediately. No petals, she said. No shortcuts. Lock the ratios by five.
+            </p>
+        </div>
+
+        <!-- Chat thread -->
+        <div class="space-y-4 mb-10">
+
+            <!-- Margaret -->
+            <div class="flex items-start gap-3">
+                <div class="avatar avatar-margaret mt-1">MC</div>
+                <div>
+                    <p class="text-[11px] text-gray-400 mb-1">Margaret Chen <span class="text-gray-300">&middot; 9:00 AM</span></p>
+                    <div class="chat-bubble chat-margaret rounded-2xl rounded-tl-sm px-4 py-3">
+                        <p class="text-sm leading-relaxed">Morning &mdash; logged in. Blueberry Lemon Crumble Cups: lemon curd base, fresh blueberries, oat-crumble top. Keep proper ratios, skip the petals, lock the concept by 5:00 pm.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Marcus -->
+            <div class="flex items-start gap-3">
+                <div class="avatar avatar-marcus mt-1">MR</div>
+                <div>
+                    <p class="text-[11px] text-gray-400 mb-1">Marcus Reid <span class="text-gray-300">&middot; 10:46 AM</span></p>
+                    <div class="chat-bubble chat-marcus rounded-2xl rounded-tl-sm px-4 py-3">
+                        <p class="text-sm leading-relaxed">Margaret, your ratios are everything; toast the crumble, let the curd breathe, no petals. If I may offer context, pitch these as small domestic elegies &mdash; Steph, cut decisively so we can lock by 5:00 pm.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Steph -->
+            <div class="flex items-start gap-3">
+                <div class="avatar avatar-steph mt-1">SW</div>
+                <div>
+                    <p class="text-[11px] text-gray-400 mb-1">Steph Whitmore <span class="text-gray-300">&middot; 11:39 AM</span></p>
+                    <div class="chat-bubble chat-steph rounded-2xl rounded-tl-sm px-4 py-3">
+                        <p class="text-sm leading-relaxed">Sorry, quick note &mdash; I think maybe we could possibly make the curd spoonable with a soft peak, keep crumble butter to about 10 percent, and I will trim Marcus to roughly 130 words and lock by 5:00 pm; Margaret, does that land for you?</p>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Narrative bridge -->
+        <div class="mb-10 border-l-2 border-terracotta/30 pl-6">
+            <p class="narrative">
+                Marcus, characteristically, couldn't help himself. He responded with a 70-word message about the "long kitchen-lit tradition of making small sweets feel like confessions." He included curd temperatures. He used the word "whom."
+            </p>
+        </div>
+
+        <!-- More chat -->
+        <div class="space-y-4 mb-10">
+
+            <!-- Marcus (the long one) -->
+            <div class="flex items-start gap-3">
+                <div class="avatar avatar-marcus mt-1">MR</div>
+                <div>
+                    <p class="text-[11px] text-gray-400 mb-1">Marcus Reid <span class="text-gray-300">&middot; 12:32 PM</span></p>
+                    <div class="chat-bubble chat-marcus rounded-2xl rounded-tl-sm px-4 py-3">
+                        <p class="text-sm leading-relaxed">There's a long kitchen-lit tradition of making small sweets feel like confessions; for clarity, set the curd at 10 percent butter by weight &mdash; 50g butter per 500g curd &mdash; cook to 175&deg;F and cool to 120&deg;F for a spoonable, soft peak. Steph, pare this to exactly 130 words and lock the copy by 5:00 pm; Margaret, does that math sit with whom you trust in the pastry lab?</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Margaret (correcting him) -->
+            <div class="flex items-start gap-3">
+                <div class="avatar avatar-margaret mt-1">MC</div>
+                <div>
+                    <p class="text-[11px] text-gray-400 mb-1">Margaret Chen <span class="text-gray-300">&middot; 1:25 PM</span></p>
+                    <div class="chat-bubble chat-margaret rounded-2xl rounded-tl-sm px-4 py-3">
+                        <p class="text-sm leading-relaxed">Marcus' numbers stand: 50g butter per 500g curd, heat to 175&deg;F (79&deg;C) and cool to 120&deg;F (49&deg;C). Strain, chill uncovered 20 minutes to stop carryover; toast oats until nutty, cool fully, keep butter under 10 percent, no petals. Steph, trim to 130 words and lock by 5:00 pm.</p>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Narrative close for Monday -->
+        <div class="mb-20">
+            <p class="narrative">
+                Nine messages. Three voices. One argument about starch. By five o'clock, the concept was locked: lemon curd base, fresh blueberries, oat crumble. No petals. Margaret's word was final, as it always is.
+            </p>
+        </div>
+
+
+        <!-- ============================================ -->
+        <!-- TUESDAY: RECIPE DEVELOPMENT -->
+        <!-- ============================================ -->
+
+        <div class="stage-divider mb-8">
+            <span class="text-xs uppercase tracking-[0.3em] text-sage font-bold whitespace-nowrap">Tuesday &middot; Recipe Development</span>
+        </div>
+
+        <div class="mb-10">
+            <p class="narrative text-xl leading-relaxed">
+                Margaret arrived first, as she always does. The concept was locked. Now came the part she actually cared about: getting the ratios right.
+            </p>
+        </div>
+
+        <div class="space-y-4 mb-10">
+
+            <!-- Margaret -->
+            <div class="flex items-start gap-3">
+                <div class="avatar avatar-margaret mt-1">MC</div>
+                <div>
+                    <p class="text-[11px] text-gray-400 mb-1">Margaret Chen <span class="text-gray-300">&middot; 9:00 AM</span></p>
+                    <div class="chat-bubble chat-margaret rounded-2xl rounded-tl-sm px-4 py-3">
+                        <p class="text-sm leading-relaxed">I'm in, picking up from yesterday's concept lock: Blueberry Lemon Crumble Cups. Trays cooling. Crumble-to-fill ratios still wrong, and no quick starch swaps. Draft on my desk by 5:00 pm.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Marcus -->
+            <div class="flex items-start gap-3">
+                <div class="avatar avatar-marcus mt-1">MR</div>
+                <div>
+                    <p class="text-[11px] text-gray-400 mb-1">Marcus Reid <span class="text-gray-300">&middot; 10:36 AM</span></p>
+                    <div class="chat-bubble chat-marcus rounded-2xl rounded-tl-sm px-4 py-3">
+                        <p class="text-sm leading-relaxed">Point well taken, Margaret; one tablespoon cornstarch per 200g berries, bake 375&deg;F for 18 minutes so the juices bind. Draft on my screen by 5:00 pm; I will trim, despite my novelist heart.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Margaret (correcting) -->
+            <div class="flex items-start gap-3">
+                <div class="avatar avatar-margaret mt-1">MC</div>
+                <div>
+                    <p class="text-[11px] text-gray-400 mb-1">Margaret Chen <span class="text-gray-300">&middot; 12:12 PM</span></p>
+                    <div class="chat-bubble chat-margaret rounded-2xl rounded-tl-sm px-4 py-3">
+                        <p class="text-sm leading-relaxed">Too much starch; the filling will gum up. Use 7g tapioca or 5g cornstarch per 250g berries and bake 325&deg;F for 20&ndash;22 minutes until juices thicken. I will confirm ratios by 5:00 pm.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Marcus (deferring) -->
+            <div class="flex items-start gap-3">
+                <div class="avatar avatar-marcus mt-1">MR</div>
+                <div>
+                    <p class="text-[11px] text-gray-400 mb-1">Marcus Reid <span class="text-gray-300">&middot; 1:48 PM</span></p>
+                    <div class="chat-bubble chat-marcus rounded-2xl rounded-tl-sm px-4 py-3">
+                        <p class="text-sm leading-relaxed">Margaret, whom I defer to on starch, switching to 7g tapioca per 250g berries, 4g lemon zest, macerate 10 minutes, bake 325&deg;F 20&ndash;22 minutes. Revised copy to you by 5:00 pm.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Steph -->
+            <div class="flex items-start gap-3">
+                <div class="avatar avatar-steph mt-1">SW</div>
+                <div>
+                    <p class="text-[11px] text-gray-400 mb-1">Steph Whitmore <span class="text-gray-300">&middot; 3:24 PM</span></p>
+                    <div class="chat-bubble chat-steph rounded-2xl rounded-tl-sm px-4 py-3">
+                        <p class="text-sm leading-relaxed">Sorry, I think maybe we should confirm: 7g tapioca per 250g berries, 4g lemon zest, macerate 10 minutes, bake 325&deg;F for 20&ndash;22 minutes, then chill 10 minutes before plating, does that make sense? No? That's fair.</p>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <div class="mb-20">
+            <p class="narrative">
+                Marcus said "whom I defer to" as if it were a compliment. Margaret didn't notice. She was already recalculating the tapioca.
+            </p>
+        </div>
+
+
+        <!-- ============================================ -->
+        <!-- WEDNESDAY: PHOTOGRAPHY -->
+        <!-- ============================================ -->
+
+        <div class="stage-divider mb-8">
+            <span class="text-xs uppercase tracking-[0.3em] text-sage font-bold whitespace-nowrap">Wednesday &middot; Photography</span>
+        </div>
+
+        <div class="mb-10">
+            <p class="narrative text-xl leading-relaxed">
+                Julian took over. He'd been quiet for two days &mdash; watching the chat, forming opinions about lighting angles. Now it was his turn to be insufferable about aperture.
+            </p>
+        </div>
+
+        <div class="space-y-4 mb-10">
+
+            <!-- Julian -->
+            <div class="flex items-start gap-3">
+                <div class="avatar avatar-julian mt-1">JT</div>
+                <div>
+                    <p class="text-[11px] text-gray-400 mb-1">Julian Torres <span class="text-gray-300">&middot; 9:00 AM</span></p>
+                    <div class="chat-bubble chat-julian rounded-2xl rounded-tl-sm px-4 py-3">
+                        <p class="text-sm leading-relaxed">Setting up for Blueberry Lemon Crumble Cups. Three variants: soft natural light at 9 o'clock, macro on the crumble texture, white marble surface. If the crumble isn't golden enough I'm reshooting.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Margaret -->
+            <div class="flex items-start gap-3">
+                <div class="avatar avatar-margaret mt-1">MC</div>
+                <div>
+                    <p class="text-[11px] text-gray-400 mb-1">Margaret Chen <span class="text-gray-300">&middot; 10:30 AM</span></p>
+                    <div class="chat-bubble chat-margaret rounded-2xl rounded-tl-sm px-4 py-3">
+                        <p class="text-sm leading-relaxed">Make sure the curd layer is visible through the blueberries. If you can't see the yellow, the photo lies about the recipe.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Julian -->
+            <div class="flex items-start gap-3">
+                <div class="avatar avatar-julian mt-1">JT</div>
+                <div>
+                    <p class="text-[11px] text-gray-400 mb-1">Julian Torres <span class="text-gray-300">&middot; 11:45 AM</span></p>
+                    <div class="chat-bubble chat-julian rounded-2xl rounded-tl-sm px-4 py-3">
+                        <p class="text-sm leading-relaxed">Cross-section variant added. You'll see every layer. The crumble caught the light perfectly on variant two &mdash; it looks like it belongs in a $50 cookbook.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Steph -->
+            <div class="flex items-start gap-3">
+                <div class="avatar avatar-steph mt-1">SW</div>
+                <div>
+                    <p class="text-[11px] text-gray-400 mb-1">Steph Whitmore <span class="text-gray-300">&middot; 1:15 PM</span></p>
+                    <div class="chat-bubble chat-steph rounded-2xl rounded-tl-sm px-4 py-3">
+                        <p class="text-sm leading-relaxed">Sorry, I love variant two but could we possibly try one with slightly warmer tones? Or not, that's fine too, Julian knows best.</p>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Photo result (placeholder) -->
+        <div class="mb-10 bg-linen rounded-lg overflow-hidden">
+            <div class="aspect-[4/3] flex items-center justify-center">
+                <div class="text-center">
+                    <p class="font-serif text-2xl italic text-sage mb-2">Variant Two</p>
+                    <p class="text-xs text-gray-400 uppercase tracking-widest">Julian's pick &middot; 47 shots taken</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="mb-20">
+            <p class="narrative">
+                Julian took forty-seven shots. He picked variant two. Margaret approved it because the curd was visible. Steph approved it because everyone else did.
+            </p>
+        </div>
+
+
+        <!-- ============================================ -->
+        <!-- THURSDAY: COPYWRITING -->
+        <!-- ============================================ -->
+
+        <div class="stage-divider mb-8">
+            <span class="text-xs uppercase tracking-[0.3em] text-sage font-bold whitespace-nowrap">Thursday &middot; Copywriting</span>
+        </div>
+
+        <div class="mb-10">
+            <p class="narrative text-xl leading-relaxed">
+                Marcus had been waiting for this. His laptop was open before anyone else logged in. He'd already written 300 words. The target was 130.
+            </p>
+        </div>
+
+        <div class="space-y-4 mb-10">
+
+            <!-- Marcus -->
+            <div class="flex items-start gap-3">
+                <div class="avatar avatar-marcus mt-1">MR</div>
+                <div>
+                    <p class="text-[11px] text-gray-400 mb-1">Marcus Reid <span class="text-gray-300">&middot; 9:00 AM</span></p>
+                    <div class="chat-bubble chat-marcus rounded-2xl rounded-tl-sm px-4 py-3">
+                        <p class="text-sm leading-relaxed">Morning, all, laptop open, I've dropped the Blueberry Lemon Crumble Cups draft in the shared doc; deadline 3:00 PM. If I may offer some context, I leaned literary on the lead for the nostalgia, though I expect Margaret, whom I adore, will excise heavily and Steph will coax a polite trim, forcing my bad edits.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Margaret -->
+            <div class="flex items-start gap-3">
+                <div class="avatar avatar-margaret mt-1">MC</div>
+                <div>
+                    <p class="text-[11px] text-gray-400 mb-1">Margaret Chen <span class="text-gray-300">&middot; 10:36 AM</span></p>
+                    <div class="chat-bubble chat-margaret rounded-2xl rounded-tl-sm px-4 py-3">
+                        <p class="text-sm leading-relaxed">I will cut the literary fat. One crisp lead line, then flavor and technique; copy in by 3:00 PM. Steph, you can smooth the edges.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Steph -->
+            <div class="flex items-start gap-3">
+                <div class="avatar avatar-steph mt-1">SW</div>
+                <div>
+                    <p class="text-[11px] text-gray-400 mb-1">Steph Whitmore <span class="text-gray-300">&middot; 12:12 PM</span></p>
+                    <div class="chat-bubble chat-steph rounded-2xl rounded-tl-sm px-4 py-3">
+                        <p class="text-sm leading-relaxed">Sorry, I think maybe we could keep one lyrical lead, then tighten to Margaret's structure, I can smooth and send by 3:00 pm.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Margaret (final word) -->
+            <div class="flex items-start gap-3">
+                <div class="avatar avatar-margaret mt-1">MC</div>
+                <div>
+                    <p class="text-[11px] text-gray-400 mb-1">Margaret Chen <span class="text-gray-300">&middot; 3:24 PM</span></p>
+                    <div class="chat-bubble chat-margaret rounded-2xl rounded-tl-sm px-4 py-3">
+                        <p class="text-sm leading-relaxed">Solid. Put fresh lemon zest and a tablespoon of coarse cornmeal in the crumble for crunch. Upload the final to the doc.</p>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <div class="mb-20">
+            <p class="narrative">
+                Marcus wrote 300 words. Margaret cut it to 120. Steph smoothed the edges and apologized twice. The description was, despite everything, genuinely beautiful. Marcus pretended not to notice.
+            </p>
+        </div>
+
+
+        <!-- ============================================ -->
+        <!-- SATURDAY: DEPLOYMENT -->
+        <!-- ============================================ -->
+
+        <div class="stage-divider mb-8">
+            <span class="text-xs uppercase tracking-[0.3em] text-sage font-bold whitespace-nowrap">Saturday &middot; Deployment</span>
+        </div>
+
+        <div class="mb-10">
+            <p class="narrative text-xl leading-relaxed">
+                Devon showed up late, as usual. He'd automated the deployment pipeline weeks ago. His contribution to the group chat was three messages. One of them was a lie about being busy.
+            </p>
+        </div>
+
+        <div class="space-y-4 mb-10">
+
+            <!-- Devon -->
+            <div class="flex items-start gap-3">
+                <div class="avatar avatar-devon mt-1">DP</div>
+                <div>
+                    <p class="text-[11px] text-gray-400 mb-1">Devon Park <span class="text-gray-300">&middot; 11:00 AM</span></p>
+                    <div class="chat-bubble chat-devon rounded-2xl rounded-tl-sm px-4 py-3">
+                        <p class="text-sm leading-relaxed">Deploying now. Pipeline's automated, should be live on edge nodes in about 47 seconds.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Margaret -->
+            <div class="flex items-start gap-3">
+                <div class="avatar avatar-margaret mt-1">MC</div>
+                <div>
+                    <p class="text-[11px] text-gray-400 mb-1">Margaret Chen <span class="text-gray-300">&middot; 11:02 AM</span></p>
+                    <div class="chat-bubble chat-margaret rounded-2xl rounded-tl-sm px-4 py-3">
+                        <p class="text-sm leading-relaxed">Confirmed. Recipe page looks correct. Measurements are accurate. Good.</p>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <div class="mb-20">
+            <p class="narrative">
+                Devon clicked one button and ate a muffin from the test batch. He'd tell the team he spent the afternoon optimizing cache headers. He did not.
+            </p>
+        </div>
+
+
+        <!-- ============================================ -->
+        <!-- SUNDAY: PUBLISHED -->
+        <!-- ============================================ -->
+
+        <div class="stage-divider mb-8">
+            <span class="text-xs uppercase tracking-[0.3em] text-sage font-bold whitespace-nowrap">Sunday &middot; Published</span>
+        </div>
+
+        <div class="mb-10">
+            <p class="narrative text-xl leading-relaxed">
+                The recipe went live. Marcus checked the view count four times before noon. Margaret didn't check at all. Steph sent a message that started with "Sorry" even though nothing was wrong.
+            </p>
+        </div>
+
+        <div class="space-y-4 mb-10">
+
+            <!-- Marcus -->
+            <div class="flex items-start gap-3">
+                <div class="avatar avatar-marcus mt-1">MR</div>
+                <div>
+                    <p class="text-[11px] text-gray-400 mb-1">Marcus Reid <span class="text-gray-300">&middot; 10:00 AM</span></p>
+                    <div class="chat-bubble chat-marcus rounded-2xl rounded-tl-sm px-4 py-3">
+                        <p class="text-sm leading-relaxed">It's live. The description reads well. 47,000 people will see this. My novel sold 347 copies. I'm fine. This is fine.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Margaret -->
+            <div class="flex items-start gap-3">
+                <div class="avatar avatar-margaret mt-1">MC</div>
+                <div>
+                    <p class="text-[11px] text-gray-400 mb-1">Margaret Chen <span class="text-gray-300">&middot; 10:15 AM</span></p>
+                    <div class="chat-bubble chat-margaret rounded-2xl rounded-tl-sm px-4 py-3">
+                        <p class="text-sm leading-relaxed">Good work this week. The ratios held. Next week I want something with structure.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Steph -->
+            <div class="flex items-start gap-3">
+                <div class="avatar avatar-steph mt-1">SW</div>
+                <div>
+                    <p class="text-[11px] text-gray-400 mb-1">Steph Whitmore <span class="text-gray-300">&middot; 10:30 AM</span></p>
+                    <div class="chat-bubble chat-steph rounded-2xl rounded-tl-sm px-4 py-3">
+                        <p class="text-sm leading-relaxed">Sorry, just wanted to say great job everyone, this turned out really well, I think? Yes. It did. Great job.</p>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Final narrative -->
+        <div class="mb-16 border-l-2 border-terracotta/30 pl-6">
+            <p class="narrative text-lg">
+                Thirty-one messages. Five people. One recipe. The curd set at exactly 120&deg;F. The crumble stayed crisp. Marcus used "whom" three times, which was actually down from his average. Progress, of a kind.
+            </p>
+        </div>
+
+        <!-- Link to the actual recipe -->
+        <div class="text-center mb-16">
+            <a href="#" class="inline-block px-12 py-6 border-4 border-gray-900 font-bold uppercase tracking-[0.4em] text-sm hover:bg-gray-900 hover:text-white transition-all transform active:scale-[0.98]">
+                View the Recipe
+            </a>
+        </div>
+
+        <!-- Episode nav -->
+        <div class="flex justify-between items-center pt-8 border-t border-gray-100">
+            <a href="#" class="text-xs uppercase tracking-[0.2em] text-sage font-bold hover:text-terracotta transition-colors">
+                &larr; Previous Week
+            </a>
+            <a href="#" class="text-xs uppercase tracking-[0.2em] text-sage font-bold hover:text-terracotta transition-colors">
+                Next Week &rarr;
+            </a>
+        </div>
+
+    </main>
+
+    <footer class="py-16 px-6 bg-gray-50 text-center border-t border-gray-100">
+        <p class="font-serif text-xl mb-3 italic">The struggle is the story.</p>
+        <p class="text-sage text-xs uppercase tracking-widest">&copy; 2026 Muffin Pan Recipes</p>
+    </footer>
+
+</body>
+</html>

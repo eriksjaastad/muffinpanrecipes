@@ -8,7 +8,8 @@ reviews/
 .agent/
 *.md
 !README.md
-src/assets/images/
+# Exclude AI-generated variant directories (UUIDs), keep recipe .webp files
+src/assets/images/*/
 scripts/
 tests/
 .grepai/
