@@ -175,6 +175,11 @@ DAY_ARC = {
     ),
 }
 
+_FIRST_MONDAY_OPENER = (
+    "This is the very first day of the team. You're all meeting in person (or online) for the first time. "
+    "You know names and roles from emails but nothing else. Walk in, size people up, introduce yourself briefly."
+)
+
 _DAY_OPENER_CONTEXT = {
     "monday": "Start of a new week. You're arriving fresh (or not). Open the group chat or walk into the kitchen.",
     "tuesday": "Day two. Picking up from yesterday's concept lock. Check in before diving into recipe work.",
@@ -442,12 +447,21 @@ def build_system_prompt(persona: dict[str, Any]) -> str:
     if memories:
         mem_lines = []
         for ep in memories:
-            concept = ep.get("concept", "unknown")
+            ep_concept = ep.get("concept", "unknown")
             summary = ep.get("summary", "")
-            mem_lines.append(f"- {concept}: {summary}")
+            mem_lines.append(f"- {ep_concept}: {summary}")
         memory_block = (
             "WHAT YOU REMEMBER FROM RECENTLY:\n"
             + chr(10).join(mem_lines) + "\n\n"
+        )
+    else:
+        # First episode — no prior memories (#5030)
+        memory_block = (
+            "THIS IS YOUR FIRST WEEK ON THE JOB.\n"
+            "You've never worked with these people before. You were hired separately. "
+            "You know everyone's name and role from email introductions, but you haven't "
+            "seen how they actually work. First impressions are forming RIGHT NOW. "
+            "Be slightly guarded, curious, or nervous depending on your personality.\n\n"
         )
 
     result = (
@@ -619,6 +633,7 @@ def generate_turn(
     photography_context: dict | None = None,
     phase: str = "active",
     prior_own_messages: list[str] | None = None,
+    is_first_episode: bool = False,
 ) -> str:
     if mode == "template":
         sig = persona["communication_style"].get("signature_phrases", ["Right."])
@@ -664,12 +679,15 @@ def generate_turn(
         arc_summary = _build_dynamic_arc(day, concept, photography_context=photography_context)
 
         if day_turn == 1:
+            arrival_context = _DAY_OPENER_CONTEXT[day]
+            if is_first_episode and day == "monday":
+                arrival_context = _FIRST_MONDAY_OPENER
             opener_directive = (
                 "IMPORTANT: You are opening this conversation. Nobody has spoken yet today.\n"
                 "You just arrived - walked in, logged on, opened the chat. "
                 "Your first words should reflect that arrival moment in YOUR voice. "
                 "Then introduce the day's topic.\n"
-                f"Arrival context: {_DAY_OPENER_CONTEXT[day]}"
+                f"Arrival context: {arrival_context}"
             )
             prompt = (
                 f"Episode concept: {concept}\n"
@@ -717,11 +735,14 @@ def generate_turn(
         opener_hint = ""
         reaction_hint = ""
         if day_turn == 1:
+            full_arrival = _DAY_OPENER_CONTEXT[day]
+            if is_first_episode and day == "monday":
+                full_arrival = _FIRST_MONDAY_OPENER
             opener_hint = (
                 "\nIMPORTANT: You are opening this conversation. Nobody has spoken yet today. "
                 "You just arrived. Your first words should reflect that arrival in YOUR voice. "
                 "Then introduce the topic.\n"
-                f"Arrival context: {_DAY_OPENER_CONTEXT[day]}\n"
+                f"Arrival context: {full_arrival}\n"
             )
         else:
             reaction_hint = "Your first sentence must respond to what was just said. Don't change the subject.\n"
@@ -1587,6 +1608,9 @@ def run_simulation(
     messages: list[Message] = []
     recent_lines: list[str] = []
 
+    # Detect first episode — no character has any memories (#5030)
+    first_episode = all(not _load_memories(name) for name in personas)
+
     days = [stage_only] if stage_only else DAY_ORDER
     for day_i, day in enumerate(days):
         stage = DAY_STAGE[day]
@@ -1650,6 +1674,7 @@ def run_simulation(
                 photography_context=photography_context,
                 phase=turn_phase,
                 prior_own_messages=day_messages_by_char.get(speaker, []),
+                is_first_episode=first_episode,
             )
             day_messages_by_char[speaker].append(line)
             recent_lines.append(f"{speaker.split()[0]}: {line}")
