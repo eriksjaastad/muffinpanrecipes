@@ -250,8 +250,11 @@ class _CloudBackend:
             logger.error(f"Blob save_episode failed for {episode_id}: {e}")
             raise
 
-        # Also write to local filesystem as cache for same-invocation reads
-        self._fs.save_episode(episode_id, data)
+        # Try local filesystem cache for same-invocation reads (may fail on read-only FS)
+        try:
+            self._fs.save_episode(episode_id, data)
+        except OSError:
+            pass  # Read-only filesystem (Vercel Lambda) — blob save already succeeded
 
     def list_episodes(self) -> list[dict]:
         if not self._has_cloud():
