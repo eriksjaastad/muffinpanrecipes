@@ -74,6 +74,10 @@
             "dest": "/src/recipes.json"
         },
         {
+            "src": "/episodes/([^/]+)/?$",
+            "dest": "/src/episodes/$1/index.html"
+        },
+        {
             "src": "/(.*)",
             "dest": "/src/index.html"
         }
