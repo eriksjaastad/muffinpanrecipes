@@ -13,7 +13,10 @@ import re
 import shutil
 
 from pydantic import BaseModel, Field, field_validator
-from send2trash import send2trash
+try:
+    from send2trash import send2trash
+except ImportError:
+    send2trash = None
 
 from backend.utils.logging import get_logger
 
@@ -165,8 +168,12 @@ class Recipe(BaseModel):
 
         # Move old file to trash instead of permanent deletion
         if old_filepath.exists() and old_filepath != new_filepath:
-            send2trash(str(old_filepath))
-            logger.info(f"Trashed old file: {old_filepath}")
+            if send2trash is not None:
+                send2trash(str(old_filepath))
+                logger.info(f"Trashed old file: {old_filepath}")
+            else:
+                old_filepath.unlink()
+                logger.info(f"Deleted old file (no trash available): {old_filepath}")
 
         logger.info(f"Transitioned recipe {self.recipe_id}: {old_status.value} → {new_status.value}")
         return new_filepath

@@ -145,28 +145,35 @@ class _FilesystemBackend:
 
 
 class _CloudBackend:
-    """Vercel-compatible cloud storage backend.
+    """Vercel Blob storage backend.
 
-    For Vercel Blob (recommended at our scale — ~$0). Falls back to
-    filesystem reads for any episode that was migrated before cloud was set up.
+    Uses the Vercel Blob REST API for episode persistence across
+    serverless invocations. Falls back to filesystem for local data
+    and for simulations (admin-only, not cron-critical).
 
-    NOTE: Full Vercel Blob implementation requires the @vercel/blob SDK
-    or direct REST API calls. This stub provides the interface so that
-    #4973 is structurally complete — wire up the actual SDK in #4974
-    when the Vercel Cron routes are built.
+    REST API pattern (same as save_image which already works):
+      PUT  https://blob.vercel-storage.com/{pathname}  → upload
+      GET  blob URL from list/put response              → download
+      GET  https://blob.vercel-storage.com?prefix=...   → list
     """
+
+    _BLOB_API = "https://blob.vercel-storage.com"
 
     def __init__(self) -> None:
         self._blob_token = os.environ.get("BLOB_READ_WRITE_TOKEN", "")
         self._fs = _FilesystemBackend()  # fallback for local data
-        if not self._blob_token:
-            logger.warning(
-                "BLOB_READ_WRITE_TOKEN not set — cloud storage will fall back to "
-                "local filesystem. On Vercel, data will NOT persist across cold starts."
+        if not self._blob_token and os.environ.get("VERCEL_ENV"):
+            raise RuntimeError(
+                "FATAL: Running on Vercel without BLOB_READ_WRITE_TOKEN. "
+                "Episode data WILL NOT persist. Refusing to start. "
+                "Create a Vercel Blob store and add the token to Doppler."
             )
 
     def _has_cloud(self) -> bool:
         return bool(self._blob_token)
+
+    def _auth_headers(self) -> dict:
+        return {"Authorization": f"Bearer {self._blob_token}"}
 
     def _blob_key(self, relative_path: str) -> str:
         """Map a repo-relative path to a stable blob key.
@@ -181,29 +188,118 @@ class _CloudBackend:
 
     def load_episode(self, episode_id: str) -> Optional[dict]:
         if not self._has_cloud():
-            # Graceful fallback — cloud not yet configured
             return self._fs.load_episode(episode_id)
-        # TODO: fetch from Vercel Blob
-        # url = f"https://blob.vercel-storage.com/episodes/{episode_id}.json"
-        # response = requests.get(url, headers={"Authorization": f"Bearer {self._blob_token}"})
-        # return response.json() if response.ok else None
-        return self._fs.load_episode(episode_id)  # stub fallback
+
+        import requests as _requests
+
+        # List blobs with exact prefix to find this episode's URL
+        pathname = f"episodes/{episode_id}.json"
+        try:
+            resp = _requests.get(
+                self._BLOB_API,
+                params={"prefix": pathname, "limit": "1"},
+                headers=self._auth_headers(),
+                timeout=15,
+            )
+            resp.raise_for_status()
+            blobs = resp.json().get("blobs", [])
+            if not blobs:
+                # Not in cloud — try filesystem fallback (deployed episode files)
+                return self._fs.load_episode(episode_id)
+
+            blob_url = blobs[0]["url"]
+            content_resp = _requests.get(
+                blob_url,
+                headers=self._auth_headers(),
+                timeout=15,
+            )
+            content_resp.raise_for_status()
+            return content_resp.json()
+        except Exception as e:
+            logger.warning(f"Blob load_episode failed for {episode_id}, falling back to filesystem: {e}")
+            return self._fs.load_episode(episode_id)
 
     def save_episode(self, episode_id: str, data: dict) -> None:
         if not self._has_cloud():
             self._fs.save_episode(episode_id, data)
             return
-        # TODO: PUT to Vercel Blob
-        # import requests
-        # requests.put(f"https://blob.vercel-storage.com/episodes/{episode_id}.json",
-        #              data=json.dumps(data), headers={"Authorization": f"Bearer {self._blob_token}"})
-        self._fs.save_episode(episode_id, data)  # stub fallback
+
+        import requests as _requests
+
+        pathname = f"episodes/{episode_id}.json"
+        body = json.dumps(data, indent=2)
+        headers = {
+            **self._auth_headers(),
+            "Content-Type": "application/json",
+            "x-api-version": "7",
+            "x-content-type": "application/json",
+            "x-add-random-suffix": "0",
+            "x-allow-overwrite": "1",
+        }
+        try:
+            resp = _requests.put(
+                f"{self._BLOB_API}/{pathname}",
+                data=body.encode("utf-8"),
+                headers=headers,
+                timeout=30,
+            )
+            resp.raise_for_status()
+            blob_url = resp.json().get("url", "")
+            logger.info(f"Saved episode to Vercel Blob: {blob_url}")
+        except Exception as e:
+            logger.error(f"Blob save_episode failed for {episode_id}: {e}")
+            raise
+
+        # Also write to local filesystem as cache for same-invocation reads
+        self._fs.save_episode(episode_id, data)
 
     def list_episodes(self) -> list[dict]:
         if not self._has_cloud():
             return self._fs.list_episodes()
-        # TODO: LIST from Vercel Blob with prefix=episodes/
-        return self._fs.list_episodes()  # stub fallback
+
+        import requests as _requests
+
+        results = []
+        cursor: Optional[str] = None
+        try:
+            while True:
+                params: dict = {"prefix": "episodes/", "limit": "100"}
+                if cursor:
+                    params["cursor"] = cursor
+                resp = _requests.get(
+                    self._BLOB_API,
+                    params=params,
+                    headers=self._auth_headers(),
+                    timeout=15,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                for blob in data.get("blobs", []):
+                    pathname = blob.get("pathname", "")
+                    if pathname.endswith(".json"):
+                        episode_id = pathname.removeprefix("episodes/").removesuffix(".json")
+                        # Fetch full episode data
+                        try:
+                            content_resp = _requests.get(
+                                blob["url"],
+                                headers=self._auth_headers(),
+                                timeout=15,
+                            )
+                            content_resp.raise_for_status()
+                            ep_data = content_resp.json()
+                            results.append({"episode_id": episode_id, **ep_data})
+                        except Exception as e:
+                            logger.warning(f"Skipping blob episode {episode_id}: {e}")
+                if not data.get("hasMore"):
+                    break
+                cursor = data.get("cursor")
+        except Exception as e:
+            logger.warning(f"Blob list_episodes failed, falling back to filesystem: {e}")
+            return self._fs.list_episodes()
+
+        # Sort newest first by created_at
+        results.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+        return results
 
     # --- Simulations ---
 

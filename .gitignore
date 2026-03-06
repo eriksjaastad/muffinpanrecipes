@@ -7,7 +7,8 @@ env/
 node_modules/
 
 # Data and caches
-data/
+data/*
+!data/episodes/
 !backend/data/
 !backend/data/characters/
 !backend/data/characters/*/
@@ -100,3 +101,4 @@ src/assets/images/
 # Outcome verification (holdout set — not visible to workers)
 SCENARIOS.md
 EVIDENCE.md
+.env*.local

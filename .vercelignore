@@ -1,5 +1,6 @@
 # Exclude non-deployment files from Vercel CLI uploads
-data/
+data/*
+!data/episodes/
 !backend/data/
 Documents/
 reviews/
