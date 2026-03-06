@@ -240,14 +240,15 @@ class RecipeOrchestrator:
         if not result.success:
             raise RuntimeError(f"Baker stage failed: {result.output}")
 
-        # Record contribution
-        self.current_story.add_contribution(
-            agent_name=baker.personality.name,
-            agent_role ="baker",
-            contribution_type="Recipe Development",
-            decisions=result.insights,
-            personality_moments=result.personality_notes
-        )
+        # Record contribution (skipped when called from cron routes without a story)
+        if self.current_story:
+            self.current_story.add_contribution(
+                agent_name=baker.personality.name,
+                agent_role="baker",
+                contribution_type="Recipe Development",
+                decisions=result.insights,
+                personality_moments=result.personality_notes,
+            )
 
         return result.output
 
@@ -269,14 +270,15 @@ class RecipeOrchestrator:
         if not result.success:
             raise RuntimeError(f"Art Director stage failed: {result.output}")
 
-        # Record contribution
-        self.current_story.add_contribution(
-            agent_name=art_director.personality.name,
-            agent_role="art_director",
-            contribution_type="Photography",
-            decisions=result.insights,
-            personality_moments=result.personality_notes
-        )
+        # Record contribution (skipped when called from cron routes without a story)
+        if self.current_story:
+            self.current_story.add_contribution(
+                agent_name=art_director.personality.name,
+                agent_role="art_director",
+                contribution_type="Photography",
+                decisions=result.insights,
+                personality_moments=result.personality_notes,
+            )
 
         return result.output
 
@@ -294,14 +296,15 @@ class RecipeOrchestrator:
         if not result.success:
             raise RuntimeError(f"Copywriter stage failed: {result.output}")
 
-        # Record contribution
-        self.current_story.add_contribution(
-            agent_name=copywriter.personality.name,
-            agent_role="copywriter",
-            contribution_type="Editorial Copy",
-            decisions=result.insights,
-            personality_moments=result.personality_notes
-        )
+        # Record contribution (skipped when called from cron routes without a story)
+        if self.current_story:
+            self.current_story.add_contribution(
+                agent_name=copywriter.personality.name,
+                agent_role="copywriter",
+                contribution_type="Editorial Copy",
+                decisions=result.insights,
+                personality_moments=result.personality_notes,
+            )
 
         return result.output
 
@@ -319,14 +322,15 @@ class RecipeOrchestrator:
         if not result.success:
             raise RuntimeError(f"Creative Director stage failed: {result.output}")
 
-        # Record contribution
-        self.current_story.add_contribution(
-            agent_name=cd.personality.name,
-            agent_role="creative_director",
-            contribution_type="Creative Review",
-            decisions=result.insights,
-            personality_moments=result.personality_notes
-        )
+        # Record contribution (skipped when called from cron routes without a story)
+        if self.current_story:
+            self.current_story.add_contribution(
+                agent_name=cd.personality.name,
+                agent_role="creative_director",
+                contribution_type="Creative Review",
+                decisions=result.insights,
+                personality_moments=result.personality_notes,
+            )
 
         # Check approval (support both old and new response shapes)
         approved = result.output.get("approved", True)
@@ -365,14 +369,15 @@ class RecipeOrchestrator:
         if not result.success:
             raise RuntimeError(f"Site Architect stage failed: {result.output}")
 
-        # Record contribution
-        self.current_story.add_contribution(
-            agent_name=site_architect.personality.name,
-            agent_role="site_architect",
-            contribution_type="Deployment",
-            decisions=result.insights,
-            personality_moments=result.personality_notes
-        )
+        # Record contribution (skipped when called from cron routes without a story)
+        if self.current_story:
+            self.current_story.add_contribution(
+                agent_name=site_architect.personality.name,
+                agent_role="site_architect",
+                contribution_type="Deployment",
+                decisions=result.insights,
+                personality_moments=result.personality_notes,
+            )
 
     def _compile_recipe(
         self,
