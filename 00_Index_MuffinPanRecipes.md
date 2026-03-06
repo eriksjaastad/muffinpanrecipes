@@ -21,15 +21,17 @@ An AI-driven experimental recipe platform focused exclusively on "Muffin Tin Mea
 
 ## 🏗️ Key Components
 
-- `backend/` - FastAPI admin dashboard and AI agent orchestration
-- `src/` - Static site (recipes, HTML, CSS)
-- `scripts/` - Build and deployment tools
-- `data/` - Recipe storage by status (pending, approved, published, rejected)
+- `backend/` - [AI Creative Team Orchestration](backend/README.md) (Python/FastAPI)
+- `src/` - [Static Site Source](src/README.md) (HTML/Tailwind/Recipes)
+- `scripts/` - [Automation & Image Pipeline](scripts/README.md) (Python/Shell)
+- `tests/` - [Test Suite Documentation](tests/README.md)
+- `data/` - Recipe storage, simulation logs, and agent memory
+- `_docs_archive/` - Legacy and deep-dive documentation (archived)
 
 ## 📋 Status
 
-**Current Phase:** Phase 4 - AI Creative Team Integration (in progress)
-**Last Updated:** 2026-01-23
+**Current Phase:** Phase 4 - AI Creative Team Integration
+**Last Updated:** 2026-03-06 (Documentation Consolidation)
 **Next Steps:** Complete weekly update automation, Admin dashboard testing, Newsletter setup
 
 ## 🚀 Recent Activity

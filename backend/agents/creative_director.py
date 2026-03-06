@@ -53,28 +53,53 @@ class CreativeDirectorAgent(Agent):
     def _review_package(
         self, task: Task, approach: TaskApproach, context: MemoryContext
     ) -> TaskResult:
-        """Review a complete recipe package with supportive feedback."""
+        """Review a complete recipe package using LLM."""
+        from backend.utils.model_router import generate_response
         
-        # Steph actually has good instincts
-        issues_found = []
-        positive_notes = []
+        package_data = task.context.get("package", task.context)
+        recipe_title = package_data.get("recipe", {}).get("title", "this recipe")
         
-        # She notices real problems
-        if random.random() < 0.6:  # Usually finds something
-            issues_found.append("I think maybe we could possibly adjust the portion sizes? Just a thought.")
-            issues_found.append("Does the title feel... I don't know. What do YOU think?")
-        
-        # But she always finds something good first
-        positive_notes.append("I love this! The concept is really strong.")
-        positive_notes.append("Great work on this, seriously.")
-        
-        # Steph's review is supportive but indecisive
+        logger.info(f"Steph: Reviewing package for '{recipe_title}'")
+
+        system_prompt = f"""You are {self.personality.name}, the Creative Director. 
+{self.personality.backstory}
+Your personality: {self.personality.core_traits}
+Your quirks: {self.personality.quirks}
+
+Review this recipe package (recipe, image prompts, copy). 
+You have good instincts but you are very anxious about making the wrong call.
+You always find something positive to say first, then offer constructive (but apologetic) feedback.
+"""
+
+        user_prompt = f"""Review this package:
+{package_data}
+
+Provide your feedback as a list of specific creative observations.
+End your response with 'VERDICT: APPROVED' or 'VERDICT: REVISE'.
+"""
+
+        try:
+            response = generate_response(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                model=os.getenv("RECIPE_MODEL", "openai/gpt-5-mini"),
+                temperature=0.5
+            )
+            
+            lines = response.strip().split("\n")
+            feedback = [l.strip() for l in lines if l.strip() and not l.startswith("VERDICT:")]
+            verdict = "APPROVED" if "VERDICT: APPROVED" in response else "REVISE"
+            
+        except Exception as e:
+            logger.error(f"Steph review failed: {e}")
+            feedback = ["I'm so sorry, the system is glitching. It looks great? I think?"]
+            verdict = "APPROVED"
+
         review = {
-            "positive": positive_notes,
-            "suggestions": issues_found,
-            "decision": "approved_with_minor_revisions",
-            "confidence": "low",  # Steph's eternal state
-            "notes": "Let's circle back if anyone has concerns?"
+            "feedback": feedback,
+            "verdict": verdict,
+            "confidence": "moderate-low",
+            "notes": "I hope this is the right direction!"
         }
         
         return TaskResult(
@@ -82,39 +107,44 @@ class CreativeDirectorAgent(Agent):
             success=True,
             output=review,
             insights=[
-                "Steph actually identified real improvements",
-                "Framed feedback as questions to avoid seeming bossy",
+                f"Steph verdict: {verdict}",
+                "Balanced supportive tone with critical needs",
             ],
             personality_notes=[
-                "Rewrote feedback 3 times before delivering",
-                "Checked Slack 12 times while reviewing",
-                "Bought team coffee to soften any criticism",
+                "Steph's heart was racing while she typed this",
+                "Re-read the entire package twice",
+                "Wondered if Julian would be mad about the feedback"
             ],
         )
 
     def _provide_feedback(
         self, task: Task, approach: TaskApproach, context: MemoryContext
     ) -> TaskResult:
-        """Provide feedback while apologizing profusely."""
+        """Provide feedback while apologizing profusely using LLM."""
+        from backend.utils.model_router import generate_response
+
+        work_to_review = task.context.get("work", task.content)
         
-        # Steph's feedback sandwich: positive, critique (as question), positive
-        feedback = {
-            "opening": "I'm really impressed with your work here!",
-            "feedback": "I think maybe we could explore... no? That's totally fair. What if... or not, I'm probably wrong.",
-            "closing": "Seriously though, great job. Thank you for being so patient with my rambling."
-        }
-        
-        # Track how many times she apologized
-        apology_count = random.randint(2, 5)
-        
+        system_prompt = f"""You are {self.personality.name}. 
+You need to provide feedback on some work. You are very polite and apologize often.
+"""
+        user_prompt = f"Provide feedback on this: {work_to_review}"
+
+        try:
+            response = generate_response(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                model=os.getenv("RECIPE_MODEL", "openai/gpt-5-mini"),
+                temperature=0.7
+            )
+        except Exception as e:
+            response = "I'm so sorry, I can't quite see the work right now. But I'm sure it's lovely!"
+
         return TaskResult(
             task_id=task.id,
             success=True,
-            output=feedback,
-            insights=[
-                f"Apologized {apology_count} times",
-                "Actually had valid points but presented as suggestions",
-            ],
+            output={"feedback": response},
+            insights=["Apologetic but useful feedback delivered"],
             personality_notes=[
                 "Steph wishes she could just be direct",
                 "Worried recipient thinks she's incompetent",
@@ -124,35 +154,44 @@ class CreativeDirectorAgent(Agent):
     def _approve_recipe(
         self, task: Task, approach: TaskApproach, context: MemoryContext
     ) -> TaskResult:
-        """Make final approval decision (with anxiety)."""
+        """Make final approval decision using LLM for the final gut-check."""
+        from backend.utils.model_router import generate_response
+
+        recipe_data = task.context.get("recipe_data", {})
         
-        # Steph approves most things because what if she's wrong?
-        approval_decision = random.choice([True, True, True, False])  # 75% approval rate
-        
-        if approval_decision:
-            decision = {
-                "approved": True,
-                "message": "This looks great! Unless anyone sees issues? No? Okay, approved!",
-                "confidence_level": 0.6  # Never fully confident
-            }
-            insights = ["Steph made a decision!", "Immediately questioned if it was right"]
-        else:
-            decision = {
-                "approved": False,
-                "message": "I'm so sorry, but I think we need to revisit this. What do you think? We can totally talk through it.",
-                "confidence_level": 0.3  # Even less confident when rejecting
-            }
-            insights = ["Steph rejected something and feels terrible", "Prepared 5 different explanations"]
+        system_prompt = f"""You are {self.personality.name}. 
+Decide if this recipe is ready for the world. You are anxious.
+"""
+        user_prompt = f"Final approval for: {recipe_data}"
+
+        try:
+            response = generate_response(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                model=os.getenv("RECIPE_MODEL", "openai/gpt-5-mini"),
+                temperature=0.4
+            )
+            approved = "approve" in response.lower() and "don't" not in response.lower()
+        except Exception as e:
+            logger.error(f"Steph approval gut-check failed: {e}")
+            response = "I'm so sorry, I'm having trouble deciding. But let's go for it!"
+            approved = True
+
+        decision = {
+            "approved": approved,
+            "message": response,
+            "confidence_level": 0.4 if not approved else 0.6
+        }
         
         return TaskResult(
             task_id=task.id,
             success=True,
             output=decision,
-            insights=insights,
+            insights=[f"Final decision: {'Approved' if approved else 'Rejected'}"],
             personality_notes=[
                 "Checked with team members before deciding",
                 "Re-read the package 4 times",
-                "Wrote pros/cons list that didn't help",
+                "Wore her 'lucky' leadership cardigan"
             ],
         )
 

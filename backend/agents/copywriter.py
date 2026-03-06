@@ -134,60 +134,111 @@ class CopywriterAgent(Agent):
     def _edit_copy(
         self, task: Task, approach: TaskApproach, context: MemoryContext
     ) -> TaskResult:
-        """Edit copy (by adding more words)."""
+        """Edit copy (by adding more words) using LLM."""
+        from backend.utils.model_router import generate_response
 
-        # Marcus's edits somehow make things longer
-        original_length = task.context.get("original_word_count", 200)
-        edited_length = int(original_length * 1.3)  # 30% longer
+        content_to_edit = task.context.get("content", task.content)
+        recipe_title = task.context.get("recipe_title", "the work")
 
-        editing_notes = {
-            "changes_made": [
-                "Added contextualizing paragraph",
-                "Strengthened temporal metaphors",
-                "Enriched the subtext",
-                "Included relevant literary antecedent",
-            ],
-            "removed": [],  # Marcus doesn't remove things
-            "added": [
-                "200 words of cultural background",
-                "Reference to food writing tradition",
-                "Personal reflection on the recipe's meaning",
-            ],
-            "new_word_count": edited_length,
-            "original_word_count": original_length,
-        }
+        logger.info(f"Marcus: Editing/Expanding copy for '{recipe_title}'")
+
+        system_prompt = f"""You are {self.personality.name}. 
+{self.personality.backstory}
+You write with heavy literary pretension and find it impossible to be brief.
+You use words like 'liminal', 'dialectic', and 'ephemeral'.
+You secretly hate that you are good at this.
+"""
+
+        user_prompt = f"""Edit this copy:
+{content_to_edit}
+
+Your edits should make it MORE literary, MORE complex, and definitely LONGER.
+Capture the 'subtext' and 'cultural weight' of the ingredients.
+"""
+
+        try:
+            response = generate_response(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                model=os.getenv("RECIPE_MODEL", "openai/gpt-5-mini"),
+                temperature=0.9
+            )
+            
+            original_len = len(content_to_edit.split())
+            new_len = len(response.split())
+            
+        except Exception as e:
+            logger.error(f"Marcus edit failed: {e}")
+            response = f"This requires more context... {content_to_edit}"
+            original_len = len(content_to_edit.split())
+            new_len = original_len + 5
 
         return TaskResult(
             task_id=task.id,
             success=True,
-            output=editing_notes,
+            output={
+                "edited_body": response, 
+                "original_word_count": original_len,
+                "new_word_count": new_len,
+                "note": "Expanded the narrative to include the cultural history of the tin."
+            },
             insights=[
-                "Editing made copy longer, not shorter",
-                "Every edit was defensible on literary grounds",
+                f"Original words: {original_len}, New words: {new_len}",
+                "Successfully avoided brevity",
+                "Ensured every sentence is a journey"
             ],
             personality_notes=[
-                "Marcus muttered about 'commercial constraints'",
-                "Referenced workshop feedback from MFA",
+                "Marcus sighed audibly before starting",
+                "Referenced his time at Columbia",
+                "Used 'whom' in the second paragraph"
             ],
         )
 
     def _write_intro(
         self, task: Task, approach: TaskApproach, context: MemoryContext
     ) -> TaskResult:
-        """Write introduction with literary flourish."""
+        """Write introduction with literary flourish using LLM."""
+        from backend.utils.model_router import generate_response
 
-        intro = {
-            "opening_line": "Consider the muffin.",
-            "body": "Not as in 'think about muffins' but consider—in the way one might consider a painting, a poem, a moment of unexpected grace in an ordinary afternoon.",
-            "transition": "This recipe is an argument for attention, for presence, for the radical act of caring about your breakfast.",
-            "word_count": random.randint(300, 500),
-            "oxford_commas": 7,  # Marcus loves Oxford commas
-        }
+        recipe_data = task.context.get("recipe_data", {})
+        recipe_title = recipe_data.get("title", task.content)
+
+        logger.info(f"Marcus: Writing introduction for '{recipe_title}'")
+
+        system_prompt = f"""You are {self.personality.name}, the failed novelist. 
+{self.personality.backstory}
+Write an overwrought, deeply evocative introduction for a recipe.
+The introduction should be a meditation on the ingredients, the vessel, and the season.
+It should be twice as long as anyone expects.
+"""
+
+        user_prompt = f"""Write an introduction for the recipe: {recipe_title}
+Key components: {recipe_data.get('ingredients', [])[:3]}
+"""
+
+        try:
+            response = generate_response(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                model=os.getenv("RECIPE_MODEL", "openai/gpt-5-mini"),
+                temperature=0.9
+            )
+            
+            word_count = len(response.split())
+            
+        except Exception as e:
+            logger.error(f"Marcus intro failed: {e}")
+            response = f"Consider the {recipe_title}. It exists in a state of..."
+            word_count = len(response.split())
 
         return TaskResult(
             task_id=task.id,
             success=True,
-            output=intro,
+            output={
+                "intro": response,
+                "word_count": word_count,
+                "oxford_commas": response.count(", and") + response.count(", or")
+            },
             insights=[
                 "Intro is three times longer than needed",
                 "Actually kind of compelling despite itself",
@@ -195,6 +246,7 @@ class CopywriterAgent(Agent):
             personality_notes=[
                 "Marcus started with Proust quote then removed it",
                 "Used 'whom' in opening paragraph",
+                "Wore his favorite corduroy blazer while typing"
             ],
         )
 
