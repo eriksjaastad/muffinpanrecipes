@@ -1,0 +1,18 @@
+{
+  "episode_id": "test-e2e-verify",
+  "concept": "End-to-End Blob Test",
+  "stages": {
+    "monday": {
+      "status": "complete",
+      "dialogue": [
+        {
+          "character": "Margaret Chen",
+          "message": "This better work."
+        }
+      ]
+    },
+    "tuesday": {
+      "status": "complete"
+    }
+  }
+}

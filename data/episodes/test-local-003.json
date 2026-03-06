@@ -1,0 +1,66 @@
+{
+  "episode_id": "test-local-003",
+  "created_at": "2026-03-02T23:53:40.216641+00:00",
+  "stages": {
+    "tuesday": {
+      "stage": "recipe_development",
+      "started_at": "2026-03-02T23:53:40.219702+00:00",
+      "status": "complete",
+      "concept": "Lemon Blueberry Muffins",
+      "recipe_data_ref": "from monday stage",
+      "dialogue": [
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Margaret Chen",
+          "message": "Fine. FINE. Ratios set: 225g flour, 150g liquid, 60g butter, 40g sugar, 2 eggs; blueberries tossed in flour. Two-stage mix. Draft done by 5:00 pm. No changes.",
+          "timestamp": "2026-03-02T09:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, Margaret, that sounds perfect. I'll have the draft by 5:00 pm and bring mini blueberry muffins for a quick taste test. Thanks!",
+          "timestamp": "2026-03-02T10:36:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Marcus Reid",
+          "message": "Proust once wrote about madeleines, and what is a muffin but memory in crumb? I will draft evocative copy by 5:00 pm; Steph, save me one for research.",
+          "timestamp": "2026-03-02T12:12:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Margaret Chen",
+          "message": "Fine. Taste test: cool five minutes, toothpick clean in center. Steph - toss berries in flour, don't drown the batter. See you at 5:00 pm.",
+          "timestamp": "2026-03-02T13:48:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, draft will be in by 5:00 pm. I'll bring a dozen mini blueberry muffins in silicone cups, berries lightly floured, baked until skewer tests clean. Marcus, one reserved.",
+          "timestamp": "2026-03-02T15:24:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-02T23:54:54.803385+00:00"
+    }
+  },
+  "events": [
+    "tuesday: complete"
+  ],
+  "recipe_id": "8fe2c64d",
+  "concept": "Lemon Blueberry Muffins"
+}

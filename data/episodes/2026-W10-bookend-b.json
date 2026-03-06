@@ -1,0 +1,580 @@
+{
+  "episode_id": "2026-W10-bookend-b",
+  "created_at": "2026-03-04T16:42:23.593590+00:00",
+  "stages": {
+    "monday": {
+      "stage": "brainstorm",
+      "started_at": "2026-03-04T16:42:23.595344+00:00",
+      "status": "complete",
+      "concept": "Jalape\u00f1o Cheddar Cornbread Bites",
+      "recipe_data": {
+        "title": "Jalape\u00f1o Cheddar Cornbread Bites",
+        "description": "Bite-size cornbread with charred corn, sharp cheddar and bright jalape\u00f1o heat \u2014 crisp at the edges and tender in the middle, built for a standard 12-cup muffin tin. Charring the corn and jalape\u00f1o adds smoky depth so these pop-sized bites taste like summer, not a plain muffin shrunk down.",
+        "servings": 12,
+        "prep_time": 20,
+        "cook_time": 18,
+        "difficulty": "medium",
+        "category": "savory",
+        "ingredients": [
+          {
+            "item": "stone-ground yellow cornmeal",
+            "amount": "1 cup",
+            "notes": "150 g"
+          },
+          {
+            "item": "all-purpose flour",
+            "amount": "3/4 cup",
+            "notes": "95 g"
+          },
+          {
+            "item": "granulated sugar",
+            "amount": "2 tablespoons",
+            "notes": "25 g"
+          },
+          {
+            "item": "baking powder",
+            "amount": "1 tablespoon",
+            "notes": ""
+          },
+          {
+            "item": "baking soda",
+            "amount": "1/2 teaspoon",
+            "notes": ""
+          },
+          {
+            "item": "fine sea salt",
+            "amount": "1 teaspoon",
+            "notes": ""
+          },
+          {
+            "item": "eggs",
+            "amount": "2 large",
+            "notes": "room temperature"
+          },
+          {
+            "item": "buttermilk, room temperature",
+            "amount": "1 cup",
+            "notes": "240 ml"
+          },
+          {
+            "item": "sour cream or full-fat Greek yogurt",
+            "amount": "1/3 cup",
+            "notes": "80 g"
+          },
+          {
+            "item": "unsalted butter, melted and cooled slightly, plus 1 tablespoon for greasing tin",
+            "amount": "4 tablespoons",
+            "notes": "56 g"
+          },
+          {
+            "item": "fresh corn kernels OR frozen-thawed corn",
+            "amount": "1 cup",
+            "notes": "150 g"
+          },
+          {
+            "item": "jalape\u00f1o , halved, seeds removed for milder heat, finely diced",
+            "amount": "1 large",
+            "notes": "about 20\u201330 g"
+          },
+          {
+            "item": "sharp cheddar, shredded , divided",
+            "amount": "1 1/2 cups",
+            "notes": "6 oz / 170 g"
+          },
+          {
+            "item": "scallions , thinly sliced",
+            "amount": "2",
+            "notes": "green onions"
+          },
+          {
+            "item": "chopped fresh cilantro",
+            "amount": "2 tablespoons",
+            "notes": "optional"
+          },
+          {
+            "item": "smoked paprika",
+            "amount": "1/4 teaspoon",
+            "notes": "optional, adds background smoke"
+          },
+          {
+            "item": "spray or extra vegetable oil for muffin tin",
+            "amount": "Nonstick",
+            "notes": ""
+          }
+        ],
+        "instructions": [
+          "Preheat oven to 400\u00b0F (204\u00b0C). Place an oven thermometer in the center rack and confirm temperature matches the dial; I always double-check. Position rack in middle of oven.",
+          "Prepare a standard 12-cup muffin tin: brush each cup with melted butter (about 1 tablespoon total spread evenly) or spray with nonstick spray; set aside. (Using paper liners will blunt the crisp edges; avoid them if you want good crust.)",
+          "Char the corn and jalape\u00f1o: heat a 10-inch skillet over medium-high until smoking slightly. Add 1 teaspoon neutral oil, then the corn kernels in a single layer. Let sit without stirring 1\u20132 minutes until dark flecks form; shake and cook another 1\u20132 minutes until some kernels are browned. Push corn to one side; add halved jalape\u00f1o, cut side down, char 1 minute, then flip and char the skin side briefly. Remove to a bowl and let cool slightly.",
+          "Dice the charred jalape\u00f1o (discard seeds if you want less heat) and reserve 6 thin rounds for garnish if you like visible rings on top.",
+          "In a large bowl whisk together the cornmeal, flour, sugar, baking powder, baking soda, salt and smoked paprika until evenly distributed. Measure twice; sift/poke with a fork if lumps.",
+          "In a separate bowl whisk the eggs briskly, then whisk in the buttermilk, sour cream and melted butter until smooth.",
+          "Pour the wet ingredients into the dry and fold gently with a rubber spatula until mostly combined \u2014 a few streaks of flour are OK. Overmixing will toughen the cornbread.",
+          "Fold in 1 cup of the shredded cheddar, the charred corn, diced jalape\u00f1o, sliced scallions and cilantro (if using). Batter should be thick but spoonable.",
+          "Spoon batter into prepared muffin tin, filling cups about 2/3 to 3/4 full (roughly 2.5 tablespoons per cup). Sprinkle the reserved 1/2 cup shredded cheddar evenly over the tops and place a jalape\u00f1o round on top of 6 of them if using.",
+          "Bake at 400\u00b0F (204\u00b0C) for 14\u201318 minutes, rotating the pan once at 9 minutes for even color. Start checking at 14 minutes: tops should be golden with browned edges and a toothpick inserted into center should come out with a few moist crumbs (not wet batter).",
+          "Remove from oven and let cool in the tin 5 minutes, then transfer to a wire rack to finish cooling for 5\u201310 minutes. Serve warm."
+        ],
+        "chef_notes": " - Oven accuracy matters: I always check with a thermometer and adjust time if your oven runs hot or cool. These bites want a hot oven for quick rise and crisp edges. - Char the corn and jalape\u00f1o \u2014 it\u2019s the difference between sugary kernels and something with real depth. If you\u2019re short on time, use thawed frozen corn and a quick 3\u20134 minute saut\u00e9 in a hot pan to remove extra moisture. - For milder heat, remove all seeds and membranes from the jalape\u00f1o; for more heat, leave some seeds or add 1/4 teaspoon cayenne to the dry mix. - Don't overmix once wet and dry are combined \u2014 that keeps the crumb tender. Fold until just combined. - Make-ahead & storage: cool completely, freeze in a single layer on a sheet pan, then transfer to a zip-top bag for up to 1 month. Reheat from frozen in a 350\u00b0F (177\u00b0C) oven for 8\u201310 minutes. - Serving suggestions: smear with honey-lime butter (4 tablespoons softened butter + 1 tablespoon honey + 1 teaspoon lime zest), or a lime crema (1/2 cup sour cream + 1 tablespoon lime juice + pinch salt) for brightness. They also pair well with chili, pulled pork, or as a spicy breakfast with a fried quail egg on top. - Variations: swap half the cheddar for crumbled cotija for a tangier finish; stir in 1/2 cup cooked, crumbled bacon for a smoky-savory version. - My ritual: I measure the cornmeal twice (I write it in the margin of my copy) and use my own whisk \u2014 it helps me hear when the batter is just right.",
+        "concept": "Jalape\u00f1o Cheddar Cornbread Bites",
+        "margaret_notes": [
+          "At least we're doing the technique correctly.",
+          "Check oven temp with a thermometer. Don't trust the dial.",
+          " - Oven accuracy matters: I always check with a thermometer and adjust time if your oven runs hot or cool. These bites want a hot oven for quick rise and crisp edges. - Char the corn and jalape\u00f1o \u2014 it\u2019s the difference between sugary kernels and something with real depth. If you\u2019re short on time, use thawed frozen corn and a quick 3\u20134 minute saut\u00e9 in a hot pan to remove extra moisture. - For milder heat, remove all seeds and membranes from the jalape\u00f1o; for more heat, leave some seeds or add 1/4 teaspoon cayenne to the dry mix. - Don't overmix once wet and dry are combined \u2014 that keeps the crumb tender. Fold until just combined. - Make-ahead & storage: cool completely, freeze in a single layer on a sheet pan, then transfer to a zip-top bag for up to 1 month. Reheat from frozen in a 350\u00b0F (177\u00b0C) oven for 8\u201310 minutes. - Serving suggestions: smear with honey-lime butter (4 tablespoons softened butter + 1 tablespoon honey + 1 teaspoon lime zest), or a lime crema (1/2 cup sour cream + 1 tablespoon lime juice + pinch salt) for brightness. They also pair well with chili, pulled pork, or as a spicy breakfast with a fried quail egg on top. - Variations: swap half the cheddar for crumbled cotija for a tangier finish; stir in 1/2 cup cooked, crumbled bacon for a smoky-savory version. - My ritual: I measure the cornmeal twice (I write it in the margin of my copy) and use my own whisk \u2014 it helps me hear when the batter is just right."
+        ]
+      },
+      "dialogue": [
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "Morning. Logged on. Pitch: Jalape\u00f1o Cheddar Cornbread Bites - crisp edges, moist crumb, sharp cheddar, tempered jalape\u00f1o heat; lock by 5:00 pm, no activated charcoal or edible flowers.",
+          "timestamp": "2026-03-04T09:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "Lock it. Mini cornbread rounds - stone-ground cornmeal, buttermilk batter, browned cheddar crown with quick-pickled jalape\u00f1o dice. Bake a trial this afternoon; skip novelty garnishes.",
+          "timestamp": "2026-03-04T09:53:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Marcus Reid",
+          "message": "Margaret, love the no-nonsense garnish rule; it preserves the craft. Copy should be warmer, less clever, more felt - small, smoky heirlooms of comfort. Steph, can you lock this tone by 5:00 pm?",
+          "timestamp": "2026-03-04T10:46:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, I know Margaret wants this locked by 5:00 pm, but could we mellow the jalape\u00f1o by roasting and deseeding it, then scatter a few quick-pickled dice on top; Marcus, can you send two tone options - warm homestyle and low-smoke nostalgic - by 4:00 pm? I'm probably wrong, but...",
+          "timestamp": "2026-03-04T11:39:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Marcus Reid",
+          "message": "Two tone options by 4:00 pm: homestyle warmth and low-smoke nostalgia, leaning on stone-ground cornmeal and a toasty cheddar halo. Steph, roast, peel and deseed the jalapeno, quick-pickle in rice vinegar with a touch of honey, and be the decisive editor whom we need so we can lock this by 5:00 pm.",
+          "timestamp": "2026-03-04T12:32:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "Char, peel and trim the jalape\u00f1o - remove ribs and seeds and reserve four quick-pickled dice per dozen for the finish. Marcus: two copy directions by 4:00 pm. Steph: pick one and stop apologizing so we can lock at 5:00 pm.",
+          "timestamp": "2026-03-04T13:25:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, let's pick the subtle smoke voice; char, skin, core and de-seed jalape\u00f1os, quick-pickle and reserve four dice per 12; Marcus, two drafts by 4:00 pm.",
+          "timestamp": "2026-03-04T14:18:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Marcus Reid",
+          "message": "Low-smoke voice chosen; Steph, take the helm and be the editor whom decisiveness becomes so we can lock this by 5:00 pm. Two drafts to you by 4:00 pm - warm homestyle (a spoonful of browned butter folded into the batter for nutty depth) and low-smoke nostalgia (folded charred corn kernels with a browned-cheddar crown to play against the quick-pickled jalape\u00f1o).",
+          "timestamp": "2026-03-04T15:11:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, I know we need to lock by 5:00 pm, so let's run with Marcus' smoky draft; Char, blister jalape\u00f1os over high heat until skins blacken, steam in a covered bowl to loosen skins, peel and remove ribs and seeds, quick-pickle in rice vinegar with a touch of honey and reserve four 1/4-inch dice per dozen, fold in two tablespoons of charred corn kernels and a pinch of smoked salt into the batter, finish with a deeply browned sharp-cheddar crown. Marcus, can you send the polished copy by 4:00 pm so we can lock it, I'm probably wrong, but does that feel okay?",
+          "timestamp": "2026-03-04T16:04:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-04T16:50:15.639381+00:00"
+    },
+    "tuesday": {
+      "stage": "recipe_development",
+      "started_at": "2026-03-04T16:50:21.096767+00:00",
+      "status": "complete",
+      "concept": "Jalape\u00f1o Cheddar Cornbread Bites",
+      "recipe_data_ref": "from monday stage",
+      "dialogue": [
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Margaret Chen",
+          "message": "I'm in, trays cooling and the ratio notes are contradicting each other. Today's task: Jalape\u00f1o Cheddar Cornbread Bites, draft due 5:00 pm. Technical wrinkle: someone suggested self-rising or oil-only shortcut and that's wrong; we lock AP:cornmeal 1:1, buttermilk, creamed butter for lift, Marcus verify leavener and Steph final taste.",
+          "timestamp": "2026-03-04T09:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Okay, locking that, sorry, can Marcus confirm leavener amounts and jalape\u00f1o moisture tweak before final taste at 4:30 pm? I just want us on same page.",
+          "timestamp": "2026-03-04T10:20:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Marcus Reid",
+          "message": "If I may offer some context, use 1 teaspoon baking powder plus 1/4 teaspoon baking soda per cup dry; the soda is modest because buttermilk, with whom it reacts, supplies the acid for lift. Seed, pat utterly dry and quick-roast the jalape\u00f1os, fold in at the last minute to avoid soggy crumbs - I will verify both at 4:30 pm.",
+          "timestamp": "2026-03-04T11:40:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Margaret Chen",
+          "message": "Numbers make sense, Marcus. No shortcuts - no self-rising, no oil-only; seed, pat dry, quick-roast, cool, fold last minute. Weigh everything, Steph taste at 4:30 pm and call the heat.",
+          "timestamp": "2026-03-04T13:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, I can do the final check at 4:30 pm; I'll sample center and edge for crumb moisture and jalape\u00f1o bite, then flag any oven tweak.",
+          "timestamp": "2026-03-04T14:20:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "tuesday",
+          "stage": "recipe_development",
+          "character": "Marcus Reid",
+          "message": "If I may offer some context, measure the leavener by weight: use 1 teaspoon baking powder plus 1/4 teaspoon baking soda for every 120 grams of combined AP and cornmeal, since the buttermilk supplies the acid and we want the soda modest so the crumb stays bright. Seed and pat the jalape\u00f1os dry, blister them quickly in a 450 F oven for about 3 to 4 minutes on a tray so they sweat, cool on a rack and fold in at the final mix; Steph will taste at 4:30 pm to adjudicate center versus edge moisture and call whether to bake the bites at 400 F for 12 to 14 minutes, and I will confirm weights and leavener then.",
+          "timestamp": "2026-03-04T15:40:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-04T16:54:46.619436+00:00"
+    },
+    "wednesday": {
+      "stage": "photography",
+      "started_at": "2026-03-04T16:54:52.005826+00:00",
+      "status": "complete",
+      "concept": "Jalape\u00f1o Cheddar Cornbread Bites",
+      "photography_data": "dry-run-placeholder",
+      "image_paths": [
+        "placeholder_1.png",
+        "placeholder_2.png",
+        "placeholder_3.png"
+      ],
+      "dialogue": [
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Julian Torres",
+          "message": "Just got in - dropped three lighting tests for the Jalape\u00f1o Cheddar Cornbread Bites. I'm thinking about the visual language here: final hero by 5:00 pm, my pick is low side light, half-bite on matte.",
+          "timestamp": "2026-03-04T09:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": [
+            "placeholder_1.png",
+            "placeholder_2.png",
+            "placeholder_3.png"
+          ]
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Margaret Chen",
+          "message": "Rake light from camera right. Take a full bite so kernels and molten cheddar show.",
+          "timestamp": "2026-03-04T10:36:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Julian Torres",
+          "message": "Too much removal flattens the cornbread's architecture - do a restrained reveal, bite angled 45 degrees, 35mm f4.",
+          "timestamp": "2026-03-04T12:12:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, I just want to make sure we're all on the same page before we commit, since final hero is due by 5:00 pm, could we quickly run Margaret's rake full-bite and Julian's restrained half-bite and then pick which reads best in-feed? I'm probably wrong, but does that make sense? No? That's fair.",
+          "timestamp": "2026-03-04T13:48:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry to rush everyone - my pick is Margaret's full-bite under rake light as the hero, paired with Julian's tighter 4:5 crop centered on the molten cheddar; I left retouch notes, export specs and a 2-up visual in Drive as jalapeno_cheddar_v2_notes. I'm logging off soon so please flag anything urgent before I go, what do YOU think? I'm really interested in your perspective.",
+          "timestamp": "2026-03-04T15:24:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-04T16:57:27.862482+00:00"
+    },
+    "thursday": {
+      "stage": "copywriting",
+      "started_at": "2026-03-04T16:57:33.273212+00:00",
+      "status": "complete",
+      "concept": "Jalape\u00f1o Cheddar Cornbread Bites",
+      "copy_text": {
+        "body": "There is a small, stubborn magic to anything baked in a muffin tin: an economy of joy, three inches of golden circumference into which the world can be folded and served. These Jalape\u00f1o Cheddar Cornbread Bites are that magic rendered in stone-ground yellow cornmeal and molten cheddar: 18 minutes from batter to browned lip, each one a tiny architecture of sweet, heat, and crunch.\n\nStone-ground cornmeal is the heart here \u2014 not the paper-smooth dust of industrial mills but the granular, sunlit kernel that sings of field and season. It gives the crumb a tooth, a whisper of grit that reads as honesty on the tongue. A little all-purpose flour joins it to hold the thing together, while granulated sugar nods to history: cornbread, in its many regional lives, has always balanced savory with a hint of sweetness, a small permission for butter and conversation. Baking powder and a touch of baking soda are the lift; fine sea salt is the memory anchor, coaxing out the corn and the cheese the way a good editor amplifies a sentence\u2019s meaning.\n\nAnd the jalape\u00f1o \u2014 whose green heat is as floral as it is fierce \u2014 is your punctuation. Slice it thin so that each bite finds a fleck of fire; deseed it if you prefer an affectionate nudge rather than true provocation. Then the cheddar, ideally something sharp and a little crumbly, torn or grated into the batter so it melts into strings when you bite, those same strings that make people laugh and forget to be polite.\n\nI think of M.F.K. Fisher when I say that food should be remembered like a person; these tiny cornbreads are the kind of memory that returns on its own: a summer porch, a baseball game\u2019s distant crack, the impatient clatter of a muffin tin on a rickety counter. Ruth Reichl would have loved their texture; Elizabeth David would have approved the honesty of the ingredients. Nigel Slater would nod, simply, and tell you to eat them warm.\n\nWhat I love about the muffin tin format \u2014 beyond the adorable geometry \u2014 is how it democratizes the oven. There is no ritual of perfection here, only a quick, gratifying alchemy. Eighteen minutes under heat, and you have margins browned and a domed top that breaks the way good bread does. They are portable, unapologetically hand-held, perfect for dipping into chiles, for scattering on a picnic blanket with butter and more cheddar, for placing in a Tupperware for the week\u2019s small rebellions.\n\nThere is a familial thing about these bites as well. The recipe asks for very little fuss\u2014no need to whisk with the solemnity of a novel\u2019s opening chapter\u2014yet it rewards attention. Stir the cornmeal to the flour like you\u2019re folding in a memory. Salt judiciously and taste the batter if you must (I do), because seasoning is the difference between a bowl and a story.\n\nCook them for 18 minutes and they will surprise you; longer and they dry into respectable biscuits, shorter and they may slouch like an unattended sentence. The best moment is the first cool-down, when the steam has settled and you can peel one out on a napkin, the cheddar still warm and patient. Serve them with butter, with a smear of honey for those who insist on the sweet-savory tension, with hot sauce if you\u2019re feeling permissive.\n\nThese Jalape\u00f1o Cheddar Cornbread Bites are, in their way, an argument for quickness and tenderness. They gather together with common pantry things \u2014 cornmeal, flour, sugar, leaveners, salt \u2014 and in 18 simple minutes make the house smell like possibility. Make a batch. Fill a tin. Bring them warm and insist that whoever sits smallest at the table gets the first one. After all, it\u2019s the small things that taste like memory.",
+        "word_count": 626,
+        "target_word_count": 200,
+        "quality": "exceptional - genuinely moving despite the length",
+        "exceeded_target_by": 426,
+        "literary_references": "Ruth Reichl wrote about comfort food...",
+        "note": "This is actually beautiful. People will share this."
+      },
+      "dialogue": [
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Marcus Reid",
+          "message": "Morning, all - laptop open, copy day: Jalape\u00f1o Cheddar Cornbread Bites draft is live, due 3:00 PM. Comments flooding; Margaret, whom I trust, cut mercilessly and Steph, be decisive so we can ship.",
+          "timestamp": "2026-03-04T09:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Sorry, I think maybe we could possibly do two quick options: punchy short and tighter lyrical. Marcus, flag top three lines; Margaret, mark must-keeps by 2:15 pm. What do YOU think?",
+          "timestamp": "2026-03-04T11:40:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Margaret Chen",
+          "message": "Submitted the punchy-short version; kept Marcus's flagged opener and Steph's spare line. Deadline met at 3:00 PM, laptop closed, I'm out.",
+          "timestamp": "2026-03-04T14:20:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-04T17:00:12.515899+00:00"
+    },
+    "friday": {
+      "stage": "final_review",
+      "started_at": "2026-03-04T17:00:17.908490+00:00",
+      "status": "complete",
+      "concept": "Jalape\u00f1o Cheddar Cornbread Bites",
+      "review_data": {
+        "positive": [
+          "I love this! The concept is really strong.",
+          "Great work on this, seriously."
+        ],
+        "suggestions": [
+          "I think maybe we could possibly adjust the portion sizes? Just a thought.",
+          "Does the title feel... I don't know. What do YOU think?"
+        ],
+        "decision": "approved_with_minor_revisions",
+        "confidence": "low",
+        "notes": "Let's circle back if anyone has concerns?"
+      },
+      "approved": true,
+      "dialogue": [
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Margaret Chen",
+          "message": "Logged on. Friday final review. Jalape\u00f1o Cheddar Cornbread Bites - something is off. Crumb too dense. Cheese pooled. Jalape\u00f1os uneven. Steph - close, but not there. Fix 1: Reduce melted butter to 4 tablespoons. Fix 2: Add 2 tablespoons extra cornmeal; reduce all-purpose flour accordingly. Fix 3: Grate cheddar cold. Toss with 1 teaspoon flour. Fold in at the last second after batter rests five minutes. Fix 4: Bake at 400F for 12 minutes. Rotate pan at 8:00 pm minutes. Devon - hold deployment until I sign off on the re-bake. I will re-test by 3:00 pm. Send updated photos immediately after. Approve at 4:45 pm only if those changes are reflected.",
+          "timestamp": "2026-03-04T09:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Margaret, thank you, we will follow your fixes exactly; I will have the test baker grate the cheddar on the fine side, chill it for two minutes, toss with a teaspoon of flour, and I will check crumb at 3:05 pm and send photos immediately after. Julian, can you prepare a tight cross-section and a 45-degree overhead at 3:10 pm, and Devon, please confirm you are holding deployment until I give the 4:45 pm approval? I'm probably wrong, but does that feel doable.",
+          "timestamp": "2026-03-04T10:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Julian Torres",
+          "message": "On it, tight cross and 45 at 3:10 pm, 30 degree side rake, matte surface, watch pooled cheese.",
+          "timestamp": "2026-03-04T11:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Devon Park",
+          "message": "I paused the pipeline, locked the CD job and tagged build cornbread-v2; I will only promote after your 4:45 pm sign-off and I'll attach the test photos and CI logs.",
+          "timestamp": "2026-03-04T12:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Devon Park",
+          "message": "Locked the CD job as cornbread-v2; please upload test photos to s3://kitchen-ci/artifacts/cornbread-v2/20260304_1500/, I'll pull those plus build.log and test_report.xml into the release and won't promote before your 4:45 pm approval.",
+          "timestamp": "2026-03-04T13:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Margaret Chen",
+          "message": "I will run a control bake, pull the logs, and report by 1500. Steph - no substitutions: medium grate, chill cheese 5 minutes, toss with 1 tsp flour, upload photos to s3://kitchen-ci/artifacts/cornbread-v2/20260304_1500/ immediately. 1645 sign-off only if jalape\u00f1os are even, crumb is open and tender, and there are absolutely no cheese pools.",
+          "timestamp": "2026-03-04T14:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Devon Park",
+          "message": "Pipeline frozen and cornbread-v2 tag retained; when you upload the medium-grate photos to s3://kitchen-ci/artifacts/cornbread-v2/20260304_1500/ I will ingest the images plus build.log and test_report.xml, verify checksums and EXIF timestamps match the 15:00 control bake, run the pooled-cheese detector, and keep the release gate closed until your 16:45 approval, yeah I can probably automate that.",
+          "timestamp": "2026-03-04T15:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Julian Torres",
+          "message": "I'm thinking about the visual language here: RAW cross and 45-degree files uploaded to s3://kitchen-ci/artifacts/cornbread-v2/20260304_1500/ as cornbread_v2_cross.CR2 and cornbread_v2_45.CR2, shot 50mm f2.8 1/160, window key with matte surface; medium-grate cheddar chilled 5 minutes, no pooling, crumb tender and aerated after 400F 12m with rotation at 8m. Devon, greenlight cornbread-v2 for 16:45 and append build.log plus test_report.xml to the release.",
+          "timestamp": "2026-03-04T16:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-04T17:04:37.290328+00:00"
+    },
+    "saturday": {
+      "stage": "deployment",
+      "started_at": "2026-03-04T17:04:42.687322+00:00",
+      "status": "complete",
+      "concept": "Jalape\u00f1o Cheddar Cornbread Bites",
+      "deployment_status": "staged",
+      "dialogue": [
+        {
+          "day": "saturday",
+          "stage": "deployment",
+          "character": "Devon Park",
+          "message": "Logged in - staging Jalape\u00f1o Cheddar Cornbread Bites for a 12:00 pm deploy; running checks now, will ping if a snag pops up.",
+          "timestamp": "2026-03-04T09:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "saturday",
+          "stage": "deployment",
+          "character": "Margaret Chen",
+          "message": "Good. Don't eyeball the batter; weigh it and watch oven temp.",
+          "timestamp": "2026-03-04T11:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "saturday",
+          "stage": "deployment",
+          "character": "Devon Park",
+          "message": "Weighed the batter and checked oven temp; found a minor asset path mismatch in staging, patched it and re-ran checks, staging's green for the 12:00 pm deploy.",
+          "timestamp": "2026-03-04T13:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "saturday",
+          "stage": "deployment",
+          "character": "Margaret Chen",
+          "message": "Logs show the asset-path fix survived a stress run. Fine. Signing off till Monday.",
+          "timestamp": "2026-03-04T15:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-04T17:05:44.412265+00:00"
+    },
+    "sunday": {
+      "stage": "publish",
+      "started_at": "2026-03-04T17:05:49.828375+00:00",
+      "status": "complete",
+      "concept": "Jalape\u00f1o Cheddar Cornbread Bites",
+      "published": true,
+      "dialogue": [
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Just logged on - sorry to jump in, but 5:00 pm sharp publish for Jalapeno Cheddar Cornbread Bites is in an hour; all set?",
+          "timestamp": "2026-03-04T09:00:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Margaret Chen",
+          "message": "Good. Everything staged and scheduled for 5:00 pm sharp. Don't let Julian fiddle.",
+          "timestamp": "2026-03-04T11:40:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Marcus Reid",
+          "message": "Just went live - the spicy cheddar-jalapeno cornbread bites are up; Margaret staged them like a Dutch still life, whom we should all praise. Laptop closing; Steph, spare us Julian's fiddling and be decisive, please.",
+          "timestamp": "2026-03-04T14:20:00+00:00",
+          "model": "openai/gpt-5-mini",
+          "attachments": []
+        }
+      ],
+      "completed_at": "2026-03-04T17:07:02.586813+00:00"
+    }
+  },
+  "events": [
+    "monday: complete",
+    "tuesday: complete",
+    "wednesday: complete",
+    "thursday: complete",
+    "friday: complete",
+    "saturday: complete",
+    "sunday: complete"
+  ],
+  "recipe_id": "001cca48",
+  "concept": "Jalape\u00f1o Cheddar Cornbread Bites",
+  "image_paths": [
+    "placeholder_1.png",
+    "placeholder_2.png",
+    "placeholder_3.png"
+  ],
+  "published_at": "2026-03-04T17:05:49.828624+00:00"
+}
