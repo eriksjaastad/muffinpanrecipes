@@ -114,6 +114,19 @@ class ArtDirectorAgent(Agent):
     def _repo_root(self) -> Path:
         return Path(__file__).resolve().parents[2]
 
+    def _images_dir(self) -> Path:
+        """Return writable directory for image generation.
+
+        On Vercel Lambda /var/task/ is read-only, so we write to /tmp/.
+        Locally we use the normal src/assets/images path.
+        """
+        if os.environ.get("VERCEL_ENV"):
+            d = Path("/tmp/mpr-images")
+        else:
+            d = self._repo_root() / "src" / "assets" / "images"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
     def _recipe_title(self, task: Task) -> str:
         recipe_data = task.context.get("recipe_data", {}) if isinstance(task.context, dict) else {}
         return str(recipe_data.get("title") or task.context.get("concept") or "Muffin Pan Recipe")
@@ -168,9 +181,14 @@ class ArtDirectorAgent(Agent):
 
         images_bytes: list[bytes] = []
         for info in image_paths:
-            full_path = self._repo_root() / info["path"]
-            if full_path.exists():
-                images_bytes.append(full_path.read_bytes())
+            local = Path(info.get("local_path", ""))
+            if local.exists():
+                images_bytes.append(local.read_bytes())
+            else:
+                # Fallback: try repo-relative path (legacy)
+                full_path = self._repo_root() / info["path"]
+                if full_path.exists():
+                    images_bytes.append(full_path.read_bytes())
 
         if not images_bytes:
             logger.warning("Vision eval: no image files found, falling back to pass")
@@ -275,7 +293,7 @@ class ArtDirectorAgent(Agent):
         feedback: str | None = None,
     ) -> tuple[list[dict[str, Any]], Path]:
         """Generate 3 variants for a single round. Returns (variant_outputs, round_dir)."""
-        round_dir = self._repo_root() / "src" / "assets" / "images" / recipe_id / f"round_{round_num}"
+        round_dir = self._images_dir() / recipe_id / f"round_{round_num}"
         variant_outputs: list[dict[str, Any]] = []
 
         for variant in self._VARIANTS:
@@ -288,9 +306,13 @@ class ArtDirectorAgent(Agent):
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_path.write_bytes(image_bytes)
 
+            # Canonical relative path (always src/assets/images/...) for storage layer
+            canonical = f"src/assets/images/{recipe_id}/round_{round_num}/{variant}.png"
+
             variant_outputs.append({
                 "variant": variant,
-                "path": str(out_path.relative_to(self._repo_root())),
+                "path": canonical,
+                "local_path": str(out_path),
                 "prompt": prompt,
             })
 
@@ -303,7 +325,7 @@ class ArtDirectorAgent(Agent):
 
         recipe_id = str(task.context.get("recipe_id") or task.id)
         recipe_title = self._recipe_title(task)
-        featured_image = self._repo_root() / "src" / "assets" / "images" / f"{recipe_id}.png"
+        featured_image = self._images_dir() / f"{recipe_id}.png"
         api_key = os.getenv("STABILITY_API_KEY")
         if not api_key:
             raise RuntimeError("STABILITY_API_KEY not configured; stopping pipeline")
@@ -319,7 +341,7 @@ class ArtDirectorAgent(Agent):
             )
 
             # Perceptual hash diversity check (belt-and-suspenders with vision eval)
-            phash_paths = [self._repo_root() / vo["path"] for vo in variant_outputs]
+            phash_paths = [Path(vo["local_path"]) for vo in variant_outputs]
             visually_diverse = _check_visual_diversity(phash_paths)
 
             # Vision evaluation
@@ -361,11 +383,16 @@ class ArtDirectorAgent(Agent):
             last_variants = rounds[-1]["variants"]
             winner_info = {**last_variants[0], "round": len(rounds)}
 
-        # Copy winner to featured image location
-        winner_source = self._repo_root() / winner_info["path"]
+        # Copy winner to featured image location (local temp or repo)
+        winner_source = Path(winner_info["local_path"])
         featured_image.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(winner_source, featured_image)
-        winner_info["featured_image"] = str(featured_image.relative_to(self._repo_root()))
+
+        # Upload winner to cloud storage (Vercel Blob in prod, local FS in dev)
+        featured_canonical = f"src/assets/images/{recipe_id}.png"
+        from backend.storage import storage
+        storage.save_image(featured_canonical, featured_image.read_bytes())
+        winner_info["featured_image"] = featured_canonical
 
         reshoot_happened = len(rounds) > 1
 
