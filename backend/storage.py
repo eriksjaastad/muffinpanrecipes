@@ -192,7 +192,12 @@ class _CloudBackend:
 
         import requests as _requests
 
-        # List blobs with exact prefix to find this episode's URL
+        # Read episode from Vercel Blob via list API + CDN content URL.
+        #
+        # IMPORTANT: After a PUT with x-allow-overwrite, the CDN URL may serve
+        # stale content for a few seconds. In production (24h between cron stages)
+        # this is fine. For rapid testing, callers should add a delay between writes
+        # and reads (see scripts/run_full_week.py --stage-delay).
         pathname = f"episodes/{episode_id}.json"
         try:
             resp = _requests.get(
@@ -204,19 +209,10 @@ class _CloudBackend:
             resp.raise_for_status()
             blobs = resp.json().get("blobs", [])
             if not blobs:
-                # Not in cloud — try filesystem fallback (deployed episode files)
                 return self._fs.load_episode(episode_id)
 
             blob_url = blobs[0]["url"]
-            # Cache-bust: Vercel Blob CDN can serve stale content for ~1-2s
-            # after a PUT. Adding a unique query param forces a fresh read.
-            import time as _time
-            cache_bust = f"?t={int(_time.time() * 1000)}"
-            content_resp = _requests.get(
-                blob_url + cache_bust,
-                headers=self._auth_headers(),
-                timeout=15,
-            )
+            content_resp = _requests.get(blob_url, timeout=15)
             content_resp.raise_for_status()
             return content_resp.json()
         except Exception as e:
