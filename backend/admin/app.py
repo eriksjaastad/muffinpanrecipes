@@ -132,7 +132,14 @@ def create_admin_app(
     # Health check endpoint
     @app.get("/health")
     async def health_check():
-        return {"status": "healthy", "service": "admin_dashboard"}
+        packages = {}
+        for pkg in ("anthropic", "openai", "fastapi", "pydantic"):
+            try:
+                mod = __import__(pkg)
+                packages[pkg] = getattr(mod, "__version__", "installed")
+            except ImportError:
+                packages[pkg] = "MISSING"
+        return {"status": "healthy", "service": "admin_dashboard", "packages": packages}
 
     return app
 
