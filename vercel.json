@@ -50,7 +50,7 @@
             "dest": "backend/admin/app.py"
         },
         {
-            "src": "/health",
+            "src": "/health(/.*)?",
             "dest": "backend/admin/app.py"
         },
         {
