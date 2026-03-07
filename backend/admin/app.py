@@ -141,6 +141,38 @@ def create_admin_app(
                 packages[pkg] = "MISSING"
         return {"status": "healthy", "service": "admin_dashboard", "packages": packages}
 
+    @app.get("/health/dialogue-test")
+    async def dialogue_test():
+        """Diagnostic: attempt a minimal dialogue generation and return errors."""
+        import traceback
+        try:
+            from scripts.simulate_dialogue_week import run_simulation
+            result = run_simulation(
+                concept="Test",
+                default_model="anthropic/claude-haiku-4-5-20251001",
+                run_index=1,
+                stage_only="monday",
+                injected_event=None,
+                ticks_per_day=1,
+                mode="openai",
+                prompt_style="scene",
+                character_models=None,
+                image_paths=[],
+                photography_context=None,
+            )
+            msgs = result.get("messages", [])
+            return {
+                "status": "ok",
+                "messages": len(msgs),
+                "first_message": msgs[0] if msgs else None,
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "error": f"{type(e).__name__}: {e}",
+                "traceback": traceback.format_exc(),
+            }
+
     return app
 
 
