@@ -445,7 +445,31 @@ def main():
         print("  (episode not found in blob)")
 
     if is_test and failed == 0:
-        print(f"\nTest complete. To clean up: doppler run --config prd -- uv run python scripts/run_full_week.py --cleanup")
+        # Auto-generate a viewable recipe page from the episode data
+        print(f"\n{'#'*60}")
+        print(f"  GENERATING RECIPE PAGE")
+        print(f"{'#'*60}")
+        try:
+            from scripts.generate_recipe_page import (
+                _load_episode_from_blob,
+                _find_image_url,
+                _upload_page,
+                generate_page,
+            )
+            ep_data = _load_episode_from_blob(episode_id, blob_token, prefix)
+            if ep_data:
+                image_url = _find_image_url(ep_data, blob_token, prefix)
+                page_html = generate_page(ep_data, image_url=image_url)
+                pathname = f"{prefix}pages/{episode_id}/index.html"
+                page_url = _upload_page(page_html, pathname, blob_token)
+                print(f"  Recipe page uploaded!")
+                print(f"  VIEW IT HERE: {page_url}")
+            else:
+                print(f"  WARNING: Could not load episode data for page generation")
+        except Exception as e:
+            print(f"  WARNING: Page generation failed: {e}")
+
+        print(f"\nTo clean up: doppler run --config prd -- uv run python scripts/run_full_week.py --cleanup")
 
     sys.exit(0 if failed == 0 else 1)
 
