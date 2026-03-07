@@ -167,9 +167,10 @@ def _generate_dialogue(
         )
         return result.get("messages", [])
     except Exception as e:
-        logger.error(f"Dialogue generation FAILED for stage={stage}: {type(e).__name__}: {e}", exc_info=True)
-        # Return error info so it surfaces in API response and episode JSON
-        return [{"character": "SYSTEM", "message": f"DIALOGUE_ERROR: {type(e).__name__}: {e}", "day": stage, "model": "error"}]
+        import traceback
+        tb = traceback.format_exc()
+        logger.error(f"Dialogue generation FAILED for stage={stage}: {type(e).__name__}: {e}\n{tb}")
+        return []
 
 
 DAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
