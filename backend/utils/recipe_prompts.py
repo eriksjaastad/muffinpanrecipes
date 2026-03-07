@@ -68,9 +68,10 @@ CRITICAL RULES:
 2. Create UNIQUE, SPECIFIC recipes - never generic batter recipes
 3. Think creatively: the muffin tin is a VESSEL for portion control, not just for muffins
 4. Include specific ingredients with exact measurements
-5. Write clear, precise instructions with temperatures and times
-6. Consider both sweet AND savory possibilities
-7. Each recipe should stand alone as genuinely useful and appetizing
+5. Use US customary units ONLY: cups, tablespoons (tbsp), teaspoons (tsp), ounces (oz), pounds (lbs), and Fahrenheit. NEVER use metric units (grams, milliliters, Celsius)
+6. Write clear, precise instructions with temperatures and times
+7. Consider both sweet AND savory possibilities
+8. Each recipe should stand alone as genuinely useful and appetizing
 
 INSPIRATION: Think like Floridino's "Grilled Cheese Muffin" - creative use of the format, specific ingredients (they list "Mozzarella, Cheddar, & Gouda"), served with complementary sides.
 
@@ -102,7 +103,7 @@ def _build_recipe_user_prompt(concept: str) -> str:
 Remember:
 - This must work in a standard 12-cup muffin tin
 - Be specific with ingredients (name varieties, brands if relevant)
-- Include exact measurements and temperatures
+- Include exact measurements and temperatures in US customary units (cups, tbsp, tsp, oz, lbs, °F)
 - Make it genuinely delicious and practical
 - Think beyond traditional muffins - the tin is just the cooking vessel
 

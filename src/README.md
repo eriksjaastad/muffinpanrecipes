@@ -14,7 +14,7 @@ This directory contains the front-end source for the Muffin Pan Recipes platform
 ## 📋 Recipe Schema (v1.1)
 
 All recipes must follow the standard Markdown structure:
-- **Dual Measurements:** Metric (g/ml) first, then Imperial (cups/oz).
+- **US Measurements Only:** Cups, tablespoons, teaspoons, ounces, pounds, Fahrenheit.
 - **Yield:** Must specify pan size (Standard, Jumbo, or Mini).
 - **No Fluff:** Strictly forbidden to include long personal stories.
 - **Jump to Recipe:** Always include a jump link at the top.

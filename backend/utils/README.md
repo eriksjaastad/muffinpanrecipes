@@ -19,7 +19,7 @@ Every LLM call in the project (OpenAI, Anthropic, or future providers) must go t
 
 Implements the **"Muffin Pan Chef"** system prompt directives:
 - **No-Fluff Policy**: Eliminates conversational preamble.
-- **Dual-Measurement Standard**: Enforces `Metric (Imperial)` formatting.
+- **US Measurement Standard**: Enforces US customary units only (cups, tbsp, tsp, oz, lbs, °F).
 - **Mathematical Scaling**: Ensures recipes fit exactly into 12 standard, 6 jumbo, or 24 mini cups.
 
 ## 🛠️ Operational Tools
