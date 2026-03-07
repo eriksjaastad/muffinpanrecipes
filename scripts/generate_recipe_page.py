@@ -67,12 +67,27 @@ def _char_info(name: str) -> dict:
     return {"slug": slug, "initials": initials, "name": name, "role": "Team Member"}
 
 
-def _render_chat_message(msg: dict) -> str:
-    """Render a single chat message as HTML."""
+def _render_chat_message(msg: dict, image_url_map: dict[str, str] | None = None) -> str:
+    """Render a single chat message as HTML, including any image attachments."""
     char_name = msg.get("character", "Unknown")
     message = html.escape(msg.get("message", ""))
     info = _char_info(char_name)
     slug = info["slug"]
+    attachments = msg.get("attachments", [])
+
+    # Render image attachments if present
+    images_html = ""
+    if attachments and image_url_map:
+        img_tags = []
+        for att in attachments:
+            url = image_url_map.get(att, "")
+            if url:
+                img_tags.append(
+                    f'<img src="{html.escape(url)}" class="rounded-lg w-full max-w-sm" '
+                    f'alt="Photography option" loading="lazy">'
+                )
+        if img_tags:
+            images_html = f'<div class="flex flex-wrap gap-3 mt-3">{"".join(img_tags)}</div>'
 
     return f"""
             <div class="flex items-start gap-3">
@@ -80,16 +95,30 @@ def _render_chat_message(msg: dict) -> str:
                 <div>
                     <p class="text-[11px] text-gray-400 mb-1">{html.escape(char_name)}</p>
                     <div class="chat-bubble chat-{slug} rounded-2xl rounded-tl-sm px-4 py-3">
-                        <p class="text-sm leading-relaxed">{message}</p>
+                        <p class="text-sm leading-relaxed">{message}</p>{images_html}
                     </div>
                 </div>
             </div>"""
+
+
+def _build_image_url_map(episode: dict) -> dict[str, str]:
+    """Build a mapping from relative image paths to full blob CDN URLs."""
+    wed = episode.get("stages", {}).get("wednesday", {})
+    paths = wed.get("image_paths", [])
+    urls = wed.get("image_urls", [])
+    # Also check top-level
+    if not paths:
+        paths = episode.get("image_paths", [])
+    if not urls:
+        urls = episode.get("image_urls", [])
+    return dict(zip(paths, urls))
 
 
 def _render_conversation_section(episode: dict) -> str:
     """Render the full week's conversation as HTML sections."""
     sections = []
     has_any_dialogue = False
+    image_url_map = _build_image_url_map(episode)
 
     for day in DAYS:
         stage = episode.get("stages", {}).get(day, {})
@@ -100,7 +129,7 @@ def _render_conversation_section(episode: dict) -> str:
         has_any_dialogue = True
         label = STAGE_LABELS.get(day, day.title())
 
-        messages_html = "\n".join(_render_chat_message(m) for m in dialogue)
+        messages_html = "\n".join(_render_chat_message(m, image_url_map) for m in dialogue)
 
         sections.append(f"""
         <div class="stage-divider mb-8">
@@ -296,8 +325,8 @@ def generate_page(episode: dict, image_url: Optional[str] = None) -> str:
                 {image_block}
             </div>
 
-            <a href="#recipe-card" class="block w-full py-8 border-4 border-gray-900 font-bold uppercase tracking-[0.4em] text-sm hover:bg-gray-900 hover:text-white transition-all transform active:scale-[0.98]">
-                Jump to Recipe
+            <a href="#behind-the-scenes" class="block w-full py-8 border-4 border-gray-900 font-bold uppercase tracking-[0.4em] text-sm hover:bg-gray-900 hover:text-white transition-all transform active:scale-[0.98]">
+                Jump to Behind the Scenes
             </a>
         </div>
 
@@ -329,25 +358,24 @@ def generate_page(episode: dict, image_url: Optional[str] = None) -> str:
                 </div>
             </div>
 
-            <div class="grid md:grid-cols-2 gap-16">
-                <div>
-                    <h3 class="font-serif text-2xl mb-8 italic border-l-4 border-terracotta pl-4 uppercase tracking-tighter">Ingredients</h3>
-                    <ul class="space-y-4 list-none p-0 text-gray-700">
-                        {ingredients_html}
-                    </ul>
-                </div>
-                <div>
-                    <h3 class="font-serif text-2xl mb-8 italic border-l-4 border-terracotta pl-4 uppercase tracking-tighter">Instructions</h3>
-                    <ol class="space-y-8 list-none p-0 text-gray-700">
-                        {instructions_html}
-                    </ol>
-                </div>
+            <div class="mb-12">
+                <h3 class="font-serif text-2xl mb-8 italic border-l-4 border-terracotta pl-4 uppercase tracking-tighter">Ingredients</h3>
+                <ul class="grid md:grid-cols-2 gap-x-12 gap-y-4 list-none p-0 text-gray-700">
+                    {ingredients_html}
+                </ul>
+            </div>
+
+            <div class="border-t border-gray-100 pt-12">
+                <h3 class="font-serif text-2xl mb-8 italic border-l-4 border-terracotta pl-4 uppercase tracking-tighter">Instructions</h3>
+                <ol class="space-y-8 list-none p-0 text-gray-700 max-w-2xl">
+                    {instructions_html}
+                </ol>
             </div>
 {chef_notes_html}
         </div>
 
         <!-- BEHIND THE SCENES -->
-        <div class="mt-24">
+        <div id="behind-the-scenes" class="mt-24">
             <div class="text-center mb-16">
                 <p class="text-xs uppercase tracking-[0.3em] text-terracotta font-bold mb-4">Behind the Scenes</p>
                 <h2 class="font-serif text-4xl mb-4 italic">How This Recipe Was Made</h2>
