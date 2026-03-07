@@ -250,8 +250,9 @@ def generate_page(episode: dict, image_url: Optional[str] = None,
                 <p class="text-gray-600 leading-relaxed">{html.escape(chef_notes)}</p>
             </div>"""
 
-    # Conversation section
-    conversation_html = _render_conversation_section(episode, blob_token, prefix)
+    # Conversation section (feature-flagged)
+    show_bts = os.environ.get("ENABLE_BEHIND_THE_SCENES", "true").lower() != "false"
+    conversation_html = _render_conversation_section(episode, blob_token, prefix) if show_bts else ""
 
     # JSON-LD
     ld_ingredients = [
@@ -285,7 +286,6 @@ def generate_page(episode: dict, image_url: Optional[str] = None,
     <meta name="description" content="{desc_escaped}">
     <title>{title_escaped} | Muffin Pan Recipes</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>&#x1f9c1;</text></svg>">
-    <script defer src="/_vercel/speed-insights/script.js"></script>
 
     <meta property="og:type" content="article">
     <meta property="og:title" content="{title_escaped} | Muffin Pan Recipes">
@@ -358,9 +358,7 @@ def generate_page(episode: dict, image_url: Optional[str] = None,
                 {image_block}
             </div>
 
-            <a href="#behind-the-scenes" class="block w-full py-8 border-4 border-gray-900 font-bold uppercase tracking-[0.4em] text-sm hover:bg-gray-900 hover:text-white transition-all transform active:scale-[0.98]">
-                Jump to Behind the Scenes
-            </a>
+            {"" if not show_bts else '<a href="#behind-the-scenes" class="block w-full py-8 border-4 border-gray-900 font-bold uppercase tracking-[0.4em] text-sm hover:bg-gray-900 hover:text-white transition-all transform active:scale-[0.98]">Jump to Behind the Scenes</a>'}
         </div>
 
         <!-- EDITORIAL INTRO -->
@@ -407,7 +405,7 @@ def generate_page(episode: dict, image_url: Optional[str] = None,
 {chef_notes_html}
         </div>
 
-        <!-- BEHIND THE SCENES -->
+        {"" if not show_bts else f"""<!-- BEHIND THE SCENES -->
         <div id="behind-the-scenes" class="mt-24">
             <div class="text-center mb-16">
                 <p class="text-xs uppercase tracking-[0.3em] text-terracotta font-bold mb-4">Behind the Scenes</p>
@@ -415,7 +413,6 @@ def generate_page(episode: dict, image_url: Optional[str] = None,
                 <p class="text-gray-500 max-w-lg mx-auto">Follow the creative team's conversation as they developed, photographed, and published this recipe.</p>
             </div>
 
-            <!-- THE TEAM -->
             <div class="flex justify-center gap-6 mb-16">
                 <div class="text-center">
                     <div class="avatar avatar-margaret mx-auto mb-2">MC</div>
@@ -439,9 +436,8 @@ def generate_page(episode: dict, image_url: Optional[str] = None,
                 </div>
             </div>
 
-            <!-- CONVERSATION -->
 {conversation_html}
-        </div>
+        </div>"""}
 
         <!-- FOOTER NAVIGATION -->
         <div class="mt-24 text-center border-t border-gray-100 pt-12">

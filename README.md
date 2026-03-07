@@ -60,6 +60,20 @@ Leverages a central **SSH Agent** for high-end image generation on RunPod.
 3. **Harvest:** `scripts/direct_harvest.py` (Remote GPU pods generate images via Stability AI).
 4. **Curation:** `scripts/art_director.py` (Agent selects the winner and moves to `src/assets/images/`).
 
+## 💰 Vercel Cost Management
+
+Build Minutes are the dominant cost driver (~95% of usage charges at $0.126/min).
+
+**Key rule: Batch your pushes.** Every push to `main` triggers a full build. On heavy dev days (20+ commits pushed individually), build costs can hit $3+. Batching into fewer pushes cuts costs proportionally.
+
+| Scenario | Pushes/Day | Est. Daily Cost |
+|----------|-----------|----------------|
+| Heavy dev (push per commit) | 15-25 | $2-3+ |
+| Normal dev (batched) | 3-5 | $0.40-0.65 |
+| Steady state (cron only) | 0-1 | $0-0.13 |
+
+**Disabled:** Speed Insights (was $0.65/period, not needed).
+
 ## 📋 Status
 - **Current Phase:** Phase 4: AI Creative Team Integration
 - **Status:** #status/active
