@@ -6,23 +6,29 @@ stage data actually propagated before moving to the next day. This prevents
 the CDN-propagation race condition that causes stage data to be overwritten.
 
 Usage:
-    # Run full week against production
-    doppler run -- python scripts/run_full_week.py
+    # PRODUCTION: Run full week (uses daily cron schedule, saves to episodes/)
+    doppler run --config prd -- uv run python scripts/run_full_week.py
+
+    # TEST: Compressed timeline, saves to test/ prefix in blob
+    doppler run --config prd -- uv run python scripts/run_full_week.py --test
+
+    # CLEANUP: Delete all test artifacts from blob
+    doppler run --config prd -- uv run python scripts/run_full_week.py --cleanup
 
     # Custom episode ID
-    doppler run -- python scripts/run_full_week.py --episode test-001
+    doppler run --config prd -- uv run python scripts/run_full_week.py --episode 2026-W11
 
     # Specific base URL (e.g. preview deploy)
-    doppler run -- python scripts/run_full_week.py --base-url https://muffinpanrecipes-abc123.vercel.app
+    doppler run --config prd -- uv run python scripts/run_full_week.py --base-url https://muffinpanrecipes-abc123.vercel.app
 
     # Skip days that already completed
-    doppler run -- python scripts/run_full_week.py --skip-completed
+    doppler run --config prd -- uv run python scripts/run_full_week.py --skip-completed
 
     # Run only specific days
-    doppler run -- python scripts/run_full_week.py --days monday,wednesday,sunday
+    doppler run --config prd -- uv run python scripts/run_full_week.py --days monday,wednesday,sunday
 
     # Dry run (check current state only)
-    doppler run -- python scripts/run_full_week.py --dry-run
+    doppler run --config prd -- uv run python scripts/run_full_week.py --dry-run
 """
 
 from __future__ import annotations
@@ -69,16 +75,19 @@ def _current_iso_week() -> str:
 # Blob verification
 # ---------------------------------------------------------------------------
 
-def load_episode_from_blob(episode_id: str, blob_token: str) -> dict | None:
+def load_episode_from_blob(
+    episode_id: str, blob_token: str, prefix: str = "",
+) -> dict | None:
     """Load episode from Vercel Blob via list API.
 
     Note: Private blob content URLs are only accessible from within Vercel
     serverless functions. From external clients, we list blobs (to confirm
     existence) and read metadata, but cannot fetch content directly.
     """
+    pathname = f"{prefix}episodes/{episode_id}.json"
     resp = requests.get(
         "https://blob.vercel-storage.com",
-        params={"prefix": f"episodes/{episode_id}.json", "limit": "1"},
+        params={"prefix": pathname, "limit": "1"},
         headers={"Authorization": f"Bearer {blob_token}"},
         timeout=15,
     )
@@ -124,6 +133,7 @@ def wait_for_propagation(
     blob_token: str,
     expected_size_min: int = 0,
     max_wait: int = PROPAGATION_MAX_WAIT,
+    prefix: str = "",
 ) -> bool:
     """Wait for blob write to propagate by checking blob size increases.
 
@@ -132,7 +142,7 @@ def wait_for_propagation(
     """
     start = time.monotonic()
     while time.monotonic() - start < max_wait:
-        ep = load_episode_from_blob(episode_id, blob_token)
+        ep = load_episode_from_blob(episode_id, blob_token, prefix=prefix)
         if ep and ep.get("_size", 0) > expected_size_min:
             return True
         time.sleep(PROPAGATION_POLL_INTERVAL)
@@ -151,14 +161,18 @@ def run_stage(
     blob_token: str,
     prev_blob_size: int = 0,
     model: str | None = None,
+    test: bool = False,
 ) -> dict:
     """Fire one cron stage and verify blob propagation. Returns result dict."""
     url = f"{base_url}/api/cron/{day}"
     timeout = DAY_TIMEOUTS.get(day, 120)
 
+    prefix = "test/" if test else ""
     payload: dict = {"episode_id": episode_id}
     if model:
         payload["model"] = model
+    if test:
+        payload["test"] = True
 
     result = {
         "day": day,
@@ -217,8 +231,8 @@ def run_stage(
 
     # Verify blob propagation via size increase
     print(f"  Verifying blob write (prev size: {prev_blob_size})...", end="", flush=True)
-    if wait_for_propagation(episode_id, blob_token, expected_size_min=prev_blob_size):
-        ep_meta = load_episode_from_blob(episode_id, blob_token)
+    if wait_for_propagation(episode_id, blob_token, expected_size_min=prev_blob_size, prefix=prefix):
+        ep_meta = load_episode_from_blob(episode_id, blob_token, prefix=prefix)
         new_size = ep_meta.get("_size", 0) if ep_meta else 0
         result["propagated"] = True
         result["blob_size"] = new_size
@@ -236,6 +250,52 @@ def run_stage(
 # Main
 # ---------------------------------------------------------------------------
 
+def _cleanup_test_blobs(blob_token: str) -> None:
+    """Delete all blobs under the test/ prefix."""
+    print("\nCleaning up test artifacts from Vercel Blob...")
+
+    # List everything under test/
+    all_blobs = []
+    cursor = None
+    while True:
+        params: dict = {"prefix": "test/", "limit": "100"}
+        if cursor:
+            params["cursor"] = cursor
+        resp = requests.get(
+            "https://blob.vercel-storage.com",
+            params=params,
+            headers={"Authorization": f"Bearer {blob_token}"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        blobs = data.get("blobs", [])
+        all_blobs.extend(blobs)
+        if not data.get("hasMore"):
+            break
+        cursor = data.get("cursor")
+
+    if not all_blobs:
+        print("  No test artifacts found. Nothing to clean up.")
+        return
+
+    print(f"  Found {len(all_blobs)} test blobs:")
+    for b in all_blobs:
+        size_kb = b.get("size", 0) / 1024
+        print(f"    {b['pathname']:60s}  {size_kb:8.1f} KB")
+
+    # Delete them
+    urls = [b["url"] for b in all_blobs]
+    resp = requests.post(
+        "https://blob.vercel-storage.com/delete",
+        json={"urls": urls},
+        headers={"Authorization": f"Bearer {blob_token}"},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    print(f"\n  Deleted {len(urls)} test blobs.")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run full Mon-Sun cron pipeline with propagation checks")
     parser.add_argument("--episode", default=None, help="Episode ID (default: current ISO week)")
@@ -244,6 +304,10 @@ def main():
     parser.add_argument("--skip-completed", action="store_true", help="Skip days already marked complete")
     parser.add_argument("--dry-run", action="store_true", help="Check current state without firing stages")
     parser.add_argument("--model", default=None, help="Override dialogue model for all stages")
+    parser.add_argument("--test", action="store_true",
+                        help="Test mode: compressed timeline, saves to test/ prefix in blob")
+    parser.add_argument("--cleanup", action="store_true",
+                        help="Delete all test artifacts from Vercel Blob and exit")
     parser.add_argument("--stage-delay", type=int, default=DEFAULT_STAGE_DELAY,
                         help=f"Seconds to wait between stages for CDN propagation (default: {DEFAULT_STAGE_DELAY})")
     args = parser.parse_args()
@@ -252,14 +316,30 @@ def main():
     cron_secret = os.environ.get("CRON_SECRET", "")
     blob_token = os.environ.get("BLOB_READ_WRITE_TOKEN", "")
 
-    if not cron_secret:
-        print("ERROR: CRON_SECRET not set. Run with: doppler run -- python scripts/run_full_week.py")
+    if not cron_secret and not args.cleanup:
+        print("ERROR: CRON_SECRET not set. Run with: doppler run --config prd -- uv run python scripts/run_full_week.py")
         sys.exit(1)
     if not blob_token:
-        print("ERROR: BLOB_READ_WRITE_TOKEN not set. Run with: doppler run -- python scripts/run_full_week.py")
+        print("ERROR: BLOB_READ_WRITE_TOKEN not set. Run with: doppler run --config prd -- uv run python scripts/run_full_week.py")
         sys.exit(1)
 
-    episode_id = args.episode or _current_iso_week()
+    # Handle cleanup
+    if args.cleanup:
+        _cleanup_test_blobs(blob_token)
+        return
+
+    # Determine mode and episode ID
+    is_test = args.test
+    prefix = "test/" if is_test else ""
+
+    if args.episode:
+        episode_id = args.episode
+    elif is_test:
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        episode_id = f"test-{ts}"
+    else:
+        episode_id = _current_iso_week()
+
     days_to_run = args.days.split(",") if args.days else DAYS
 
     # Validate day names
@@ -268,10 +348,13 @@ def main():
             print(f"ERROR: Unknown day '{d}'. Valid: {', '.join(DAYS)}")
             sys.exit(1)
 
+    mode_label = "TEST (compressed timeline)" if is_test else "PRODUCTION"
+
     print(f"\n{'#'*60}")
-    print(f"  FULL WEEK PIPELINE RUN")
+    print(f"  FULL WEEK PIPELINE RUN — {mode_label}")
     print(f"  Episode:  {episode_id}")
     print(f"  Base URL: {args.base_url}")
+    print(f"  Blob:     {prefix}episodes/{episode_id}.json")
     print(f"  Days:     {', '.join(days_to_run)}")
     if args.model:
         print(f"  Model:    {args.model}")
@@ -279,7 +362,7 @@ def main():
 
     # Check current state
     print("\nChecking current episode state...")
-    ep_meta = load_episode_from_blob(episode_id, blob_token)
+    ep_meta = load_episode_from_blob(episode_id, blob_token, prefix=prefix)
     current_blob_size = 0
     if ep_meta and ep_meta.get("_blob_exists"):
         current_blob_size = ep_meta.get("_size", 0)
@@ -304,6 +387,7 @@ def main():
             blob_token=blob_token,
             prev_blob_size=blob_size,
             model=args.model,
+            test=is_test,
         )
         results.append(result)
 
@@ -323,7 +407,7 @@ def main():
 
     # Summary
     print(f"\n{'#'*60}")
-    print(f"  RESULTS")
+    print(f"  RESULTS — {mode_label}")
     print(f"{'#'*60}")
 
     total_cost_s = 0
@@ -349,15 +433,19 @@ def main():
     print(f"\n  {passed} passed, {skipped} skipped, {failed} failed")
     print(f"  Total API time: {total_cost_s:.1f}s")
     print(f"  Episode: {episode_id}")
+    print(f"  Blob path: {prefix}episodes/{episode_id}.json")
 
     # Final state verification
     print("\nFinal blob state:")
-    ep_meta = load_episode_from_blob(episode_id, blob_token)
+    ep_meta = load_episode_from_blob(episode_id, blob_token, prefix=prefix)
     if ep_meta and ep_meta.get("_blob_exists"):
         print(f"  Blob size: {ep_meta.get('_size', 0)} bytes")
         print(f"  Last updated: {ep_meta.get('_uploaded_at', '?')}")
     else:
         print("  (episode not found in blob)")
+
+    if is_test and failed == 0:
+        print(f"\nTest complete. To clean up: doppler run --config prd -- uv run python scripts/run_full_week.py --cleanup")
 
     sys.exit(0 if failed == 0 else 1)
 

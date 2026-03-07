@@ -47,6 +47,12 @@ IMAGES_DIR = ROOT / "src" / "assets" / "images"
 class _FilesystemBackend:
     """Local filesystem storage — used for LOCAL_DEV."""
 
+    prefix: str = ""  # no-op for filesystem; test prefix only affects cloud
+
+    def set_prefix(self, prefix: str) -> None:
+        """Set storage path prefix (used by test mode). No-op for filesystem."""
+        self.prefix = prefix
+
     def _safe_path(self, relative_path: str) -> Path:
         """Resolve path and validate it stays under ROOT (prevents path traversal)."""
         dest = (ROOT / relative_path).resolve()
@@ -162,6 +168,7 @@ class _CloudBackend:
     def __init__(self) -> None:
         self._blob_token = os.environ.get("BLOB_READ_WRITE_TOKEN", "")
         self._fs = _FilesystemBackend()  # fallback for local data
+        self.prefix: str = ""  # "test/" for test mode, "" for production
         # In-memory cache: episode_id -> dict. Populated by save_episode so
         # that load_episode in the same Lambda invocation gets fresh data
         # without hitting the CDN (which may serve stale content for seconds).
@@ -172,6 +179,10 @@ class _CloudBackend:
                 "Episode data WILL NOT persist. Refusing to start. "
                 "Create a Vercel Blob store and add the token to Doppler."
             )
+
+    def set_prefix(self, prefix: str) -> None:
+        """Set storage path prefix. Use 'test/' for compressed timeline tests."""
+        self.prefix = prefix
 
     def _has_cloud(self) -> bool:
         return bool(self._blob_token)
@@ -207,7 +218,7 @@ class _CloudBackend:
             logger.debug(f"load_episode cache hit for {episode_id}")
             return self._episode_cache[episode_id]
 
-        pathname = f"episodes/{episode_id}.json"
+        pathname = f"{self.prefix}episodes/{episode_id}.json"
         try:
             resp = _requests.get(
                 self._BLOB_API,
@@ -237,7 +248,7 @@ class _CloudBackend:
 
         import requests as _requests
 
-        pathname = f"episodes/{episode_id}.json"
+        pathname = f"{self.prefix}episodes/{episode_id}.json"
         body = json.dumps(data, indent=2)
         headers = {
             **self._auth_headers(),
@@ -279,7 +290,7 @@ class _CloudBackend:
         cursor: Optional[str] = None
         try:
             while True:
-                params: dict = {"prefix": "episodes/", "limit": "100"}
+                params: dict = {"prefix": f"{self.prefix}episodes/", "limit": "100"}
                 if cursor:
                     params["cursor"] = cursor
                 resp = _requests.get(
@@ -336,7 +347,7 @@ class _CloudBackend:
 
         import requests as _requests
 
-        key = self._blob_key(relative_path)
+        key = f"{self.prefix}{self._blob_key(relative_path)}"
         upload_url = f"https://blob.vercel-storage.com/{key}"
         headers = {
             "Authorization": f"Bearer {self._blob_token}",
@@ -355,7 +366,7 @@ class _CloudBackend:
 
         import requests as _requests
 
-        key = self._blob_key(relative_path)
+        key = f"{self.prefix}{self._blob_key(relative_path)}"
         # HEAD the blob to check existence and get the canonical URL.
         # Vercel Blob URLs are at: https://blob.vercel-storage.com/{key}
         # The response Location or url field gives us the CDN URL.
@@ -377,6 +388,47 @@ class _CloudBackend:
 
     def cleanup_image_variants(self, recipe_id: str) -> list[str]:
         return self._fs.cleanup_image_variants(recipe_id)
+
+    def delete_by_prefix(self, prefix: str) -> int:
+        """Delete all blobs under a given prefix. Returns count deleted."""
+        if not self._has_cloud():
+            logger.warning("delete_by_prefix: no cloud backend, nothing to delete")
+            return 0
+
+        import requests as _requests
+
+        deleted = 0
+        cursor: Optional[str] = None
+        while True:
+            params: dict = {"prefix": prefix, "limit": "100"}
+            if cursor:
+                params["cursor"] = cursor
+            resp = _requests.get(
+                self._BLOB_API, params=params,
+                headers=self._auth_headers(), timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            blobs = data.get("blobs", [])
+            if not blobs:
+                break
+
+            urls = [b["url"] for b in blobs]
+            del_resp = _requests.post(
+                f"{self._BLOB_API}/delete",
+                json={"urls": urls},
+                headers=self._auth_headers(),
+                timeout=30,
+            )
+            del_resp.raise_for_status()
+            deleted += len(urls)
+            logger.info(f"Deleted {len(urls)} blobs with prefix '{prefix}'")
+
+            if not data.get("hasMore"):
+                break
+            cursor = data.get("cursor")
+
+        return deleted
 
 
 # ---------------------------------------------------------------------------
