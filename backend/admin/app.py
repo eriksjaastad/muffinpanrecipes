@@ -144,7 +144,10 @@ def create_admin_app(
     @app.get("/health/dialogue-test")
     async def dialogue_test():
         """Diagnostic: attempt a minimal dialogue generation and return errors."""
-        import traceback
+        import os, sys, traceback
+        cwd = os.getcwd()
+        pythonpath = os.environ.get("PYTHONPATH", "")
+        sys_path = sys.path[:5]
         try:
             from scripts.simulate_dialogue_week import run_simulation
             result = run_simulation(
@@ -171,6 +174,9 @@ def create_admin_app(
                 "status": "error",
                 "error": f"{type(e).__name__}: {e}",
                 "traceback": traceback.format_exc(),
+                "cwd": cwd,
+                "pythonpath": pythonpath,
+                "sys_path": sys_path,
             }
 
     return app
