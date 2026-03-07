@@ -101,24 +101,56 @@ def _render_chat_message(msg: dict, image_url_map: dict[str, str] | None = None)
             </div>"""
 
 
-def _build_image_url_map(episode: dict) -> dict[str, str]:
-    """Build a mapping from relative image paths to full blob CDN URLs."""
+def _build_image_url_map(episode: dict, blob_token: str, prefix: str = "") -> dict[str, str]:
+    """Build a mapping from relative image paths to full blob CDN URLs.
+
+    Uses the Blob LIST API to get proper public CDN URLs (the ones stored
+    in the episode JSON may use the API endpoint instead of the CDN).
+    """
+    recipe_id = episode.get("recipe_id", "")
+    if not recipe_id or not blob_token:
+        return {}
+
+    # List all image blobs for this recipe
+    resp = requests.get(
+        BLOB_API,
+        params={"prefix": f"{prefix}images/{recipe_id}", "limit": "20"},
+        headers={"Authorization": f"Bearer {blob_token}"},
+        timeout=15,
+    )
+    if not resp.ok:
+        return {}
+
+    blobs = resp.json().get("blobs", [])
+    # Build map: pathname suffix → CDN URL
+    # Blob pathnames look like: test/images/9874fa11/round_1/macro_closeup.png
+    # Episode image_paths look like: src/assets/images/9874fa11/round_1/macro_closeup.png
+    cdn_by_suffix: dict[str, str] = {}
+    for b in blobs:
+        # Extract the part after images/ (e.g. "9874fa11/round_1/macro_closeup.png")
+        pathname = b["pathname"]
+        parts = pathname.split("images/", 1)
+        if len(parts) == 2:
+            cdn_by_suffix[parts[1]] = b["url"]
+
+    # Map episode image_paths to CDN URLs
     wed = episode.get("stages", {}).get("wednesday", {})
-    paths = wed.get("image_paths", [])
-    urls = wed.get("image_urls", [])
-    # Also check top-level
-    if not paths:
-        paths = episode.get("image_paths", [])
-    if not urls:
-        urls = episode.get("image_urls", [])
-    return dict(zip(paths, urls))
+    paths = wed.get("image_paths", []) or episode.get("image_paths", [])
+    url_map = {}
+    for p in paths:
+        # Extract suffix from "src/assets/images/9874fa11/round_1/macro_closeup.png"
+        parts = p.split("images/", 1)
+        if len(parts) == 2 and parts[1] in cdn_by_suffix:
+            url_map[p] = cdn_by_suffix[parts[1]]
+
+    return url_map
 
 
-def _render_conversation_section(episode: dict) -> str:
+def _render_conversation_section(episode: dict, blob_token: str = "", prefix: str = "") -> str:
     """Render the full week's conversation as HTML sections."""
     sections = []
     has_any_dialogue = False
-    image_url_map = _build_image_url_map(episode)
+    image_url_map = _build_image_url_map(episode, blob_token, prefix)
 
     for day in DAYS:
         stage = episode.get("stages", {}).get(day, {})
@@ -170,7 +202,8 @@ def _render_instruction(idx: int, text: str) -> str:
     )
 
 
-def generate_page(episode: dict, image_url: Optional[str] = None) -> str:
+def generate_page(episode: dict, image_url: Optional[str] = None,
+                   blob_token: str = "", prefix: str = "") -> str:
     """Generate the full recipe page HTML from episode data."""
     concept = episode.get("concept", "Muffin Pan Recipe")
     episode_id = episode.get("episode_id", "unknown")
@@ -218,7 +251,7 @@ def generate_page(episode: dict, image_url: Optional[str] = None) -> str:
             </div>"""
 
     # Conversation section
-    conversation_html = _render_conversation_section(episode)
+    conversation_html = _render_conversation_section(episode, blob_token, prefix)
 
     # JSON-LD
     ld_ingredients = [
@@ -521,7 +554,7 @@ def main():
 
     # Generate page
     print("Generating recipe page...")
-    page_html = generate_page(episode, image_url=image_url)
+    page_html = generate_page(episode, image_url=image_url, blob_token=blob_token, prefix=args.prefix)
     print(f"  Generated {len(page_html)} bytes of HTML")
 
     # Output
