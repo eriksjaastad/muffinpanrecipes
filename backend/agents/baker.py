@@ -157,7 +157,7 @@ class BakerAgent(Agent):
                 {"item": "chopped green onion", "amount": "1/3 cup", "notes": "optional"},
             ],
             "instructions": [
-                "Preheat oven to 375°F (190°C). Grease a standard 12-cup muffin tin well.",
+                "Preheat oven to 375°F. Grease a standard 12-cup muffin tin well.",
                 "Whisk eggs, milk, melted butter, salt, and pepper until fully combined.",
                 "Whisk in flour just until smooth, then fold in cheddar and green onion.",
                 "Divide batter evenly among muffin cups, filling each about 3/4 full.",
