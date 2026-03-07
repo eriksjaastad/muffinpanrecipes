@@ -571,7 +571,36 @@ async def cron_wednesday(request: Request, body: StageRequest = StageRequest()):
         photography_result = orchestrator._execute_stage_photography(recipe_id, recipe_data)
         # photography_result is now a full dict with rounds, vision eval, winner, selected_shots
         image_paths: list[str] = photography_result.get("selected_shots", []) if isinstance(photography_result, dict) else []
-        image_urls = [storage.get_image_url(p) for p in image_paths]
+
+        # Upload ALL round images to blob (art director only uploads the winner).
+        # Build local_path → canonical_path map from photography rounds.
+        local_to_canonical: dict[str, str] = {}
+        if isinstance(photography_result, dict):
+            for rnd in photography_result.get("rounds", []):
+                for v in rnd.get("variants", []):
+                    lp = v.get("local_path", "")
+                    cp = v.get("path", "")
+                    if lp and cp:
+                        local_to_canonical[cp] = lp
+
+        image_urls = []
+        for canonical_path in image_paths:
+            local_path = local_to_canonical.get(canonical_path, "")
+            if not local_path:
+                logger.warning(f"No local_path for {canonical_path}")
+                image_urls.append("")
+                continue
+            try:
+                lp = Path(local_path)
+                if lp.exists():
+                    blob_url = storage.save_image(canonical_path, lp.read_bytes())
+                    image_urls.append(blob_url)
+                else:
+                    logger.warning(f"Image file missing: {lp}")
+                    image_urls.append("")
+            except Exception as e:
+                logger.warning(f"Failed to upload image {canonical_path}: {e}")
+                image_urls.append("")
 
         dialogue, judge_verdict = _generate_and_judge_dialogue(
             "wednesday", concept, ep,
