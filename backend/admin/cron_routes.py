@@ -166,12 +166,9 @@ def _generate_dialogue(
             photography_context=photography_context,
         )
         return result.get("messages", [])
-    except (ImportError, AttributeError, TypeError, ValueError) as e:
-        logger.warning(f"Dialogue generation failed for stage={stage}: {e}")
-        return []  # dialogue is non-fatal — pipeline continues without it
     except Exception as e:
-        logger.error(f"Unexpected dialogue error for stage={stage}: {e}", exc_info=True)
-        return []  # still non-fatal, but logged at ERROR level
+        logger.error(f"Dialogue generation FAILED for stage={stage}: {type(e).__name__}: {e}", exc_info=True)
+        return []  # dialogue is non-fatal — pipeline continues without it
 
 
 DAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
