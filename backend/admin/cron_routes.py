@@ -415,6 +415,12 @@ class StageRequest(BaseModel):
     episode_id: Optional[str] = None   # defaults to current ISO week
     concept: Optional[str] = None      # defaults to stored or generic
     model: Optional[str] = None        # override dialogue model (e.g. "openai/gpt-5.1")
+    test: bool = False                 # test mode: saves to test/ prefix in blob
+
+
+def _configure_test_mode(body: StageRequest) -> None:
+    """Set storage prefix for test mode. Resets to production on every call."""
+    storage.set_prefix("test/" if body.test else "")
 
 
 def _save_stage_failure(ep: dict, stage: str, error: Exception) -> None:
@@ -470,6 +476,7 @@ def _stage_response(stage: str, episode_id: str, concept: str, result: dict) -> 
 @router.post("/monday")
 async def cron_monday(request: Request, body: StageRequest = StageRequest()):
     _verify_cron_secret(request)
+    _configure_test_mode(body)
     episode_id = body.episode_id or _current_episode_id()
     ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
     concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
@@ -517,6 +524,7 @@ async def cron_monday(request: Request, body: StageRequest = StageRequest()):
 @router.post("/tuesday")
 async def cron_tuesday(request: Request, body: StageRequest = StageRequest()):
     _verify_cron_secret(request)
+    _configure_test_mode(body)
     episode_id = body.episode_id or _current_episode_id()
     ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
     concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
@@ -547,6 +555,7 @@ async def cron_tuesday(request: Request, body: StageRequest = StageRequest()):
 @router.post("/wednesday")
 async def cron_wednesday(request: Request, body: StageRequest = StageRequest()):
     _verify_cron_secret(request)
+    _configure_test_mode(body)
     episode_id = body.episode_id or _current_episode_id()
     ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
     concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
@@ -605,6 +614,7 @@ async def cron_wednesday(request: Request, body: StageRequest = StageRequest()):
 @router.post("/thursday")
 async def cron_thursday(request: Request, body: StageRequest = StageRequest()):
     _verify_cron_secret(request)
+    _configure_test_mode(body)
     episode_id = body.episode_id or _current_episode_id()
     ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
     concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
@@ -648,6 +658,7 @@ async def cron_thursday(request: Request, body: StageRequest = StageRequest()):
 @router.post("/friday")
 async def cron_friday(request: Request, body: StageRequest = StageRequest()):
     _verify_cron_secret(request)
+    _configure_test_mode(body)
     episode_id = body.episode_id or _current_episode_id()
     ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
     concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
@@ -697,6 +708,7 @@ async def cron_friday(request: Request, body: StageRequest = StageRequest()):
 @router.post("/saturday")
 async def cron_saturday(request: Request, body: StageRequest = StageRequest()):
     _verify_cron_secret(request)
+    _configure_test_mode(body)
     episode_id = body.episode_id or _current_episode_id()
     ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
     concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
@@ -736,6 +748,7 @@ async def cron_saturday(request: Request, body: StageRequest = StageRequest()):
 @router.post("/sunday")
 async def cron_sunday(request: Request, body: StageRequest = StageRequest()):
     _verify_cron_secret(request)
+    _configure_test_mode(body)
     episode_id = body.episode_id or _current_episode_id()
     ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
     concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
