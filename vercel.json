@@ -78,6 +78,10 @@
             "dest": "/src/episodes/$1/index.html"
         },
         {
+            "src": "/test/?$",
+            "dest": "/src/test/index.html"
+        },
+        {
             "src": "/(.*)",
             "dest": "/src/index.html"
         }
