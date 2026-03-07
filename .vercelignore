@@ -10,7 +10,9 @@ reviews/
 !README.md
 # Exclude AI-generated variant directories (UUIDs), keep recipe .webp files
 src/assets/images/*/
-scripts/
+scripts/*
+!scripts/simulate_dialogue_week.py
+!scripts/__init__.py
 tests/
 .grepai/
 .claude/
