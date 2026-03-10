@@ -189,6 +189,12 @@ for day, stage in ep.get('stages', {}).items():
 5. Test by triggering a judge failure (or just POST to the webhook manually)
 6. Remove `DISCORD_WEBHOOK_URL` from Doppler once Slack is confirmed working
 
+### Notification Rules — READ THIS CAREFULLY
+- **Only notify on STATE CHANGES.** If nothing changed, say nothing.
+- **Never send periodic "all clear" messages.** Erik does not want to hear from you unless something happened.
+- **No duplicate notifications.** If you already reported Tuesday failed, don't report it again until you've retried and have a new result.
+- **Batch when possible.** If Monday and Tuesday both completed while Erik was away, send ONE message with both, not two.
+
 ### What Should Trigger Notifications
 - **Stage completion (daily):** "Monday complete: 8 messages, judge PASS"
 - **Stage failure:** "Tuesday FAILED: timeout after 120s"
