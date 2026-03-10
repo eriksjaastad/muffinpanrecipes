@@ -133,6 +133,23 @@
         </section>
         -->
 
+        <!-- This Week's Episode Teaser -->
+        <section id="episode-teaser" class="mb-20 hidden">
+            <a href="/this-week" class="block group border border-gray-100 rounded-lg p-8 hover:border-terracotta/30 hover:shadow-lg transition-all">
+                <div class="flex items-center justify-between mb-4">
+                    <p class="text-xs uppercase tracking-[0.2em] text-terracotta font-bold" id="teaser-stage">This Week</p>
+                    <span class="text-xs text-sage uppercase tracking-widest font-bold group-hover:text-terracotta transition-colors">See the conversation &rarr;</span>
+                </div>
+                <h3 class="font-serif text-3xl mb-4 group-hover:text-terracotta transition-colors" id="teaser-title"></h3>
+                <div class="flex items-start gap-3">
+                    <div class="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" id="teaser-avatar"></div>
+                    <div class="bg-gray-50 rounded-2xl rounded-tl-sm px-4 py-3 max-w-lg">
+                        <p class="text-sm text-gray-600 leading-relaxed" id="teaser-message"></p>
+                    </div>
+                </div>
+            </a>
+        </section>
+
         <!-- Editorial Grid -->
         <h2 class="font-serif text-4xl mb-12 text-center">Recipes</h2>
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-16" id="recipe-grid">
@@ -335,8 +352,41 @@
             }
         });
 
+        // Character avatar colors (must match episode_renderer.py)
+        const AVATAR_STYLES = {
+            margaret: { bg: '#C9B99A', fg: '#5C4E2F' },
+            marcus: { bg: '#9AABBF', fg: '#2F3D5C' },
+            steph: { bg: '#BF9AB5', fg: '#5C2F4E' },
+            julian: { bg: '#9ABFA3', fg: '#2F5C3D' },
+            devon: { bg: '#ABABAB', fg: '#3D3D3D' },
+        };
+
+        async function loadTeaser() {
+            try {
+                const resp = await fetch('/api/episodes/teaser');
+                if (!resp.ok) return;
+                const data = await resp.json();
+                if (data.status === 'no_episode' || !data.title) return;
+
+                document.getElementById('teaser-stage').textContent = data.stage_label || 'This Week';
+                document.getElementById('teaser-title').textContent = data.title;
+                document.getElementById('teaser-message').textContent = data.message_preview;
+
+                const avatar = document.getElementById('teaser-avatar');
+                const style = AVATAR_STYLES[data.character_slug] || AVATAR_STYLES.devon;
+                avatar.style.backgroundColor = style.bg;
+                avatar.style.color = style.fg;
+                avatar.textContent = data.character_initials || '??';
+
+                document.getElementById('episode-teaser').classList.remove('hidden');
+            } catch (e) {
+                // Silently fail — teaser is non-critical
+            }
+        }
+
         // Initial Load
         loadRecipes().then(() => renderFeaturedRecipe());
+        loadTeaser();
     </script>
 </body>
 

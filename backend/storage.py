@@ -111,6 +111,20 @@ class _FilesystemBackend:
                 logger.warning(f"Skipping invalid simulation file {p.name}: {exc}")
         return results
 
+    def save_page(self, pathname: str, html_content: str) -> str:
+        """Save an HTML page locally and return its URL path."""
+        dest = ROOT / pathname
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(html_content, encoding="utf-8")
+        return f"/{pathname}"
+
+    def load_page(self, pathname: str) -> Optional[str]:
+        """Load a page from local filesystem. Returns content or None."""
+        path = ROOT / pathname
+        if path.exists():
+            return path.read_text(encoding="utf-8")
+        return None
+
     def save_image(self, relative_path: str, image_bytes: bytes) -> str:
         """Save image bytes and return the local URL path."""
         dest = self._safe_path(relative_path)
@@ -173,6 +187,7 @@ class _CloudBackend:
         # that load_episode in the same Lambda invocation gets fresh data
         # without hitting the CDN (which may serve stale content for seconds).
         self._episode_cache: dict[str, dict] = {}
+        self._page_cache: dict[str, str] = {}
         if not self._blob_token and os.environ.get("VERCEL_ENV"):
             raise RuntimeError(
                 "FATAL: Running on Vercel without BLOB_READ_WRITE_TOKEN. "
@@ -338,6 +353,69 @@ class _CloudBackend:
 
     def list_simulations(self, limit: int = 100) -> list[dict]:
         return self._fs.list_simulations(limit=limit)  # stub fallback
+
+    # --- Pages ---
+
+    def save_page(self, pathname: str, html_content: str) -> str:
+        """Upload an HTML page to Vercel Blob. Returns the public URL."""
+        if not self._has_cloud():
+            return self._fs.save_page(pathname, html_content)
+
+        import requests as _requests
+
+        key = f"{self.prefix}{pathname}"
+        upload_url = f"https://blob.vercel-storage.com/{key}"
+        headers = {
+            "Authorization": f"Bearer {self._blob_token}",
+            "Content-Type": "text/html",
+            "x-api-version": "7",
+            "x-content-type": "text/html",
+            "x-add-random-suffix": "0",
+            "x-allow-overwrite": "1",
+        }
+        resp = _requests.put(
+            upload_url, data=html_content.encode("utf-8"),
+            headers=headers, timeout=30,
+        )
+        resp.raise_for_status()
+        blob_url: str = resp.json()["url"]
+        logger.info(f"Uploaded page to Vercel Blob: {blob_url}")
+        # Cache for same-request reads (CDN propagation delay)
+        self._page_cache[key] = html_content
+        return blob_url
+
+    def load_page(self, pathname: str) -> Optional[str]:
+        """Load a page from Vercel Blob. Returns content or None."""
+        if not self._has_cloud():
+            return self._fs.load_page(pathname)
+
+        import requests as _requests
+
+        key = f"{self.prefix}{pathname}"
+
+        # Check in-memory cache first (avoids CDN staleness)
+        if key in self._page_cache:
+            return self._page_cache[key]
+
+        # List blobs to find the URL
+        resp = _requests.get(
+            self._BLOB_API,
+            params={"prefix": key, "limit": "1"},
+            headers=self._auth_headers(),
+            timeout=15,
+        )
+        if not resp.ok:
+            return None
+
+        blobs = resp.json().get("blobs", [])
+        if not blobs:
+            return None
+
+        # Fetch content from CDN URL
+        content_resp = _requests.get(blobs[0]["url"], timeout=15)
+        if content_resp.ok:
+            return content_resp.text
+        return None
 
     # --- Images ---
 

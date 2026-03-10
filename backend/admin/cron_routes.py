@@ -3,6 +3,10 @@
 Each route corresponds to one pipeline stage. Vercel hits these endpoints
 on a schedule defined in vercel.json. Local dev can also POST to them directly.
 
+IMPORTANT: Vercel crons send GET requests (no body). Manual/test invocations
+use POST with a JSON body. All routes must accept both methods via api_route().
+The _parse_body() helper returns StageRequest defaults for GET requests.
+
 Authentication: Vercel sends the CRON_SECRET as Authorization: Bearer <secret>.
 Unauthorized requests are rejected with 401.
 
@@ -38,6 +42,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
 from backend.config import config
+from backend.publishing.episode_renderer import regenerate_and_upload
 from backend.storage import storage
 from backend.utils.logging import get_logger
 from backend.utils.discord import notify_judge_failure
@@ -417,6 +422,17 @@ class StageRequest(BaseModel):
     test: bool = False                 # test mode: saves to test/ prefix in blob
 
 
+async def _parse_body(request: Request) -> StageRequest:
+    """Parse JSON body from POST, return defaults for GET (Vercel cron sends GET)."""
+    if request.method == "POST":
+        try:
+            data = await request.json()
+            return StageRequest(**data)
+        except Exception:
+            return StageRequest()
+    return StageRequest()
+
+
 def _configure_test_mode(body: StageRequest) -> None:
     """Set storage prefix for test mode. Resets to production on every call."""
     storage.set_prefix("test/" if body.test else "")
@@ -472,9 +488,10 @@ def _stage_response(stage: str, episode_id: str, concept: str, result: dict) -> 
 # Monday — Brainstorm / Baker
 # ---------------------------------------------------------------------------
 
-@router.post("/monday")
-async def cron_monday(request: Request, body: StageRequest = StageRequest()):
+@router.api_route("/monday", methods=["GET", "POST"])
+async def cron_monday(request: Request):
     _verify_cron_secret(request)
+    body = await _parse_body(request)
     _configure_test_mode(body)
     episode_id = body.episode_id or _current_episode_id()
     ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
@@ -509,6 +526,7 @@ async def cron_monday(request: Request, body: StageRequest = StageRequest()):
         }
         ep["events"].append("monday: complete")
         storage.save_episode(episode_id, ep)
+        regenerate_and_upload(ep)
 
     return _stage_response("monday", episode_id, concept, {
         "recipe_title": recipe_data.get("title", concept) if recipe_data else concept,
@@ -520,9 +538,10 @@ async def cron_monday(request: Request, body: StageRequest = StageRequest()):
 # Tuesday — Recipe Development
 # ---------------------------------------------------------------------------
 
-@router.post("/tuesday")
-async def cron_tuesday(request: Request, body: StageRequest = StageRequest()):
+@router.api_route("/tuesday", methods=["GET", "POST"])
+async def cron_tuesday(request: Request):
     _verify_cron_secret(request)
+    body = await _parse_body(request)
     _configure_test_mode(body)
     episode_id = body.episode_id or _current_episode_id()
     ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
@@ -543,6 +562,7 @@ async def cron_tuesday(request: Request, body: StageRequest = StageRequest()):
         }
         ep["events"].append("tuesday: complete")
         storage.save_episode(episode_id, ep)
+        regenerate_and_upload(ep)
 
     return _stage_response("tuesday", episode_id, concept, {"dialogue_messages": len(dialogue)})
 
@@ -551,9 +571,10 @@ async def cron_tuesday(request: Request, body: StageRequest = StageRequest()):
 # Wednesday — Photography (longest stage ~3 min)
 # ---------------------------------------------------------------------------
 
-@router.post("/wednesday")
-async def cron_wednesday(request: Request, body: StageRequest = StageRequest()):
+@router.api_route("/wednesday", methods=["GET", "POST"])
+async def cron_wednesday(request: Request):
     _verify_cron_secret(request)
+    body = await _parse_body(request)
     _configure_test_mode(body)
     episode_id = body.episode_id or _current_episode_id()
     ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
@@ -627,6 +648,7 @@ async def cron_wednesday(request: Request, body: StageRequest = StageRequest()):
         ep["image_urls"] = image_urls
         ep["events"].append("wednesday: complete")
         storage.save_episode(episode_id, ep)
+        regenerate_and_upload(ep)
 
     return _stage_response("wednesday", episode_id, concept, {
         "images_generated": len(image_paths),
@@ -639,9 +661,10 @@ async def cron_wednesday(request: Request, body: StageRequest = StageRequest()):
 # Thursday — Copywriting
 # ---------------------------------------------------------------------------
 
-@router.post("/thursday")
-async def cron_thursday(request: Request, body: StageRequest = StageRequest()):
+@router.api_route("/thursday", methods=["GET", "POST"])
+async def cron_thursday(request: Request):
     _verify_cron_secret(request)
+    body = await _parse_body(request)
     _configure_test_mode(body)
     episode_id = body.episode_id or _current_episode_id()
     ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
@@ -672,6 +695,7 @@ async def cron_thursday(request: Request, body: StageRequest = StageRequest()):
         }
         ep["events"].append("thursday: complete")
         storage.save_episode(episode_id, ep)
+        regenerate_and_upload(ep)
 
     return _stage_response("thursday", episode_id, concept, {
         "copy_preview": (copy_text.get("body", "") if isinstance(copy_text, dict) else str(copy_text or ""))[:80],
@@ -683,9 +707,10 @@ async def cron_thursday(request: Request, body: StageRequest = StageRequest()):
 # Friday — Final Review
 # ---------------------------------------------------------------------------
 
-@router.post("/friday")
-async def cron_friday(request: Request, body: StageRequest = StageRequest()):
+@router.api_route("/friday", methods=["GET", "POST"])
+async def cron_friday(request: Request):
     _verify_cron_secret(request)
+    body = await _parse_body(request)
     _configure_test_mode(body)
     episode_id = body.episode_id or _current_episode_id()
     ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
@@ -722,6 +747,7 @@ async def cron_friday(request: Request, body: StageRequest = StageRequest()):
         }
         ep["events"].append("friday: complete")
         storage.save_episode(episode_id, ep)
+        regenerate_and_upload(ep)
 
     return _stage_response("friday", episode_id, concept, {
         "approved": approved,
@@ -733,9 +759,10 @@ async def cron_friday(request: Request, body: StageRequest = StageRequest()):
 # Saturday — Deployment / Staging
 # ---------------------------------------------------------------------------
 
-@router.post("/saturday")
-async def cron_saturday(request: Request, body: StageRequest = StageRequest()):
+@router.api_route("/saturday", methods=["GET", "POST"])
+async def cron_saturday(request: Request):
     _verify_cron_secret(request)
+    body = await _parse_body(request)
     _configure_test_mode(body)
     episode_id = body.episode_id or _current_episode_id()
     ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
@@ -765,6 +792,7 @@ async def cron_saturday(request: Request, body: StageRequest = StageRequest()):
         }
         ep["events"].append("saturday: complete")
         storage.save_episode(episode_id, ep)
+        regenerate_and_upload(ep)
 
     return _stage_response("saturday", episode_id, concept, {"dialogue_messages": len(dialogue)})
 
@@ -773,9 +801,10 @@ async def cron_saturday(request: Request, body: StageRequest = StageRequest()):
 # Sunday — Publish
 # ---------------------------------------------------------------------------
 
-@router.post("/sunday")
-async def cron_sunday(request: Request, body: StageRequest = StageRequest()):
+@router.api_route("/sunday", methods=["GET", "POST"])
+async def cron_sunday(request: Request):
     _verify_cron_secret(request)
+    body = await _parse_body(request)
     _configure_test_mode(body)
     episode_id = body.episode_id or _current_episode_id()
     ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
@@ -857,6 +886,7 @@ async def cron_sunday(request: Request, body: StageRequest = StageRequest()):
             logger.warning(f"Memory generation failed (non-fatal): {e}")
 
         storage.save_episode(episode_id, ep)
+        regenerate_and_upload(ep)
 
     return _stage_response("sunday", episode_id, concept, {
         "published": True,

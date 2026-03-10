@@ -21,6 +21,7 @@ from backend.auth.session import JWTSessionManager
 from backend.auth.middleware import init_auth_middleware
 from backend.admin.routes import create_routes
 from backend.admin.cron_routes import router as cron_router
+from backend.admin.episode_routes import router as episode_router
 from backend.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -128,6 +129,9 @@ def create_admin_app(
 
     # Include cron API routes (/api/cron/monday ... /api/cron/sunday)
     app.include_router(cron_router)
+
+    # Include public episode routes (/api/episodes/current, /api/episodes/teaser)
+    app.include_router(episode_router)
 
     # Health check endpoint
     @app.get("/health")
