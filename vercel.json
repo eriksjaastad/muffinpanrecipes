@@ -82,6 +82,10 @@
             "dest": "/src/test/index.html"
         },
         {
+            "src": "/this-week/?$",
+            "dest": "backend/admin/app.py"
+        },
+        {
             "src": "/(.*)",
             "dest": "/src/index.html"
         }
