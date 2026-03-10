@@ -78,11 +78,14 @@ def _render_chat_message(msg: dict, image_url_map: dict[str, str] | None = None)
         if img_tags:
             images_html = f'<div class="flex flex-wrap gap-3 mt-3">{"".join(img_tags)}</div>'
 
+    role = info.get("role", "")
+    role_html = f' <span class="text-gray-300">&middot;</span> <span class="text-gray-300">{html.escape(role)}</span>' if role else ""
+
     return f"""
             <div class="flex items-start gap-3">
                 <div class="avatar avatar-{slug} mt-1">{info['initials']}</div>
                 <div>
-                    <p class="text-[11px] text-gray-400 mb-1">{html.escape(char_name)}</p>
+                    <p class="text-[11px] text-gray-400 mb-1">{html.escape(char_name)}{role_html}</p>
                     <div class="chat-bubble chat-{slug} rounded-2xl rounded-tl-sm px-4 py-3">
                         <p class="text-sm leading-relaxed">{message}</p>{images_html}
                     </div>
@@ -315,23 +318,28 @@ def render_episode_page(episode: dict, image_url: Optional[str] = None) -> str:
             <div class="flex justify-center gap-6 mb-16">
                 <div class="text-center">
                     <div class="avatar avatar-margaret mx-auto mb-2">MC</div>
-                    <p class="text-[10px] uppercase tracking-widest text-sage">Margaret</p>
+                    <p class="text-[10px] uppercase tracking-widest text-sage font-bold">Margaret</p>
+                    <p class="text-[9px] text-gray-400">Head Baker</p>
                 </div>
                 <div class="text-center">
                     <div class="avatar avatar-marcus mx-auto mb-2">MR</div>
-                    <p class="text-[10px] uppercase tracking-widest text-sage">Marcus</p>
+                    <p class="text-[10px] uppercase tracking-widest text-sage font-bold">Marcus</p>
+                    <p class="text-[9px] text-gray-400">Copywriter</p>
                 </div>
                 <div class="text-center">
                     <div class="avatar avatar-steph mx-auto mb-2">SW</div>
-                    <p class="text-[10px] uppercase tracking-widest text-sage">Steph</p>
+                    <p class="text-[10px] uppercase tracking-widest text-sage font-bold">Steph</p>
+                    <p class="text-[9px] text-gray-400">Project Manager</p>
                 </div>
                 <div class="text-center">
                     <div class="avatar avatar-julian mx-auto mb-2">JT</div>
-                    <p class="text-[10px] uppercase tracking-widest text-sage">Julian</p>
+                    <p class="text-[10px] uppercase tracking-widest text-sage font-bold">Julian</p>
+                    <p class="text-[9px] text-gray-400">Art Director</p>
                 </div>
                 <div class="text-center">
                     <div class="avatar avatar-devon mx-auto mb-2">DP</div>
-                    <p class="text-[10px] uppercase tracking-widest text-sage">Devon</p>
+                    <p class="text-[10px] uppercase tracking-widest text-sage font-bold">Devon</p>
+                    <p class="text-[9px] text-gray-400">Site Architect</p>
                 </div>
             </div>
 

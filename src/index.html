@@ -368,7 +368,7 @@
                 const data = await resp.json();
                 if (data.status === 'no_episode' || !data.title) return;
 
-                document.getElementById('teaser-stage').textContent = data.stage_label || 'This Week';
+                document.getElementById('teaser-stage').innerHTML = data.stage_label || 'This Week';
                 document.getElementById('teaser-title').textContent = data.title;
                 document.getElementById('teaser-message').textContent = data.message_preview;
 
