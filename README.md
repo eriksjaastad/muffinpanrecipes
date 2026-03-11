@@ -50,7 +50,7 @@ doppler run -- uv run python -m backend.admin.app
 - `src/` - [Static Site Source](src/README.md) (HTML/Tailwind/Recipes)
 - `scripts/` - [Automation & Image Pipeline](scripts/README.md) (Python/Shell)
 - `data/` - Recipe storage and simulation logs
-- `Documents/` - Legacy and deep-dive documentation (deprecated in favor of READMEs)
+- `.agent/rules/` - Legacy and deep-dive documentation (deprecated in favor of READMEs)
 
 ## 📡 Image Generation Pipeline
 Leverages a central **SSH Agent** for high-end image generation on RunPod.
