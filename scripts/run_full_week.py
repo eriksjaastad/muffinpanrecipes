@@ -168,7 +168,7 @@ def run_stage(
     timeout = DAY_TIMEOUTS.get(day, 120)
 
     prefix = "test/" if test else ""
-    payload: dict = {"episode_id": episode_id}
+    payload: dict = {"episode_id": episode_id, "force": True}
     if model:
         payload["model"] = model
     if test:

@@ -420,6 +420,7 @@ class StageRequest(BaseModel):
     concept: Optional[str] = None      # defaults to stored or generic
     model: Optional[str] = None        # override dialogue model (e.g. "openai/gpt-5.1")
     test: bool = False                 # test mode: saves to test/ prefix in blob
+    force: bool = False                # skip day-of-week check (manual catch-ups only)
 
 
 async def _parse_body(request: Request) -> StageRequest:
@@ -431,6 +432,36 @@ async def _parse_body(request: Request) -> StageRequest:
         except Exception:
             return StageRequest()
     return StageRequest()
+
+
+_DAY_TO_WEEKDAY = {
+    "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
+    "friday": 4, "saturday": 5, "sunday": 6,
+}
+
+
+def _verify_day_of_week(stage: str, body: StageRequest) -> None:
+    """Reject requests that fire on the wrong day of the week.
+
+    Vercel crons are scheduled per-day, but the handlers don't inherently
+    know what day it is. This guard prevents accidental firings (e.g. curl
+    testing that triggers real API calls on the wrong day).
+
+    Bypass with force=True in POST body for manual catch-ups.
+    Test mode also bypasses (compressed week simulations).
+    """
+    if body.force or body.test:
+        return
+    expected = _DAY_TO_WEEKDAY.get(stage)
+    if expected is None:
+        return
+    actual = datetime.now(timezone.utc).weekday()
+    if actual != expected:
+        actual_name = list(_DAY_TO_WEEKDAY.keys())[actual]
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Stage '{stage}' can only run on {stage.title()} (today is {actual_name.title()}). Use force=true to override.",
+        )
 
 
 def _configure_test_mode(body: StageRequest) -> None:
@@ -492,6 +523,7 @@ def _stage_response(stage: str, episode_id: str, concept: str, result: dict) -> 
 async def cron_monday(request: Request):
     _verify_cron_secret(request)
     body = await _parse_body(request)
+    _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     _configure_test_mode(body)
     episode_id = body.episode_id or _current_episode_id()
     ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
@@ -542,6 +574,7 @@ async def cron_monday(request: Request):
 async def cron_tuesday(request: Request):
     _verify_cron_secret(request)
     body = await _parse_body(request)
+    _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     _configure_test_mode(body)
     episode_id = body.episode_id or _current_episode_id()
     ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
@@ -575,6 +608,7 @@ async def cron_tuesday(request: Request):
 async def cron_wednesday(request: Request):
     _verify_cron_secret(request)
     body = await _parse_body(request)
+    _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     _configure_test_mode(body)
     episode_id = body.episode_id or _current_episode_id()
     ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
@@ -665,6 +699,7 @@ async def cron_wednesday(request: Request):
 async def cron_thursday(request: Request):
     _verify_cron_secret(request)
     body = await _parse_body(request)
+    _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     _configure_test_mode(body)
     episode_id = body.episode_id or _current_episode_id()
     ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
@@ -711,6 +746,7 @@ async def cron_thursday(request: Request):
 async def cron_friday(request: Request):
     _verify_cron_secret(request)
     body = await _parse_body(request)
+    _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     _configure_test_mode(body)
     episode_id = body.episode_id or _current_episode_id()
     ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
@@ -763,6 +799,7 @@ async def cron_friday(request: Request):
 async def cron_saturday(request: Request):
     _verify_cron_secret(request)
     body = await _parse_body(request)
+    _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     _configure_test_mode(body)
     episode_id = body.episode_id or _current_episode_id()
     ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
@@ -805,6 +842,7 @@ async def cron_saturday(request: Request):
 async def cron_sunday(request: Request):
     _verify_cron_secret(request)
     body = await _parse_body(request)
+    _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     _configure_test_mode(body)
     episode_id = body.episode_id or _current_episode_id()
     ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
