@@ -226,6 +226,8 @@ These are in memory and Project-workflow.md but worth repeating:
 4. **CDN staleness is real.** Vercel Blob CDN can serve stale content for 10-30s after overwrite. We use in-memory caches to work around this.
 5. **Check `.vercelignore` when imports fail on Lambda.** Excluded files cause silent ModuleNotFoundError.
 6. **Build minutes are 95% of Vercel cost.** Batch pushes to reduce builds.
+7. **Vercel SSO Deployment Protection blocks crons.** Crons hit `*.vercel.app` deployment URLs, not custom domains. If SSO protection is enabled (`all_except_custom_domains`), crons get 401'd before reaching Lambda. Disabled 2026-03-11. **Do NOT re-enable SSO protection** without configuring Protection Bypass for Automation.
+8. **No idempotency on cron stages.** Re-running a completed stage overwrites it and costs API credits. Be careful with manual curl testing.
 
 ---
 

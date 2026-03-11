@@ -58,6 +58,13 @@
             "dest": "/src/recipes/$1/index.html"
         },
         {
+            "src": "/blob-images/(.*)",
+            "dest": "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/images/$1",
+            "headers": {
+                "Cache-Control": "public, max-age=31536000, immutable"
+            }
+        },
+        {
             "src": "/assets/(.*)",
             "dest": "/src/assets/$1"
         },

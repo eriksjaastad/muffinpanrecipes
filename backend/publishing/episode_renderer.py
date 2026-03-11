@@ -46,6 +46,19 @@ STAGE_LABELS = {
 
 DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
+BLOB_CDN_PREFIX = "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/images/"
+
+
+def _to_local_image_url(blob_url: str) -> str:
+    """Convert a raw blob CDN URL to a relative /blob-images/ path.
+
+    e.g. https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/images/a9b98b08/round_1/hero.png
+      -> /blob-images/a9b98b08/round_1/hero.png
+    """
+    if blob_url and blob_url.startswith(BLOB_CDN_PREFIX):
+        return "/blob-images/" + blob_url[len(BLOB_CDN_PREFIX):]
+    return blob_url
+
 
 def _char_info(name: str) -> dict:
     """Look up character info, falling back to generic."""
@@ -102,7 +115,7 @@ def _build_image_url_map(episode: dict) -> dict[str, str]:
     url_map = {}
     for path, url in zip(paths, urls):
         if path and url:
-            url_map[path] = url
+            url_map[path] = _to_local_image_url(url)
     return url_map
 
 
@@ -168,6 +181,8 @@ def render_episode_page(episode: dict, image_url: Optional[str] = None) -> str:
     if not image_url:
         image_urls = episode.get("image_urls", [])
         image_url = image_urls[0] if image_urls else ""
+    if image_url:
+        image_url = _to_local_image_url(image_url)
 
     # Determine what stage we're at (for progressive rendering)
     completed_stages = [d for d in DAYS if episode.get("stages", {}).get(d, {}).get("status") == "complete"]
