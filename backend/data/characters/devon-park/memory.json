@@ -1,17 +1,23 @@
 {
-  "last_updated": "test-orch-001",
+  "last_updated": "2026-W11",
   "episodes": [
     {
-      "week": "2026-W10",
+      "week": "2026-W11",
       "concept": "Jalape\u00f1o Corn Dog Bites",
-      "summary": "Devon waited patiently for Margaret's approval before launching the jalape\u00f1o corn dog project. He showed restraint and trust, prioritizing her confidence over his eagerness to go live.",
-      "key_moment": "He showed restraint and trust, prioritizing her confidence over his eagerness to go live."
+      "summary": "Devon Park staged the jalape\u00f1o corn dog site and watched verification pass smoothly. When someone suggested overthinking slowed things down, Devon agreed and pushed live confidently that Saturday.",
+      "key_moment": "When someone suggested overthinking slowed things down, Devon agreed and pushed live confidently that Saturday."
     },
     {
-      "week": "2026-W10",
-      "concept": "Jalape\u00f1o Corn Dog Bites",
-      "summary": "Devon Park spent the week preparing the jalape\u00f1o corn dog site for launch. After Margaret approved it, Devon waited anxiously for final sign-off, then pushed live without hearing back - a small moment of frustration about unclear communication.",
-      "key_moment": "After Margaret approved it, Devon waited anxiously for final sign-off, then pushed live without hearing back - a small moment of frustration about unclear communication."
+      "week": "2026-W11",
+      "concept": "Mini Shepherd's Pies",
+      "summary": "Devon Park spent the week preparing mini shepherd's pies for launch, staying responsive to his team's needs. He gracefully accepted feedback about priorities, showing he valued their input over his own preferences.",
+      "key_moment": "He gracefully accepted feedback about priorities, showing he valued their input over his own preferences."
+    },
+    {
+      "week": "2026-W11",
+      "concept": "Brown Butter Pecan Tassies",
+      "summary": "Devon spent the week shepherding the pecan tassies toward launch, feeling confident when verification passed. They appreciated the team's smooth collaboration, though privately worried the bright background might overshadow the delicate pastry details.",
+      "key_moment": "They appreciated the team's smooth collaboration, though privately worried the bright background might overshadow the delicate pastry details."
     }
   ]
 }

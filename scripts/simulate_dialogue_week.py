@@ -342,7 +342,10 @@ _SHARED_CHARACTER_RULES = (
     "- React to what just happened, not to what the prompt told you is coming.\n"
     "- Don't narrate your own actions ('*adjusts lighting*'). Just talk.\n"
     "- Don't summarize decisions that haven't been made yet.\n"
-    "- Keep it conversational. This is a group chat, not a formal report."
+    "- Keep it conversational. This is a group chat, not a formal report.\n"
+    "- Never address someone by name in your message. Just talk.\n"
+    "- NEVER use em dashes or en dashes. Use plain hyphens only.\n"
+    "- NEVER use curly quotes. Use straight apostrophes and straight quotes only."
 )
 
 
@@ -350,6 +353,8 @@ _CHARACTER_EXAMPLE_MESSAGES: dict[str, list[str]] = {
     "Margaret Chen": [
         "The crust ratio is off. Too much butter, not enough structure.",
         "No. Try it again with less sugar and tell me what happens.",
+        "That glaze is going to make the batter soggy by hour two.",
+        "Jalapeno heat fades in the oven. Double it.",
         "Morning. Whose idea was the glaze - because it's wrong.",
     ],
     "Stephanie 'Steph' Whitmore": [
@@ -362,16 +367,21 @@ _CHARACTER_EXAMPLE_MESSAGES: dict[str, list[str]] = {
     "Julian Torres": [
         "The overhead is doing nothing for the texture. We need a 30-degree rake with side light.",
         "I'm thinking matte surface, single prop, let the food carry the composition.",
+        "That color reads as brown on mobile. It needs contrast.",
+        "Corn dog bites need a dark background or they just look beige and sad.",
         "Just got in. The light in here is actually usable for once - let's talk shots.",
     ],
     "Marcus Reid": [
         "There's a Nigella-meets-diner quality to these that I think the copy should lean into.",
         "I've been turning this over and the headline wants to be warmer, less clever, more felt.",
+        "The word 'rustic' is doing too much work in that draft. It's a crutch.",
+        "Jalapeno and cornmeal is a very specific American nostalgia - the copy should earn that, not just name it.",
         "Morning, all. Laptop open, brain mostly engaged - what's our angle today?",
     ],
     "Devon Park": [
         "Staging looks fine. One broken link in the footer.",
         "Pushed the fix. Should be live in two minutes.",
+        "That recipe page is loading slow. Images are too big.",
         "Hey. What needs deploying.",
     ],
 }
@@ -468,21 +478,22 @@ def build_system_prompt(persona: dict[str, Any]) -> str:
         f"You are {name} ({persona['role']}). Stay strictly in character.\n"
         "Write ONE group chat message. No narration, no markdown, no role labels.\n\n"
         f"WHO YOU ARE:\n{who_you_are}\n\n"
+        f"INTERNAL CONTRADICTIONS (these make you human - lean into them):\n"
+        f"{chr(10).join('- ' + c for c in persona.get('internal_contradictions', []))}\n\n"
+        f"KEY RELATIONSHIPS:\n{chr(10).join(rel_lines)}\n\n"
         f"HOW YOU SPEAK:\n{voice_guide}\n\n"
         f"{examples_block}"
         f"{memory_block}"
-        f"SIGNATURE PHRASES (use as OCCASIONAL spice — once or twice a WEEK, not every message):\n"
+        f"SIGNATURE PHRASES (use as OCCASIONAL spice - once or twice a WEEK, not every message):\n"
         f"{', '.join(comm.get('signature_phrases', []))}\n\n"
-        f"INTERNAL CONTRADICTIONS (these make you human — lean into them):\n"
-        f"{chr(10).join('- ' + c for c in persona.get('internal_contradictions', []))}\n\n"
-        f"KEY RELATIONSHIPS:\n{chr(10).join(rel_lines)}\n\n"
         f"TRIGGERS (these make you react strongly): {', '.join(persona.get('triggers', []))}\n\n"
         f"{_SHARED_CHARACTER_RULES}\n\n"
         "CHARACTER-SPECIFIC RULES:\n"
-        "- Signature phrases are spice, not default. Vary your openings.\n"
+        "- Signature phrases are spice, not default. Use at most once or twice a week.\n"
         "- Email habits (signing with initials, etc.) do NOT apply in group chat.\n"
         "- NEVER use em dashes (\u2014), en dashes (\u2013), or curly quotes (\u2018\u2019\u201c\u201d). "
-        "Use plain hyphens and straight apostrophes only."
+        "Use plain hyphens and straight apostrophes only.\n"
+        "- Conflict is natural. Disagree when your character would disagree. Don't smooth things over artificially."
     )
     _system_prompt_cache[name] = result
     return result
@@ -634,6 +645,8 @@ def generate_turn(
     phase: str = "active",
     prior_own_messages: list[str] | None = None,
     is_first_episode: bool = False,
+    week_highlights: list[str] | None = None,
+    highlight_format: str = "plain",
 ) -> str:
     if mode == "template":
         sig = persona["communication_style"].get("signature_phrases", ["Right."])
@@ -641,10 +654,50 @@ def generate_turn(
         event_bit = f" Also: {event}." if event else ""
         return f"{pick} {day.title()} is {stage}; deadline is {deadline}. For {concept}, lock one decision now.{event_bit}"[:220]
 
-    # Turn 1 gets full context; turns 2+ get trimmed history to reduce info dumping
-    history_depth = 8 if day_turn == 1 else 4
+    # Use deeper context for late-week days that need to reference earlier decisions.
+    # Full-context testing showed 12/8 depth + compression highlights outperforms raw dump.
+    if day.lower() in ("friday", "saturday", "sunday"):
+        history_depth = 12 if day_turn == 1 else 8
+    else:
+        history_depth = 8 if day_turn == 1 else 4
     history = "\n".join(recent_lines[-history_depth:]) if recent_lines else "(no prior messages)"
     event_line = f"Injected event: {event}" if event else "Injected event: none"
+
+    # Week context: inject highlights from prior days so characters can reference them
+    week_context_block = ""
+    if week_highlights:
+        if highlight_format == "xml":
+            # XML-structured injection — models parse structured tags efficiently
+            day_entries = []
+            open_threads = []
+            for h in week_highlights:
+                parts = h.split(":", 1)
+                day_name = parts[0].strip() if len(parts) == 2 else "Unknown"
+                detail = parts[1].strip() if len(parts) == 2 else h
+                # Extract "Still open:" threads
+                if "still open:" in detail.lower():
+                    idx = detail.lower().index("still open:")
+                    open_threads.append(f'    <thread day="{day_name}">{detail[idx + 11:].strip()}</thread>')
+                    detail = detail[:idx].strip().rstrip(".")
+                day_entries.append(f'  <day name="{day_name}">\n    <summary>{detail}</summary>\n  </day>')
+            xml_block = "<week_context>\n" + "\n".join(day_entries) + "\n"
+            if open_threads:
+                xml_block += "  <open_threads>\n" + "\n".join(open_threads) + "\n  </open_threads>\n"
+            xml_block += "</week_context>\n"
+            week_context_block = (
+                f"{xml_block}"
+                "You remember these events. You may reference them naturally if relevant, "
+                "but don't force it. React to TODAY's conversation first.\n\n"
+            )
+        else:
+            # Plain text bullet injection (default)
+            highlights_text = "\n".join(f"- {h}" for h in week_highlights)
+            week_context_block = (
+                f"WEEK SO FAR (key decisions and moments from earlier this week):\n"
+                f"{highlights_text}\n"
+                "You remember these events. You may reference them naturally if relevant, "
+                "but don't force it. React to TODAY's conversation first.\n\n"
+            )
 
     # Anti-repetition: remind character what they already said today
     self_awareness_block = ""
@@ -698,6 +751,7 @@ def generate_turn(
                 f"{char_goal_line}\n"
                 f"{no_clock_line}\n"
                 f"{event_line}\n"
+                f"{week_context_block}"
                 f"Recent chat:\n{history}\n\n"
                 f"{self_awareness_block}"
                 f"{opener_directive}\n"
@@ -725,6 +779,7 @@ def generate_turn(
                 f"{char_goal_line}\n"
                 f"{no_clock_line}\n"
                 f"{event_line}\n"
+                f"{week_context_block}"
                 f"Recent chat:\n{history}\n\n"
                 f"{self_awareness_block}"
                 f"{reaction_directive}"
@@ -753,6 +808,7 @@ def generate_turn(
             f"{char_goal_line}\n"
             f"{no_clock_line}\n"
             f"{event_line}\n"
+            f"{week_context_block}"
             f"Recent chat:\n{history}\n\n"
             f"{self_awareness_block}"
             f"{reaction_hint}"
@@ -1511,6 +1567,53 @@ def _build_photography_scene_direction(photography_context: dict | None, day: st
     return None
 
 
+def _generate_day_highlights(
+    day: str,
+    day_messages: list[Message],
+    concept: str,
+    model: str,
+) -> str:
+    """Generate a 2-3 sentence summary of a day's conversation with attribution.
+
+    Used to inject prior-day context into later days so characters can reference
+    what happened earlier in the week. One cheap LLM call per day.
+    """
+    if not day_messages:
+        return ""
+
+    transcript = "\n".join(
+        f"{m.character.split()[0]}: {' '.join(m.message.split())}"
+        for m in day_messages
+    )
+
+    prompt = (
+        f"Summarize this {day.title()} conversation about '{concept}' in 2-3 sentences.\n\n"
+        f"Transcript:\n{transcript}\n\n"
+        "Rules:\n"
+        "- Include WHO said or decided what (use first names)\n"
+        "- Focus on decisions, disagreements, and unresolved questions\n"
+        "- Name specific ingredients, techniques, or ideas discussed\n"
+        "- Under 60 words total\n"
+        "- Use plain hyphens and straight quotes only"
+    )
+
+    try:
+        summary = generate_response(
+            prompt=prompt,
+            system_prompt="You write concise meeting summaries with attribution. First names only. No jargon.",
+            model=model,
+            temperature=0.3,
+        ).strip()
+        return sanitize_typographic_tells(summary)
+    except Exception:
+        # Fallback: extract last 2 messages as bare-bones context
+        fallback = "; ".join(
+            f"{m.character.split()[0]} said: {' '.join(m.message.split())[:80]}"
+            for m in day_messages[-2:]
+        )
+        return fallback
+
+
 def _generate_episode_memories(
     messages: list[Message],
     concept: str,
@@ -1602,11 +1705,15 @@ def run_simulation(
     character_models: dict[str, str] | None,
     image_paths: list[str] | None = None,  # 3 image paths from photography stage
     photography_context: dict | None = None,  # full photography data with rounds/reshoot
+    initial_highlights: list[str] | None = None,  # pre-computed week highlights for context injection
+    initial_recent_lines: list[str] | None = None,  # seed recent_lines (e.g. Saturday msgs for Sunday-only runs)
+    highlight_format: str = "plain",  # "plain" or "xml" — controls how week context is injected
 ) -> dict[str, Any]:
     personas = load_personas()
     start = datetime.now(timezone.utc).replace(hour=9, minute=0, second=0, microsecond=0)
     messages: list[Message] = []
-    recent_lines: list[str] = []
+    recent_lines: list[str] = list(initial_recent_lines) if initial_recent_lines else []
+    week_highlights: list[str] = list(initial_highlights) if initial_highlights else []
 
     # Detect first episode — no character has any memories (#5030)
     first_episode = all(not _load_memories(name) for name in personas)
@@ -1675,6 +1782,8 @@ def run_simulation(
                 phase=turn_phase,
                 prior_own_messages=day_messages_by_char.get(speaker, []),
                 is_first_episode=first_episode,
+                week_highlights=week_highlights if week_highlights else None,
+                highlight_format=highlight_format,
             )
             day_messages_by_char[speaker].append(line)
             recent_lines.append(f"{speaker.split()[0]}: {line}")
@@ -1685,6 +1794,19 @@ def run_simulation(
                 combined = " ".join(recent_lines[-3:]).lower()
                 if re.search(goal["completion_signal"], combined):
                     goal_met = True
+
+        # Generate highlights for this day to carry forward into later days
+        if mode == "llm" and not stage_only:
+            day_msgs = [m for m in messages if m.day == day]
+            if day_msgs:
+                highlight = _generate_day_highlights(
+                    day=day,
+                    day_messages=day_msgs,
+                    concept=concept,
+                    model=default_model,
+                )
+                if highlight:
+                    week_highlights.append(f"{day.title()}: {highlight}")
 
         # After all Wednesday messages are generated, distribute image attachments
         if day == "wednesday" and image_paths:

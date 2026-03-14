@@ -1,17 +1,23 @@
 {
-  "last_updated": "test-orch-001",
+  "last_updated": "2026-W11",
   "episodes": [
     {
-      "week": "2026-W10",
+      "week": "2026-W11",
       "concept": "Jalape\u00f1o Corn Dog Bites",
-      "summary": "Julian spent the week wrestling with competing visions for the hero shot, ultimately trusting Margaret's instincts over his initial instinct. He held firm on one thing though - refusing to let the words do heavy lifting that the image should carry alone.",
-      "key_moment": "He held firm on one thing though - refusing to let the words do heavy lifting that the image should carry alone."
+      "summary": "Julian spent the week perfecting the jalape\u00f1o corn dog shoot, wrestling with three competing visions. He ultimately deferred to Margaret's earlier instinct about showcasing the moisture, recognizing that sometimes less direction yields stronger results.",
+      "key_moment": "He ultimately deferred to Margaret's earlier instinct about showcasing the moisture, recognizing that sometimes less direction yields stronger results."
     },
     {
-      "week": "2026-W10",
-      "concept": "Jalape\u00f1o Corn Dog Bites",
-      "summary": "Julian spent Wednesday wrestling with which shot told the truth about their jalape\u00f1o corn dog concept. After initially considering three options, they ultimately deferred to Margaret's vision, choosing the honest motion footage over the safer static frames.",
-      "key_moment": "After initially considering three options, they ultimately deferred to Margaret's vision, choosing the honest motion footage over the safer static frames."
+      "week": "2026-W11",
+      "concept": "Mini Shepherd's Pies",
+      "summary": "Julian spent Wednesday perfecting the shepherd's pie shoot, capturing three distinct angles. After initially favoring complex lighting setups, he conceded that the straightforward cross-section best revealed the dish's honest beauty.",
+      "key_moment": "After initially favoring complex lighting setups, he conceded that the straightforward cross-section best revealed the dish's honest beauty."
+    },
+    {
+      "week": "2026-W11",
+      "concept": "Brown Butter Pecan Tassies",
+      "summary": "Julian spent the week fighting for honesty in his tassies shots, insisting the cross-section reveal the real craftsmanship even when prettier angles tempted him. By Friday, he'd won over the copywriter, proving restraint and truth could work together.",
+      "key_moment": "By Friday, he'd won over the copywriter, proving restraint and truth could work together."
     }
   ]
 }
