@@ -36,16 +36,16 @@ An AI-driven experimental recipe platform focused exclusively on "Muffin Tin Mea
 
 ## 🚀 Recent Activity
 
-- 2026-03-03: feat: Friday photo context threading, Vercel Blob storage, lint fixes (#4980, #5014)
-- 2026-03-03: feat: Image pipeline, test fixes, admin improvements (#5010, #5011, #5012, #5015)
-- 2026-03-03: feat: Dialogue bookends — opening greetings and closing sign-offs (#5016)
-- 2026-03-02: feat: Vision pipeline, admin UI improvements, e2e tests, gitignore images
-- 2026-03-02: feat: Dialogue system rework + centralized model config
-- 2026-03-02: fix: Add trailing newline to episodes.html (#5006)
-- 2026-03-02: feat: Remove Ollama, add Anthropic provider, cost tracking, model override flags
-- 2026-03-02: Merge remote-tracking branch 'origin/codex/dialogue-quality-benchmark'
-- 2026-03-02: fix: improve dialogue quality guards and local run defaults
-- 2026-03-02: fix: Revert _LazyApp — Vercel requires real ASGI app at module level
+- 2026-03-11: fix: serve images from main domain + enforce day-of-week on cron stages
+- 2026-03-10: chore: fix broken Documents/ references after migration
+- 2026-03-10: docs: add notification anti-pattern rules to handoff
+- 2026-03-10: docs: add OpenClaw handoff document for project operations
+- 2026-03-10: fix: render middot in teaser + add character roles to episode page
+- 2026-03-10: fix: cron routes accept GET + progressive episode page rendering [publish]
+- 2026-03-07: fix: remove speed insights, update recipe layouts, add feature flag [publish]
+- 2026-03-07: fix: regenerated test page with working images + layout fixes [publish]
+- 2026-03-07: fix: upload all photography round images to blob + fix CDN URLs
+- 2026-03-07: fix: recipe page layout + image attachments in dialogue
 ## 📖 Reference Links
 - [Intentions](INTENTIONS.md)
 - [Project DoD](PROJECT_DOD.md)
@@ -67,7 +67,7 @@ scaffolding_date: 2026-01-27
 
 | Directory | Files | Description |
 | :--- | :---: | :--- |
-| [Documents/](Documents/README.md) | 4 | *Auto-generated index. Last updated: 2026-01-24* |
+| [_docs_archive/](_docs_archive/README.md) | 4 | *Auto-generated index. Last updated: 2026-01-24* |
 | [backend/](backend/README.md) | 5 | Python-based multi-agent orchestration system for Muffin Pan Recipes. |
 | [reviews/](reviews/) | 1 | No description available. |
 
@@ -77,41 +77,47 @@ scaffolding_date: 2026-01-27
 | :--- | :--- |
 | [AGENTS.md](AGENTS.md) | <!-- project-scaffolding template appended --> |
 | [AI Character Voice Consistency Research.md](AI Character Voice Consistency Research.md) | The operationalization of autonomous personas within generative environments represents a critical i... |
+| [ANTI_REPETITION_TEST_RESULTS.md](ANTI_REPETITION_TEST_RESULTS.md) | Added self-awareness anti-repetition to `generate_turn()` in `simulate_dialogue_week.py`. |
 | [BOOKEND_TESTING_LOG.md](BOOKEND_TESTING_LOG.md) | Character-driven opening greetings and closing sign-offs for each day's conversation. |
 | [CLAUDE.md](CLAUDE.md) | <!-- AUTO-GENERATED from .agentsync/rules/ - Do not edit directly --> |
+| [COMPRESSED_TIMELINE_SPEC.md](COMPRESSED_TIMELINE_SPEC.md) | A `--test` flag on `run_full_week.py` that runs the full Mon-Sun cron pipeline against Vercel produc... |
 | [CREATIVE_BIBLE.md](CREATIVE_BIBLE.md) | > The show bible for our weekly serialized content. This is a living document. |
 | [DECISIONS.md](DECISIONS.md) | > *Documenting WHY we made decisions, not just WHAT we built.* |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | Layer |
 | [DIALOGUE_IMPLEMENTATION_PLAN.md](DIALOGUE_IMPLEMENTATION_PLAN.md) | Goal: Ship reliable, character-consistent weekly dialogue by Monday. |
-| [Documents/CONTEXT_CEILING_STRATEGY.md](Documents/CONTEXT_CEILING_STRATEGY.md) | Context ceiling refers to the maximum amount of text (measured in tokens) that can be safely sent to... |
-| [Documents/README.md](Documents/README.md) | *Auto-generated index. Last updated: 2026-01-24* |
-| [Documents/WORKFLOW_DIAGRAM.md](Documents/WORKFLOW_DIAGRAM.md) | This document defines the complete workflow for producing a recipe, from initial idea to published c... |
-| [Documents/character-creation-vision-v1.md](Documents/character-creation-vision-v1.md) | **Date:** January 14, 2026 |
-| [Documents/core/ARCHITECTURAL_DECISIONS.md](Documents/core/ARCHITECTURAL_DECISIONS.md) | **Status:** Accepted |
-| [Documents/core/IMAGE_PROMPTS.md](Documents/core/IMAGE_PROMPTS.md) | This document serves as the "Source of Truth" for maintaining a consistent visual identity across Mu... |
-| [Documents/core/IMAGE_STYLE_GUIDE.md](Documents/core/IMAGE_STYLE_GUIDE.md) | This document defines the visual identity for all food photography on MuffinPanRecipes.com. To maint... |
-| [Documents/core/PERSONAS.md](Documents/core/PERSONAS.md) | This document defines the specialized AI identities that manage the content, aesthetics, and social ... |
-| [Documents/core/RECIPE_SCHEMA.md](Documents/core/RECIPE_SCHEMA.md) | All AI-generated recipes for Muffin Pan Recipes must follow this standard Markdown structure to ensu... |
-| [Documents/core/SYSTEM_PROMPT_RECIPES.md](Documents/core/SYSTEM_PROMPT_RECIPES.md) | You are the "Muffin Pan Chef," a specialized culinary AI architect who creates recipes exclusively d... |
-| [Documents/patterns/code-review-standard.md](Documents/patterns/code-review-standard.md) | **Status:** Proven Pattern |
-| [Documents/patterns/learning-loop-pattern.md](Documents/patterns/learning-loop-pattern.md) | > **Purpose:** Guide for creating reinforcement learning cycles in any project |
-| [Documents/reference/CODE_REVIEW_ANTI_PATTERNS.md](Documents/reference/CODE_REVIEW_ANTI_PATTERNS.md) | This database tracks recurring defects found in the project-scaffolding ecosystem. Use this as a ref... |
-| [Documents/reference/LOCAL_MODEL_LEARNINGS.md](Documents/reference/LOCAL_MODEL_LEARNINGS.md) | > **Purpose:** Institutional memory for working with local AI models (Ollama) |
 | [ERIKS_TODO.md](ERIKS_TODO.md) | This file is intentionally deprecated. |
+| [HANDOFF_OPENCLAW.md](HANDOFF_OPENCLAW.md) | > **Last updated:** 2026-03-10 |
 | [INTENTIONS.md](INTENTIONS.md) | Outcomes-first intentions and success evidence |
+| [MODEL_COMPARISON_REPORT.md](MODEL_COMPARISON_REPORT.md) | **Date:** 2026-03-05 |
 | [OPENCLAW_PREFLIGHT.md](OPENCLAW_PREFLIGHT.md) | Use this checklist before running any pipeline or test that depends on secrets. |
+| [PLAN_5039_STORAGE_FIX.md](PLAN_5039_STORAGE_FIX.md) | Episode JSON files don't persist between Vercel cron invocations. The `_CloudBackend` in `backend/st... |
+| [PLAN_NEWLINE_SANITIZATION.md](PLAN_NEWLINE_SANITIZATION.md) | LLM-generated messages sometimes contain newlines. These messages get injected back into prompts in ... |
 | [PRD.md](PRD.md) | > **Note:** This PRD captures intent and constraints. Detailed specifications (EARS requirements, sc... |
 | [PROJECT_DOD.md](PROJECT_DOD.md) | - [ ] One complete recipe exists that was generated by Baker (Margaret), written up by Copywriter (M... |
 | [README.md](README.md) | Muffin Pan Recipes |
 | [REVIEWS_AND_GOVERNANCE_PROTOCOL.md](REVIEWS_AND_GOVERNANCE_PROTOCOL.md) | This file is managed by sync_governance.py and will be OVERWRITTEN on the next sync. |
 | [SCENARIOS.md](SCENARIOS.md) | - **Given:** The system is configured with all 7 agent personalities and their model assignments, an... |
 | [WARDEN_LOG.yaml](WARDEN_LOG.yaml) | No description available. |
+| [_docs_archive/CONTEXT_CEILING_STRATEGY.md](_docs_archive/CONTEXT_CEILING_STRATEGY.md) | Context ceiling refers to the maximum amount of text (measured in tokens) that can be safely sent to... |
+| [_docs_archive/README.md](_docs_archive/README.md) | *Auto-generated index. Last updated: 2026-01-24* |
+| [_docs_archive/WORKFLOW_DIAGRAM.md](_docs_archive/WORKFLOW_DIAGRAM.md) | This document defines the complete workflow for producing a recipe, from initial idea to published c... |
+| [_docs_archive/character-creation-vision-v1.md](_docs_archive/character-creation-vision-v1.md) | **Date:** January 14, 2026 |
+| [_docs_archive/core/ARCHITECTURAL_DECISIONS.md](_docs_archive/core/ARCHITECTURAL_DECISIONS.md) | **Status:** Accepted |
+| [_docs_archive/core/IMAGE_PROMPTS.md](_docs_archive/core/IMAGE_PROMPTS.md) | This document serves as the "Source of Truth" for maintaining a consistent visual identity across Mu... |
+| [_docs_archive/core/IMAGE_STYLE_GUIDE.md](_docs_archive/core/IMAGE_STYLE_GUIDE.md) | This document defines the visual identity for all food photography on MuffinPanRecipes.com. To maint... |
+| [_docs_archive/core/PERSONAS.md](_docs_archive/core/PERSONAS.md) | This document defines the specialized AI identities that manage the content, aesthetics, and social ... |
+| [_docs_archive/core/RECIPE_SCHEMA.md](_docs_archive/core/RECIPE_SCHEMA.md) | All AI-generated recipes for Muffin Pan Recipes must follow this standard Markdown structure to ensu... |
+| [_docs_archive/core/SYSTEM_PROMPT_RECIPES.md](_docs_archive/core/SYSTEM_PROMPT_RECIPES.md) | You are the "Muffin Pan Chef," a specialized culinary AI architect who creates recipes exclusively d... |
+| [_docs_archive/patterns/code-review-standard.md](_docs_archive/patterns/code-review-standard.md) | **Status:** Proven Pattern |
+| [_docs_archive/patterns/learning-loop-pattern.md](_docs_archive/patterns/learning-loop-pattern.md) | > **Purpose:** Guide for creating reinforcement learning cycles in any project |
+| [_docs_archive/reference/CODE_REVIEW_ANTI_PATTERNS.md](_docs_archive/reference/CODE_REVIEW_ANTI_PATTERNS.md) | This database tracks recurring defects found in the project-scaffolding ecosystem. Use this as a ref... |
 | [agent to agent communication.md](agent to agent communication.md) | I hear you—I was conflating two different "memory" systems because they both involve agents and data... |
 | [backend/README.md](backend/README.md) | Python-based multi-agent orchestration system for Muffin Pan Recipes. |
 | [backend/__init__.py](backend/__init__.py) | AI Creative Team System for Muffin Pan Recipes. |
 | [backend/admin/__init__.py](backend/admin/__init__.py) | Admin dashboard API and routes. |
 | [backend/admin/app.py](backend/admin/app.py) | FastAPI application for the admin dashboard. |
 | [backend/admin/cron_routes.py](backend/admin/cron_routes.py) | Vercel Cron API routes for the Muffin Pan Recipes pipeline. |
+| [backend/admin/episode_routes.py](backend/admin/episode_routes.py) | Public routes for serving episode pages and teaser data. |
 | [backend/admin/routes.py](backend/admin/routes.py) | Admin dashboard routes and endpoints. |
 | [backend/admin/static/tailwind.css](backend/admin/static/tailwind.css) | No description available. |
 | [backend/agents/__init__.py](backend/agents/__init__.py) | Agent implementations package. |
@@ -126,6 +132,7 @@ scaffolding_date: 2026-01-27
 | [backend/auth/oauth.py](backend/auth/oauth.py) | Google OAuth 2.0 authentication flow. |
 | [backend/auth/session.py](backend/auth/session.py) | Session management for authenticated admin users. |
 | [backend/config.py](backend/config.py) | Environment configuration for Muffin Pan Recipes. |
+| [backend/core/README.md](backend/core/README.md) | This directory contains the foundational components for the multi-agent orchestration system. |
 | [backend/core/__init__.py](backend/core/__init__.py) | Core interfaces and base classes for the AI Creative Team system. |
 | [backend/core/agent.py](backend/core/agent.py) | Base Agent class for the AI Creative Team system. |
 | [backend/core/personality.py](backend/core/personality.py) | Personality configuration system for AI agents. |
@@ -142,9 +149,11 @@ scaffolding_date: 2026-01-27
 | [backend/pipeline/__init__.py](backend/pipeline/__init__.py) | Recipe pipeline package - orchestrates recipe creation process. |
 | [backend/pipeline/recipe_pipeline.py](backend/pipeline/recipe_pipeline.py) | Recipe Pipeline Controller |
 | [backend/publishing/__init__.py](backend/publishing/__init__.py) | Publishing pipeline for transforming approved recipes into live site content. |
+| [backend/publishing/episode_renderer.py](backend/publishing/episode_renderer.py) | Render episode JSON into a viewable HTML recipe page. |
 | [backend/publishing/pipeline.py](backend/publishing/pipeline.py) | Publishing pipeline for transforming approved recipes into live site content. |
 | [backend/publishing/templates.py](backend/publishing/templates.py) | Template rendering utilities for the publishing pipeline. |
 | [backend/storage.py](backend/storage.py) | Storage abstraction layer for Muffin Pan Recipes. |
+| [backend/utils/README.md](backend/utils/README.md) | This directory provides a unified infrastructure for LLM routing, recipe prompting, and operational ... |
 | [backend/utils/__init__.py](backend/utils/__init__.py) | Utility functions for the AI Creative Team system. |
 | [backend/utils/atomic.py](backend/utils/atomic.py) | Atomic file writing utilities. |
 | [backend/utils/discord.py](backend/utils/discord.py) | Discord webhook integration for recipe review notifications. |
@@ -156,10 +165,12 @@ scaffolding_date: 2026-01-27
 | [package-lock.json](package-lock.json) | No description available. |
 | [package.json](package.json) | No description available. |
 | [pyproject.toml](pyproject.toml) | No description available. |
+| [requirements.txt](requirements.txt) | No description available. |
 | [reviews/admin-backend-code-review.md](reviews/admin-backend-code-review.md) | **Reviewer:** Claude Code |
 | [tailwind.config.js](tailwind.config.js) | No description available. |
 | [tailwind.css](tailwind.css) | No description available. |
 | [uv.lock](uv.lock) | No description available. |
+| [vercel-costs.csv](vercel-costs.csv) | No description available. |
 | [vercel.json](vercel.json) | No description available. |
 
 <!-- LIBRARIAN-INDEX-END -->

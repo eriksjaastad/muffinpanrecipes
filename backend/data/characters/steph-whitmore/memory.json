@@ -1,17 +1,23 @@
 {
-  "last_updated": "test-orch-001",
+  "last_updated": "2026-W11",
   "episodes": [
     {
-      "week": "2026-W10",
+      "week": "2026-W11",
       "concept": "Jalape\u00f1o Corn Dog Bites",
-      "summary": "Steph steered her team toward capturing the jalape\u00f1o bite's raw moment of surprise over polished perfection. She trusted Margaret's expertise and Marcus's instincts enough to embrace the messy authenticity everyone worried might backfire.",
-      "key_moment": "She trusted Margaret's expertise and Marcus's instincts enough to embrace the messy authenticity everyone worried might backfire."
+      "summary": "Steph steered the team toward a moisture-seal concept that stuck, though she wrestled with self-doubt when Margaret validated her instinct. By week's end, she'd learned to trust the collaborative process instead of second-guessing every decision.",
+      "key_moment": "By week's end, she'd learned to trust the collaborative process instead of second-guessing every decision."
     },
     {
-      "week": "2026-W10",
-      "concept": "Jalape\u00f1o Corn Dog Bites",
-      "summary": "Steph led her team through a grueling week perfecting jalape\u00f1o corn dog bites, trusting Margaret's instincts even when uncertain. By Friday, she'd found her rhythm collaborating with Julian and Marcus, feeling genuinely proud of what they'd built together.",
-      "key_moment": "By Friday, she'd found her rhythm collaborating with Julian and Marcus, feeling genuinely proud of what they'd built together."
+      "week": "2026-W11",
+      "concept": "Mini Shepherd's Pies",
+      "summary": "Steph spent the week building trust with her team around mini shepherd's pies, moving from uncertainty to conviction. She pushed everyone to taste and see the real work rather than overthink it, ultimately celebrating how mutual respect made the final product click.",
+      "key_moment": "She pushed everyone to taste and see the real work rather than overthink it, ultimately celebrating how mutual respect made the final product click."
+    },
+    {
+      "week": "2026-W11",
+      "concept": "Brown Butter Pecan Tassies",
+      "summary": "Steph guided her team through testing brown butter pecan tassies, trusting Marcus's instincts about patience over technique. She gracefully simplified the script mid-week, letting the lamination speak for itself rather than explaining it.",
+      "key_moment": "She gracefully simplified the script mid-week, letting the lamination speak for itself rather than explaining it."
     }
   ]
 }

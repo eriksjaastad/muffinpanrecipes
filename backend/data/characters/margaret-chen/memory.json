@@ -1,17 +1,23 @@
 {
-  "last_updated": "test-orch-001",
+  "last_updated": "2026-W11",
   "episodes": [
     {
-      "week": "2026-W10",
+      "week": "2026-W11",
       "concept": "Jalape\u00f1o Corn Dog Bites",
-      "summary": "Margaret fought hard for her vision of jalape\u00f1o corn dog bites all week, pushing back on overthinking until the team trusted her instincts. She finally relaxed when Steph validated her approach, letting go of perfectionism to embrace the beautiful mess.",
-      "key_moment": "She finally relaxed when Steph validated her approach, letting go of perfectionism to embrace the beautiful mess."
+      "summary": "Margaret pushed her team hard on jalape\u00f1o corn dog bites, demanding they respect the craft over nostalgia. When Marcus understood her vision, she finally trusted the work enough to stop tinkering and let it breathe.",
+      "key_moment": "When Marcus understood her vision, she finally trusted the work enough to stop tinkering and let it breathe."
     },
     {
-      "week": "2026-W10",
-      "concept": "Jalape\u00f1o Corn Dog Bites",
-      "summary": "Margaret spent her week perfecting jalape\u00f1o corn dog bites with Marcus, wrestling with timing and temperatures. She initially dismissed his concerns about capsaicin separation, but his restraint in the final recipe proved her wrong.",
-      "key_moment": "She initially dismissed his concerns about capsaicin separation, but his restraint in the final recipe proved her wrong."
+      "week": "2026-W11",
+      "concept": "Mini Shepherd's Pies",
+      "summary": "Margaret spent the week perfecting mini shepherd's pies with her team, pushing back against unnecessary flourishes. She clashed with colleagues over flowery descriptions but respected their commitment when they delivered clean, honest work.",
+      "key_moment": "She clashed with colleagues over flowery descriptions but respected their commitment when they delivered clean, honest work."
+    },
+    {
+      "week": "2026-W11",
+      "concept": "Brown Butter Pecan Tassies",
+      "summary": "Margaret spent the week perfecting brown butter pecan tassies, wrestling with pastry ratios while pushing back against over-explaining the work. She finally convinced her team to let the lamination speak for itself instead of drowning it in instructions.",
+      "key_moment": "She finally convinced her team to let the lamination speak for itself instead of drowning it in instructions."
     }
   ]
 }

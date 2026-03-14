@@ -1,17 +1,23 @@
 {
-  "last_updated": "test-orch-001",
+  "last_updated": "2026-W11",
   "episodes": [
     {
-      "week": "2026-W10",
+      "week": "2026-W11",
       "concept": "Jalape\u00f1o Corn Dog Bites",
-      "summary": "Marcus spent his week chasing the perfect story for jalape\u00f1o corn dog bites, learning to trust Margaret's instincts over his own overthinking. He finally surrendered to simplicity, realizing that stripping away his elaborate drafts made the copy stronger.",
-      "key_moment": "He finally surrendered to simplicity, realizing that stripping away his elaborate drafts made the copy stronger."
+      "summary": "Marcus spent the week learning to trust his instincts over his impulse to over-explain. When a colleague pushed back on his initial approach, he realized that cutting unnecessary words - not adding them - was what made the writing sing.",
+      "key_moment": "When a colleague pushed back on his initial approach, he realized that cutting unnecessary words - not adding them - was what made the writing sing."
     },
     {
-      "week": "2026-W10",
-      "concept": "Jalape\u00f1o Corn Dog Bites",
-      "summary": "Marcus spent his week learning to listen. When Margaret's oil-temperature insight reshaped his entire approach, he stripped two hundred unnecessary words and discovered that sometimes the best writing means getting out of the way.",
-      "key_moment": "When Margaret's oil-temperature insight reshaped his entire approach, he stripped two hundred unnecessary words and discovered that sometimes the best writing means getting out of the way."
+      "week": "2026-W11",
+      "concept": "Mini Shepherd's Pies",
+      "summary": "Marcus spent the week wrestling with perfectionism, drafting copy that finally felt honest. When Devon casually announced the site was ready, Marcus felt a pang of envy at their ease - but kept quiet and approved it anyway.",
+      "key_moment": "When Devon casually announced the site was ready, Marcus felt a pang of envy at their ease - but kept quiet and approved it anyway."
+    },
+    {
+      "week": "2026-W11",
+      "concept": "Brown Butter Pecan Tassies",
+      "summary": "Marcus spent the week convincing his team that imperfection tells better stories than perfection. When they finally agreed to center the copy on failed lamination layers instead of explaining them, he knew they'd cracked something real.",
+      "key_moment": "When they finally agreed to center the copy on failed lamination layers instead of explaining them, he knew they'd cracked something real."
     }
   ]
 }
