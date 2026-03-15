@@ -926,6 +926,24 @@ async def cron_sunday(request: Request):
         storage.save_episode(episode_id, ep)
         regenerate_and_upload(ep)
 
+        # Publish to the main page recipe catalog
+        from backend.publishing.episode_renderer import publish_recipe_to_catalog
+        try:
+            publish_recipe_to_catalog(ep)
+        except Exception as e:
+            logger.warning(f"Recipe catalog publish failed (non-fatal): {e}")
+
+        # Upload the episode page as the recipe's standalone page too
+        from backend.publishing.episode_renderer import _slugify
+        monday = ep.get("stages", {}).get("monday", {})
+        recipe_title = monday.get("recipe_data", {}).get("title", "")
+        if recipe_title:
+            slug = _slugify(recipe_title)
+            page_html = storage.load_page(f"pages/{episode_id}/index.html")
+            if page_html:
+                storage.save_page(f"pages/recipes/{slug}/index.html", page_html)
+                logger.info(f"Published recipe page at /recipes/{slug}")
+
     return _stage_response("sunday", episode_id, concept, {
         "published": True,
         "dialogue_messages": len(dialogue),

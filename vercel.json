@@ -55,7 +55,7 @@
         },
         {
             "src": "/recipes/([^/]+)$",
-            "dest": "/src/recipes/$1/index.html"
+            "dest": "backend/admin/app.py"
         },
         {
             "src": "/blob-images/(.*)",
@@ -78,7 +78,7 @@
         },
         {
             "src": "/recipes\\.json",
-            "dest": "/src/recipes.json"
+            "dest": "backend/admin/app.py"
         },
         {
             "src": "/episodes/([^/]+)/?$",

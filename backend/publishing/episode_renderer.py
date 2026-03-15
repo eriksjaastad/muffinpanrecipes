@@ -473,6 +473,109 @@ def render_episode_page(episode: dict, image_url: Optional[str] = None) -> str:
 """
 
 
+def _slugify(title: str) -> str:
+    """Convert a recipe title to a URL slug.
+
+    'Make-Ahead Veggie & Sausage Egg Cups (Weekly Muffin Pan Breakfast)'
+    -> 'make-ahead-veggie-sausage-egg-cups'
+    """
+    import re
+    # Remove parenthetical suffixes
+    title = re.sub(r'\s*\(.*?\)\s*', '', title)
+    # Lowercase, replace non-alphanumeric with hyphens
+    slug = re.sub(r'[^a-z0-9]+', '-', title.lower()).strip('-')
+    # Collapse multiple hyphens
+    slug = re.sub(r'-+', '-', slug)
+    return slug
+
+
+def publish_recipe_to_catalog(episode: dict) -> str | None:
+    """Add the finished recipe to recipes.json and upload to blob.
+
+    Called by Sunday cron after publish. Prepends the new recipe to the list
+    so it becomes the featured recipe (recipes[0]) on the main page.
+    Returns the blob URL or None on failure.
+    """
+    monday = episode.get("stages", {}).get("monday", {})
+    recipe = monday.get("recipe_data", {})
+    title = recipe.get("title", "")
+    if not title:
+        logger.warning("No recipe title — skipping catalog publish")
+        return None
+
+    slug = _slugify(title)
+
+    # Build the hero image URL using /blob-images/ rewrite
+    image_url = ""
+    image_urls = episode.get("image_urls", [])
+    if image_urls:
+        image_url = _to_local_image_url(image_urls[0])
+
+    # Build ingredients as flat strings (matching existing recipes.json format)
+    ingredients = []
+    for ing in recipe.get("ingredients", []):
+        if isinstance(ing, dict):
+            text = f"{ing.get('amount', '')} {ing.get('item', '')}".strip()
+            if ing.get("notes"):
+                text += f" ({ing['notes']})"
+            ingredients.append(text)
+        else:
+            ingredients.append(str(ing))
+
+    instructions = [
+        s if isinstance(s, str) else str(s)
+        for s in recipe.get("instructions", [])
+    ]
+
+    new_entry = {
+        "slug": slug,
+        "title": title,
+        "category": recipe.get("category", "Savory").title(),
+        "image": image_url,
+        "description": recipe.get("description", ""),
+        "prep": f"{recipe.get('prep_time', 15)} mins",
+        "cook": f"{recipe.get('cook_time', 20)} mins",
+        "yield": f"{recipe.get('servings', 12)} servings",
+        "ingredients": ingredients,
+        "instructions": instructions,
+    }
+
+    # Load existing catalog from blob (or fall back to static seed file)
+    catalog_json = storage.load_page("pages/recipes.json")
+    if catalog_json:
+        try:
+            catalog = json.loads(catalog_json)
+        except json.JSONDecodeError:
+            catalog = {"recipes": []}
+    else:
+        # First run — seed from static file
+        static_path = os.path.join(os.path.dirname(__file__), "..", "..", "src", "recipes.json")
+        try:
+            with open(static_path) as f:
+                catalog = json.loads(f.read())
+        except Exception:
+            catalog = {"recipes": []}
+
+    # Don't add duplicates (idempotent re-run)
+    existing_slugs = {r.get("slug") for r in catalog.get("recipes", [])}
+    if slug in existing_slugs:
+        logger.info(f"Recipe '{slug}' already in catalog — skipping")
+        return None
+
+    # Prepend new recipe (becomes featured)
+    catalog["recipes"].insert(0, new_entry)
+
+    # Upload
+    try:
+        content = json.dumps(catalog, indent=2)
+        url = storage.save_page("pages/recipes.json", content)
+        logger.info(f"Published recipe '{slug}' to catalog ({len(catalog['recipes'])} total)")
+        return url
+    except Exception as e:
+        logger.error(f"Failed to publish recipe catalog: {e}")
+        return None
+
+
 def regenerate_and_upload(episode: dict) -> str | None:
     """Regenerate the episode page HTML and teaser JSON, upload both to blob.
 
