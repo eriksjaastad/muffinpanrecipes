@@ -1,14 +1,18 @@
-"""Public routes for serving episode pages and teaser data.
+"""Public routes for serving episode pages, recipe pages, and teaser data.
 
 These endpoints serve content from Vercel Blob to the public site.
 No authentication required — the content is public.
 
 Routes:
-  /this-week          — Serves the current episode page HTML (progressive)
+  /this-week           — Serves the current episode page HTML (progressive)
   /api/episodes/teaser — Returns teaser JSON for the main page
+  /recipes.json        — Dynamic recipe catalog (blob-first, static fallback)
+  /recipes/{slug}      — Individual recipe pages (blob-first, static fallback)
 """
 
 from __future__ import annotations
+
+from pathlib import Path
 
 from fastapi import APIRouter, Response
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -55,6 +59,48 @@ async def get_episode_teaser():
         return Response(content=teaser_json, media_type="application/json")
 
     return JSONResponse(content={"status": "no_episode"}, status_code=200)
+
+
+@router.get("/recipes.json")
+async def recipes_json():
+    """Serve the recipe catalog JSON.
+
+    Tries blob first (dynamically updated by Sunday cron),
+    falls back to the static src/recipes.json for pre-cron compatibility.
+    """
+    content = storage.load_page("pages/recipes.json")
+    if content:
+        return Response(content=content, media_type="application/json")
+
+    # Fallback: static seed file
+    static = Path(__file__).resolve().parents[2] / "src" / "recipes.json"
+    if static.exists():
+        return Response(content=static.read_text(), media_type="application/json")
+
+    return JSONResponse(content={"recipes": []}, status_code=200)
+
+
+@router.get("/recipes/{slug}")
+async def recipe_page(slug: str):
+    """Serve an individual recipe page.
+
+    Tries blob first (for cron-generated recipes),
+    falls back to static src/recipes/{slug}/index.html (for the original 10).
+    """
+    # Try blob (cron-generated recipe pages)
+    page = storage.load_page(f"pages/recipes/{slug}/index.html")
+    if page:
+        return HTMLResponse(content=page)
+
+    # Fallback: static recipe page
+    static = Path(__file__).resolve().parents[2] / "src" / "recipes" / slug / "index.html"
+    if static.exists():
+        return HTMLResponse(content=static.read_text())
+
+    return HTMLResponse(
+        content="<h1>Recipe not found</h1>",
+        status_code=404,
+    )
 
 
 def _placeholder_page(episode_id: str) -> str:
