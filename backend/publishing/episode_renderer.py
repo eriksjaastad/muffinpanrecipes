@@ -489,6 +489,16 @@ def _slugify(title: str) -> str:
     return slug
 
 
+def _clean_title(title: str) -> str:
+    """Strip parenthetical qualifiers from recipe titles.
+
+    'Make-Ahead Veggie & Sausage Egg Cups (Weekly Muffin Pan Breakfast)'
+    -> 'Make-Ahead Veggie & Sausage Egg Cups'
+    """
+    import re
+    return re.sub(r'\s*\(.*?\)\s*$', '', title).strip()
+
+
 def publish_recipe_to_catalog(episode: dict) -> str | None:
     """Add the finished recipe to recipes.json and upload to blob.
 
@@ -498,7 +508,7 @@ def publish_recipe_to_catalog(episode: dict) -> str | None:
     """
     monday = episode.get("stages", {}).get("monday", {})
     recipe = monday.get("recipe_data", {})
-    title = recipe.get("title", "")
+    title = _clean_title(recipe.get("title", ""))
     if not title:
         logger.warning("No recipe title — skipping catalog publish")
         return None
