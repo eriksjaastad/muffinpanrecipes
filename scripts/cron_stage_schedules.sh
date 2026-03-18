@@ -29,6 +29,14 @@ MARKER="# muffinpanrecipes-cron"
 
 mkdir -p "$LOG_DIR"
 
+_next_hour() {
+    if date -v+1H +%H >/dev/null 2>&1; then
+        date -v+1H +%H
+    else
+        date -d '+1 hour' +%H
+    fi
+}
+
 # ---------------------------------------------------------------------------
 # Helper: emit one cron line
 # ---------------------------------------------------------------------------
@@ -65,11 +73,11 @@ install_test() {
     if [ "$now_min" -lt 30 ]; then
         local fire_min=0
         local fire_hour
-        fire_hour=$(date -v+1H +%H)
+        fire_hour=$(_next_hour)
     else
         local fire_min=30
         local fire_hour
-        fire_hour=$(date -v+1H +%H)
+        fire_hour=$(_next_hour)
     fi
 
     # Use 8-minute delay between stages → 7 stages ≈ 56 min total
@@ -86,7 +94,7 @@ install_test() {
 # ---------------------------------------------------------------------------
 # Install: production weekly cadence (Mon–Sun, one stage per day at 7:30am)
 # Concept is auto-picked on Monday by run_pipeline_stage.py (calls pick_concept.py
-# when --concept is not provided — TODO: wire that up in run_pipeline_stage.py).
+# when --concept is not provided).
 # For now we embed --concept from pick_concept.py at install time.
 # ---------------------------------------------------------------------------
 install_production() {

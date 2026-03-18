@@ -161,13 +161,13 @@ def score_candidate(name: str, recent_concepts: list[str], current_month: int) -
     for kw in season_map.get(season, []):
         if kw in low:
             score += 0.5
-    score = min(score, score)  # cap seasonal at existing max naturally
 
     # 4. Sweet/savory variety balance (0-1)
     # We don't track this yet — give a small bonus just for being identifiable
     if any(kw in low for kw in SAVORY_KEYWORDS) or any(kw in low for kw in SWEET_KEYWORDS):
         score += 0.5
 
+    score = min(score, 8.0)
     return round(max(0.0, score), 2)
 
 
@@ -232,7 +232,7 @@ def pick_concept(dry_run: bool = False, count: int = 1) -> list[str]:
         if name not in seen:
             seen.add(name)
             chosen.append(name)
-            print(f"  ✅ Selected: {name}  (score={s}, source={src})")
+            print(f"  ✅ Selected: {name}  (score={s}, source={src})", file=sys.stderr)
 
     return chosen
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Run all 7 pipeline stages (Mon–Sun) in sequence with configurable delay.
 
-For testing the full week before trusting the daily cron. Always runs in
-dry-run mode (no publishing, no git push).
+For testing the full week before trusting the daily cron. Defaults to
+dry-run mode (no publishing, no git push); pass --live to run real stages.
 
 Examples:
   PYTHONPATH=. uv run scripts/run_compressed_week.py \
@@ -223,11 +223,17 @@ def main() -> None:
     parser.add_argument("--episode-id", required=True, help="Episode ID, e.g. '2026-W10-test'")
     parser.add_argument("--delay", type=int, default=60, help="Seconds to wait between stages (default: 60)")
     parser.add_argument("--stages", default=",".join(STAGES), help="Comma-separated stages to run (default: all)")
-    parser.add_argument("--dry-run", action="store_true", help="Pass --dry-run to each stage (no publishing, no Stability AI)")
+    parser.add_argument("--dry-run", action="store_true", help="Force dry-run mode (default behavior)")
+    parser.add_argument("--live", action="store_true", help="Run without dry-run (publishing and Stability AI enabled)")
     parser.add_argument("--dialogue-model", default=None, help="Override dialogue model (e.g. 'anthropic/claude-haiku-4-5-20251001')")
     parser.add_argument("--recipe-model", default=None, help="Override recipe generation model (e.g. 'openai/gpt-5-mini')")
     args = parser.parse_args()
 
+    if args.dry_run and args.live:
+        print("Choose either --dry-run or --live (not both).")
+        sys.exit(1)
+
+    dry_run = not args.live
     stages_to_run = [s.strip() for s in args.stages.split(",") if s.strip()]
     invalid = [s for s in stages_to_run if s not in STAGES]
     if invalid:
@@ -236,7 +242,7 @@ def main() -> None:
 
     EPISODES_DIR.mkdir(parents=True, exist_ok=True)
 
-    mode_label = "[DRY RUN] " if args.dry_run else ""
+    mode_label = "[DRY RUN] " if dry_run else ""
     print(f"\n{'='*60}")
     print(f"  {mode_label}Compressed Week — {args.episode_id}")
     print(f"  Concept:  {args.concept}")
@@ -259,7 +265,7 @@ def main() -> None:
 
         ok, output = run_stage(
             stage, args.episode_id, args.concept,
-            dry_run=args.dry_run,
+            dry_run=dry_run,
             dialogue_model=args.dialogue_model,
             recipe_model=args.recipe_model,
         )
