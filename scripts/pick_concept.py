@@ -232,7 +232,7 @@ def pick_concept(dry_run: bool = False, count: int = 1) -> list[str]:
         if name not in seen:
             seen.add(name)
             chosen.append(name)
-            print(f"  ✅ Selected: {name}  (score={s}, source={src})")
+            print(f"  ✅ Selected: {name}  (score={s}, source={src})", file=sys.stderr)
 
     return chosen
 
