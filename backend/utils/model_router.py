@@ -1,4 +1,4 @@
-"""Unified model router for OpenAI + Anthropic (+ future providers).
+"""Unified model router for OpenAI + Anthropic + Google (+ future providers).
 
 Every LLM call in the project goes through generate_response(). To add a new
 provider (e.g. Gemini), just:
@@ -59,6 +59,18 @@ HARD_BLOCKED_ANTHROPIC_MODELS = {
 }
 
 # ---------------------------------------------------------------------------
+# Google model policy (fail-closed)
+# ---------------------------------------------------------------------------
+DEFAULT_GOOGLE_ALLOWLIST = {
+    # Text models (preview IDs per Gemini API pricing docs)
+    "gemini-3.1-pro-preview",
+    "gemini-3.1-flash-lite-preview",
+    "gemini-3-flash-preview",
+}
+
+HARD_BLOCKED_GOOGLE_MODELS: set[str] = set()
+
+# ---------------------------------------------------------------------------
 # Judge model policy (separate from dialogue — expensive models allowed)
 # Used for post-generation quality review, not content generation.
 # ---------------------------------------------------------------------------
@@ -69,7 +81,8 @@ JUDGE_ALLOWLIST = {
     # OpenAI
     "gpt-5.1",
     "gpt-5.2",
-    # Add Gemini here when provider is wired up
+    # Google
+    "gemini-3.1-pro-preview",
 }
 
 # ---------------------------------------------------------------------------
@@ -89,6 +102,12 @@ _COST_PER_M_TOKENS: dict[str, tuple[float, float]] = {
     "claude-sonnet-4-6": (3.00, 15.00),
     # Anthropic — vision
     "claude-haiku-4-5-20251001:vision": (0.80, 4.00),
+    # Google — text (Gemini API pricing)
+    "gemini-3.1-pro-preview": (2.00, 12.00),
+    "gemini-3.1-flash-lite-preview": (0.25, 1.50),
+    "gemini-3-flash-preview": (0.50, 3.00),
+    # Google — image generation (image output priced separately; use output cost for images)
+    "gemini-3.1-flash-image-preview": (0.50, 60.00),
 }
 
 # ---------------------------------------------------------------------------
@@ -149,7 +168,7 @@ def reset_cost_log() -> None:
 # ---------------------------------------------------------------------------
 # Routing
 # ---------------------------------------------------------------------------
-SUPPORTED_PROVIDERS = {"openai", "anthropic"}  # extend when adding Gemini etc.
+SUPPORTED_PROVIDERS = {"openai", "anthropic", "google"}  # extend when adding Gemini etc.
 
 
 @dataclass
@@ -210,6 +229,24 @@ def ensure_anthropic_model_allowed(model: str) -> None:
     if low not in allowed:
         raise RuntimeError(
             f"Anthropic model not allowlisted: {model}. Allowed: {', '.join(sorted(allowed))}"
+        )
+
+
+def _allowed_google_models() -> set[str]:
+    raw = os.getenv("GOOGLE_MODEL_ALLOWLIST", "").strip()
+    if not raw:
+        return set(DEFAULT_GOOGLE_ALLOWLIST)
+    return {m.strip() for m in raw.split(",") if m.strip()}
+
+
+def ensure_google_model_allowed(model: str) -> None:
+    low = model.lower().strip()
+    if low in HARD_BLOCKED_GOOGLE_MODELS:
+        raise RuntimeError(f"Google model blocked by policy: {model}")
+    allowed = _allowed_google_models()
+    if low not in allowed:
+        raise RuntimeError(
+            f"Google model not allowlisted: {model}. Allowed: {', '.join(sorted(allowed))}"
         )
 
 
@@ -344,6 +381,52 @@ def _generate_anthropic(
         if hasattr(block, "text"):
             parts.append(block.text)
     return "\n".join(parts).strip()
+
+
+def _generate_google(
+    prompt: str,
+    system_prompt: Optional[str],
+    model: str,
+    temperature: float,
+) -> str:
+    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY or GOOGLE_API_KEY is not set")
+
+    try:
+        from google import genai
+        from google.genai import types
+    except Exception as e:
+        raise RuntimeError("google-genai package is not installed") from e
+
+    config = types.GenerateContentConfig(temperature=temperature)
+    if system_prompt:
+        config.system_instruction = system_prompt
+
+    with genai.Client(api_key=api_key) as client:
+        response = client.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=config,
+        )
+
+    usage = getattr(response, "usage_metadata", None)
+    tokens_in = 0
+    tokens_out = 0
+    if usage:
+        tokens_in = getattr(usage, "prompt_token_count", 0) or getattr(usage, "input_tokens", 0) or 0
+        tokens_out = (
+            getattr(usage, "candidates_token_count", 0)
+            or getattr(usage, "output_tokens", 0)
+            or 0
+        )
+    _record_cost("google", model, tokens_in, tokens_out)
+
+    text = (getattr(response, "text", None) or "").strip()
+    if text:
+        return text
+
+    return str(response).strip()
 
 
 # ---------------------------------------------------------------------------
@@ -521,6 +604,13 @@ def generate_response(
     if routed.provider == "anthropic":
         ensure_anthropic_model_allowed(routed.model)
         return _generate_anthropic(
+            prompt=prompt, system_prompt=system_prompt,
+            model=routed.model, temperature=temperature,
+        )
+
+    if routed.provider == "google":
+        ensure_google_model_allowed(routed.model)
+        return _generate_google(
             prompt=prompt, system_prompt=system_prompt,
             model=routed.model, temperature=temperature,
         )

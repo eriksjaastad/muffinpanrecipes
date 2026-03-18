@@ -1146,7 +1146,12 @@ def _message_length_penalty(messages: list[Message]) -> tuple[float, int]:
     return round(min(15.0, avg_penalty) + long_penalty, 2), long_hits
 
 
-def score_quality(messages: list[Message], personas: dict[str, dict[str, Any]], concept: str = "") -> dict[str, Any]:
+def score_quality(
+    messages: list[Message],
+    personas: dict[str, dict[str, Any]],
+    concept: str = "",
+    day: str | None = None,
+) -> dict[str, Any]:
     """
     Scoring categories (base = 72):
     1.  Prohibited phrases: -14 per hit
@@ -1166,6 +1171,9 @@ def score_quality(messages: list[Message], personas: dict[str, dict[str, Any]], 
     15. Deadline parroting: -3 per clock-time ref over 2/day, max -15
     16. Message length: -2 per word over avg 30, -3 per msg >50 words
     """
+    if day:
+        messages = [m for m in messages if m.day == day]
+
     lowered = [m.message.lower() for m in messages]
     prohibited_hits = sum(sum(1 for p in PROHIBITED if p in msg) for msg in lowered)
 

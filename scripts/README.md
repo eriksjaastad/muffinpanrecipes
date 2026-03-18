@@ -10,6 +10,7 @@ The most complex part of the system is the 4-step automated photography pipeline
 2.  **`trigger_generation.py`**: Uploads jobs and helper scripts to Cloudflare R2 (native boto3 uploader).
 3.  **`direct_harvest.py`**: Executed on remote GPU pods (RunPod) to generate images directly via Stability AI API.
 4.  **`art_director.py`**: The Art Director agent reviews the generated variants from `__temp_harvest/` and moves the winner to `src/assets/images/recipes/`.
+5.  **`compare_image_providers.py`**: Generates side-by-side Stability AI vs Nano Banana comparisons.
 
 ## 🏗️ Build & Site Management
 

@@ -39,6 +39,15 @@ class TestOptimizeImages:
         assert hasattr(optimize_images, 'safe_move_to_archive')
 
 
+class TestCompareImageProviders:
+    """Tests for scripts/compare_image_providers.py"""
+
+    def test_compare_image_providers_imports(self):
+        """Smoke test: compare_image_providers script is importable."""
+        from scripts import compare_image_providers
+        assert hasattr(compare_image_providers, 'main')
+
+
 class TestValidateProject:
     """Tests for scripts/validate_project.py"""
     
