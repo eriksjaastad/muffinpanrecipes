@@ -49,6 +49,8 @@ def atomic_write(path: Union[str, Path], content: str) -> None:
             # Write to temp file
             with os.fdopen(fd, 'w', encoding='utf-8') as f:
                 f.write(content)
+                f.flush()
+                os.fsync(f.fileno())
             
             # Atomic rename (platform-dependent behavior)
             # On POSIX: atomic if on same filesystem
