@@ -98,6 +98,9 @@ node_modules/
 # Generated images (pipeline test runs — should go to Vercel Blob in prod)
 src/assets/images/
 
+# Prompt research data (large experiment outputs — kept local only)
+prompt-research/
+
 # Outcome verification (holdout set — not visible to workers)
 SCENARIOS.md
 EVIDENCE.md
