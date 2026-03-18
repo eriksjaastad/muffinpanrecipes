@@ -76,7 +76,7 @@ CRITICAL RULES:
 INSPIRATION: Think like Floridino's "Grilled Cheese Muffin" - creative use of the format, specific ingredients (they list "Mozzarella, Cheddar, & Gouda"), served with complementary sides.
 
 Output your response in this EXACT format:
-TITLE: [Short, appetizing title - 3 to 6 words max. No subtitles, no parentheticals, no days of the week, no "I" or first person. Good examples: "Mini Meatloaf Bites", "Spinach Feta Egg Bites", "Buffalo Chicken Mac Bites". Bad examples: "Sunday Sheet-Pan Dinner In A Muffin Tin", "My Favorite Breakfast Cups"]
+TITLE: [Short, appetizing title - 3 to 6 words max. No subtitles, no parentheticals, no days of the week. Good examples: "Mini Meatloaf Bites", "Spinach Feta Egg Bites", "Buffalo Chicken Mac Bites". Bad examples: "Sunday Sheet-Pan Dinner In A Muffin Tin"]
 DESCRIPTION: [2-3 sentences describing the dish and what makes it special]
 SERVINGS: [number]
 PREP_TIME: [minutes]
