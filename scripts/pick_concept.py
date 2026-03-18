@@ -161,7 +161,7 @@ def score_candidate(name: str, recent_concepts: list[str], current_month: int) -
     for kw in season_map.get(season, []):
         if kw in low:
             score += 0.5
-    score = min(score, score)  # cap seasonal at existing max naturally
+    score = min(score, 8.0)
 
     # 4. Sweet/savory variety balance (0-1)
     # We don't track this yet — give a small bonus just for being identifiable
