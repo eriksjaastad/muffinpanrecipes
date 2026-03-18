@@ -23,6 +23,12 @@ def next_publish_time(
 
     Defaults to Sunday 17:00 in America/Los_Angeles and is DST-aware.
     """
+    if not 0 <= weekday <= 6:
+        raise ValueError(f"weekday must be 0-6 (Mon-Sun), got {weekday}")
+    if not 0 <= hour <= 23:
+        raise ValueError(f"hour must be 0-23, got {hour}")
+    if not 0 <= minute <= 59:
+        raise ValueError(f"minute must be 0-59, got {minute}")
     tz = ZoneInfo(timezone_name)
     now_utc = now_utc or datetime.now(tz=ZoneInfo("UTC"))
     if now_utc.tzinfo is None:
