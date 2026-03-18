@@ -58,8 +58,8 @@ DAY_MEETING_GOAL: dict[str, dict[str, str]] = {
         "completion_signal": r"hero.*(is|shot)|going with|that's the one|locked",
     },
     "thursday": {
-        "objective": "Approve the copy",
-        "completion_signal": r"copy.*(approved|good|done|submitted)|approved|ship it",
+        "objective": "Debate the recipe title and approve the copy",
+        "completion_signal": r"copy.*(approved|good|done|submitted)|approved|ship it|title.*(locked|works|good)",
     },
     "friday": {
         "objective": "Final review verdict - approve or send back",
@@ -98,10 +98,10 @@ CHARACTER_DAY_GOALS: dict[str, dict[str, str]] = {
         "Devon Park": "You'll optimize whatever they pick. Not your fight.",
     },
     "thursday": {
-        "Margaret Chen": "You'll cut anything that doesn't serve the recipe. No patience for fluff.",
-        "Stephanie 'Steph' Whitmore": "You need the copy approved. Mediate if it gets tense.",
-        "Julian Torres": "You care about how the copy pairs with your images.",
-        "Marcus Reid": "This is YOUR work being reviewed. You've put thought into every word.",
+        "Margaret Chen": "You'll cut anything that doesn't serve the recipe. No patience for fluff. Titles should be simple and honest.",
+        "Stephanie 'Steph' Whitmore": "You need a title locked and the copy approved. Mediate if it gets tense.",
+        "Julian Torres": "You care about how the title and copy pair with your images. Short titles look better on the page.",
+        "Marcus Reid": "You propose the title and it's YOUR copy being reviewed. You love a dramatic title but can be talked down.",
         "Devon Park": "You'll read it if someone sends it. Probably fine.",
     },
     "friday": {
@@ -154,9 +154,9 @@ DAY_ARC = {
         "RESOLUTION: The hero shot is chosen. Not everyone got their way."
     ),
     "thursday": (
-        "SETUP: Copy is shared. It's too long, too literary, or too something. "
-        "TENSION: The editing gets personal. Someone mediates. "
-        "RESOLUTION: The copy is approved, probably different than the writer wanted."
+        "SETUP: Marcus proposes a title. Others have opinions. Titles should be short (3-6 words) and appetizing. "
+        "TENSION: The title debate gets heated — someone thinks it's too clever, too long, or too bland. Copy review follows. "
+        "RESOLUTION: A title is locked and the copy is approved, probably different than the writer wanted."
     ),
     "friday": (
         "SETUP: Final review. Something isn't quite right and someone says so. "
