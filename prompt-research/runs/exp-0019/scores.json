@@ -1,0 +1,54 @@
+{
+  "qa_score": 77,
+  "judge_score": null,
+  "combined_score": 77.0,
+  "qa_details": {
+    "score": 77,
+    "prohibited_hits": 0,
+    "prompt_echo_hits": 0,
+    "min_content_failures": 0,
+    "cross_character_overlap_penalty": 0.0,
+    "pairwise_lexical_overlap": {
+      "Marcus Reid <> Margaret Chen": 0.169,
+      "Marcus Reid <> Stephanie 'Steph' Whitmore": 0.124,
+      "Margaret Chen <> Stephanie 'Steph' Whitmore": 0.139
+    },
+    "rhythm_variation": 91,
+    "voice_pattern_bonus": 2,
+    "voice_patterns_matched": {
+      "Margaret Chen": [],
+      "Stephanie 'Steph' Whitmore": [],
+      "Marcus Reid": [
+        "verbose (avg 28 words)"
+      ]
+    },
+    "catchphrase_bonus": 3,
+    "signature_hits": {
+      "Margaret Chen": 0,
+      "Stephanie 'Steph' Whitmore": 0,
+      "Marcus Reid": 0
+    },
+    "avg_length_by_character": {
+      "Marcus Reid": 28,
+      "Stephanie 'Steph' Whitmore": 66.5,
+      "Margaret Chen": 26
+    },
+    "distinctiveness_spread": 40.5,
+    "cross_char_phrase_penalty": 0.0,
+    "repeated_phrases_sample": [],
+    "participation_balance": {
+      "Margaret Chen": 0.333,
+      "Stephanie 'Steph' Whitmore": 0.333,
+      "Marcus Reid": 0.333
+    },
+    "participation_penalty": 0.0,
+    "conflict_bonus": 2,
+    "stage_coherence_penalty": 0.0,
+    "formal_name_penalty": 0,
+    "deadline_parrot_penalty": 0.0,
+    "deadline_time_hits": 0,
+    "message_length_penalty": 18.0,
+    "long_message_hits": 1
+  },
+  "judge_details": null
+}

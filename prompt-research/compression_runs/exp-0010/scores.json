@@ -1,0 +1,70 @@
+{
+  "qa_score": 95,
+  "judge_score": 5,
+  "combined_score": 77.0,
+  "qa_details": {
+    "score": 95,
+    "prohibited_hits": 0,
+    "prompt_echo_hits": 0,
+    "min_content_failures": 0,
+    "cross_character_overlap_penalty": 0.0,
+    "pairwise_lexical_overlap": {
+      "Marcus Reid <> Margaret Chen": 0.118,
+      "Marcus Reid <> Stephanie 'Steph' Whitmore": 0.133,
+      "Margaret Chen <> Stephanie 'Steph' Whitmore": 0.111
+    },
+    "rhythm_variation": 23,
+    "voice_pattern_bonus": 4,
+    "voice_patterns_matched": {
+      "Stephanie 'Steph' Whitmore": [],
+      "Margaret Chen": [
+        "terse (avg 14 words)"
+      ],
+      "Marcus Reid": [
+        "verbose (avg 20 words)"
+      ]
+    },
+    "catchphrase_bonus": 3,
+    "signature_hits": {
+      "Stephanie 'Steph' Whitmore": 0,
+      "Margaret Chen": 0,
+      "Marcus Reid": 0
+    },
+    "avg_length_by_character": {
+      "Marcus Reid": 20.5,
+      "Margaret Chen": 13.5,
+      "Stephanie 'Steph' Whitmore": 9.5
+    },
+    "distinctiveness_spread": 11.0,
+    "cross_char_phrase_penalty": 0.0,
+    "repeated_phrases_sample": [],
+    "participation_balance": {
+      "Stephanie 'Steph' Whitmore": 0.333,
+      "Margaret Chen": 0.333,
+      "Marcus Reid": 0.333
+    },
+    "participation_penalty": 0.0,
+    "conflict_bonus": 0,
+    "stage_coherence_penalty": 0.0,
+    "formal_name_penalty": 0,
+    "deadline_parrot_penalty": 0.0,
+    "deadline_time_hits": 0,
+    "message_length_penalty": 0.0,
+    "long_message_hits": 0
+  },
+  "judge_details": {
+    "score": 5,
+    "reasoning": "The Sunday dialogue functions as a wrap-up but feels thin and repetitive \u2014 'restraint' has been the closing theme since Friday, and Sunday just echoes it without adding anything new. Characters sound somewhat distinct but the dialogue lacks any final tension or surprise, and Devon Park is notably absent despite being the one who pushed it live on Saturday.",
+    "strengths": [
+      "Marcus's sign-off line 'cut everything that wasn't earning its place' is a clean callback to the week's theme",
+      "Margaret's instinct to verify shot two renders correctly is consistent with her technical focus throughout"
+    ],
+    "issues": [
+      "'Restraint' as a theme is now three days old \u2014 Sunday adds no new dimension to it",
+      "Devon Park's absence is a continuity gap given they pushed live on Saturday",
+      "Steph's line is vague and passive ('that's what I kept coming back to') with no specific creative contribution",
+      "No friction or final complication \u2014 the day reads as a formality rather than a genuine close"
+    ],
+    "raw": "{\"score\": 5, \"reasoning\": \"The Sunday dialogue functions as a wrap-up but feels thin and repetitive \u2014 'restraint' has been the closing theme since Friday, and Sunday just echoes it without adding anything new. Characters sound somewhat distinct but the dialogue lacks any final tension or surprise, and Devon Park is notably absent despite being the one who pushed it live on Saturday.\", \"strengths\": [\"Marcus's sign-off line 'cut everything that wasn't earning its place' is a clean callback to the week's theme\", \"Margaret's instinct to verify shot two renders correctly is consistent with her technical focus throughout\"], \"issues\": [\"'Restraint' as a theme is now three days old \u2014 Sunday adds no new dimension to it\", \"Devon Park's absence is a continuity gap given they pushed live on Saturday\", \"Steph's line is vague and passive ('that's what I kept coming back to') with no specific creative contribution\", \"No friction or final complication \u2014 the day reads as a formality rather than a genuine close\"]}"
+  }
+}

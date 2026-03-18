@@ -1,0 +1,70 @@
+{
+  "qa_score": 87,
+  "judge_score": 2,
+  "combined_score": 60.2,
+  "qa_details": {
+    "score": 87,
+    "prohibited_hits": 0,
+    "prompt_echo_hits": 0,
+    "min_content_failures": 1,
+    "cross_character_overlap_penalty": 0.0,
+    "pairwise_lexical_overlap": {
+      "Marcus Reid <> Margaret Chen": 0.047,
+      "Marcus Reid <> Stephanie 'Steph' Whitmore": 0.121,
+      "Margaret Chen <> Stephanie 'Steph' Whitmore": 0.048
+    },
+    "rhythm_variation": 69,
+    "voice_pattern_bonus": 6,
+    "voice_patterns_matched": {
+      "Marcus Reid": [
+        "verbose (avg 33 words)"
+      ],
+      "Stephanie 'Steph' Whitmore": [],
+      "Margaret Chen": [
+        "terse (avg 6 words)",
+        "fragments (1)"
+      ]
+    },
+    "catchphrase_bonus": 3,
+    "signature_hits": {
+      "Marcus Reid": 0,
+      "Stephanie 'Steph' Whitmore": 0,
+      "Margaret Chen": 0
+    },
+    "avg_length_by_character": {
+      "Stephanie 'Steph' Whitmore": 47.5,
+      "Marcus Reid": 33,
+      "Margaret Chen": 6.5
+    },
+    "distinctiveness_spread": 41.0,
+    "cross_char_phrase_penalty": 0.0,
+    "repeated_phrases_sample": [],
+    "participation_balance": {
+      "Marcus Reid": 0.333,
+      "Stephanie 'Steph' Whitmore": 0.333,
+      "Margaret Chen": 0.333
+    },
+    "participation_penalty": 0.0,
+    "conflict_bonus": 1,
+    "stage_coherence_penalty": 0.0,
+    "formal_name_penalty": 0,
+    "deadline_parrot_penalty": 0.0,
+    "deadline_time_hits": 0,
+    "message_length_penalty": 3.0,
+    "long_message_hits": 1
+  },
+  "judge_details": {
+    "score": 2,
+    "reasoning": "The Thursday dialogue contains a catastrophic character break where Stephanie's internal stage directions are written directly into the dialogue as spoken text, completely destroying the fictional frame. This is a fundamental structural failure that makes the scene unpublishable and incoherent as dialogue. Outside of that single devastating error, the other exchanges are functional but thin.",
+    "strengths": [
+      "Marcus's self-aware admission about repeating 'crispy' is naturalistic and character-consistent",
+      "Margaret's 'repetition kills appetite' line is punchy and on-brand for her precision-focused voice"
+    ],
+    "issues": [
+      "Stephanie's turn is written as third-person internal monologue/stage direction rather than actual dialogue \u2014 a complete character and format break",
+      "The day feels truncated and underdeveloped even setting aside the Stephanie error",
+      "No appearance from Julian or Devon, and the scene lacks the specificity and tension established in prior days"
+    ],
+    "raw": "```json\n{\"score\": 2, \"reasoning\": \"The Thursday dialogue contains a catastrophic character break where Stephanie's internal stage directions are written directly into the dialogue as spoken text, completely destroying the fictional frame. This is a fundamental structural failure that makes the scene unpublishable and incoherent as dialogue. Outside of that single devastating error, the other exchanges are functional but thin.\", \"strengths\": [\"Marcus's self-aware admission about repeating 'crispy' is naturalistic and character-consistent\", \"Margaret's 'repetition kills appetite' line is punchy and on-brand for her precision-focused voice\"], \"issues\": [\"Stephanie's turn is written as third-person internal monologue/stage direction rather than actual dialogue \u2014 a complete character and format break\", \"The day feels truncated and underdeveloped even setting aside the Stephanie error\", \"No appearance from Julian or Devon, and the scene lacks the specificity and tension established in prior days\"]}\n```"
+  }
+}

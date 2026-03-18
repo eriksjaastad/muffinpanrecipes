@@ -1,0 +1,68 @@
+{
+  "qa_score": 83,
+  "judge_score": 2,
+  "combined_score": 57.8,
+  "qa_details": {
+    "score": 83,
+    "prohibited_hits": 0,
+    "prompt_echo_hits": 0,
+    "min_content_failures": 0,
+    "cross_character_overlap_penalty": 0.0,
+    "pairwise_lexical_overlap": {
+      "Marcus Reid <> Margaret Chen": 0.138,
+      "Marcus Reid <> Stephanie 'Steph' Whitmore": 0.129,
+      "Margaret Chen <> Stephanie 'Steph' Whitmore": 0.083
+    },
+    "rhythm_variation": 83,
+    "voice_pattern_bonus": 2,
+    "voice_patterns_matched": {
+      "Margaret Chen": [],
+      "Stephanie 'Steph' Whitmore": [],
+      "Marcus Reid": [
+        "verbose (avg 28 words)"
+      ]
+    },
+    "catchphrase_bonus": 3,
+    "signature_hits": {
+      "Margaret Chen": 0,
+      "Stephanie 'Steph' Whitmore": 0,
+      "Marcus Reid": 0
+    },
+    "avg_length_by_character": {
+      "Margaret Chen": 17,
+      "Marcus Reid": 28.5,
+      "Stephanie 'Steph' Whitmore": 58.5
+    },
+    "distinctiveness_spread": 41.5,
+    "cross_char_phrase_penalty": 0.0,
+    "repeated_phrases_sample": [],
+    "participation_balance": {
+      "Margaret Chen": 0.333,
+      "Stephanie 'Steph' Whitmore": 0.333,
+      "Marcus Reid": 0.333
+    },
+    "participation_penalty": 0.0,
+    "conflict_bonus": 2,
+    "stage_coherence_penalty": 0.0,
+    "formal_name_penalty": 0,
+    "deadline_parrot_penalty": 0.0,
+    "deadline_time_hits": 0,
+    "message_length_penalty": 12.33,
+    "long_message_hits": 1
+  },
+  "judge_details": {
+    "score": 2,
+    "reasoning": "The dialogue contains a severe structural hallucination where Stephanie's third turn is written as internal stage direction/narration rather than actual spoken dialogue, completely breaking the format and character voice. This is a fundamental failure that makes the scene unpublishable and incoherent as written dialogue. Additionally, the coffee machine reference implies prior days but this is Monday with no prior context established.",
+    "strengths": [
+      "Marcus has a distinct voice with the texture/snap/cheese-pull specificity",
+      "The concept of anchoring copy around a sensory moment is a genuinely interesting creative direction"
+    ],
+    "issues": [
+      "Stephanie's third turn is written as prose narration/internal monologue, not dialogue \u2014 a critical format failure",
+      "Coffee machine being 'weird all week' on a Monday implies prior days that don't exist",
+      "Margaret's closing 'See you tomorrow' is abrupt and unnatural as a scene closer",
+      "Steph has no actual spoken line that contributes meaningfully to the scene"
+    ],
+    "raw": "```json\n{\"score\": 2, \"reasoning\": \"The dialogue contains a severe structural hallucination where Stephanie's third turn is written as internal stage direction/narration rather than actual spoken dialogue, completely breaking the format and character voice. This is a fundamental failure that makes the scene unpublishable and incoherent as written dialogue. Additionally, the coffee machine reference implies prior days but this is Monday with no prior context established.\", \"strengths\": [\"Marcus has a distinct voice with the texture/snap/cheese-pull specificity\", \"The concept of anchoring copy around a sensory moment is a genuinely interesting creative direction\"], \"issues\": [\"Stephanie's third turn is written as prose narration/internal monologue, not dialogue \u2014 a critical format failure\", \"Coffee machine being 'weird all week' on a Monday implies prior days that don't exist\", \"Margaret's closing 'See you tomorrow' is abrupt and unnatural as a scene closer\", \"Steph has no actual spoken line that contributes meaningfully to the scene\"]}\n```"
+  }
+}

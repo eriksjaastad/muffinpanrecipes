@@ -1,0 +1,71 @@
+{
+  "qa_score": 95,
+  "judge_score": 6,
+  "combined_score": 81.0,
+  "qa_details": {
+    "score": 95,
+    "prohibited_hits": 0,
+    "prompt_echo_hits": 0,
+    "min_content_failures": 0,
+    "cross_character_overlap_penalty": 0.0,
+    "pairwise_lexical_overlap": {
+      "Marcus Reid <> Margaret Chen": 0.169,
+      "Marcus Reid <> Stephanie 'Steph' Whitmore": 0.106,
+      "Margaret Chen <> Stephanie 'Steph' Whitmore": 0.179
+    },
+    "rhythm_variation": 34,
+    "voice_pattern_bonus": 4,
+    "voice_patterns_matched": {
+      "Stephanie 'Steph' Whitmore": [],
+      "Margaret Chen": [
+        "terse (avg 12 words)"
+      ],
+      "Marcus Reid": [
+        "verbose (avg 32 words)"
+      ]
+    },
+    "catchphrase_bonus": 3,
+    "signature_hits": {
+      "Stephanie 'Steph' Whitmore": 0,
+      "Margaret Chen": 0,
+      "Marcus Reid": 0
+    },
+    "avg_length_by_character": {
+      "Marcus Reid": 32.5,
+      "Margaret Chen": 11.5,
+      "Stephanie 'Steph' Whitmore": 14
+    },
+    "distinctiveness_spread": 21.0,
+    "cross_char_phrase_penalty": 0.0,
+    "repeated_phrases_sample": [],
+    "participation_balance": {
+      "Stephanie 'Steph' Whitmore": 0.333,
+      "Margaret Chen": 0.333,
+      "Marcus Reid": 0.333
+    },
+    "participation_penalty": 0.0,
+    "conflict_bonus": 0,
+    "stage_coherence_penalty": 0.0,
+    "formal_name_penalty": 0,
+    "deadline_parrot_penalty": 0.0,
+    "deadline_time_hits": 0,
+    "message_length_penalty": 0.0,
+    "long_message_hits": 0
+  },
+  "judge_details": {
+    "score": 6,
+    "reasoning": "The Sunday dialogue functions as a reasonable landing strip for the week but lacks the specificity and tension that made earlier days stronger. Characters are recognizable but the exchange feels like a generic 'we shipped it' scene rather than something grounded in the jalape\u00f1o corn dog bites specifically \u2014 no one references the moisture-seal angle, the 60-40 ratio, or shot two in a way that earns the closure. Marcus's double-message is also awkward structurally, reading like a self-correction that wasn't cleaned up.",
+    "strengths": [
+      "Margaret's 'Now let's make sure nobody finds a typo' is in-character and grounds the celebration in her anxious pragmatism",
+      "The handoff between Marcus and Margaret at the end has a natural workplace rhythm",
+      "Steph's 'so on brand for us' line feels like a real coworker moment"
+    ],
+    "issues": [
+      "Marcus sends two consecutive messages that contradict/repeat each other, which reads like a draft artifact rather than intentional character behavior",
+      "No recipe-specific details anchor the Sunday scene \u2014 the week's hard-won specifics (moisture seal, cornmeal ratio, shot two) are completely absent",
+      "Devon Park is absent on launch day with no acknowledgment, which breaks continuity from Saturday",
+      "The dialogue is too uniformly warm \u2014 the week's tension fully evaporates without any residual friction or personality contrast"
+    ],
+    "raw": "```json\n{\"score\": 6, \"reasoning\": \"The Sunday dialogue functions as a reasonable landing strip for the week but lacks the specificity and tension that made earlier days stronger. Characters are recognizable but the exchange feels like a generic 'we shipped it' scene rather than something grounded in the jalape\u00f1o corn dog bites specifically \u2014 no one references the moisture-seal angle, the 60-40 ratio, or shot two in a way that earns the closure. Marcus's double-message is also awkward structurally, reading like a self-correction that wasn't cleaned up.\", \"strengths\": [\"Margaret's 'Now let's make sure nobody finds a typo' is in-character and grounds the celebration in her anxious pragmatism\", \"The handoff between Marcus and Margaret at the end has a natural workplace rhythm\", \"Steph's 'so on brand for us' line feels like a real coworker moment\"], \"issues\": [\"Marcus sends two consecutive messages that contradict/repeat each other, which reads like a draft artifact rather than intentional character behavior\", \"No recipe-specific details anchor the Sunday scene \u2014 the week's hard-won specifics (moisture seal, cornmeal ratio, shot two) are completely absent\", \"Devon Park is absent on launch day with no acknowledgment, which breaks continuity from Saturday\", \"The dialogue is too uniformly warm \u2014 the week's tension fully evaporates without any residual friction or personality contrast\"]}\n```"
+  }
+}

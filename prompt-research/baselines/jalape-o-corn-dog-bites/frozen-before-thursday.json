@@ -1,0 +1,164 @@
+[
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Margaret Chen",
+    "message": "Jalape\u00f1o corn dog bites. Hear me out before you dismiss it.",
+    "timestamp": "2026-03-13T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "I'm actually really into this - what's your angle on it?",
+    "timestamp": "2026-03-13T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Marcus Reid",
+    "message": "I'm seeing the nostalgia angle - that specific American thing of fair food meeting backyard barbecue, the way cornmeal crust carries memory. What if we lead with that instead of just the heat?",
+    "timestamp": "2026-03-13T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Margaret Chen",
+    "message": "That's actually the right framework. Cornmeal needs respect - the ratio, the fry temperature, the timing. Get sloppy with nostalgia and you lose the bite.",
+    "timestamp": "2026-03-13T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Marcus Reid",
+    "message": "You're right - the technique has to be the spine, not decoration. I'll make sure the copy earns that precision without burying it.",
+    "timestamp": "2026-03-13T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "Okay so - technique as the spine, nostalgia as the flavor, copy that respects the cornmeal. I think we've got it. Good work today, everyone.",
+    "timestamp": "2026-03-13T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Margaret Chen",
+    "message": "Test trays are cooling. We need to nail the cornmeal ratio before we go further - yesterday's framework was solid but the numbers aren't locked yet.",
+    "timestamp": "2026-03-14T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "The numbers - yeah, we need those locked before we move on anything else, you're right.",
+    "timestamp": "2026-03-14T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Marcus Reid",
+    "message": "The numbers matter more than I usually want to admit - let's taste what's cooling and see where the cornmeal actually wants to live.",
+    "timestamp": "2026-03-14T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "Tasting those cooling trays right now feels like the only thing that matters, honestly.",
+    "timestamp": "2026-03-14T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Marcus Reid",
+    "message": "Tasting in real time is the only way to know if we're chasing the right texture - cornmeal can disappear or dominate depending on everything else in the bowl, so your instinct to lock this first is exactly right.",
+    "timestamp": "2026-03-14T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Margaret Chen",
+    "message": "The cornmeal ratio holds at 18% - anything higher and it'll grit. You both nailed the cooling timeline too.",
+    "timestamp": "2026-03-14T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "wednesday",
+    "stage": "photography",
+    "character": "Julian Torres",
+    "message": "Just got the lighting dialed in - ran three setups this morning and I think we've got something. The bite-through shot is the strongest but I want to see what everyone thinks before we lock the hero.",
+    "timestamp": "2026-03-15T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "wednesday",
+    "stage": "photography",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "Yeah, the bite-through definitely has that stopping power - you can see the cornbread give way to the jalape\u00f1o heat.",
+    "timestamp": "2026-03-15T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "wednesday",
+    "stage": "photography",
+    "character": "Julian Torres",
+    "message": "The stopping power is exactly what I was after - it's the moment where the food tells the whole story at once.",
+    "timestamp": "2026-03-15T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "wednesday",
+    "stage": "photography",
+    "character": "Margaret Chen",
+    "message": "The jalape\u00f1o color comes through in that angle. Use it.",
+    "timestamp": "2026-03-15T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "wednesday",
+    "stage": "photography",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "Let's lock the bite-through and move on - that's the shot that actually sells what we're making here.",
+    "timestamp": "2026-03-15T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "wednesday",
+    "stage": "photography",
+    "character": "Margaret Chen",
+    "message": "Good call. That shot doesn't lie about what it is.",
+    "timestamp": "2026-03-15T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  }
+]

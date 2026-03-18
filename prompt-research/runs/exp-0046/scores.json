@@ -1,0 +1,70 @@
+{
+  "qa_score": 88,
+  "judge_score": 7,
+  "combined_score": 80.8,
+  "qa_details": {
+    "score": 88,
+    "prohibited_hits": 0,
+    "prompt_echo_hits": 0,
+    "min_content_failures": 0,
+    "cross_character_overlap_penalty": 0.0,
+    "pairwise_lexical_overlap": {
+      "Marcus Reid <> Margaret Chen": 0.079,
+      "Marcus Reid <> Stephanie 'Steph' Whitmore": 0.038,
+      "Margaret Chen <> Stephanie 'Steph' Whitmore": 0.117
+    },
+    "rhythm_variation": 11,
+    "voice_pattern_bonus": 2,
+    "voice_patterns_matched": {
+      "Marcus Reid": [
+        "verbose (avg 26 words)"
+      ],
+      "Stephanie 'Steph' Whitmore": [],
+      "Margaret Chen": []
+    },
+    "catchphrase_bonus": 3,
+    "signature_hits": {
+      "Marcus Reid": 0,
+      "Stephanie 'Steph' Whitmore": 0,
+      "Margaret Chen": 0
+    },
+    "avg_length_by_character": {
+      "Stephanie 'Steph' Whitmore": 23.5,
+      "Marcus Reid": 26,
+      "Margaret Chen": 17.5
+    },
+    "distinctiveness_spread": 8.5,
+    "cross_char_phrase_penalty": 3.0,
+    "repeated_phrases_sample": [
+      "the fry time"
+    ],
+    "participation_balance": {
+      "Marcus Reid": 0.333,
+      "Stephanie 'Steph' Whitmore": 0.333,
+      "Margaret Chen": 0.333
+    },
+    "participation_penalty": 0.0,
+    "conflict_bonus": 1,
+    "stage_coherence_penalty": 0.0,
+    "formal_name_penalty": 0,
+    "deadline_parrot_penalty": 0.0,
+    "deadline_time_hits": 0,
+    "message_length_penalty": 0.0,
+    "long_message_hits": 0
+  },
+  "judge_details": {
+    "score": 7,
+    "reasoning": "The dialogue maintains distinct character voices well \u2014 Margaret stays terse and technique-focused, Marcus frames everything through craft metaphors, Steph mediates \u2014 and the continuity from Monday's nostalgia framework through Tuesday's ratio lock to Thursday's copy review is clean. The fry temperature moisture question is a genuinely specific detail that earns its place, though the exchange resolves a bit too smoothly without real friction.",
+    "strengths": [
+      "Strong continuity threading the 18% cornmeal ratio and nostalgia-as-seasoning metaphor from prior days",
+      "Margaret's sign-off ('Marcus knows that. Copy's solid. Send it.') is characteristically blunt and earned",
+      "Fry temperature and moisture retention is a concrete, recipe-relevant detail that grounds the abstract copy discussion"
+    ],
+    "issues": [
+      "Tension is minimal \u2014 Steph raises a legitimate moisture concern but Margaret dismisses it in one line with no pushback or elaboration",
+      "Devon Park is again absent with no acknowledgment, which is becoming a continuity gap",
+      "Marcus's 'nostalgia is just the seasoning' line is a bit too polished, slightly undermining naturalness"
+    ],
+    "raw": "```json\n{\"score\": 7, \"reasoning\": \"The dialogue maintains distinct character voices well \u2014 Margaret stays terse and technique-focused, Marcus frames everything through craft metaphors, Steph mediates \u2014 and the continuity from Monday's nostalgia framework through Tuesday's ratio lock to Thursday's copy review is clean. The fry temperature moisture question is a genuinely specific detail that earns its place, though the exchange resolves a bit too smoothly without real friction.\", \"strengths\": [\"Strong continuity threading the 18% cornmeal ratio and nostalgia-as-seasoning metaphor from prior days\", \"Margaret's sign-off ('Marcus knows that. Copy's solid. Send it.') is characteristically blunt and earned\", \"Fry temperature and moisture retention is a concrete, recipe-relevant detail that grounds the abstract copy discussion\"], \"issues\": [\"Tension is minimal \u2014 Steph raises a legitimate moisture concern but Margaret dismisses it in one line with no pushback or elaboration\", \"Devon Park is again absent with no acknowledgment, which is becoming a continuity gap\", \"Marcus's 'nostalgia is just the seasoning' line is a bit too polished, slightly undermining naturalness\"]}\n```"
+  }
+}

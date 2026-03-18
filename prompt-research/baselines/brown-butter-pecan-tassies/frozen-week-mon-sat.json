@@ -1,0 +1,326 @@
+[
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Margaret Chen",
+    "message": "Brown butter pecan tassies. That's what we're doing this week.",
+    "timestamp": "2026-03-14T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Margaret Chen",
+    "message": "The pastry shell needs real attention - not some shortcut with food processor nonsense. This one's worth doing right.",
+    "timestamp": "2026-03-14T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "Yeah, hand-laminating the butter into the dough is going to be the whole story here, isn't it?",
+    "timestamp": "2026-03-14T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Marcus Reid",
+    "message": "You're exactly right, and that's the angle - watching someone's hands do the invisible work that makes the difference.",
+    "timestamp": "2026-03-14T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "I think Marcus just nailed why this one matters - we're not explaining technique, we're showing the actual patience it takes.",
+    "timestamp": "2026-03-14T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Marcus Reid",
+    "message": "That's the one - we're documenting restraint, not rushing. Let's make it happen.",
+    "timestamp": "2026-03-14T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Margaret Chen",
+    "message": "Morning. Got the test batches cooling - shell ratios are still off. Need to dial in the lamination before we shoot anything.",
+    "timestamp": "2026-03-15T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "The shell ratios being off is actually good - means we nail it before we're on camera, right?",
+    "timestamp": "2026-03-15T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Marcus Reid",
+    "message": "You're right - we document the failure iterations too, that's where the restraint story lives anyway.",
+    "timestamp": "2026-03-15T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Margaret Chen",
+    "message": "Documenting the failures is half the work - people don't see that part. I'll have three solid ratios by tomorrow.",
+    "timestamp": "2026-03-15T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Marcus Reid",
+    "message": "The lamination failures are actually the narrative - watching you choose *which* ratio wins tells us something about technique that a perfect batch never could.",
+    "timestamp": "2026-03-15T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "So we're locking the three ratios tomorrow and picking the winner by end of week - that's the move, yeah?",
+    "timestamp": "2026-03-15T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "wednesday",
+    "stage": "photography",
+    "character": "Julian Torres",
+    "message": "Just dropped three shots of the finished tassies - the lighting tests are up. Each one tells a different story about what this pastry actually is.",
+    "timestamp": "2026-03-16T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "wednesday",
+    "stage": "photography",
+    "character": "Julian Torres",
+    "message": "The cross-section shot - it's the one that actually shows the lamination work. The other two are prettier but they're lying about what matters here.",
+    "timestamp": "2026-03-16T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "wednesday",
+    "stage": "photography",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "The cross-section is the one that actually proves what Marcus was saying - you can see the technique failing and winning in the same frame.",
+    "timestamp": "2026-03-16T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "wednesday",
+    "stage": "photography",
+    "character": "Margaret Chen",
+    "message": "The lamination's visible in that shot - you can actually count the folds. That's the one.",
+    "timestamp": "2026-03-16T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "wednesday",
+    "stage": "photography",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "Yeah, that shot earns it - you can actually see what went into this thing.",
+    "timestamp": "2026-03-16T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "wednesday",
+    "stage": "photography",
+    "character": "Margaret Chen",
+    "message": "Good. We're showing the work instead of hiding it. That's the difference between honest food and Instagram theater.",
+    "timestamp": "2026-03-16T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Marcus Reid",
+    "message": "Morning. I've been sitting with this all night - the copy wants to live in that cross-section, in the actual visible work. Sent a draft that leans hard into what the lamination reveals instead of just describing it.",
+    "timestamp": "2026-03-17T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Margaret Chen",
+    "message": "Read it. The lamination story's stronger than the technique explanation - show the folds, skip the lecture.",
+    "timestamp": "2026-03-17T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Marcus Reid",
+    "message": "The folds are the argument - they're proof that shortcuts don't work, which is what people need to understand about restraint in pastry.",
+    "timestamp": "2026-03-17T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "I think maybe we could possibly pare down the repetition around the \"shortcut\" angle - it lands harder when it just shows up once?",
+    "timestamp": "2026-03-17T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Margaret Chen",
+    "message": "One mention of shortcuts lands better. Cut the rest.",
+    "timestamp": "2026-03-17T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "Yeah, that's the move - one mention hits different. Marcus, can you trim it down to that single reference and send it over?",
+    "timestamp": "2026-03-17T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "friday",
+    "stage": "final_review",
+    "character": "Margaret Chen",
+    "message": "Alright, final review. Let's see if the copy actually got trimmed or if we're still wading through shortcuts like we're reading a user manual.",
+    "timestamp": "2026-03-18T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "friday",
+    "stage": "final_review",
+    "character": "Marcus Reid",
+    "message": "Done - one mention, the rest cut. Copy lives in the lamination now instead of explaining it to death.",
+    "timestamp": "2026-03-18T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "friday",
+    "stage": "final_review",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "That's exactly what we needed - the lamination does the work for us now.",
+    "timestamp": "2026-03-18T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "friday",
+    "stage": "final_review",
+    "character": "Devon Park",
+    "message": "Site's ready to go live whenever you want to push it.",
+    "timestamp": "2026-03-18T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "friday",
+    "stage": "final_review",
+    "character": "Julian Torres",
+    "message": "The cross-section shot holds up - lamination reads clean against that neutral background, copy isn't fighting it anymore.",
+    "timestamp": "2026-03-18T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "friday",
+    "stage": "final_review",
+    "character": "Margaret Chen",
+    "message": "The lamination's finally doing what it should - carrying the work instead of the copy stepping on it.",
+    "timestamp": "2026-03-18T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "saturday",
+    "stage": "deployment",
+    "character": "Devon Park",
+    "message": "Alright, staging the tassies now - shouldn't take long.",
+    "timestamp": "2026-03-19T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "saturday",
+    "stage": "deployment",
+    "character": "Devon Park",
+    "message": "Staging passed verification - live in two minutes.",
+    "timestamp": "2026-03-19T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "saturday",
+    "stage": "deployment",
+    "character": "Margaret Chen",
+    "message": "Good. Check the ratios one more time before it goes live - shell needs those lamination folds visible.",
+    "timestamp": "2026-03-19T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "saturday",
+    "stage": "deployment",
+    "character": "Margaret Chen",
+    "message": "The shell texture needs to show every fold - if the photo's blown out, the whole point disappears.",
+    "timestamp": "2026-03-19T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "saturday",
+    "stage": "deployment",
+    "character": "Devon Park",
+    "message": "Checked the ratios - lamination detail's holding through the bright background without washing out.",
+    "timestamp": "2026-03-19T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "saturday",
+    "stage": "deployment",
+    "character": "Margaret Chen",
+    "message": "That's the detail that matters. We're live.",
+    "timestamp": "2026-03-19T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  }
+]

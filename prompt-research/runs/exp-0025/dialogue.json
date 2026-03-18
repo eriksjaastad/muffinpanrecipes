@@ -1,0 +1,56 @@
+[
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Margaret Chen",
+    "message": "Coffee's cold. Anyway - jalape\u00f1o corn dog bites. Before anyone gets excited, we need to talk about what this actually is.",
+    "timestamp": "2026-03-13T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Marcus Reid",
+    "message": "What she actually feels: Margaret just shut down excitement before it started - she's being practical, grounded, asking the hard question first. Marcus respects this about her. He also feels a tiny spark of defensiveness (what if the story is just \"fried food tastes good\"?) but he knows she's right. She always is about food. What they'd want to say: \"I already have three literary angles on corn dogs and I'm worried they're all pretentious.\" What they actually say: You're right - it's not just a snack, it's a thing with history and technique baked in. What's the angle that actually matters here?",
+    "timestamp": "2026-03-13T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Margaret Chen",
+    "message": "The history's there if you dig - cornmeal ratios, oil temperature, timing. Don't make it precious, just make it right.",
+    "timestamp": "2026-03-13T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Marcus Reid",
+    "message": "Oil temperature and timing - that's the story. Most people fry these wrong and don't know why, so the copy needs to be a guide, not just celebration.",
+    "timestamp": "2026-03-13T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "That's actually the perfect frame - we show people how to nail it instead of just telling them it's good.",
+    "timestamp": "2026-03-13T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Margaret Chen",
+    "message": "That frame works. Guide, not cheerleading. I'll nail the recipe - you two make sure the copy doesn't oversell it. See you tomorrow.",
+    "timestamp": "2026-03-13T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  }
+]

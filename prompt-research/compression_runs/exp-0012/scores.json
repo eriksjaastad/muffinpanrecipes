@@ -1,0 +1,71 @@
+{
+  "qa_score": 92,
+  "judge_score": 5,
+  "combined_score": 75.2,
+  "qa_details": {
+    "score": 92,
+    "prohibited_hits": 0,
+    "prompt_echo_hits": 0,
+    "min_content_failures": 0,
+    "cross_character_overlap_penalty": 0.0,
+    "pairwise_lexical_overlap": {
+      "Marcus Reid <> Margaret Chen": 0.102,
+      "Marcus Reid <> Stephanie 'Steph' Whitmore": 0.111,
+      "Margaret Chen <> Stephanie 'Steph' Whitmore": 0.158
+    },
+    "rhythm_variation": 11,
+    "voice_pattern_bonus": 4,
+    "voice_patterns_matched": {
+      "Stephanie 'Steph' Whitmore": [],
+      "Margaret Chen": [
+        "terse (avg 13 words)"
+      ],
+      "Marcus Reid": [
+        "verbose (avg 21 words)"
+      ]
+    },
+    "catchphrase_bonus": 3,
+    "signature_hits": {
+      "Stephanie 'Steph' Whitmore": 0,
+      "Margaret Chen": 0,
+      "Marcus Reid": 0
+    },
+    "avg_length_by_character": {
+      "Marcus Reid": 21,
+      "Margaret Chen": 13,
+      "Stephanie 'Steph' Whitmore": 14.5
+    },
+    "distinctiveness_spread": 8,
+    "cross_char_phrase_penalty": 0.0,
+    "repeated_phrases_sample": [],
+    "participation_balance": {
+      "Stephanie 'Steph' Whitmore": 0.333,
+      "Margaret Chen": 0.333,
+      "Marcus Reid": 0.333
+    },
+    "participation_penalty": 0.0,
+    "conflict_bonus": 0,
+    "stage_coherence_penalty": 0.0,
+    "formal_name_penalty": 0,
+    "deadline_parrot_penalty": 0.0,
+    "deadline_time_hits": 0,
+    "message_length_penalty": 0.0,
+    "long_message_hits": 0
+  },
+  "judge_details": {
+    "score": 5,
+    "reasoning": "The Sunday dialogue functions as a wrap-up but suffers from vague, self-congratulatory language that doesn't connect to specific recipe details \u2014 'lamination layers' is a hallucination that has no relevance to corn dog bites and breaks the technical credibility built all week. Characters largely echo each other's sentiments about 'restraint' without any distinct voice differentiation, and there's no real tension or new information introduced on the final day.",
+    "strengths": [
+      "Consistent callback to the week's 'restraint' theme provides some continuity",
+      "Margaret's voice remains terse and direct, which is consistent with prior days"
+    ],
+    "issues": [
+      "'Lamination layers' is a fabricated technical term with no connection to jalape\u00f1o corn dog bites \u2014 a clear hallucination",
+      "No meaningful tension or conflict; everyone agrees with everyone in a loop",
+      "Steph, Marcus, and Margaret all sound nearly identical in register and sentiment",
+      "Devon Park is absent despite being the one who pushed live on Saturday, which breaks continuity",
+      "No specific recipe detail anchors the conversation \u2014 it could be about any project"
+    ],
+    "raw": "```json\n{\"score\": 5, \"reasoning\": \"The Sunday dialogue functions as a wrap-up but suffers from vague, self-congratulatory language that doesn't connect to specific recipe details \u2014 'lamination layers' is a hallucination that has no relevance to corn dog bites and breaks the technical credibility built all week. Characters largely echo each other's sentiments about 'restraint' without any distinct voice differentiation, and there's no real tension or new information introduced on the final day.\", \"strengths\": [\"Consistent callback to the week's 'restraint' theme provides some continuity\", \"Margaret's voice remains terse and direct, which is consistent with prior days\"], \"issues\": [\"'Lamination layers' is a fabricated technical term with no connection to jalape\u00f1o corn dog bites \u2014 a clear hallucination\", \"No meaningful tension or conflict; everyone agrees with everyone in a loop\", \"Steph, Marcus, and Margaret all sound nearly identical in register and sentiment\", \"Devon Park is absent despite being the one who pushed live on Saturday, which breaks continuity\", \"No specific recipe detail anchors the conversation \u2014 it could be about any project\"]}\n```"
+  }
+}
