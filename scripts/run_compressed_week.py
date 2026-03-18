@@ -127,7 +127,7 @@ def print_cost_summary(results: list[dict]) -> None:
             totals[model_key]["estimated_cost"] += data["estimated_cost"]
 
     if not totals:
-        print("\n  (No cost data collected — costs are only tracked for OpenAI/Anthropic calls)\n")
+        print("\n  (No cost data collected — costs are only tracked for OpenAI/Anthropic/Google calls)\n")
         return
 
     grand_total = sum(m["estimated_cost"] for m in totals.values())

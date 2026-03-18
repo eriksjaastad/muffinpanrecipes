@@ -70,12 +70,51 @@ EVALUATE EACH DAY FOR:
 5. BOOKENDS: Did the first message include a greeting/arrival? Did the last message include a sign-off?
 6. NATURALNESS: Does this sound like real coworkers or like AI characters?
 
-For each day, give:
-- PASS / SOFT FAIL / HARD FAIL
-- Brief reason (1-2 sentences)
-- Any specific lines that are problematic
+For each day, respond in EXACTLY this format:
+VERDICT: <PASS | SOFT FAIL | HARD FAIL>
+QUALITY_SCORE: <1-10>
+QA_SCORE: <0-100>
+REASON: <1-2 sentences>
+PROBLEM_LINES: <quote specific lines, or "None">
 
 At the end, give an OVERALL verdict and whether this week should be published or regenerated."""
+
+def _parse_day_verdict(verdict_raw: str) -> dict[str, str | int | None]:
+    verdict = None
+    quality = None
+    qa = None
+
+    upper = verdict_raw.upper()
+    if "HARD FAIL" in upper:
+        verdict = "HARD FAIL"
+    elif "SOFT FAIL" in upper:
+        verdict = "SOFT FAIL"
+    elif "PASS" in upper:
+        verdict = "PASS"
+
+    def _extract_int(label: str, max_val: int) -> int | None:
+        import re
+
+        pattern = re.compile(rf"{label}\\s*[:\\-]?\\s*(\\d+)", re.IGNORECASE)
+        match = pattern.search(verdict_raw)
+        if not match:
+            return None
+        value = int(match.group(1))
+        if value < 0:
+            return None
+        if value > max_val:
+            return max_val
+        return value
+
+    quality = _extract_int("QUALITY_SCORE", 10)
+    qa = _extract_int("QA_SCORE", 100)
+
+    return {
+        "verdict": verdict,
+        "quality_score": quality,
+        "qa_score": qa,
+        "raw": verdict_raw,
+    }
 
 
 def load_conversation(filepath: str) -> dict:
@@ -140,7 +179,7 @@ def judge_week(filepath: str, model: str) -> dict:
             temperature=0.2,
         )
 
-        day_verdicts[day] = verdict_raw
+        day_verdicts[day] = _parse_day_verdict(verdict_raw)
         accumulated_context.append(f"=== {day.upper()} ===\n{transcript}")
 
         # Print as we go
