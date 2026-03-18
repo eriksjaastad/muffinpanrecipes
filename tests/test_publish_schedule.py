@@ -1,6 +1,8 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from backend.utils.publish_schedule import next_publish_time
 
 
@@ -26,3 +28,18 @@ def test_same_day_after_cutoff_rolls_to_next_week():
     assert local.weekday() == 6
     assert local.day == 21
     assert local.hour == 17
+
+
+def test_invalid_weekday_raises():
+    with pytest.raises(ValueError, match="weekday must be 0-6"):
+        next_publish_time(weekday=7)
+
+
+def test_invalid_hour_raises():
+    with pytest.raises(ValueError, match="hour must be 0-23"):
+        next_publish_time(hour=24)
+
+
+def test_invalid_minute_raises():
+    with pytest.raises(ValueError, match="minute must be 0-59"):
+        next_publish_time(minute=60)
