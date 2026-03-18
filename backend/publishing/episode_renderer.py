@@ -20,6 +20,7 @@ from typing import Optional
 
 from backend.storage import storage
 from backend.utils.logging import get_logger
+from backend.utils.text_sanitize import sanitize_text
 
 logger = get_logger(__name__)
 
@@ -73,7 +74,7 @@ def _char_info(name: str) -> dict:
 def _render_chat_message(msg: dict, image_url_map: dict[str, str] | None = None) -> str:
     """Render a single chat message as HTML."""
     char_name = msg.get("character", "Unknown")
-    message = html.escape(msg.get("message", ""))
+    message = html.escape(sanitize_text(msg.get("message", "")))
     info = _char_info(char_name)
     slug = info["slug"]
     attachments = msg.get("attachments", [])
@@ -166,8 +167,8 @@ def render_episode_page(episode: dict, image_url: Optional[str] = None) -> str:
     # Extract recipe data from Monday stage
     monday = episode.get("stages", {}).get("monday", {})
     recipe = monday.get("recipe_data", {})
-    title = recipe.get("title", concept)
-    description = recipe.get("description", "")
+    title = sanitize_text(recipe.get("title", concept))
+    description = sanitize_text(recipe.get("description", ""))
     category = recipe.get("category", "savory").title()
     prep_time = recipe.get("prep_time", 15)
     cook_time = recipe.get("cook_time", 20)
@@ -175,7 +176,7 @@ def render_episode_page(episode: dict, image_url: Optional[str] = None) -> str:
     difficulty = recipe.get("difficulty", "medium").title()
     ingredients = recipe.get("ingredients", [])
     instructions = recipe.get("instructions", [])
-    chef_notes = recipe.get("chef_notes", "")
+    chef_notes = sanitize_text(recipe.get("chef_notes", ""))
 
     # Image — use provided URL, or fall back to episode data
     if not image_url:
@@ -199,7 +200,7 @@ def render_episode_page(episode: dict, image_url: Optional[str] = None) -> str:
         text = f"{amount} {item}".strip()
         if notes:
             text += f" ({notes})"
-        ingredients_html += f'<li class="border-b border-gray-50 pb-2">{html.escape(text)}</li>\n'
+        ingredients_html += f'<li class="border-b border-gray-50 pb-2">{html.escape(sanitize_text(text))}</li>\n'
 
     instructions_html = ""
     for i, step in enumerate(instructions):
@@ -207,7 +208,7 @@ def render_episode_page(episode: dict, image_url: Optional[str] = None) -> str:
         instructions_html += (
             f'<li class="flex gap-4">'
             f'<span class="font-serif text-terracotta font-bold italic text-xl">{i + 1:02d}</span>'
-            f'<span>{html.escape(step_text)}</span></li>\n'
+            f'<span>{html.escape(sanitize_text(step_text))}</span></li>\n'
         )
 
     # Image block

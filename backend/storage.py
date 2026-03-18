@@ -367,9 +367,9 @@ class _CloudBackend:
         upload_url = f"https://blob.vercel-storage.com/{key}"
         headers = {
             "Authorization": f"Bearer {self._blob_token}",
-            "Content-Type": "text/html",
+            "Content-Type": "text/html; charset=utf-8",
             "x-api-version": "7",
-            "x-content-type": "text/html",
+            "x-content-type": "text/html; charset=utf-8",
             "x-add-random-suffix": "0",
             "x-allow-overwrite": "1",
         }
@@ -414,7 +414,10 @@ class _CloudBackend:
         # Fetch content from CDN URL
         content_resp = _requests.get(blobs[0]["url"], timeout=15)
         if content_resp.ok:
-            return content_resp.text
+            # CRITICAL: Use .content.decode() not .text — requests defaults
+            # to ISO-8859-1 for text/* without explicit charset, which
+            # double-encodes UTF-8 smart quotes/symbols into mojibake.
+            return content_resp.content.decode("utf-8")
         return None
 
     # --- Images ---
