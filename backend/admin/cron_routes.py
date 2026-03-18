@@ -47,6 +47,7 @@ from backend.storage import storage
 from backend.utils.logging import get_logger
 from backend.utils.discord import notify_judge_failure
 from backend.utils.model_router import generate_judge_response, generate_response
+from backend.utils.text_sanitize import sanitize_text, has_encoding_issues
 
 logger = get_logger(__name__)
 
@@ -316,6 +317,117 @@ def _generate_and_judge_dialogue(
 
 
 # ---------------------------------------------------------------------------
+# Editorial QA gate — runs before Sunday publish
+# ---------------------------------------------------------------------------
+
+_EDITORIAL_QA_SYSTEM_PROMPT = (
+    "You are a meticulous editorial proofreader for a food recipe website. "
+    "Review the recipe content below for quality before it goes live.\n\n"
+    "CHECK FOR:\n"
+    "1. ENCODING: Any garbled characters, mojibake, or broken symbols (e.g. Ã¢, ÃÂ°)\n"
+    "2. PUNCTUATION: Mismatched quotes, missing apostrophes, broken dashes\n"
+    "3. REPEATED WORDS: Duplicate adjacent words ('the the', 'and and')\n"
+    "4. AI ARTIFACTS: Placeholder text, 'as an AI', instruction-like text that leaked in\n"
+    "5. RECIPE COHERENCE: Title, description, ingredients, and instructions should align\n"
+    "6. MEASUREMENTS: Temperatures in °F, US customary units (cups, tbsp, tsp, oz, lbs)\n"
+    "7. PLAUSIBILITY: Oven temps 250-500°F, cook times reasonable, yields make sense for 12-cup muffin tin\n"
+    "8. INGREDIENT-INSTRUCTION MATCH: Every ingredient should be used, no phantom ingredients\n"
+    "9. BRAND VOICE: Warm, professional food writing — not robotic or generic\n\n"
+    "Respond with EXACTLY this format:\n"
+    "STATUS: PASS or FAIL\n"
+    "ISSUES: (list each issue on its own line, or 'None' if passing)\n"
+    "RECOMMENDATION: (one sentence)\n\n"
+    "Be strict. A recipe with ANY encoding issue or factual error is an automatic FAIL."
+)
+
+
+def _editorial_qa_review(episode: dict) -> tuple[bool, str]:
+    """Run editorial QA on the complete recipe before publish.
+
+    Returns (passed: bool, report: str).
+    """
+    monday = episode.get("stages", {}).get("monday", {})
+    recipe = monday.get("recipe_data", {})
+
+    title = recipe.get("title", "")
+    description = recipe.get("description", "")
+    ingredients = recipe.get("ingredients", [])
+    instructions = recipe.get("instructions", [])
+    chef_notes = recipe.get("chef_notes", "")
+
+    # Pre-check: scan for encoding issues programmatically
+    encoding_flags = []
+    all_text_fields = [
+        ("title", title),
+        ("description", description),
+        ("chef_notes", chef_notes),
+    ]
+    for ing in ingredients:
+        if isinstance(ing, dict):
+            text = f"{ing.get('amount', '')} {ing.get('item', '')} {ing.get('notes', '')}".strip()
+        else:
+            text = str(ing)
+        all_text_fields.append(("ingredient", text))
+    for i, step in enumerate(instructions):
+        step_text = step if isinstance(step, str) else str(step)
+        all_text_fields.append((f"instruction_{i+1}", step_text))
+
+    # Check dialogue too
+    for day in DAY_ORDER:
+        dialogue = episode.get("stages", {}).get(day, {}).get("dialogue", [])
+        for msg in dialogue:
+            all_text_fields.append((f"dialogue_{day}", msg.get("message", "")))
+
+    for field_name, text in all_text_fields:
+        if has_encoding_issues(text):
+            encoding_flags.append(f"Encoding issue in {field_name}: {text[:80]!r}")
+
+    if encoding_flags:
+        report = (
+            "STATUS: FAIL\n"
+            "ISSUES:\n" + "\n".join(f"  - {f}" for f in encoding_flags) + "\n"
+            "RECOMMENDATION: Fix encoding issues before publish. "
+            "Text contains double-encoded UTF-8 (mojibake)."
+        )
+        logger.warning(f"Editorial QA FAIL (encoding): {len(encoding_flags)} issues found")
+        return False, report
+
+    # Format content for LLM review
+    ing_text = "\n".join(
+        f"- {ing.get('amount', '')} {ing.get('item', '')}" if isinstance(ing, dict) else f"- {ing}"
+        for ing in ingredients
+    )
+    inst_text = "\n".join(
+        f"{i+1}. {s}" if isinstance(s, str) else f"{i+1}. {s}"
+        for i, s in enumerate(instructions)
+    )
+
+    review_prompt = (
+        f"RECIPE TO REVIEW:\n\n"
+        f"Title: {title}\n\n"
+        f"Description: {description}\n\n"
+        f"Ingredients:\n{ing_text}\n\n"
+        f"Instructions:\n{inst_text}\n\n"
+        f"Chef's Notes: {chef_notes}\n\n"
+        f"Review this recipe for publication."
+    )
+
+    try:
+        verdict = generate_judge_response(
+            prompt=review_prompt,
+            system_prompt=_EDITORIAL_QA_SYSTEM_PROMPT,
+            model=config.judge_model,
+            temperature=0.2,
+        ).strip()
+        passed = "STATUS: PASS" in verdict.upper() or verdict.upper().startswith("PASS")
+        logger.info(f"Editorial QA verdict: {verdict[:300]}")
+        return passed, verdict
+    except Exception as e:
+        logger.warning(f"Editorial QA review failed, defaulting to PASS: {e}")
+        return True, f"EDITORIAL QA ERROR (defaulting to PASS): {e}"
+
+
+# ---------------------------------------------------------------------------
 # Per-character episode memories (#5027)
 # ---------------------------------------------------------------------------
 
@@ -382,9 +494,7 @@ def _generate_episode_memories(episode: dict, concept: str) -> None:
                 model=model,
                 temperature=0.4,
             ).strip()
-            # Sanitize typographic tells
-            for bad, good in [("\u2014", " - "), ("\u2013", " - "), ("\u2019", "'"), ("\u201c", '"'), ("\u201d", '"')]:
-                summary = summary.replace(bad, good)
+            summary = sanitize_text(summary)
         except Exception as e:
             logger.warning(f"Memory generation failed for {char_name}: {e}")
             continue
@@ -863,6 +973,29 @@ async def cron_sunday(request: Request):
                     detail=f"Cannot publish: {day} stage incomplete (status={stage_status!r})",
                 )
 
+        # Editorial QA gate — must pass before publish
+        qa_passed, qa_report = _editorial_qa_review(ep)
+        ep["editorial_qa"] = {
+            "passed": qa_passed,
+            "report": qa_report,
+            "reviewed_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if not qa_passed:
+            ep["events"].append(f"sunday: editorial QA FAILED")
+            storage.save_episode(episode_id, ep)
+            notify_judge_failure(
+                concept=concept,
+                stage="sunday (editorial QA)",
+                verdict=qa_report[:500],
+                episode_id=episode_id,
+                attempts=1,
+            )
+            raise HTTPException(
+                status_code=400,
+                detail=f"Editorial QA failed — recipe cannot publish.\n{qa_report}",
+            )
+        ep["events"].append("sunday: editorial QA PASSED")
+
         # Wire winner image into recipe featured_photo
         wed_stage = ep.get("stages", {}).get("wednesday", {})
         confirmed_winner = wed_stage.get("confirmed_winner", {})
@@ -933,16 +1066,18 @@ async def cron_sunday(request: Request):
         except Exception as e:
             logger.warning(f"Recipe catalog publish failed (non-fatal): {e}")
 
-        # Upload the episode page as the recipe's standalone page too
-        from backend.publishing.episode_renderer import _slugify
+        # Upload the recipe's standalone page (render fresh, don't copy from blob
+        # to avoid encoding round-trip issues)
+        from backend.publishing.episode_renderer import render_episode_page, _slugify
         monday = ep.get("stages", {}).get("monday", {})
         recipe_title = monday.get("recipe_data", {}).get("title", "")
         if recipe_title:
             slug = _slugify(recipe_title)
-            page_html = storage.load_page(f"pages/{episode_id}/index.html")
-            if page_html:
-                storage.save_page(f"pages/recipes/{slug}/index.html", page_html)
-                logger.info(f"Published recipe page at /recipes/{slug}")
+            image_urls = ep.get("image_urls", [])
+            recipe_image = image_urls[0] if image_urls else None
+            recipe_html = render_episode_page(ep, image_url=recipe_image)
+            storage.save_page(f"pages/recipes/{slug}/index.html", recipe_html)
+            logger.info(f"Published recipe page at /recipes/{slug}")
 
     return _stage_response("sunday", episode_id, concept, {
         "published": True,

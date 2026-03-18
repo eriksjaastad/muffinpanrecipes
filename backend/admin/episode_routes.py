@@ -95,7 +95,7 @@ async def recipe_page(slug: str):
     # Fallback: static recipe page
     static = Path(__file__).resolve().parents[2] / "src" / "recipes" / slug / "index.html"
     if static.exists():
-        return HTMLResponse(content=static.read_text())
+        return HTMLResponse(content=static.read_text(encoding="utf-8"))
 
     return HTMLResponse(
         content="<h1>Recipe not found</h1>",
