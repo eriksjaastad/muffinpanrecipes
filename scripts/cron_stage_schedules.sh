@@ -29,6 +29,14 @@ MARKER="# muffinpanrecipes-cron"
 
 mkdir -p "$LOG_DIR"
 
+_next_hour() {
+    if date -v+1H +%H >/dev/null 2>&1; then
+        date -v+1H +%H
+    else
+        date -d '+1 hour' +%H
+    fi
+}
+
 # ---------------------------------------------------------------------------
 # Helper: emit one cron line
 # ---------------------------------------------------------------------------
@@ -65,11 +73,11 @@ install_test() {
     if [ "$now_min" -lt 30 ]; then
         local fire_min=0
         local fire_hour
-        fire_hour=$(date -v+1H +%H)
+        fire_hour=$(_next_hour)
     else
         local fire_min=30
         local fire_hour
-        fire_hour=$(date -v+1H +%H)
+        fire_hour=$(_next_hour)
     fi
 
     # Use 8-minute delay between stages → 7 stages ≈ 56 min total
