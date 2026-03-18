@@ -29,7 +29,10 @@ def next_publish_time(
         raise ValueError(f"hour must be 0-23, got {hour}")
     if not 0 <= minute <= 59:
         raise ValueError(f"minute must be 0-59, got {minute}")
-    tz = ZoneInfo(timezone_name)
+    try:
+        tz = ZoneInfo(timezone_name)
+    except Exception as exc:
+        raise ValueError(f"Unknown timezone: {timezone_name}") from exc
     now_utc = now_utc or datetime.now(tz=ZoneInfo("UTC"))
     if now_utc.tzinfo is None:
         now_utc = now_utc.replace(tzinfo=ZoneInfo("UTC"))
