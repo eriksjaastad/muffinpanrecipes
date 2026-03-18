@@ -303,12 +303,13 @@ def main() -> None:
         ep["events"].append(f"{stage_key}: failed — {e}")
         save_episode(args.episode, ep)
 
-        notify_pipeline_failure(
-            recipe_id=f"{args.episode}-{stage_key}",
-            concept=concept,
-            stage=stage_key,
-            error_message=str(e),
-        )
+        if not dry_run:
+            notify_pipeline_failure(
+                recipe_id=f"{args.episode}-{stage_key}",
+                concept=concept,
+                stage=stage_key,
+                error_message=str(e),
+            )
         raise
 
 
