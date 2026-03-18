@@ -11,6 +11,7 @@ from collections import defaultdict, deque
 
 from backend.core.agent import Message
 from backend.core.types import MessageType
+from backend.utils.atomic import atomic_write_json
 from backend.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -210,8 +211,7 @@ class MessageSystem:
                 "statistics": self.get_statistics()
             }
             
-            with open(history_file, "w") as f:
-                json.dump(data, f, indent=2, default=str)
+            atomic_write_json(history_file, data, indent=2, default=str)
             
             logger.debug(f"Saved message history: {len(self.message_history)} messages")
             
