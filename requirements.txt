@@ -26,6 +26,7 @@ jiter==0.13.0
 jmespath==1.1.0
 markupsafe==3.0.3
 openai==2.24.0
+google-genai==1.68.0
 packaging==26.0
 pillow==10.4.0
 pluggy==1.6.0
