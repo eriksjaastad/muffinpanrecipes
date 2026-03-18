@@ -1,0 +1,56 @@
+[
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Margaret Chen",
+    "message": "Trays from yesterday still cooling. Heat management held - that's something. Let's nail the ratios today before anyone gets creative.",
+    "timestamp": "2026-03-13T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Marcus Reid",
+    "message": "Heat management holding is the real story here - let's make sure the copy reflects that precision, not just the end result.",
+    "timestamp": "2026-03-13T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Margaret Chen",
+    "message": "Copy can say whatever it wants. The ratio is what matters - 3:2 corn to flour, or this falls apart.",
+    "timestamp": "2026-03-13T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Marcus Reid",
+    "message": "You're right - the ratio lives or dies on its own. I'll taste against 3:2 and write to what actually works, not what I wish the story was.",
+    "timestamp": "2026-03-13T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Margaret Chen",
+    "message": "Good. Taste the 3:2 batch blind - don't let the story bias your palate.",
+    "timestamp": "2026-03-13T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "That blind tasting is smart - yeah, let's lock it once we have actual feedback on the 3:2. I'm heading out, but we're good to ship the recipe tomorrow.",
+    "timestamp": "2026-03-13T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  }
+]

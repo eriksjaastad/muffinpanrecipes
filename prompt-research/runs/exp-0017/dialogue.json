@@ -1,0 +1,56 @@
+[
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Margaret Chen",
+    "message": "Trays are still cooling from yesterday. Before we start messing with ratios, we need to know what actually worked and what didn't.",
+    "timestamp": "2026-03-13T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "What she feels: Margaret's right and Steph knows it. But also - there's a tiny edge to that comment, isn't there? Like Margaret's implying Steph wants to rush. Steph DOES want to rush (they need the recipe locked), but she's also terrified of looking like she doesn't respect the process. She wants Margaret to see her as someone who listens. What she wants to say: \"Yes, obviously, I wasn't suggesting we just guess.\" What she actually says: Yeah, good call - what are we seeing from yesterday that we should actually keep?",
+    "timestamp": "2026-03-13T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Margaret Chen",
+    "message": "You listened. That matters. The corn flour ratio held - didn't get gritty. But the jalape\u00f1o heat flattened by hour three, so we're doubling the fresh stuff.",
+    "timestamp": "2026-03-13T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Marcus Reid",
+    "message": "The heat needs to come through the finish, not fade out - that's where the actual story is, and it changes how we describe the whole bite.",
+    "timestamp": "2026-03-13T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "Wait, if the heat's still alive at hour three, do we need to rethink how we're positioning it in the shot - like catching that moment before it peaks?",
+    "timestamp": "2026-03-13T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Marcus Reid",
+    "message": "That timing angle is smart - you're thinking about when the reader *experiences* the heat, not just when it exists. Fresh jalape\u00f1o doubled, corn flour holds, we shoot it while it's still alive. That's the recipe.",
+    "timestamp": "2026-03-13T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  }
+]

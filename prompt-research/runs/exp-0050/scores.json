@@ -1,0 +1,71 @@
+{
+  "qa_score": 89,
+  "judge_score": 5,
+  "combined_score": 73.4,
+  "qa_details": {
+    "score": 89,
+    "prohibited_hits": 0,
+    "prompt_echo_hits": 0,
+    "min_content_failures": 0,
+    "cross_character_overlap_penalty": 0.0,
+    "pairwise_lexical_overlap": {
+      "Marcus Reid <> Margaret Chen": 0.109,
+      "Marcus Reid <> Stephanie 'Steph' Whitmore": 0.104,
+      "Margaret Chen <> Stephanie 'Steph' Whitmore": 0.125
+    },
+    "rhythm_variation": 14,
+    "voice_pattern_bonus": 2,
+    "voice_patterns_matched": {
+      "Marcus Reid": [],
+      "Stephanie 'Steph' Whitmore": [],
+      "Margaret Chen": [
+        "terse (avg 13 words)"
+      ]
+    },
+    "catchphrase_bonus": 3,
+    "signature_hits": {
+      "Marcus Reid": 0,
+      "Stephanie 'Steph' Whitmore": 0,
+      "Margaret Chen": 0
+    },
+    "avg_length_by_character": {
+      "Stephanie 'Steph' Whitmore": 24.5,
+      "Marcus Reid": 18.5,
+      "Margaret Chen": 13
+    },
+    "distinctiveness_spread": 11.5,
+    "cross_char_phrase_penalty": 3.0,
+    "repeated_phrases_sample": [
+      "that second paragraph"
+    ],
+    "participation_balance": {
+      "Marcus Reid": 0.333,
+      "Stephanie 'Steph' Whitmore": 0.333,
+      "Margaret Chen": 0.333
+    },
+    "participation_penalty": 0.0,
+    "conflict_bonus": 0,
+    "stage_coherence_penalty": 0.0,
+    "formal_name_penalty": 0,
+    "deadline_parrot_penalty": 0.0,
+    "deadline_time_hits": 0,
+    "message_length_penalty": 0.0,
+    "long_message_hits": 0
+  },
+  "judge_details": {
+    "score": 5,
+    "reasoning": "The dialogue is functional but feels truncated and rushed \u2014 we jump immediately into a mid-conversation about honey and caramelization with no clear setup of how Thursday began, and Margaret's 'Copy's locked. Good work.' closing feels unearned after only four exchanges. The caramelization/honey tension is a reasonable conflict but it resolves too quickly and Devon Park remains absent throughout the week.",
+    "strengths": [
+      "Caramelization vs. honey distinction is a specific, recipe-relevant detail that fits the concept",
+      "Margaret's voice stays consistent as the technique-first authority",
+      "The browning stages note is a concrete, actionable detail that feels authentic to a recipe site"
+    ],
+    "issues": [
+      "Marcus's opening line ('brain mostly engaged') is disconnected from the conversation that immediately follows \u2014 no transition establishes how the honey topic arose",
+      "Conflict resolves in one exchange with no real pushback, making the tension feel cosmetic",
+      "Julian and Devon are completely absent with no acknowledgment, weakening ensemble continuity",
+      "Margaret closing with 'Copy's locked' after a four-line conversation strains credibility \u2014 the prior days earned their closings more organically"
+    ],
+    "raw": "```json\n{\"score\": 5, \"reasoning\": \"The dialogue is functional but feels truncated and rushed \u2014 we jump immediately into a mid-conversation about honey and caramelization with no clear setup of how Thursday began, and Margaret's 'Copy's locked. Good work.' closing feels unearned after only four exchanges. The caramelization/honey tension is a reasonable conflict but it resolves too quickly and Devon Park remains absent throughout the week.\", \"strengths\": [\"Caramelization vs. honey distinction is a specific, recipe-relevant detail that fits the concept\", \"Margaret's voice stays consistent as the technique-first authority\", \"The browning stages note is a concrete, actionable detail that feels authentic to a recipe site\"], \"issues\": [\"Marcus's opening line ('brain mostly engaged') is disconnected from the conversation that immediately follows \u2014 no transition establishes how the honey topic arose\", \"Conflict resolves in one exchange with no real pushback, making the tension feel cosmetic\", \"Julian and Devon are completely absent with no acknowledgment, weakening ensemble continuity\", \"Margaret closing with 'Copy's locked' after a four-line conversation strains credibility \u2014 the prior days earned their closings more organically\"]}\n```"
+  }
+}

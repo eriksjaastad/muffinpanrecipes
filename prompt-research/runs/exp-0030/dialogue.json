@@ -1,0 +1,56 @@
+[
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Margaret Chen",
+    "message": "Jalape\u00f1o corn dog bites. That's what we're doing this week.",
+    "timestamp": "2026-03-13T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Marcus Reid",
+    "message": "The real move is the cornmeal crust absorbing the oil differently than batter would - it stays crisp longer, which matters for storage and reheating. That's the angle: technique as practicality, not just flavor.",
+    "timestamp": "2026-03-13T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Margaret Chen",
+    "message": "You're right about the oil absorption - that's the actual story here, not some Instagram plating nonsense.",
+    "timestamp": "2026-03-13T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "Maybe we lead with the storage angle instead - like, people actually reheat these things, right?",
+    "timestamp": "2026-03-13T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Marcus Reid",
+    "message": "The thing that sells this isn't the crispness itself - it's that it *lasts*, which is why Margaret's method matters more than the initial bite. People need to know these don't turn to cardboard by day three.",
+    "timestamp": "2026-03-13T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "So we're going with the longevity angle - that these actually *work* when people make them at home, not just look pretty on day one. That feels right to me. Good work today, everyone.",
+    "timestamp": "2026-03-13T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  }
+]

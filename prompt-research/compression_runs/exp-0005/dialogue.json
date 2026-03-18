@@ -1,0 +1,56 @@
+[
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "okay so it's happening - jalape\u00f1o corn dog bites goes live in like two minutes and i just want to say... we actually nailed this one.",
+    "timestamp": "2026-03-14T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Marcus Reid",
+    "message": "We did - and I'm genuinely surprised how much better it got when I stopped trying to justify every choice.",
+    "timestamp": "2026-03-14T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Marcus Reid",
+    "message": "That's the thing though - Margaret kept telling us that all week and I kept fighting it, which is embarrassing in retrospect.",
+    "timestamp": "2026-03-14T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "You kept testing though - that's literally what made the copy work so well, actually.",
+    "timestamp": "2026-03-14T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Margaret Chen",
+    "message": "You tested because the work mattered - that's not embarrassing, that's the only reason to do it at all.",
+    "timestamp": "2026-03-14T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Margaret Chen",
+    "message": "It's live. Go home. We did good work this week.",
+    "timestamp": "2026-03-14T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  }
+]

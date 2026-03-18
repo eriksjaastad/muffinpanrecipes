@@ -1,0 +1,56 @@
+[
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "Just got here - how are we feeling? This is it.",
+    "timestamp": "2026-03-14T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Margaret Chen",
+    "message": "It's live. Now we wait and see if people actually understand what we did.",
+    "timestamp": "2026-03-14T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Margaret Chen",
+    "message": "They will or they won't - the work's honest either way.",
+    "timestamp": "2026-03-14T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "The honest work part - that's what I keep coming back to. We got out of our own way this time.",
+    "timestamp": "2026-03-14T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Marcus Reid",
+    "message": "Yeah - we stopped defending the choices and just let them breathe. That's harder than it sounds.",
+    "timestamp": "2026-03-14T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Marcus Reid",
+    "message": "Margaret's right though - the work either lands or it doesn't, and we did everything we could to make sure it was honest. That's the only thing you can actually control. I'm calling it a day.",
+    "timestamp": "2026-03-14T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  }
+]

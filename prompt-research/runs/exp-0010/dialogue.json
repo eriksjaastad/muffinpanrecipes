@@ -1,0 +1,56 @@
+[
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Margaret Chen",
+    "message": "Jalape\u00f1os are hotter than people think. We're doubling them or they disappear in the cornbread.",
+    "timestamp": "2026-03-13T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "The heat thing makes sense - I was worried they'd get buried anyway, so that actually... yeah, let's go with the double batch and see how it tastes?",
+    "timestamp": "2026-03-13T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Margaret Chen",
+    "message": "Good. Now we need to nail the cornmeal ratio - too much and it gets gritty, too little and you lose structure around the heat.",
+    "timestamp": "2026-03-13T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Marcus Reid",
+    "message": "The grit is the thing though - that's where the texture story lives, the bite of cornmeal against the jalape\u00f1o heat, almost abrasive in the best way.",
+    "timestamp": "2026-03-13T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Marcus Reid",
+    "message": "So we're hunting for that balance where it doesn't feel like sand in your mouth - where the cornmeal adds tooth without becoming the story itself. That's the technical line Margaret's drawing.",
+    "timestamp": "2026-03-13T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Margaret Chen",
+    "message": "You actually nailed it. Thirty percent cornmeal, rest flour - that's the line. Test it tomorrow, it'll hold.",
+    "timestamp": "2026-03-13T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  }
+]

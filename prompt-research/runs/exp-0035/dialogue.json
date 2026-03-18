@@ -1,0 +1,56 @@
+[
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Marcus Reid",
+    "message": "Morning, all. Laptop open, brain mostly engaged - what's our angle today?",
+    "timestamp": "2026-03-13T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Marcus Reid",
+    "message": "Ready when you are - which piece are we starting with?",
+    "timestamp": "2026-03-13T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "Okay so we're looking at the biscuit copy first - Marcus, I know you've been sitting with this one for a bit, want to walk us through what you're thinking?",
+    "timestamp": "2026-03-13T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Margaret Chen",
+    "message": "Sure, let's hear it - but cut anything that isn't about what makes the biscuit actually work.",
+    "timestamp": "2026-03-13T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "Margaret's right - let's see what you landed on, and we can trim from there if needed.",
+    "timestamp": "2026-03-13T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Margaret Chen",
+    "message": "Copy is locked. Biscuit goes live as-is - good work keeping the fat ratio explanation in there. See you tomorrow.",
+    "timestamp": "2026-03-13T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  }
+]

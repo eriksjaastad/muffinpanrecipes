@@ -1,0 +1,71 @@
+{
+  "qa_score": 91,
+  "judge_score": 4,
+  "combined_score": 70.6,
+  "qa_details": {
+    "score": 91,
+    "prohibited_hits": 0,
+    "prompt_echo_hits": 0,
+    "min_content_failures": 0,
+    "cross_character_overlap_penalty": 0.0,
+    "pairwise_lexical_overlap": {
+      "Marcus Reid <> Margaret Chen": 0.037,
+      "Marcus Reid <> Stephanie 'Steph' Whitmore": 0.211,
+      "Margaret Chen <> Stephanie 'Steph' Whitmore": 0.075
+    },
+    "rhythm_variation": 18,
+    "voice_pattern_bonus": 2,
+    "voice_patterns_matched": {
+      "Margaret Chen": [],
+      "Stephanie 'Steph' Whitmore": [],
+      "Marcus Reid": [
+        "verbose (avg 30 words)"
+      ]
+    },
+    "catchphrase_bonus": 3,
+    "signature_hits": {
+      "Margaret Chen": 0,
+      "Stephanie 'Steph' Whitmore": 0,
+      "Marcus Reid": 0
+    },
+    "avg_length_by_character": {
+      "Marcus Reid": 30.5,
+      "Stephanie 'Steph' Whitmore": 20.5,
+      "Margaret Chen": 19.5
+    },
+    "distinctiveness_spread": 11.0,
+    "cross_char_phrase_penalty": 3.0,
+    "repeated_phrases_sample": [
+      "see which one"
+    ],
+    "participation_balance": {
+      "Margaret Chen": 0.333,
+      "Stephanie 'Steph' Whitmore": 0.333,
+      "Marcus Reid": 0.333
+    },
+    "participation_penalty": 0.0,
+    "conflict_bonus": 1,
+    "stage_coherence_penalty": 0.0,
+    "formal_name_penalty": 0,
+    "deadline_parrot_penalty": 0.0,
+    "deadline_time_hits": 0,
+    "message_length_penalty": 0.0,
+    "long_message_hits": 0
+  },
+  "judge_details": {
+    "score": 4,
+    "reasoning": "The dialogue is functional but suffers from significant character voice problems \u2014 Steph and Marcus sound nearly identical in their responses, both offering hedged technical suggestions in the same register. The tension is minimal and manufactured rather than authentic; Margaret declares a problem and everyone immediately agrees, which flattens any real friction. Marcus's 'emulsifier is the skeleton' line is his only distinctive moment, but it's undercut by Steph immediately echoing his conclusion almost verbatim.",
+    "strengths": [
+      "Margaret's voice remains consistent and authoritative, driving the scene with concrete technical stakes",
+      "The batter breakdown callback to Monday creates plausible continuity",
+      "Cornmeal-to-flour ratio specificity grounds the scene in real baking concerns"
+    ],
+    "issues": [
+      "Steph and Marcus are nearly interchangeable \u2014 both hedge, both suggest testing both options, both defer to Margaret without pushback",
+      "No real tension: everyone agrees immediately, making the scene dramatically inert",
+      "Steph's Monday internal monologue was a character break that goes unaddressed, and Tuesday Steph feels like a different, blander character",
+      "Marcus repeats Steph's 'test both' suggestion almost immediately as if she hadn't said it, which reads as a continuity error within the scene"
+    ],
+    "raw": "{\"score\": 4, \"reasoning\": \"The dialogue is functional but suffers from significant character voice problems \u2014 Steph and Marcus sound nearly identical in their responses, both offering hedged technical suggestions in the same register. The tension is minimal and manufactured rather than authentic; Margaret declares a problem and everyone immediately agrees, which flattens any real friction. Marcus's 'emulsifier is the skeleton' line is his only distinctive moment, but it's undercut by Steph immediately echoing his conclusion almost verbatim.\", \"strengths\": [\"Margaret's voice remains consistent and authoritative, driving the scene with concrete technical stakes\", \"The batter breakdown callback to Monday creates plausible continuity\", \"Cornmeal-to-flour ratio specificity grounds the scene in real baking concerns\"], \"issues\": [\"Steph and Marcus are nearly interchangeable \u2014 both hedge, both suggest testing both options, both defer to Margaret without pushback\", \"No real tension: everyone agrees immediately, making the scene dramatically inert\", \"Steph's Monday internal monologue was a character break that goes unaddressed, and Tuesday Steph feels like a different, blander character\", \"Marcus repeats Steph's 'test both' suggestion almost immediately as if she hadn't said it, which reads as a continuity error within the scene\"]}"
+  }
+}

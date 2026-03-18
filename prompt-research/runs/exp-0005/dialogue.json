@@ -1,0 +1,56 @@
+[
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Margaret Chen",
+    "message": "Got the notes from yesterday. Heat management was close but the ratio's still soft. We're running the tests again today - need to nail this before anything ships.",
+    "timestamp": "2026-03-13T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Marcus Reid",
+    "message": "The ratio thing - yeah, I was thinking about that overnight, how the moisture-to-fat balance shifts the whole narrative of what this is supposed to taste like.",
+    "timestamp": "2026-03-13T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Margaret Chen",
+    "message": "If the crumb collapses mid-bite, nobody cares about the story you're telling.",
+    "timestamp": "2026-03-13T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "Margaret's right - the structure has to hold first, then we layer in everything else.",
+    "timestamp": "2026-03-13T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Marcus Reid",
+    "message": "Fair point - I was getting ahead of myself. Let's see what today's tests show on the crumb structure and work backwards from there.",
+    "timestamp": "2026-03-13T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "Maybe we're overthinking the moisture angle - what if we just nail the cornmeal ratio first and see if that solves it?",
+    "timestamp": "2026-03-13T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  }
+]

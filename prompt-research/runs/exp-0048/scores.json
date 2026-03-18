@@ -1,0 +1,68 @@
+{
+  "qa_score": 93,
+  "judge_score": 7,
+  "combined_score": 83.8,
+  "qa_details": {
+    "score": 93,
+    "prohibited_hits": 0,
+    "prompt_echo_hits": 0,
+    "min_content_failures": 0,
+    "cross_character_overlap_penalty": 0.0,
+    "pairwise_lexical_overlap": {
+      "Marcus Reid <> Margaret Chen": 0.145,
+      "Marcus Reid <> Stephanie 'Steph' Whitmore": 0.132,
+      "Margaret Chen <> Stephanie 'Steph' Whitmore": 0.19
+    },
+    "rhythm_variation": 19,
+    "voice_pattern_bonus": 2,
+    "voice_patterns_matched": {
+      "Marcus Reid": [
+        "verbose (avg 29 words)"
+      ],
+      "Stephanie 'Steph' Whitmore": [],
+      "Margaret Chen": []
+    },
+    "catchphrase_bonus": 3,
+    "signature_hits": {
+      "Marcus Reid": 0,
+      "Stephanie 'Steph' Whitmore": 0,
+      "Margaret Chen": 0
+    },
+    "avg_length_by_character": {
+      "Stephanie 'Steph' Whitmore": 13.5,
+      "Marcus Reid": 29,
+      "Margaret Chen": 15.5
+    },
+    "distinctiveness_spread": 15.5,
+    "cross_char_phrase_penalty": 0.0,
+    "repeated_phrases_sample": [],
+    "participation_balance": {
+      "Marcus Reid": 0.333,
+      "Stephanie 'Steph' Whitmore": 0.333,
+      "Margaret Chen": 0.333
+    },
+    "participation_penalty": 0.0,
+    "conflict_bonus": 0,
+    "stage_coherence_penalty": 0.0,
+    "formal_name_penalty": 0,
+    "deadline_parrot_penalty": 0.0,
+    "deadline_time_hits": 0,
+    "message_length_penalty": 0.0,
+    "long_message_hits": 0
+  },
+  "judge_details": {
+    "score": 7,
+    "reasoning": "The Thursday dialogue maintains distinct character voices well \u2014 Margaret's blunt pragmatism, Marcus's self-aware writerly introspection, and Steph's facilitative energy all come through consistently. The continuity with prior days is strong, particularly Marcus referencing feedback from a previous round. However, the scene is essentially a holding pattern: nothing actually happens, no copy gets read, no real tension emerges, and the day ends without forward movement or a meaningful bookend close.",
+    "strengths": [
+      "Strong character voice consistency, especially Margaret's clipped directness versus Marcus's reflective tone",
+      "Good continuity threading \u2014 Marcus's callback to prior feedback feels earned and specific",
+      "Natural workplace rhythm of 'let's see it before we commit' feels authentic"
+    ],
+    "issues": [
+      "No actual tension or disagreement \u2014 everyone agrees throughout, making the scene dramatically flat",
+      "The copy never gets shared or discussed, so the scene lacks a payoff or meaningful close",
+      "Steph's lines feel slightly redundant, mostly echoing Margaret rather than adding distinct perspective"
+    ],
+    "raw": "{\"score\": 7, \"reasoning\": \"The Thursday dialogue maintains distinct character voices well \u2014 Margaret's blunt pragmatism, Marcus's self-aware writerly introspection, and Steph's facilitative energy all come through consistently. The continuity with prior days is strong, particularly Marcus referencing feedback from a previous round. However, the scene is essentially a holding pattern: nothing actually happens, no copy gets read, no real tension emerges, and the day ends without forward movement or a meaningful bookend close.\", \"strengths\": [\"Strong character voice consistency, especially Margaret's clipped directness versus Marcus's reflective tone\", \"Good continuity threading \u2014 Marcus's callback to prior feedback feels earned and specific\", \"Natural workplace rhythm of 'let's see it before we commit' feels authentic\"], \"issues\": [\"No actual tension or disagreement \u2014 everyone agrees throughout, making the scene dramatically flat\", \"The copy never gets shared or discussed, so the scene lacks a payoff or meaningful close\", \"Steph's lines feel slightly redundant, mostly echoing Margaret rather than adding distinct perspective\"]}"
+  }
+}

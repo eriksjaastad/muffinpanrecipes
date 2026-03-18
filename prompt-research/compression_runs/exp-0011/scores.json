@@ -1,0 +1,70 @@
+{
+  "qa_score": 95,
+  "judge_score": 5,
+  "combined_score": 77.0,
+  "qa_details": {
+    "score": 95,
+    "prohibited_hits": 0,
+    "prompt_echo_hits": 0,
+    "min_content_failures": 0,
+    "cross_character_overlap_penalty": 0.0,
+    "pairwise_lexical_overlap": {
+      "Marcus Reid <> Margaret Chen": 0.164,
+      "Marcus Reid <> Stephanie 'Steph' Whitmore": 0.105,
+      "Margaret Chen <> Stephanie 'Steph' Whitmore": 0.098
+    },
+    "rhythm_variation": 23,
+    "voice_pattern_bonus": 4,
+    "voice_patterns_matched": {
+      "Stephanie 'Steph' Whitmore": [],
+      "Margaret Chen": [
+        "terse (avg 12 words)"
+      ],
+      "Marcus Reid": [
+        "verbose (avg 29 words)"
+      ]
+    },
+    "catchphrase_bonus": 3,
+    "signature_hits": {
+      "Stephanie 'Steph' Whitmore": 0,
+      "Margaret Chen": 0,
+      "Marcus Reid": 0
+    },
+    "avg_length_by_character": {
+      "Marcus Reid": 29,
+      "Margaret Chen": 12.5,
+      "Stephanie 'Steph' Whitmore": 13
+    },
+    "distinctiveness_spread": 16.5,
+    "cross_char_phrase_penalty": 0.0,
+    "repeated_phrases_sample": [],
+    "participation_balance": {
+      "Stephanie 'Steph' Whitmore": 0.333,
+      "Margaret Chen": 0.333,
+      "Marcus Reid": 0.333
+    },
+    "participation_penalty": 0.0,
+    "conflict_bonus": 0,
+    "stage_coherence_penalty": 0.0,
+    "formal_name_penalty": 0,
+    "deadline_parrot_penalty": 0.0,
+    "deadline_time_hits": 0,
+    "message_length_penalty": 0.0,
+    "long_message_hits": 0
+  },
+  "judge_details": {
+    "score": 5,
+    "reasoning": "The Sunday dialogue is functional but feels like a low-energy wrap-up that recycles themes (restraint, moisture-seal, not overthinking) without adding anything new. Characters sound somewhat distinct but the dialogue lacks genuine tension or surprise \u2014 it's all mutual congratulation with no friction, and Margaret's 'The lamination speaks for itself' line feels like a non-sequitur that doesn't connect to anything established in the week's work.",
+    "strengths": [
+      "Marcus's self-aware moment about closing the laptop before second-guessing word choices feels authentic and character-consistent",
+      "The week's thematic throughline (restraint) is present and referenced naturally"
+    ],
+    "issues": [
+      "No tension or conflict \u2014 everyone is just agreeing and patting themselves on the back, which makes for flat drama",
+      "Margaret's 'lamination' reference is unexplained and feels like a hallucination or continuity error \u2014 lamination was never part of the corn dog bites discussion",
+      "Devon Park and Julian Torres are completely absent with no acknowledgment, which feels like a continuity gap for a 'going live' moment",
+      "The dialogue retreads Monday-Friday themes without adding any Sunday-specific energy or payoff"
+    ],
+    "raw": "```json\n{\"score\": 5, \"reasoning\": \"The Sunday dialogue is functional but feels like a low-energy wrap-up that recycles themes (restraint, moisture-seal, not overthinking) without adding anything new. Characters sound somewhat distinct but the dialogue lacks genuine tension or surprise \u2014 it's all mutual congratulation with no friction, and Margaret's 'The lamination speaks for itself' line feels like a non-sequitur that doesn't connect to anything established in the week's work.\", \"strengths\": [\"Marcus's self-aware moment about closing the laptop before second-guessing word choices feels authentic and character-consistent\", \"The week's thematic throughline (restraint) is present and referenced naturally\"], \"issues\": [\"No tension or conflict \u2014 everyone is just agreeing and patting themselves on the back, which makes for flat drama\", \"Margaret's 'lamination' reference is unexplained and feels like a hallucination or continuity error \u2014 lamination was never part of the corn dog bites discussion\", \"Devon Park and Julian Torres are completely absent with no acknowledgment, which feels like a continuity gap for a 'going live' moment\", \"The dialogue retreads Monday-Friday themes without adding any Sunday-specific energy or payoff\"]}\n```"
+  }
+}

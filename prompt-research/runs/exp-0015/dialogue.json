@@ -1,0 +1,56 @@
+[
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Margaret Chen",
+    "message": "Trays still cooling from yesterday's batch. Cornbread base separated again - the heat's too aggressive or the ratio's drifting. We're fixing it today.",
+    "timestamp": "2026-03-13T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "The separation thing - is it the egg ratio or are we overcooking the batter before it sets?",
+    "timestamp": "2026-03-13T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Marcus Reid",
+    "message": "The separation's probably the batter setting before the crumb structure can hold it - that's where the story breaks down, literally.",
+    "timestamp": "2026-03-13T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Margaret Chen",
+    "message": "Marcus is actually right - which annoys her because he usually just talks around the point. The batter needs to set gradually, not violently. She wants to acknowledge he nailed the diagnosis without making it a whole thing. It's the oven temperature. We're hitting 425 when we should be at 375 - gives the structure time to form before the edges char.",
+    "timestamp": "2026-03-13T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Marcus Reid",
+    "message": "So 375 lets the cornbread actually breathe - that's the difference between a crumb that holds together and one that just fractures under its own weight.",
+    "timestamp": "2026-03-13T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "okay so 375 and we let it actually set - that's our lock. good catch on the breathing thing, that's the piece that makes sense now. heading out, we've got what we need.",
+    "timestamp": "2026-03-13T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  }
+]

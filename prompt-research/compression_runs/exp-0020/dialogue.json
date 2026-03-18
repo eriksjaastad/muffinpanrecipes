@@ -1,0 +1,56 @@
+[
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "We're actually doing this today. Everyone ready?",
+    "timestamp": "2026-03-14T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Margaret Chen",
+    "message": "Ready means the work's done right - and it is.",
+    "timestamp": "2026-03-14T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Marcus Reid",
+    "message": "The lamination layers failing became the story instead of the problem - that's what restraint actually looks like when it works.",
+    "timestamp": "2026-03-14T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "That's exactly it - we stopped trying to fix things that weren't broken and the whole thing just... worked.",
+    "timestamp": "2026-03-14T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Marcus Reid",
+    "message": "Yeah, and that's the thing - we didn't have to convince anyone the work was good, we just had to stop second-guessing it.",
+    "timestamp": "2026-03-14T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Marcus Reid",
+    "message": "Site's live. Margaret was right about clean architecture - sometimes the best edit is knowing when to stop editing.",
+    "timestamp": "2026-03-14T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  }
+]

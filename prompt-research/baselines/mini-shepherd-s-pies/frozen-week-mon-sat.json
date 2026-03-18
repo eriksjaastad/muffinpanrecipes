@@ -1,0 +1,326 @@
+[
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Margaret Chen",
+    "message": "Coffee's cold. We're doing mini shepherd's pies this week - proper ones, not some deconstructed nonsense with foam.",
+    "timestamp": "2026-03-14T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Marcus Reid",
+    "message": "Proper ones is exactly right - there's real narrative in the technique, the way the potato crust has to be built, not just scattered on top like some Instagram shortcut.",
+    "timestamp": "2026-03-14T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "I mean, mini pies feel right - Margaret's got a point about the real technique mattering - but are we ready to commit or should we sit with it a bit?",
+    "timestamp": "2026-03-14T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Marcus Reid",
+    "message": "Sitting with it feels like we're avoiding the decision - the story's already there if we commit to showing the layering, the discipline of it.",
+    "timestamp": "2026-03-14T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "Marcus is right - committing means we actually get to show the work instead of hiding behind shortcuts, which is kind of the whole point.",
+    "timestamp": "2026-03-14T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Margaret Chen",
+    "message": "You're both right. The layering matters - it's what separates real cooking from plating tricks. Let's build it properly.",
+    "timestamp": "2026-03-14T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Margaret Chen",
+    "message": "Cold coffee again. Anyway - we're testing ratios today. Potato to filling, binding agent for the meat, seasoning balance. Got three variations cooling.",
+    "timestamp": "2026-03-15T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Marcus Reid",
+    "message": "Three variations is smart - you'll actually see where the balance tips. I'm ready to taste through them and figure out which ratio tells the story best.",
+    "timestamp": "2026-03-15T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "I'd rather taste all three and see which one actually feels right on the palate - don't want to overthink this one.",
+    "timestamp": "2026-03-15T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Marcus Reid",
+    "message": "Fair point - the palate doesn't lie, and forcing a narrative onto something that doesn't want it is how you end up with 800 words about mashed potatoes when 200 would do.",
+    "timestamp": "2026-03-15T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "That self-awareness about the 800 words thing - honestly, that's the move. Let's lock whichever ratio wins today and get it written up clean.",
+    "timestamp": "2026-03-15T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Margaret Chen",
+    "message": "Good. Tasting at noon, we lock the winner by end of day. I'll have the write-up ready tonight.",
+    "timestamp": "2026-03-15T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "wednesday",
+    "stage": "photography",
+    "character": "Julian Torres",
+    "message": "Just got the lighting dialed in - shot three variations this morning while the pies were still holding their structure. Each one tells a completely different story about what this dish actually is.",
+    "timestamp": "2026-03-16T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "wednesday",
+    "stage": "photography",
+    "character": "Margaret Chen",
+    "message": "The lighting looks good - show me what the pies actually look like, not what you think they should tell.",
+    "timestamp": "2026-03-16T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "wednesday",
+    "stage": "photography",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "Margaret's right - we need to see the actual pie, not the story yet, so which of your three really shows the layers the way people will actually eat it?",
+    "timestamp": "2026-03-16T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "wednesday",
+    "stage": "photography",
+    "character": "Julian Torres",
+    "message": "I hear you - the cross-section is strongest, shows the actual potato crust and the filling separation without any angle tricks.",
+    "timestamp": "2026-03-16T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "wednesday",
+    "stage": "photography",
+    "character": "Margaret Chen",
+    "message": "The cross-section works because you can actually see the crust set properly - that's the proof the technique held.",
+    "timestamp": "2026-03-16T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "wednesday",
+    "stage": "photography",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "The cross-section actually proves the technique - that crust separation is what people need to see to trust it'll work for them.",
+    "timestamp": "2026-03-16T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Marcus Reid",
+    "message": "Morning. Got the copy drafted - leaning into that cross-section as the visual proof, so the writing mirrors it: technique first, then the payoff. Kept it tight this time.",
+    "timestamp": "2026-03-17T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "Tight is good - can we read it before we lock in? Want to make sure the technique explanation matches what Margaret's actually showing.",
+    "timestamp": "2026-03-17T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Marcus Reid",
+    "message": "Pasting it now - walked through the layering steps with Margaret's ratios so the explanation actually tracks what's in the shot.",
+    "timestamp": "2026-03-17T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Margaret Chen",
+    "message": "Let me read it first - make sure you didn't slip any \"rustic charm\" nonsense in there.",
+    "timestamp": "2026-03-17T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "Margaret's got the right instinct there - I'm curious what she finds when she reads through it.",
+    "timestamp": "2026-03-17T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Margaret Chen",
+    "message": "Reading through now. No filler, no metaphors about comfort food - just the technique and why it matters. Will flag anything that doesn't earn its space.",
+    "timestamp": "2026-03-17T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "friday",
+    "stage": "final_review",
+    "character": "Margaret Chen",
+    "message": "Alright - final review. Cross-section is locked, copy's tight, ratios are solid. What's not sitting right?",
+    "timestamp": "2026-03-18T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "friday",
+    "stage": "final_review",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "Nothing - I think we're actually there. This feels ready to go.",
+    "timestamp": "2026-03-18T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "friday",
+    "stage": "final_review",
+    "character": "Devon Park",
+    "message": "Site's ready to receive whenever you want to push it live.",
+    "timestamp": "2026-03-18T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "friday",
+    "stage": "final_review",
+    "character": "Marcus Reid",
+    "message": "Devon just said the site's ready - which is fine, it's their job - but what Marcus actually feels is: why does it always sound so effortless for them? Why aren't they nervous? But he won't say that. Instead: Good - means we can actually ship this without second-guessing ourselves at the last minute. Approve it.",
+    "timestamp": "2026-03-18T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "friday",
+    "stage": "final_review",
+    "character": "Devon Park",
+    "message": "Good call - I'll deploy it once you give the word.",
+    "timestamp": "2026-03-18T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "friday",
+    "stage": "final_review",
+    "character": "Marcus Reid",
+    "message": "We're live then - ship it. Margaret cut the excess, the cross-section sells itself, and the technique actually reads clean. This one works.",
+    "timestamp": "2026-03-18T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "saturday",
+    "stage": "deployment",
+    "character": "Devon Park",
+    "message": "Staging mini pies now - should be live in a few.",
+    "timestamp": "2026-03-19T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "saturday",
+    "stage": "deployment",
+    "character": "Margaret Chen",
+    "message": "The cross-section has to load first - everything else is secondary.",
+    "timestamp": "2026-03-19T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "saturday",
+    "stage": "deployment",
+    "character": "Devon Park",
+    "message": "Cross-section is priority - got it, already verified it's loading clean.",
+    "timestamp": "2026-03-19T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "saturday",
+    "stage": "deployment",
+    "character": "Margaret Chen",
+    "message": "Verified it loads clean means you actually checked it - that's all that matters.",
+    "timestamp": "2026-03-19T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "saturday",
+    "stage": "deployment",
+    "character": "Devon Park",
+    "message": "Yeah, that's the whole point - didn't want to waste your time on stuff that doesn't matter.",
+    "timestamp": "2026-03-19T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "saturday",
+    "stage": "deployment",
+    "character": "Margaret Chen",
+    "message": "That's exactly right - no wasted motion. Going live then.",
+    "timestamp": "2026-03-19T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  }
+]

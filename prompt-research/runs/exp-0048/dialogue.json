@@ -1,0 +1,56 @@
+[
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Marcus Reid",
+    "message": "Morning, all. Laptop open, brain mostly engaged - got the corn dog copy ready for eyes. Fair warning: there's texture in there, so curious what lands.",
+    "timestamp": "2026-03-13T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "Texture is good - that's what made the last round work so well, yeah?",
+    "timestamp": "2026-03-13T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Marcus Reid",
+    "message": "Yeah, that push you gave me last round stuck - made me cut the shortcuts and actually sit with what the thing tastes like instead of how clever I could sound about it.",
+    "timestamp": "2026-03-13T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Margaret Chen",
+    "message": "The shortcuts thing matters - let me see what you actually wrote before we call it done.",
+    "timestamp": "2026-03-13T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "Margaret's right - let's see it before we sign off on anything.",
+    "timestamp": "2026-03-13T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Margaret Chen",
+    "message": "Cutting the clever stuff - that's the work. Send it over when you're ready.",
+    "timestamp": "2026-03-13T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  }
+]

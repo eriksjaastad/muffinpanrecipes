@@ -1,0 +1,56 @@
+[
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "okay, we're actually doing this - jalape\u00f1o corn dog bites going live in minutes and i'm somehow still nervous even though we nailed it.",
+    "timestamp": "2026-03-14T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Marcus Reid",
+    "message": "That nervous feeling means we didn't oversell it - the work speaks for itself, which is honestly rare.",
+    "timestamp": "2026-03-14T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "Marcus is right - and that stings a little because he's calling out exactly what Steph has been learning all week. The work *does* speak for itself. She didn't over-explain the shot. She didn't defend the copy choices. She just... trusted it. And it worked. But admitting that to Marcus feels like admitting she's been overthinking everything else, every other week, every other decision. It also feels like Marcus just validated her in a way that matters - not \"you did great!\" but \"you understood the assignment.\" Steph wants to say something that acknowledges he's right without making it about her insecurity. She wants to be the person who just nods and moves forward. She also desperately wants him to know she heard him. --- That's exactly why this feels right - we actually stopped defending and just let it be what it is.",
+    "timestamp": "2026-03-14T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Marcus Reid",
+    "message": "You're right - we stopped explaining and started trusting, which is exactly when the thing became itself instead of a thing we were trying to make happen.",
+    "timestamp": "2026-03-14T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Margaret Chen",
+    "message": "The corn actually stays crisp in the coating because we didn't oversugary the batter like last time.",
+    "timestamp": "2026-03-14T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Marcus Reid",
+    "message": "Yeah - that restraint in the batter is what made the cornmeal do its job. We let the technique carry the story instead of narrating it to death. Good work, all of you.",
+    "timestamp": "2026-03-14T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  }
+]

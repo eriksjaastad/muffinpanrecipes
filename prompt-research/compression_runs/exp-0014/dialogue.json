@@ -1,0 +1,56 @@
+[
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "okay, we're here. everyone ready to see this thing live?",
+    "timestamp": "2026-03-14T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Margaret Chen",
+    "message": "Yeah. Let's see if the work actually holds up.",
+    "timestamp": "2026-03-14T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "It's live. This is the moment where we find out if we actually nailed it.",
+    "timestamp": "2026-03-14T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Marcus Reid",
+    "message": "Yeah - and it does hold up. The restraint we fought for all week, that's what's reading now.",
+    "timestamp": "2026-03-14T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Margaret Chen",
+    "message": "Copy's doing the heavy lifting - that's all Marcus.",
+    "timestamp": "2026-03-14T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "sunday",
+    "stage": "publish",
+    "character": "Marcus Reid",
+    "message": "That means everything coming from you - Margaret actually reading it as copy and not just words I put between photos. I'm going to close this out and breathe for a minute.",
+    "timestamp": "2026-03-14T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  }
+]

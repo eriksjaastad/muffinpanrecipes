@@ -1,0 +1,56 @@
+[
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Marcus Reid",
+    "message": "Morning, all. Laptop open, brain mostly engaged - got the jalape\u00f1o corn dog copy in the doc. Leaned into the textural contrast, the way the cornmeal crust catches against the heat of the pepper. Curious what lands.",
+    "timestamp": "2026-03-13T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Margaret Chen",
+    "message": "The cornmeal crust catching against the pepper heat - that's your lead. Everything else is just noise.",
+    "timestamp": "2026-03-13T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Marcus Reid",
+    "message": "You're right - I buried it under three paragraphs of unnecessary context about regional spice traditions. Stripping it down now.",
+    "timestamp": "2026-03-13T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Margaret Chen",
+    "message": "Good. Send it when you're done - I'll read it before the meeting.",
+    "timestamp": "2026-03-13T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "That feels right - Margaret's instinct about leading with the texture thing is solid.",
+    "timestamp": "2026-03-13T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Margaret Chen",
+    "message": "Stripped version goes to the meeting. Don't second-guess it - your instinct was right the first time.",
+    "timestamp": "2026-03-13T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  }
+]

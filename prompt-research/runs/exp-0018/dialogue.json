@@ -1,0 +1,56 @@
+[
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Margaret Chen",
+    "message": "Tray one still too dense. We're adjusting the cornmeal ratio today - yesterday's notes are wrong.",
+    "timestamp": "2026-03-13T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Marcus Reid",
+    "message": "You're right to scrap yesterday - the cornmeal was drowning out the sausage's salt and smoke, which is the whole point of the bite.",
+    "timestamp": "2026-03-13T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Margaret Chen",
+    "message": "Good catch on the sausage - that's what I'm testing this round. Less cornmeal, more fat to carry the heat.",
+    "timestamp": "2026-03-13T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Marcus Reid",
+    "message": "The fat angle is smart - it'll let the jalapeno heat actually breathe instead of getting muffled by starch like yesterday.",
+    "timestamp": "2026-03-13T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "So we're locking the ratio shift today - that makes sense, the fat really does change how the heat lands.",
+    "timestamp": "2026-03-13T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "tuesday",
+    "stage": "recipe_development",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "Margaret's heat-breathing insight just landed and everyone's aligned - this is the moment to close it out cleanly, acknowledge the win, and step back. Steph feels relieved that Margaret validated the direction without needing to be convinced. She's also quietly proud that the team got here together. She wants to sound like she was leading this the whole time, even though she mostly just... agreed with good ideas. She doesn't need to ask follow-ups or second-guess now - the work is locked. Just close it. Yeah, Margaret nailed it - let's lock that ratio and call it. Solid day, team.",
+    "timestamp": "2026-03-13T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  }
+]

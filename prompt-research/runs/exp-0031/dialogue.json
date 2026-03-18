@@ -1,0 +1,56 @@
+[
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Marcus Reid",
+    "message": "Morning, all. Laptop open, brain mostly engaged - jalape\u00f1o corn dog copy is live in the doc. Fair warning: I leaned into the Americana angle, the way these live at the intersection of carnival and kitchen table.",
+    "timestamp": "2026-03-13T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "I like that framing - can we all read through and flag anything that feels off before we dive into edits?",
+    "timestamp": "2026-03-13T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Margaret Chen",
+    "message": "Read it. But if there's a paragraph about nostalgia instead of how the jalape\u00f1o actually performs in the batter, it's getting cut.",
+    "timestamp": "2026-03-13T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "Margaret's right - the heat and the crisp matter more than the feeling, so let's make sure the jalape\u00f1o's doing actual work in there.",
+    "timestamp": "2026-03-13T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Margaret Chen",
+    "message": "Stephanie's right - spell out the science or cut it. Heat management, crisp factor, batter interaction. That's the story.",
+    "timestamp": "2026-03-13T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Marcus Reid",
+    "message": "Pulled the char-blister detail into the opening - that's where the heat lives, not in some vague memory of it. Copy's ready.",
+    "timestamp": "2026-03-13T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  }
+]

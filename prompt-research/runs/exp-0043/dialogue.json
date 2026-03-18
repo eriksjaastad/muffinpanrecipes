@@ -1,0 +1,56 @@
+[
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Marcus Reid",
+    "message": "Alright, got the jalape\u00f1o corn dog copy in the doc - spent the morning wrestling with how to make fair food feel earned instead of just named. Curious what everyone thinks before we lock it down.",
+    "timestamp": "2026-03-13T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "What Stephanie feels: Marcus did exactly what she respects him for - he wrestled with the *idea* behind the food, not just describing it. She wants to say \"this is exactly what we needed, you nailed it\" but she's also bracing for the copy to be longer than necessary, which means she'll have to edit it, which feels like criticizing his work, which makes her anxious. She wants to read it first before committing to anything. What she actually says: Okay I'm pulling it up right now - what's the word count sitting at?",
+    "timestamp": "2026-03-13T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Marcus Reid",
+    "message": "It's sitting around 280 - I know that's longer than the brief asked for, but the texture needed room to breathe.",
+    "timestamp": "2026-03-13T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Margaret Chen",
+    "message": "Two-eighty is bloated - cut it to one-fifty and the texture still breathes.",
+    "timestamp": "2026-03-13T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "Margaret's right about the breathing room - sometimes less *is* the thing that lets people actually taste the idea, yeah?",
+    "timestamp": "2026-03-13T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "thursday",
+    "stage": "copywriting",
+    "character": "Margaret Chen",
+    "message": "Stephanie gets it. One-fifty, strip the adjectives, let the recipe speak. Done.",
+    "timestamp": "2026-03-13T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  }
+]

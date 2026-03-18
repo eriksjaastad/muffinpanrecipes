@@ -1,0 +1,69 @@
+{
+  "qa_score": 93,
+  "judge_score": 6,
+  "combined_score": 79.8,
+  "qa_details": {
+    "score": 93,
+    "prohibited_hits": 0,
+    "prompt_echo_hits": 0,
+    "min_content_failures": 0,
+    "cross_character_overlap_penalty": 0.0,
+    "pairwise_lexical_overlap": {
+      "Marcus Reid <> Margaret Chen": 0.066,
+      "Marcus Reid <> Stephanie 'Steph' Whitmore": 0.118,
+      "Margaret Chen <> Stephanie 'Steph' Whitmore": 0.067
+    },
+    "rhythm_variation": 28,
+    "voice_pattern_bonus": 2,
+    "voice_patterns_matched": {
+      "Margaret Chen": [],
+      "Marcus Reid": [
+        "verbose (avg 37 words)"
+      ],
+      "Stephanie 'Steph' Whitmore": []
+    },
+    "catchphrase_bonus": 3,
+    "signature_hits": {
+      "Margaret Chen": 0,
+      "Marcus Reid": 0,
+      "Stephanie 'Steph' Whitmore": 0
+    },
+    "avg_length_by_character": {
+      "Margaret Chen": 15,
+      "Stephanie 'Steph' Whitmore": 24.5,
+      "Marcus Reid": 37
+    },
+    "distinctiveness_spread": 22,
+    "cross_char_phrase_penalty": 0.0,
+    "repeated_phrases_sample": [],
+    "participation_balance": {
+      "Margaret Chen": 0.333,
+      "Marcus Reid": 0.333,
+      "Stephanie 'Steph' Whitmore": 0.333
+    },
+    "participation_penalty": 0.0,
+    "conflict_bonus": 0,
+    "stage_coherence_penalty": 0.0,
+    "formal_name_penalty": 0,
+    "deadline_parrot_penalty": 0.0,
+    "deadline_time_hits": 0,
+    "message_length_penalty": 0.0,
+    "long_message_hits": 0
+  },
+  "judge_details": {
+    "score": 6,
+    "reasoning": "The dialogue has a coherent throughline about oil absorption and storage longevity, and Marcus and Margaret have somewhat distinct voices. However, several characters are absent entirely (Julian, Devon, Park), the conversation feels more like a linear agreement than a workplace with real friction, and Steph's closing 'Good work today, everyone' reads as artificially tidy and sitcom-unnatural.",
+    "strengths": [
+      "Specific technical detail about cornmeal vs. batter oil absorption is concrete and recipe-relevant",
+      "Marcus and Margaret have a functional dynamic with complementary expertise",
+      "The storage/longevity angle is a genuinely interesting hook that develops across the exchange"
+    ],
+    "issues": [
+      "No tension or disagreement \u2014 everyone immediately agrees, which kills sitcom energy",
+      "Julian Torres, Devon Park are completely absent with no acknowledgment",
+      "Steph's closing line 'Good work today, everyone' sounds like a manager wrapping a meeting, not a creative director in a sitcom",
+      "Monday opener lacks any cold-open energy or character establishment beyond the concept drop"
+    ],
+    "raw": "```json\n{\"score\": 6, \"reasoning\": \"The dialogue has a coherent throughline about oil absorption and storage longevity, and Marcus and Margaret have somewhat distinct voices. However, several characters are absent entirely (Julian, Devon, Park), the conversation feels more like a linear agreement than a workplace with real friction, and Steph's closing 'Good work today, everyone' reads as artificially tidy and sitcom-unnatural.\", \"strengths\": [\"Specific technical detail about cornmeal vs. batter oil absorption is concrete and recipe-relevant\", \"Marcus and Margaret have a functional dynamic with complementary expertise\", \"The storage/longevity angle is a genuinely interesting hook that develops across the exchange\"], \"issues\": [\"No tension or disagreement \u2014 everyone immediately agrees, which kills sitcom energy\", \"Julian Torres, Devon Park are completely absent with no acknowledgment\", \"Steph's closing line 'Good work today, everyone' sounds like a manager wrapping a meeting, not a creative director in a sitcom\", \"Monday opener lacks any cold-open energy or character establishment beyond the concept drop\"]}\n```"
+  }
+}

@@ -1,0 +1,56 @@
+[
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Margaret Chen",
+    "message": "Coffee's cold. Someone left the walk-in door cracked again. Anyway - jalape\u00f1o corn dog bites. Hear me out before you dismiss it.",
+    "timestamp": "2026-03-13T09:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "I'm listening - what's the angle on those?",
+    "timestamp": "2026-03-13T10:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Margaret Chen",
+    "message": "The heat actually builds in the oil - you get a second wave of spice that hits after the bite. It's restraint, not just dumping capsaicin everywhere like some food blogger would.",
+    "timestamp": "2026-03-13T11:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Marcus Reid",
+    "message": "That second-wave thing - that's the story, restraint as a kind of intelligence in cooking, not just heat for heat's sake.",
+    "timestamp": "2026-03-13T13:00:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Stephanie 'Steph' Whitmore",
+    "message": "Marcus just nailed the *why* - that's what makes this feel right, not just delicious. Should we lock this in and start mapping out the execution?",
+    "timestamp": "2026-03-13T14:20:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  },
+  {
+    "day": "monday",
+    "stage": "brainstorm",
+    "character": "Marcus Reid",
+    "message": "Yeah, let's lock it. The copy needs to earn that restraint - no florishes, no unnecessary adjectives doing the work the oil temperature already did. I'll have something for you tomorrow.",
+    "timestamp": "2026-03-13T15:40:00+00:00",
+    "model": "anthropic/claude-haiku-4-5-20251001",
+    "attachments": []
+  }
+]

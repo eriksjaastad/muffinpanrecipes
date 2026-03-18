@@ -1,0 +1,74 @@
+{
+  "qa_score": 87,
+  "judge_score": 6,
+  "combined_score": 76.2,
+  "qa_details": {
+    "score": 87,
+    "prohibited_hits": 0,
+    "prompt_echo_hits": 0,
+    "min_content_failures": 0,
+    "cross_character_overlap_penalty": 0.0,
+    "pairwise_lexical_overlap": {
+      "Marcus Reid <> Margaret Chen": 0.19,
+      "Marcus Reid <> Stephanie 'Steph' Whitmore": 0.06,
+      "Margaret Chen <> Stephanie 'Steph' Whitmore": 0.088
+    },
+    "rhythm_variation": 12,
+    "voice_pattern_bonus": 4,
+    "voice_patterns_matched": {
+      "Stephanie 'Steph' Whitmore": [],
+      "Margaret Chen": [
+        "terse (avg 9 words)"
+      ],
+      "Marcus Reid": [
+        "literary (1)"
+      ]
+    },
+    "catchphrase_bonus": 3,
+    "signature_hits": {
+      "Stephanie 'Steph' Whitmore": 0,
+      "Margaret Chen": 0,
+      "Marcus Reid": 0
+    },
+    "avg_length_by_character": {
+      "Marcus Reid": 18.5,
+      "Margaret Chen": 9,
+      "Stephanie 'Steph' Whitmore": 11.5
+    },
+    "distinctiveness_spread": 9.5,
+    "cross_char_phrase_penalty": 6.0,
+    "repeated_phrases_sample": [
+      "cornmeal ratio held",
+      "the cornmeal ratio"
+    ],
+    "participation_balance": {
+      "Stephanie 'Steph' Whitmore": 0.333,
+      "Margaret Chen": 0.333,
+      "Marcus Reid": 0.333
+    },
+    "participation_penalty": 0.0,
+    "conflict_bonus": 0,
+    "stage_coherence_penalty": 0.0,
+    "formal_name_penalty": 0,
+    "deadline_parrot_penalty": 0.0,
+    "deadline_time_hits": 0,
+    "message_length_penalty": 0.0,
+    "long_message_hits": 0
+  },
+  "judge_details": {
+    "score": 6,
+    "reasoning": "The Sunday dialogue functions as a clean closing beat but feels thin \u2014 it's mostly characters restating themes from prior days (restraint, listening, the cornmeal ratio) without generating new tension or surprise. The voices are recognizable but not at their sharpest, and the exchange reads more like a curtain call than a lived moment.",
+    "strengths": [
+      "Margaret's 'The cornmeal ratio held' is a satisfying callback that feels earned after the week's arc",
+      "Character voices remain consistent with established patterns \u2014 Margaret terse, Marcus reflective",
+      "The closing beat lands without overstaying its welcome"
+    ],
+    "issues": [
+      "No friction or tension \u2014 everyone agrees, which flattens the scene",
+      "Marcus delivers two near-identical philosophical summaries back-to-back, which reads as padding",
+      "Devon Park and Julian Torres are absent with no acknowledgment, breaking the ensemble feel on a milestone day",
+      "Steph's opening lines feel perfunctory \u2014 her established self-doubt and second-guessing disappear entirely"
+    ],
+    "raw": "{\"score\": 6, \"reasoning\": \"The Sunday dialogue functions as a clean closing beat but feels thin \u2014 it's mostly characters restating themes from prior days (restraint, listening, the cornmeal ratio) without generating new tension or surprise. The voices are recognizable but not at their sharpest, and the exchange reads more like a curtain call than a lived moment.\", \"strengths\": [\"Margaret's 'The cornmeal ratio held' is a satisfying callback that feels earned after the week's arc\", \"Character voices remain consistent with established patterns \u2014 Margaret terse, Marcus reflective\", \"The closing beat lands without overstaying its welcome\"], \"issues\": [\"No friction or tension \u2014 everyone agrees, which flattens the scene\", \"Marcus delivers two near-identical philosophical summaries back-to-back, which reads as padding\", \"Devon Park and Julian Torres are absent with no acknowledgment, breaking the ensemble feel on a milestone day\", \"Steph's opening lines feel perfunctory \u2014 her established self-doubt and second-guessing disappear entirely\"]}"
+  }
+}
