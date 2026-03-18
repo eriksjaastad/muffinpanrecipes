@@ -43,3 +43,8 @@ def test_invalid_hour_raises():
 def test_invalid_minute_raises():
     with pytest.raises(ValueError, match="minute must be 0-59"):
         next_publish_time(minute=60)
+
+
+def test_invalid_timezone_raises():
+    with pytest.raises(ValueError, match="Unknown timezone"):
+        next_publish_time(timezone_name="Not/AZone")
