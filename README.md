@@ -29,6 +29,14 @@ uv sync --python /opt/homebrew/bin/python3.12
 uv run pytest tests/test_discord_review_link.py tests/test_creative_dialogue.py -q
 ```
 
+If `uv` isn't available or fails in your environment, you can run tests with a local venv:
+
+```bash
+python3 -m venv venv
+./venv/bin/pip install -r requirements.txt
+./venv/bin/python -m pytest tests/test_discord_review_link.py tests/test_creative_dialogue.py -q
+```
+
 ### Development
 1. Clone the repository.
 2. Run the bootstrap steps above.
