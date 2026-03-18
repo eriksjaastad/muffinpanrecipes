@@ -7,7 +7,7 @@ This directory provides a unified infrastructure for LLM routing, recipe prompti
 Every LLM call in the project (OpenAI, Anthropic, or future providers) must go through `generate_response()`.
 
 ### 🛡️ Safety & Policy
-- **Fail-Closed Allowlisting**: Models must be explicitly allowed in `DEFAULT_OPENAI_ALLOWLIST` or `DEFAULT_ANTHROPIC_ALLOWLIST`.
+- **Fail-Closed Allowlisting**: Models must be explicitly allowed in `DEFAULT_OPENAI_ALLOWLIST`, `DEFAULT_ANTHROPIC_ALLOWLIST`, or `DEFAULT_GOOGLE_ALLOWLIST`.
 - **Hard Blocks**: Explicit blocks on expensive or high-end models (e.g., `o1-pro`, `claude-opus-4-6`) to prevent accidental cost spikes.
 - **Judge Model Policy**: A separate `JUDGE_ALLOWLIST` is used for post-generation quality review, permitting higher-tier models (like Opus) only for evaluation.
 

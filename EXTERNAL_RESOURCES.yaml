@@ -1,0 +1,70 @@
+external_resources:
+  - name: OpenAI API
+    purpose: Dialogue, recipe, and judge text generation.
+    env_vars:
+      - OPENAI_API_KEY
+      - OPENAI_MODEL_ALLOWLIST
+    notes: Routed via backend/utils/model_router.py
+
+  - name: Anthropic API
+    purpose: Dialogue and judge text generation.
+    env_vars:
+      - ANTHROPIC_API_KEY
+      - ANTHROPIC_MODEL_ALLOWLIST
+    notes: Routed via backend/utils/model_router.py
+
+  - name: Google Gemini Developer API
+    purpose: Optional text generation provider (Gemini models).
+    env_vars:
+      - GEMINI_API_KEY
+      - GOOGLE_API_KEY
+      - GOOGLE_MODEL_ALLOWLIST
+    notes: Routed via backend/utils/model_router.py using google-genai SDK.
+
+  - name: Nano Banana (Gemini image generation)
+    purpose: Image generation comparison vs Stability AI.
+    env_vars:
+      - NANOBANANA_API_KEY
+      - NANOBANANA_MODEL
+      - NANOBANANA_COST_PER_IMAGE
+      - GEMINI_API_KEY
+      - GOOGLE_API_KEY
+    notes: Implemented via google-genai image models (e.g., gemini-2.5-flash-image).
+
+  - name: Stability AI
+    purpose: Production image generation (SDXL).
+    env_vars:
+      - STABILITY_API_KEY
+      - STABILITY_ENGINE_ID
+      - STABILITY_COST_PER_IMAGE
+    notes: Used by backend/agents/art_director.py and scripts/direct_harvest.py.
+
+  - name: Vercel
+    purpose: Hosting and Vercel Blob storage for episodes, pages, and images.
+    env_vars:
+      - BLOB_READ_WRITE_TOKEN
+      - VERCEL_ENV
+    notes: Storage uses backend/storage.py and Vercel Blob REST API.
+
+  - name: Discord Webhooks
+    purpose: Notifications for review and pipeline status.
+    env_vars:
+      - DISCORD_WEBHOOK_URL
+      - DISCORD_FAILURE_WEBHOOK_URL
+      - DISCORD_JUDGE_WEBHOOK_URL
+    notes: Used by backend/utils/discord.py.
+
+  - name: Doppler
+    purpose: Secrets management for all environments.
+    env_vars:
+      - DOPPLER_TOKEN
+    notes: Run commands via "doppler run -- <command>".
+
+  - name: Cloudflare R2
+    purpose: Image generation job handoff to RunPod.
+    env_vars:
+      - MUFFINPANRECIPES_R2_ACCESS_KEY_ID
+      - MUFFINPANRECIPES_R2_SECRET_ACCESS_KEY
+      - MUFFINPANRECIPES_R2_ENDPOINT
+      - MUFFINPANRECIPES_R2_BUCKET_NAME
+    notes: Used by scripts/trigger_generation.py.

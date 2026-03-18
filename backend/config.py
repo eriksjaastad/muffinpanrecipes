@@ -37,6 +37,8 @@ Model Configuration:
     Available models (must be in model_router allowlists):
       OpenAI:    openai/gpt-5-mini, openai/gpt-5-nano, openai/gpt-5.1
       Anthropic: anthropic/claude-haiku-4-5-20251001, anthropic/claude-sonnet-4-6
+      Google:    google/gemini-3.1-pro-preview, google/gemini-3.1-flash-lite-preview,
+                 google/gemini-3-flash-preview
 """
 
 from __future__ import annotations
@@ -107,6 +109,8 @@ class _Config:
         Available models (must be in model_router allowlists):
           OpenAI:    openai/gpt-5-mini, openai/gpt-5-nano, openai/gpt-5.1
           Anthropic: anthropic/claude-haiku-4-5-20251001, anthropic/claude-sonnet-4-6
+          Google:    google/gemini-3.1-pro-preview, google/gemini-3.1-flash-lite-preview,
+                     google/gemini-3-flash-preview
 
         Set via Doppler:  doppler secrets set DIALOGUE_MODEL "openai/gpt-5.1"
         Set via CLI:      DIALOGUE_MODEL=openai/gpt-5.1 uv run scripts/simulate_dialogue_week.py ...
