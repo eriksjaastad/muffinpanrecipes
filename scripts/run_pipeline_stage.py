@@ -135,6 +135,8 @@ def main() -> None:
     ep_path = EPISODES_DIR / f"{args.episode}.json"  # used only for summary print
     ep = load_episode(args.episode)
     ep["episode_id"] = args.episode
+    ep.setdefault("stages", {})
+    ep.setdefault("events", [])
     # dry_run comes from the CLI flag only — do NOT persist or read from episode JSON.
     # This prevents a previous --dry-run from locking future real runs.
     dry_run = args.dry_run
