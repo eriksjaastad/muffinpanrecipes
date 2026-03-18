@@ -86,7 +86,7 @@ install_test() {
 # ---------------------------------------------------------------------------
 # Install: production weekly cadence (Mon–Sun, one stage per day at 7:30am)
 # Concept is auto-picked on Monday by run_pipeline_stage.py (calls pick_concept.py
-# when --concept is not provided — TODO: wire that up in run_pipeline_stage.py).
+# when --concept is not provided).
 # For now we embed --concept from pick_concept.py at install time.
 # ---------------------------------------------------------------------------
 install_production() {

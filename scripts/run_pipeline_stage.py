@@ -37,6 +37,7 @@ STAGE_TO_ROLE = {
 # Default dialogue model. Override via DIALOGUE_MODEL env var or
 # --dialogue-model CLI flag in run_compressed_week.py.
 DIALOGUE_MODEL = os.getenv("DIALOGUE_MODEL", "openai/gpt-5-mini")
+DEFAULT_CONCEPT = "Weekly Muffin Pan Recipe"
 
 
 def load_episode(episode_id: str) -> dict:
@@ -102,6 +103,24 @@ def _generate_stage_dialogue(
         return []
 
 
+def _resolve_concept(stage_key: str, arg_concept: str | None, episode_concept: str | None) -> str:
+    """Resolve the recipe concept, auto-picking for Monday if missing."""
+    if arg_concept:
+        return arg_concept
+    if episode_concept:
+        return episode_concept
+    if stage_key == "monday":
+        try:
+            from scripts.pick_concept import pick_concept
+
+            picks = pick_concept(count=1)
+            if picks:
+                return picks[0]
+        except Exception as exc:
+            print(f"  [concept] Warning: auto-pick failed, using default: {exc}")
+    return DEFAULT_CONCEPT
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--stage", required=True, choices=list(STAGE_TO_ROLE.keys()))
@@ -130,8 +149,9 @@ def main() -> None:
 
     recipe_id: str = ep["recipe_id"]
 
-    # Concept: prefer CLI arg, fall back to stored episode concept
-    concept: str = args.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
+    # Concept: prefer CLI arg, fall back to stored episode concept,
+    # then auto-pick for Monday, then final default.
+    concept: str = _resolve_concept(args.stage, args.concept, ep.get("concept"))
     ep["concept"] = concept
 
     stage_key = args.stage
