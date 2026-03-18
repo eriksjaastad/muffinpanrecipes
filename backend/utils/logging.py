@@ -31,7 +31,10 @@ def setup_logging(
 
     # Get root logger
     root_logger = logging.getLogger()
-    root_logger.setLevel(getattr(logging, log_level.upper()))
+    level = getattr(logging, log_level.upper(), None)
+    if level is None:
+        raise ValueError(f"Unknown log level: {log_level}")
+    root_logger.setLevel(level)
 
     # Remove existing handlers
     root_logger.handlers.clear()
