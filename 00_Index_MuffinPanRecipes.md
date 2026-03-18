@@ -36,6 +36,9 @@ An AI-driven experimental recipe platform focused exclusively on "Muffin Tin Mea
 
 ## 🚀 Recent Activity
 
+- 2026-03-15: fix: strip parenthetical qualifiers from recipe titles in catalog
+- 2026-03-15: feat: Sunday cron publishes recipe to main page catalog (#5055)
+- 2026-03-14: feat: dialogue improvements, character memory, tests, and agent rules
 - 2026-03-11: fix: serve images from main domain + enforce day-of-week on cron stages
 - 2026-03-10: chore: fix broken Documents/ references after migration
 - 2026-03-10: docs: add notification anti-pattern rules to handoff
@@ -43,9 +46,6 @@ An AI-driven experimental recipe platform focused exclusively on "Muffin Tin Mea
 - 2026-03-10: fix: render middot in teaser + add character roles to episode page
 - 2026-03-10: fix: cron routes accept GET + progressive episode page rendering [publish]
 - 2026-03-07: fix: remove speed insights, update recipe layouts, add feature flag [publish]
-- 2026-03-07: fix: regenerated test page with working images + layout fixes [publish]
-- 2026-03-07: fix: upload all photography round images to blob + fix CDN URLs
-- 2026-03-07: fix: recipe page layout + image attachments in dialogue
 ## 📖 Reference Links
 - [Intentions](INTENTIONS.md)
 - [Project DoD](PROJECT_DOD.md)
@@ -69,6 +69,7 @@ scaffolding_date: 2026-01-27
 | :--- | :---: | :--- |
 | [_docs_archive/](_docs_archive/README.md) | 4 | *Auto-generated index. Last updated: 2026-01-24* |
 | [backend/](backend/README.md) | 5 | Python-based multi-agent orchestration system for Muffin Pan Recipes. |
+| [prompt-research/](prompt-research/) | 13 | No description available. |
 | [reviews/](reviews/) | 1 | No description available. |
 
 ### Files
@@ -164,6 +165,260 @@ scaffolding_date: 2026-01-27
 | [backend/utils/recipe_prompts.py](backend/utils/recipe_prompts.py) | Recipe and description generation via model router. |
 | [package-lock.json](package-lock.json) | No description available. |
 | [package.json](package.json) | No description available. |
+| [prompt-research/TESTING_METHODOLOGY.md](prompt-research/TESTING_METHODOLOGY.md) | --- |
+| [prompt-research/__init__.py](prompt-research/__init__.py) | Empty file. |
+| [prompt-research/baselines/brown-butter-pecan-tassies/frozen-week-mon-sat.json](prompt-research/baselines/brown-butter-pecan-tassies/frozen-week-mon-sat.json) | No description available. |
+| [prompt-research/baselines/jalape-o-corn-dog-bites/frozen-before-monday.json](prompt-research/baselines/jalape-o-corn-dog-bites/frozen-before-monday.json) | No description available. |
+| [prompt-research/baselines/jalape-o-corn-dog-bites/frozen-before-thursday.json](prompt-research/baselines/jalape-o-corn-dog-bites/frozen-before-thursday.json) | No description available. |
+| [prompt-research/baselines/jalape-o-corn-dog-bites/frozen-before-tuesday.json](prompt-research/baselines/jalape-o-corn-dog-bites/frozen-before-tuesday.json) | No description available. |
+| [prompt-research/baselines/jalape-o-corn-dog-bites/frozen-week-mon-sat.json](prompt-research/baselines/jalape-o-corn-dog-bites/frozen-week-mon-sat.json) | No description available. |
+| [prompt-research/baselines/mini-shepherd-s-pies/frozen-week-mon-sat.json](prompt-research/baselines/mini-shepherd-s-pies/frozen-week-mon-sat.json) | No description available. |
+| [prompt-research/best_compression_prompts.py](prompt-research/best_compression_prompts.py) | Mutable compression templates for autoresearch-style optimization. |
+| [prompt-research/best_prompts.py](prompt-research/best_prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/compression_program.md](prompt-research/compression_program.md) | You are an autonomous compression researcher optimizing how prior-day conversation context gets summ... |
+| [prompt-research/compression_prompts.py](prompt-research/compression_prompts.py) | Mutable compression templates for autoresearch-style optimization. |
+| [prompt-research/compression_results.tsv](prompt-research/compression_results.tsv) | No description available. |
+| [prompt-research/compression_runner.py](prompt-research/compression_runner.py) | No description available. |
+| [prompt-research/compression_runs/exp-0000/compression_prompts.py](prompt-research/compression_runs/exp-0000/compression_prompts.py) | Mutable compression templates for autoresearch-style optimization. |
+| [prompt-research/compression_runs/exp-0000/dialogue.json](prompt-research/compression_runs/exp-0000/dialogue.json) | No description available. |
+| [prompt-research/compression_runs/exp-0000/highlights.json](prompt-research/compression_runs/exp-0000/highlights.json) | No description available. |
+| [prompt-research/compression_runs/exp-0000/scores.json](prompt-research/compression_runs/exp-0000/scores.json) | No description available. |
+| [prompt-research/compression_runs/exp-0001/compression_prompts.py](prompt-research/compression_runs/exp-0001/compression_prompts.py) | Mutable compression templates for autoresearch-style optimization. |
+| [prompt-research/compression_runs/exp-0001/dialogue.json](prompt-research/compression_runs/exp-0001/dialogue.json) | No description available. |
+| [prompt-research/compression_runs/exp-0001/highlights.json](prompt-research/compression_runs/exp-0001/highlights.json) | No description available. |
+| [prompt-research/compression_runs/exp-0001/scores.json](prompt-research/compression_runs/exp-0001/scores.json) | No description available. |
+| [prompt-research/compression_runs/exp-0002/compression_prompts.py](prompt-research/compression_runs/exp-0002/compression_prompts.py) | Mutable compression templates for autoresearch-style optimization. |
+| [prompt-research/compression_runs/exp-0002/dialogue.json](prompt-research/compression_runs/exp-0002/dialogue.json) | No description available. |
+| [prompt-research/compression_runs/exp-0002/highlights.json](prompt-research/compression_runs/exp-0002/highlights.json) | No description available. |
+| [prompt-research/compression_runs/exp-0002/scores.json](prompt-research/compression_runs/exp-0002/scores.json) | No description available. |
+| [prompt-research/compression_runs/exp-0003/compression_prompts.py](prompt-research/compression_runs/exp-0003/compression_prompts.py) | Mutable compression templates for autoresearch-style optimization. |
+| [prompt-research/compression_runs/exp-0003/dialogue.json](prompt-research/compression_runs/exp-0003/dialogue.json) | No description available. |
+| [prompt-research/compression_runs/exp-0003/highlights.json](prompt-research/compression_runs/exp-0003/highlights.json) | No description available. |
+| [prompt-research/compression_runs/exp-0003/scores.json](prompt-research/compression_runs/exp-0003/scores.json) | No description available. |
+| [prompt-research/compression_runs/exp-0004/compression_prompts.py](prompt-research/compression_runs/exp-0004/compression_prompts.py) | Mutable compression templates for autoresearch-style optimization. |
+| [prompt-research/compression_runs/exp-0004/dialogue.json](prompt-research/compression_runs/exp-0004/dialogue.json) | No description available. |
+| [prompt-research/compression_runs/exp-0004/highlights.json](prompt-research/compression_runs/exp-0004/highlights.json) | No description available. |
+| [prompt-research/compression_runs/exp-0004/scores.json](prompt-research/compression_runs/exp-0004/scores.json) | No description available. |
+| [prompt-research/compression_runs/exp-0005/compression_prompts.py](prompt-research/compression_runs/exp-0005/compression_prompts.py) | Mutable compression templates for autoresearch-style optimization. |
+| [prompt-research/compression_runs/exp-0005/dialogue.json](prompt-research/compression_runs/exp-0005/dialogue.json) | No description available. |
+| [prompt-research/compression_runs/exp-0005/highlights.json](prompt-research/compression_runs/exp-0005/highlights.json) | No description available. |
+| [prompt-research/compression_runs/exp-0005/scores.json](prompt-research/compression_runs/exp-0005/scores.json) | No description available. |
+| [prompt-research/compression_runs/exp-0006/compression_prompts.py](prompt-research/compression_runs/exp-0006/compression_prompts.py) | Mutable compression templates for autoresearch-style optimization. |
+| [prompt-research/compression_runs/exp-0006/dialogue.json](prompt-research/compression_runs/exp-0006/dialogue.json) | No description available. |
+| [prompt-research/compression_runs/exp-0006/highlights.json](prompt-research/compression_runs/exp-0006/highlights.json) | No description available. |
+| [prompt-research/compression_runs/exp-0006/scores.json](prompt-research/compression_runs/exp-0006/scores.json) | No description available. |
+| [prompt-research/compression_runs/exp-0007/compression_prompts.py](prompt-research/compression_runs/exp-0007/compression_prompts.py) | Mutable compression templates for autoresearch-style optimization. |
+| [prompt-research/compression_runs/exp-0007/dialogue.json](prompt-research/compression_runs/exp-0007/dialogue.json) | No description available. |
+| [prompt-research/compression_runs/exp-0007/highlights.json](prompt-research/compression_runs/exp-0007/highlights.json) | No description available. |
+| [prompt-research/compression_runs/exp-0007/scores.json](prompt-research/compression_runs/exp-0007/scores.json) | No description available. |
+| [prompt-research/compression_runs/exp-0008/compression_prompts.py](prompt-research/compression_runs/exp-0008/compression_prompts.py) | Mutable compression templates for autoresearch-style optimization. |
+| [prompt-research/compression_runs/exp-0008/dialogue.json](prompt-research/compression_runs/exp-0008/dialogue.json) | No description available. |
+| [prompt-research/compression_runs/exp-0008/highlights.json](prompt-research/compression_runs/exp-0008/highlights.json) | No description available. |
+| [prompt-research/compression_runs/exp-0008/scores.json](prompt-research/compression_runs/exp-0008/scores.json) | No description available. |
+| [prompt-research/compression_runs/exp-0009/compression_prompts.py](prompt-research/compression_runs/exp-0009/compression_prompts.py) | Mutable compression templates for autoresearch-style optimization. |
+| [prompt-research/compression_runs/exp-0009/dialogue.json](prompt-research/compression_runs/exp-0009/dialogue.json) | No description available. |
+| [prompt-research/compression_runs/exp-0009/highlights.json](prompt-research/compression_runs/exp-0009/highlights.json) | No description available. |
+| [prompt-research/compression_runs/exp-0009/scores.json](prompt-research/compression_runs/exp-0009/scores.json) | No description available. |
+| [prompt-research/compression_runs/exp-0010/compression_prompts.py](prompt-research/compression_runs/exp-0010/compression_prompts.py) | Mutable compression templates for autoresearch-style optimization. |
+| [prompt-research/compression_runs/exp-0010/dialogue.json](prompt-research/compression_runs/exp-0010/dialogue.json) | No description available. |
+| [prompt-research/compression_runs/exp-0010/highlights.json](prompt-research/compression_runs/exp-0010/highlights.json) | No description available. |
+| [prompt-research/compression_runs/exp-0010/scores.json](prompt-research/compression_runs/exp-0010/scores.json) | No description available. |
+| [prompt-research/compression_runs/exp-0011/compression_prompts.py](prompt-research/compression_runs/exp-0011/compression_prompts.py) | Mutable compression templates for autoresearch-style optimization. |
+| [prompt-research/compression_runs/exp-0011/dialogue.json](prompt-research/compression_runs/exp-0011/dialogue.json) | No description available. |
+| [prompt-research/compression_runs/exp-0011/highlights.json](prompt-research/compression_runs/exp-0011/highlights.json) | No description available. |
+| [prompt-research/compression_runs/exp-0011/scores.json](prompt-research/compression_runs/exp-0011/scores.json) | No description available. |
+| [prompt-research/compression_runs/exp-0012/compression_prompts.py](prompt-research/compression_runs/exp-0012/compression_prompts.py) | Mutable compression templates for autoresearch-style optimization. |
+| [prompt-research/compression_runs/exp-0012/dialogue.json](prompt-research/compression_runs/exp-0012/dialogue.json) | No description available. |
+| [prompt-research/compression_runs/exp-0012/highlights.json](prompt-research/compression_runs/exp-0012/highlights.json) | No description available. |
+| [prompt-research/compression_runs/exp-0012/scores.json](prompt-research/compression_runs/exp-0012/scores.json) | No description available. |
+| [prompt-research/compression_runs/exp-0013/compression_prompts.py](prompt-research/compression_runs/exp-0013/compression_prompts.py) | Mutable compression templates for autoresearch-style optimization. |
+| [prompt-research/compression_runs/exp-0013/dialogue.json](prompt-research/compression_runs/exp-0013/dialogue.json) | No description available. |
+| [prompt-research/compression_runs/exp-0013/highlights.json](prompt-research/compression_runs/exp-0013/highlights.json) | No description available. |
+| [prompt-research/compression_runs/exp-0013/scores.json](prompt-research/compression_runs/exp-0013/scores.json) | No description available. |
+| [prompt-research/compression_runs/exp-0014/compression_prompts.py](prompt-research/compression_runs/exp-0014/compression_prompts.py) | Mutable compression templates for autoresearch-style optimization. |
+| [prompt-research/compression_runs/exp-0014/dialogue.json](prompt-research/compression_runs/exp-0014/dialogue.json) | No description available. |
+| [prompt-research/compression_runs/exp-0014/highlights.json](prompt-research/compression_runs/exp-0014/highlights.json) | No description available. |
+| [prompt-research/compression_runs/exp-0014/scores.json](prompt-research/compression_runs/exp-0014/scores.json) | No description available. |
+| [prompt-research/compression_runs/exp-0015/compression_prompts.py](prompt-research/compression_runs/exp-0015/compression_prompts.py) | Mutable compression templates for autoresearch-style optimization. |
+| [prompt-research/compression_runs/exp-0015/dialogue.json](prompt-research/compression_runs/exp-0015/dialogue.json) | No description available. |
+| [prompt-research/compression_runs/exp-0015/highlights.json](prompt-research/compression_runs/exp-0015/highlights.json) | No description available. |
+| [prompt-research/compression_runs/exp-0015/scores.json](prompt-research/compression_runs/exp-0015/scores.json) | No description available. |
+| [prompt-research/compression_runs/exp-0016/compression_prompts.py](prompt-research/compression_runs/exp-0016/compression_prompts.py) | Mutable compression templates for autoresearch-style optimization. |
+| [prompt-research/compression_runs/exp-0016/dialogue.json](prompt-research/compression_runs/exp-0016/dialogue.json) | No description available. |
+| [prompt-research/compression_runs/exp-0016/highlights.json](prompt-research/compression_runs/exp-0016/highlights.json) | No description available. |
+| [prompt-research/compression_runs/exp-0016/scores.json](prompt-research/compression_runs/exp-0016/scores.json) | No description available. |
+| [prompt-research/compression_runs/exp-0017/compression_prompts.py](prompt-research/compression_runs/exp-0017/compression_prompts.py) | Mutable compression templates for autoresearch-style optimization. |
+| [prompt-research/compression_runs/exp-0017/dialogue.json](prompt-research/compression_runs/exp-0017/dialogue.json) | No description available. |
+| [prompt-research/compression_runs/exp-0017/highlights.json](prompt-research/compression_runs/exp-0017/highlights.json) | No description available. |
+| [prompt-research/compression_runs/exp-0017/scores.json](prompt-research/compression_runs/exp-0017/scores.json) | No description available. |
+| [prompt-research/compression_runs/exp-0018/compression_prompts.py](prompt-research/compression_runs/exp-0018/compression_prompts.py) | Mutable compression templates for autoresearch-style optimization. |
+| [prompt-research/compression_runs/exp-0018/dialogue.json](prompt-research/compression_runs/exp-0018/dialogue.json) | No description available. |
+| [prompt-research/compression_runs/exp-0018/highlights.json](prompt-research/compression_runs/exp-0018/highlights.json) | No description available. |
+| [prompt-research/compression_runs/exp-0018/scores.json](prompt-research/compression_runs/exp-0018/scores.json) | No description available. |
+| [prompt-research/compression_runs/exp-0019/compression_prompts.py](prompt-research/compression_runs/exp-0019/compression_prompts.py) | Mutable compression templates for autoresearch-style optimization. |
+| [prompt-research/compression_runs/exp-0019/dialogue.json](prompt-research/compression_runs/exp-0019/dialogue.json) | No description available. |
+| [prompt-research/compression_runs/exp-0019/highlights.json](prompt-research/compression_runs/exp-0019/highlights.json) | No description available. |
+| [prompt-research/compression_runs/exp-0019/scores.json](prompt-research/compression_runs/exp-0019/scores.json) | No description available. |
+| [prompt-research/compression_runs/exp-0020/compression_prompts.py](prompt-research/compression_runs/exp-0020/compression_prompts.py) | Mutable compression templates for autoresearch-style optimization. |
+| [prompt-research/compression_runs/exp-0020/dialogue.json](prompt-research/compression_runs/exp-0020/dialogue.json) | No description available. |
+| [prompt-research/compression_runs/exp-0020/highlights.json](prompt-research/compression_runs/exp-0020/highlights.json) | No description available. |
+| [prompt-research/compression_runs/exp-0020/scores.json](prompt-research/compression_runs/exp-0020/scores.json) | No description available. |
+| [prompt-research/compression_runs/exp-0021/compression_prompts.py](prompt-research/compression_runs/exp-0021/compression_prompts.py) | Mutable compression templates for autoresearch-style optimization. |
+| [prompt-research/compression_runs/exp-0021/dialogue.json](prompt-research/compression_runs/exp-0021/dialogue.json) | No description available. |
+| [prompt-research/compression_runs/exp-0021/highlights.json](prompt-research/compression_runs/exp-0021/highlights.json) | No description available. |
+| [prompt-research/compression_runs/exp-0021/scores.json](prompt-research/compression_runs/exp-0021/scores.json) | No description available. |
+| [prompt-research/evaluator.py](prompt-research/evaluator.py) | Locked evaluator — DO NOT MODIFY during experiments. |
+| [prompt-research/program.md](prompt-research/program.md) | You are an autonomous prompt researcher optimizing dialogue quality for a fictional workplace sitcom... |
+| [prompt-research/prompts.py](prompt-research/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/results.tsv](prompt-research/results.tsv) | No description available. |
+| [prompt-research/runner.py](prompt-research/runner.py) | No description available. |
+| [prompt-research/runs/exp-0000/dialogue.json](prompt-research/runs/exp-0000/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0000/prompts.py](prompt-research/runs/exp-0000/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0000/scores.json](prompt-research/runs/exp-0000/scores.json) | No description available. |
+| [prompt-research/runs/exp-0001/dialogue.json](prompt-research/runs/exp-0001/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0001/prompts.py](prompt-research/runs/exp-0001/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0001/scores.json](prompt-research/runs/exp-0001/scores.json) | No description available. |
+| [prompt-research/runs/exp-0002/dialogue.json](prompt-research/runs/exp-0002/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0002/prompts.py](prompt-research/runs/exp-0002/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0002/scores.json](prompt-research/runs/exp-0002/scores.json) | No description available. |
+| [prompt-research/runs/exp-0003/dialogue.json](prompt-research/runs/exp-0003/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0003/prompts.py](prompt-research/runs/exp-0003/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0003/scores.json](prompt-research/runs/exp-0003/scores.json) | No description available. |
+| [prompt-research/runs/exp-0004/dialogue.json](prompt-research/runs/exp-0004/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0004/prompts.py](prompt-research/runs/exp-0004/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0004/scores.json](prompt-research/runs/exp-0004/scores.json) | No description available. |
+| [prompt-research/runs/exp-0005/dialogue.json](prompt-research/runs/exp-0005/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0005/prompts.py](prompt-research/runs/exp-0005/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0005/scores.json](prompt-research/runs/exp-0005/scores.json) | No description available. |
+| [prompt-research/runs/exp-0006/dialogue.json](prompt-research/runs/exp-0006/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0006/prompts.py](prompt-research/runs/exp-0006/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0006/scores.json](prompt-research/runs/exp-0006/scores.json) | No description available. |
+| [prompt-research/runs/exp-0007/dialogue.json](prompt-research/runs/exp-0007/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0007/prompts.py](prompt-research/runs/exp-0007/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0007/scores.json](prompt-research/runs/exp-0007/scores.json) | No description available. |
+| [prompt-research/runs/exp-0008/dialogue.json](prompt-research/runs/exp-0008/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0008/prompts.py](prompt-research/runs/exp-0008/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0008/scores.json](prompt-research/runs/exp-0008/scores.json) | No description available. |
+| [prompt-research/runs/exp-0009/dialogue.json](prompt-research/runs/exp-0009/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0009/prompts.py](prompt-research/runs/exp-0009/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0009/scores.json](prompt-research/runs/exp-0009/scores.json) | No description available. |
+| [prompt-research/runs/exp-0010/dialogue.json](prompt-research/runs/exp-0010/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0010/prompts.py](prompt-research/runs/exp-0010/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0010/scores.json](prompt-research/runs/exp-0010/scores.json) | No description available. |
+| [prompt-research/runs/exp-0011/dialogue.json](prompt-research/runs/exp-0011/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0011/prompts.py](prompt-research/runs/exp-0011/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0011/scores.json](prompt-research/runs/exp-0011/scores.json) | No description available. |
+| [prompt-research/runs/exp-0012/dialogue.json](prompt-research/runs/exp-0012/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0012/prompts.py](prompt-research/runs/exp-0012/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0012/scores.json](prompt-research/runs/exp-0012/scores.json) | No description available. |
+| [prompt-research/runs/exp-0013/dialogue.json](prompt-research/runs/exp-0013/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0013/prompts.py](prompt-research/runs/exp-0013/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0013/scores.json](prompt-research/runs/exp-0013/scores.json) | No description available. |
+| [prompt-research/runs/exp-0014/dialogue.json](prompt-research/runs/exp-0014/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0014/prompts.py](prompt-research/runs/exp-0014/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0014/scores.json](prompt-research/runs/exp-0014/scores.json) | No description available. |
+| [prompt-research/runs/exp-0015/dialogue.json](prompt-research/runs/exp-0015/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0015/prompts.py](prompt-research/runs/exp-0015/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0015/scores.json](prompt-research/runs/exp-0015/scores.json) | No description available. |
+| [prompt-research/runs/exp-0016/dialogue.json](prompt-research/runs/exp-0016/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0016/prompts.py](prompt-research/runs/exp-0016/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0016/scores.json](prompt-research/runs/exp-0016/scores.json) | No description available. |
+| [prompt-research/runs/exp-0017/dialogue.json](prompt-research/runs/exp-0017/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0017/prompts.py](prompt-research/runs/exp-0017/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0017/scores.json](prompt-research/runs/exp-0017/scores.json) | No description available. |
+| [prompt-research/runs/exp-0018/dialogue.json](prompt-research/runs/exp-0018/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0018/prompts.py](prompt-research/runs/exp-0018/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0018/scores.json](prompt-research/runs/exp-0018/scores.json) | No description available. |
+| [prompt-research/runs/exp-0019/dialogue.json](prompt-research/runs/exp-0019/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0019/prompts.py](prompt-research/runs/exp-0019/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0019/scores.json](prompt-research/runs/exp-0019/scores.json) | No description available. |
+| [prompt-research/runs/exp-0020/dialogue.json](prompt-research/runs/exp-0020/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0020/prompts.py](prompt-research/runs/exp-0020/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0020/scores.json](prompt-research/runs/exp-0020/scores.json) | No description available. |
+| [prompt-research/runs/exp-0021/dialogue.json](prompt-research/runs/exp-0021/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0021/prompts.py](prompt-research/runs/exp-0021/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0021/scores.json](prompt-research/runs/exp-0021/scores.json) | No description available. |
+| [prompt-research/runs/exp-0022/dialogue.json](prompt-research/runs/exp-0022/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0022/prompts.py](prompt-research/runs/exp-0022/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0022/scores.json](prompt-research/runs/exp-0022/scores.json) | No description available. |
+| [prompt-research/runs/exp-0023/dialogue.json](prompt-research/runs/exp-0023/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0023/prompts.py](prompt-research/runs/exp-0023/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0023/scores.json](prompt-research/runs/exp-0023/scores.json) | No description available. |
+| [prompt-research/runs/exp-0024/dialogue.json](prompt-research/runs/exp-0024/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0024/prompts.py](prompt-research/runs/exp-0024/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0024/scores.json](prompt-research/runs/exp-0024/scores.json) | No description available. |
+| [prompt-research/runs/exp-0025/dialogue.json](prompt-research/runs/exp-0025/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0025/prompts.py](prompt-research/runs/exp-0025/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0025/scores.json](prompt-research/runs/exp-0025/scores.json) | No description available. |
+| [prompt-research/runs/exp-0026/dialogue.json](prompt-research/runs/exp-0026/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0026/prompts.py](prompt-research/runs/exp-0026/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0026/scores.json](prompt-research/runs/exp-0026/scores.json) | No description available. |
+| [prompt-research/runs/exp-0027/dialogue.json](prompt-research/runs/exp-0027/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0027/prompts.py](prompt-research/runs/exp-0027/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0027/scores.json](prompt-research/runs/exp-0027/scores.json) | No description available. |
+| [prompt-research/runs/exp-0028/dialogue.json](prompt-research/runs/exp-0028/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0028/prompts.py](prompt-research/runs/exp-0028/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0028/scores.json](prompt-research/runs/exp-0028/scores.json) | No description available. |
+| [prompt-research/runs/exp-0029/dialogue.json](prompt-research/runs/exp-0029/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0029/prompts.py](prompt-research/runs/exp-0029/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0029/scores.json](prompt-research/runs/exp-0029/scores.json) | No description available. |
+| [prompt-research/runs/exp-0030/dialogue.json](prompt-research/runs/exp-0030/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0030/prompts.py](prompt-research/runs/exp-0030/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0030/scores.json](prompt-research/runs/exp-0030/scores.json) | No description available. |
+| [prompt-research/runs/exp-0031/dialogue.json](prompt-research/runs/exp-0031/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0031/prompts.py](prompt-research/runs/exp-0031/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0031/scores.json](prompt-research/runs/exp-0031/scores.json) | No description available. |
+| [prompt-research/runs/exp-0032/dialogue.json](prompt-research/runs/exp-0032/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0032/prompts.py](prompt-research/runs/exp-0032/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0032/scores.json](prompt-research/runs/exp-0032/scores.json) | No description available. |
+| [prompt-research/runs/exp-0033/dialogue.json](prompt-research/runs/exp-0033/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0033/prompts.py](prompt-research/runs/exp-0033/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0033/scores.json](prompt-research/runs/exp-0033/scores.json) | No description available. |
+| [prompt-research/runs/exp-0034/dialogue.json](prompt-research/runs/exp-0034/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0034/prompts.py](prompt-research/runs/exp-0034/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0034/scores.json](prompt-research/runs/exp-0034/scores.json) | No description available. |
+| [prompt-research/runs/exp-0035/dialogue.json](prompt-research/runs/exp-0035/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0035/prompts.py](prompt-research/runs/exp-0035/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0035/scores.json](prompt-research/runs/exp-0035/scores.json) | No description available. |
+| [prompt-research/runs/exp-0037/dialogue.json](prompt-research/runs/exp-0037/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0037/prompts.py](prompt-research/runs/exp-0037/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0037/scores.json](prompt-research/runs/exp-0037/scores.json) | No description available. |
+| [prompt-research/runs/exp-0038/dialogue.json](prompt-research/runs/exp-0038/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0038/prompts.py](prompt-research/runs/exp-0038/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0038/scores.json](prompt-research/runs/exp-0038/scores.json) | No description available. |
+| [prompt-research/runs/exp-0040/dialogue.json](prompt-research/runs/exp-0040/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0040/prompts.py](prompt-research/runs/exp-0040/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0040/scores.json](prompt-research/runs/exp-0040/scores.json) | No description available. |
+| [prompt-research/runs/exp-0041/dialogue.json](prompt-research/runs/exp-0041/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0041/prompts.py](prompt-research/runs/exp-0041/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0041/scores.json](prompt-research/runs/exp-0041/scores.json) | No description available. |
+| [prompt-research/runs/exp-0042/dialogue.json](prompt-research/runs/exp-0042/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0042/prompts.py](prompt-research/runs/exp-0042/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0042/scores.json](prompt-research/runs/exp-0042/scores.json) | No description available. |
+| [prompt-research/runs/exp-0043/dialogue.json](prompt-research/runs/exp-0043/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0043/prompts.py](prompt-research/runs/exp-0043/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0043/scores.json](prompt-research/runs/exp-0043/scores.json) | No description available. |
+| [prompt-research/runs/exp-0044/dialogue.json](prompt-research/runs/exp-0044/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0044/prompts.py](prompt-research/runs/exp-0044/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0044/scores.json](prompt-research/runs/exp-0044/scores.json) | No description available. |
+| [prompt-research/runs/exp-0045/dialogue.json](prompt-research/runs/exp-0045/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0045/prompts.py](prompt-research/runs/exp-0045/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0045/scores.json](prompt-research/runs/exp-0045/scores.json) | No description available. |
+| [prompt-research/runs/exp-0046/dialogue.json](prompt-research/runs/exp-0046/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0046/prompts.py](prompt-research/runs/exp-0046/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0046/scores.json](prompt-research/runs/exp-0046/scores.json) | No description available. |
+| [prompt-research/runs/exp-0047/dialogue.json](prompt-research/runs/exp-0047/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0047/prompts.py](prompt-research/runs/exp-0047/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0047/scores.json](prompt-research/runs/exp-0047/scores.json) | No description available. |
+| [prompt-research/runs/exp-0048/dialogue.json](prompt-research/runs/exp-0048/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0048/prompts.py](prompt-research/runs/exp-0048/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0048/scores.json](prompt-research/runs/exp-0048/scores.json) | No description available. |
+| [prompt-research/runs/exp-0049/dialogue.json](prompt-research/runs/exp-0049/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0049/prompts.py](prompt-research/runs/exp-0049/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0049/scores.json](prompt-research/runs/exp-0049/scores.json) | No description available. |
+| [prompt-research/runs/exp-0050/dialogue.json](prompt-research/runs/exp-0050/dialogue.json) | No description available. |
+| [prompt-research/runs/exp-0050/prompts.py](prompt-research/runs/exp-0050/prompts.py) | Mutable prompt material for autoresearch-style optimization. |
+| [prompt-research/runs/exp-0050/scores.json](prompt-research/runs/exp-0050/scores.json) | No description available. |
 | [pyproject.toml](pyproject.toml) | No description available. |
 | [requirements.txt](requirements.txt) | No description available. |
 | [reviews/admin-backend-code-review.md](reviews/admin-backend-code-review.md) | **Reviewer:** Claude Code |
