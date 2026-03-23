@@ -184,7 +184,36 @@ def _parse_recipe_response(response: str, concept: str) -> Dict[str, Any]:
     if not result["instructions"]:
         logger.warning(f"No instructions parsed from response for {concept}")
 
+    # Enforce title rules that the LLM sometimes ignores
+    result["title"] = _enforce_title_rules(result["title"])
+
     return result
+
+
+def _enforce_title_rules(title: str) -> str:
+    """Programmatically enforce recipe title rules.
+
+    Rules (from editorial QA):
+    - Max 6 words
+    - No parentheticals or subtitles
+    - No days of the week
+    - No ellipsis or stylistic separators
+    """
+    # Strip parentheticals: "Foo (Bar Baz)" → "Foo"
+    title = re.sub(r'\s*\(.*?\)\s*', ' ', title).strip()
+    # Strip subtitles after em-dash, colon, or ellipsis
+    title = re.sub(r'\s*[—–:…]\s*.*$', '', title).strip()
+    # Remove days of the week
+    days = r'\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b'
+    title = re.sub(days, '', title, flags=re.IGNORECASE).strip()
+    # Clean up leftover double spaces
+    title = re.sub(r'\s{2,}', ' ', title).strip()
+    # If still > 6 words, truncate to 6
+    words = title.split()
+    if len(words) > 6:
+        title = ' '.join(words[:6])
+        logger.info(f"Title truncated to 6 words: '{title}'")
+    return title
 
 
 def _parse_ingredient(text: str) -> Optional[Dict[str, str]]:
