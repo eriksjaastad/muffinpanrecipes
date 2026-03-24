@@ -33,6 +33,7 @@ Usage:
 from __future__ import annotations
 import hmac
 import os
+import re
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -268,6 +269,38 @@ class JudgeFailedError(Exception):
         super().__init__(f"Judge failed {stage} after {attempts} attempts: {verdict}")
 
 
+def _score_dialogue_qa(
+    dialogue: list[dict],
+    stage: str,
+    concept: str,
+) -> dict:
+    """Run structural QA scoring on dialogue. Returns score dict.
+
+    Uses the same scoring system from testing (simulate_dialogue_week.py).
+    Non-fatal — returns empty dict on failure.
+    """
+    try:
+        from scripts.simulate_dialogue_week import Message, load_personas, score_quality
+
+        personas = load_personas()
+        messages = [
+            Message(
+                day=stage,
+                stage=stage,
+                character=msg.get("character", "Unknown"),
+                message=msg.get("message", ""),
+                timestamp=msg.get("timestamp", ""),
+                model=msg.get("model", "unknown"),
+            )
+            for msg in dialogue
+        ]
+        result = score_quality(messages, personas, concept=concept)
+        return {"score": result.get("score", 0), "details": result}
+    except Exception as e:
+        logger.warning(f"QA scoring failed (non-fatal): {e}")
+        return {}
+
+
 def _generate_and_judge_dialogue(
     stage: str,
     concept: str,
@@ -299,6 +332,11 @@ def _generate_and_judge_dialogue(
 
         passed, verdict = _judge_dialogue(concept, stage, dialogue, episode)
         if passed:
+            # Run QA scoring on the accepted dialogue
+            qa_scores = _score_dialogue_qa(dialogue, stage, concept)
+            if qa_scores:
+                episode.setdefault("qa_scores", {})[stage] = qa_scores
+                logger.info(f"QA score for {stage}: {qa_scores.get('score', '?')}/100")
             return dialogue, verdict
 
         logger.warning(f"Judge FAILED {stage} attempt {attempt + 1}/{total_attempts}: {verdict[:200]}")
@@ -340,6 +378,106 @@ _EDITORIAL_QA_SYSTEM_PROMPT = (
     "RECOMMENDATION: (one sentence)\n\n"
     "Be strict. A recipe with ANY encoding issue or factual error is an automatic FAIL."
 )
+
+MAX_QA_FIX_ATTEMPTS = 2
+
+_RECIPE_FIX_SYSTEM_PROMPT = (
+    "You are a meticulous recipe editor. You are given a recipe that failed editorial QA, "
+    "along with the specific issues identified by the reviewer.\n\n"
+    "Fix ALL identified issues while preserving the recipe's character and intent.\n\n"
+    "RULES:\n"
+    "1. TITLE: Must be 3-6 words. No subtitles, parentheticals, days of the week, or ellipsis.\n"
+    "2. INGREDIENTS: Consolidate duplicates. If the same ingredient appears multiple times, "
+    "either combine into one entry with the total amount, or group under clear sub-headings "
+    "(e.g. 'For the filling:', 'For the topping:').\n"
+    "3. INSTRUCTIONS: Must reference every ingredient. Fix any quantity mismatches.\n"
+    "4. MEASUREMENTS: US customary only (cups, tbsp, tsp, oz, lbs, °F).\n"
+    "5. Keep the recipe's personality and voice intact.\n\n"
+    "Output the fixed recipe in EXACTLY this JSON format:\n"
+    "```json\n"
+    '{"title": "...", "description": "...", "servings": 12, "prep_time": 15, '
+    '"cook_time": 20, "difficulty": "medium", "category": "savory", '
+    '"ingredients": [{"item": "...", "amount": "...", "notes": "..."}], '
+    '"instructions": ["Step 1...", "Step 2..."], '
+    '"chef_notes": "..."}\n'
+    "```\n"
+    "Return ONLY the JSON block, no other text."
+)
+
+
+def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
+    """Attempt to fix recipe issues identified by editorial QA.
+
+    Modifies episode['stages']['monday']['recipe_data'] in place.
+    Returns True if fixes were applied, False if unable to fix.
+    """
+    monday = episode.get("stages", {}).get("monday", {})
+    recipe = monday.get("recipe_data", {})
+    if not recipe:
+        return False
+
+    # Format current recipe for the fixer
+    ing_text = "\n".join(
+        f"- {ing.get('amount', '')} {ing.get('item', '')} ({ing.get('notes', '')})"
+        if isinstance(ing, dict) else f"- {ing}"
+        for ing in recipe.get("ingredients", [])
+    )
+    inst_text = "\n".join(
+        f"{i+1}. {s}" for i, s in enumerate(recipe.get("instructions", []))
+    )
+
+    fix_prompt = (
+        f"RECIPE THAT FAILED QA:\n\n"
+        f"Title: {recipe.get('title', '')}\n"
+        f"Description: {recipe.get('description', '')}\n"
+        f"Servings: {recipe.get('servings', 12)}\n"
+        f"Prep Time: {recipe.get('prep_time', 15)} mins\n"
+        f"Cook Time: {recipe.get('cook_time', 20)} mins\n"
+        f"Difficulty: {recipe.get('difficulty', 'medium')}\n"
+        f"Category: {recipe.get('category', 'savory')}\n\n"
+        f"Ingredients:\n{ing_text}\n\n"
+        f"Instructions:\n{inst_text}\n\n"
+        f"Chef's Notes: {recipe.get('chef_notes', '')}\n\n"
+        f"---\n\n"
+        f"QA FAILURE REPORT:\n{qa_report}\n\n"
+        f"Fix all issues listed above and return the corrected recipe as JSON."
+    )
+
+    try:
+        response = generate_response(
+            prompt=fix_prompt,
+            system_prompt=_RECIPE_FIX_SYSTEM_PROMPT,
+            model=config.recipe_model,
+            temperature=0.3,
+        )
+
+        # Extract JSON from response
+        import json as _json
+        # Try to find JSON block in markdown code fence or raw
+        json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", response, re.DOTALL)
+        if json_match:
+            fixed = _json.loads(json_match.group(1))
+        else:
+            # Try raw JSON
+            fixed = _json.loads(response.strip())
+
+        # Apply title enforcement as extra safety
+        from backend.utils.recipe_prompts import _enforce_title_rules
+        fixed["title"] = _enforce_title_rules(fixed.get("title", recipe.get("title", "")))
+
+        # Validate we got something reasonable
+        if not fixed.get("title") or not fixed.get("ingredients") or not fixed.get("instructions"):
+            logger.warning("Auto-fix returned incomplete recipe — skipping")
+            return False
+
+        # Update recipe data in place
+        monday["recipe_data"] = fixed
+        logger.info(f"Auto-fixed recipe: '{fixed['title']}' ({len(fixed['ingredients'])} ingredients)")
+        return True
+
+    except Exception as e:
+        logger.warning(f"Auto-fix failed: {e}")
+        return False
 
 
 def _editorial_qa_review(episode: dict) -> tuple[bool, str]:
@@ -974,28 +1112,47 @@ async def cron_sunday(request: Request):
                     detail=f"Cannot publish: {day} stage incomplete (status={stage_status!r})",
                 )
 
-        # Editorial QA gate — must pass before publish
+        # Editorial QA gate with auto-fix retry loop
         qa_passed, qa_report = _editorial_qa_review(ep)
+        fix_attempts = 0
+        while not qa_passed and fix_attempts < MAX_QA_FIX_ATTEMPTS:
+            fix_attempts += 1
+            ep["events"].append(
+                f"sunday: editorial QA FAILED (attempt {fix_attempts}), auto-fixing"
+            )
+            logger.info(f"Editorial QA failed, attempting auto-fix {fix_attempts}/{MAX_QA_FIX_ATTEMPTS}")
+
+            if _auto_fix_recipe(ep, qa_report):
+                ep["events"].append(f"sunday: auto-fix applied (attempt {fix_attempts})")
+                qa_passed, qa_report = _editorial_qa_review(ep)
+            else:
+                ep["events"].append(f"sunday: auto-fix failed (attempt {fix_attempts})")
+                break
+
         ep["editorial_qa"] = {
             "passed": qa_passed,
             "report": qa_report,
             "reviewed_at": datetime.now(timezone.utc).isoformat(),
+            "fix_attempts": fix_attempts,
         }
         if not qa_passed:
-            ep["events"].append(f"sunday: editorial QA FAILED")
+            ep["events"].append("sunday: editorial QA FAILED (exhausted retries)")
             storage.save_episode(episode_id, ep)
             notify_judge_failure(
                 concept=concept,
                 stage="sunday (editorial QA)",
-                verdict=qa_report[:500],
+                verdict=f"Failed after {fix_attempts} auto-fix attempts.\n{qa_report[:500]}",
                 episode_id=episode_id,
-                attempts=1,
+                attempts=fix_attempts + 1,
             )
             raise HTTPException(
                 status_code=400,
-                detail=f"Editorial QA failed — recipe cannot publish.\n{qa_report}",
+                detail=f"Editorial QA failed after {fix_attempts} auto-fix attempts.\n{qa_report}",
             )
-        ep["events"].append("sunday: editorial QA PASSED")
+        if fix_attempts > 0:
+            ep["events"].append(f"sunday: editorial QA PASSED after {fix_attempts} auto-fix(es)")
+        else:
+            ep["events"].append("sunday: editorial QA PASSED")
 
         # Wire winner image into recipe featured_photo
         wed_stage = ep.get("stages", {}).get("wednesday", {})

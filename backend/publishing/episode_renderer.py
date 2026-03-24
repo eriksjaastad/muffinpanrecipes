@@ -55,9 +55,18 @@ def _to_local_image_url(blob_url: str) -> str:
 
     e.g. https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/images/a9b98b08/round_1/hero.png
       -> /blob-images/a9b98b08/round_1/hero.png
+
+    Also handles old-format URLs without store ID prefix:
+    https://blob.vercel-storage.com/images/... -> /blob-images/...
     """
-    if blob_url and blob_url.startswith(BLOB_CDN_PREFIX):
+    if not blob_url:
+        return blob_url
+    if blob_url.startswith(BLOB_CDN_PREFIX):
         return "/blob-images/" + blob_url[len(BLOB_CDN_PREFIX):]
+    # Old-format URLs (W10 era) without store ID
+    old_prefix = "https://blob.vercel-storage.com/images/"
+    if blob_url.startswith(old_prefix):
+        return "/blob-images/" + blob_url[len(old_prefix):]
     return blob_url
 
 

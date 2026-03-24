@@ -84,7 +84,11 @@ def _parse_day_verdict(verdict_raw: str) -> dict[str, str | int | None]:
     quality = None
     qa = None
 
-    upper = verdict_raw.upper()
+    # Strip markdown bold formatting before parsing
+    import re
+    cleaned = re.sub(r"\*\*", "", verdict_raw)
+
+    upper = cleaned.upper()
     if "HARD FAIL" in upper:
         verdict = "HARD FAIL"
     elif "SOFT FAIL" in upper:
@@ -93,10 +97,8 @@ def _parse_day_verdict(verdict_raw: str) -> dict[str, str | int | None]:
         verdict = "PASS"
 
     def _extract_int(label: str, max_val: int) -> int | None:
-        import re
-
-        pattern = re.compile(rf"{label}\\s*[:\\-]?\\s*(\\d+)", re.IGNORECASE)
-        match = pattern.search(verdict_raw)
+        pattern = re.compile(rf"{label}\s*[:\-]?\s*(\d+)", re.IGNORECASE)
+        match = pattern.search(cleaned)
         if not match:
             return None
         value = int(match.group(1))
