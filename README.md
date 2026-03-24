@@ -88,3 +88,15 @@ Build Minutes are the dominant cost driver (~95% of usage charges at $0.126/min)
 
 ## 🖥️ Admin Simulation Viewer (MVP)
 Route: `/admin/simulations` - View character-driven dialogue transcripts and recipe generation runs.
+
+## CI / Automated Code Review
+
+Pull requests are automatically reviewed by Claude Sonnet via a [centralized reusable workflow](https://github.com/eriksjaastad/tools/blob/main/.github/workflows/claude-review-reusable.yml) hosted in the `tools` repo.
+
+**On every PR:**
+- Tests run (if any exist)
+- AI reviews the diff against project standards and governance protocol
+- Posts a sticky review comment and a `claude-review` commit status
+- Auto-merges on APPROVE, blocks on REQUEST_CHANGES
+
+See [tools repo](https://github.com/eriksjaastad/tools) for configuration details.
