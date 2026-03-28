@@ -280,7 +280,7 @@ def _score_dialogue_qa(
     Non-fatal — returns empty dict on failure.
     """
     try:
-        from scripts.simulate_dialogue_week import Message, load_personas, score_quality
+        from backend.utils.qa_scoring import Message, load_personas, score_quality
 
         personas = load_personas()
         messages = [
