@@ -47,6 +47,7 @@ addopts = [
     "-v",
     "--strict-markers",
     "--tb=short",
+    "--ignore=tests/e2e",
 ]
 
 [tool.black]
