@@ -16,8 +16,7 @@ from backend.utils.model_router import generate_response
 logger = get_logger(__name__)
 
 # Default model for recipe/copywriting generation.
-# Centralized in backend/config.py — override via RECIPE_MODEL env var or Doppler.
-DEFAULT_RECIPE_MODEL = config.recipe_model
+# Accessed lazily via config.recipe_model — override via RECIPE_MODEL env var or Doppler.
 
 
 # ---------------------------------------------------------------------------
@@ -38,7 +37,7 @@ def generate_recipe(
     Returns:
         Structured recipe dict with title, ingredients, instructions, etc.
     """
-    use_model = model or DEFAULT_RECIPE_MODEL
+    use_model = model or config.recipe_model
     system_prompt = _build_recipe_system_prompt(personality_context)
     user_prompt = _build_recipe_user_prompt(concept)
 
@@ -277,7 +276,7 @@ def generate_description(
     Returns:
         Dict with body, word_count, quality, etc.
     """
-    use_model = model or DEFAULT_RECIPE_MODEL
+    use_model = model or config.recipe_model
     system_prompt = _build_description_system_prompt(personality_context, target_word_count)
     user_prompt = _build_description_user_prompt(recipe_title, recipe_data)
 
