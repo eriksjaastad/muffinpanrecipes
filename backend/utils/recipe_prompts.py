@@ -26,6 +26,7 @@ def generate_recipe(
     concept: str,
     personality_context: Dict[str, Any],
     model: Optional[str] = None,
+    target_category: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Generate a complete muffin tin recipe.
 
@@ -33,13 +34,15 @@ def generate_recipe(
         concept: Recipe concept (e.g. "Savory Breakfast Egg Muffins")
         personality_context: Baker's personality dict (name, backstory, quirks, core_traits)
         model: Override model (default: RECIPE_MODEL env var or openai/gpt-5-mini)
+        target_category: If set, steer the LLM toward this category
+                         (e.g. "Party", "Breakfast", "Sweet", "Savory")
 
     Returns:
         Structured recipe dict with title, ingredients, instructions, etc.
     """
     use_model = model or config.recipe_model
     system_prompt = _build_recipe_system_prompt(personality_context)
-    user_prompt = _build_recipe_user_prompt(concept)
+    user_prompt = _build_recipe_user_prompt(concept, target_category=target_category)
 
     response = generate_response(
         prompt=user_prompt,
@@ -81,7 +84,7 @@ SERVINGS: [number]
 PREP_TIME: [minutes]
 COOK_TIME: [minutes]
 DIFFICULTY: [easy/medium/hard]
-CATEGORY: [sweet/savory/dessert/breakfast/snack]
+CATEGORY: [breakfast/savory/sweet/party] (party = finger foods, appetizers, entertaining bites)
 
 INGREDIENTS:
 - [amount] [ingredient] ([optional note])
@@ -96,7 +99,14 @@ INSTRUCTIONS:
 CHEF_NOTES: [Your professional tips, what to watch for, serving suggestions]"""
 
 
-def _build_recipe_user_prompt(concept: str) -> str:
+def _build_recipe_user_prompt(
+    concept: str,
+    target_category: Optional[str] = None,
+) -> str:
+    category_line = ""
+    if target_category:
+        category_line = f"\n- Target category: {target_category}. The recipe MUST fit this category."
+
     return f"""Create a muffin tin recipe for: {concept}
 
 Remember:
@@ -104,7 +114,7 @@ Remember:
 - Be specific with ingredients (name varieties, brands if relevant)
 - Include exact measurements and temperatures in US customary units (cups, tbsp, tsp, oz, lbs, °F)
 - Make it genuinely delicious and practical
-- Think beyond traditional muffins - the tin is just the cooking vessel
+- Think beyond traditional muffins - the tin is just the cooking vessel{category_line}
 
 Generate the complete recipe now."""
 

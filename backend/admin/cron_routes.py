@@ -149,12 +149,14 @@ def _generate_dialogue(
     image_paths: list[str] | None = None,
     photography_context: dict | None = None,
     model: str | None = None,
+    injected_event: str | None = None,
 ) -> list[dict]:
     """Run dialogue simulator for a single stage. Non-fatal on failure.
 
     Args:
         model: Override dialogue model. Pass from API request body.
                Defaults to config.dialogue_model (DIALOGUE_MODEL env / Doppler).
+        injected_event: Narrative event injected into every character's prompt.
     """
     use_model = model or config.dialogue_model
     try:
@@ -164,7 +166,7 @@ def _generate_dialogue(
             default_model=use_model,
             run_index=1,
             stage_only=stage,
-            injected_event=None,
+            injected_event=injected_event,
             ticks_per_day=0,
             mode="openai",
             prompt_style="scene",
@@ -309,6 +311,7 @@ def _generate_and_judge_dialogue(
     image_paths: list[str] | None = None,
     photography_context: dict | None = None,
     max_retries: int = 2,
+    injected_event: str | None = None,
 ) -> tuple[list[dict], str]:
     """Generate dialogue and run judge. Retry on FAIL up to max_retries.
 
@@ -326,6 +329,7 @@ def _generate_and_judge_dialogue(
             image_paths=image_paths,
             photography_context=photography_context,
             model=model,
+            injected_event=injected_event,
         )
         if not dialogue:
             return dialogue, "NO DIALOGUE GENERATED"
@@ -775,9 +779,38 @@ async def cron_monday(request: Request):
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     _configure_test_mode(body)
     episode_id = body.episode_id or _current_episode_id()
-    ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
-    concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
+
+    # --- Auto-select concept and target category when not provided ---
+    target_category: str | None = None
+    if body.concept:
+        concept = body.concept
+    else:
+        try:
+            from scripts.pick_concept import pick_concept, pick_target_category
+            target_category = pick_target_category()
+            picks = pick_concept(count=1, target_category=target_category)
+            concept = picks[0] if picks else "Weekly Muffin Pan Recipe"
+            logger.info(f"Auto-selected concept={concept!r}, category={target_category}")
+        except Exception as exc:
+            logger.warning(f"Auto concept pick failed, using default: {exc}")
+            concept = "Weekly Muffin Pan Recipe"
+
+    ep = _load_or_create_episode(episode_id, concept)
+    concept = body.concept or ep.get("concept") or concept
     ep["concept"] = concept
+    if target_category:
+        ep["target_category"] = target_category
+
+    # W15 narrative injection: characters discover the "Party" category
+    injected_event: str | None = None
+    if episode_id == "2026-W15":
+        injected_event = (
+            "The team has been making mostly savory and breakfast recipes for weeks. "
+            "Someone suggests they should add a new category to their repertoire: "
+            "'Party' — appetizers, finger foods, entertaining bites. Summer is coming "
+            "and people will want recipes for gatherings. The team debates and gets "
+            "excited about the creative possibilities of party food in muffin tins."
+        )
 
     with _run_stage(ep, "monday"):
         import uuid
@@ -791,15 +824,19 @@ async def cron_monday(request: Request):
         # per request so active_recipes is always empty. start_recipe is idempotent.
         orchestrator.pipeline.start_recipe(ep["recipe_id"], concept)
 
-        recipe_data = orchestrator._execute_stage_baker(ep["recipe_id"], concept)
+        recipe_data = orchestrator._execute_stage_baker(
+            ep["recipe_id"], concept, target_category=target_category,
+        )
         dialogue, judge_verdict = _generate_and_judge_dialogue(
             "monday", concept, ep, model=body.model,
+            injected_event=injected_event,
         )
 
         ep["stages"]["monday"] = {
             "stage": "brainstorm",
             "status": "complete",
             "concept": concept,
+            "target_category": target_category,
             "recipe_data": recipe_data,
             "dialogue": dialogue,
             "judge_verdict": judge_verdict,
@@ -811,6 +848,7 @@ async def cron_monday(request: Request):
 
     return _stage_response("monday", episode_id, concept, {
         "recipe_title": recipe_data.get("title", concept) if recipe_data else concept,
+        "target_category": target_category,
         "dialogue_messages": len(dialogue),
     })
 
