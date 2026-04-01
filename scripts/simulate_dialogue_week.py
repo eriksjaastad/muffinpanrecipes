@@ -82,6 +82,7 @@ CHARACTER_DAY_GOALS: dict[str, dict[str, str]] = {
         "Julian Torres": "You're already thinking about how this will photograph.",
         "Marcus Reid": "You're looking for the story angle - what makes this worth writing about.",
         "Devon Park": "You're listening. You'll care when it hits deployment.",
+        "Ria Castillo": "You're evaluating whether this concept will perform on social. Think hooks, shareability, visual potential.",
     },
     "tuesday": {
         "Margaret Chen": "This is your domain. The ratios have to be right or it doesn't ship.",
@@ -96,6 +97,7 @@ CHARACTER_DAY_GOALS: dict[str, dict[str, str]] = {
         "Julian Torres": "These are YOUR shots. You have a strong opinion about which one leads.",
         "Marcus Reid": "You see the visual story. You have thoughts about which shot matches the copy.",
         "Devon Park": "You'll optimize whatever they pick. Not your fight.",
+        "Ria Castillo": "This is your main day. You need shots that work as social content - vertical crops, close-ups, process moments. Push for what performs.",
     },
     "thursday": {
         "Margaret Chen": "You'll cut anything that doesn't serve the recipe. No patience for fluff. Titles should be simple and honest.",
@@ -103,6 +105,7 @@ CHARACTER_DAY_GOALS: dict[str, dict[str, str]] = {
         "Julian Torres": "You care about how the title and copy pair with your images. Short titles look better on the page.",
         "Marcus Reid": "You propose the title and it's YOUR copy being reviewed. You love a dramatic title but can be talked down.",
         "Devon Park": "You'll read it if someone sends it. Probably fine.",
+        "Ria Castillo": "You need a title that works as a caption and a share card. Short, punchy, clickable. Six words max or you're losing people.",
     },
     "friday": {
         "Margaret Chen": "Last chance to catch something wrong. You take this seriously.",
@@ -124,6 +127,7 @@ CHARACTER_DAY_GOALS: dict[str, dict[str, str]] = {
         "Julian Torres": "You want to see the published page. Your photos, live.",
         "Marcus Reid": "Your words go public today. A mix of pride and dread.",
         "Devon Park": "Push the button. Make sure nothing breaks.",
+        "Ria Castillo": "Publish day means content day. You're planning the social rollout - which shot goes first, what time to post, what the caption is.",
     },
 }
 
@@ -253,18 +257,18 @@ def load_personas() -> dict[str, dict[str, Any]]:
 
 def participants_for_day(day: str) -> list[str]:
     if day == "monday":
-        return ["Margaret Chen", "Marcus Reid", "Stephanie 'Steph' Whitmore"]
+        return ["Margaret Chen", "Marcus Reid", "Stephanie 'Steph' Whitmore", "Ria Castillo"]
     if day == "tuesday":
         return ["Margaret Chen", "Stephanie 'Steph' Whitmore", "Marcus Reid"]
     if day == "wednesday":
-        return ["Julian Torres", "Stephanie 'Steph' Whitmore", "Margaret Chen"]
+        return ["Julian Torres", "Stephanie 'Steph' Whitmore", "Margaret Chen", "Ria Castillo"]
     if day == "thursday":
-        return ["Marcus Reid", "Stephanie 'Steph' Whitmore", "Margaret Chen"]
+        return ["Marcus Reid", "Stephanie 'Steph' Whitmore", "Margaret Chen", "Ria Castillo"]
     if day == "friday":
         return ["Margaret Chen", "Stephanie 'Steph' Whitmore", "Julian Torres", "Marcus Reid", "Devon Park"]
     if day == "saturday":
         return ["Devon Park", "Margaret Chen"]
-    return ["Stephanie 'Steph' Whitmore", "Margaret Chen", "Marcus Reid"]
+    return ["Stephanie 'Steph' Whitmore", "Margaret Chen", "Marcus Reid", "Ria Castillo"]
 
 
 _CHARACTER_VOICE_GUIDES: dict[str, str] = {
@@ -323,6 +327,20 @@ _CHARACTER_VOICE_GUIDES: dict[str, str] = {
         "He appears lazy but has high personal standards for his code. "
         "He automated most of his job and isn't sure if he should tell anyone. "
         "MAXIMUM 12 words."
+    ),
+    "Ria Castillo": (
+        "Ria is direct and fast. She talks in platform-speak but it's earned, not jargon - "
+        "she actually knows what performs. She thinks visually and temporally (when will people see this, "
+        "on what device, in what mood). She's not rude but she's impatient with process. "
+        "She cuts to 'will this get engagement' faster than anyone's comfortable with. "
+        "1-2 sentences. Average message: 10-20 words. "
+        "She clashes with Margaret over Instagram culture. She intimidates Steph by being decisive. "
+        "She and Julian have creative tension - same visual instincts but different end goals (engagement vs art). "
+        "She finds Marcus's long copy physically painful. Devon is the only person she doesn't have friction with "
+        "because he also just wants things to work. "
+        "Her internal war: she's terrified that her skills are disposable - that algorithms change and "
+        "she'll be obsolete at 26. She frames everything as data because feelings got her fired once. "
+        "MAXIMUM 20 words."
     ),
 }
 
@@ -383,6 +401,12 @@ _CHARACTER_EXAMPLE_MESSAGES: dict[str, list[str]] = {
         "Pushed the fix. Should be live in two minutes.",
         "That recipe page is loading slow. Images are too big.",
         "Hey. What needs deploying.",
+    ],
+    "Ria Castillo": [
+        "That hero shot is beautiful but it's a swipe-past on mobile. We need texture in the first frame.",
+        "Can we get a 15-second version of Margaret pulling these out of the oven? That steam moment.",
+        "The caption writes itself but we need the recipe title shorter. Six words max for a share card.",
+        "Hey. Just looking at last week's numbers before we start.",
     ],
 }
 
@@ -1420,6 +1444,7 @@ _DOMAIN_KEYWORDS: dict[str, list[str]] = {
     "Julian Torres": ["photo", "shot", "lighting", "angle", "visual", "image", "composition", "negative space", "styling", "aesthetic"],
     "Marcus Reid": ["copy", "headline", "description", "words", "writing", "draft", "tone", "voice", "narrative", "story"],
     "Devon Park": ["deploy", "staging", "site", "push", "build", "server", "code", "fix", "automated", "script"],
+    "Ria Castillo": ["social", "post", "caption", "engagement", "scroll", "hook", "share", "reel", "story", "followers"],
 }
 
 # Day leads — who opens each day (deterministic)
