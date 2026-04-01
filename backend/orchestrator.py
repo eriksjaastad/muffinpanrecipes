@@ -230,14 +230,20 @@ class RecipeOrchestrator:
             )
             raise
 
-    def _execute_stage_baker(self, recipe_id: str, concept: str) -> Dict:
+    def _execute_stage_baker(
+        self, recipe_id: str, concept: str, target_category: str | None = None
+    ) -> Dict:
         """Execute baker's recipe development stage."""
         baker = self.agents["baker"]
 
         task = Task(
             type="create_recipe",
             content=f"Create a muffin tin recipe for: {concept}",
-            context={"recipe_id": recipe_id, "concept": concept}
+            context={
+                "recipe_id": recipe_id,
+                "concept": concept,
+                "target_category": target_category,
+            }
         )
 
         result = baker.process_task(task)

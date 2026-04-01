@@ -58,8 +58,26 @@ SWEET_KEYWORDS = ["cake", "cookie", "brownie", "chocolate", "caramel",
                   "vanilla", "cheesecake", "tart", "pudding", "custard",
                   "panna cotta", "tiramisu", "lemon", "berry", "pumpkin"]
 
+PARTY_KEYWORDS = ["slider", "bite", "dip", "wing", "nacho", "bruschetta",
+                  "crostini", "skewer", "appetizer", "finger", "pinwheel",
+                  "phyllo", "puff pastry", "spring roll", "wonton",
+                  "crab", "brie", "prosciutto", "caprese", "stuffed"]
 
-def _fetch(url: str, timeout: int = 8) -> str:
+BREAKFAST_KEYWORDS = ["egg", "oatmeal", "pancake", "waffle", "bacon",
+                      "sausage", "hash", "toast", "granola", "frittata",
+                      "quiche", "brunch", "morning"]
+
+VALID_CATEGORIES = ["Breakfast", "Savory", "Sweet", "Party"]
+
+CATEGORY_KEYWORDS = {
+    "Breakfast": BREAKFAST_KEYWORDS,
+    "Savory": SAVORY_KEYWORDS,
+    "Sweet": SWEET_KEYWORDS,
+    "Party": PARTY_KEYWORDS,
+}
+
+
+def _fetch(url: str, timeout: int = 5) -> str:
     """Fetch URL text, returning empty string on failure."""
     try:
         req = urllib.request.Request(
@@ -130,8 +148,13 @@ def _load_recent_concepts(n: int = 4) -> list[str]:
     return concepts
 
 
-def score_candidate(name: str, recent_concepts: list[str], current_month: int) -> float:
-    """Score a recipe name 0–8. Higher = better pick."""
+def score_candidate(
+    name: str,
+    recent_concepts: list[str],
+    current_month: int,
+    target_category: str | None = None,
+) -> float:
+    """Score a recipe name 0–10. Higher = better pick."""
     low = name.lower()
     score = 0.0
 
@@ -162,17 +185,33 @@ def score_candidate(name: str, recent_concepts: list[str], current_month: int) -
         if kw in low:
             score += 0.5
 
-    # 4. Sweet/savory variety balance (0-1)
-    # We don't track this yet — give a small bonus just for being identifiable
-    if any(kw in low for kw in SAVORY_KEYWORDS) or any(kw in low for kw in SWEET_KEYWORDS):
-        score += 0.5
+    # 4. Category identification (0-1)
+    for cat_keywords in CATEGORY_KEYWORDS.values():
+        if any(kw in low for kw in cat_keywords):
+            score += 0.5
+            break
 
-    score = min(score, 8.0)
+    # 5. Target category bonus (+2) — boost candidates matching the desired category
+    if target_category and target_category in CATEGORY_KEYWORDS:
+        cat_kws = CATEGORY_KEYWORDS[target_category]
+        if any(kw in low for kw in cat_kws):
+            score += 2.0
+
+    score = min(score, 10.0)
     return round(max(0.0, score), 2)
 
 
-def pick_concept(dry_run: bool = False, count: int = 1) -> list[str]:
-    """Main entry point. Returns list of selected concept strings."""
+def pick_concept(
+    dry_run: bool = False,
+    count: int = 1,
+    target_category: str | None = None,
+) -> list[str]:
+    """Main entry point. Returns list of selected concept strings.
+
+    Args:
+        target_category: If set, boost candidates matching this category
+                         (one of "Breakfast", "Savory", "Sweet", "Party").
+    """
     recent = _load_recent_concepts()
     month = date.today().month
 
@@ -185,7 +224,7 @@ def pick_concept(dry_run: bool = False, count: int = 1) -> list[str]:
             continue
         names = _extract_recipe_names(html)
         for name in names:
-            s = score_candidate(name, recent, month)
+            s = score_candidate(name, recent, month, target_category=target_category)
             all_candidates.append((source_name, name, s))
 
     if not all_candidates:
@@ -199,9 +238,19 @@ def pick_concept(dry_run: bool = False, count: int = 1) -> list[str]:
             "Spinach and Feta Egg Cups",
             "Mini Chocolate Lava Cakes",
             "Buffalo Chicken Muffin Cups",
+            "Mini Puff Pastry Brie Bites",
+            "Buffalo Chicken Wonton Cups",
+            "Spinach Artichoke Dip Cups",
+            "Mini Caprese Bruschetta Bites",
         ]
         # Filter out recently used
         fallbacks = [f for f in fallbacks if f.lower() not in recent]
+        # If targeting a category, prefer matching fallbacks
+        if target_category and target_category in CATEGORY_KEYWORDS:
+            cat_kws = CATEGORY_KEYWORDS[target_category]
+            matching = [f for f in fallbacks if any(kw in f.lower() for kw in cat_kws)]
+            if matching:
+                fallbacks = matching
         selected = random.sample(fallbacks, min(count, len(fallbacks)))
         print("\n[fallback] No candidates scraped — using curated list.")
         for c in selected:
@@ -234,6 +283,46 @@ def pick_concept(dry_run: bool = False, count: int = 1) -> list[str]:
             chosen.append(name)
             print(f"  ✅ Selected: {name}  (score={s}, source={src})", file=sys.stderr)
 
+    return chosen
+
+
+def pick_target_category() -> str:
+    """Weighted random category selection favoring underrepresented categories.
+
+    Reads the recipe catalog to count recipes per category, then uses
+    inverse-frequency weighting so underrepresented categories are more
+    likely to be picked.
+    """
+    counts: dict[str, int] = {cat: 0 for cat in VALID_CATEGORIES}
+
+    # Try blob catalog first (production), fall back to static file
+    catalog_data = None
+    try:
+        from backend.storage import storage
+        blob_content = storage.load_page("pages/recipes.json")
+        if blob_content:
+            catalog_data = json.loads(blob_content)
+    except Exception:
+        pass
+
+    if not catalog_data:
+        catalog_path = ROOT / "src" / "recipes.json"
+        try:
+            catalog_data = json.loads(catalog_path.read_text())
+        except Exception:
+            pass
+
+    if catalog_data:
+        for recipe in catalog_data.get("recipes", []):
+            cat = recipe.get("category", "").title()
+            if cat in counts:
+                counts[cat] += 1
+
+    # Inverse-frequency weighting: fewer recipes = higher weight
+    total = sum(counts.values()) or 1
+    weights = [(total - counts[cat] + 1) for cat in VALID_CATEGORIES]
+    chosen = random.choices(VALID_CATEGORIES, weights=weights, k=1)[0]
+    print(f"  [category] Counts: {counts} → selected: {chosen}", file=sys.stderr)
     return chosen
 
 
