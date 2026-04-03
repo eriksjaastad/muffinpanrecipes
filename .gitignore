@@ -63,6 +63,11 @@ src/assets/images/
 # Prompt research data (large experiment outputs — kept local only)
 prompt-research/
 
+# Simulation/benchmark data (local test artifacts)
+data/simulations/
+data/api-usage/
+data/judgments/
+
 # Outcome verification (holdout set — not visible to workers)
 SCENARIOS.md
 EVIDENCE.md
