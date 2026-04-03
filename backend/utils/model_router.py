@@ -19,7 +19,8 @@ from typing import Optional
 from backend.utils.logging import get_logger
 
 # Centralized cost tracker (silent no-op if unavailable)
-sys.path.insert(0, os.path.expanduser("~/projects/synth-insight-labs/api-cost-tracker"))
+_tracker_path = os.environ.get("COST_TRACKER_PATH", os.path.expanduser("~/projects/synth-insight-labs/api-cost-tracker"))
+sys.path.insert(0, _tracker_path)
 try:
     from ai_cost_tracker import track as _central_track
 except ImportError:
