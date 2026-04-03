@@ -3,9 +3,19 @@
 from __future__ import annotations
 
 import base64
+import os
+import sys
 from typing import Any
 
 import requests
+
+# Centralized cost tracker (silent no-op if unavailable)
+if os.environ.get("COST_TRACKER_PATH"):
+    sys.path.insert(0, os.environ["COST_TRACKER_PATH"])
+try:
+    from ai_cost_tracker import log_call
+except ImportError:
+    log_call = lambda *a, **kw: None
 
 
 def generate_stability_image(
@@ -36,6 +46,7 @@ def generate_stability_image(
     }
 
     response = requests.post(url, headers=headers, json=body, timeout=timeout)
+    log_call("stability", service="image", project="muffinpanrecipes", caller="image_generation.stability")
     if response.status_code != 200:
         raise RuntimeError(f"Stability API error {response.status_code}: {response.text[:200]}")
 
@@ -114,4 +125,5 @@ def generate_nano_banana_image(
             config=config,
         )
 
+    log_call("google", service="imagen", project="muffinpanrecipes", caller="image_generation.nano_banana")
     return _extract_inline_image_bytes(response)

@@ -11,11 +11,20 @@ provider (e.g. Gemini), just:
 from __future__ import annotations
 
 import os
+import sys
 import time
 from dataclasses import dataclass
 from typing import Optional
 
 from backend.utils.logging import get_logger
+
+# Centralized cost tracker (silent no-op if unavailable)
+if os.environ.get("COST_TRACKER_PATH"):
+    sys.path.insert(0, os.environ["COST_TRACKER_PATH"])
+try:
+    from ai_cost_tracker import track as _central_track
+except ImportError:
+    _central_track = lambda resp, *a, **kw: resp
 
 logger = get_logger(__name__)
 
@@ -294,6 +303,7 @@ def _generate_openai(
             getattr(usage, "input_tokens", 0) if usage else 0,
             getattr(usage, "output_tokens", 0) if usage else 0,
         )
+        _central_track(r, "openai", project="muffinpanrecipes", caller="model_router.openai_responses")
 
         text = (getattr(r, "output_text", "") or "").strip()
         if text:
@@ -318,6 +328,7 @@ def _generate_openai(
             getattr(usage, "prompt_tokens", 0) if usage else 0,
             getattr(usage, "completion_tokens", 0) if usage else 0,
         )
+        _central_track(response, "openai", project="muffinpanrecipes", caller="model_router.openai")
         return (response.choices[0].message.content or "").strip()
     except BadRequestError as e:
         msg = str(e)
@@ -330,6 +341,7 @@ def _generate_openai(
                 getattr(usage, "prompt_tokens", 0) if usage else 0,
                 getattr(usage, "completion_tokens", 0) if usage else 0,
             )
+            _central_track(response, "openai", project="muffinpanrecipes", caller="model_router.openai")
             return (response.choices[0].message.content or "").strip()
         if "v1/responses" in low or "responses api" in low:
             return _from_responses()
@@ -375,6 +387,7 @@ def _generate_anthropic(
         getattr(usage, "input_tokens", 0) if usage else 0,
         getattr(usage, "output_tokens", 0) if usage else 0,
     )
+    _central_track(response, "anthropic", project="muffinpanrecipes", caller="model_router.anthropic")
 
     parts = []
     for block in response.content:
@@ -421,6 +434,7 @@ def _generate_google(
             or 0
         )
     _record_cost("google", model, tokens_in, tokens_out)
+    _central_track(response, "google", project="muffinpanrecipes", caller="model_router.google")
 
     text = (getattr(response, "text", None) or "").strip()
     if text:
@@ -475,6 +489,7 @@ def _generate_vision_openai(
         getattr(usage, "prompt_tokens", 0) if usage else 0,
         getattr(usage, "completion_tokens", 0) if usage else 0,
     )
+    _central_track(response, "openai", project="muffinpanrecipes", caller="model_router.vision_openai")
     return (response.choices[0].message.content or "").strip()
 
 
@@ -524,6 +539,7 @@ def _generate_vision_anthropic(
         getattr(usage, "input_tokens", 0) if usage else 0,
         getattr(usage, "output_tokens", 0) if usage else 0,
     )
+    _central_track(response, "anthropic", project="muffinpanrecipes", caller="model_router.vision_anthropic")
     parts = []
     for block in response.content:
         if hasattr(block, "text"):
