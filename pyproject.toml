@@ -5,6 +5,7 @@ description = "AI Creative Team System for Muffin Pan Recipes"
 authors = [{name = "Erik Sjaastad"}]
 requires-python = ">=3.11"
 dependencies = [
+    "ai-cost-tracker",
     "pydantic>=2.0.0",
     "python-dotenv>=1.0.0",
     "hypothesis>=6.0.0",
@@ -63,6 +64,9 @@ python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
+
+[tool.uv.sources]
+ai-cost-tracker = { path = "../synth-insight-labs/api-cost-tracker/client", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["backend"]
