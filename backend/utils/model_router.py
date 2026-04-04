@@ -11,16 +11,12 @@ provider (e.g. Gemini), just:
 from __future__ import annotations
 
 import os
-import sys
 import time
 from dataclasses import dataclass
 from typing import Optional
 
 from backend.utils.logging import get_logger
 
-# Centralized cost tracker (silent no-op if unavailable)
-if os.environ.get("COST_TRACKER_PATH"):
-    sys.path.insert(0, os.environ["COST_TRACKER_PATH"])
 try:
     from ai_cost_tracker import track as _central_track
 except ImportError:
