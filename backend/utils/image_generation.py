@@ -3,15 +3,10 @@
 from __future__ import annotations
 
 import base64
-import os
-import sys
 from typing import Any
 
 import requests
 
-# Centralized cost tracker (silent no-op if unavailable)
-if os.environ.get("COST_TRACKER_PATH"):
-    sys.path.insert(0, os.environ["COST_TRACKER_PATH"])
 try:
     from ai_cost_tracker import log_call
 except ImportError:
