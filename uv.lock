@@ -3,6 +3,11 @@ revision = 3
 requires-python = ">=3.11"
 
 [[package]]
+name = "ai-cost-tracker"
+version = "0.1.0"
+source = { editable = "../synth-insight-labs/api-cost-tracker/client" }
+
+[[package]]
 name = "annotated-doc"
 version = "0.0.4"
 source = { registry = "https://pypi.org/simple" }
@@ -839,6 +844,7 @@ name = "muffinpanrecipes-creative-team"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "ai-cost-tracker" },
     { name = "anthropic" },
     { name = "boto3" },
     { name = "fastapi" },
@@ -869,6 +875,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "ai-cost-tracker", editable = "../synth-insight-labs/api-cost-tracker/client" },
     { name = "anthropic", specifier = ">=0.39.0" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
     { name = "boto3", specifier = ">=1.35.0,<2.0.0" },
