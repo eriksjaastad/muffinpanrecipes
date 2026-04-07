@@ -134,18 +134,75 @@ def _extract_recipe_names(html: str, max_results: int = 8) -> list[str]:
 
 
 def _load_recent_concepts(n: int = 4) -> list[str]:
-    """Return concept strings from the n most recent episode JSONs."""
-    episodes = sorted(EPISODES_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:n]
+    """Return concept strings from recent episodes AND published catalog.
+
+    Sources (in priority order):
+    1. Published recipe titles from blob catalog (pages/recipes.json)
+    2. Published recipe titles from static catalog (src/recipes.json)
+    3. Local episode JSON files (concept field)
+
+    This ensures the novelty scorer sees ALL published recipes, not just
+    local episode files (which are stale for cron-generated episodes).
+    """
     concepts: list[str] = []
+    seen: set[str] = set()
+
+    # 1. Load ALL published recipe titles from catalog (blob or static)
+    catalog_data = None
+    try:
+        from backend.storage import storage
+        blob_content = storage.load_page("pages/recipes.json")
+        if blob_content:
+            catalog_data = json.loads(blob_content)
+    except Exception:
+        pass
+
+    if not catalog_data:
+        catalog_path = ROOT / "src" / "recipes.json"
+        try:
+            catalog_data = json.loads(catalog_path.read_text())
+        except Exception:
+            pass
+
+    if catalog_data:
+        for recipe in catalog_data.get("recipes", []):
+            title = recipe.get("title", "").lower()
+            if title and title not in seen:
+                seen.add(title)
+                concepts.append(title)
+
+    # 2. Also check local episode files for unpublished concepts
+    episodes = sorted(EPISODES_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:n]
     for ep_path in episodes:
         try:
             data = json.loads(ep_path.read_text())
             c = data.get("concept") or data.get("stages", {}).get("monday", {}).get("concept", "")
-            if c:
+            if c and c.lower() not in seen:
+                seen.add(c.lower())
                 concepts.append(c.lower())
         except Exception:
             pass
+
     return concepts
+
+
+
+# Words too common/generic to count as repetition signals
+_STOP_WORDS = frozenset({
+    "a", "an", "the", "and", "&", "of", "in", "on", "with", "for", "to",
+    "mini", "cups", "cup", "bites", "bite", "muffin", "tin", "pan", "tops",
+    "pots", "baked",
+})
+
+
+def _build_word_freq(recent_concepts: list[str]) -> dict[str, int]:
+    """Count how often each significant word appears across recent recipes."""
+    freq: dict[str, int] = {}
+    for concept in recent_concepts:
+        words = set(concept.lower().split()) - _STOP_WORDS
+        for w in words:
+            freq[w] = freq.get(w, 0) + 1
+    return freq
 
 
 def score_candidate(
@@ -153,6 +210,7 @@ def score_candidate(
     recent_concepts: list[str],
     current_month: int,
     target_category: str | None = None,
+    word_freq: dict[str, int] | None = None,
 ) -> float:
     """Score a recipe name 0–10. Higher = better pick."""
     low = name.lower()
@@ -162,14 +220,25 @@ def score_candidate(
     pan_hits = sum(1 for kw in MUFFIN_PAN_KEYWORDS if kw in low)
     score += min(3.0, pan_hits * 1.0)
 
-    # 2. Novelty (0-2) — penalise if too similar to recent episodes
+    # 2a. Novelty — hard reject if too similar to any published recipe
     for recent in recent_concepts:
         words_overlap = len(set(low.split()) & set(recent.split())) / max(len(low.split()), 1)
         if words_overlap > 0.5:
-            score -= 2.0
+            score -= 4.0  # Much harsher — effectively kills the candidate
             break
     else:
         score += 2.0
+
+    # 2b. Per-word frequency penalty — punish overused ingredients/descriptors
+    if word_freq:
+        candidate_words = set(low.split()) - _STOP_WORDS
+        for w in candidate_words:
+            freq = word_freq.get(w, 0)
+            if freq >= 3:
+                score -= 3.0  # Word in 3+ recipes = hard reject
+                break
+            elif freq >= 2:
+                score -= 1.5  # Word in 2 recipes = strong penalty
 
     # 3. Seasonal fit (0-2)
     season = next(
@@ -214,6 +283,10 @@ def pick_concept(
     """
     recent = _load_recent_concepts()
     month = date.today().month
+    word_freq = _build_word_freq(recent)
+
+    print(f"  [novelty] {len(recent)} known recipes, overused words: "
+          f"{[w for w, c in word_freq.items() if c >= 2]}", file=sys.stderr)
 
     all_candidates: list[tuple[str, str, float]] = []  # (source, name, score)
 
@@ -224,7 +297,7 @@ def pick_concept(
             continue
         names = _extract_recipe_names(html)
         for name in names:
-            s = score_candidate(name, recent, month, target_category=target_category)
+            s = score_candidate(name, recent, month, target_category=target_category, word_freq=word_freq)
             all_candidates.append((source_name, name, s))
 
     if not all_candidates:
@@ -243,8 +316,12 @@ def pick_concept(
             "Spinach Artichoke Dip Cups",
             "Mini Caprese Bruschetta Bites",
         ]
-        # Filter out recently used
+        # Filter out recently used and concepts with overused words
         fallbacks = [f for f in fallbacks if f.lower() not in recent]
+        fallbacks = [
+            f for f in fallbacks
+            if not any(word_freq.get(w, 0) >= 2 for w in set(f.lower().split()) - _STOP_WORDS)
+        ]
         # If targeting a category, prefer matching fallbacks
         if target_category and target_category in CATEGORY_KEYWORDS:
             cat_kws = CATEGORY_KEYWORDS[target_category]
