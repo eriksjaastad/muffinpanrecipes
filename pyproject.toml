@@ -5,7 +5,6 @@ description = "AI Creative Team System for Muffin Pan Recipes"
 authors = [{name = "Erik Sjaastad"}]
 requires-python = ">=3.11"
 dependencies = [
-    "ai-cost-tracker",
     "pydantic>=2.0.0",
     "python-dotenv>=1.0.0",
     "hypothesis>=6.0.0",
@@ -28,6 +27,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "ai-cost-tracker",
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
