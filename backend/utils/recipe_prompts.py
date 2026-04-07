@@ -207,6 +207,7 @@ def _enforce_title_rules(title: str) -> str:
     - No parentheticals or subtitles
     - No days of the week
     - No ellipsis or stylistic separators
+    - No utilitarian/meal-prep language
     """
     # Strip parentheticals: "Foo (Bar Baz)" → "Foo"
     title = re.sub(r'\s*\(.*?\)\s*', ' ', title).strip()
@@ -215,6 +216,17 @@ def _enforce_title_rules(title: str) -> str:
     # Remove days of the week
     days = r'\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b'
     title = re.sub(days, '', title, flags=re.IGNORECASE).strip()
+    # Remove utilitarian / meal-prep language — these aren't appetizing
+    banned_phrases = [
+        r'\bmeal[\s-]?prep\b', r'\bmake[\s-]?ahead\b', r'\bmake[\s-]?before\b',
+        r'\bbatch[\s-]?cook\b', r'\bfreezer[\s-]?friendly\b',
+    ]
+    banned_words = [
+        r'\bprep\b', r'\bprepped\b', r'\bfreezable\b', r'\breheatable\b',
+        r'\bmeal\b', r'\bweeknight\b', r'\bquick\b', r'\beasy\b',
+    ]
+    for pattern in banned_phrases + banned_words:
+        title = re.sub(pattern, '', title, flags=re.IGNORECASE).strip()
     # Clean up leftover double spaces
     title = re.sub(r'\s{2,}', ' ', title).strip()
     # If still > 6 words, truncate to 6
