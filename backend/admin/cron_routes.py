@@ -32,6 +32,7 @@ Usage:
 
 from __future__ import annotations
 import hmac
+import json
 import os
 import re
 from contextlib import contextmanager
@@ -364,8 +365,9 @@ def _generate_and_judge_dialogue(
 # ---------------------------------------------------------------------------
 
 _EDITORIAL_QA_SYSTEM_PROMPT = (
-    "You are a meticulous editorial proofreader for a food recipe website. "
-    "Review the recipe content below for quality before it goes live.\n\n"
+    "You are the editorial director for Muffin Pan Recipes, a food website. "
+    "You review every recipe before publication. You care deeply about quality, "
+    "originality, and making readers hungry.\n\n"
     "CHECK FOR:\n"
     "1. ENCODING: Any garbled characters, mojibake, or broken symbols (e.g. Ã¢, ÃÂ°)\n"
     "2. PUNCTUATION: Mismatched quotes, missing apostrophes, broken dashes\n"
@@ -376,12 +378,23 @@ _EDITORIAL_QA_SYSTEM_PROMPT = (
     "7. PLAUSIBILITY: Oven temps 250-500°F, cook times reasonable, yields make sense for 12-cup muffin tin\n"
     "8. INGREDIENT-INSTRUCTION MATCH: Every ingredient should be used, no phantom ingredients\n"
     "9. BRAND VOICE: Warm, professional food writing — not robotic or generic\n"
-    "10. TITLE: Must be 3-6 words, no subtitles, no parentheticals, no days of the week\n\n"
+    "10. TITLE RULES (automatic FAIL if violated):\n"
+    "    a. Must be 3-6 words. No subtitles, parentheticals, or days of the week.\n"
+    "    b. Must sound APPETIZING — like something you'd see on a food magazine cover.\n"
+    "       FAIL words: 'prep', 'meal prep', 'make-ahead', 'batch', 'easy', 'quick',\n"
+    "       'simple', 'weeknight', 'freezer', 'budget', 'healthy'. These are SEO slop,\n"
+    "       not food writing.\n"
+    "    c. Must NOT repeat key words from recently published recipes (provided below).\n"
+    "       If the title shares a distinctive word (not 'mini'/'cups'/'bites') with\n"
+    "       ANY of the last 3 published recipes, it FAILS for lack of variety.\n"
+    "    d. The title should evoke the DISH, not the METHOD. 'Roasted Veggie Egg Cups'\n"
+    "       is borderline. 'Herbed Vegetable Frittata Cups' is better.\n\n"
     "Respond with EXACTLY this format:\n"
     "STATUS: PASS or FAIL\n"
     "ISSUES: (list each issue on its own line, or 'None' if passing)\n"
     "RECOMMENDATION: (one sentence)\n\n"
-    "Be strict. A recipe with ANY encoding issue or factual error is an automatic FAIL."
+    "Be strict. A recipe with ANY encoding issue, factual error, or title rule "
+    "violation is an automatic FAIL."
 )
 
 MAX_QA_FIX_ATTEMPTS = 2
@@ -392,6 +405,10 @@ _RECIPE_FIX_SYSTEM_PROMPT = (
     "Fix ALL identified issues while preserving the recipe's character and intent.\n\n"
     "RULES:\n"
     "1. TITLE: Must be 3-6 words. No subtitles, parentheticals, days of the week, or ellipsis.\n"
+    "   The title must sound APPETIZING — like a food magazine cover. Never use utilitarian\n"
+    "   words like 'prep', 'meal prep', 'make-ahead', 'batch', 'easy', 'quick', 'simple',\n"
+    "   'weeknight', 'freezer', 'budget', 'healthy'. Evoke the DISH, not the METHOD.\n"
+    "   If the title repeats key words from recent recipes, choose completely different words.\n"
     "2. INGREDIENTS: Consolidate duplicates. If the same ingredient appears multiple times, "
     "either combine into one entry with the total amount, or group under clear sub-headings "
     "(e.g. 'For the filling:', 'For the topping:').\n"
@@ -546,7 +563,28 @@ def _editorial_qa_review(episode: dict) -> tuple[bool, str]:
         for i, s in enumerate(instructions)
     )
 
+    # Load recently published recipe titles for repetition check
+    recent_titles: list[str] = []
+    try:
+        catalog_raw = storage.load_page("pages/recipes.json")
+        if catalog_raw:
+            catalog = json.loads(catalog_raw)
+            recent_titles = [
+                r.get("title", "") for r in catalog.get("recipes", [])[:8]
+            ]
+    except Exception:
+        pass
+
+    catalog_context = ""
+    if recent_titles:
+        catalog_context = (
+            "RECENTLY PUBLISHED RECIPES (check title for repetition):\n"
+            + "\n".join(f"  - {t}" for t in recent_titles)
+            + "\n\n"
+        )
+
     review_prompt = (
+        f"{catalog_context}"
         f"RECIPE TO REVIEW:\n\n"
         f"Title: {title}\n\n"
         f"Description: {description}\n\n"
