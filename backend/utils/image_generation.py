@@ -8,7 +8,7 @@ from typing import Any
 import requests
 
 try:
-    from ai_cost_tracker import log_call
+    from api_trust_tracker import log_call
 except ImportError:
     log_call = lambda *a, **kw: None
 
