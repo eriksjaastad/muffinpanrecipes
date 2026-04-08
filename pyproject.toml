@@ -27,7 +27,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "ai-cost-tracker",
+    "api-trust-tracker>=0.1.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
@@ -66,7 +66,6 @@ warn_unused_configs = true
 disallow_untyped_defs = true
 
 [tool.uv.sources]
-ai-cost-tracker = { path = "../synth-insight-labs/api-cost-tracker/client", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["backend"]

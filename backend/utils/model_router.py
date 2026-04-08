@@ -18,7 +18,7 @@ from typing import Optional
 from backend.utils.logging import get_logger
 
 try:
-    from ai_cost_tracker import track as _central_track
+    from api_trust_tracker import track as _central_track
 except ImportError:
     _central_track = lambda resp, *a, **kw: resp
 
