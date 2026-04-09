@@ -3,11 +3,6 @@ revision = 3
 requires-python = ">=3.11"
 
 [[package]]
-name = "ai-cost-tracker"
-version = "0.1.0"
-source = { editable = "../synth-insight-labs/api-cost-tracker/client" }
-
-[[package]]
 name = "annotated-doc"
 version = "0.0.4"
 source = { registry = "https://pypi.org/simple" }
@@ -55,6 +50,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/96/f0/5eb65b2bb0d09ac6776f2eb54adee6abe8228ea05b20a5ad0e4945de8aac/anyio-4.12.1.tar.gz", hash = "sha256:41cfcc3a4c85d3f05c932da7c26d0201ac36f72abd4435ba90d0464a3ffed703", size = 228685, upload-time = "2026-01-06T11:45:21.246Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/38/0e/27be9fdef66e72d64c0cdc3cc2823101b80585f8119b5c112c2e8f5f7dab/anyio-4.12.1-py3-none-any.whl", hash = "sha256:d405828884fc140aa80a3c667b8beed277f1dfedec42ba031bd6ac3db606ab6c", size = 113592, upload-time = "2026-01-06T11:45:19.497Z" },
+]
+
+[[package]]
+name = "api-trust-tracker"
+version = "0.1.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/00/48/88ff41ecc5bd627c365d4d2b824855a38d7885a1c3e4985c1526ec6ebeaa/api_trust_tracker-0.1.1.tar.gz", hash = "sha256:60da08f4db44fbb78d087441ed49fff4b8a7b5a8762e9c7e44b1957d216614d3", size = 4458, upload-time = "2026-04-09T00:13:01.01Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/01/72/f84527b571da0be74eff24bd03a974d37278c3d835aa257827b65bcbf4b1/api_trust_tracker-0.1.1-py3-none-any.whl", hash = "sha256:cf7acd49d9caa2848d872e18fe8f25b2baa4ff36a583dd70b845d10e64b37821", size = 5712, upload-time = "2026-04-09T00:13:00.005Z" },
 ]
 
 [[package]]
@@ -856,7 +860,6 @@ dependencies = [
     { name = "pydantic" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
-    { name = "python-dotenv" },
     { name = "python-jose", extra = ["cryptography"] },
     { name = "requests" },
     { name = "send2trash" },
@@ -865,7 +868,7 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
-    { name = "ai-cost-tracker" },
+    { name = "api-trust-tracker" },
     { name = "black" },
     { name = "mypy" },
     { name = "playwright" },
@@ -875,8 +878,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "ai-cost-tracker", marker = "extra == 'dev'", editable = "../synth-insight-labs/api-cost-tracker/client" },
     { name = "anthropic", specifier = ">=0.39.0" },
+    { name = "api-trust-tracker", marker = "extra == 'dev'", specifier = ">=0.1.0" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
     { name = "boto3", specifier = ">=1.35.0,<2.0.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
@@ -892,7 +895,6 @@ requires-dist = [
     { name = "pytest", specifier = ">=7.0.0" },
     { name = "pytest-asyncio", specifier = ">=0.21.0" },
     { name = "pytest-playwright", marker = "extra == 'dev'", specifier = ">=0.4.0" },
-    { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "python-jose", extras = ["cryptography"], specifier = ">=3.3.0" },
     { name = "requests", specifier = ">=2.28.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },

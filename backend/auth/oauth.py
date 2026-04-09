@@ -63,8 +63,8 @@ class GoogleOAuth:
             redirect_uri: OAuth callback URL
             authorized_emails: Set of authorized email addresses (defaults to env var)
         """
-        self.client_id = client_id or os.getenv("GOOGLE_CLIENT_ID")
-        self.client_secret = client_secret or os.getenv("GOOGLE_CLIENT_SECRET")
+        self.client_id = client_id or os.environ["GOOGLE_CLIENT_ID"]
+        self.client_secret = client_secret or os.environ["GOOGLE_CLIENT_SECRET"]
         # GOOGLE_REDIRECT_URI env var overrides the default for Vercel/production deployments.
         self.redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", redirect_uri)
         
