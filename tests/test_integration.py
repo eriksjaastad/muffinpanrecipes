@@ -2,11 +2,21 @@
 End-to-end integration tests for the complete system.
 
 Feature: ai-creative-team
+
+These tests call the real pipeline (produce_recipe) which requires
+STABILITY_API_KEY and RECIPE_MODEL. They are skipped unless
+RUN_LIVE_PROVIDER_TESTS=true is set.
 """
 
+import os
 import pytest
 from pathlib import Path
 import tempfile
+
+pytestmark = pytest.mark.skipif(
+    os.getenv("RUN_LIVE_PROVIDER_TESTS", "").lower() != "true",
+    reason="Requires API keys. Set RUN_LIVE_PROVIDER_TESTS=true to run.",
+)
 
 from backend.orchestrator import RecipeOrchestrator
 from backend.pipeline.recipe_pipeline import PipelineStage

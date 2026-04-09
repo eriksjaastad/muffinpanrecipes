@@ -1,11 +1,11 @@
 [
   {
-    "recipe_id": "a99fe37b-ac8e-4e81-97a2-325d96d9af14",
-    "recipe_title": "Muffin Pan Recipe",
+    "recipe_id": "eef1e3cb",
+    "recipe_title": "Fail Fast Test Muffins",
     "prompts": {
-      "macro_closeup": "Extreme close-up food photography of Muffin Pan Recipe. 15-degree low angle, ONE single item filling the entire frame. Visible crumb structure, steam wisps, glistening texture detail. Shot on 100mm macro lens, f/2.0, razor-thin depth of field. Bright, high-key lighting, natural daylight from the side. White marble countertop. Editorial cookbook style. No full tin visible, no multiple items, no bird's eye view. No people, no hands, no text, no watermark.",
-      "overhead_flatlay": "True 90-degree overhead bird's-eye food photography of Muffin Pan Recipe in a rustic muffin tin. Full tin visible from directly above, scattered ingredient garnishes around the tin. Shot on 35mm lens, f/5.6, everything in sharp focus. Bright, high-key lighting, natural daylight. White marble countertop with flour dusting and herb sprigs. Flat lay editorial style, geometric composition. No shallow depth of field, no single item close-up, no low angle. No people, no hands, no text, no watermark.",
-      "hero_threequarter": "Classic hero food photography of Muffin Pan Recipe at 30-45 degree angle. 2-3 items arranged on a rustic wooden board, one broken open showing interior cross-section. Shot on 85mm lens, f/2.8, soft background blur. Bright, high-key lighting, natural daylight from the side. White marble countertop with minimal props - linen napkin, vintage fork. Editorial cookbook style, warm and inviting. No extreme close-up, no overhead flat lay, no 90 degree angle. No people, no hands, no text, no watermark."
+      "macro_closeup": "Extreme close-up food photography of Fail Fast Test Muffins. 15-degree low angle, ONE single item filling the entire frame. Visible crumb structure, steam wisps, glistening texture detail. Shot on 100mm macro lens, f/2.0, razor-thin depth of field. Bright, high-key lighting, natural daylight from the side. White marble countertop. Editorial cookbook style. No full tin visible, no multiple items, no bird's eye view. No people, no hands, no text, no watermark.",
+      "overhead_flatlay": "True 90-degree overhead bird's-eye food photography of Fail Fast Test Muffins in a rustic muffin tin. Full tin visible from directly above, scattered ingredient garnishes around the tin. Shot on 35mm lens, f/5.6, everything in sharp focus. Bright, high-key lighting, natural daylight. White marble countertop with flour dusting and herb sprigs. Flat lay editorial style, geometric composition. No shallow depth of field, no single item close-up, no low angle. No people, no hands, no text, no watermark.",
+      "hero_threequarter": "Classic hero food photography of Fail Fast Test Muffins at 30-45 degree angle. 2-3 items arranged on a rustic wooden board, one broken open showing interior cross-section. Shot on 85mm lens, f/2.8, soft background blur. Bright, high-key lighting, natural daylight from the side. White marble countertop with minimal props - linen napkin, vintage fork. Editorial cookbook style, warm and inviting. No extreme close-up, no overhead flat lay, no 90 degree angle. No people, no hands, no text, no watermark."
     }
   }
 ]
