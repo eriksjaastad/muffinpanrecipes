@@ -93,12 +93,7 @@ def _verify_cron_secret(request: Request) -> None:
         else:
             return  # bypass only in genuine local dev
 
-    cron_secret = os.environ.get("CRON_SECRET", "")
-    if not cron_secret:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="CRON_SECRET env var not configured",
-        )
+    cron_secret = os.environ["CRON_SECRET"]
 
     auth_header = request.headers.get("Authorization", "")
     expected = f"Bearer {cron_secret}"
