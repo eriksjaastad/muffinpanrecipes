@@ -4,12 +4,20 @@ Property-based tests for specific agent behaviors.
 Feature: ai-creative-team
 """
 
+import os
+
 from hypothesis import given, strategies as st, settings
 from pathlib import Path
+import pytest
 
 from backend.agents.factory import create_agent
 from backend.core.task import Task
 from backend.memory.agent_memory import AgentMemory
+
+_requires_api_keys = pytest.mark.skipif(
+    os.getenv("RUN_LIVE_PROVIDER_TESTS", "").lower() != "true",
+    reason="Requires API keys. Set RUN_LIVE_PROVIDER_TESTS=true to run.",
+)
 
 
 # Strategy for recipe concepts - realistic food names, not random Unicode
@@ -155,6 +163,7 @@ def test_creative_director_indecisiveness() -> None:
     assert ("approved" in output_str or "revisit" in output_str or "discuss" in output_str)
 
 
+@_requires_api_keys
 def test_art_director_shot_count() -> None:
     """Test that Julian takes many shots (personality quirk)."""
     ad = create_agent("art_director")
@@ -174,6 +183,7 @@ def test_art_director_shot_count() -> None:
         assert result.output["total_shots"] <= 60
 
 
+@_requires_api_keys
 def test_copywriter_verbosity() -> None:
     """Test that Marcus over-writes everything."""
     copywriter = create_agent("copywriter")

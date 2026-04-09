@@ -6,8 +6,9 @@ backstories for muffins. Secretly good at food writing but can't accept it
 because it wasn't the dream.
 """
 
-from typing import Any, Dict
+import os
 import random
+from typing import Any, Dict
 
 from backend.core.agent import Agent
 from backend.core.task import Task, TaskResult, TaskApproach

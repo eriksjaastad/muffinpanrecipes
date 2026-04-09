@@ -22,7 +22,11 @@ def test_art_director_generates_three_variants_and_featured_image(tmp_path: Path
 
     monkeypatch.setattr(agent, "_repo_root", lambda: tmp_path)
     monkeypatch.setenv("STABILITY_API_KEY", "test-key")
-    monkeypatch.setattr(agent, "_call_stability", lambda api_key, prompt, variant=None: _png_bytes())
+    monkeypatch.setattr(agent, "_call_stability", lambda _key, _prompt, variant=None: _png_bytes())
+    monkeypatch.setattr(
+        agent, "_evaluate_images_vision",
+        lambda _variants, _title: {"passed": True, "recommended_winner": 1},
+    )
 
     task = Task(
         type="photograph_recipe",
@@ -33,23 +37,20 @@ def test_art_director_generates_three_variants_and_featured_image(tmp_path: Path
     result = agent.process_task(task)
 
     assert result.success
-    assert result.output["generated_with"] == "stability_api"
+    assert result.output["generated_with"] == "stability_api_core"
 
-    variant_dir = tmp_path / "data" / "images" / "test-recipe"
+    # Images written to src/assets/images/{recipe_id}/round_1/{variant}.png
+    variant_dir = tmp_path / "src" / "assets" / "images" / "test-recipe" / "round_1"
     assert variant_dir.exists()
 
-    expected_files = [
-        variant_dir / "editorial.png",
-        variant_dir / "action_steam.png",
-        variant_dir / "the_spread.png",
-    ]
-    for file_path in expected_files:
-        assert file_path.exists(), f"Expected variant file missing: {file_path}"
+    for variant in ("macro_closeup", "overhead_flatlay", "hero_threequarter"):
+        assert (variant_dir / f"{variant}.png").exists(), f"Missing variant: {variant}"
 
-    assert len(result.output["selected_shots"]) == 3
+    # 3 shots per round, may have multiple rounds if diversity check fails on identical test PNGs
+    assert len(result.output["selected_shots"]) >= 3
+    assert len(result.output["selected_shots"]) % 3 == 0
     winner = result.output["winner"]
-    assert winner["variant"] in {"editorial", "action_steam", "the_spread"}
-    assert "Matched" in winner["rationale"]
+    assert winner["variant"] in {"macro_closeup", "overhead_flatlay", "hero_threequarter"}
 
     featured = tmp_path / "src" / "assets" / "images" / "test-recipe.png"
     assert featured.exists()

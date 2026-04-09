@@ -1,7 +1,15 @@
+import os
 from pathlib import Path
 import tempfile
 
+import pytest
+
 from backend.orchestrator import RecipeOrchestrator
+
+pytestmark = pytest.mark.skipif(
+    os.getenv("RUN_LIVE_PROVIDER_TESTS", "").lower() != "true",
+    reason="Requires API keys. Set RUN_LIVE_PROVIDER_TESTS=true to run.",
+)
 
 
 def test_story_contains_screenwriter_dialogue_feed():
