@@ -72,10 +72,15 @@ def encode_webp(png_bytes: bytes) -> bytes:
 
 def upload_webp(token: str, pathname: str, webp_bytes: bytes) -> str:
     upload_url = f"{BLOB_API}/{pathname}"
+    # Deterministic pathname — required so the renderer's .png → .webp
+    # rewrite resolves. Without x-add-random-suffix=0 Vercel appends a
+    # random hash and the png/webp URLs don't match.
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "image/webp",
         "x-vercel-access": "public",
+        "x-add-random-suffix": "0",
+        "x-allow-overwrite": "1",
     }
     resp = requests.put(upload_url, data=webp_bytes, headers=headers, timeout=120)
     resp.raise_for_status()
@@ -86,6 +91,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--prefix", default="images/")
+    parser.add_argument(
+        "--force", action="store_true",
+        help="Re-upload even if a WebP sibling already exists. Required for "
+             "the one-time fix that replaces random-suffixed WebPs with "
+             "deterministic ones.",
+    )
     args = parser.parse_args()
 
     token = os.environ.get("BLOB_READ_WRITE_TOKEN")
@@ -109,7 +120,7 @@ def main() -> int:
     for blob in pngs:
         png_pathname = blob.get("pathname", "")
         webp_pathname = png_pathname[:-4] + ".webp"
-        if webp_pathname in existing_webps:
+        if webp_pathname in existing_webps and not args.force:
             continue
         todo.append(blob)
 
