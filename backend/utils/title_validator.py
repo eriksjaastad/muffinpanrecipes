@@ -9,6 +9,7 @@ input concept. See #5911 — W16 "Roasted Veggie Egg Cups" incident.
 from __future__ import annotations
 
 import json
+import urllib.request
 from pathlib import Path
 from typing import Optional
 
@@ -17,6 +18,14 @@ from backend.utils.logging import get_logger
 logger = get_logger(__name__)
 
 ROOT = Path(__file__).resolve().parents[2]
+
+# Read the catalog directly from the public blob CDN. This bypasses the
+# storage layer's prefix system (which rewrites pages/ → test/pages/ in
+# test mode) so duplicate detection always runs against the real
+# production catalog, even during test-mode cron invocations.
+CATALOG_PUBLIC_URL = (
+    "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/pages/recipes.json"
+)
 
 # Words too common/generic to count as overlap signals.
 # Must stay in sync with scripts/pick_concept.py::_STOP_WORDS.
@@ -38,19 +47,23 @@ OVERLAP_THRESHOLD = 0.5
 
 
 def load_catalog_titles() -> list[str]:
-    """Return all published recipe titles (lowercased) from the blob catalog.
+    """Return all published recipe titles (lowercased) from the public catalog.
 
-    Falls back to static src/recipes.json on blob failure. Returns [] on
+    Reads directly from the blob CDN public URL (no auth, no prefix) so it
+    always sees the real production catalog regardless of test-mode prefix.
+    Falls back to static src/recipes.json on CDN failure. Returns [] on
     total failure so callers can no-op cleanly on first-ever run.
     """
     catalog_data = None
     try:
-        from backend.storage import storage
-        blob_content = storage.load_page("pages/recipes.json")
-        if blob_content:
-            catalog_data = json.loads(blob_content)
+        req = urllib.request.Request(
+            CATALOG_PUBLIC_URL,
+            headers={"User-Agent": "muffinpanrecipes-title-validator/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            catalog_data = json.loads(resp.read().decode("utf-8"))
     except Exception as exc:
-        logger.warning(f"title_validator: blob catalog load failed: {exc}")
+        logger.warning(f"title_validator: public catalog fetch failed: {exc}")
 
     if not catalog_data:
         try:
