@@ -39,6 +39,29 @@ class TestToWebpUrl:
 
         assert _to_webp_url("/x/HERO.PNG") == "/x/HERO.webp"
 
+    def test_strips_vercel_random_suffix(self):
+        """Historical Vercel Blob uploads land at `<name>-<26char>.png`.
+        Our deterministic WebP backfill lives at `<name>.webp` (no hash),
+        so the rewriter must drop the random suffix before appending .webp.
+        """
+        from backend.publishing.episode_renderer import _to_webp_url
+
+        url = "images/20d49356-9VSOT4SGhaUDoAUDM3kZPqxd3Hpeyu.png"
+        assert _to_webp_url(url) == "images/20d49356.webp"
+
+    def test_strips_suffix_full_cdn_url(self):
+        from backend.publishing.episode_renderer import _to_webp_url
+
+        url = (
+            "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/"
+            "images/a9b98b08/round_1/hero_threequarter-zgr18m7U5nkzXeZ2FK2FchHL8Pk2ym.png"
+        )
+        expected = (
+            "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/"
+            "images/a9b98b08/round_1/hero_threequarter.webp"
+        )
+        assert _to_webp_url(url) == expected
+
 
 class TestHeroPictureTag:
     def test_hero_renders_picture_when_png(self):

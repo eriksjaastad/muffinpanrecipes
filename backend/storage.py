@@ -463,10 +463,17 @@ class _CloudBackend:
 
         key = f"{self.prefix}{self._blob_key(relative_path)}"
         upload_url = f"https://blob.vercel-storage.com/{key}"
+        # x-add-random-suffix=0 + x-allow-overwrite=1 are required for
+        # deterministic pathnames so the <picture>/srcset URL rewrite
+        # in episode_renderer._to_webp_url actually resolves. Without
+        # these, Vercel appends a random hash and png/webp land at
+        # non-matching paths (root cause of #5251 deploy regression).
         headers = {
             "Authorization": f"Bearer {self._blob_token}",
             "Content-Type": "image/png",
             "x-vercel-access": "public",
+            "x-add-random-suffix": "0",
+            "x-allow-overwrite": "1",
         }
         resp = _requests.put(upload_url, data=image_bytes, headers=headers, timeout=60)
         resp.raise_for_status()
@@ -505,10 +512,14 @@ class _CloudBackend:
 
         webp_key = png_key[:-4] + ".webp"
         upload_url = f"https://blob.vercel-storage.com/{webp_key}"
+        # Deterministic path so png → webp string rewrite resolves.
+        # See save_image comment for the full reasoning.
         headers = {
             "Authorization": f"Bearer {self._blob_token}",
             "Content-Type": "image/webp",
             "x-vercel-access": "public",
+            "x-add-random-suffix": "0",
+            "x-allow-overwrite": "1",
         }
         try:
             resp = _requests.put(upload_url, data=webp_bytes, headers=headers, timeout=60)
