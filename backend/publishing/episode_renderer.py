@@ -16,6 +16,7 @@ from __future__ import annotations
 import html
 import json
 import os
+import re
 from typing import Optional
 
 from backend.storage import storage
@@ -51,24 +52,35 @@ DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sun
 BLOB_CDN_PREFIX = "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/images/"
 
 
+_VERCEL_RANDOM_SUFFIX_RE = re.compile(r"-[A-Za-z0-9]{20,}\.png$", re.IGNORECASE)
+
+
 def _to_webp_url(image_url: str) -> str:
     """Return the WebP sibling URL for a PNG image URL (#5251).
 
-    storage._upload_webp_sibling uploads `<path>.webp` alongside every
-    `<path>.png` at cron time; this rewriter emits the matching URL so
-    the renderer can populate a <picture> source. Returns the input
-    unchanged if it isn't a PNG.
+    storage._upload_webp_sibling uploads `<path>.webp` at a deterministic
+    blob key alongside every `<path>.png`, so this rewriter drops the
+    Vercel random-suffix (if present) and swaps `.png` → `.webp`.
+
+    Examples:
+        images/abc.png                           → images/abc.webp
+        images/abc-9VSOT4SGhaUDoAUDM3kZPqxd3.png → images/abc.webp
+        images/abc.jpg                           → images/abc.jpg (passthrough)
     """
     if not image_url:
         return image_url
-    lower = image_url.lower()
-    # Ignore querystrings/fragments for suffix check
-    path = lower.split("?", 1)[0].split("#", 1)[0]
-    if not path.endswith(".png"):
+    # Split off any query/fragment so rewrites preserve them.
+    path, sep, tail = image_url.partition("?")
+    if not sep:
+        path, sep, tail = image_url.partition("#")
+    if not path.lower().endswith(".png"):
         return image_url
-    # Only rewrite the path portion, preserving any query/fragment.
-    end_of_path = len(path)
-    return image_url[:end_of_path - 4] + ".webp" + image_url[end_of_path:]
+    # Drop Vercel's random-hash suffix if present (historical uploads
+    # before the deterministic-pathname fix still have it). Deterministic
+    # uploads land at the clean base name and the regex simply no-ops.
+    stripped = _VERCEL_RANDOM_SUFFIX_RE.sub(".png", path)
+    webp_path = stripped[:-4] + ".webp"
+    return webp_path + (sep + tail if sep else "")
 
 
 def _to_local_image_url(blob_url: str) -> str:
