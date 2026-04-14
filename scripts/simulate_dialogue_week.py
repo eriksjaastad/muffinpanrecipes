@@ -788,11 +788,16 @@ def generate_turn(
                 previous_speaker = last_line.split(":")[0].strip()
 
             name = persona["name"].split()[0]
+            # #5919 — Never ask the model to narrate interiority out loud.
+            # The prior prompt asked for "what does X actually feel" + "then
+            # write only their message", and Haiku (ignoring the 'then')
+            # spilled the interiority verbatim into W15 dialogue ("What Steph
+            # actually feels: ..."). Keep the guidance implicit in the system
+            # prompt/voice guide; at turn time just ask for spoken dialogue.
             role_chain = (
-                f"Before responding, consider: given {name}'s relationship with {previous_speaker} "
-                f"and what was just said, what does {name} actually feel? "
-                f"What would they want to say vs. what they actually say?\n"
-                "Then write only their message."
+                f"Speak in first person as {name}, reacting to {previous_speaker}. "
+                "Your entire response is their spoken message — no stage directions, "
+                "no inner thoughts, no 'what X feels', no meta-commentary."
             ) if previous_speaker else "React to what was just said. Stay in the scene."
 
             reaction_directive = "Your first sentence must respond to what was just said. Don't change the subject.\n"
@@ -857,6 +862,12 @@ def generate_turn(
         model=model,
         temperature=0.8,
     ).strip()
+    msg = _guard_cot_leak(
+        msg,
+        prompt=prompt,
+        persona=persona,
+        model=model,
+    )
     if _is_repetitive_candidate(msg, recent_lines) or _shared_trigram_with_recent(msg, recent_lines):
         rewrite_prompt = (
             f"Recent chat:\n{history}\n\n"
@@ -870,6 +881,12 @@ def generate_turn(
             model=model,
             temperature=0.9,
         ).strip()
+        msg = _guard_cot_leak(
+            msg,
+            prompt=rewrite_prompt,
+            persona=persona,
+            model=model,
+        )
 
     msg = sanitize_typographic_tells(msg)
     msg = _normalize_time_notation(msg, deadline)
@@ -878,6 +895,62 @@ def generate_turn(
     msg = re.sub(r"\bat\s+\d{2}:\d{2}\b", "", msg)
     msg = re.sub(r"\b[012]\d:\d{2}\b", "", msg)
     return " ".join(msg.split())
+
+
+# #5919 / #5920 — Chain-of-thought leak guard. Haiku occasionally ignores
+# "write only the message" and spills interiority like "What Steph actually
+# feels: ...". These patterns get caught post-generation, the model is
+# asked to retry once, and a second leak hard-fails the turn so nothing
+# bad ships to the episode JSON.
+_COT_LEAK_RE = re.compile(
+    r"^\s*(?:what|how)\s+\w+(?:\s+\w+)?\s+(?:actually\s+)?"
+    r"(?:feels?|thinks?|wants?|would\s+say|is\s+thinking)\s*[:\-]",
+    re.IGNORECASE,
+)
+
+
+def _has_cot_leak(text: str) -> bool:
+    if not text:
+        return False
+    # Check first line — leaks always appear at the start of the response.
+    first_line = text.lstrip().split("\n", 1)[0]
+    return bool(_COT_LEAK_RE.match(first_line))
+
+
+def _guard_cot_leak(
+    msg: str,
+    *,
+    prompt: str,
+    persona: dict,
+    model: str,
+) -> str:
+    """Detect interiority leakage and retry once with a stricter instruction.
+
+    Raises RuntimeError if the model leaks twice in a row — the caller's
+    cron stage will catch it via _run_stage and write a failure record
+    instead of shipping contaminated dialogue.
+    """
+    if not _has_cot_leak(msg):
+        return msg
+
+    retry_prompt = (
+        f"{prompt}\n\n"
+        "CRITICAL CORRECTION: your previous response leaked the chain-of-thought. "
+        "Output ONLY the spoken dialogue in first person. "
+        "No 'What X feels/thinks', no stage directions, no meta-commentary."
+    )
+    retry = generate_response(
+        prompt=retry_prompt,
+        system_prompt=build_system_prompt(persona),
+        model=model,
+        temperature=0.6,
+    ).strip()
+    if _has_cot_leak(retry):
+        raise RuntimeError(
+            f"Dialogue CoT leak after retry (persona={persona.get('name')!r}): "
+            f"{retry[:120]!r}"
+        )
+    return retry
 
 
 def is_prompt_echo(text: str) -> bool:
