@@ -150,20 +150,17 @@ def _parse_recipe_response(response: str, concept: str) -> Dict[str, Any]:
         elif line.startswith("DESCRIPTION:"):
             result["description"] = line.replace("DESCRIPTION:", "").strip()
         elif line.startswith("SERVINGS:"):
-            try:
-                result["servings"] = int(re.search(r"\d+", line).group())
-            except (AttributeError, ValueError):
-                pass
+            match = re.search(r"\d+", line)
+            if match:
+                result["servings"] = int(match.group())
         elif line.startswith("PREP_TIME:"):
-            try:
-                result["prep_time"] = int(re.search(r"\d+", line).group())
-            except (AttributeError, ValueError):
-                pass
+            match = re.search(r"\d+", line)
+            if match:
+                result["prep_time"] = int(match.group())
         elif line.startswith("COOK_TIME:"):
-            try:
-                result["cook_time"] = int(re.search(r"\d+", line).group())
-            except (AttributeError, ValueError):
-                pass
+            match = re.search(r"\d+", line)
+            if match:
+                result["cook_time"] = int(match.group())
         elif line.startswith("DIFFICULTY:"):
             diff = line.replace("DIFFICULTY:", "").strip().lower()
             if diff in ["easy", "medium", "hard"]:
@@ -366,10 +363,9 @@ def _parse_description_response(response: str, target_word_count: int) -> Dict[s
 
     for line in lines:
         if line.strip().startswith("WORD_COUNT:"):
-            try:
-                word_count = int(re.search(r"\d+", line).group())
-            except (AttributeError, ValueError):
-                pass
+            match = re.search(r"\d+", line)
+            if match:
+                word_count = int(match.group())
         else:
             description_lines.append(line)
 

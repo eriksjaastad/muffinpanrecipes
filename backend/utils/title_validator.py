@@ -28,7 +28,7 @@ CATALOG_PUBLIC_URL = (
 )
 
 # Words too common/generic to count as overlap signals.
-# Must stay in sync with scripts/pick_concept.py::_STOP_WORDS.
+# Single source of truth — scripts/pick_concept.py imports this constant.
 STOP_WORDS = frozenset({
     "a", "an", "the", "and", "&", "of", "in", "on", "with", "for", "to",
     "mini", "cups", "cup", "bites", "bite", "muffin", "tin", "pan", "tops",

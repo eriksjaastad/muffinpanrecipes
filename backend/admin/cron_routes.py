@@ -751,9 +751,19 @@ def _verify_day_of_week(stage: str, body: StageRequest) -> None:
         )
 
 
-def _configure_test_mode(body: StageRequest) -> None:
-    """Set storage prefix for test mode. Resets to production on every call."""
-    storage.set_prefix("test/" if body.test else "")
+def _test_mode_scope(body: StageRequest):
+    """Context manager that scopes the storage prefix to the handler body.
+
+    Wraps storage.prefix_scope with the test-mode decision so handlers say:
+
+        with _test_mode_scope(body):
+            ... handler body ...
+
+    Structural guarantee: prefix is restored on exit, even if the handler
+    raises. Prevents test-mode prefix contamination across warm Lambda
+    invocations (RUNBOOK Incident 1, #5911).
+    """
+    return storage.prefix_scope("test/" if body.test else "")
 
 
 def _save_stage_failure(ep: dict, stage: str, error: Exception) -> None:
@@ -811,42 +821,42 @@ async def cron_monday(request: Request):
     _verify_cron_secret(request)
     body = await _parse_body(request)
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
-    _configure_test_mode(body)
-    episode_id = body.episode_id or _current_episode_id()
+    with _test_mode_scope(body):
+      episode_id = body.episode_id or _current_episode_id()
 
-    # --- Auto-select concept and target category when not provided ---
-    target_category: str | None = None
-    if body.concept:
-        concept = body.concept
-    else:
-        try:
-            from scripts.pick_concept import pick_concept, pick_target_category
-            target_category = pick_target_category()
-            picks = pick_concept(count=1, target_category=target_category)
-            concept = picks[0] if picks else "Weekly Muffin Pan Recipe"
-            logger.info(f"Auto-selected concept={concept!r}, category={target_category}")
-        except Exception as exc:
-            logger.warning(f"Auto concept pick failed, using default: {exc}")
-            concept = "Weekly Muffin Pan Recipe"
+      # --- Auto-select concept and target category when not provided ---
+      target_category: str | None = None
+      if body.concept:
+          concept = body.concept
+      else:
+          try:
+              from scripts.pick_concept import pick_concept, pick_target_category
+              target_category = pick_target_category()
+              picks = pick_concept(count=1, target_category=target_category)
+              concept = picks[0] if picks else "Weekly Muffin Pan Recipe"
+              logger.info(f"Auto-selected concept={concept!r}, category={target_category}")
+          except Exception as exc:
+              logger.warning(f"Auto concept pick failed, using default: {exc}")
+              concept = "Weekly Muffin Pan Recipe"
 
-    ep = _load_or_create_episode(episode_id, concept)
-    concept = body.concept or ep.get("concept") or concept
-    ep["concept"] = concept
-    if target_category:
-        ep["target_category"] = target_category
+      ep = _load_or_create_episode(episode_id, concept)
+      concept = body.concept or ep.get("concept") or concept
+      ep["concept"] = concept
+      if target_category:
+          ep["target_category"] = target_category
 
-    # W15 narrative injection: characters discover the "Party" category
-    injected_event: str | None = None
-    if episode_id == "2026-W15":
-        injected_event = (
-            "The team has been making mostly savory and breakfast recipes for weeks. "
-            "Someone suggests they should add a new category to their repertoire: "
-            "'Party' — appetizers, finger foods, entertaining bites. Summer is coming "
-            "and people will want recipes for gatherings. The team debates and gets "
-            "excited about the creative possibilities of party food in muffin tins."
-        )
+      # W15 narrative injection: characters discover the "Party" category
+      injected_event: str | None = None
+      if episode_id == "2026-W15":
+          injected_event = (
+              "The team has been making mostly savory and breakfast recipes for weeks. "
+              "Someone suggests they should add a new category to their repertoire: "
+              "'Party' — appetizers, finger foods, entertaining bites. Summer is coming "
+              "and people will want recipes for gatherings. The team debates and gets "
+              "excited about the creative possibilities of party food in muffin tins."
+          )
 
-    with _run_stage(ep, "monday"):
+      with _run_stage(ep, "monday"):
         import uuid
         if not ep.get("recipe_id"):
             ep["recipe_id"] = str(uuid.uuid4())[:8]
@@ -937,12 +947,12 @@ async def cron_tuesday(request: Request):
     _verify_cron_secret(request)
     body = await _parse_body(request)
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
-    _configure_test_mode(body)
-    episode_id = body.episode_id or _current_episode_id()
-    ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
-    concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
+    with _test_mode_scope(body):
+      episode_id = body.episode_id or _current_episode_id()
+      ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
+      concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
 
-    with _run_stage(ep, "tuesday"):
+      with _run_stage(ep, "tuesday"):
         dialogue, judge_verdict = _generate_and_judge_dialogue(
             "tuesday", concept, ep, model=body.model,
         )
@@ -971,13 +981,13 @@ async def cron_wednesday(request: Request):
     _verify_cron_secret(request)
     body = await _parse_body(request)
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
-    _configure_test_mode(body)
-    episode_id = body.episode_id or _current_episode_id()
-    ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
-    concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
-    recipe_data = ep.get("stages", {}).get("monday", {}).get("recipe_data", {})
+    with _test_mode_scope(body):
+      episode_id = body.episode_id or _current_episode_id()
+      ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
+      concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
+      recipe_data = ep.get("stages", {}).get("monday", {}).get("recipe_data", {})
 
-    with _run_stage(ep, "wednesday"):
+      with _run_stage(ep, "wednesday"):
         RecipeOrchestrator = _get_orchestrator()
         from backend.storage import EPISODES_DIR
         orchestrator = RecipeOrchestrator(data_dir=EPISODES_DIR.parent)
@@ -1062,13 +1072,13 @@ async def cron_thursday(request: Request):
     _verify_cron_secret(request)
     body = await _parse_body(request)
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
-    _configure_test_mode(body)
-    episode_id = body.episode_id or _current_episode_id()
-    ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
-    concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
-    recipe_data = ep.get("stages", {}).get("monday", {}).get("recipe_data", {})
+    with _test_mode_scope(body):
+      episode_id = body.episode_id or _current_episode_id()
+      ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
+      concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
+      recipe_data = ep.get("stages", {}).get("monday", {}).get("recipe_data", {})
 
-    with _run_stage(ep, "thursday"):
+      with _run_stage(ep, "thursday"):
         RecipeOrchestrator = _get_orchestrator()
         from backend.storage import EPISODES_DIR
         orchestrator = RecipeOrchestrator(data_dir=EPISODES_DIR.parent)
@@ -1109,12 +1119,12 @@ async def cron_friday(request: Request):
     _verify_cron_secret(request)
     body = await _parse_body(request)
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
-    _configure_test_mode(body)
-    episode_id = body.episode_id or _current_episode_id()
-    ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
-    concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
+    with _test_mode_scope(body):
+      episode_id = body.episode_id or _current_episode_id()
+      ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
+      concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
 
-    with _run_stage(ep, "friday"):
+      with _run_stage(ep, "friday"):
         RecipeOrchestrator = _get_orchestrator()
         from backend.storage import EPISODES_DIR
         orchestrator = RecipeOrchestrator(data_dir=EPISODES_DIR.parent)
@@ -1162,12 +1172,12 @@ async def cron_saturday(request: Request):
     _verify_cron_secret(request)
     body = await _parse_body(request)
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
-    _configure_test_mode(body)
-    episode_id = body.episode_id or _current_episode_id()
-    ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
-    concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
+    with _test_mode_scope(body):
+      episode_id = body.episode_id or _current_episode_id()
+      ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
+      concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
 
-    with _run_stage(ep, "saturday"):
+      with _run_stage(ep, "saturday"):
         RecipeOrchestrator = _get_orchestrator()
         from backend.storage import EPISODES_DIR
         orchestrator = RecipeOrchestrator(data_dir=EPISODES_DIR.parent)
@@ -1205,12 +1215,12 @@ async def cron_sunday(request: Request):
     _verify_cron_secret(request)
     body = await _parse_body(request)
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
-    _configure_test_mode(body)
-    episode_id = body.episode_id or _current_episode_id()
-    ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
-    concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
+    with _test_mode_scope(body):
+      episode_id = body.episode_id or _current_episode_id()
+      ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
+      concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
 
-    with _run_stage(ep, "sunday"):
+      with _run_stage(ep, "sunday"):
         dialogue, judge_verdict = _generate_and_judge_dialogue(
             "sunday", concept, ep, model=body.model,
         )
