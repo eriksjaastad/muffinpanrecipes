@@ -439,7 +439,54 @@ class _CloudBackend:
         resp.raise_for_status()
         blob_url: str = resp.json()["url"]
         logger.info(f"Uploaded image to Vercel Blob: {blob_url}")
+
+        # #5251 — Also upload a WebP sibling at the same path for
+        # bandwidth-constrained clients. Non-fatal on failure (PNG is
+        # still the canonical source). <picture> tag in the renderer
+        # picks up the .webp via srcset when available.
+        if key.lower().endswith(".png"):
+            self._upload_webp_sibling(key, image_bytes)
+
         return blob_url
+
+    def _upload_webp_sibling(self, png_key: str, png_bytes: bytes) -> None:
+        """Encode png_bytes as WebP and upload to <png_key>.webp.
+
+        One-way best-effort: logs and swallows failures so a bad
+        encode never takes down the cron. Quality=82, method=6 gives
+        ~30% of PNG size for photo content with no visible loss.
+        """
+        try:
+            from io import BytesIO
+            from PIL import Image
+
+            with Image.open(BytesIO(png_bytes)) as im:
+                buf = BytesIO()
+                im.save(buf, format="WEBP", quality=82, method=6)
+                webp_bytes = buf.getvalue()
+        except Exception as e:
+            logger.warning(f"WebP encode failed for {png_key}: {e}")
+            return
+
+        import requests as _requests
+
+        webp_key = png_key[:-4] + ".webp"
+        upload_url = f"https://blob.vercel-storage.com/{webp_key}"
+        headers = {
+            "Authorization": f"Bearer {self._blob_token}",
+            "Content-Type": "image/webp",
+            "x-vercel-access": "public",
+        }
+        try:
+            resp = _requests.put(upload_url, data=webp_bytes, headers=headers, timeout=60)
+            resp.raise_for_status()
+            logger.info(
+                f"Uploaded WebP sibling: {webp_key} "
+                f"({len(webp_bytes)}B from {len(png_bytes)}B PNG, "
+                f"{100 * len(webp_bytes) / max(len(png_bytes), 1):.0f}%)"
+            )
+        except Exception as e:
+            logger.warning(f"WebP upload failed for {webp_key}: {e}")
 
     def get_image_url(self, relative_path: str) -> str:
         if not self._has_cloud():
