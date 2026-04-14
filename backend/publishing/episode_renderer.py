@@ -581,11 +581,15 @@ def publish_recipe_to_catalog(episode: dict) -> str | None:
 
     slug = _slugify(title)
 
-    # Build the hero image URL using /blob-images/ rewrite
+    # Build the hero image URL using /blob-images/ rewrite. Store the
+    # WebP variant in the catalog so the index page loads ~5% of the PNG
+    # weight for all 6 cron-generated recipes (#5251). Modern browsers
+    # (96%+) support WebP natively; the 4% that don't fall through the
+    # existing onerror handler in src/index.html.
     image_url = ""
     image_urls = episode.get("image_urls", [])
     if image_urls:
-        image_url = _to_local_image_url(image_urls[0])
+        image_url = _to_webp_url(_to_local_image_url(image_urls[0]))
 
     # Build ingredients as flat strings (matching existing recipes.json format)
     ingredients = []
