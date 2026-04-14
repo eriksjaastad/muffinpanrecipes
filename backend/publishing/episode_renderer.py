@@ -50,6 +50,26 @@ DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sun
 BLOB_CDN_PREFIX = "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/images/"
 
 
+def _to_webp_url(image_url: str) -> str:
+    """Return the WebP sibling URL for a PNG image URL (#5251).
+
+    storage._upload_webp_sibling uploads `<path>.webp` alongside every
+    `<path>.png` at cron time; this rewriter emits the matching URL so
+    the renderer can populate a <picture> source. Returns the input
+    unchanged if it isn't a PNG.
+    """
+    if not image_url:
+        return image_url
+    lower = image_url.lower()
+    # Ignore querystrings/fragments for suffix check
+    path = lower.split("?", 1)[0].split("#", 1)[0]
+    if not path.endswith(".png"):
+        return image_url
+    # Only rewrite the path portion, preserving any query/fragment.
+    end_of_path = len(path)
+    return image_url[:end_of_path - 4] + ".webp" + image_url[end_of_path:]
+
+
 def _to_local_image_url(blob_url: str) -> str:
     """Convert a raw blob CDN URL to a relative /blob-images/ path.
 
@@ -220,9 +240,25 @@ def render_episode_page(episode: dict, image_url: Optional[str] = None) -> str:
             f'<span>{html.escape(sanitize_text(step_text))}</span></li>\n'
         )
 
-    # Image block
+    # Image block — <picture> with WebP primary + PNG fallback (#5251).
+    # Lazy-loaded + async-decoded so hero doesn't block first paint.
     if has_image:
-        image_block = f'<img src="{html.escape(image_url)}" class="w-full h-full object-cover" alt="{html.escape(title)}">'
+        escaped_png = html.escape(image_url)
+        webp_url = _to_webp_url(image_url)
+        if webp_url and webp_url != image_url:
+            escaped_webp = html.escape(webp_url)
+            image_block = (
+                f'<picture>'
+                f'<source srcset="{escaped_webp}" type="image/webp">'
+                f'<img src="{escaped_png}" class="w-full h-full object-cover" '
+                f'loading="lazy" decoding="async" alt="{html.escape(title)}">'
+                f'</picture>'
+            )
+        else:
+            image_block = (
+                f'<img src="{escaped_png}" class="w-full h-full object-cover" '
+                f'loading="lazy" decoding="async" alt="{html.escape(title)}">'
+            )
     else:
         image_block = '<div class="flex items-center justify-center h-full text-gray-400 font-serif italic text-xl">Photo coming Wednesday</div>'
 
