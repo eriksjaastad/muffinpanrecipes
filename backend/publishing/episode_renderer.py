@@ -33,6 +33,7 @@ CHARACTERS = {
     "Steph Whitmore": {"slug": "steph", "initials": "SW", "role": "Project Manager"},
     "Julian Torres": {"slug": "julian", "initials": "JT", "role": "Art Director"},
     "Devon Park": {"slug": "devon", "initials": "DP", "role": "Site Architect"},
+    "Ria Castillo": {"slug": "ria", "initials": "RC", "role": "Social Media Manager"},
 }
 
 STAGE_LABELS = {
@@ -366,6 +367,11 @@ def render_episode_page(episode: dict, image_url: Optional[str] = None) -> str:
                     <p class="text-[10px] uppercase tracking-widest text-sage font-bold">Devon</p>
                     <p class="text-[9px] text-gray-400">Site Architect</p>
                 </div>
+                <div class="text-center">
+                    <div class="avatar avatar-ria mx-auto mb-2">RC</div>
+                    <p class="text-[10px] uppercase tracking-widest text-sage font-bold">Ria</p>
+                    <p class="text-[9px] text-gray-400">Social Media Manager</p>
+                </div>
             </div>
 
 {conversation_html}
@@ -410,6 +416,7 @@ def render_episode_page(episode: dict, image_url: Optional[str] = None) -> str:
         .chat-steph {{ background-color: #F2EBF0; }}
         .chat-julian {{ background-color: #E6EDE8; }}
         .chat-devon {{ background-color: #EDEDED; }}
+        .chat-ria {{ background-color: #F5F3EE; }}
         .avatar {{
             width: 36px; height: 36px; border-radius: 50%;
             display: flex; align-items: center; justify-content: center;
@@ -420,6 +427,7 @@ def render_episode_page(episode: dict, image_url: Optional[str] = None) -> str:
         .avatar-steph {{ background: #BF9AB5; color: #5C2F4E; }}
         .avatar-julian {{ background: #9ABFA3; color: #2F5C3D; }}
         .avatar-devon {{ background: #ABABAB; color: #3D3D3D; }}
+        .avatar-ria {{ background: #FFFFFF; color: #2A2A2A; border: 1px solid #E5E0D5; }}
         .stage-divider {{
             display: flex; align-items: center; gap: 1rem;
         }}
