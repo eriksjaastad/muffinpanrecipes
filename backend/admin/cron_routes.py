@@ -861,6 +861,47 @@ async def cron_monday(request: Request):
         recipe_data = orchestrator._execute_stage_baker(
             ep["recipe_id"], concept, target_category=target_category,
         )
+
+        # #5911 — Catalog uniqueness check on the LLM-generated title.
+        # The concept picker is catalog-aware, but the baker can still
+        # produce a duplicate title downstream (e.g. W16 regenerating
+        # "Roasted Veggie Egg Cups" from W14). Retry once with an
+        # explicit blacklist, then hard-fail so nothing bad ships.
+        from backend.utils.title_validator import (
+            load_catalog_titles,
+            check_title_conflict,
+        )
+        catalog_titles = load_catalog_titles()
+        baker_title = recipe_data.get("title", "") if recipe_data else ""
+        conflict = check_title_conflict(baker_title, catalog_titles)
+        if conflict:
+            logger.warning(
+                f"Baker title '{baker_title}' conflicts with catalog: {conflict}. "
+                f"Retrying baker with explicit blacklist."
+            )
+            blacklist = ", ".join(f"'{t}'" for t in catalog_titles[:15])
+            retry_concept = (
+                f"{concept}. CRITICAL: the title must NOT be similar to any "
+                f"of these already-published recipes: {blacklist}. "
+                f"Pick a distinctive angle with different key words."
+            )
+            recipe_data = orchestrator._execute_stage_baker(
+                ep["recipe_id"], retry_concept, target_category=target_category,
+            )
+            baker_title = recipe_data.get("title", "") if recipe_data else ""
+            conflict = check_title_conflict(baker_title, catalog_titles)
+            if conflict:
+                # Raise as RuntimeError (not HTTPException) so _run_stage's
+                # failure handler runs: writes a failure record and notifies
+                # Discord. _run_stage will wrap this to HTTPException 500.
+                raise RuntimeError(
+                    f"Baker produced duplicate title twice. "
+                    f"Last attempt '{baker_title}': {conflict}. "
+                    f"Re-fire /api/cron/monday with an explicit 'concept' "
+                    f"in the body to bypass auto-pick."
+                )
+            logger.info(f"Baker retry succeeded: '{baker_title}'")
+
         dialogue, judge_verdict = _generate_and_judge_dialogue(
             "monday", concept, ep, model=body.model,
             injected_event=injected_event,

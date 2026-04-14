@@ -78,7 +78,7 @@ CRITICAL RULES:
 INSPIRATION: Think like Floridino's "Grilled Cheese Muffin" - creative use of the format, specific ingredients (they list "Mozzarella, Cheddar, & Gouda"), served with complementary sides.
 
 Output your response in this EXACT format:
-TITLE: [Short, appetizing title - 3 to 6 words max. No subtitles, no parentheticals, no days of the week. Good examples: "Mini Meatloaf Bites", "Spinach Feta Egg Bites", "Buffalo Chicken Mac Bites". Bad examples: "Sunday Sheet-Pan Dinner In A Muffin Tin"]
+TITLE: [Short, appetizing title - 3 to 6 words max. No subtitles, no parentheticals, no days of the week. Do NOT start with "Mini" if the title already contains "Bites", "Cups", "Tassies", "Pops", or "Balls" — those already imply small, so "Mini" is redundant ("Caprese Bruschetta Bites", not "Mini Caprese Bruschetta Bites"). Good examples: "Meatloaf Bites", "Spinach Feta Egg Bites", "Buffalo Chicken Mac Bites", "Mini Chocolate Lava Cakes". Bad examples: "Sunday Sheet-Pan Dinner In A Muffin Tin", "Mini Caprese Bruschetta Bites"]
 DESCRIPTION: [2-3 sentences describing the dish and what makes it special]
 SERVINGS: [number]
 PREP_TIME: [minutes]
@@ -229,6 +229,10 @@ def _enforce_title_rules(title: str) -> str:
         title = re.sub(pattern, '', title, flags=re.IGNORECASE).strip()
     # Clean up leftover double spaces
     title = re.sub(r'\s{2,}', ' ', title).strip()
+    # Strip a redundant leading "Mini" when the title already implies smallness
+    # ("Mini X Bites" / "Mini X Cups" etc.). Keeps "Mini Chocolate Lava Cakes".
+    from backend.utils.title_validator import strip_redundant_mini
+    title = strip_redundant_mini(title)
     # If still > 6 words, truncate to 6
     words = title.split()
     if len(words) > 6:
