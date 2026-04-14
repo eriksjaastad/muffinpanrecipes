@@ -13,6 +13,17 @@ DISCORD_WEBHOOK_URL = os.getenv("MUFFINPAN_DISCORD_WEBHOOK")
 ADMIN_BASE_URL = os.getenv("MUFFINPAN_ADMIN_BASE_URL", "http://localhost:8000").rstrip("/")
 
 
+def _pytest_gate() -> bool:
+    """Return True if we should skip notifying (we're inside pytest).
+
+    pytest auto-sets PYTEST_CURRENT_TEST for every test run. #5911 session
+    surfaced this: test_pipeline_fail_fast.py legitimately exercises the
+    failure path, but the notify call inside orchestrator re-raised after
+    firing, so pytest.raises caught it but Discord had already been pinged.
+    """
+    return bool(os.environ.get("PYTEST_CURRENT_TEST"))
+
+
 def build_recipe_review_url(recipe_id: str, base_url: Optional[str] = None) -> str:
     """Build a direct admin review URL for a specific recipe."""
     origin = (base_url or ADMIN_BASE_URL).rstrip("/")
@@ -39,6 +50,8 @@ def notify_recipe_ready(
     Returns:
         True if notification sent successfully
     """
+    if _pytest_gate():
+        return False
     if not DISCORD_WEBHOOK_URL:
         logger.warning("Discord webhook URL not configured")
         return False
@@ -92,6 +105,8 @@ def notify_pipeline_failure(
     error_message: str,
 ) -> bool:
     """Send a loud failure alert so pipeline issues are never silent."""
+    if _pytest_gate():
+        return False
     if not DISCORD_WEBHOOK_URL:
         logger.warning("Discord webhook URL not configured for failure alert")
         return False
@@ -133,6 +148,8 @@ def notify_judge_failure(
     This means the conversation had quality issues that couldn't be fixed
     by regenerating. Episode is paused — needs manual review.
     """
+    if _pytest_gate():
+        return False
     if not DISCORD_WEBHOOK_URL:
         logger.warning("Discord webhook URL not configured for judge alert")
         return False
@@ -177,6 +194,8 @@ def notify_batch_complete(
     Returns:
         True if notification sent successfully
     """
+    if _pytest_gate():
+        return False
     if not DISCORD_WEBHOOK_URL:
         return False
 

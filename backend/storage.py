@@ -26,8 +26,9 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional
+from typing import Iterator, Optional
 
 from backend.config import config
 from backend.utils.logging import get_logger
@@ -52,6 +53,22 @@ class _FilesystemBackend:
     def set_prefix(self, prefix: str) -> None:
         """Set storage path prefix (used by test mode). No-op for filesystem."""
         self.prefix = prefix
+
+    @contextmanager
+    def prefix_scope(self, prefix: str) -> Iterator[None]:
+        """Structural guarantee that prefix resets after the block.
+
+        Snapshots the current prefix on entry, restores it on exit (even on
+        exception). Use this to wrap cron handlers so test-mode prefix never
+        leaks into subsequent invocations on a warm Lambda — see RUNBOOK
+        Incident 1 (#5911).
+        """
+        previous = self.prefix
+        self.prefix = prefix
+        try:
+            yield
+        finally:
+            self.prefix = previous
 
     def _safe_path(self, relative_path: str) -> Path:
         """Resolve path and validate it stays under ROOT (prevents path traversal)."""
@@ -198,6 +215,22 @@ class _CloudBackend:
     def set_prefix(self, prefix: str) -> None:
         """Set storage path prefix. Use 'test/' for compressed timeline tests."""
         self.prefix = prefix
+
+    @contextmanager
+    def prefix_scope(self, prefix: str) -> Iterator[None]:
+        """Structural guarantee that prefix resets after the block.
+
+        Snapshots the current prefix on entry, restores it on exit (even on
+        exception). Use this to wrap cron handlers so test-mode prefix never
+        leaks into subsequent invocations on a warm Lambda — see RUNBOOK
+        Incident 1 (#5911).
+        """
+        previous = self.prefix
+        self.prefix = prefix
+        try:
+            yield
+        finally:
+            self.prefix = previous
 
     def _has_cloud(self) -> bool:
         return bool(self._blob_token)
