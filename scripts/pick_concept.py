@@ -21,6 +21,12 @@ import urllib.request
 from datetime import date
 from pathlib import Path
 
+# Single source of truth for overlap-signal stop words. Importing from
+# backend/utils keeps this script and the runtime title validator aligned
+# so title drift (#5911) can't recur from two copies going out of sync.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from backend.utils.title_validator import STOP_WORDS  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 EPISODES_DIR = ROOT / "data" / "episodes"
 
@@ -187,19 +193,11 @@ def _load_recent_concepts(n: int = 4) -> list[str]:
 
 
 
-# Words too common/generic to count as repetition signals
-_STOP_WORDS = frozenset({
-    "a", "an", "the", "and", "&", "of", "in", "on", "with", "for", "to",
-    "mini", "cups", "cup", "bites", "bite", "muffin", "tin", "pan", "tops",
-    "pots", "baked",
-})
-
-
 def _build_word_freq(recent_concepts: list[str]) -> dict[str, int]:
     """Count how often each significant word appears across recent recipes."""
     freq: dict[str, int] = {}
     for concept in recent_concepts:
-        words = set(concept.lower().split()) - _STOP_WORDS
+        words = set(concept.lower().split()) - STOP_WORDS
         for w in words:
             freq[w] = freq.get(w, 0) + 1
     return freq
@@ -231,7 +229,7 @@ def score_candidate(
 
     # 2b. Per-word frequency penalty — punish overused ingredients/descriptors
     if word_freq:
-        candidate_words = set(low.split()) - _STOP_WORDS
+        candidate_words = set(low.split()) - STOP_WORDS
         for w in candidate_words:
             freq = word_freq.get(w, 0)
             if freq >= 3:
@@ -320,7 +318,7 @@ def pick_concept(
         fallbacks = [f for f in fallbacks if f.lower() not in recent]
         fallbacks = [
             f for f in fallbacks
-            if not any(word_freq.get(w, 0) >= 2 for w in set(f.lower().split()) - _STOP_WORDS)
+            if not any(word_freq.get(w, 0) >= 2 for w in set(f.lower().split()) - STOP_WORDS)
         ]
         # If targeting a category, prefer matching fallbacks
         if target_category and target_category in CATEGORY_KEYWORDS:
