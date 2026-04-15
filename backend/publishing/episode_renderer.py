@@ -204,7 +204,6 @@ def render_episode_page(episode: dict, image_url: Optional[str] = None) -> str:
     regenerate the page with whatever content exists so far.
     """
     concept = episode.get("concept", "Muffin Pan Recipe")
-    episode_id = episode.get("episode_id", "unknown")
 
     # Extract recipe data from Monday stage
     monday = episode.get("stages", {}).get("monday", {})

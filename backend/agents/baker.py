@@ -7,7 +7,6 @@ still loves the science of baking.
 """
 
 from typing import Any, Dict
-import random
 
 from backend.core.agent import Agent
 from backend.core.task import Task, TaskResult, TaskApproach
