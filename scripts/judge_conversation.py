@@ -69,19 +69,31 @@ EVALUATE EACH DAY FOR:
 5. BOOKENDS: Did the first message include a greeting/arrival? Did the last message include a sign-off?
 6. NATURALNESS: Does this sound like real coworkers or like AI characters?
 
-For each day, respond in EXACTLY this format:
+For each day, respond in EXACTLY this format (every field on its own line, no markdown bold, no extra commentary above the block):
 VERDICT: <PASS | SOFT FAIL | HARD FAIL>
-QUALITY_SCORE: <1-10>
-QA_SCORE: <0-100>
-REASON: <1-2 sentences>
+QUALITY_SCORE: <integer 1-10, where 1 = unpublishable, 5 = publishable but rough, 10 = best in class>
+QA_SCORE: <integer 0-100, structural quality, matches the QA rubric (0 = hard fail, 100 = perfect)>
+RATIONALE: <1-2 sentences justifying the numeric scores. This is the field consumers will read — be specific and concrete.>
 PROBLEM_LINES: <quote specific lines, or "None">
+
+SCALE NOTES (be strict, do not cluster everything at 7/80):
+- QUALITY_SCORE is an INTEGER 1-10. Use the full range.
+- QA_SCORE is an INTEGER 0-100. A SOFT FAIL should land 50-75, a HARD FAIL below 50, a PASS 75+.
+- A 1-point move in QUALITY_SCORE should mean something. Don't drift by +/- 1 for cosmetic reasons.
 
 At the end, give an OVERALL verdict and whether this week should be published or regenerated."""
 
 def _parse_day_verdict(verdict_raw: str) -> dict[str, str | int | None]:
+    """Parse a judge day-verdict block into structured fields.
+
+    Returns a dict with verdict, quality_score (1-10 int), qa_score (0-100 int),
+    rationale (short 1-2 sentence string), and the original raw text. Any field
+    the model omits comes back as None — callers decide how to handle that.
+    """
     verdict = None
     quality = None
     qa = None
+    rationale: str | None = None
 
     # Strip markdown bold formatting before parsing
     import re
@@ -110,12 +122,114 @@ def _parse_day_verdict(verdict_raw: str) -> dict[str, str | int | None]:
     quality = _extract_int("QUALITY_SCORE", 10)
     qa = _extract_int("QA_SCORE", 100)
 
+    # Extract RATIONALE (preferred) or fall back to REASON for backward compat.
+    # Captures the label and reads until the next ALL-CAPS label or end of block.
+    rationale_pattern = re.compile(
+        r"(?:RATIONALE|REASON)\s*[:\-]\s*(.+?)(?=\n[A-Z_]{3,}\s*[:\-]|\Z)",
+        re.IGNORECASE | re.DOTALL,
+    )
+    rationale_match = rationale_pattern.search(cleaned)
+    if rationale_match:
+        rationale = rationale_match.group(1).strip()
+        # Collapse whitespace/newlines inside rationale for compact storage
+        rationale = re.sub(r"\s+", " ", rationale)
+        if not rationale:
+            rationale = None
+
     return {
         "verdict": verdict,
         "quality_score": quality,
         "qa_score": qa,
+        "rationale": rationale,
         "raw": verdict_raw,
     }
+
+
+# ---------------------------------------------------------------------------
+# Schema versioning for saved judgment files
+# ---------------------------------------------------------------------------
+
+JUDGMENT_SCHEMA_VERSION = 2
+
+
+def _weekly_rollup_from_days(day_verdicts: dict[str, dict]) -> dict[str, float | None]:
+    """Compute weekly average quality (1-10) and QA (0-100) from per-day numerics.
+
+    Missing scores are skipped. Returns None for a field if every day is missing.
+    """
+    q_scores = [
+        v["quality_score"] for v in day_verdicts.values()
+        if isinstance(v, dict) and v.get("quality_score") is not None
+    ]
+    qa_scores = [
+        v["qa_score"] for v in day_verdicts.values()
+        if isinstance(v, dict) and v.get("qa_score") is not None
+    ]
+    return {
+        "avg_quality_score": round(sum(q_scores) / len(q_scores), 1) if q_scores else None,
+        "avg_qa_score": round(sum(qa_scores) / len(qa_scores), 1) if qa_scores else None,
+    }
+
+
+def load_judgment(path: str | Path) -> dict:
+    """Load a judgment file and normalize to the v2 schema shape in memory.
+
+    v1 files (implicit — no ``schema_version`` key, or ``schema_version`` < 2):
+      - ``day_verdicts`` may be a dict of raw-string verdicts.
+      - No per-day numeric fields are guaranteed.
+    v2 files:
+      - Top-level ``schema_version == 2``.
+      - ``day_verdicts[day]`` is a dict with ``quality_score``/``qa_score``/``rationale``.
+
+    This loader never crashes on v1 — callers get a consistent shape back, with
+    missing numerics set to None. The file on disk is not modified.
+    """
+    p = Path(path)
+    with p.open() as f:
+        data = json.load(f)
+
+    # score_episodes / judge_conversation save a LIST of results (one per judge model).
+    # Normalize to list-of-dicts for uniform handling, then return the same shape.
+    is_list = isinstance(data, list)
+    records = data if is_list else [data]
+
+    normalized: list[dict] = []
+    for rec in records:
+        if not isinstance(rec, dict):
+            normalized.append(rec)
+            continue
+        version = rec.get("schema_version", 1)
+        day_verdicts = rec.get("day_verdicts", {}) or {}
+
+        # Coerce raw-string day verdicts (v1 files) into the structured shape.
+        fixed: dict[str, dict] = {}
+        for day, v in day_verdicts.items():
+            if isinstance(v, str):
+                fixed[day] = {
+                    "verdict": None,
+                    "quality_score": None,
+                    "qa_score": None,
+                    "rationale": None,
+                    "raw": v,
+                }
+            elif isinstance(v, dict):
+                # Ensure all expected keys exist (old v1 dicts may lack rationale)
+                fixed[day] = {
+                    "verdict": v.get("verdict"),
+                    "quality_score": v.get("quality_score"),
+                    "qa_score": v.get("qa_score"),
+                    "rationale": v.get("rationale"),
+                    "raw": v.get("raw"),
+                }
+            else:
+                fixed[day] = v  # leave non-dict/non-str alone
+
+        out = dict(rec)
+        out["schema_version"] = version if version >= 2 else 1
+        out["day_verdicts"] = fixed
+        normalized.append(out)
+
+    return normalized if is_list else normalized[0]
 
 
 def load_conversation(filepath: str) -> dict:
@@ -215,14 +329,19 @@ def judge_week(filepath: str, model: str) -> dict:
     print(f"{'='*60}")
     print(overall_raw)
 
+    rollup = _weekly_rollup_from_days(day_verdicts)
+
     return {
+        "schema_version": JUDGMENT_SCHEMA_VERSION,
         "source_file": filepath,
         "concept": concept,
         "generation_model": gen_model,
         "judge_model": model,
         "judged_at": datetime.now(timezone.utc).isoformat(),
         "day_verdicts": day_verdicts,
+        "weekly_rollup": rollup,
         "overall_verdict": overall_raw,
+        # Preserve the previously stored weekly QA number exactly as before.
         "qa_score": data.get("qa", {}).get("score"),
     }
 
