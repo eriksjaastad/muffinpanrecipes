@@ -33,6 +33,7 @@ import argparse
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from backend.config import config
 from backend.utils.model_router import generate_judge_response
@@ -83,7 +84,7 @@ SCALE NOTES (be strict, do not cluster everything at 7/80):
 
 At the end, give an OVERALL verdict and whether this week should be published or regenerated."""
 
-def _parse_day_verdict(verdict_raw: str) -> dict[str, str | int | None]:
+def _parse_day_verdict(verdict_raw: str) -> dict[str, Any]:
     """Parse a judge day-verdict block into structured fields.
 
     Returns a dict with verdict, quality_score (1-10 int), qa_score (0-100 int),
@@ -130,11 +131,10 @@ def _parse_day_verdict(verdict_raw: str) -> dict[str, str | int | None]:
     )
     rationale_match = rationale_pattern.search(cleaned)
     if rationale_match:
-        rationale = rationale_match.group(1).strip()
+        rationale_text = rationale_match.group(1).strip()
         # Collapse whitespace/newlines inside rationale for compact storage
-        rationale = re.sub(r"\s+", " ", rationale)
-        if not rationale:
-            rationale = None
+        rationale_text = re.sub(r"\s+", " ", rationale_text)
+        rationale = rationale_text or None
 
     return {
         "verdict": verdict,
@@ -171,7 +171,7 @@ def _weekly_rollup_from_days(day_verdicts: dict[str, dict]) -> dict[str, float |
     }
 
 
-def load_judgment(path: str | Path) -> dict:
+def load_judgment(path: str | Path) -> dict | list[dict]:
     """Load a judgment file and normalize to the v2 schema shape in memory.
 
     v1 files (implicit — no ``schema_version`` key, or ``schema_version`` < 2):
