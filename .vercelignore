@@ -4,7 +4,7 @@ data/*
 !backend/data/
 Documents/
 reviews/
-.kiro/
+docs/
 .agent/
 *.md
 !README.md
