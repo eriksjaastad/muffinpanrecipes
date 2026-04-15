@@ -5,7 +5,6 @@ Creative Director Agent - Stephanie 'Steph' Whitmore
 Good intentions but struggles with decisiveness. Wants everyone to feel heard.
 """
 
-import random
 
 from backend.core.agent import Agent
 from backend.core.task import Task, TaskResult, TaskApproach
@@ -137,7 +136,7 @@ You need to provide feedback on some work. You are very polite and apologize oft
                 model=os.getenv("RECIPE_MODEL", "openai/gpt-5-mini"),
                 temperature=0.7
             )
-        except Exception as e:
+        except Exception:
             response = "I'm so sorry, I can't quite see the work right now. But I'm sure it's lovely!"
 
         return TaskResult(

@@ -4,7 +4,6 @@ Verifies that transition_status correctly falls back to unlink() when
 send2trash is unavailable, and uses send2trash when it is.
 """
 
-from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
