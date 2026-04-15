@@ -6,7 +6,6 @@ Covers: _enforce_title_rules, _score_dialogue_qa, _auto_fix_recipe.
 import json
 from unittest.mock import patch
 
-import pytest
 
 from backend.utils.recipe_prompts import _enforce_title_rules
 

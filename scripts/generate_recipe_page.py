@@ -206,7 +206,6 @@ def generate_page(episode: dict, image_url: Optional[str] = None,
                    blob_token: str = "", prefix: str = "") -> str:
     """Generate the full recipe page HTML from episode data."""
     concept = episode.get("concept", "Muffin Pan Recipe")
-    episode_id = episode.get("episode_id", "unknown")
 
     # Extract recipe data from Monday stage
     monday = episode.get("stages", {}).get("monday", {})

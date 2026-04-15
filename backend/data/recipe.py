@@ -4,13 +4,12 @@ Recipe and CreationStory data models.
 These models represent the final output of the AI Creative Team.
 """
 
-from typing import List, Dict, Optional, Any, Literal
+from typing import List, Dict, Optional, Any
 from datetime import datetime, timezone
 from pathlib import Path
 from enum import Enum
 import json
 import re
-import shutil
 
 from pydantic import BaseModel, Field, field_validator
 try:

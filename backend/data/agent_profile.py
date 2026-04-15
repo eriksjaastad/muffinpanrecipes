@@ -1,6 +1,6 @@
 """Agent Profile storage system for persistent agent state."""
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from pathlib import Path
 from datetime import datetime, timezone
 import json

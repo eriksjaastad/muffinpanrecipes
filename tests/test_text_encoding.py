@@ -6,7 +6,6 @@ rendering pipeline, and mojibake (double-encoded text) is detected.
 
 import html
 
-import pytest
 
 from backend.utils.text_sanitize import has_encoding_issues, sanitize_text
 
