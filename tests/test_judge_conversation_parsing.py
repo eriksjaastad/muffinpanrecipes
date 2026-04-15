@@ -1,7 +1,5 @@
 import json
 
-import pytest
-
 
 def test_parse_day_verdict_extracts_scores():
     from scripts.judge_conversation import _parse_day_verdict
