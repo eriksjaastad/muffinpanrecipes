@@ -48,9 +48,11 @@ from scripts.simulate_dialogue_week import (
 )
 from scripts.judge_conversation import (
     JUDGE_SYSTEM_PROMPT,
+    JUDGMENT_SCHEMA_VERSION,
     DAY_ORDER,
     format_day_transcript,
     _parse_day_verdict,
+    _weekly_rollup_from_days,
 )
 
 
@@ -212,19 +214,25 @@ def score_judge(episode: dict, model: str) -> dict[str, Any]:
     ]
     avg_judge = sum(day_quality_scores) / len(day_quality_scores) if day_quality_scores else 0
 
+    structured_days = {
+        day: {
+            "verdict": v.get("verdict"),
+            "quality_score": v.get("quality_score"),
+            "qa_score": v.get("qa_score"),
+            "rationale": v.get("rationale"),
+        }
+        for day, v in day_verdicts.items()
+    }
+    rollup = _weekly_rollup_from_days(structured_days)
+
     return {
+        "schema_version": JUDGMENT_SCHEMA_VERSION,
         "judge_model": model,
         "avg_judge_score": round(avg_judge, 1),
         "overall_quality_score": overall_parsed.get("quality_score"),
         "overall_verdict": overall_raw,
-        "day_verdicts": {
-            day: {
-                "verdict": v.get("verdict"),
-                "quality_score": v.get("quality_score"),
-                "qa_score": v.get("qa_score"),
-            }
-            for day, v in day_verdicts.items()
-        },
+        "day_verdicts": structured_days,
+        "weekly_rollup": rollup,
     }
 
 
