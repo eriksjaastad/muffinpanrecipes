@@ -100,22 +100,9 @@ If all three check groups pass, recovery is complete. Update MEMORY.md with the 
 - If you need to smoke-test a cron route in production, use a real episode ID with `force=true` and accept that it writes real state. Cost doctrine applies — max 3 retries, count your API calls.
 - Local testing: use `scripts/run_full_week.py --test` which talks to a local dev server, not prod.
 
-### Permanent fix (pending)
+### Permanent fix (shipped)
 
-The real fix is eliminating shared mutable state in `_CloudBackend`. Preferred: wrap the prefix in a context manager that snapshots and restores, so a cron handler can't leave the singleton dirty:
-
-```python
-@contextmanager
-def test_mode(body: StageRequest):
-    prev = storage.prefix
-    storage.set_prefix("test/" if body.test else "")
-    try:
-        yield
-    finally:
-        storage.set_prefix(prev)
-```
-
-Wrap every cron handler in `with test_mode(body):`. No handler can leak state past its own request boundary. Tracked in follow-up card — search `pt tasks` for "test mode contamination" or "storage prefix singleton."
+`storage.prefix_scope()` context manager shipped in PR #24 (card #5917, 2026-04-14). Every cron handler wraps its body in `with _test_mode_scope(body):` so the prefix always resets, even on exception. The shared mutable state in `_CloudBackend` is no longer exposed to handler-level leaks. See `backend/storage.py::prefix_scope` and `backend/admin/cron_routes.py`.
 
 ### First occurrence
 
