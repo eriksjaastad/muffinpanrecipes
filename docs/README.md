@@ -10,7 +10,7 @@ Planning, research, and historical documentation for muffinpanrecipes. Moved her
 - `PROGRESS.md` — live session continuity (auto-written before context compaction)
 - `DEPLOYMENT.md` — deploy instructions
 - `DECISIONS.md` — architectural decision log
-- `AGENTS.md`, `PROJECT_DOD.md`, `INTENTIONS.md` — required by `scripts/validate_project.py`
+- `AGENTS.md`, `PROJECT_DOD.md`, `INTENTIONS.md` — standard project metadata files
 
 ## What lives in `docs/`
 
