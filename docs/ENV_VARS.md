@@ -77,7 +77,6 @@ Single source of truth for every environment variable the muffinpanrecipes codeb
 | Var | Flags | Read at | Default | Purpose |
 |---|---|---|---|---|
 | `PROJECT_ROOT` | O | `backend/publishing/pipeline.py:51`, `scripts/optimize_images.py:11`, `generate_image_prompts.py:17`, `art_director.py:17`, `trigger_generation.py:22`, `validate_env.py:16` | derived from `__file__` | Repo root path override |
-| `PROJECTS_ROOT` | O | `scripts/validate_project.py:36` | `~/projects` | Parent dir containing all projects (for cross-project validator) |
 | `WORKSPACE_ROOT` | O | `scripts/direct_harvest.py:18` | `/workspace` if exists else repo | Legacy harvest workspace |
 | `AI_ROUTER_PATH` | O | `scripts/generate_image_prompts.py:18`, `scripts/art_director.py:18`, `scripts/validate_env.py:23` | `../_tools/ai_router` | Path to the AI router CLI used by a couple of legacy scripts |
 | `OUTPUT_ROOT` | O | `scripts/direct_harvest.py:20` | `$WORKSPACE_ROOT/output/muffin_pan` | Legacy harvest output dir |

@@ -16,7 +16,6 @@ The most complex part of the system is the 4-step automated photography pipeline
 
 - **`build_site.py`**: Compiles Markdown recipes and templates into the final static site in `src/`.
 - **`optimize_images.py`**: Handles image compression and formatting for the web.
-- **`warden_audit.py`**: Runs project-wide health checks and validates repository state.
 
 ## 🎭 Simulation & Dialogue
 
