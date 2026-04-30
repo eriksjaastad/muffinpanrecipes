@@ -16,7 +16,6 @@ external_resources:
   - name: Google Gemini Developer API
     purpose: Optional text generation provider (Gemini models).
     env_vars:
-      - GEMINI_API_KEY
       - GOOGLE_API_KEY
       - GOOGLE_MODEL_ALLOWLIST
     notes: Routed via backend/utils/model_router.py using google-genai SDK.
@@ -27,7 +26,6 @@ external_resources:
       - NANOBANANA_API_KEY
       - NANOBANANA_MODEL
       - NANOBANANA_COST_PER_IMAGE
-      - GEMINI_API_KEY
       - GOOGLE_API_KEY
     notes: Implemented via google-genai image models (e.g., gemini-2.5-flash-image).
 

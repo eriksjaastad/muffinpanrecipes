@@ -134,12 +134,12 @@ def run_compare(args: argparse.Namespace) -> Path:
     nano_dir.mkdir(parents=True, exist_ok=True)
 
     stability_key = os.getenv("STABILITY_API_KEY")
-    nano_key = os.getenv("NANOBANANA_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    nano_key = os.getenv("NANOBANANA_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
     if not args.skip_stability and not stability_key and not args.dry_run:
         raise RuntimeError("STABILITY_API_KEY not set")
     if not args.skip_nano and not nano_key and not args.dry_run:
-        raise RuntimeError("NANOBANANA_API_KEY/GEMINI_API_KEY not set")
+        raise RuntimeError("NANOBANANA_API_KEY or GOOGLE_API_KEY not set")
 
     rows: list[dict[str, Any]] = []
     for entry in entries:
