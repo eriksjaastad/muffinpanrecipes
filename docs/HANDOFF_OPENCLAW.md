@@ -42,7 +42,7 @@ A recipe website at **https://muffinpanrecipes.com** where 5 AI characters colla
 ### Secrets (Doppler)
 - **Project:** `muffinpanrecipes`
 - **Configs:** `prd` (production), `stg` (staging), `dev` (local)
-- **Key secrets:** `CRON_SECRET`, `BLOB_READ_WRITE_TOKEN`, `STABILITY_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`
+- **Key secrets:** `CRON_SECRET`, `BLOB_READ_WRITE_TOKEN`, `STABILITY_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`
 - **Model config:** `DIALOGUE_MODEL`, `RECIPE_MODEL`, `JUDGE_MODEL` (in Doppler prd)
 
 ### Vercel Blob Store

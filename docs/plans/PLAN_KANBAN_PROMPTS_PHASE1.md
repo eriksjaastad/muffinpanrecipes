@@ -15,7 +15,7 @@ Overview
 Add Google/Gemini as a supported provider in the model router so we can run Gemini experiments and bookend tests.
 
 Context
-GEMINI_API_KEY exists in Doppler. The router currently supports other providers only. This enables Test 6 in BOOKEND_TESTING_LOG.md.
+GOOGLE_API_KEY exists in Doppler. The router now supports Google/Gemini models via the canonical Google key name.
 
 Execution
 1. Add a Google provider implementation in `backend/llm/model_router.py` using the `google-genai` SDK.

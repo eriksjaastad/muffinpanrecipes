@@ -20,7 +20,7 @@ def test_google_allowlist_rejects_unknown(monkeypatch):
 def test_generate_response_requires_google_key(monkeypatch):
     from backend.utils import model_router
 
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
 
     with pytest.raises(RuntimeError):
