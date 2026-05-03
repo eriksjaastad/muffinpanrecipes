@@ -98,6 +98,11 @@ def check_teaser_current_week(report: Report) -> None:
     def _check():
         data = _fetch_json(TEASER_URL)
         assert isinstance(data, dict), f"teaser returned non-dict: {type(data).__name__}"
+        # On Sunday after publish, the endpoint suppresses the teaser
+        # (read-side check in episode_routes.py) so the homepage Featured
+        # hero isn't duplicated. {"status":"published"} is a healthy state.
+        if data.get("status") == "published":
+            return
         episode_id = data.get("episode_id") or ""
         assert episode_id, "teaser response missing episode_id"
         assert not episode_id.startswith("test-"), (
