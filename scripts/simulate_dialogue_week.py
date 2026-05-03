@@ -671,6 +671,7 @@ def generate_turn(
     is_first_episode: bool = False,
     week_highlights: list[str] | None = None,
     highlight_format: str = "plain",
+    recipe_context: str | None = None,
 ) -> str:
     if mode == "template":
         sig = persona["communication_style"].get("signature_phrases", ["Right."])
@@ -686,6 +687,7 @@ def generate_turn(
         history_depth = 8 if day_turn == 1 else 4
     history = "\n".join(recent_lines[-history_depth:]) if recent_lines else "(no prior messages)"
     event_line = f"Injected event: {event}" if event else "Injected event: none"
+    recipe_line = f"Recipe anchor: {recipe_context}\n" if recipe_context else ""
 
     # Week context: inject highlights from prior days so characters can reference them
     week_context_block = ""
@@ -768,6 +770,7 @@ def generate_turn(
             )
             prompt = (
                 f"Episode concept: {concept}\n"
+                f"{recipe_line}"
                 f"Day: {day.title()} ({stage})\n"
                 f"Scene context: {scene_sentence}\n"
                 f"Story arc: {arc_summary}\n"
@@ -804,6 +807,7 @@ def generate_turn(
 
             prompt = (
                 f"Day: {day.title()} - {stage}.\n"
+                f"{recipe_line}"
                 f"{goal_line}\n"
                 f"{char_goal_line}\n"
                 f"{no_clock_line}\n"
@@ -832,6 +836,7 @@ def generate_turn(
             reaction_hint = "Your first sentence must respond to what was just said. Don't change the subject.\n"
         prompt = (
             f"Episode concept: {concept}\n"
+            f"{recipe_line}"
             f"Day: {day.title()} ({stage})\n"
             f"{goal_line}\n"
             f"{char_goal_line}\n"
@@ -1814,6 +1819,7 @@ def run_simulation(
     initial_highlights: list[str] | None = None,  # pre-computed week highlights for context injection
     initial_recent_lines: list[str] | None = None,  # seed recent_lines (e.g. Saturday msgs for Sunday-only runs)
     highlight_format: str = "plain",  # "plain" or "xml" — controls how week context is injected
+    recipe_context: str | None = None,  # one-line recipe summary; anchors dialogue to the actual dish
 ) -> dict[str, Any]:
     personas = load_personas()
     start = datetime.now(timezone.utc).replace(hour=9, minute=0, second=0, microsecond=0)
@@ -1890,6 +1896,7 @@ def run_simulation(
                 is_first_episode=first_episode,
                 week_highlights=week_highlights if week_highlights else None,
                 highlight_format=highlight_format,
+                recipe_context=recipe_context,
             )
             day_messages_by_char[speaker].append(line)
             recent_lines.append(f"{speaker.split()[0]}: {line}")
