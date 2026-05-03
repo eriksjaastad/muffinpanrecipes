@@ -139,6 +139,40 @@ def _load_or_create_episode(episode_id: str, concept: str) -> dict:
     }
 
 
+def _build_recipe_context(recipe_data: dict | None) -> str:
+    """One-line recipe summary for dialogue + judge prompts.
+
+    Light by design — title + category + up to 5 hero ingredients. Heavier
+    injection causes characters to recite recipe details instead of
+    holding a real conversation. Empty string if recipe_data is missing
+    or shapeless (e.g., Monday before the baker has run, or test runs
+    that skip the baker).
+    """
+    if not isinstance(recipe_data, dict):
+        return ""
+    title = (recipe_data.get("title") or "").strip()
+    if not title:
+        return ""
+    category = (recipe_data.get("category") or "").strip().lower()
+    parts = [f"This week's recipe: {title}"]
+    if category:
+        parts.append(f"({category})")
+    hero_items: list[str] = []
+    for ing in (recipe_data.get("ingredients") or [])[:5]:
+        if isinstance(ing, dict):
+            item = (ing.get("item") or "").strip()
+        else:
+            item = str(ing).strip()
+        # Strip trailing parentheticals/notes so the summary stays short.
+        item = item.split("(", 1)[0].strip(", ").strip()
+        if item:
+            hero_items.append(item)
+    summary = " ".join(parts) + "."
+    if hero_items:
+        summary += f" Key ingredients: {', '.join(hero_items)}."
+    return summary
+
+
 def _generate_dialogue(
     stage: str,
     concept: str,
@@ -146,6 +180,7 @@ def _generate_dialogue(
     photography_context: dict | None = None,
     model: str | None = None,
     injected_event: str | None = None,
+    recipe_context: str | None = None,
 ) -> list[dict]:
     """Run dialogue simulator for a single stage. Non-fatal on failure.
 
@@ -153,6 +188,9 @@ def _generate_dialogue(
         model: Override dialogue model. Pass from API request body.
                Defaults to config.dialogue_model (DIALOGUE_MODEL env / Doppler).
         injected_event: Narrative event injected into every character's prompt.
+        recipe_context: One-line recipe summary built by _build_recipe_context.
+                        Anchors dialogue to the actual dish so characters don't
+                        drift into pastry/glaze/sugar talk for a savory recipe.
     """
     use_model = model or config.dialogue_model
     try:
@@ -169,6 +207,7 @@ def _generate_dialogue(
             character_models=None,
             image_paths=image_paths or [],
             photography_context=photography_context,
+            recipe_context=recipe_context,
         )
         return result.get("messages", [])
     except Exception as e:
@@ -191,13 +230,17 @@ _JUDGE_SYSTEM_PROMPT = (
     "- Devon: Efficient, understated, speaks only when needed\n"
     "- Ria: Direct, platform-savvy, thinks in hooks and engagement, impatient with process\n\n"
     "CHECK FOR:\n"
-    "1. HALLUCINATIONS: Wrong ingredients/details not matching the concept\n"
-    "2. CHARACTER BREAKS: Someone wildly out of character\n"
-    "3. CONTINUITY: References to previous days must be accurate\n"
-    "4. NATURALNESS: Should sound like real coworkers\n\n"
+    "1. RECIPE FIDELITY: When a 'This week's recipe:' line is provided, the dialogue\n"
+    "   must stay anchored to that dish. FAIL if characters discuss techniques or\n"
+    "   ingredients that contradict it (e.g., 'brown butter' or 'glaze' for a savory\n"
+    "   sausage-and-egg recipe; 'pastry ratios' for a hash-brown nest).\n"
+    "2. HALLUCINATIONS: Wrong ingredients/details not matching the recipe or concept\n"
+    "3. CHARACTER BREAKS: Someone wildly out of character\n"
+    "4. CONTINUITY: References to previous days must be accurate\n"
+    "5. NATURALNESS: Should sound like real coworkers\n\n"
     "Respond with EXACTLY one line: PASS or FAIL followed by a brief reason.\n"
-    "Example: PASS - Characters are distinct, concept is consistent, good tension.\n"
-    "Example: FAIL - Margaret mentions 'brown butter' but this is a corn dog recipe."
+    "Example: PASS - Characters are distinct, recipe-anchored, good tension.\n"
+    "Example: FAIL - Margaret talks 'pastry ratios' but the recipe is hash brown nests."
 )
 
 
@@ -206,10 +249,15 @@ def _judge_dialogue(
     stage: str,
     dialogue: list[dict],
     episode: dict,
+    recipe_context: str | None = None,
 ) -> tuple[bool, str]:
     """Judge today's dialogue with growing context from previous days.
 
     Returns (passed: bool, verdict: str).
+
+    When recipe_context is supplied, the judge enforces recipe fidelity —
+    flagging dialogue that drifts off the actual dish (e.g., characters
+    debating "butter-to-sugar ratios" for a savory hash-brown recipe).
     """
     judge_model = config.judge_model
 
@@ -236,8 +284,10 @@ def _judge_dialogue(
     if previous_context:
         context_section = "PREVIOUS DAYS:\n" + "\n\n".join(previous_context) + "\n\n---\n\n"
 
+    recipe_section = f"{recipe_context}\n\n" if recipe_context else ""
     prompt = (
-        f"Recipe concept: {concept}\n\n"
+        f"Recipe concept: {concept}\n"
+        f"{recipe_section}"
         f"{context_section}"
         f"TODAY IS {stage.upper()}:\n"
         + "\n".join(today_lines)
@@ -309,16 +359,23 @@ def _generate_and_judge_dialogue(
     photography_context: dict | None = None,
     max_retries: int = 2,
     injected_event: str | None = None,
+    recipe_data: dict | None = None,
 ) -> tuple[list[dict], str]:
     """Generate dialogue and run judge. Retry on FAIL up to max_retries.
 
     Returns (dialogue, verdict_str).
     Raises JudgeFailedError if all retries exhausted — caller should
     save episode as judge_failed and NOT publish.
+
+    Pass recipe_data (typically `episode['stages']['monday']['recipe_data']`)
+    to anchor both the simulator and the judge to the actual dish. Without
+    it, characters drift off-recipe and the judge can only enforce internal
+    consistency.
     """
     verdict = ""
     dialogue: list[dict] = []
     total_attempts = 1 + max_retries
+    recipe_context = _build_recipe_context(recipe_data)
 
     for attempt in range(total_attempts):
         dialogue = _generate_dialogue(
@@ -327,11 +384,15 @@ def _generate_and_judge_dialogue(
             photography_context=photography_context,
             model=model,
             injected_event=injected_event,
+            recipe_context=recipe_context or None,
         )
         if not dialogue:
             return dialogue, "NO DIALOGUE GENERATED"
 
-        passed, verdict = _judge_dialogue(concept, stage, dialogue, episode)
+        passed, verdict = _judge_dialogue(
+            concept, stage, dialogue, episode,
+            recipe_context=recipe_context or None,
+        )
         if passed:
             # Run QA scoring on the accepted dialogue
             qa_scores = _score_dialogue_qa(dialogue, stage, concept)
@@ -915,6 +976,7 @@ async def cron_monday(request: Request):
         dialogue, judge_verdict = _generate_and_judge_dialogue(
             "monday", concept, ep, model=body.model,
             injected_event=injected_event,
+            recipe_data=recipe_data,
         )
 
         ep["stages"]["monday"] = {
@@ -955,6 +1017,7 @@ async def cron_tuesday(request: Request):
       with _run_stage(ep, "tuesday"):
         dialogue, judge_verdict = _generate_and_judge_dialogue(
             "tuesday", concept, ep, model=body.model,
+            recipe_data=ep.get("stages", {}).get("monday", {}).get("recipe_data"),
         )
         ep["stages"]["tuesday"] = {
             "stage": "recipe_development",
@@ -1034,6 +1097,7 @@ async def cron_wednesday(request: Request):
             image_paths=image_paths,
             photography_context=photography_result if isinstance(photography_result, dict) else None,
             model=body.model,
+            recipe_data=ep.get("stages", {}).get("monday", {}).get("recipe_data"),
         )
 
         ep["stages"]["wednesday"] = {
@@ -1089,6 +1153,7 @@ async def cron_thursday(request: Request):
         copy_text = orchestrator._execute_stage_copywriting(recipe_id, concept, recipe_data)
         dialogue, judge_verdict = _generate_and_judge_dialogue(
             "thursday", concept, ep, model=body.model,
+            recipe_data=recipe_data,
         )
 
         ep["stages"]["thursday"] = {
@@ -1141,6 +1206,7 @@ async def cron_friday(request: Request):
             "friday", concept, ep,
             photography_context=friday_photo_ctx,
             model=body.model,
+            recipe_data=ep.get("stages", {}).get("monday", {}).get("recipe_data"),
         )
 
         ep["stages"]["friday"] = {
@@ -1188,6 +1254,7 @@ async def cron_saturday(request: Request):
         orchestrator._execute_stage_deployment(recipe_id)
         dialogue, judge_verdict = _generate_and_judge_dialogue(
             "saturday", concept, ep, model=body.model,
+            recipe_data=ep.get("stages", {}).get("monday", {}).get("recipe_data"),
         )
 
         ep["stages"]["saturday"] = {
@@ -1223,6 +1290,7 @@ async def cron_sunday(request: Request):
       with _run_stage(ep, "sunday"):
         dialogue, judge_verdict = _generate_and_judge_dialogue(
             "sunday", concept, ep, model=body.model,
+            recipe_data=ep.get("stages", {}).get("monday", {}).get("recipe_data"),
         )
 
         # Verify critical prior stages completed before publishing
@@ -1391,7 +1459,11 @@ async def execute_cron_stage_stub(stage: str, episode_id: str, concept: str, mod
     # Bypass cron secret verification — caller is already auth'd via admin UI
     ep = _load_or_create_episode(episode_id, concept)
     ep_concept: str = concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
-    dialogue = _generate_dialogue(stage, ep_concept, model=model)
+    recipe_data = ep.get("stages", {}).get("monday", {}).get("recipe_data")
+    dialogue = _generate_dialogue(
+        stage, ep_concept, model=model,
+        recipe_context=_build_recipe_context(recipe_data) or None,
+    )
     ep.setdefault("stages", {})[stage] = {
         "stage": stage,
         "status": "complete",
