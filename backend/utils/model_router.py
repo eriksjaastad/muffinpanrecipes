@@ -398,9 +398,9 @@ def _generate_google(
     model: str,
     temperature: float,
 ) -> str:
-    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key:
-        raise RuntimeError("GEMINI_API_KEY or GOOGLE_API_KEY is not set")
+        raise RuntimeError("GOOGLE_API_KEY is not set")
 
     try:
         from google import genai

@@ -674,13 +674,21 @@ def regenerate_and_upload(episode: dict) -> str | None:
         url = storage.save_page(pathname, page_html)
         logger.info(f"Uploaded episode page: {pathname} ({len(page_html)} bytes)")
 
-        # 2. Upload teaser JSON for main page
-        teaser = get_latest_teaser(episode)
-        if teaser:
-            teaser["page_url"] = f"/this-week"
-            teaser_json = json.dumps(teaser)
-            storage.save_page("pages/latest.json", teaser_json)
-            logger.info(f"Uploaded teaser: {teaser.get('title', '?')}")
+        # 2. Upload teaser JSON for main page.
+        # Once Sunday publishes, the recipe becomes the homepage Featured hero
+        # (top of recipes.json), so the teaser must step aside to avoid the
+        # same recipe appearing twice. Frontend hides on missing title.
+        sunday_complete = episode.get("stages", {}).get("sunday", {}).get("status") == "complete"
+        if sunday_complete:
+            storage.save_page("pages/latest.json", json.dumps({"status": "published"}))
+            logger.info("Cleared teaser: Sunday published, recipe is now Featured hero")
+        else:
+            teaser = get_latest_teaser(episode)
+            if teaser:
+                teaser["page_url"] = f"/this-week"
+                teaser_json = json.dumps(teaser)
+                storage.save_page("pages/latest.json", teaser_json)
+                logger.info(f"Uploaded teaser: {teaser.get('title', '?')}")
 
         return url
     except Exception as e:

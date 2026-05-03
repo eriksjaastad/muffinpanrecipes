@@ -20,7 +20,7 @@ def test_google_genai_text_smoke():
 def test_nano_banana_image_smoke():
     from backend.utils.image_generation import generate_nano_banana_image
 
-    api_key = os.getenv("NANOBANANA_API_KEY") or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    api_key = os.getenv("NANOBANANA_API_KEY") or os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if not api_key:
         pytest.skip("No Nano Banana/Gemini API key set")
 
