@@ -12,6 +12,7 @@ Routes:
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from fastapi import APIRouter, Response
@@ -52,10 +53,20 @@ async def this_week_page():
 async def get_episode_teaser():
     """Return the latest episode teaser JSON for the main page.
 
-    Returns character name, message preview, stage, and link to full page.
+    Once the Sunday stage completes, the recipe becomes the homepage
+    Featured hero (top of recipes.json), so the teaser is suppressed
+    here at read time. This is the authoritative check — keeping it
+    on the read side means a code deploy is enough to fix prod even
+    if a stale `pages/latest.json` blob still says `stage: sunday`.
     """
     teaser_json = storage.load_page("pages/latest.json")
     if teaser_json:
+        try:
+            data = json.loads(teaser_json)
+        except (ValueError, TypeError):
+            data = None
+        if isinstance(data, dict) and data.get("stage") == "sunday":
+            return JSONResponse(content={"status": "published"}, status_code=200)
         return Response(content=teaser_json, media_type="application/json")
 
     return JSONResponse(content={"status": "no_episode"}, status_code=200)
