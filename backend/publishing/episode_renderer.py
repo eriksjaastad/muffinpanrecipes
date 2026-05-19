@@ -564,6 +564,68 @@ def _clean_title(title: str) -> str:
     return re.sub(r'\s*\(.*?\)\s*$', '', title).strip()
 
 
+def _catalog_image_key(image_url: str) -> str:
+    """Return a stable image identity across blob CDN, rewrites, PNG, and WebP."""
+    if not image_url:
+        return ""
+    key = str(image_url).strip().lower()
+    key = key.split("?", 1)[0].split("#", 1)[0]
+    key = _VERCEL_RANDOM_SUFFIX_RE.sub(".png", key)
+    if "/blob-images/" in key:
+        key = key.split("/blob-images/", 1)[1]
+    elif "/images/" in key:
+        key = key.split("/images/", 1)[1]
+    stem, ext = os.path.splitext(key)
+    if ext in {".png", ".webp", ".jpg", ".jpeg"}:
+        key = stem
+    return key.strip("/")
+
+
+def _normalize_catalog_text(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        return "\n".join(_normalize_catalog_text(item) for item in value)
+    if isinstance(value, dict):
+        return "\n".join(
+            f"{key}:{_normalize_catalog_text(value[key])}"
+            for key in sorted(value)
+        )
+    return re.sub(r"\s+", " ", str(value)).strip().lower()
+
+
+def _catalog_body_key(entry: dict) -> str:
+    ingredients = _normalize_catalog_text(entry.get("ingredients"))
+    instructions = _normalize_catalog_text(entry.get("instructions"))
+    description = _normalize_catalog_text(entry.get("description"))
+    if not ingredients and not instructions:
+        return ""
+    return "\n".join([description, ingredients, instructions]).strip()
+
+
+def _catalog_duplicate_reason(new_entry: dict, existing_entry: dict) -> str | None:
+    if new_entry.get("slug") and new_entry.get("slug") == existing_entry.get("slug"):
+        return f"slug={new_entry['slug']}"
+
+    for key in ("recipe_id", "episode_id"):
+        new_value = str(new_entry.get(key) or "").strip()
+        existing_value = str(existing_entry.get(key) or "").strip()
+        if new_value and new_value == existing_value:
+            return f"{key}={new_value}"
+
+    new_image = _catalog_image_key(str(new_entry.get("image") or ""))
+    existing_image = _catalog_image_key(str(existing_entry.get("image") or ""))
+    if new_image and new_image == existing_image:
+        return f"image={new_image}"
+
+    new_body = _catalog_body_key(new_entry)
+    existing_body = _catalog_body_key(existing_entry)
+    if new_body and new_body == existing_body:
+        return "recipe body"
+
+    return None
+
+
 def publish_recipe_to_catalog(episode: dict) -> str | None:
     """Add the finished recipe to recipes.json and upload to blob.
 
@@ -609,6 +671,8 @@ def publish_recipe_to_catalog(episode: dict) -> str | None:
     new_entry = {
         "slug": slug,
         "title": title,
+        "episode_id": episode.get("episode_id", ""),
+        "recipe_id": episode.get("recipe_id", ""),
         "category": recipe.get("category", "Savory").title(),
         "image": image_url,
         "description": recipe.get("description", ""),
@@ -635,11 +699,12 @@ def publish_recipe_to_catalog(episode: dict) -> str | None:
         except Exception:
             catalog = {"recipes": []}
 
-    # Don't add duplicates (idempotent re-run)
-    existing_slugs = {r.get("slug") for r in catalog.get("recipes", [])}
-    if slug in existing_slugs:
-        logger.info(f"Recipe '{slug}' already in catalog — skipping")
-        return None
+    # Don't add duplicates (idempotent re-run and Sunday re-fire defense).
+    for existing_entry in catalog.get("recipes", []):
+        reason = _catalog_duplicate_reason(new_entry, existing_entry)
+        if reason:
+            logger.info(f"Recipe '{slug}' already in catalog ({reason}) — skipping")
+            return None
 
     # Prepend new recipe (becomes featured)
     catalog["recipes"].insert(0, new_entry)
@@ -685,7 +750,7 @@ def regenerate_and_upload(episode: dict) -> str | None:
         else:
             teaser = get_latest_teaser(episode)
             if teaser:
-                teaser["page_url"] = f"/this-week"
+                teaser["page_url"] = "/this-week"
                 teaser_json = json.dumps(teaser)
                 storage.save_page("pages/latest.json", teaser_json)
                 logger.info(f"Uploaded teaser: {teaser.get('title', '?')}")

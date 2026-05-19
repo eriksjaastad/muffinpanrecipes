@@ -305,8 +305,8 @@ def _judge_dialogue(
         logger.info(f"Judge verdict for {stage}: {verdict[:200]}")
         return passed, verdict
     except Exception as e:
-        logger.warning(f"Judge failed for {stage}, defaulting to PASS: {e}")
-        return True, f"JUDGE ERROR (defaulting to PASS): {e}"
+        logger.warning(f"Judge failed for {stage}: {e}")
+        return False, f"JUDGE ERROR: {type(e).__name__}: {e}"
 
 
 class JudgeFailedError(Exception):
@@ -1287,6 +1287,15 @@ async def cron_sunday(request: Request):
       ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
       concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
 
+      if ep.get("published_at"):
+        sunday_stage = ep.get("stages", {}).get("sunday", {})
+        return _stage_response("sunday", episode_id, concept, {
+            "published": True,
+            "already_published": True,
+            "published_at": ep.get("published_at"),
+            "dialogue_messages": len(sunday_stage.get("dialogue", [])),
+        })
+
       with _run_stage(ep, "sunday"):
         dialogue, judge_verdict = _generate_and_judge_dialogue(
             "sunday", concept, ep, model=body.model,
@@ -1480,4 +1489,3 @@ async def execute_cron_stage_stub(stage: str, episode_id: str, concept: str, mod
         "mode": "simulation",
         "note": "Simulation-only: no orchestrator run, no recipes/images generated",
     }
-

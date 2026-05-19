@@ -20,7 +20,8 @@ from backend.utils.logging import get_logger
 try:
     from api_trust_tracker import track as _central_track
 except ImportError:
-    _central_track = lambda resp, *a, **kw: resp
+    def _central_track(resp, *a, **kw):
+        return resp
 
 logger = get_logger(__name__)
 
@@ -383,7 +384,7 @@ def _generate_anthropic(
         getattr(usage, "input_tokens", 0) if usage else 0,
         getattr(usage, "output_tokens", 0) if usage else 0,
     )
-    _central_track(response, "anthropic", project="muffinpanrecipes", caller="model_router.anthropic")
+    _central_track(response, "anthropic", project="muffinpanrecipes", caller="model_router")
 
     parts = []
     for block in response.content:
@@ -535,7 +536,7 @@ def _generate_vision_anthropic(
         getattr(usage, "input_tokens", 0) if usage else 0,
         getattr(usage, "output_tokens", 0) if usage else 0,
     )
-    _central_track(response, "anthropic", project="muffinpanrecipes", caller="model_router.vision_anthropic")
+    _central_track(response, "anthropic", project="muffinpanrecipes", caller="model_router")
     parts = []
     for block in response.content:
         if hasattr(block, "text"):
