@@ -45,6 +45,8 @@ htmlcov/
 data/agent_memories/
 data/message_history/
 data/pipeline_state/
+data/image_generation_jobs.json
+data/episodes/*.json
 
 # OS
 .DS_Store

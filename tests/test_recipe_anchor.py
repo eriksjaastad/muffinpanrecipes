@@ -8,6 +8,8 @@ the judge prompts so they stay anchored to the actual dish.
 
 from unittest.mock import patch
 
+import pytest
+
 from backend.admin import cron_routes
 
 
@@ -140,3 +142,35 @@ def test_generate_and_judge_passes_recipe_through():
 
     assert sim_calls and "Maple Hash Brown Nests" in sim_calls[0]["recipe_context"]
     assert judge_calls and "Maple Hash Brown Nests" in judge_calls[0]["recipe_context"]
+
+
+def test_judge_dialogue_fails_closed_on_exception():
+    """Judge provider errors must not silently approve recipe-fidelity failures."""
+    dialogue = [{"character": "Margaret", "message": "This should be judged."}]
+
+    with patch.object(cron_routes, "generate_judge_response", side_effect=RuntimeError("provider down")):
+        passed, verdict = cron_routes._judge_dialogue(
+            "Concept", "tuesday", dialogue, {"stages": {}}
+        )
+
+    assert passed is False
+    assert "JUDGE ERROR: RuntimeError: provider down" == verdict
+    assert "defaulting" not in verdict.lower()
+
+
+def test_generate_and_judge_raises_after_judge_exceptions():
+    dialogue = [{"character": "Margaret", "message": "This should be judged."}]
+
+    with patch.object(cron_routes, "_generate_dialogue", return_value=dialogue), \
+         patch.object(cron_routes, "generate_judge_response", side_effect=RuntimeError("provider down")), \
+         patch.object(cron_routes, "notify_judge_failure") as notify:
+        with pytest.raises(cron_routes.JudgeFailedError) as exc:
+            cron_routes._generate_and_judge_dialogue(
+                "tuesday",
+                "Concept",
+                {"episode_id": "2026-W20", "stages": {}},
+                max_retries=1,
+            )
+
+    assert "JUDGE ERROR: RuntimeError: provider down" in str(exc.value)
+    notify.assert_called_once()
