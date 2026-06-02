@@ -209,6 +209,39 @@ class TestAutoFixRecipe:
 
     @patch("backend.admin.cron_routes.config")
     @patch("backend.admin.cron_routes.generate_response")
+    def test_title_repetition_adds_retitle_blacklist(self, mock_generate, mock_config):
+        from backend.admin.cron_routes import _auto_fix_recipe
+        mock_config.recipe_model = "test-model"
+
+        fixed_recipe = {
+            "title": "Golden Pepper Brunch Nests",
+            "description": "desc",
+            "ingredients": [{"item": "peppers", "amount": "1 cup", "notes": ""}],
+            "instructions": ["Bake until set."],
+        }
+        mock_generate.return_value = json.dumps(fixed_recipe)
+
+        episode = self._make_episode({
+            "title": "Paprika Cheddar Frittata Cups",
+            "ingredients": [{"item": "peppers", "amount": "1 cup", "notes": ""}],
+            "instructions": ["Bake."],
+        })
+
+        result = _auto_fix_recipe(
+            episode,
+            "STATUS: FAIL\nISSUES:\n- TITLE REPETITION: repeats Paprika, Cheddar, Frittata.",
+        )
+
+        assert result is True
+        prompt = mock_generate.call_args.kwargs["prompt"]
+        assert "TITLE REPETITION FIX" in prompt
+        assert "Do not reuse these title words" in prompt
+        assert "paprika" in prompt
+        assert "cheddar" in prompt
+        assert "frittata" in prompt
+
+    @patch("backend.admin.cron_routes.config")
+    @patch("backend.admin.cron_routes.generate_response")
     def test_returns_false_on_incomplete_fix(self, mock_generate, mock_config):
         from backend.admin.cron_routes import _auto_fix_recipe
         mock_config.recipe_model = "test-model"
