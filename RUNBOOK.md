@@ -12,6 +12,7 @@ User reports:
 - Sunday publish ran more than once for the same ISO week
 - The live recipe or episode data changed between Sunday invocations
 - A second invocation may show a different auto-fixed recipe/title even though the week had already published
+- In the live catalog (`pages/recipes.json`), two recipe entries appear for the same week with the same `image` field but different `slug` and `title`. Both standalone pages exist under `pages/recipes/{slug}/index.html`. The dish, ingredients, and description are identical between them.
 - `/api/cron/sunday` now returns `already_published=true` for that week
 
 **Panic reaction to avoid:** re-running Sunday with `force=true` and expecting it to repair or replace the recipe. The current code intentionally treats `published_at` as a sticky idempotency guard.
@@ -84,7 +85,9 @@ WEEK=2026-W20 doppler run --project muffinpanrecipes --config prd -- \
 
 If the live catalog/page needs repair, make a focused fix PR or use the existing catalog/episode storage APIs under Doppler. Do not edit secret values, do not delete Blob data, and do not use raw destructive cleanup.
 
-### Deliberate override — re-run an already-published Sunday
+If the first publish was correct and only the duplicate needs removal, remove the duplicate catalog entry and duplicate Blob page, then verify recovery below. If the second publish is the intended survivor, update the catalog/page intentionally and still verify that only one entry remains.
+
+**Deliberate override — re-run an already-published Sunday**
 
 The only supported override is to manually clear `published_at` from `episodes/{week}.json` in Vercel Blob, then invoke Sunday. `force=true` alone is not an override.
 
@@ -96,9 +99,17 @@ WEEK=2026-W20 doppler run --project muffinpanrecipes --config prd -- \
   uv run python -c 'import os; from datetime import datetime, timezone; from backend.storage import storage; week = os.environ["WEEK"]; ep = storage.load_episode(week); assert ep, f"episode not found: {week}"; old = ep.pop("published_at", None); ep.setdefault("events", []).append(f"operator: cleared published_at for deliberate Sunday rerun at {datetime.now(timezone.utc).isoformat()}"); storage.save_episode(week, ep); print("cleared_published_at:", bool(old))'
 ```
 
+Before re-firing Sunday, read the episode back and confirm the Blob write round-tripped. This catches stale read-modify-write loops before another publish attempt:
+
+```bash
+WEEK=2026-W20 doppler run --project muffinpanrecipes --config prd -- \
+  uv run python -c 'import os; from backend.storage import storage; week = os.environ["WEEK"]; ep = storage.load_episode(week) or {}; present = bool(ep.get("published_at")); print("published_at_present_after_clear:", present); assert not present'
+```
+
 Then re-run Sunday once:
 
 ```bash
+# force=true bypasses the day-of-week guard so Sunday can run on a non-Sunday.
 WEEK=2026-W20 doppler run --project muffinpanrecipes --config prd -- \
   sh -lc 'curl -s -X POST "https://muffinpanrecipes.com/api/cron/sunday" \
     -H "Authorization: Bearer $CRON_SECRET" \
@@ -108,12 +119,64 @@ WEEK=2026-W20 doppler run --project muffinpanrecipes --config prd -- \
 
 After the rerun, verify `published_at_present: True` with the first Blob check above.
 
+### Verify recovery
+
+Set the surviving slug and any known duplicate slug first:
+
+```bash
+export BLOB_CDN="https://gtczmjysc51nh8fq.public.blob.vercel-storage.com"
+export SURVIVING_SLUG="herbed-sausage-sunrise-cups"
+export DUP_SLUG="old-duplicate-slug"
+```
+
+Confirm `pages/recipes.json` has exactly one entry for the surviving slug and zero entries for the duplicate slug:
+
+```bash
+curl -s "$BLOB_CDN/pages/recipes.json?cb=$(date +%s)" \
+  | uv run python -c 'import json, os, sys; data = json.load(sys.stdin); recipes = data if isinstance(data, list) else data.get("recipes", []); surviving = [r for r in recipes if r.get("slug") == os.environ["SURVIVING_SLUG"]]; duplicate = [r for r in recipes if r.get("slug") == os.environ["DUP_SLUG"]]; print("surviving_slug_count:", len(surviving)); print("duplicate_slug_count:", len(duplicate)); assert len(surviving) == 1; assert len(duplicate) == 0'
+```
+
+Confirm the duplicate Blob page is gone:
+
+```bash
+curl -s -o /dev/null -w "duplicate page HTTP %{http_code}\n" \
+  "$BLOB_CDN/pages/recipes/$DUP_SLUG/index.html?cb=$(date +%s)"
+# Expect: duplicate page HTTP 404
+```
+
+Confirm the surviving Blob page exists:
+
+```bash
+curl -s -o /dev/null -w "surviving page HTTP %{http_code} %{size_download}b\n" \
+  "$BLOB_CDN/pages/recipes/$SURVIVING_SLUG/index.html?cb=$(date +%s)"
+# Expect: HTTP 200 and a non-trivial body size
+```
+
+Confirm the live homepage hero loads the surviving recipe:
+
+```bash
+curl -s "https://muffinpanrecipes.com/?cb=$(date +%s)" \
+  | uv run python -c 'import os, sys; body = sys.stdin.read(); slug = os.environ["SURVIVING_SLUG"]; print("homepage_contains_surviving_slug:", slug in body); assert slug in body'
+```
+
 ### How to avoid retriggering this
 
 - Treat `published_at` as the source of truth for Sunday idempotency.
 - Do not assume `force=true` means "publish again"; it only bypasses day-of-week validation.
 - Do not add Sunday pre-publish work before the `published_at` guard.
 - Keep `tests/test_sunday_publish_idempotency.py` passing whenever Sunday publish code changes.
+
+### Permanent fix (shipped)
+
+PR #45, commit `564d3f8` (merged 2026-05-19), shipped two permanent defenses:
+
+- `backend/admin/cron_routes.py:1290`: `cron_sunday` early-returns when `published_at` is set, before dialogue generation, editorial QA, page rendering, catalog updates, or episode writes. This sticky guard does not honor `force=true`; `force=true` only bypasses the day-of-week guard.
+- `backend/publishing/episode_renderer.py`: `publish_recipe_to_catalog` dedupes on `slug`, `recipe_id`, `episode_id`, normalized image key, and normalized recipe body, so same-image-different-slug duplicates are skipped.
+
+Regression coverage:
+
+- `tests/test_sunday_publish_idempotency.py`
+- `tests/test_catalog_publish_dedup.py`
 
 ### First occurrence
 
