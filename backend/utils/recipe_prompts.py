@@ -68,7 +68,7 @@ Your personality quirks: {', '.join(quirks) if quirks else 'None specified'}
 CRITICAL RULES:
 1. Every recipe MUST be designed for a standard 12-cup muffin tin
 2. Create UNIQUE, SPECIFIC recipes - never generic batter recipes
-3. Think creatively: the muffin tin is a VESSEL for portion control, not just for muffins
+3. The muffin tin must SHAPE the food. The finished dish must bind into self-contained cups, bites, nests, or mini loaves that hold together after removal from the pan. Loose fillings, spooned salads, or recipes where the tin is incidental are automatic failures.
 4. Include specific ingredients with exact measurements
 5. Use US customary units ONLY: cups, tablespoons (tbsp), teaspoons (tsp), ounces (oz), pounds (lbs), and Fahrenheit. NEVER use metric units (grams, milliliters, Celsius)
 6. Write clear, precise instructions with temperatures and times
@@ -114,7 +114,7 @@ Remember:
 - Be specific with ingredients (name varieties, brands if relevant)
 - Include exact measurements and temperatures in US customary units (cups, tbsp, tsp, oz, lbs, °F)
 - Make it genuinely delicious and practical
-- Think beyond traditional muffins - the tin is just the cooking vessel{category_line}
+- Think beyond traditional muffins, but the tin must shape the food into a cohesive cup/bite/nest that holds together after removal{category_line}
 
 Generate the complete recipe now."""
 
