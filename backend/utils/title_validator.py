@@ -33,7 +33,7 @@ CATALOG_PUBLIC_URL = (
 STOP_WORDS = frozenset({
     "a", "an", "the", "and", "&", "of", "in", "on", "with", "for", "to",
     "mini", "cups", "cup", "bites", "bite", "muffin", "tin", "pan", "tops",
-    "pots", "baked",
+    "pots", "nest", "nests", "baked",
     "breakfast", "savory", "sweet", "party", "recipe", "recipes",
 })
 
@@ -78,9 +78,17 @@ def load_catalog_titles() -> list[str]:
     return titles
 
 
+def _normalize_title_word(word: str) -> str:
+    if word in {"cups", "bites", "nests"}:
+        return word[:-1]
+    if len(word) > 4 and word.endswith("s"):
+        return word[:-1]
+    return word
+
+
 def _significant_words(title: str) -> set[str]:
     words = re.findall(r"[a-z0-9]+(?:'[a-z0-9]+)?", title.lower())
-    return set(words) - STOP_WORDS
+    return {_normalize_title_word(word) for word in words} - STOP_WORDS
 
 
 def distinctive_title_words(title: str) -> set[str]:

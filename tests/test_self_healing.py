@@ -239,6 +239,40 @@ class TestAutoFixRecipe:
         assert "paprika" in prompt
         assert "cheddar" in prompt
         assert "frittata" in prompt
+        assert "status" not in prompt.split("Do not reuse these title words:", 1)[1]
+        assert "repetition" not in prompt.split("Do not reuse these title words:", 1)[1]
+
+    @patch("backend.admin.cron_routes.config")
+    @patch("backend.admin.cron_routes.generate_response")
+    def test_title_repetition_guidance_not_added_when_report_lacks_repetition(
+        self, mock_generate, mock_config
+    ):
+        from backend.admin.cron_routes import _auto_fix_recipe
+        mock_config.recipe_model = "test-model"
+
+        fixed_recipe = {
+            "title": "Golden Pepper Brunch Nests",
+            "description": "desc",
+            "ingredients": [{"item": "peppers", "amount": "1 cup", "notes": ""}],
+            "instructions": ["Bake until set."],
+        }
+        mock_generate.return_value = json.dumps(fixed_recipe)
+
+        episode = self._make_episode({
+            "title": "Paprika Cheddar Frittata Cups",
+            "ingredients": [{"item": "peppers", "amount": "1 cup", "notes": ""}],
+            "instructions": ["Bake."],
+        })
+
+        result = _auto_fix_recipe(
+            episode,
+            "STATUS: FAIL\nISSUES:\n- Ingredients do not match instructions.",
+        )
+
+        assert result is True
+        prompt = mock_generate.call_args.kwargs["prompt"]
+        assert "TITLE REPETITION FIX" not in prompt
+        assert "Do not reuse these title words" not in prompt
 
     @patch("backend.admin.cron_routes.config")
     @patch("backend.admin.cron_routes.generate_response")

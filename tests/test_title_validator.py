@@ -51,6 +51,22 @@ def test_distributed_distinctive_word_overlap_is_caught() -> None:
     assert "distinctive word overlap" in reason
 
 
+def test_w22_garden_frittata_egg_bites_hits_frittata_collision() -> None:
+    catalog = [
+        "Smoky Sweet Potato Frittatas",
+        "Roasted Veggie Egg Cups",
+        "Prosciutto Potato Egg Nests",
+        "Mini Caprese Bruschetta Bites",
+        "Smoky Cheddar Breakfast Bites",
+    ]
+
+    reason = check_title_conflict("Garden Frittata Egg Bites", catalog)
+
+    assert reason is not None
+    assert "smoky sweet potato frittatas" in reason.lower()
+    assert "frittata" in reason
+
+
 def test_no_shared_distinctive_words_is_allowed() -> None:
     """Distinct titles should pass when they do not share signal words."""
     catalog = ["chocolate chip decadence"]

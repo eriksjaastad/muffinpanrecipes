@@ -511,10 +511,7 @@ def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
         from backend.utils.title_validator import distinctive_title_words
 
         rejected_title = recipe.get("title", "")
-        blocked_words = sorted(
-            distinctive_title_words(rejected_title)
-            | distinctive_title_words(qa_report)
-        )
+        blocked_words = sorted(distinctive_title_words(rejected_title))
         blocked_text = ", ".join(blocked_words) if blocked_words else rejected_title
         repetition_guidance = (
             "\nTITLE REPETITION FIX:\n"
