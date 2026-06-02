@@ -12,6 +12,15 @@ An AI-generated editorial cooking site at [muffinpanrecipes.com](https://muffinp
 
 Five paid APIs hit on every weekly cycle: **Anthropic** (dialogue via Haiku 4.5, judging via Opus 4.6), **OpenAI** (recipe generation via GPT-5.1), **Stability AI** or **Nano Banana** (image generation), plus **Vercel Blob** storage. A runaway loop or unguarded retry burns real money. Follow the Cost Doctrine in `~/projects/CLAUDE.md` — max 20 API calls per task, max 3 retries, escalate don't power through.
 
+## Authorization — Check Doppler First
+
+Before saying "I need to log in" to any third-party CLI, check Doppler. This repo has `doppler.yaml` pinned to project `muffinpanrecipes`, config `dev`, and production/staging secrets are managed through Doppler sync.
+
+- Check for token names, never values: `doppler secrets --project muffinpanrecipes --config dev --only-names | rg -i 'vercel|gh|github|blob|cron|stability|openai|anthropic|google'`.
+- Run env-dependent commands with `doppler run -- <command>`; do not run interactive `vercel login`, `gh auth login`, or provider OAuth until the Doppler check proves the credential is missing.
+- Documented project secret names include `BLOB_READ_WRITE_TOKEN`, `CRON_SECRET`, `STABILITY_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `NANOBANANA_API_KEY`, and Discord webhook vars. If a needed CLI token such as `VERCEL_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` is missing, tell Erik so he can add it to Doppler.
+- Never read, print, log, paste, or commit secret values. Presence checks only.
+
 ## Publishing-path changes require pre-flight
 
 Before merging anything that touches `cron_routes.py`, `episode_renderer.py`, `storage.py`, or the Sunday publish pipeline: read `RUNBOOK.md` at repo root. Match against known incidents. Run `doppler run -- uv run python scripts/health_check.py` before and after to confirm prod is healthy. These paths are live-publishing — a bug ships to readers, not just to a staging env.
