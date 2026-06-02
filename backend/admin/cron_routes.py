@@ -469,8 +469,11 @@ _RECIPE_FIX_SYSTEM_PROMPT = (
     "either combine into one entry with the total amount, or group under clear sub-headings "
     "(e.g. 'For the filling:', 'For the topping:').\n"
     "3. INSTRUCTIONS: Must reference every ingredient. Fix any quantity mismatches.\n"
-    "4. MEASUREMENTS: US customary only (cups, tbsp, tsp, oz, lbs, °F).\n"
-    "5. Keep the recipe's personality and voice intact.\n\n"
+    "4. MUFFIN-PAN FORM: The dish must bind into self-contained cups, bites, nests, "
+    "or mini loaves that hold shape after removal from the pan. No loose fillings "
+    "or recipes where the tin is incidental.\n"
+    "5. MEASUREMENTS: US customary only (cups, tbsp, tsp, oz, lbs, °F).\n"
+    "6. Keep the recipe's personality and voice intact.\n\n"
     "Output the fixed recipe in EXACTLY this JSON format:\n"
     "```json\n"
     '{"title": "...", "description": "...", "servings": 12, "prep_time": 15, '
@@ -607,6 +610,20 @@ def _editorial_qa_review(episode: dict) -> tuple[bool, str]:
             "Text contains double-encoded UTF-8 (mojibake)."
         )
         logger.warning(f"Editorial QA FAIL (encoding): {len(encoding_flags)} issues found")
+        return False, report
+
+    from backend.utils.muffin_pan_form import check_muffin_pan_form
+
+    form_issue = check_muffin_pan_form(recipe)
+    if form_issue:
+        report = (
+            "STATUS: FAIL\n"
+            f"ISSUES:\n  - MUFFIN PAN FORM: {form_issue}\n"
+            "RECOMMENDATION: Rewrite the recipe so the muffin tin shapes a "
+            "cohesive cup, bite, nest, or mini loaf that holds together after "
+            "removal from the pan."
+        )
+        logger.warning(f"Editorial QA FAIL (muffin-pan form): {form_issue}")
         return False, report
 
     # Format content for LLM review
@@ -942,6 +959,7 @@ async def cron_monday(request: Request):
             load_catalog_titles,
             check_title_conflict,
         )
+        from backend.utils.muffin_pan_form import check_muffin_pan_form
         catalog_titles = load_catalog_titles()
         baker_title = recipe_data.get("title", "") if recipe_data else ""
         conflict = check_title_conflict(baker_title, catalog_titles)
@@ -972,6 +990,36 @@ async def cron_monday(request: Request):
                     f"in the body to bypass auto-pick."
                 )
             logger.info(f"Baker retry succeeded: '{baker_title}'")
+
+        form_issue = check_muffin_pan_form(recipe_data)
+        if form_issue:
+            logger.warning(
+                f"Baker recipe '{baker_title}' failed muffin-pan form gate: {form_issue}. "
+                "Retrying baker with explicit form constraints."
+            )
+            retry_concept = (
+                f"{concept}. CRITICAL MUFFIN-PAN FORM: the finished dish must "
+                "bind into self-contained cups, bites, nests, or mini loaves "
+                "that hold shape after removal from the pan. The muffin tin "
+                "must shape the food, not merely portion loose fillings. "
+                f"Previous attempt failed because: {form_issue}."
+            )
+            recipe_data = orchestrator._execute_stage_baker(
+                ep["recipe_id"], retry_concept, target_category=target_category,
+            )
+            baker_title = recipe_data.get("title", "") if recipe_data else ""
+            conflict = check_title_conflict(baker_title, catalog_titles)
+            if conflict:
+                raise RuntimeError(
+                    f"Baker form retry produced duplicate title '{baker_title}': {conflict}."
+                )
+            form_issue = check_muffin_pan_form(recipe_data)
+            if form_issue:
+                raise RuntimeError(
+                    f"Baker produced off-brand muffin-pan form twice. "
+                    f"Last attempt '{baker_title}': {form_issue}."
+                )
+            logger.info(f"Baker form retry succeeded: '{baker_title}'")
 
         dialogue, judge_verdict = _generate_and_judge_dialogue(
             "monday", concept, ep, model=body.model,
