@@ -39,10 +39,28 @@ def test_real_w13_w14_overlap_is_caught() -> None:
     assert "roasted veggie frittata cups" in reason
 
 
-def test_partial_overlap_below_threshold_is_allowed() -> None:
-    """Sharing one word out of four should not count as a conflict."""
+def test_distributed_distinctive_word_overlap_is_caught() -> None:
+    """W19-style single distinctive overlaps should fail the Monday gate."""
+    catalog = [
+        "smoky cheddar breakfast bites",
+        "roasted veggie frittata cups",
+        "paprika sausage cups",
+    ]
+    reason = check_title_conflict("Paprika Cheddar Frittata Cups", catalog)
+    assert reason is not None
+    assert "distinctive word overlap" in reason
+
+
+def test_no_shared_distinctive_words_is_allowed() -> None:
+    """Distinct titles should pass when they do not share signal words."""
     catalog = ["chocolate chip decadence"]
     assert check_title_conflict("Caprese Bruschetta Bites", catalog) is None
+
+
+def test_generic_category_words_do_not_cause_false_positives() -> None:
+    """Breakfast/cup words describe format/category, not distinctive title repetition."""
+    catalog = ["baked oatmeal breakfast cups"]
+    assert check_title_conflict("Maple Bacon Breakfast Cups", catalog) is None
 
 
 def test_stop_words_do_not_cause_false_positives() -> None:
@@ -59,12 +77,8 @@ def test_subset_title_is_caught() -> None:
     """A title that is a superset of an existing short title should conflict."""
     catalog = ["blueberry muffin tops"]
     reason = check_title_conflict("Vegan Blueberry Muffin Tops", catalog)
-    # 'blueberry' is the only significant word in the catalog entry
-    # ('muffin' + 'tops' are stop words). 'Vegan Blueberry' has two sig
-    # words; overlap is 1/2 = 50%, at threshold (not strictly >). OK if
-    # this doesn't flag — the primary defense is exact-match + strong
-    # overlap. This test documents the boundary behavior.
-    assert reason is None or "blueberry" in reason.lower()
+    assert reason is not None
+    assert "blueberry" in reason.lower()
 
 
 # ---------------------------------------------------------------------------

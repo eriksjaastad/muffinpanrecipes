@@ -506,6 +506,23 @@ def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
     inst_text = "\n".join(
         f"{i+1}. {s}" for i, s in enumerate(recipe.get("instructions", []))
     )
+    repetition_guidance = ""
+    if "TITLE REPETITION" in qa_report.upper():
+        from backend.utils.title_validator import distinctive_title_words
+
+        rejected_title = recipe.get("title", "")
+        blocked_words = sorted(
+            distinctive_title_words(rejected_title)
+            | distinctive_title_words(qa_report)
+        )
+        blocked_text = ", ".join(blocked_words) if blocked_words else rejected_title
+        repetition_guidance = (
+            "\nTITLE REPETITION FIX:\n"
+            f"The current title '{rejected_title}' was rejected for repeating "
+            "recently published recipe language. You MUST create a completely "
+            "new title with a different food angle. Do not reuse these title "
+            f"words: {blocked_text}.\n"
+        )
 
     fix_prompt = (
         f"RECIPE THAT FAILED QA:\n\n"
@@ -521,6 +538,7 @@ def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
         f"Chef's Notes: {recipe.get('chef_notes', '')}\n\n"
         f"---\n\n"
         f"QA FAILURE REPORT:\n{qa_report}\n\n"
+        f"{repetition_guidance}"
         f"Fix all issues listed above and return the corrected recipe as JSON."
     )
 
