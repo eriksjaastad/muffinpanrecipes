@@ -6,6 +6,7 @@ emits a one-line summary that gets injected into both the simulator and
 the judge prompts so they stay anchored to the actual dish.
 """
 
+import asyncio
 from unittest.mock import patch
 
 import pytest
@@ -142,6 +143,50 @@ def test_generate_and_judge_passes_recipe_through():
 
     assert sim_calls and "Maple Hash Brown Nests" in sim_calls[0]["recipe_context"]
     assert judge_calls and "Maple Hash Brown Nests" in judge_calls[0]["recipe_context"]
+
+
+def test_execute_cron_stage_stub_passes_recipe_context_into_dialogue():
+    """Admin simulation stubs should anchor dialogue to the Monday recipe."""
+    recipe = {
+        "title": "Maple Hash Brown Nests",
+        "category": "savory",
+        "ingredients": [{"item": "potato"}, {"item": "maple sausage"}],
+    }
+    episode = {
+        "episode_id": "2026-W18",
+        "concept": "Hash brown breakfast cups",
+        "stages": {"monday": {"recipe_data": recipe}},
+        "events": [],
+    }
+
+    dialogue_calls: list[dict] = []
+
+    def fake_generate_dialogue(stage, concept, **kwargs):
+        dialogue_calls.append({"stage": stage, "concept": concept, **kwargs})
+        return [{"character": "Margaret", "message": "These nests hold together."}]
+
+    with patch.object(cron_routes, "_load_or_create_episode", return_value=episode), \
+         patch.object(cron_routes, "_generate_dialogue", side_effect=fake_generate_dialogue), \
+         patch.object(cron_routes.storage, "save_episode") as save_episode, \
+         patch.object(cron_routes, "_get_orchestrator") as get_orchestrator:
+        result = asyncio.run(
+            cron_routes.execute_cron_stage_stub(
+                "tuesday",
+                "2026-W18",
+                "Hash brown breakfast cups",
+                model="test-model",
+            )
+        )
+
+    assert result["mode"] == "simulation"
+    assert dialogue_calls
+    assert dialogue_calls[0]["stage"] == "tuesday"
+    assert dialogue_calls[0]["model"] == "test-model"
+    assert "Maple Hash Brown Nests" in dialogue_calls[0]["recipe_context"]
+    assert "potato" in dialogue_calls[0]["recipe_context"]
+    assert episode["stages"]["tuesday"]["status"] == "complete"
+    save_episode.assert_called_once_with("2026-W18", episode)
+    get_orchestrator.assert_not_called()
 
 
 def test_judge_dialogue_fails_closed_on_exception():
