@@ -9,6 +9,7 @@ input concept. See #5911 — W16 "Roasted Veggie Egg Cups" incident.
 from __future__ import annotations
 
 import json
+import re
 import urllib.request
 from pathlib import Path
 from typing import Optional
@@ -32,7 +33,8 @@ CATALOG_PUBLIC_URL = (
 STOP_WORDS = frozenset({
     "a", "an", "the", "and", "&", "of", "in", "on", "with", "for", "to",
     "mini", "cups", "cup", "bites", "bite", "muffin", "tin", "pan", "tops",
-    "pots", "baked",
+    "pots", "nest", "nests", "baked",
+    "breakfast", "savory", "sweet", "party", "recipe", "recipes",
 })
 
 # Small-word companions that make a leading "Mini" redundant.
@@ -41,10 +43,6 @@ SMALL_COMPANIONS = frozenset({
     "bite", "bites", "cup", "cups", "tassie", "tassies",
     "pop", "pops", "ball", "balls", "bit", "bits",
 })
-
-# Fraction of significant-word overlap that counts as a conflict.
-OVERLAP_THRESHOLD = 0.5
-
 
 def load_catalog_titles() -> list[str]:
     """Return all published recipe titles (lowercased) from the public catalog.
@@ -80,8 +78,22 @@ def load_catalog_titles() -> list[str]:
     return titles
 
 
+def _normalize_title_word(word: str) -> str:
+    if word in {"cups", "bites", "nests"}:
+        return word[:-1]
+    if len(word) > 4 and word.endswith("s"):
+        return word[:-1]
+    return word
+
+
 def _significant_words(title: str) -> set[str]:
-    return set(title.lower().split()) - STOP_WORDS
+    words = re.findall(r"[a-z0-9]+(?:'[a-z0-9]+)?", title.lower())
+    return {_normalize_title_word(word) for word in words} - STOP_WORDS
+
+
+def distinctive_title_words(title: str) -> set[str]:
+    """Return title words that count as repetition signals."""
+    return _significant_words(title)
 
 
 def check_title_conflict(title: str, catalog_titles: list[str]) -> Optional[str]:
@@ -89,8 +101,8 @@ def check_title_conflict(title: str, catalog_titles: list[str]) -> Optional[str]
 
     Rules (checked in order):
     1. Exact case-insensitive match
-    2. Significant-word overlap > OVERLAP_THRESHOLD with any catalog title
-       (catches 'Roasted Veggie Egg Cups' vs 'Roasted Veggie Frittata Cups')
+    2. Any shared distinctive title word with any catalog title
+       (catches distributed repeats like 'Paprika Cheddar Frittata Cups')
     """
     lo = title.strip().lower()
     if not lo:
@@ -109,10 +121,9 @@ def check_title_conflict(title: str, catalog_titles: list[str]) -> Optional[str]
         if not cat_words:
             continue
         shared = new_words & cat_words
-        ratio = len(shared) / max(len(new_words), len(cat_words))
-        if ratio > OVERLAP_THRESHOLD:
+        if shared:
             return (
-                f"{int(ratio * 100)}% word overlap with '{cat_title}' "
+                f"distinctive word overlap with '{cat_title}' "
                 f"(shared: {sorted(shared)})"
             )
 
