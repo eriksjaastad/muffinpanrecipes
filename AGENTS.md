@@ -36,6 +36,10 @@
 - **All secrets are managed via Doppler.** No `.env` files in this project.
 - **Run commands with:** `doppler run -- <command>` (e.g., `doppler run -- python main.py`)
 - Access secrets in code with `os.getenv("SECRET_NAME")` — Doppler injects them at runtime.
+- Before attempting interactive login for any third-party CLI, check Doppler for token names only:
+  `doppler secrets --project muffinpanrecipes --config dev --only-names | rg -i 'vercel|gh|github|blob|cron|stability|openai|anthropic|google'`.
+- Documented project secret names include `BLOB_READ_WRITE_TOKEN`, `CRON_SECRET`, `STABILITY_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `NANOBANANA_API_KEY`, and Discord webhook vars.
+- If a needed CLI token such as `VERCEL_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` is missing, tell Erik so he can add it to Doppler. Do not run `vercel login`, `gh auth login`, or provider OAuth first.
 - NEVER hard-code API keys or credentials.
 - NEVER read, log, echo, or store secret values in any file, message, or output.
 - If a credential is missing, tell Erik — he manages Doppler directly.
