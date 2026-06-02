@@ -4,6 +4,123 @@
 
 ---
 
+## INCIDENT 2 — "Sunday published twice and changed the recipe"
+
+### Symptom
+
+User reports:
+- Sunday publish ran more than once for the same ISO week
+- The live recipe or episode data changed between Sunday invocations
+- A second invocation may show a different auto-fixed recipe/title even though the week had already published
+- `/api/cron/sunday` now returns `already_published=true` for that week
+
+**Panic reaction to avoid:** re-running Sunday with `force=true` and expecting it to repair or replace the recipe. The current code intentionally treats `published_at` as a sticky idempotency guard.
+
+### Root Cause — At-least-once cron delivery plus non-idempotent publish work
+
+Vercel cron delivery is at-least-once. On 2026-05-17 (W20), Sunday could be invoked more than once. Before PR #45, the Sunday path did not stop immediately once an episode was already published, and `_auto_fix_recipe` is LLM-backed/nondeterministic. A duplicate invocation could therefore run editorial QA and auto-fix again, producing a changed recipe. Catalog dedup was slug-only, so a changed title/slug could also evade the old protection.
+
+PR #45 fixed the production behavior:
+
+- `cron_sunday` checks `ep["published_at"]` before generating dialogue, running editorial QA, saving episode data, rendering pages, or updating the catalog.
+- If `published_at` exists, Sunday returns `already_published=true` and performs no side effects, even when the request body has `force=true`.
+- Catalog publish dedup is no longer slug-only.
+
+### How to verify this is the incident you're looking at
+
+First confirm the episode is already published in Vercel Blob. This reads the episode through the same storage API the app uses and prints booleans/status only.
+
+```bash
+cd "$HOME/projects/muffinpanrecipes"
+WEEK=2026-W20 doppler run --project muffinpanrecipes --config prd -- \
+  uv run python -c 'import os; from backend.storage import storage; ep = storage.load_episode(os.environ["WEEK"]) or {}; print("episode:", os.environ["WEEK"]); print("published_at_present:", bool(ep.get("published_at"))); print("sunday_status:", ep.get("stages", {}).get("sunday", {}).get("status")); print("events_tail:", ep.get("events", [])[-5:])'
+```
+
+Expected:
+
+```text
+published_at_present: True
+sunday_status: complete
+```
+
+Then verify the sticky idempotency guard locally:
+
+```bash
+uv run pytest tests/test_sunday_publish_idempotency.py -q
+```
+
+Expected: both tests pass, including `test_cron_sunday_returns_without_side_effects_when_already_published`.
+
+If you must confirm the live endpoint, do it only after the Blob check shows `published_at_present: True`:
+
+```bash
+WEEK=2026-W20 doppler run --project muffinpanrecipes --config prd -- \
+  sh -lc 'curl -s -X POST "https://muffinpanrecipes.com/api/cron/sunday" \
+    -H "Authorization: Bearer $CRON_SECRET" \
+    -H "Content-Type: application/json" \
+    -d "{\"episode_id\":\"$WEEK\",\"force\":true}" | uv run python -m json.tool'
+```
+
+Expected response includes:
+
+```json
+{
+  "published": true,
+  "already_published": true
+}
+```
+
+If `already_published` is absent, stop. You are not looking at the fixed behavior and should not keep firing cron requests.
+
+### Recovery
+
+If the duplicate publish already happened, do not re-run cron as a first move. Capture the current state, compare it to the intended recipe/catalog entry, and decide which artifact should remain live.
+
+```bash
+cd "$HOME/projects/muffinpanrecipes"
+WEEK=2026-W20 doppler run --project muffinpanrecipes --config prd -- \
+  uv run python -c 'import os; from backend.storage import storage; ep = storage.load_episode(os.environ["WEEK"]) or {}; recipe = ep.get("stages", {}).get("monday", {}).get("recipe_data", {}); print("episode:", os.environ["WEEK"]); print("title:", recipe.get("title")); print("published_at:", ep.get("published_at")); print("recipe_slug:", ep.get("recipe_slug") or ep.get("slug"))'
+```
+
+If the live catalog/page needs repair, make a focused fix PR or use the existing catalog/episode storage APIs under Doppler. Do not edit secret values, do not delete Blob data, and do not use raw destructive cleanup.
+
+### Deliberate override — re-run an already-published Sunday
+
+The only supported override is to manually clear `published_at` from `episodes/{week}.json` in Vercel Blob, then invoke Sunday. `force=true` alone is not an override.
+
+Use this only with explicit operator intent:
+
+```bash
+cd "$HOME/projects/muffinpanrecipes"
+WEEK=2026-W20 doppler run --project muffinpanrecipes --config prd -- \
+  uv run python -c 'import os; from datetime import datetime, timezone; from backend.storage import storage; week = os.environ["WEEK"]; ep = storage.load_episode(week); assert ep, f"episode not found: {week}"; old = ep.pop("published_at", None); ep.setdefault("events", []).append(f"operator: cleared published_at for deliberate Sunday rerun at {datetime.now(timezone.utc).isoformat()}"); storage.save_episode(week, ep); print("cleared_published_at:", bool(old))'
+```
+
+Then re-run Sunday once:
+
+```bash
+WEEK=2026-W20 doppler run --project muffinpanrecipes --config prd -- \
+  sh -lc 'curl -s -X POST "https://muffinpanrecipes.com/api/cron/sunday" \
+    -H "Authorization: Bearer $CRON_SECRET" \
+    -H "Content-Type: application/json" \
+    -d "{\"episode_id\":\"$WEEK\",\"force\":true}" | uv run python -m json.tool'
+```
+
+After the rerun, verify `published_at_present: True` with the first Blob check above.
+
+### How to avoid retriggering this
+
+- Treat `published_at` as the source of truth for Sunday idempotency.
+- Do not assume `force=true` means "publish again"; it only bypasses day-of-week validation.
+- Do not add Sunday pre-publish work before the `published_at` guard.
+- Keep `tests/test_sunday_publish_idempotency.py` passing whenever Sunday publish code changes.
+
+### First occurrence
+
+**2026-05-17** — W20 double-publish. Root cause: Vercel cron at-least-once delivery combined with nondeterministic `_auto_fix_recipe` and slug-only catalog dedup. Permanent fix shipped in PR #45 (`fix/pipeline-idempotency-hygiene`).
+
+---
+
 ## INCIDENT 1 — "The website got rolled back and all the conversations are gone"
 
 ### Symptom
