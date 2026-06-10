@@ -47,7 +47,7 @@ from backend.config import config
 from backend.publishing.episode_renderer import regenerate_and_upload
 from backend.storage import storage
 from backend.utils.logging import get_logger
-from backend.utils.discord import notify_judge_failure
+from backend.utils.discord import notify_judge_failure, notify_pipeline_failure
 from backend.utils.model_router import generate_judge_response, generate_response
 from backend.utils.text_sanitize import sanitize_text, has_encoding_issues
 
@@ -866,6 +866,34 @@ def _save_stage_failure(ep: dict, stage: str, error: Exception) -> None:
 
 
 
+def _require_monday_recipe(ep: dict, stage: str) -> None:
+    """Block downstream stages when Monday never produced a recipe.
+
+    Without this gate, Tue-Sun run against the placeholder concept, spending
+    dialogue/image API budget on a recipe that doesn't exist and pushing
+    placeholder content to the live site (W24, 2026-06-10: Wednesday shot
+    55 images for the literal concept "Weekly Muffin Pan Recipe" after
+    Monday had hard-failed).
+    """
+    monday = ep.get("stages", {}).get("monday", {})
+    if monday.get("status") == "complete" and monday.get("recipe_data"):
+        return
+    detail = (
+        f"Stage '{stage}' blocked for episode {ep.get('episode_id')!r}: "
+        f"monday stage is {monday.get('status', 'missing')!r}, so the week "
+        f"has no recipe. Re-fire /api/cron/monday first (pass an explicit "
+        f"'concept' in the body if the title validator rejected auto-pick)."
+        + (f" Monday error: {monday['error']}" if monday.get("error") else "")
+    )
+    notify_pipeline_failure(
+        recipe_id=ep.get("recipe_id") or "unknown",
+        concept=ep.get("concept") or "unknown",
+        stage=stage,
+        error_message=detail,
+    )
+    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+
+
 @contextmanager
 def _run_stage(ep: dict, stage: str):
     """Context manager: saves a failure record and re-raises on any exception.
@@ -1076,6 +1104,7 @@ async def cron_tuesday(request: Request):
       episode_id = body.episode_id or _current_episode_id()
       ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
       concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
+      _require_monday_recipe(ep, "tuesday")
 
       with _run_stage(ep, "tuesday"):
         dialogue, judge_verdict = _generate_and_judge_dialogue(
@@ -1111,6 +1140,7 @@ async def cron_wednesday(request: Request):
       episode_id = body.episode_id or _current_episode_id()
       ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
       concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
+      _require_monday_recipe(ep, "wednesday")
       recipe_data = ep.get("stages", {}).get("monday", {}).get("recipe_data", {})
 
       with _run_stage(ep, "wednesday"):
@@ -1203,6 +1233,7 @@ async def cron_thursday(request: Request):
       episode_id = body.episode_id or _current_episode_id()
       ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
       concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
+      _require_monday_recipe(ep, "thursday")
       recipe_data = ep.get("stages", {}).get("monday", {}).get("recipe_data", {})
 
       with _run_stage(ep, "thursday"):
@@ -1251,6 +1282,7 @@ async def cron_friday(request: Request):
       episode_id = body.episode_id or _current_episode_id()
       ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
       concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
+      _require_monday_recipe(ep, "friday")
 
       with _run_stage(ep, "friday"):
         RecipeOrchestrator = _get_orchestrator()
@@ -1305,6 +1337,7 @@ async def cron_saturday(request: Request):
       episode_id = body.episode_id or _current_episode_id()
       ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
       concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
+      _require_monday_recipe(ep, "saturday")
 
       with _run_stage(ep, "saturday"):
         RecipeOrchestrator = _get_orchestrator()
@@ -1359,14 +1392,12 @@ async def cron_sunday(request: Request):
             "dialogue_messages": len(sunday_stage.get("dialogue", [])),
         })
 
-      with _run_stage(ep, "sunday"):
-        dialogue, judge_verdict = _generate_and_judge_dialogue(
-            "sunday", concept, ep, model=body.model,
-            recipe_data=ep.get("stages", {}).get("monday", {}).get("recipe_data"),
-        )
+      _require_monday_recipe(ep, "sunday")
 
-        # Verify critical prior stages completed before publishing
-        required_stages = ["monday", "wednesday"]
+      with _run_stage(ep, "sunday"):
+        # Verify critical prior stages completed before spending on dialogue.
+        # (Monday is already enforced by _require_monday_recipe above.)
+        required_stages = ["wednesday"]
         for day in required_stages:
             stage_status = ep.get("stages", {}).get(day, {}).get("status")
             if stage_status != "complete":
@@ -1374,6 +1405,11 @@ async def cron_sunday(request: Request):
                     status_code=400,
                     detail=f"Cannot publish: {day} stage incomplete (status={stage_status!r})",
                 )
+
+        dialogue, judge_verdict = _generate_and_judge_dialogue(
+            "sunday", concept, ep, model=body.model,
+            recipe_data=ep.get("stages", {}).get("monday", {}).get("recipe_data"),
+        )
 
         # Editorial QA gate with auto-fix retry loop
         qa_passed, qa_report = _editorial_qa_review(ep)
