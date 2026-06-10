@@ -131,21 +131,39 @@ class ArtDirectorAgent(Agent):
         recipe_data = task.context.get("recipe_data", {}) if isinstance(task.context, dict) else {}
         return str(recipe_data.get("title") or task.context.get("concept") or "Muffin Pan Recipe")
 
+    # Brand promise: every photo must read as muffin-tin-made food. Without
+    # this clause the image model infers shape from the title alone — "Sweet
+    # Potato Frittatas" rendered sheet-pan squares, "Biscuit Rounds" rendered
+    # flat sheet-pan discs (June 2026 off-brand image drift).
+    _MUFFIN_FORM_CLAUSE = (
+        "The food was baked in a standard muffin tin: each portion is an "
+        "individual single-serving with the unmistakable muffin-cup shape - "
+        "round, slightly flared sides with golden ridged edges molded by the "
+        "muffin cup. Regardless of what the recipe name suggests, the food "
+        "must clearly look muffin-tin-made. Never sheet-pan squares, bars, "
+        "slices, flat discs, or loaf shapes. "
+    )
+
     def _build_prompt(self, recipe_title: str, variant: str) -> str:
         variant_prompts = {
             "macro_closeup": (
                 f"Extreme close-up food photography of {recipe_title}. "
+                f"{self._MUFFIN_FORM_CLAUSE}"
                 "15-degree low angle, ONE single item filling the entire frame. "
                 "Visible crumb structure, steam wisps, glistening texture detail. "
                 "Shot on 100mm macro lens, f/2.0, razor-thin depth of field. "
                 "Bright, high-key lighting, natural daylight from the side. "
                 "White marble countertop. Editorial cookbook style. "
-                "No full tin visible, no multiple items, no bird's eye view. "
+                "No full tin visible, but the single item's round muffin-cup form "
+                "with molded ridged sides must be obvious. "
+                "No multiple items, no bird's eye view. "
                 "No people, no hands, no text, no watermark."
             ),
             "overhead_flatlay": (
                 f"True 90-degree overhead bird's-eye food photography of {recipe_title} in a rustic muffin tin. "
-                "Full tin visible from directly above, scattered ingredient garnishes around the tin. "
+                f"{self._MUFFIN_FORM_CLAUSE}"
+                "Full tin visible from directly above, portions still seated in the muffin cups, "
+                "scattered ingredient garnishes around the tin. "
                 "Shot on 35mm lens, f/5.6, everything in sharp focus. "
                 "Bright, high-key lighting, natural daylight. "
                 "White marble countertop with flour dusting and herb sprigs. "
@@ -155,7 +173,9 @@ class ArtDirectorAgent(Agent):
             ),
             "hero_threequarter": (
                 f"Classic hero food photography of {recipe_title} at 30-45 degree angle. "
-                "2-3 items arranged on a rustic wooden board, one broken open showing interior cross-section. "
+                f"{self._MUFFIN_FORM_CLAUSE}"
+                "2-3 items arranged on a rustic wooden board, one broken open showing interior cross-section, "
+                "each unbroken item showing its round molded muffin-cup silhouette. "
                 "Shot on 85mm lens, f/2.8, soft background blur. "
                 "Bright, high-key lighting, natural daylight from the side. "
                 "White marble countertop with minimal props - linen napkin, vintage fork. "
@@ -199,24 +219,32 @@ class ArtDirectorAgent(Agent):
         eval_prompt = (
             f"You are a professional food photography art director evaluating images for '{recipe_title}'.\n\n"
             f"There are {len(images_bytes)} images. {variant_labels}.\n\n"
-            "Score EACH image on these 5 dimensions (1-5 scale):\n"
+            "Score EACH image on these 6 dimensions (1-5 scale):\n"
             "1. variety - How different is this from the other images? (angle, distance, composition)\n"
             "2. quality - Technical quality (focus, exposure, lighting)\n"
             "3. style_adherence - Does it match the requested style/angle?\n"
             "4. food_appeal - Does the food look appetizing?\n"
-            "5. composition - Is the framing and arrangement effective?\n\n"
+            "5. composition - Is the framing and arrangement effective?\n"
+            "6. muffin_pan_form - THE BRAND CHECK. Does the food unmistakably look like it "
+            "was baked in a muffin tin (individual round portions with molded, slightly "
+            "flared cup sides — or seated in a visible muffin tin)? "
+            "Sheet-pan squares, bars, slices, flat discs, loaves, or anything that merely "
+            "looks 'small' scores 1-2. This site is muffinpanrecipes.com — the pan shape "
+            "IS the brand.\n\n"
             "Then provide a SET-LEVEL score:\n"
-            "6. set_diversity (1-5) - How different are these images from EACH OTHER? "
+            "7. set_diversity (1-5) - How different are these images from EACH OTHER? "
             "Consider angle, distance, composition, styling. "
             "Score 1 = nearly identical shots, 5 = clearly distinct perspectives.\n\n"
             "Then decide:\n"
-            "- PASS if average per-image score >= 3.5 AND no image scores below 2.5 on any dimension AND set_diversity >= 3.0\n"
-            "- FAIL if images look too similar, set_diversity is low, or any image has serious issues\n\n"
+            "- PASS if average per-image score >= 3.5 AND no image scores below 2.5 on any dimension "
+            "AND set_diversity >= 3.0 AND every image scores >= 3 on muffin_pan_form\n"
+            "- FAIL if images look too similar, set_diversity is low, any image has serious issues, "
+            "or any image fails the muffin-pan form check\n\n"
             "If FAIL, explain what went wrong in 1-2 sentences (this will be used as dialogue).\n"
             "Pick a recommended winner (best overall image number).\n\n"
             "Respond ONLY with valid JSON:\n"
             '{"per_image": [{"image": 1, "variety": X, "quality": X, "style_adherence": X, '
-            '"food_appeal": X, "composition": X, "feedback": "..."}], '
+            '"food_appeal": X, "composition": X, "muffin_pan_form": X, "feedback": "..."}], '
             '"set_diversity": X, "passed": true/false, "reason": "...", "recommended_winner": 1}'
         )
 
@@ -241,25 +269,81 @@ class ArtDirectorAgent(Agent):
 
             # Validate pass criteria ourselves as a safety check
             per_image = result.get("per_image", [])
-            dimensions = ["variety", "quality", "style_adherence", "food_appeal", "composition"]
+            dimensions = ["variety", "quality", "style_adherence", "food_appeal", "composition", "muffin_pan_form"]
             all_scores = []
             any_below_threshold = False
+            any_off_brand = False
+            form_key_missing = False
             for img in per_image:
                 for dim in dimensions:
                     score = img.get(dim, 3.0)
                     all_scores.append(score)
                     if score < 2.5:
                         any_below_threshold = True
+                if "muffin_pan_form" not in img:
+                    form_key_missing = True
+                elif img.get("muffin_pan_form", 3.0) < 3.0:
+                    any_off_brand = True
+
+            if form_key_missing:
+                # The model ignored the schema and dropped the brand dimension.
+                # Don't fail the set (reshoot spend on a formatting hiccup),
+                # but surface it loudly — a quietly-missing key would disable
+                # the brand check exactly like the dead-vision-eval incident.
+                logger.error(
+                    "Vision eval response missing muffin_pan_form — brand "
+                    "check not applied to this set"
+                )
+                try:
+                    from backend.utils.discord import notify_pipeline_failure
+                    notify_pipeline_failure(
+                        recipe_id="vision-eval",
+                        concept=recipe_title,
+                        stage="wednesday (vision eval)",
+                        error_message=(
+                            "Vision eval response omitted muffin_pan_form — "
+                            "the brand-form check did not run on this image set."
+                        ),
+                    )
+                except Exception as notify_exc:
+                    logger.error(f"Form-key-missing Discord notify failed: {notify_exc}")
 
             avg_score = sum(all_scores) / max(len(all_scores), 1)
             result["avg_score"] = round(avg_score, 2)
             set_diversity = result.get("set_diversity", 5.0)
-            result["passed"] = avg_score >= 3.5 and not any_below_threshold and set_diversity >= 3.0
+            result["passed"] = (
+                avg_score >= 3.5
+                and not any_below_threshold
+                and set_diversity >= 3.0
+                and not any_off_brand
+            )
+            if any_off_brand and not result.get("reason"):
+                result["reason"] = (
+                    "Food does not read as muffin-tin-made (off-brand form: "
+                    "sheet-pan squares, flat discs, or similar)."
+                )
 
             return result
 
         except Exception as e:
-            logger.warning(f"Vision evaluation failed, falling back to pass: {e}")
+            # Fall back to pass so a transient vision-API blip doesn't burn
+            # reshoot rounds — but NEVER silently. A quiet version of this
+            # fallback left image QA dead for weeks (gpt-5-mini temperature
+            # 400) while off-brand sheet-pan photos shipped to the live site.
+            logger.error(f"Vision evaluation failed, falling back to pass: {e}")
+            try:
+                from backend.utils.discord import notify_pipeline_failure
+                notify_pipeline_failure(
+                    recipe_id="vision-eval",
+                    concept=recipe_title,
+                    stage="wednesday (vision eval)",
+                    error_message=(
+                        f"Vision evaluation errored and FELL BACK TO PASS — "
+                        f"images are shipping unreviewed. Error: {e}"
+                    ),
+                )
+            except Exception as notify_exc:
+                logger.error(f"Vision-eval fallback Discord notify also failed: {notify_exc}")
             return {"passed": True, "fallback": True, "per_image": [], "reason": f"vision eval error: {e}"}
 
     def _call_stability(self, api_key: str, prompt: str, variant: str | None = None) -> bytes:
