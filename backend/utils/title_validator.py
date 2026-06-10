@@ -78,6 +78,31 @@ def load_catalog_titles() -> list[str]:
     return titles
 
 
+def _title_word_sequence(title: str) -> list[str]:
+    """Ordered lowercase tokens, stop words included (for phrase matching)."""
+    return re.findall(r"[a-z0-9]+(?:'[a-z0-9]+)?", title.lower())
+
+
+def _contains_phrase(haystack: list[str], needle: list[str]) -> bool:
+    if len(needle) < 2 or len(needle) > len(haystack):
+        return False
+    span = len(needle)
+    return any(
+        haystack[i : i + span] == needle
+        for i in range(len(haystack) - span + 1)
+    )
+
+
+def _shared_phrase(a: list[str], b: list[str], min_len: int = 3) -> Optional[list[str]]:
+    """Longest contiguous word run appearing in both titles, if >= min_len."""
+    for span in range(min(len(a), len(b)), min_len - 1, -1):
+        for i in range(len(a) - span + 1):
+            segment = a[i : i + span]
+            if any(b[j : j + span] == segment for j in range(len(b) - span + 1)):
+                return segment
+    return None
+
+
 def _normalize_title_word(word: str) -> str:
     if word in {"cups", "bites", "nests"}:
         return word[:-1]
@@ -87,7 +112,7 @@ def _normalize_title_word(word: str) -> str:
 
 
 def _significant_words(title: str) -> set[str]:
-    words = re.findall(r"[a-z0-9]+(?:'[a-z0-9]+)?", title.lower())
+    words = _title_word_sequence(title)
     return {_normalize_title_word(word) for word in words} - STOP_WORDS
 
 
@@ -101,8 +126,20 @@ def check_title_conflict(title: str, catalog_titles: list[str]) -> Optional[str]
 
     Rules (checked in order):
     1. Exact case-insensitive match
-    2. Any shared distinctive title word with any catalog title
-       (catches distributed repeats like 'Paprika Cheddar Frittata Cups')
+    2. Phrase containment in either direction
+       (catches 'Vegan Blueberry Muffin Tops' vs 'Blueberry Muffin Tops')
+    3. Shared contiguous phrase of 3+ words with at least one distinctive word
+       (catches 'Vegan Blueberry Muffin Tops' vs 'Classic Blueberry Muffin Tops')
+    4. Two or more shared distinctive words with a single catalog title
+       (catches 'Roasted Veggie Egg Cups' vs 'Roasted Veggie Frittata Cups')
+    5. Zero fresh distinctive words against the whole catalog
+       (catches distributed repeats like 'Paprika Cheddar Frittata Cups'
+       where every word is recycled from somewhere in the catalog)
+
+    A single shared word is deliberately NOT a conflict on its own. With a
+    growing catalog, any-single-word matching empties the title namespace —
+    W24 (2026-06-08) failed Monday twice because 'egg' alone collided.
+    A new title only needs one fresh distinctive word to be publishable.
     """
     lo = title.strip().lower()
     if not lo:
@@ -112,20 +149,40 @@ def check_title_conflict(title: str, catalog_titles: list[str]) -> Optional[str]
         if lo == cat_title:
             return f"exact match with '{cat_title}'"
 
+    new_seq = _title_word_sequence(title)
+    for cat_title in catalog_titles:
+        cat_seq = _title_word_sequence(cat_title)
+        if _contains_phrase(new_seq, cat_seq) or _contains_phrase(cat_seq, new_seq):
+            return f"phrase containment with '{cat_title}'"
+        segment = _shared_phrase(new_seq, cat_seq)
+        if segment and {_normalize_title_word(w) for w in segment} - STOP_WORDS:
+            return (
+                f"shared phrase '{' '.join(segment)}' with '{cat_title}'"
+            )
+
     new_words = _significant_words(title)
     if not new_words:
         return None
 
+    catalog_word_pool: set[str] = set()
     for cat_title in catalog_titles:
         cat_words = _significant_words(cat_title)
+        catalog_word_pool |= cat_words
         if not cat_words:
             continue
         shared = new_words & cat_words
-        if shared:
+        if len(shared) >= 2:
             return (
                 f"distinctive word overlap with '{cat_title}' "
                 f"(shared: {sorted(shared)})"
             )
+
+    if catalog_word_pool and new_words <= catalog_word_pool:
+        return (
+            "distinctive word overlap with published catalog: every title "
+            f"word is already in use ({sorted(new_words)}). "
+            "Needs at least one fresh distinctive word."
+        )
 
     return None
 
