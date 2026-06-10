@@ -40,7 +40,7 @@ def test_real_w13_w14_overlap_is_caught() -> None:
 
 
 def test_distributed_distinctive_word_overlap_is_caught() -> None:
-    """W19-style single distinctive overlaps should fail the Monday gate."""
+    """W19-style titles whose every distinctive word is recycled should fail."""
     catalog = [
         "smoky cheddar breakfast bites",
         "roasted veggie frittata cups",
@@ -51,20 +51,65 @@ def test_distributed_distinctive_word_overlap_is_caught() -> None:
     assert "distinctive word overlap" in reason
 
 
-def test_w22_garden_frittata_egg_bites_hits_frittata_collision() -> None:
+def test_single_shared_word_per_title_is_allowed() -> None:
+    """One shared word with any single catalog title must NOT conflict.
+
+    W24 regression (2026-06-08): any-single-word matching failed Monday twice
+    because 'egg' alone collided. 'Garden Frittata Egg Bites' shares at most
+    one distinctive word with each catalog title and brings a fresh word
+    ('garden'), so it is publishable.
+    """
     catalog = [
-        "Smoky Sweet Potato Frittatas",
-        "Roasted Veggie Egg Cups",
-        "Prosciutto Potato Egg Nests",
-        "Mini Caprese Bruschetta Bites",
-        "Smoky Cheddar Breakfast Bites",
+        "smoky sweet potato frittatas",
+        "roasted veggie egg cups",
+        "prosciutto potato egg nests",
+        "mini caprese bruschetta bites",
+        "smoky cheddar breakfast bites",
     ]
+    assert check_title_conflict("Garden Frittata Egg Bites", catalog) is None
 
-    reason = check_title_conflict("Garden Frittata Egg Bites", catalog)
 
+def test_w24_cheddar_broccoli_egg_squares_is_allowed() -> None:
+    """The exact title that hard-failed W24 Monday passes against the real catalog."""
+    catalog = [t.lower() for t in [
+        "Savory Bacon Biscuit Rounds", "Crispy Chorizo Breakfast Cups",
+        "Herbed Sausage Sunrise Cups", "Smoky Sweet Potato Frittatas",
+        "Maple Hash Brown Nests", "Prosciutto Potato Egg Nests",
+        "Mini Caprese Bruschetta Bites", "Smoky Cheddar Breakfast Bites",
+        "Roasted Veggie Egg Cups", "Roasted Veggie Frittata Cups",
+        "Mini Lemon Meringue Cups", "Roasted Chicken Potato Cups",
+        "Make-Ahead Veggie & Sausage Egg Cups", "Spinach & Feta Egg Bites",
+        "Baked Oatmeal Breakfast Cups", "Mini Pancake Bites",
+        "Muffin Tin Lasagna Cups", "Mini Meatloaf Bites",
+        "Buffalo Chicken Mac & Cheese Bites", "Mini Shepherd's Pie Pots",
+        "Jumbo Cornbread Honey Bites", "Classic Blueberry Muffin Tops",
+        "Dark Chocolate Chip Decadence",
+    ]]
+    assert check_title_conflict("Cheddar Broccoli Egg Squares", catalog) is None
+
+
+def test_two_shared_words_with_one_title_is_caught() -> None:
+    catalog = ["smoky cheddar breakfast bites"]
+    reason = check_title_conflict("Smoky Cheddar Polenta Rounds", catalog)
     assert reason is not None
-    assert "smoky sweet potato frittatas" in reason.lower()
-    assert "frittata" in reason
+    assert "smoky cheddar breakfast bites" in reason
+
+
+def test_shared_three_word_phrase_is_caught() -> None:
+    """Neither title contains the other, but the 3-word run is a near-dupe."""
+    catalog = ["classic blueberry muffin tops"]
+    reason = check_title_conflict("Vegan Blueberry Muffin Tops", catalog)
+    assert reason is not None
+    assert "shared phrase" in reason
+    assert "blueberry muffin tops" in reason
+
+
+def test_all_recycled_words_is_caught_even_across_titles() -> None:
+    """A title with zero fresh distinctive words conflicts with the catalog pool."""
+    catalog = ["maple hash brown nests", "smoky cheddar breakfast bites"]
+    reason = check_title_conflict("Maple Cheddar Cups", catalog)
+    assert reason is not None
+    assert "fresh distinctive word" in reason
 
 
 def test_no_shared_distinctive_words_is_allowed() -> None:
