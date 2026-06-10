@@ -457,7 +457,7 @@ def _generate_vision_openai(
         raise RuntimeError("OPENAI_API_KEY is not set")
 
     try:
-        from openai import OpenAI
+        from openai import OpenAI, BadRequestError
     except Exception as e:
         raise RuntimeError("openai package is not installed") from e
 
@@ -477,9 +477,19 @@ def _generate_vision_openai(
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": content})
 
-    response = client.chat.completions.create(
-        model=model, messages=messages, temperature=temperature,
-    )
+    # GPT-5-family reasoning models reject any non-default temperature.
+    # Same retry pattern as _generate_openai — this path lacking it left
+    # every vision eval 400ing (and silently passing) for weeks.
+    try:
+        response = client.chat.completions.create(
+            model=model, messages=messages, temperature=temperature,
+        )
+    except BadRequestError as e:
+        low = str(e).lower()
+        if "temperature" in low and ("unsupported" in low or "default (1)" in low):
+            response = client.chat.completions.create(model=model, messages=messages)
+        else:
+            raise
     usage = response.usage
     _record_cost(
         "openai", f"{model}:vision",

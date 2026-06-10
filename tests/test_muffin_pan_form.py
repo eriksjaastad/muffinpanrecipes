@@ -195,3 +195,36 @@ def test_cron_monday_retries_baker_when_form_gate_fails():
     assert result["recipe_title"] == "Spinach Feta Egg Bites"
     assert episode["stages"]["monday"]["recipe_data"] == good_recipe
     save_episode.assert_called_once_with("2026-W99", episode)
+
+
+# ---------------------------------------------------------------------------
+# Off-brand title shapes — W24 "Cheddar Broccoli Egg Squares" rendered literal
+# sheet-pan squares because the title named a shape a muffin pan cannot make.
+# ---------------------------------------------------------------------------
+
+def _valid_body_recipe(title: str) -> dict:
+    return _recipe(
+        title,
+        "Tender portions shaped by the muffin pan.",
+        [
+            "Whisk eggs, cream, salt, and pepper until smooth.",
+            "Distribute filling across muffin cups.",
+            "Bake until the centers are set.",
+            "Rest 5 minutes, then release each bite with a thin spatula.",
+        ],
+    )
+
+
+def test_rejects_squares_title_even_with_valid_body():
+    reason = check_muffin_pan_form(_valid_body_recipe("Cheddar Broccoli Egg Squares"))
+    assert reason is not None
+    assert "shape a muffin pan cannot make" in reason
+
+
+def test_rejects_bars_and_slices_titles():
+    assert check_muffin_pan_form(_valid_body_recipe("Lemon Crumble Bars")) is not None
+    assert check_muffin_pan_form(_valid_body_recipe("Pepperoni Pizza Slices")) is not None
+
+
+def test_accepts_cups_title_with_valid_body():
+    assert check_muffin_pan_form(_valid_body_recipe("Cheddar Broccoli Egg Cups")) is None

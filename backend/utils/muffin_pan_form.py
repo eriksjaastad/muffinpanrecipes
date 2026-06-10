@@ -76,10 +76,34 @@ def _matches_any(text: str, patterns: tuple[str, ...]) -> bool:
     return any(re.search(pattern, text) for pattern in patterns)
 
 
+# Shapes a muffin pan physically cannot produce. A title carrying one of
+# these words is incoherent with the brand even when the instructions use a
+# muffin tin — and it steers the image model toward sheet-pan food
+# (W24 "Cheddar Broccoli Egg Squares" rendered literal sheet-pan squares).
+OFF_BRAND_TITLE_SHAPES = (
+    r"\bsquares?\b",
+    r"\bbars?\b",
+    r"\bslabs?\b",
+    r"\bslices?\b",
+    r"\bwedges?\b",
+    r"\bsheet\b",
+    r"\btraybake\b",
+    r"\bcasserole\b",
+)
+
+
 def check_muffin_pan_form(recipe: dict[str, Any] | None) -> str | None:
     """Return a failure reason if the recipe does not take muffin-pan form."""
     if not isinstance(recipe, dict) or not recipe:
         return "recipe data is missing"
+
+    title = str(recipe.get("title", "")).lower()
+    if _matches_any(title, OFF_BRAND_TITLE_SHAPES):
+        return (
+            f"title '{recipe.get('title')}' names a shape a muffin pan cannot "
+            "make (squares/bars/slices/etc); name the dish as cups, bites, "
+            "nests, tassies, or mini loaves"
+        )
 
     text = _flatten_recipe_text(recipe)
     if _matches_any(text, LOOSE_OR_INCIDENTAL_PATTERNS):
