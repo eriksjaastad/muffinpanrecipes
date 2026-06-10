@@ -26,6 +26,7 @@ from pathlib import Path
 # so title drift (#5911) can't recur from two copies going out of sync.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from backend.utils.title_validator import STOP_WORDS  # noqa: E402
+from backend.utils.muffin_pan_form import OFF_BRAND_TITLE_SHAPES  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 EPISODES_DIR = ROOT / "data" / "episodes"
@@ -214,6 +215,12 @@ def score_candidate(
     low = name.lower()
     score = 0.0
 
+    # 0. Off-brand shape — hard reject. A muffin pan's wells are ROUND;
+    # a candidate named squares/bars/slices/etc can only drift the baker
+    # (and the image model downstream) toward sheet-pan food.
+    if any(re.search(pattern, low) for pattern in OFF_BRAND_TITLE_SHAPES):
+        return 0.0
+
     # 1. Muffin pan adaptability (0-3)
     pan_hits = sum(1 for kw in MUFFIN_PAN_KEYWORDS if kw in low)
     score += min(3.0, pan_hits * 1.0)
@@ -297,6 +304,12 @@ def pick_concept(
         for name in names:
             s = score_candidate(name, recent, month, target_category=target_category, word_freq=word_freq)
             all_candidates.append((source_name, name, s))
+
+    # Hard-rejected candidates score exactly 0.0 (off-brand shapes). Drop
+    # them before pooling — the weighted pick's 0.1 floor would otherwise
+    # let an off-brand concept through when the scrape runs thin, and an
+    # all-zero scrape should route to the curated fallback list below.
+    all_candidates = [c for c in all_candidates if c[2] > 0.0]
 
     if not all_candidates:
         # Hard fallback list — curated muffin pan concepts
