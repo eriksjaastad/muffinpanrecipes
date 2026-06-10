@@ -1395,8 +1395,9 @@ async def cron_sunday(request: Request):
       _require_monday_recipe(ep, "sunday")
 
       with _run_stage(ep, "sunday"):
-        # Verify critical prior stages completed before spending on dialogue
-        required_stages = ["monday", "wednesday"]
+        # Verify critical prior stages completed before spending on dialogue.
+        # (Monday is already enforced by _require_monday_recipe above.)
+        required_stages = ["wednesday"]
         for day in required_stages:
             stage_status = ep.get("stages", {}).get(day, {}).get("status")
             if stage_status != "complete":

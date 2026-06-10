@@ -149,13 +149,18 @@ def check_title_conflict(title: str, catalog_titles: list[str]) -> Optional[str]
         if lo == cat_title:
             return f"exact match with '{cat_title}'"
 
+    def _has_distinctive(seq: list[str]) -> bool:
+        return bool({_normalize_title_word(w) for w in seq} - STOP_WORDS)
+
     new_seq = _title_word_sequence(title)
     for cat_title in catalog_titles:
         cat_seq = _title_word_sequence(cat_title)
-        if _contains_phrase(new_seq, cat_seq) or _contains_phrase(cat_seq, new_seq):
+        if (_contains_phrase(new_seq, cat_seq) and _has_distinctive(cat_seq)) or (
+            _contains_phrase(cat_seq, new_seq) and _has_distinctive(new_seq)
+        ):
             return f"phrase containment with '{cat_title}'"
         segment = _shared_phrase(new_seq, cat_seq)
-        if segment and {_normalize_title_word(w) for w in segment} - STOP_WORDS:
+        if segment and _has_distinctive(segment):
             return (
                 f"shared phrase '{' '.join(segment)}' with '{cat_title}'"
             )

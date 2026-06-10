@@ -83,6 +83,7 @@ def test_stage_blocked_when_monday_failed(day: str, handler) -> None:
     get_orchestrator.assert_not_called()
     save_episode.assert_not_called()
     notify.assert_called_once()
+    assert notify.call_args.kwargs["stage"] == day
 
 
 def test_stage_blocked_when_monday_missing_entirely() -> None:
