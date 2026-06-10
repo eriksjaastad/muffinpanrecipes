@@ -26,6 +26,7 @@ from pathlib import Path
 # so title drift (#5911) can't recur from two copies going out of sync.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from backend.utils.title_validator import STOP_WORDS  # noqa: E402
+from backend.utils.muffin_pan_form import OFF_BRAND_TITLE_SHAPES  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 EPISODES_DIR = ROOT / "data" / "episodes"
@@ -213,6 +214,12 @@ def score_candidate(
     """Score a recipe name 0–10. Higher = better pick."""
     low = name.lower()
     score = 0.0
+
+    # 0. Off-brand shape — hard reject. A muffin pan's wells are ROUND;
+    # a candidate named squares/bars/slices/etc can only drift the baker
+    # (and the image model downstream) toward sheet-pan food.
+    if any(re.search(pattern, low) for pattern in OFF_BRAND_TITLE_SHAPES):
+        return 0.0
 
     # 1. Muffin pan adaptability (0-3)
     pan_hits = sum(1 for kw in MUFFIN_PAN_KEYWORDS if kw in low)
