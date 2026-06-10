@@ -65,6 +65,27 @@ def _build_recipe_system_prompt(personality_context: Dict[str, Any]) -> str:
 
 Your personality quirks: {', '.join(quirks) if quirks else 'None specified'}
 
+ENVISION THE PAN FIRST — before you write a single word:
+Picture a standard 12-cup muffin pan on the counter. The pan itself is a
+rectangle, but the twelve wells inside it are ROUND — about 2 3/4 inches
+across the top, tapering to about 2 inches at the base, each holding
+roughly 1/3 to 1/2 cup. Everything you create is born inside one of those
+round, flared wells. Now design inside one cup, in this order:
+1. What goes into the well — a base pressed against the round bottom?
+   layers? a batter or custard poured in?
+2. What happens in the oven — how it sets, binds, and takes on the well's
+   round, flared shape with ridged molded sides.
+3. How it releases — a thin knife around the edge, a rest, a lift — and
+   what the freed portion looks like sitting on a plate: a round,
+   single-serving portion that visibly carries the muffin-cup form.
+4. Only then name and describe it. The name and description must evoke
+   that round molded portion. A muffin pan physically cannot make squares,
+   bars, slabs, slices, or wedges — if the dish in your head is any of
+   those shapes, it is the wrong dish for this site; design a different one.
+If the dish would honestly be better on a sheet pan, in an 8x8, or in a
+skillet, it does not belong here. "Small" is not the brand. ROUND,
+MOLDED-BY-THE-CUP is the brand.
+
 CRITICAL RULES:
 1. Every recipe MUST be designed for a standard 12-cup muffin tin
 2. Create UNIQUE, SPECIFIC recipes - never generic batter recipes
@@ -78,7 +99,7 @@ CRITICAL RULES:
 INSPIRATION: Think like Floridino's "Grilled Cheese Muffin" - creative use of the format, specific ingredients (they list "Mozzarella, Cheddar, & Gouda"), served with complementary sides.
 
 Output your response in this EXACT format:
-TITLE: [Short, appetizing title - 3 to 6 words max. No subtitles, no parentheticals, no days of the week. Do NOT start with "Mini" if the title already contains "Bites", "Cups", "Tassies", "Pops", or "Balls" — those already imply small, so "Mini" is redundant ("Caprese Bruschetta Bites", not "Mini Caprese Bruschetta Bites"). Good examples: "Meatloaf Bites", "Spinach Feta Egg Bites", "Buffalo Chicken Mac Bites", "Mini Chocolate Lava Cakes". Bad examples: "Sunday Sheet-Pan Dinner In A Muffin Tin", "Mini Caprese Bruschetta Bites"]
+TITLE: [Short, appetizing title - 3 to 6 words max. No subtitles, no parentheticals, no days of the week. The shape word must be one a round muffin cup can produce — Cups, Bites, Nests, Tassies, Minis — NEVER Squares, Bars, Slabs, Slices, or Wedges. Do NOT start with "Mini" if the title already contains "Bites", "Cups", "Tassies", "Pops", or "Balls" — those already imply small, so "Mini" is redundant ("Caprese Bruschetta Bites", not "Mini Caprese Bruschetta Bites"). Good examples: "Meatloaf Bites", "Spinach Feta Egg Bites", "Buffalo Chicken Mac Bites", "Mini Chocolate Lava Cakes". Bad examples: "Cheddar Broccoli Egg Squares", "Sunday Sheet-Pan Dinner In A Muffin Tin", "Mini Caprese Bruschetta Bites"]
 DESCRIPTION: [2-3 sentences describing the dish and what makes it special]
 SERVINGS: [number]
 PREP_TIME: [minutes]
@@ -110,6 +131,9 @@ def _build_recipe_user_prompt(
     return f"""Create a muffin tin recipe for: {concept}
 
 Remember:
+- Envision the pan first: design the dish inside one round, flared muffin
+  cup, and only keep it if the finished portion visibly carries that round
+  molded shape
 - This must work in a standard 12-cup muffin tin
 - Be specific with ingredients (name varieties, brands if relevant)
 - Include exact measurements and temperatures in US customary units (cups, tbsp, tsp, oz, lbs, °F)
