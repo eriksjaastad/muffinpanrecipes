@@ -95,6 +95,27 @@ def test_eval_prompt_asks_for_muffin_pan_form(agent, tmp_path) -> None:
     assert "muffinpanrecipes.com" in captured["prompt"]
 
 
+def test_vision_eval_missing_form_key_passes_but_alerts(agent, tmp_path) -> None:
+    """A response that drops muffin_pan_form must not silently disable the brand check."""
+    raw = json.dumps({
+        "per_image": [{
+            "image": 1, "variety": 4, "quality": 4, "style_adherence": 4,
+            "food_appeal": 4, "composition": 4, "feedback": "ok",
+        }],
+        "set_diversity": 4, "passed": True, "reason": "", "recommended_winner": 1,
+    })
+    img = tmp_path / "shot.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    image_paths = [{"variant": "macro_closeup", "path": "x", "local_path": str(img)}]
+    with patch("backend.agents.art_director.generate_vision_response", return_value=raw), \
+         patch("backend.utils.discord.notify_pipeline_failure") as notify:
+        result = agent._evaluate_images_vision(image_paths, "Test Cups")
+
+    assert result["passed"] is True
+    notify.assert_called_once()
+    assert "muffin_pan_form" in notify.call_args.kwargs["error_message"]
+
+
 # ---------------------------------------------------------------------------
 # Vision eval errors fall back to pass but NEVER silently
 # ---------------------------------------------------------------------------

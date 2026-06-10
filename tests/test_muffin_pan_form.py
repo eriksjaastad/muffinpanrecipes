@@ -226,5 +226,10 @@ def test_rejects_bars_and_slices_titles():
     assert check_muffin_pan_form(_valid_body_recipe("Pepperoni Pizza Slices")) is not None
 
 
+def test_rejects_singular_bar_title():
+    """Singular 'Bar' is deliberately caught — 'Candy Bar Bites' should be renamed."""
+    assert check_muffin_pan_form(_valid_body_recipe("Candy Bar Bites")) is not None
+
+
 def test_accepts_cups_title_with_valid_body():
     assert check_muffin_pan_form(_valid_body_recipe("Cheddar Broccoli Egg Cups")) is None

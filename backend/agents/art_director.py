@@ -273,14 +273,40 @@ class ArtDirectorAgent(Agent):
             all_scores = []
             any_below_threshold = False
             any_off_brand = False
+            form_key_missing = False
             for img in per_image:
                 for dim in dimensions:
                     score = img.get(dim, 3.0)
                     all_scores.append(score)
                     if score < 2.5:
                         any_below_threshold = True
-                if img.get("muffin_pan_form", 3.0) < 3.0:
+                if "muffin_pan_form" not in img:
+                    form_key_missing = True
+                elif img.get("muffin_pan_form", 3.0) < 3.0:
                     any_off_brand = True
+
+            if form_key_missing:
+                # The model ignored the schema and dropped the brand dimension.
+                # Don't fail the set (reshoot spend on a formatting hiccup),
+                # but surface it loudly — a quietly-missing key would disable
+                # the brand check exactly like the dead-vision-eval incident.
+                logger.error(
+                    "Vision eval response missing muffin_pan_form — brand "
+                    "check not applied to this set"
+                )
+                try:
+                    from backend.utils.discord import notify_pipeline_failure
+                    notify_pipeline_failure(
+                        recipe_id="vision-eval",
+                        concept=recipe_title,
+                        stage="wednesday (vision eval)",
+                        error_message=(
+                            "Vision eval response omitted muffin_pan_form — "
+                            "the brand-form check did not run on this image set."
+                        ),
+                    )
+                except Exception as notify_exc:
+                    logger.error(f"Form-key-missing Discord notify failed: {notify_exc}")
 
             avg_score = sum(all_scores) / max(len(all_scores), 1)
             result["avg_score"] = round(avg_score, 2)
