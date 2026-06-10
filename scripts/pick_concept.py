@@ -305,6 +305,12 @@ def pick_concept(
             s = score_candidate(name, recent, month, target_category=target_category, word_freq=word_freq)
             all_candidates.append((source_name, name, s))
 
+    # Hard-rejected candidates score exactly 0.0 (off-brand shapes). Drop
+    # them before pooling — the weighted pick's 0.1 floor would otherwise
+    # let an off-brand concept through when the scrape runs thin, and an
+    # all-zero scrape should route to the curated fallback list below.
+    all_candidates = [c for c in all_candidates if c[2] > 0.0]
+
     if not all_candidates:
         # Hard fallback list — curated muffin pan concepts
         fallbacks = [
