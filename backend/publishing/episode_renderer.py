@@ -399,6 +399,11 @@ def render_episode_page(episode: dict, image_url: Optional[str] = None) -> str:
     # is the canonical home so the transient URLs don't compete with it.
     seo_meta = ""
     if is_published and has_recipe:
+        # NOTE: this slug comes from _slugify(sanitize_text(title)) while the
+        # catalog slug is _slugify(_clean_title(title)). They agree because
+        # _slugify's [^a-z0-9]+ absorbs both pre-processings — if _slugify
+        # ever preserves more characters, these two paths must be unified or
+        # the canonical will point at a slug the catalog doesn't use.
         canonical_url = f"{site_base}/recipes/{_slugify(title)}"
         seo_meta += (
             f'<link rel="canonical" href="{canonical_url}">\n'

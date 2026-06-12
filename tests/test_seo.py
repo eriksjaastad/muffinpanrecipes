@@ -135,8 +135,14 @@ def test_sitemap_falls_back_to_static_catalog_when_blob_empty() -> None:
     with patch.object(episode_routes.storage, "load_page", return_value=None):
         resp = asyncio.run(episode_routes.sitemap_xml())
     xml = bytes(resp.body).decode()
-    # Static src/recipes.json seeds at least the 10 original recipes
-    assert xml.count("<url>") >= 12
+    # Pin to the real static seed file: 2 site roots + one URL per seed recipe
+    static = json.loads(
+        (episode_routes.Path(episode_routes.__file__).resolve().parents[2]
+         / "src" / "recipes.json").read_text()
+    )
+    seed_count = len([r for r in static["recipes"] if r.get("slug")])
+    assert seed_count >= 10  # guard: the seed file itself went missing/empty
+    assert xml.count("<url>") == 2 + seed_count
     assert "spinach-feta-egg-bites" in xml
 
 
