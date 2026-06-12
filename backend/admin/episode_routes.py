@@ -91,6 +91,68 @@ async def recipes_json():
     return JSONResponse(content={"recipes": []}, status_code=200)
 
 
+_SITE_BASE = "https://muffinpanrecipes.com"
+
+
+@router.get("/sitemap.xml")
+async def sitemap_xml():
+    """Serve a sitemap generated from the live recipe catalog.
+
+    The old static src/sitemap.xml froze at the 10 seed recipes — every
+    cron-published recipe since W10 was invisible to crawlers (and one
+    listed URL didn't exist at all). Building from the catalog keeps the
+    sitemap in lockstep with what Sunday actually publishes.
+    """
+    import re as _re
+    from datetime import date
+
+    catalog_raw = storage.load_page("pages/recipes.json")
+    if not catalog_raw:
+        static = Path(__file__).resolve().parents[2] / "src" / "recipes.json"
+        catalog_raw = static.read_text() if static.exists() else '{"recipes": []}'
+
+    try:
+        recipes = json.loads(catalog_raw).get("recipes", [])
+    except Exception:
+        logger.error("sitemap: catalog JSON unparseable, emitting site roots only")
+        recipes = []
+
+    def _week_lastmod(episode_id: str | None) -> str | None:
+        """ISO week id (2026-W23) → that week's Sunday (publish day)."""
+        if not episode_id:
+            return None
+        m = _re.fullmatch(r"(\d{4})-W(\d{2})", episode_id)
+        if not m:
+            return None
+        year, week = int(m.group(1)), int(m.group(2))
+        try:
+            return date.fromisocalendar(year, week, 7).isoformat()
+        except ValueError:
+            return None
+
+    entries = [
+        f"  <url><loc>{_SITE_BASE}/</loc><changefreq>daily</changefreq></url>",
+        f"  <url><loc>{_SITE_BASE}/this-week</loc><changefreq>daily</changefreq></url>",
+    ]
+    for r in recipes:
+        slug = r.get("slug")
+        if not slug:
+            continue
+        lastmod = _week_lastmod(r.get("episode_id"))
+        lastmod_tag = f"<lastmod>{lastmod}</lastmod>" if lastmod else ""
+        entries.append(
+            f"  <url><loc>{_SITE_BASE}/recipes/{slug}</loc>{lastmod_tag}</url>"
+        )
+
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        + "\n".join(entries)
+        + "\n</urlset>\n"
+    )
+    return Response(content=xml, media_type="application/xml")
+
+
 @router.get("/recipes/{slug}")
 async def recipe_page(slug: str):
     """Serve an individual recipe page.
