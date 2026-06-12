@@ -336,6 +336,14 @@ def render_episode_page(episode: dict, image_url: Optional[str] = None) -> str:
         color = "bg-terracotta text-white" if done else "bg-gray-100 text-gray-400"
         progress_dots += f'<div class="text-center"><div class="w-8 h-8 rounded-full {color} flex items-center justify-center text-[10px] font-bold mx-auto mb-1">{short[:2]}</div><p class="text-[9px] text-gray-400">{short}</p></div>\n'
 
+    # Absolute image URL for og:image / twitter:image / JSON-LD — social
+    # crawlers and Google both require absolute URLs, and Google requires
+    # `image` for Recipe rich results at all.
+    site_base = "https://muffinpanrecipes.com"
+    abs_image_url = ""
+    if image_url:
+        abs_image_url = image_url if image_url.startswith("http") else f"{site_base}{image_url}"
+
     # JSON-LD (only on published pages with full recipe data)
     json_ld_html = ""
     if is_published and has_recipe:
@@ -344,20 +352,34 @@ def render_episode_page(episode: dict, image_url: Optional[str] = None) -> str:
             if isinstance(ing, dict) else str(ing)
             for ing in ingredients
         ]
-        ld_json = json.dumps({
+        try:
+            total_minutes = int(prep_time) + int(cook_time)
+        except (TypeError, ValueError):
+            total_minutes = None
+        published_at = str(episode.get("published_at") or "")[:10]
+        ld_data = {
             "@context": "https://schema.org/",
             "@type": "Recipe",
             "name": title,
             "description": description,
+            "author": {"@type": "Organization", "name": "Muffin Pan Recipes"},
             "prepTime": f"PT{prep_time}M",
             "cookTime": f"PT{cook_time}M",
             "recipeYield": f"{servings} servings",
             "recipeCategory": category,
+            "keywords": f"muffin pan, muffin tin, {category.lower()}",
             "recipeIngredient": ld_ingredients,
             "recipeInstructions": [
                 {"@type": "HowToStep", "text": s} for s in instructions
             ],
-        })
+        }
+        if abs_image_url:
+            ld_data["image"] = [abs_image_url]
+        if total_minutes is not None:
+            ld_data["totalTime"] = f"PT{total_minutes}M"
+        if published_at:
+            ld_data["datePublished"] = published_at
+        ld_json = json.dumps(ld_data)
         json_ld_html = f'<script type="application/ld+json">{ld_json}</script>'
 
     # Status banner for in-progress episodes
@@ -371,6 +393,27 @@ def render_episode_page(episode: dict, image_url: Optional[str] = None) -> str:
 
     title_escaped = html.escape(title)
     desc_escaped = html.escape(description)
+
+    # Canonical + social meta. The same rendered HTML serves /this-week,
+    # /episodes/{id}, and /recipes/{slug} — once published, the recipe URL
+    # is the canonical home so the transient URLs don't compete with it.
+    seo_meta = ""
+    if is_published and has_recipe:
+        canonical_url = f"{site_base}/recipes/{_slugify(title)}"
+        seo_meta += (
+            f'<link rel="canonical" href="{canonical_url}">\n'
+            f'    <meta property="og:url" content="{canonical_url}">\n'
+        )
+    seo_meta += (
+        f'    <meta property="twitter:card" content="summary_large_image">\n'
+        f'    <meta property="twitter:title" content="{title_escaped} | Muffin Pan Recipes">\n'
+        f'    <meta property="twitter:description" content="{desc_escaped}">\n'
+    )
+    if abs_image_url:
+        seo_meta += (
+            f'    <meta property="og:image" content="{abs_image_url}">\n'
+            f'    <meta property="twitter:image" content="{abs_image_url}">\n'
+        )
 
     bts_jump = ""
     bts_section = ""
@@ -436,6 +479,7 @@ def render_episode_page(episode: dict, image_url: Optional[str] = None) -> str:
     <meta property="og:type" content="article">
     <meta property="og:title" content="{title_escaped} | Muffin Pan Recipes">
     <meta property="og:description" content="{desc_escaped}">
+    {seo_meta}
 
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
