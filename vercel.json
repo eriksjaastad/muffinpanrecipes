@@ -70,7 +70,7 @@
         },
         {
             "src": "/sitemap\\.xml",
-            "dest": "/src/sitemap.xml"
+            "dest": "backend/admin/app.py"
         },
         {
             "src": "/robots\\.txt",
