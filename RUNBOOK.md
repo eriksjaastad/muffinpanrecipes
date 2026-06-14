@@ -41,12 +41,14 @@ for day in monday tuesday wednesday; do
 done
 ```
 
+If the week needs to run all the way to publish, extend the loop to include `thursday friday saturday sunday` (each depends on the prior stage's output existing).
+
 ### Verify recovery
 
 ```bash
 curl -s "https://muffinpanrecipes.com/this-week?cb=$(date +%s)" | grep -o '<h1[^>]*>[^<]*</h1>' | head -1
 # Expect a real recipe title, NOT "Weekly Muffin Pan Recipe"
-doppler run -- uv run python scripts/health_check.py   # this_week_renders should pass
+doppler run --project muffinpanrecipes --config prd -- uv run python scripts/health_check.py   # this_week_renders should pass
 ```
 
 ### How to avoid retriggering
