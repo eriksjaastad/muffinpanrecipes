@@ -231,7 +231,11 @@ class RecipeOrchestrator:
             raise
 
     def _execute_stage_baker(
-        self, recipe_id: str, concept: str, target_category: str | None = None
+        self,
+        recipe_id: str,
+        concept: str,
+        target_category: str | None = None,
+        recent_cuisines: list[str] | None = None,
     ) -> Dict:
         """Execute baker's recipe development stage."""
         baker = self.agents["baker"]
@@ -243,6 +247,7 @@ class RecipeOrchestrator:
                 "recipe_id": recipe_id,
                 "concept": concept,
                 "target_category": target_category,
+                "recent_cuisines": recent_cuisines,
             }
         )
 

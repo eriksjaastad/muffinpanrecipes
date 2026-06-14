@@ -85,6 +85,7 @@ class BakerAgent(Agent):
                 concept=concept,
                 personality_context=personality_context,
                 target_category=task.context.get("target_category"),
+                recent_cuisines=task.context.get("recent_cuisines"),
             )
             logger.info(f"Margaret: Recipe generated - {recipe_data.get('title', concept)}")
         except Exception as e:
