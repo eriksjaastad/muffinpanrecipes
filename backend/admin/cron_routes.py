@@ -1028,6 +1028,7 @@ async def cron_monday(request: Request):
             )
             recipe_data = orchestrator._execute_stage_baker(
                 ep["recipe_id"], retry_concept, target_category=target_category,
+                recent_cuisines=recent_cuisines,
             )
             baker_title = recipe_data.get("title", "") if recipe_data else ""
             conflict = check_title_conflict(baker_title, catalog_titles)
@@ -1058,6 +1059,7 @@ async def cron_monday(request: Request):
             )
             recipe_data = orchestrator._execute_stage_baker(
                 ep["recipe_id"], retry_concept, target_category=target_category,
+                recent_cuisines=recent_cuisines,
             )
             baker_title = recipe_data.get("title", "") if recipe_data else ""
             conflict = check_title_conflict(baker_title, catalog_titles)
