@@ -51,13 +51,6 @@ DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sun
 
 BLOB_CDN_PREFIX = "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/images/"
 
-# Site-wide cuisine label for Recipe JSON-LD. The brand is American single-
-# serving comfort food; a consistent value satisfies Google's (non-critical)
-# recipeCuisine suggestion without fabricating per-recipe judgments. Shared by
-# the renderer and the one-time static-seed enrichment so both code paths agree.
-RECIPE_CUISINE = "American"
-
-
 def _step_name(text: str, index: int) -> str:
     """Concise label for a recipe HowToStep.
 
@@ -249,6 +242,7 @@ def render_episode_page(
     cook_time = recipe.get("cook_time", 20)
     servings = recipe.get("servings", 12)
     difficulty = recipe.get("difficulty", "medium").title()
+    cuisine = str(recipe.get("cuisine", "")).strip()
     ingredients = recipe.get("ingredients", [])
     instructions = recipe.get("instructions", [])
     chef_notes = sanitize_text(recipe.get("chef_notes", ""))
@@ -404,7 +398,6 @@ def render_episode_page(
             "cookTime": f"PT{cook_time}M",
             "recipeYield": f"{servings} servings",
             "recipeCategory": category,
-            "recipeCuisine": RECIPE_CUISINE,
             "keywords": f"muffin pan, muffin tin, {category.lower()}",
             "recipeIngredient": ld_ingredients,
             "recipeInstructions": [
@@ -414,6 +407,11 @@ def render_episode_page(
         }
         if abs_image_url:
             ld_data["image"] = [abs_image_url]
+        if cuisine:
+            # Honest cuisine when the recipe declares one; omit otherwise
+            # rather than assert a blanket "American" (Google treats
+            # recipeCuisine as optional).
+            ld_data["recipeCuisine"] = cuisine
         if total_minutes is not None:
             ld_data["totalTime"] = f"PT{total_minutes}M"
         if published_at:
@@ -791,6 +789,7 @@ def publish_recipe_to_catalog(episode: dict) -> str | None:
         "episode_id": episode.get("episode_id", ""),
         "recipe_id": episode.get("recipe_id", ""),
         "category": recipe.get("category", "Savory").title(),
+        "cuisine": str(recipe.get("cuisine", "")).strip(),
         "image": image_url,
         "description": recipe.get("description", ""),
         "prep": f"{recipe.get('prep_time', 15)} mins",

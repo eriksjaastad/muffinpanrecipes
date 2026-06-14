@@ -27,6 +27,7 @@ def generate_recipe(
     personality_context: Dict[str, Any],
     model: Optional[str] = None,
     target_category: Optional[str] = None,
+    recent_cuisines: Optional[list[str]] = None,
 ) -> Dict[str, Any]:
     """Generate a complete muffin tin recipe.
 
@@ -36,13 +37,17 @@ def generate_recipe(
         model: Override model (default: RECIPE_MODEL env var or openai/gpt-5-mini)
         target_category: If set, steer the LLM toward this category
                          (e.g. "Party", "Breakfast", "Sweet", "Savory")
+        recent_cuisines: Recently published cuisines to steer away from,
+                         keeping the catalog globally varied.
 
     Returns:
         Structured recipe dict with title, ingredients, instructions, etc.
     """
     use_model = model or config.recipe_model
     system_prompt = _build_recipe_system_prompt(personality_context)
-    user_prompt = _build_recipe_user_prompt(concept, target_category=target_category)
+    user_prompt = _build_recipe_user_prompt(
+        concept, target_category=target_category, recent_cuisines=recent_cuisines
+    )
 
     response = generate_response(
         prompt=user_prompt,
@@ -106,6 +111,7 @@ PREP_TIME: [minutes]
 COOK_TIME: [minutes]
 DIFFICULTY: [easy/medium/hard]
 CATEGORY: [breakfast/savory/sweet/party] (party = finger foods, appetizers, entertaining bites)
+CUISINE: [the dish's actual culinary tradition — e.g. American, Italian, Mexican, Korean, Indian, Greek, Thai, French, Middle Eastern, Vietnamese. Be honest and specific: a muffin-tin shepherd's pie is British, a muffin-tin lasagna is Italian. Do NOT default to American — reach for the world.]
 
 INGREDIENTS:
 - [amount] [ingredient] ([optional note])
@@ -123,10 +129,26 @@ CHEF_NOTES: [Your professional tips, what to watch for, serving suggestions]"""
 def _build_recipe_user_prompt(
     concept: str,
     target_category: Optional[str] = None,
+    recent_cuisines: Optional[list[str]] = None,
 ) -> str:
     category_line = ""
     if target_category:
         category_line = f"\n- Target category: {target_category}. The recipe MUST fit this category."
+
+    # Steer toward global variety. Always encourage reaching past American
+    # comfort food; when we know recent cuisines, name them so the baker
+    # actively avoids repeating — the cuisine analogue of category balancing.
+    cuisine_line = (
+        "\n- Reach beyond American comfort food: draw on world cuisines "
+        "(Italian, Mexican, Korean, Indian, Greek, Thai, French, Middle "
+        "Eastern, Vietnamese, and more). Keep the site's recipes globally varied."
+    )
+    recent = [c for c in (recent_cuisines or []) if c]
+    if recent:
+        cuisine_line += (
+            f"\n- Recent recipes have been: {', '.join(recent)}. "
+            "Favor a culinary tradition NOT in that list this week."
+        )
 
     return f"""Create a muffin tin recipe for: {concept}
 
@@ -138,7 +160,7 @@ Remember:
 - Be specific with ingredients (name varieties, brands if relevant)
 - Include exact measurements and temperatures in US customary units (cups, tbsp, tsp, oz, lbs, °F)
 - Make it genuinely delicious and practical
-- Think beyond traditional muffins, but the tin must shape the food into a cohesive cup/bite/nest that holds together after removal{category_line}
+- Think beyond traditional muffins, but the tin must shape the food into a cohesive cup/bite/nest that holds together after removal{category_line}{cuisine_line}
 
 Generate the complete recipe now."""
 
@@ -152,6 +174,7 @@ def _parse_recipe_response(response: str, concept: str) -> Dict[str, Any]:
         "cook_time": 20,
         "difficulty": "medium",
         "category": "savory",
+        "cuisine": "",
         "ingredients": [],
         "instructions": [],
         "chef_notes": "",
@@ -191,6 +214,10 @@ def _parse_recipe_response(response: str, concept: str) -> Dict[str, Any]:
                 result["difficulty"] = diff
         elif line.startswith("CATEGORY:"):
             result["category"] = line.replace("CATEGORY:", "").strip().lower()
+        elif line.startswith("CUISINE:"):
+            # Strip any bracketed example text the LLM might echo; keep it short.
+            cuisine = line.replace("CUISINE:", "").strip().strip("[]").strip()
+            result["cuisine"] = cuisine[:40]
         elif line.startswith("INGREDIENTS:"):
             current_section = "ingredients"
         elif line.startswith("INSTRUCTIONS:"):
