@@ -174,3 +174,30 @@ def test_no_change_on_single_word() -> None:
 
 def test_case_insensitive_mini_detection() -> None:
     assert strip_redundant_mini("mini caprese bruschetta bites") == "caprese bruschetta bites"
+
+
+# ---------------------------------------------------------------------------
+# load_recent_cuisines — steer the baker toward global variety
+# ---------------------------------------------------------------------------
+
+from unittest.mock import patch  # noqa: E402
+
+from backend.utils import title_validator as _tv  # noqa: E402
+
+
+def test_load_recent_cuisines_returns_newest_first_skipping_blanks() -> None:
+    catalog = {"recipes": [
+        {"slug": "a", "cuisine": "Italian"},
+        {"slug": "b", "cuisine": ""},          # skipped
+        {"slug": "c", "cuisine": "Korean"},
+        {"slug": "d", "cuisine": "Mexican"},
+        {"slug": "e", "cuisine": "Thai"},
+    ]}
+    with patch.object(_tv, "_load_catalog", return_value=catalog):
+        assert _tv.load_recent_cuisines(n=3) == ["Italian", "Korean", "Mexican"]
+
+
+def test_load_recent_cuisines_empty_when_none_declared() -> None:
+    catalog = {"recipes": [{"slug": "a"}, {"slug": "b", "cuisine": ""}]}
+    with patch.object(_tv, "_load_catalog", return_value=catalog):
+        assert _tv.load_recent_cuisines() == []

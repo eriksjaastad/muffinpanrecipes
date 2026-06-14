@@ -34,6 +34,7 @@ def _published_episode() -> dict:
                     "title": "Cheddar Broccoli Egg Bites",
                     "description": "Sturdy egg bites with a hash brown base.",
                     "category": "breakfast",
+                    "cuisine": "Korean",
                     "prep_time": 20,
                     "cook_time": 30,
                     "servings": 12,
@@ -101,12 +102,20 @@ def test_json_ld_omits_image_when_none_exists() -> None:
     assert "image" not in ld
 
 
-def test_json_ld_has_cuisine_and_named_steps() -> None:
-    """Google flagged missing recipeCuisine and unnamed HowToSteps."""
+def test_json_ld_uses_declared_cuisine_and_named_steps() -> None:
+    """recipeCuisine reflects the recipe's declared cuisine, not a blanket value."""
     ld = _extract_json_ld(render_episode_page(_published_episode()))
-    assert ld["recipeCuisine"] == "American"
+    assert ld["recipeCuisine"] == "Korean"
     steps = ld["recipeInstructions"]
     assert steps and all(s.get("name") and s.get("text") for s in steps)
+
+
+def test_json_ld_omits_cuisine_when_absent() -> None:
+    """No fabricated cuisine: omit recipeCuisine when the recipe declares none."""
+    ep = _published_episode()
+    ep["stages"]["monday"]["recipe_data"].pop("cuisine")
+    ld = _extract_json_ld(render_episode_page(ep))
+    assert "recipeCuisine" not in ld
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +178,8 @@ def test_seed_recipe_renders_rich_result_complete(slug) -> None:
     assert ld["@type"] == "Recipe"
     assert ld.get("image"), f"{slug} missing JSON-LD image"
     assert ld["author"] == {"@type": "Organization", "name": "Muffin Pan Recipes"}
-    assert ld["recipeCuisine"] == "American"
+    # recipeCuisine reflects each seed's declared cuisine (e.g. lasagna=Italian).
+    assert ld["recipeCuisine"] == rec["recipe_data"]["cuisine"]
     steps = ld.get("recipeInstructions", [])
     assert steps, f"{slug} has no instructions"
     for s in steps:

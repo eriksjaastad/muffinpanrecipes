@@ -992,8 +992,14 @@ async def cron_monday(request: Request):
         # per request so active_recipes is always empty. start_recipe is idempotent.
         orchestrator.pipeline.start_recipe(ep["recipe_id"], concept)
 
+        # Steer the baker away from recently-used cuisines so the catalog
+        # keeps reaching across world cuisines instead of drifting American.
+        from backend.utils.title_validator import load_recent_cuisines
+        recent_cuisines = load_recent_cuisines()
+
         recipe_data = orchestrator._execute_stage_baker(
             ep["recipe_id"], concept, target_category=target_category,
+            recent_cuisines=recent_cuisines,
         )
 
         # #5911 — Catalog uniqueness check on the LLM-generated title.

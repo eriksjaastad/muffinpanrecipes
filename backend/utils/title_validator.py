@@ -44,38 +44,59 @@ SMALL_COMPANIONS = frozenset({
     "pop", "pops", "ball", "balls", "bit", "bits",
 })
 
-def load_catalog_titles() -> list[str]:
-    """Return all published recipe titles (lowercased) from the public catalog.
+def _load_catalog() -> dict:
+    """Fetch the published catalog from the public blob CDN (prefix-free).
 
-    Reads directly from the blob CDN public URL (no auth, no prefix) so it
-    always sees the real production catalog regardless of test-mode prefix.
-    Falls back to static src/recipes.json on CDN failure. Returns [] on
+    Falls back to static src/recipes.json on CDN failure. Returns {} on
     total failure so callers can no-op cleanly on first-ever run.
     """
-    catalog_data = None
     try:
         req = urllib.request.Request(
             CATALOG_PUBLIC_URL,
             headers={"User-Agent": "muffinpanrecipes-title-validator/1.0"},
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
-            catalog_data = json.loads(resp.read().decode("utf-8"))
+            return json.loads(resp.read().decode("utf-8"))
     except Exception as exc:
         logger.warning(f"title_validator: public catalog fetch failed: {exc}")
 
-    if not catalog_data:
-        try:
-            catalog_data = json.loads((ROOT / "src" / "recipes.json").read_text())
-        except Exception as exc:
-            logger.warning(f"title_validator: static catalog load failed: {exc}")
-            return []
+    try:
+        return json.loads((ROOT / "src" / "recipes.json").read_text())
+    except Exception as exc:
+        logger.warning(f"title_validator: static catalog load failed: {exc}")
+        return {}
 
+
+def load_catalog_titles() -> list[str]:
+    """Return all published recipe titles (lowercased) from the public catalog.
+
+    Reads directly from the blob CDN public URL (no auth, no prefix) so it
+    always sees the real production catalog regardless of test-mode prefix.
+    """
     titles: list[str] = []
-    for recipe in catalog_data.get("recipes", []):
+    for recipe in _load_catalog().get("recipes", []):
         t = recipe.get("title", "").strip().lower()
         if t:
             titles.append(t)
     return titles
+
+
+def load_recent_cuisines(n: int = 4) -> list[str]:
+    """Return the cuisines of the n most recently published recipes.
+
+    The catalog is prepend-ordered (newest first), so the first entries are
+    the most recent. Used to steer the baker away from repeating cuisines
+    and keep the catalog globally varied. Entries without a cuisine are
+    skipped. Returns [] when no catalog/cuisines exist yet.
+    """
+    cuisines: list[str] = []
+    for recipe in _load_catalog().get("recipes", []):
+        c = str(recipe.get("cuisine", "")).strip()
+        if c:
+            cuisines.append(c)
+        if len(cuisines) >= n:
+            break
+    return cuisines
 
 
 def _title_word_sequence(title: str) -> list[str]:
