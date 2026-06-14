@@ -96,3 +96,47 @@ def test_all_off_brand_scrape_falls_back_to_curated_list() -> None:
     assert len(picks) == 1
     assert "bars" not in picks[0].lower()
     assert "wedges" not in picks[0].lower()
+
+
+# ---------------------------------------------------------------------------
+# Cuisine: baker declares it + prompts steer toward global variety
+# ---------------------------------------------------------------------------
+
+from backend.utils.recipe_prompts import _parse_recipe_response  # noqa: E402
+
+
+def test_output_format_asks_for_cuisine() -> None:
+    prompt = _build_recipe_system_prompt({"name": "Margaret Chen"})
+    assert "CUISINE:" in prompt
+    assert "Do NOT default to American" in prompt
+
+
+def test_parser_captures_cuisine() -> None:
+    response = (
+        "TITLE: Gochujang Pork Bites\n"
+        "DESCRIPTION: Spicy Korean-inspired bites.\n"
+        "CATEGORY: savory\n"
+        "CUISINE: Korean\n"
+        "INGREDIENTS:\n- 1 lb pork\n"
+        "INSTRUCTIONS:\n1. Mix.\n2. Bake.\n"
+    )
+    parsed = _parse_recipe_response(response, "concept")
+    assert parsed["cuisine"] == "Korean"
+
+
+def test_parser_defaults_cuisine_empty_when_absent() -> None:
+    response = "TITLE: Plain Cups\nINGREDIENTS:\n- 1 egg\nINSTRUCTIONS:\n1. Bake.\n"
+    assert _parse_recipe_response(response, "c")["cuisine"] == ""
+
+
+def test_user_prompt_always_encourages_global_cuisines() -> None:
+    prompt = " ".join(_build_recipe_user_prompt("Egg Cups").split())
+    assert "Reach beyond American comfort food" in prompt
+
+
+def test_user_prompt_names_recent_cuisines_to_avoid() -> None:
+    prompt = " ".join(
+        _build_recipe_user_prompt("Egg Cups", recent_cuisines=["American", "Italian"]).split()
+    )
+    assert "Recent recipes have been: American, Italian" in prompt
+    assert "NOT in that list" in prompt

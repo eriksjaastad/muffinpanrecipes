@@ -4,6 +4,7 @@
       "slug": "spinach-feta-egg-bites",
       "title": "Spinach & Feta Egg Bites",
       "category": "Breakfast",
+      "cuisine": "American",
       "image": "assets/images/spinach-feta-egg-bites.webp",
       "description": "Velvety, protein-packed egg bites that mimic the sous-vide texture.",
       "prep": "10 mins",
@@ -16,7 +17,7 @@
         "1/2 cup Feta"
       ],
       "instructions": [
-        "Preheat oven to 325\u00b0F.",
+        "Preheat oven to 325°F.",
         "Whisk eggs and cream.",
         "Layer spinach and feta.",
         "Pour eggs over fillings.",
@@ -27,6 +28,7 @@
       "slug": "baked-oatmeal-cups",
       "title": "Baked Oatmeal Breakfast Cups",
       "category": "Breakfast",
+      "cuisine": "American",
       "image": "assets/images/baked-oatmeal-cups.webp",
       "description": "Hearty, portable oatmeal portions that are naturally sweetened and perfect for a quick morning fuel.",
       "prep": "10 mins",
@@ -39,7 +41,7 @@
         "3/4 cup Blueberries"
       ],
       "instructions": [
-        "Preheat oven to 350\u00b0F.",
+        "Preheat oven to 350°F.",
         "Mix dry ingredients.",
         "Whisk wet ingredients.",
         "Combine and fold in berries.",
@@ -50,6 +52,7 @@
       "slug": "mini-pancake-bites",
       "title": "Mini Pancake Bites",
       "category": "Breakfast",
+      "cuisine": "American",
       "image": "assets/images/mini-pancake-bites.webp",
       "description": "Fluffy pancake portions that you don't have to flip. Perfect for dipping.",
       "prep": "5 mins",
@@ -62,7 +65,7 @@
         "2 tbsp Butter"
       ],
       "instructions": [
-        "Preheat oven to 350\u00b0F.",
+        "Preheat oven to 350°F.",
         "Whisk batter until smooth.",
         "Fill mini cups 2/3 full.",
         "Add optional toppings.",
@@ -73,6 +76,7 @@
       "slug": "muffin-tin-lasagna",
       "title": "Muffin Tin Lasagna Cups",
       "category": "Savory",
+      "cuisine": "Italian",
       "image": "assets/images/muffin-tin-lasagna.webp",
       "description": "Crispy-edged, multi-layered mini lasagnas using wonton wrappers.",
       "prep": "20 mins",
@@ -85,7 +89,7 @@
         "1 cup Mozzarella"
       ],
       "instructions": [
-        "Preheat oven to 375\u00b0F.",
+        "Preheat oven to 375°F.",
         "Layer wontons and ricotta.",
         "Add sauce and cheese.",
         "Repeat layers.",
@@ -96,6 +100,7 @@
       "slug": "mini-meatloaf-bites",
       "title": "Mini Meatloaf Bites",
       "category": "Savory",
+      "cuisine": "American",
       "image": "assets/images/mini-meatloaf-bites.webp",
       "description": "Savory, glazed mini meatloaves that cook in half the time of a traditional loaf.",
       "prep": "15 mins",
@@ -108,7 +113,7 @@
         "1 tbsp Brown sugar"
       ],
       "instructions": [
-        "Preheat oven to 400\u00b0F.",
+        "Preheat oven to 400°F.",
         "Mix loaf ingredients.",
         "Portion into cups.",
         "Apply glaze.",
@@ -119,6 +124,7 @@
       "slug": "buffalo-chicken-mac-bites",
       "title": "Buffalo Chicken Mac & Cheese Bites",
       "category": "Savory",
+      "cuisine": "American",
       "image": "assets/images/buffalo-chicken-mac-bites.webp",
       "description": "Creamy mac and cheese with a spicy buffalo kick, crisped to perfection.",
       "prep": "20 mins",
@@ -131,7 +137,7 @@
         "1/4 cup Buffalo sauce"
       ],
       "instructions": [
-        "Preheat oven to 375\u00b0F.",
+        "Preheat oven to 375°F.",
         "Mix all ingredients.",
         "Pack firmly into mini cups.",
         "Add panko topping.",
@@ -142,6 +148,7 @@
       "slug": "mini-shepherds-pie",
       "title": "Mini Shepherd's Pie Pots",
       "category": "Savory",
+      "cuisine": "British",
       "image": "assets/images/mini-shepherds-pie.webp",
       "description": "Individual servings of classic Shepherd's Pie with a toasted potato peak.",
       "prep": "25 mins",
@@ -154,7 +161,7 @@
         "2 tbsp Tomato paste"
       ],
       "instructions": [
-        "Preheat oven to 400\u00b0F.",
+        "Preheat oven to 400°F.",
         "Cook meat filling.",
         "Mash potatoes.",
         "Layer meat and top with potato.",
@@ -165,6 +172,7 @@
       "slug": "jumbo-cornbread-bites",
       "title": "Jumbo Cornbread Honey Bites",
       "category": "Savory",
+      "cuisine": "American",
       "image": "assets/images/jumbo-cornbread-bites.webp",
       "description": "Massive, moist, and sweet cornbread muffins for chili or BBQ.",
       "prep": "10 mins",
@@ -177,7 +185,7 @@
         "2 tbsp Honey"
       ],
       "instructions": [
-        "Preheat oven to 375\u00b0F.",
+        "Preheat oven to 375°F.",
         "Mix dry ingredients.",
         "Whisk wet ingredients.",
         "Combine and scoop into jumbo cups.",
@@ -188,6 +196,7 @@
       "slug": "classic-blueberry-muffins",
       "title": "Classic Blueberry Muffin Tops",
       "category": "Sweet",
+      "cuisine": "American",
       "image": "assets/images/classic-blueberry-muffins.webp",
       "description": "The gold standard: bursting with berries and a perfectly domed top.",
       "prep": "15 mins",
@@ -200,7 +209,7 @@
         "1 cup Blueberries"
       ],
       "instructions": [
-        "Preheat oven to 400\u00b0F.",
+        "Preheat oven to 400°F.",
         "Mix dry ingredients.",
         "Whisk wet ingredients.",
         "Fold in blueberries.",
@@ -211,6 +220,7 @@
       "slug": "dark-chocolate-chip-muffins",
       "title": "Dark Chocolate Chip Decadence",
       "category": "Sweet",
+      "cuisine": "American",
       "image": "assets/images/dark-chocolate-chip-muffins.webp",
       "description": "Rich, cocoa-infused muffins loaded with dark chocolate chips.",
       "prep": "15 mins",
@@ -223,7 +233,7 @@
         "1 cup Choc chips"
       ],
       "instructions": [
-        "Preheat oven to 375\u00b0F.",
+        "Preheat oven to 375°F.",
         "Sift dry ingredients.",
         "Whisk wet ingredients.",
         "Fold in chocolate chips.",
