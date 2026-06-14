@@ -444,7 +444,11 @@ class ArtDirectorAgent(Agent):
                     cwd=str(self._repo_root()),
                     check=True,
                     capture_output=True,
-                    text=True
+                    text=True,
+                    # Bound the call: a hung handshake must not block the
+                    # Lambda until Vercel's function timeout kills the whole
+                    # Wednesday stage. TimeoutExpired is caught below.
+                    timeout=60,
                 )
                 handshake_msg = "SUCCESS: Uploaded to R2 for RunPod harvesting"
             except Exception as e:
