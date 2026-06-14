@@ -367,10 +367,12 @@ def render_episode_page(episode: dict, image_url: Optional[str] = None) -> str:
             "cookTime": f"PT{cook_time}M",
             "recipeYield": f"{servings} servings",
             "recipeCategory": category,
+            "recipeCuisine": RECIPE_CUISINE,
             "keywords": f"muffin pan, muffin tin, {category.lower()}",
             "recipeIngredient": ld_ingredients,
             "recipeInstructions": [
-                {"@type": "HowToStep", "text": s} for s in instructions
+                {"@type": "HowToStep", "name": _step_name(str(s), i), "text": str(s)}
+                for i, s in enumerate(instructions)
             ],
         }
         if abs_image_url:
@@ -601,6 +603,27 @@ def _slugify(title: str) -> str:
     # Collapse multiple hyphens
     slug = re.sub(r'-+', '-', slug)
     return slug
+
+
+# Site-wide cuisine label. The brand is American single-serving comfort food;
+# a consistent value satisfies Google's (non-critical) recipeCuisine suggestion
+# without fabricating per-recipe judgments. Shared by the renderer and the
+# one-time static-seed enrichment so both code paths agree.
+RECIPE_CUISINE = "American"
+
+
+def _step_name(text: str, index: int) -> str:
+    """Concise label for a recipe HowToStep.
+
+    Google's Recipe structured-data guidance flags steps lacking a `name`.
+    Derive one from the step text — first sentence, capped at a word
+    boundary — falling back to 'Step N' only if the text is empty.
+    """
+    text = (text or "").strip()
+    first = re.split(r"(?<=[.!?])\s+", text, maxsplit=1)[0].strip().rstrip(".!?").strip()
+    if len(first) > 60:
+        first = first[:60].rsplit(" ", 1)[0].strip()
+    return first or f"Step {index + 1}"
 
 
 def _clean_title(title: str) -> str:
