@@ -217,11 +217,20 @@ def _render_conversation_section(episode: dict) -> str:
     return "\n".join(sections)
 
 
-def render_episode_page(episode: dict, image_url: Optional[str] = None) -> str:
+def render_episode_page(
+    episode: dict,
+    image_url: Optional[str] = None,
+    *,
+    with_conversation: bool = True,
+) -> str:
     """Generate the full recipe page HTML from episode data.
 
     This is the main entry point. Called after each cron stage to
     regenerate the page with whatever content exists so far.
+
+    `with_conversation=False` suppresses the behind-the-scenes dialogue
+    section entirely — used for the original seed recipes, which have no
+    episode/dialogue behind them (see render_seed_recipe_page).
     """
     concept = episode.get("concept", "Muffin Pan Recipe")
 
@@ -303,8 +312,11 @@ def render_episode_page(episode: dict, image_url: Optional[str] = None) -> str:
                 <p class="text-gray-600 leading-relaxed">{html.escape(chef_notes)}</p>
             </div>"""
 
-    # Conversation section (feature-flagged)
-    show_bts = os.environ.get("ENABLE_BEHIND_THE_SCENES", "true").lower() != "false"
+    # Conversation section (feature-flagged; off entirely for seed recipes)
+    show_bts = (
+        with_conversation
+        and os.environ.get("ENABLE_BEHIND_THE_SCENES", "true").lower() != "false"
+    )
     conversation_html = _render_conversation_section(episode) if show_bts else ""
 
     # Recipe card — only show full card when we have ingredients
@@ -607,6 +619,27 @@ def render_episode_page(episode: dict, image_url: Optional[str] = None) -> str:
 </body>
 </html>
 """
+
+
+def render_seed_recipe_page(recipe_data: dict, image_url: str = "") -> str:
+    """Render one of the original seed recipes through the shared renderer.
+
+    The 10 launch recipes used to be hand-coded static HTML — a second
+    source of truth that drifted from the renderer (it's what let the
+    Google structured-data gap hide). They are now plain recipe_data
+    (src/seed_recipes.json) wrapped in a minimal already-published episode
+    so a single template produces every recipe page. No dialogue exists,
+    so the behind-the-scenes section is suppressed.
+    """
+    episode = {
+        "concept": recipe_data.get("title", "Muffin Pan Recipe"),
+        "image_urls": [image_url] if image_url else [],
+        "stages": {
+            "monday": {"status": "complete", "recipe_data": recipe_data},
+            "sunday": {"status": "complete"},
+        },
+    }
+    return render_episode_page(episode, with_conversation=False)
 
 
 def _slugify(title: str) -> str:

@@ -153,22 +153,45 @@ async def sitemap_xml():
     return Response(content=xml, media_type="application/xml")
 
 
+_SEED_RECIPES_CACHE: dict | None = None
+
+
+def _load_seed_recipes() -> dict:
+    """Load the original 10 recipes' data (src/seed_recipes.json), cached.
+
+    These replace the hand-coded static HTML pages — they're rendered
+    through the same renderer as cron recipes so there is one source of
+    truth for recipe-page structure and SEO.
+    """
+    global _SEED_RECIPES_CACHE
+    if _SEED_RECIPES_CACHE is None:
+        path = Path(__file__).resolve().parents[2] / "src" / "seed_recipes.json"
+        try:
+            _SEED_RECIPES_CACHE = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            logger.error(f"seed recipes load failed: {exc}")
+            _SEED_RECIPES_CACHE = {}
+    return _SEED_RECIPES_CACHE or {}
+
+
 @router.get("/recipes/{slug}")
 async def recipe_page(slug: str):
     """Serve an individual recipe page.
 
-    Tries blob first (for cron-generated recipes),
-    falls back to static src/recipes/{slug}/index.html (for the original 10).
+    Blob first (cron-generated recipes), then the original seed recipes
+    rendered from data through the shared renderer.
     """
     # Try blob (cron-generated recipe pages)
     page = storage.load_page(f"pages/recipes/{slug}/index.html")
     if page:
         return HTMLResponse(content=page)
 
-    # Fallback: static recipe page
-    static = Path(__file__).resolve().parents[2] / "src" / "recipes" / slug / "index.html"
-    if static.exists():
-        return HTMLResponse(content=static.read_text(encoding="utf-8"))
+    # Seed recipes — rendered from src/seed_recipes.json (single renderer).
+    seed = _load_seed_recipes().get(slug)
+    if seed:
+        from backend.publishing.episode_renderer import render_seed_recipe_page
+        html = render_seed_recipe_page(seed["recipe_data"], seed.get("image", ""))
+        return HTMLResponse(content=html)
 
     return HTMLResponse(
         content="<h1>Recipe not found</h1>",
