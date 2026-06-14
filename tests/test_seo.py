@@ -133,6 +133,12 @@ def test_step_name_falls_back_to_step_number_when_empty() -> None:
     assert _step_name("", 4) == "Step 5"
 
 
+def test_step_name_handles_long_unbroken_token() -> None:
+    """No whitespace to break on: cap at 60 chars, never return empty."""
+    name = _step_name("x" * 80, 0)
+    assert name == "x" * 60
+
+
 # ---------------------------------------------------------------------------
 # Static seed pages — the 10 hand-coded files Google actually flagged
 # ---------------------------------------------------------------------------
