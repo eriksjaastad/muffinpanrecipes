@@ -5,7 +5,6 @@ Provides:
 - Dashboard home with statistics
 - Recipe list and detail views
 - Recipe approval/rejection
-- Recipe publishing
 - Agent status monitoring
 - Recipe generation triggers
 """
@@ -229,7 +228,6 @@ class ApproveRequest(BaseModel):
 class RejectRequest(BaseModel):
     """Request to reject a recipe."""
     notes: str  # Rejection reason is required
-
 
 
 def create_routes(app: FastAPI):
