@@ -12,10 +12,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
+from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from backend.admin import episode_routes
-from backend.publishing.episode_renderer import render_episode_page
+from backend.publishing.episode_renderer import _step_name, render_episode_page
 
 
 def _published_episode() -> dict:
@@ -96,6 +100,82 @@ def test_json_ld_omits_image_when_none_exists() -> None:
     ep["image_urls"] = []
     ld = _extract_json_ld(render_episode_page(ep))
     assert "image" not in ld
+
+
+def test_json_ld_has_cuisine_and_named_steps() -> None:
+    """Google flagged missing recipeCuisine and unnamed HowToSteps."""
+    ld = _extract_json_ld(render_episode_page(_published_episode()))
+    assert ld["recipeCuisine"] == "American"
+    steps = ld["recipeInstructions"]
+    assert steps and all(s.get("name") and s.get("text") for s in steps)
+
+
+# ---------------------------------------------------------------------------
+# _step_name helper
+# ---------------------------------------------------------------------------
+
+def test_step_name_uses_short_step_verbatim() -> None:
+    assert _step_name("Preheat oven to 325°F.", 0) == "Preheat oven to 325°F"
+
+
+def test_step_name_truncates_long_step_at_word_boundary() -> None:
+    long = (
+        "In a medium bowl, combine the thawed well-squeezed hash browns with "
+        "melted butter and salt until evenly coated."
+    )
+    name = _step_name(long, 2)
+    assert len(name) <= 60
+    assert not name.endswith(" ")
+    assert long.startswith(name)
+
+
+def test_step_name_falls_back_to_step_number_when_empty() -> None:
+    assert _step_name("", 4) == "Step 5"
+
+
+def test_step_name_handles_long_unbroken_token() -> None:
+    """No whitespace to break on: cap at 60 chars, never return empty."""
+    name = _step_name("x" * 80, 0)
+    assert name == "x" * 60
+
+
+# ---------------------------------------------------------------------------
+# Static seed pages — the 10 hand-coded files Google actually flagged
+# ---------------------------------------------------------------------------
+
+def _seed_pages() -> list:
+    root = Path(__file__).resolve().parents[1] / "src" / "recipes"
+    return sorted(root.glob("*/index.html"))
+
+
+def test_seed_pages_exist() -> None:
+    assert len(_seed_pages()) == 10
+
+
+@pytest.mark.parametrize("page", _seed_pages(), ids=lambda p: p.parent.name)
+def test_seed_page_json_ld_is_rich_result_complete(page) -> None:
+    html_text = page.read_text(encoding="utf-8")
+    ld = _extract_json_ld(html_text)
+    assert ld["@type"] == "Recipe"
+    # Critical field Google flagged.
+    assert ld.get("image"), f"{page.parent.name} missing image"
+    assert ld["author"] == {"@type": "Organization", "name": "Muffin Pan Recipes"}
+    assert ld["recipeCuisine"] == "American"
+    steps = ld.get("recipeInstructions", [])
+    assert steps, f"{page.parent.name} has no instructions"
+    for s in steps:
+        assert s.get("name"), f"{page.parent.name} step missing name"
+        assert s.get("text"), f"{page.parent.name} step missing text"
+
+
+@pytest.mark.parametrize("page", _seed_pages(), ids=lambda p: p.parent.name)
+def test_seed_page_json_ld_image_matches_og_image(page) -> None:
+    """The JSON-LD image must be the real asset, not a guess."""
+    html_text = page.read_text(encoding="utf-8")
+    og = re.search(r'<meta property="og:image" content="([^"]+)"', html_text)
+    assert og, f"{page.parent.name} has no og:image to source from"
+    ld = _extract_json_ld(html_text)
+    assert og.group(1) in ld["image"]
 
 
 # ---------------------------------------------------------------------------
