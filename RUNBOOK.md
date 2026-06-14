@@ -4,6 +4,67 @@
 
 ---
 
+## INCIDENT 3 — "The homepage shows 'Weekly Muffin Pan Recipe' as the title"
+
+### Symptom
+
+- `/this-week` and the homepage hero show the literal placeholder title **"Weekly Muffin Pan Recipe"** instead of a real recipe name.
+- The week's page is thin / has no recipe card, but later stages (photos, dialogue) still ran.
+- In the episode JSON, `stages.monday.status == "failed"` while `tuesday`/`wednesday` are `complete`.
+
+**Panic reaction to avoid:** re-running the whole week, or assuming the renderer broke. The renderer is fine — Monday never produced a recipe, so everything downstream ran against the generic concept.
+
+### Root Cause — Monday failed, the week ran headless
+
+Monday's baker stage hard-failed (commonly the title validator rejecting every candidate, or a baker error), so the episode had no `recipe_data`. Before the stage gate shipped, Tue–Sun cron stages ran anyway against the placeholder concept `"Weekly Muffin Pan Recipe"` — spending dialogue + image-gen budget on a recipe that doesn't exist and rendering placeholder content to the live site.
+
+### How to verify this is the incident
+
+```bash
+curl -s "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/episodes/$(date +%G-W%V).json" \
+  | python3 -c "import sys,json; ep=json.load(sys.stdin); [print(d, st.get('status'), '|', st.get('error','')[:120]) for d,st in ep['stages'].items()]"
+```
+
+If `monday` shows `failed` with an error (e.g. a title-validator rejection) and later days show `complete`, this is it.
+
+### Recovery
+
+The permanent fixes are shipped (see below), so a failed Monday now **blocks** Tue–Sun (409 + Discord alert) instead of running headless. To recover the current week, re-fire the stages in order once the Monday cause is resolved — pass an explicit `concept` to bypass auto-pick if the validator was the cause:
+
+```bash
+WEEK=$(date +%G-W%V)
+for day in monday tuesday wednesday; do
+  doppler run --project muffinpanrecipes --config prd -- sh -lc \
+    "curl -s -m 280 -X POST https://muffinpanrecipes.com/api/cron/$day \
+      -H \"Authorization: Bearer \$CRON_SECRET\" -H 'Content-Type: application/json' \
+      -d '{\"episode_id\":\"$WEEK\",\"force\":true}'" | python3 -m json.tool | grep -E 'status|recipe_title'
+done
+```
+
+### Verify recovery
+
+```bash
+curl -s "https://muffinpanrecipes.com/this-week?cb=$(date +%s)" | grep -o '<h1[^>]*>[^<]*</h1>' | head -1
+# Expect a real recipe title, NOT "Weekly Muffin Pan Recipe"
+doppler run -- uv run python scripts/health_check.py   # this_week_renders should pass
+```
+
+### How to avoid retriggering
+
+- The `_require_monday_recipe` gate (cron_routes.py) now returns 409 + Discord alert on Tue–Sun when Monday has no completed recipe — a failed Monday halts the week's spend at the gate.
+- The title validator was relaxed (a single shared word no longer rejects a title) so Monday stops failing on plausible titles.
+
+### Permanent fix (shipped)
+
+- **PR #51** — relaxed `check_title_conflict` (exact/phrase/≥2-shared-words/all-recycled, not any-single-word) + `_require_monday_recipe` stage gate.
+- Title-shape gate, pan-first generation, and recipe-page unification (PRs #52–#57) further harden the Monday path.
+
+### First occurrence
+
+**2026-06-08** — W24 Monday failed on the over-strict title validator; discovered 2026-06-10 when the homepage showed the placeholder title. No data loss; recovered by re-firing Mon→Wed after the validator fix deployed.
+
+---
+
 ## INCIDENT 2 — "Sunday published twice and changed the recipe"
 
 ### Symptom
