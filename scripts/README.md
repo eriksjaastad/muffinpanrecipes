@@ -14,7 +14,6 @@ The most complex part of the system is the 4-step automated photography pipeline
 
 ## 🏗️ Build & Site Management
 
-- **`build_site.py`**: Compiles Markdown recipes and templates into the final static site in `src/`.
 - **`optimize_images.py`**: Handles image compression and formatting for the web.
 
 ## 🎭 Simulation & Dialogue

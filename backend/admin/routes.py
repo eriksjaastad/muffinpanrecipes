@@ -5,7 +5,6 @@ Provides:
 - Dashboard home with statistics
 - Recipe list and detail views
 - Recipe approval/rejection
-- Recipe publishing
 - Agent status monitoring
 - Recipe generation triggers
 """
@@ -25,7 +24,6 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from pydantic import BaseModel, field_validator
 
 from backend.data.recipe import Recipe, RecipeStatus
-from backend.publishing.pipeline import PublishingPipeline
 from backend.newsletter.manager import NewsletterManager
 from backend.auth.middleware import require_auth, create_session_cookie, clear_session_cookie
 from backend.auth.session import _get_jwt_secret
@@ -230,11 +228,6 @@ class ApproveRequest(BaseModel):
 class RejectRequest(BaseModel):
     """Request to reject a recipe."""
     notes: str  # Rejection reason is required
-
-
-class PublishRequest(BaseModel):
-    """Request to publish a recipe."""
-    send_notification: bool = True
 
 
 def create_routes(app: FastAPI):
@@ -599,39 +592,10 @@ def create_routes(app: FastAPI):
             "new_status": "rejected"
         }
     
-    @app.post("/admin/recipes/{recipe_id}/publish")
-    async def publish_recipe(
-        recipe_id: str,
-        request_data: PublishRequest,
-        user: dict = Depends(require_auth)
-    ):
-        """Publish approved recipe to live site."""
-        _sanitize_id(recipe_id, "recipe_id")
-        # Initialize publishing pipeline
-        pipeline = PublishingPipeline(
-            project_root=app.state.project_root,
-            auto_commit=True,
-            auto_push=True
-        )
-        
-        # Publish
-        success = pipeline.publish_recipe(
-            recipe_id,
-            send_notification=request_data.send_notification
-        )
-        
-        if not success:
-            raise HTTPException(
-                status_code=500,
-                detail="Publishing failed. Check logs for details."
-            )
-        
-        return {
-            "success": True,
-            "message": "Recipe published successfully",
-            "new_status": "published"
-        }
-    
+    # NOTE: the manual /admin/recipes/{id}/publish endpoint was retired with
+    # the legacy static-build PublishingPipeline (#6304). Publishing now runs
+    # automatically through the Sunday cron + unified episode_renderer.
+
     @app.get("/admin/simulations", response_class=HTMLResponse)
     async def admin_simulations(
         request: Request,
