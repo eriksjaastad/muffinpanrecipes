@@ -153,22 +153,51 @@ async def sitemap_xml():
     return Response(content=xml, media_type="application/xml")
 
 
+_SEED_RECIPES_CACHE: dict | None = None
+
+
+def _load_seed_recipes() -> dict:
+    """Load the original 10 recipes' data (src/seed_recipes.json), cached.
+
+    These replace the hand-coded static HTML pages — they're rendered
+    through the same renderer as cron recipes so there is one source of
+    truth for recipe-page structure and SEO.
+    """
+    global _SEED_RECIPES_CACHE
+    cached = _SEED_RECIPES_CACHE
+    if cached is not None:
+        return cached
+    path = Path(__file__).resolve().parents[2] / "src" / "seed_recipes.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        # Do NOT cache the failure — a missing/corrupt file is a deploy bug
+        # that should retry (and keep logging loudly) on the next request,
+        # not silently 404 every seed recipe for the Lambda's lifetime.
+        logger.error(f"seed recipes load failed (will retry next request): {exc}")
+        return {}
+    _SEED_RECIPES_CACHE = data
+    return data
+
+
 @router.get("/recipes/{slug}")
 async def recipe_page(slug: str):
     """Serve an individual recipe page.
 
-    Tries blob first (for cron-generated recipes),
-    falls back to static src/recipes/{slug}/index.html (for the original 10).
+    Blob first (cron-generated recipes), then the original seed recipes
+    rendered from data through the shared renderer.
     """
     # Try blob (cron-generated recipe pages)
     page = storage.load_page(f"pages/recipes/{slug}/index.html")
     if page:
         return HTMLResponse(content=page)
 
-    # Fallback: static recipe page
-    static = Path(__file__).resolve().parents[2] / "src" / "recipes" / slug / "index.html"
-    if static.exists():
-        return HTMLResponse(content=static.read_text(encoding="utf-8"))
+    # Seed recipes — rendered from src/seed_recipes.json (single renderer).
+    seed = _load_seed_recipes().get(slug)
+    if seed:
+        from backend.publishing.episode_renderer import render_seed_recipe_page
+        html = render_seed_recipe_page(seed["recipe_data"], seed.get("image", ""), slug)
+        return HTMLResponse(content=html)
 
     return HTMLResponse(
         content="<h1>Recipe not found</h1>",

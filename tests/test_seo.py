@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -140,42 +139,96 @@ def test_step_name_handles_long_unbroken_token() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Static seed pages — the 10 hand-coded files Google actually flagged
+# Seed recipes — the original 10, now data rendered through the shared
+# renderer (no more hand-coded HTML). These guard the Google fix on the
+# unified path AND that the migration preserved each recipe's content.
 # ---------------------------------------------------------------------------
 
-def _seed_pages() -> list:
-    root = Path(__file__).resolve().parents[1] / "src" / "recipes"
-    return sorted(root.glob("*/index.html"))
+from backend.publishing.episode_renderer import render_seed_recipe_page  # noqa: E402
 
 
-def test_seed_pages_exist() -> None:
-    assert len(_seed_pages()) == 10
+def _seed_recipes() -> dict:
+    path = Path(__file__).resolve().parents[1] / "src" / "seed_recipes.json"
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
-@pytest.mark.parametrize("page", _seed_pages(), ids=lambda p: p.parent.name)
-def test_seed_page_json_ld_is_rich_result_complete(page) -> None:
-    html_text = page.read_text(encoding="utf-8")
+def test_seed_recipes_file_has_ten_complete_entries() -> None:
+    seeds = _seed_recipes()
+    assert len(seeds) == 10
+    for slug, rec in seeds.items():
+        assert rec.get("image"), f"{slug} missing image"
+        rd = rec["recipe_data"]
+        assert rd.get("title") and rd.get("ingredients") and rd.get("instructions"), slug
+
+
+@pytest.mark.parametrize("slug", sorted(_seed_recipes().keys()))
+def test_seed_recipe_renders_rich_result_complete(slug) -> None:
+    rec = _seed_recipes()[slug]
+    html_text = render_seed_recipe_page(rec["recipe_data"], rec.get("image", ""), slug)
     ld = _extract_json_ld(html_text)
     assert ld["@type"] == "Recipe"
-    # Critical field Google flagged.
-    assert ld.get("image"), f"{page.parent.name} missing image"
+    assert ld.get("image"), f"{slug} missing JSON-LD image"
     assert ld["author"] == {"@type": "Organization", "name": "Muffin Pan Recipes"}
     assert ld["recipeCuisine"] == "American"
     steps = ld.get("recipeInstructions", [])
-    assert steps, f"{page.parent.name} has no instructions"
+    assert steps, f"{slug} has no instructions"
     for s in steps:
-        assert s.get("name"), f"{page.parent.name} step missing name"
-        assert s.get("text"), f"{page.parent.name} step missing text"
+        assert s.get("name") and s.get("text"), f"{slug} step missing name/text"
+    # Content preserved from the migrated data.
+    for ing in rec["recipe_data"]["ingredients"]:
+        assert ing in html_text, f"{slug} dropped ingredient {ing!r}"
+    for step in rec["recipe_data"]["instructions"]:
+        assert step in html_text, f"{slug} dropped step {step!r}"
+    # Canonical MUST point at the served slug, not a title-derived one that
+    # would 404 (7 of 10 seed slugs differ from _slugify(title)).
+    canonical = f"https://muffinpanrecipes.com/recipes/{slug}"
+    assert f'<link rel="canonical" href="{canonical}">' in html_text
+    assert f'<meta property="og:url" content="{canonical}">' in html_text
+    assert "og:image" in html_text
+    assert "conversation hasn't started" not in html_text
+    assert "Behind the Scenes" not in html_text
 
 
-@pytest.mark.parametrize("page", _seed_pages(), ids=lambda p: p.parent.name)
-def test_seed_page_json_ld_image_matches_og_image(page) -> None:
-    """The JSON-LD image must be the real asset, not a guess."""
-    html_text = page.read_text(encoding="utf-8")
-    og = re.search(r'<meta property="og:image" content="([^"]+)"', html_text)
-    assert og, f"{page.parent.name} has no og:image to source from"
-    ld = _extract_json_ld(html_text)
-    assert og.group(1) in ld["image"]
+def test_with_conversation_false_suppresses_bts() -> None:
+    """The flag the seed path relies on actually removes the dialogue block."""
+    episode = {
+        "concept": "X",
+        "image_urls": [],
+        "stages": {
+            "monday": {"status": "complete", "recipe_data": {
+                "title": "X Cups", "description": "d", "category": "Savory",
+                "ingredients": ["1 egg"], "instructions": ["Bake."],
+            }},
+            "sunday": {"status": "complete"},
+        },
+    }
+    with_bts = render_episode_page(episode, with_conversation=True)
+    without = render_episode_page(episode, with_conversation=False)
+    assert "Behind the Scenes" in with_bts
+    assert "Behind the Scenes" not in without
+
+
+# ---------------------------------------------------------------------------
+# /recipes/{slug} route — seed recipes served from data, no static HTML
+# ---------------------------------------------------------------------------
+
+def test_route_serves_seed_recipe_when_blob_empty() -> None:
+    slug = sorted(_seed_recipes().keys())[0]
+    # No blob page for this slug → route must render it from seed data.
+    with patch.object(episode_routes.storage, "load_page", return_value=None):
+        resp = asyncio.run(episode_routes.recipe_page(slug))
+    assert resp.status_code == 200
+    body = bytes(resp.body).decode()
+    assert _seed_recipes()[slug]["recipe_data"]["title"] in body
+    assert 'application/ld+json' in body
+    # Served page's canonical points at its own URL.
+    assert f'href="https://muffinpanrecipes.com/recipes/{slug}"' in body
+
+
+def test_route_404s_for_unknown_recipe() -> None:
+    with patch.object(episode_routes.storage, "load_page", return_value=None):
+        resp = asyncio.run(episode_routes.recipe_page("no-such-recipe"))
+    assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------

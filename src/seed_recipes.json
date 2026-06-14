@@ -1,0 +1,262 @@
+{
+  "baked-oatmeal-cups": {
+    "image": "/assets/images/baked-oatmeal-cups.webp",
+    "recipe_data": {
+      "title": "Baked Oatmeal Breakfast Cups",
+      "description": "Hearty, portable oatmeal portions that are naturally sweetened and perfect for a quick morning fuel.",
+      "category": "Breakfast",
+      "prep_time": 10,
+      "cook_time": 25,
+      "servings": 12,
+      "difficulty": "easy",
+      "ingredients": [
+        "3 cups Rolled oats",
+        "2 cups Milk",
+        "1/3 cup Maple syrup",
+        "3/4 cup Blueberries"
+      ],
+      "instructions": [
+        "Preheat oven to 350°F.",
+        "Mix dry ingredients.",
+        "Whisk wet ingredients.",
+        "Combine and fold in berries.",
+        "Bake for 25-30 mins."
+      ],
+      "chef_notes": ""
+    }
+  },
+  "buffalo-chicken-mac-bites": {
+    "image": "/assets/images/buffalo-chicken-mac-bites.webp",
+    "recipe_data": {
+      "title": "Buffalo Chicken Mac & Cheese Bites",
+      "description": "Creamy mac and cheese with a spicy buffalo kick, crisped to perfection.",
+      "category": "Savory",
+      "prep_time": 20,
+      "cook_time": 15,
+      "servings": 24,
+      "difficulty": "medium",
+      "ingredients": [
+        "8 oz Macaroni",
+        "2 cups Cheddar",
+        "1 cup Chicken",
+        "1/4 cup Buffalo sauce"
+      ],
+      "instructions": [
+        "Preheat oven to 375°F.",
+        "Mix all ingredients.",
+        "Pack firmly into mini cups.",
+        "Add panko topping.",
+        "Bake for 15-18 mins."
+      ],
+      "chef_notes": ""
+    }
+  },
+  "classic-blueberry-muffins": {
+    "image": "/assets/images/classic-blueberry-muffins.webp",
+    "recipe_data": {
+      "title": "Classic Blueberry Muffin Tops",
+      "description": "The gold standard: bursting with berries and a perfectly domed top.",
+      "category": "Sweet",
+      "prep_time": 15,
+      "cook_time": 20,
+      "servings": 12,
+      "difficulty": "easy",
+      "ingredients": [
+        "2 cups Flour",
+        "3/4 cup Sugar",
+        "1/2 cup Milk",
+        "1 cup Blueberries"
+      ],
+      "instructions": [
+        "Preheat oven to 400°F.",
+        "Mix dry ingredients.",
+        "Whisk wet ingredients.",
+        "Fold in blueberries.",
+        "Bake for 20 mins."
+      ],
+      "chef_notes": ""
+    }
+  },
+  "dark-chocolate-chip-muffins": {
+    "image": "/assets/images/dark-chocolate-chip-muffins.webp",
+    "recipe_data": {
+      "title": "Dark Chocolate Chip Decadence",
+      "description": "Rich, cocoa-infused muffins loaded with dark chocolate chips.",
+      "category": "Sweet",
+      "prep_time": 15,
+      "cook_time": 18,
+      "servings": 12,
+      "difficulty": "easy",
+      "ingredients": [
+        "1 3/4 cups Flour",
+        "1/2 cup Cocoa",
+        "3/4 cup Sour cream",
+        "1 cup Choc chips"
+      ],
+      "instructions": [
+        "Preheat oven to 375°F.",
+        "Sift dry ingredients.",
+        "Whisk wet ingredients.",
+        "Fold in chocolate chips.",
+        "Bake for 18-20 mins."
+      ],
+      "chef_notes": ""
+    }
+  },
+  "jumbo-cornbread-bites": {
+    "image": "/assets/images/jumbo-cornbread-bites.webp",
+    "recipe_data": {
+      "title": "Jumbo Cornbread Honey Bites",
+      "description": "Massive, moist, and sweet cornbread muffins for chili or BBQ.",
+      "category": "Savory",
+      "prep_time": 10,
+      "cook_time": 22,
+      "servings": 6,
+      "difficulty": "easy",
+      "ingredients": [
+        "1 cup Cornmeal",
+        "1 cup Flour",
+        "1 cup Buttermilk",
+        "2 tbsp Honey"
+      ],
+      "instructions": [
+        "Preheat oven to 375°F.",
+        "Mix dry ingredients.",
+        "Whisk wet ingredients.",
+        "Combine and scoop into jumbo cups.",
+        "Bake for 22-25 mins."
+      ],
+      "chef_notes": ""
+    }
+  },
+  "mini-meatloaf-bites": {
+    "image": "/assets/images/mini-meatloaf-bites.webp",
+    "recipe_data": {
+      "title": "Mini Meatloaf Bites",
+      "description": "Savory, glazed mini meatloaves that cook in half the time of a traditional loaf.",
+      "category": "Savory",
+      "prep_time": 15,
+      "cook_time": 20,
+      "servings": 12,
+      "difficulty": "medium",
+      "ingredients": [
+        "1.5 lbs Ground beef",
+        "1/2 cup Panko",
+        "1/2 cup Ketchup",
+        "1 tbsp Brown sugar"
+      ],
+      "instructions": [
+        "Preheat oven to 400°F.",
+        "Mix loaf ingredients.",
+        "Portion into cups.",
+        "Apply glaze.",
+        "Bake for 20-22 mins."
+      ],
+      "chef_notes": ""
+    }
+  },
+  "mini-pancake-bites": {
+    "image": "/assets/images/mini-pancake-bites.webp",
+    "recipe_data": {
+      "title": "Mini Pancake Bites",
+      "description": "Fluffy pancake portions that you don't have to flip. Perfect for dipping.",
+      "category": "Breakfast",
+      "prep_time": 5,
+      "cook_time": 12,
+      "servings": 24,
+      "difficulty": "easy",
+      "ingredients": [
+        "1 1/4 cups Flour",
+        "1 cup Milk",
+        "1 large Egg",
+        "2 tbsp Butter"
+      ],
+      "instructions": [
+        "Preheat oven to 350°F.",
+        "Whisk batter until smooth.",
+        "Fill mini cups 2/3 full.",
+        "Add optional toppings.",
+        "Bake for 12-14 mins."
+      ],
+      "chef_notes": ""
+    }
+  },
+  "mini-shepherds-pie": {
+    "image": "/assets/images/mini-shepherds-pie.webp",
+    "recipe_data": {
+      "title": "Mini Shepherd's Pie Pots",
+      "description": "Individual servings of classic Shepherd's Pie with a toasted potato peak.",
+      "category": "Savory",
+      "prep_time": 25,
+      "cook_time": 20,
+      "servings": 12,
+      "difficulty": "medium",
+      "ingredients": [
+        "1 lb Ground lamb/beef",
+        "3 medium Potatoes",
+        "1/2 cup Beef broth",
+        "2 tbsp Tomato paste"
+      ],
+      "instructions": [
+        "Preheat oven to 400°F.",
+        "Cook meat filling.",
+        "Mash potatoes.",
+        "Layer meat and top with potato.",
+        "Bake until golden."
+      ],
+      "chef_notes": ""
+    }
+  },
+  "muffin-tin-lasagna": {
+    "image": "/assets/images/muffin-tin-lasagna.webp",
+    "recipe_data": {
+      "title": "Muffin Tin Lasagna Cups",
+      "description": "Crispy-edged, multi-layered mini lasagnas using wonton wrappers.",
+      "category": "Savory",
+      "prep_time": 20,
+      "cook_time": 20,
+      "servings": 12,
+      "difficulty": "medium",
+      "ingredients": [
+        "24 Wonton wrappers",
+        "1 3/4 cups Marinara",
+        "1 cup Ricotta",
+        "1 cup Mozzarella"
+      ],
+      "instructions": [
+        "Preheat oven to 375°F.",
+        "Layer wontons and ricotta.",
+        "Add sauce and cheese.",
+        "Repeat layers.",
+        "Bake until crispy."
+      ],
+      "chef_notes": ""
+    }
+  },
+  "spinach-feta-egg-bites": {
+    "image": "/assets/images/spinach-feta-egg-bites.webp",
+    "recipe_data": {
+      "title": "Spinach & Feta Egg Bites",
+      "description": "Velvety, protein-packed egg bites that mimic the sous-vide texture.",
+      "category": "Breakfast",
+      "prep_time": 10,
+      "cook_time": 20,
+      "servings": 12,
+      "difficulty": "easy",
+      "ingredients": [
+        "6 large Eggs",
+        "1/4 cup Heavy cream",
+        "2 cups Spinach",
+        "1/2 cup Feta"
+      ],
+      "instructions": [
+        "Preheat oven to 325°F.",
+        "Whisk eggs and cream.",
+        "Layer spinach and feta.",
+        "Pour eggs over fillings.",
+        "Bake for 20 mins."
+      ],
+      "chef_notes": ""
+    }
+  }
+}
