@@ -164,14 +164,20 @@ def _load_seed_recipes() -> dict:
     truth for recipe-page structure and SEO.
     """
     global _SEED_RECIPES_CACHE
-    if _SEED_RECIPES_CACHE is None:
-        path = Path(__file__).resolve().parents[2] / "src" / "seed_recipes.json"
-        try:
-            _SEED_RECIPES_CACHE = json.loads(path.read_text(encoding="utf-8"))
-        except Exception as exc:
-            logger.error(f"seed recipes load failed: {exc}")
-            _SEED_RECIPES_CACHE = {}
-    return _SEED_RECIPES_CACHE or {}
+    cached = _SEED_RECIPES_CACHE
+    if cached is not None:
+        return cached
+    path = Path(__file__).resolve().parents[2] / "src" / "seed_recipes.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        # Do NOT cache the failure — a missing/corrupt file is a deploy bug
+        # that should retry (and keep logging loudly) on the next request,
+        # not silently 404 every seed recipe for the Lambda's lifetime.
+        logger.error(f"seed recipes load failed (will retry next request): {exc}")
+        return {}
+    _SEED_RECIPES_CACHE = data
+    return data
 
 
 @router.get("/recipes/{slug}")
@@ -190,7 +196,7 @@ async def recipe_page(slug: str):
     seed = _load_seed_recipes().get(slug)
     if seed:
         from backend.publishing.episode_renderer import render_seed_recipe_page
-        html = render_seed_recipe_page(seed["recipe_data"], seed.get("image", ""))
+        html = render_seed_recipe_page(seed["recipe_data"], seed.get("image", ""), slug)
         return HTMLResponse(content=html)
 
     return HTMLResponse(

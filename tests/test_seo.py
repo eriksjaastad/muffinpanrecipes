@@ -164,7 +164,7 @@ def test_seed_recipes_file_has_ten_complete_entries() -> None:
 @pytest.mark.parametrize("slug", sorted(_seed_recipes().keys()))
 def test_seed_recipe_renders_rich_result_complete(slug) -> None:
     rec = _seed_recipes()[slug]
-    html_text = render_seed_recipe_page(rec["recipe_data"], rec.get("image", ""))
+    html_text = render_seed_recipe_page(rec["recipe_data"], rec.get("image", ""), slug)
     ld = _extract_json_ld(html_text)
     assert ld["@type"] == "Recipe"
     assert ld.get("image"), f"{slug} missing JSON-LD image"
@@ -179,8 +179,11 @@ def test_seed_recipe_renders_rich_result_complete(slug) -> None:
         assert ing in html_text, f"{slug} dropped ingredient {ing!r}"
     for step in rec["recipe_data"]["instructions"]:
         assert step in html_text, f"{slug} dropped step {step!r}"
-    # Canonical + social image present; behind-the-scenes suppressed.
-    assert 'rel="canonical"' in html_text
+    # Canonical MUST point at the served slug, not a title-derived one that
+    # would 404 (7 of 10 seed slugs differ from _slugify(title)).
+    canonical = f"https://muffinpanrecipes.com/recipes/{slug}"
+    assert f'<link rel="canonical" href="{canonical}">' in html_text
+    assert f'<meta property="og:url" content="{canonical}">' in html_text
     assert "og:image" in html_text
     assert "conversation hasn't started" not in html_text
     assert "Behind the Scenes" not in html_text
@@ -218,6 +221,8 @@ def test_route_serves_seed_recipe_when_blob_empty() -> None:
     body = bytes(resp.body).decode()
     assert _seed_recipes()[slug]["recipe_data"]["title"] in body
     assert 'application/ld+json' in body
+    # Served page's canonical points at its own URL.
+    assert f'href="https://muffinpanrecipes.com/recipes/{slug}"' in body
 
 
 def test_route_404s_for_unknown_recipe() -> None:
