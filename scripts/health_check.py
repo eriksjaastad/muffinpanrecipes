@@ -35,12 +35,16 @@ import requests
 # FAIL -> PASS transition (not on every healthy run). The synthetic monitor
 # runs from a fixed machine, so a small on-disk file is enough; override the
 # path with MUFFINPAN_HEALTH_STATE_FILE if it ever runs somewhere ephemeral.
-STATE_FILE = Path(
-    os.environ.get(
-        "MUFFINPAN_HEALTH_STATE_FILE",
-        str(Path.home() / ".local" / "state" / "muffinpanrecipes" / "health_status"),
-    )
+DEFAULT_STATE_FILE = str(
+    Path.home() / ".local" / "state" / "muffinpanrecipes" / "health_status"
 )
+
+
+def _state_file() -> Path:
+    # Resolved at call time so the env override actually takes effect (and so
+    # tests can point it at a temp path) — a module-level constant would
+    # freeze the path at import, before any override is set.
+    return Path(os.environ.get("MUFFINPAN_HEALTH_STATE_FILE", DEFAULT_STATE_FILE))
 
 SITE_BASE = "https://muffinpanrecipes.com"
 BLOB_CDN = "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com"
@@ -149,7 +153,7 @@ def _utc_stamp() -> str:
 def read_last_status() -> str | None:
     """Return the previous run's status ('passed'/'failed'), or None if unknown."""
     try:
-        return STATE_FILE.read_text(encoding="utf-8").strip() or None
+        return _state_file().read_text(encoding="utf-8").strip() or None
     except FileNotFoundError:
         return None
     except Exception as e:
@@ -159,8 +163,9 @@ def read_last_status() -> str | None:
 
 def write_status(status: str) -> None:
     try:
-        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        STATE_FILE.write_text(status, encoding="utf-8")
+        path = _state_file()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(status, encoding="utf-8")
     except Exception as e:
         print(f"(health state write failed: {e})", file=sys.stderr)
 
