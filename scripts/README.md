@@ -22,8 +22,6 @@ The most complex part of the system is the 4-step automated photography pipeline
 - **`grade_simulations.py`**: Uses an LLM to grade the quality and character consistency of generated dialogues.
 - **`judge_conversation.py`**: Provides real-time feedback on agent interactions.
 
-## 🛠️ Utilities & Hooks
+## 🛠️ Utilities
 
-- `hooks/`: Git hooks for pre-commit/pre-push validation.
-- `install-hooks.sh`: Script to set up project git hooks.
 - `validate_env.py`: Ensures all required secrets (Doppler) and environment variables are present.
