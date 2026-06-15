@@ -25,10 +25,26 @@ import argparse
 import os
 import sys
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, timezone
+from pathlib import Path
 from typing import Callable
 
 import requests
+
+# Persisted last-run status so we only ping "recovered" on an actual
+# FAIL -> PASS transition (not on every healthy run). The synthetic monitor
+# runs from a fixed machine, so a small on-disk file is enough; override the
+# path with MUFFINPAN_HEALTH_STATE_FILE if it ever runs somewhere ephemeral.
+DEFAULT_STATE_FILE = str(
+    Path.home() / ".local" / "state" / "muffinpanrecipes" / "health_status"
+)
+
+
+def _state_file() -> Path:
+    # Resolved at call time so the env override actually takes effect (and so
+    # tests can point it at a temp path) — a module-level constant would
+    # freeze the path at import, before any override is set.
+    return Path(os.environ.get("MUFFINPAN_HEALTH_STATE_FILE", DEFAULT_STATE_FILE))
 
 SITE_BASE = "https://muffinpanrecipes.com"
 BLOB_CDN = "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com"
@@ -130,18 +146,54 @@ def check_this_week_page(report: Report) -> None:
     report.check("this_week_renders", _check)
 
 
-def post_discord_alert(report: Report) -> None:
+def _utc_stamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+
+def read_last_status() -> str | None:
+    """Return the previous run's status ('passed'/'failed'), or None if unknown."""
+    try:
+        return _state_file().read_text(encoding="utf-8").strip() or None
+    except FileNotFoundError:
+        return None
+    except Exception as e:
+        print(f"(health state read failed: {e})", file=sys.stderr)
+        return None
+
+
+def write_status(status: str) -> None:
+    try:
+        path = _state_file()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(status, encoding="utf-8")
+    except Exception as e:
+        print(f"(health state write failed: {e})", file=sys.stderr)
+
+
+def _post_discord(content: str) -> None:
     webhook = os.environ.get("MUFFINPAN_DISCORD_WEBHOOK")
     if not webhook:
         return
-    lines = ["🚨 **health_check.py FAILED**", ""]
+    try:
+        requests.post(webhook, json={"content": content[:1900]}, timeout=10)
+    except Exception as e:
+        print(f"(Discord post failed: {e})", file=sys.stderr)
+
+
+def post_discord_alert(report: Report) -> None:
+    # Timestamp so a scrolled-back alert can't be mistaken for a live failure.
+    lines = [f"🚨 **health_check.py FAILED** — {_utc_stamp()}", ""]
     for name, detail in report.failed:
         lines.append(f"• **{name}**: {detail[:300]}")
-    payload = {"content": "\n".join(lines)[:1900]}
-    try:
-        requests.post(webhook, json=payload, timeout=10)
-    except Exception as e:
-        print(f"(Discord alert failed: {e})", file=sys.stderr)
+    _post_discord("\n".join(lines))
+
+
+def post_discord_recovery(report: Report) -> None:
+    names = ", ".join(report.passed)
+    _post_discord(
+        f"✅ **health_check.py RECOVERED** — {_utc_stamp()} — "
+        f"all {len(report.passed)} checks passing again ({names})."
+    )
 
 
 def main() -> int:
@@ -165,11 +217,18 @@ def main() -> int:
     print()
     print(f"Passed: {len(report.passed)}  Failed: {len(report.failed)}")
 
+    last_status = read_last_status()
+
     if not report.ok:
         post_discord_alert(report)
-        if args.strict or os.environ.get("CI"):
-            return 1
-        return 1  # Always non-zero on failure for now; --strict reserved for future nuance.
+        write_status("failed")
+        return 1  # Always non-zero on failure; --strict reserved for future nuance.
+
+    # Healthy — only announce recovery when the previous run was failing,
+    # so steady-state passes stay silent.
+    if last_status == "failed":
+        post_discord_recovery(report)
+    write_status("passed")
     return 0
 
 
