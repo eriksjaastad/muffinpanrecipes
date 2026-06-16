@@ -298,18 +298,19 @@ review_notes: string (nullable, from Erik)
 
 ### Publishing Pipeline
 
-**Requirement:** Approved recipes MUST be convertible to static HTML and deployable to Vercel without manual intervention.
+**Requirement:** Recipes MUST be published to the live site by the weekly cron without manual intervention.
 
-**Pipeline Steps:**
-1. Recipe reaches `approved` status
-2. System generates static HTML from template
-3. HTML placed in `src/recipes/{slug}/index.html`
-4. `recipes.json` updated with new entry
-5. `sitemap.xml` regenerated
-6. Git commit + push triggers Vercel deploy
-7. Recipe status updated to `published`
+**Pipeline Steps (current architecture):**
+1. Sunday cron stage runs for the week's episode
+2. `episode_renderer` renders the recipe page from the episode's `recipe_data` — a single renderer serves every recipe page (the 10 original recipes live as data in `src/seed_recipes.json` and render through the same path)
+3. The rendered page is written to Vercel Blob at `pages/recipes/{slug}/index.html`; `/recipes/{slug}` serves blob-first, falling back to the seed-data renderer
+4. The catalog (`pages/recipes.json` in Blob) is updated with the new entry
+5. `/sitemap.xml` is a dynamic FastAPI route built live from the catalog — nothing to regenerate
+6. `published_at` is stamped on the episode (sticky idempotency guard)
 
-**Rollback:** If deployment fails, recipe remains `approved` (not `published`) and admin is notified.
+> No static HTML files and no git push are involved in publishing content — the cron writes directly to Blob. Auto-deploy is OFF; **code** changes deploy via manual `vercel deploy && vercel deploy --prod`.
+
+**Rollback:** If a stage fails, the episode is left unpublished (no `published_at`) and Discord is notified.
 
 ### Email System
 
