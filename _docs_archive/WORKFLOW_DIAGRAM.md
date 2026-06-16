@@ -1,5 +1,7 @@
 # Muffin Pan Recipes - Recipe Production Workflow
 
+> **ARCHIVED — historical snapshot.** Describes the pre-2026-06 static-build flow (HTML written to `src/recipes/{slug}/index.html`, git-push deploys). The live architecture renders every recipe page through `episode_renderer` and serves from Vercel Blob; see `docs/PRD.md` § Publishing Pipeline for the current flow.
+
 ## Overview
 
 This document defines the complete workflow for producing a recipe, from initial idea to published content. It maps each agent's role, decision points, and data flow.
