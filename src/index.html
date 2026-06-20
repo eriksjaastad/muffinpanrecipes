@@ -251,6 +251,17 @@
             return recipes.length > 0 ? recipes[0] : null;
         }
 
+        // Build recipe URLs by concatenating the path and slug rather than
+        // writing the full path-plus-placeholder as one template token.
+        // Googlebot's link-discovery pass scrapes URL-shaped string literals
+        // straight out of inline scripts: an un-interpolated recipe href got
+        // crawled as a real path and 404'd (Search Console, first detected
+        // 6/13/26). Splitting path from slug keeps rendered output identical
+        // while leaving no crawlable URL literal in the source.
+        function recipeHref(slug) {
+            return '/recipes/' + slug;
+        }
+
         function renderGrid(filter = 'All') {
             const grid = document.getElementById('recipe-grid');
             grid.innerHTML = '';
@@ -261,7 +272,7 @@
                 .filter(r => filter === 'All' || r.category === filter)
                 .forEach(recipe => {
                 const card = `
-                    <a href="/recipes/${recipe.slug}" class="recipe-grid-card group block">
+                    <a href="${recipeHref(recipe.slug)}" class="recipe-grid-card group block">
                         <div class="aspect-[4/5] bg-gray-50 mb-6 overflow-hidden relative">
                             <div class="absolute inset-0 bg-sage/5 transition-opacity group-hover:opacity-0"></div>
                             <img src="${recipe.image}" 
@@ -305,7 +316,7 @@
             const featuredSection = document.getElementById('featured-recipe');
 
             featuredSection.innerHTML = `
-                <a href="/recipes/${featured.slug}" class="block group">
+                <a href="${recipeHref(featured.slug)}" class="block group">
                     <div class="grid md:grid-cols-2 gap-12 items-center">
                         <div class="aspect-[4/3] bg-gray-50 overflow-hidden rounded-lg">
                             <img src="${featured.image}" 
