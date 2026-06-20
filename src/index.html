@@ -27,6 +27,34 @@
         content="Gourmet, mathematically-scaled recipes designed exclusively for muffin tins.">
     <meta property="twitter:image" content="https://muffinpanrecipes.com/assets/images/classic-blueberry-muffins.webp">
 
+    <!-- Structured data: site identity. Gives Google a stable WebSite +
+         Organization entity to attach the brand to (knowledge-panel /
+         brand-query signals) and links every Recipe page's publisher back
+         here. Honest fields only — no logo/sameAs until those assets exist;
+         no SearchAction since the site has no on-site search endpoint. -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "WebSite",
+          "@id": "https://muffinpanrecipes.com/#website",
+          "url": "https://muffinpanrecipes.com/",
+          "name": "Muffin Pan Recipes",
+          "description": "Gourmet, mathematically-scaled recipes designed exclusively for muffin tins.",
+          "inLanguage": "en-US",
+          "publisher": { "@id": "https://muffinpanrecipes.com/#organization" }
+        },
+        {
+          "@type": "Organization",
+          "@id": "https://muffinpanrecipes.com/#organization",
+          "name": "Muffin Pan Recipes",
+          "url": "https://muffinpanrecipes.com/"
+        }
+      ]
+    }
+    </script>
+
     <!-- Favicon -->
     <link rel="icon"
         href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧁</text></svg>">
