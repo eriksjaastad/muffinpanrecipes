@@ -36,6 +36,12 @@ def fix_episode(episode_id: str, dry_run: bool = False) -> bool:
 
     Returns True if the page was fixed (or would be in dry-run mode).
     """
+    # Never render test episodes (test-e2e-*, test-local-*, *-test) into live
+    # recipe pages — they leak orphan, crawlable junk under /recipes/.
+    if "test" in episode_id.lower():
+        print(f"  SKIP {episode_id}: test episode (not a real recipe)")
+        return False
+
     ep = storage.load_episode(episode_id)
     if not ep:
         print(f"  SKIP {episode_id}: episode not found")
