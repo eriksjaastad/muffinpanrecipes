@@ -130,9 +130,11 @@ async def sitemap_xml():
         except ValueError:
             return None
 
+    # No <changefreq>: Google ignores it. <lastmod> on recipe URLs is the
+    # signal that actually matters.
     entries = [
-        f"  <url><loc>{_SITE_BASE}/</loc><changefreq>daily</changefreq></url>",
-        f"  <url><loc>{_SITE_BASE}/this-week</loc><changefreq>daily</changefreq></url>",
+        f"  <url><loc>{_SITE_BASE}/</loc></url>",
+        f"  <url><loc>{_SITE_BASE}/this-week</loc></url>",
     ]
     for r in recipes:
         slug = r.get("slug")
