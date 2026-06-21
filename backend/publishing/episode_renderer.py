@@ -521,14 +521,14 @@ def render_episode_page(
             f'    <meta property="og:url" content="{canonical_url}">\n'
         )
     seo_meta += (
-        f'    <meta property="twitter:card" content="summary_large_image">\n'
-        f'    <meta property="twitter:title" content="{title_escaped} | Muffin Pan Recipes">\n'
-        f'    <meta property="twitter:description" content="{desc_escaped}">\n'
+        f'    <meta name="twitter:card" content="summary_large_image">\n'
+        f'    <meta name="twitter:title" content="{title_escaped} | Muffin Pan Recipes">\n'
+        f'    <meta name="twitter:description" content="{desc_escaped}">\n'
     )
     if abs_image_url:
         seo_meta += (
             f'    <meta property="og:image" content="{abs_image_url}">\n'
-            f'    <meta property="twitter:image" content="{abs_image_url}">\n'
+            f'    <meta name="twitter:image" content="{abs_image_url}">\n'
         )
 
     bts_jump = ""
@@ -590,6 +590,22 @@ def render_episode_page(
         build_related_recipes(related_catalog, current_slug, category)
     )
 
+    # BreadcrumbList JSON-LD (Home > Recipes > this recipe) — a second ld+json
+    # block, emitted only for real published recipe pages. Kept after the Recipe
+    # block in <head> so the Recipe schema stays the first ld+json block.
+    breadcrumb_ld_html = ""
+    if is_published and has_recipe:
+        breadcrumb = {
+            "@context": "https://schema.org",
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+                {"@type": "ListItem", "position": 1, "name": "Home", "item": f"{site_base}/"},
+                {"@type": "ListItem", "position": 2, "name": "Recipes", "item": f"{site_base}/recipes"},
+                {"@type": "ListItem", "position": 3, "name": title},
+            ],
+        }
+        breadcrumb_ld_html = f'<script type="application/ld+json">{json.dumps(breadcrumb)}</script>'
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -650,6 +666,7 @@ def render_episode_page(
         }}
     </style>
     {json_ld_html}
+    {breadcrumb_ld_html}
 </head>
 <body class="text-gray-900 font-sans antialiased bg-white">
 

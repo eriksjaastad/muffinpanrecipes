@@ -62,8 +62,18 @@ def test_published_page_has_social_image_and_twitter_card() -> None:
     html = render_episode_page(_published_episode())
     abs_img = "https://muffinpanrecipes.com/blob-images/ffd2aff5/round_1/macro_closeup.png"
     assert f'<meta property="og:image" content="{abs_img}">' in html
-    assert f'<meta property="twitter:image" content="{abs_img}">' in html
+    # Twitter Card spec uses name=, not property= (X reads both; this is correct).
+    assert f'<meta name="twitter:image" content="{abs_img}">' in html
     assert 'twitter:card" content="summary_large_image"' in html
+    assert 'property="twitter:' not in html  # no stray property= twitter tags
+
+
+def test_published_page_has_breadcrumb_jsonld() -> None:
+    html = render_episode_page(_published_episode())
+    assert '"@type": "BreadcrumbList"' in html
+    assert '"name": "Home"' in html
+    assert '"name": "Recipes"' in html
+    assert '"name": "Cheddar Broccoli Egg Bites"' in html  # current page, position 3
 
 
 def test_unpublished_page_has_no_canonical() -> None:
