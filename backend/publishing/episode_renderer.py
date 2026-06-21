@@ -210,12 +210,83 @@ def _render_conversation_section(episode: dict) -> str:
     return "\n".join(sections)
 
 
+RELATED_RECIPE_COUNT = 4
+# Stray taxonomy value -> canonical category. The site uses Breakfast / Savory
+# / Sweet / Party; "Dessert" was a one-off mislabel. Kept as a defensive net so
+# a future stray value can't silently strand a page in a category of one.
+_CATEGORY_ALIASES = {"dessert": "sweet"}
+
+
+def _canon_category(category: str) -> str:
+    c = (category or "").strip().lower()
+    return _CATEGORY_ALIASES.get(c, c)
+
+
+def _load_catalog_safe() -> list:
+    """Load the recipe catalog for related-links. Never raises — a missing or
+    unreadable catalog just means no related block, never a broken render."""
+    try:
+        raw = storage.load_page("pages/recipes.json")
+        if not raw:
+            return []
+        data = json.loads(raw)
+        return data if isinstance(data, list) else data.get("recipes", [])
+    except Exception:
+        return []
+
+
+def build_related_recipes(catalog, current_slug, current_category, n=RELATED_RECIPE_COUNT):
+    """Deterministically pick up to `n` other recipes to link to.
+
+    Same (canonical) category first, alphabetical by title, excluding self; if
+    that yields fewer than `n`, fill from the rest of the catalog (also
+    alphabetical). Deterministic so re-renders produce identical links and the
+    internal link graph doesn't churn week to week.
+    """
+    items = [
+        {
+            "title": r.get("title", ""),
+            "slug": r.get("slug", ""),
+            "cat": _canon_category(r.get("category", "")),
+        }
+        for r in (catalog or [])
+        if r.get("slug") and r.get("title") and r.get("slug") != current_slug
+    ]
+    items.sort(key=lambda x: x["title"].lower())
+    cur = _canon_category(current_category)
+    picks = [x for x in items if x["cat"] == cur][:n]
+    if len(picks) < n:
+        chosen = {x["slug"] for x in picks}
+        picks += [x for x in items if x["slug"] not in chosen][: n - len(picks)]
+    return [{"title": x["title"], "slug": x["slug"]} for x in picks]
+
+
+def _related_block_html(related: list) -> str:
+    """Footer block of crawlable internal recipe links (real <a href>, no JS).
+    Empty string when there is nothing to link."""
+    if not related:
+        return ""
+    links = "\n".join(
+        f'            <li><a href="/recipes/{r["slug"]}" '
+        f'class="text-sage hover:text-terracotta transition-colors">'
+        f'{html.escape(r["title"])}</a></li>'
+        for r in related
+    )
+    return (
+        '\n    <nav class="max-w-screen-md mx-auto px-6 pb-16" aria-label="More recipes">\n'
+        '        <p class="text-xs uppercase tracking-[0.3em] text-terracotta font-bold mb-6 text-center">More Muffin Pan Recipes</p>\n'
+        f'        <ul class="grid sm:grid-cols-2 gap-x-8 gap-y-3 font-serif text-lg">\n{links}\n        </ul>\n'
+        '    </nav>\n'
+    )
+
+
 def render_episode_page(
     episode: dict,
     image_url: Optional[str] = None,
     *,
     with_conversation: bool = True,
     canonical_slug: Optional[str] = None,
+    catalog: Optional[list] = None,
 ) -> str:
     """Generate the full recipe page HTML from episode data.
 
@@ -512,6 +583,13 @@ def render_episode_page(
 {conversation_html}
         </div>"""
 
+    # Crawlable internal links: deterministic related recipes in the footer.
+    current_slug = canonical_slug or _slugify(title)
+    related_catalog = catalog if catalog is not None else _load_catalog_safe()
+    related_block_html = _related_block_html(
+        build_related_recipes(related_catalog, current_slug, category)
+    )
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -616,7 +694,7 @@ def render_episode_page(
             </a>
         </div>
     </main>
-
+{related_block_html}
     <footer class="py-16 px-6 bg-gray-50 text-center border-t border-gray-100">
         <p class="font-serif text-xl mb-3 italic">The struggle is the story.</p>
         <p class="text-sage text-xs uppercase tracking-widest">&copy; 2026 Muffin Pan Recipes</p>
