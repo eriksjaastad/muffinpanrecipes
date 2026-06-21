@@ -295,3 +295,54 @@ def test_sitemap_survives_corrupt_catalog() -> None:
     xml = bytes(resp.body).decode()
     assert "<loc>https://muffinpanrecipes.com/</loc>" in xml
     assert xml.count("<url>") == 2
+
+
+# ---------------------------------------------------------------------------
+# Internal linking: crawlable related-recipe footer links
+# ---------------------------------------------------------------------------
+
+import re  # noqa: E402
+
+from backend.publishing.episode_renderer import build_related_recipes  # noqa: E402
+
+_RELATED_CATALOG = [
+    {"title": "Alpha Cups", "slug": "alpha-cups", "category": "Savory"},
+    {"title": "Beta Bites", "slug": "beta-bites", "category": "Savory"},
+    {"title": "Gamma Gratin", "slug": "gamma-gratin", "category": "Savory"},
+    {"title": "Delta Dish", "slug": "delta-dish", "category": "Savory"},
+    {"title": "Echo Eggs", "slug": "echo-eggs", "category": "Savory"},
+    {"title": "Sweet One", "slug": "sweet-one", "category": "Sweet"},
+    {"title": "Lonely Party", "slug": "lonely-party", "category": "Party"},
+    {"title": "Stray Dessert", "slug": "stray-dessert", "category": "Dessert"},
+]
+
+
+def test_recipe_page_has_crawlable_internal_recipe_link() -> None:
+    """Every recipe page must carry >=1 real <a href="/recipes/..."> in raw HTML
+    (no JS), so the internal link graph exists for crawlers."""
+    html = render_episode_page(_published_episode(), catalog=_RELATED_CATALOG)
+    anchors = re.findall(r'<a href="(/recipes/[^"]+)"', html)
+    assert len(anchors) >= 1
+    assert "More Muffin Pan Recipes" in html
+
+
+def test_related_recipes_deterministic_no_self_and_fills() -> None:
+    """Thin category (Party-of-one) still fills to N=4, never self-links, stable."""
+    a = build_related_recipes(_RELATED_CATALOG, "lonely-party", "Party")
+    b = build_related_recipes(_RELATED_CATALOG, "lonely-party", "Party")
+    assert [r["slug"] for r in a] == [r["slug"] for r in b]
+    assert len(a) == 4
+    assert all(r["slug"] != "lonely-party" for r in a)
+
+
+def test_related_recipes_dessert_groups_with_sweet() -> None:
+    """"Dessert" is a stray label for "Sweet" — it must group with Sweet first."""
+    rel = build_related_recipes(_RELATED_CATALOG, "stray-dessert", "Dessert")
+    assert rel[0]["slug"] == "sweet-one"
+
+
+def test_related_recipes_same_category_excludes_self() -> None:
+    rel = build_related_recipes(_RELATED_CATALOG, "alpha-cups", "Savory")
+    slugs = [r["slug"] for r in rel]
+    assert "alpha-cups" not in slugs
+    assert slugs == ["beta-bites", "delta-dish", "echo-eggs", "gamma-gratin"]
