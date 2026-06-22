@@ -134,6 +134,7 @@ async def sitemap_xml():
     # signal that actually matters.
     entries = [
         f"  <url><loc>{_SITE_BASE}/</loc></url>",
+        f"  <url><loc>{_SITE_BASE}/recipes</loc></url>",
         f"  <url><loc>{_SITE_BASE}/this-week</loc></url>",
     ]
     for r in recipes:
@@ -153,6 +154,134 @@ async def sitemap_xml():
         + "\n</urlset>\n"
     )
     return Response(content=xml, media_type="application/xml")
+
+
+_RECIPES_CANONICAL = f"{_SITE_BASE}/recipes"
+# Canonical display order; any unexpected category falls in alphabetically after.
+_CATEGORY_ORDER = ["Breakfast", "Savory", "Sweet", "Party"]
+
+
+def _load_catalog_recipes() -> list:
+    """Recipe catalog, blob-first with the static seed file as fallback."""
+    raw = storage.load_page("pages/recipes.json")
+    if not raw:
+        static = Path(__file__).resolve().parents[2] / "src" / "recipes.json"
+        raw = static.read_text() if static.exists() else '{"recipes": []}'
+    try:
+        data = json.loads(raw)
+    except Exception:
+        logger.error("recipes index: catalog JSON unparseable")
+        return []
+    return data if isinstance(data, list) else data.get("recipes", [])
+
+
+def _render_recipes_index(recipes: list) -> str:
+    """Server-rendered hub page: every recipe as a real crawlable <a href>,
+    grouped by category, built live from the catalog (no JS needed)."""
+    import html as _html
+
+    groups: dict[str, list] = {}
+    for r in recipes:
+        slug, title = r.get("slug"), r.get("title")
+        if not slug or not title:
+            continue
+        cat = (r.get("category") or "").strip() or "Other"
+        if cat.lower() == "dessert":  # taxonomy stray -> Sweet
+            cat = "Sweet"
+        groups.setdefault(cat, []).append(
+            {"slug": slug, "title": title, "description": r.get("description", "")}
+        )
+
+    ordered = [c for c in _CATEGORY_ORDER if c in groups] + sorted(
+        c for c in groups if c not in _CATEGORY_ORDER
+    )
+    total = sum(len(v) for v in groups.values())
+
+    sections, item_list, pos = "", [], 0
+    for cat in ordered:
+        cards = ""
+        for it in sorted(groups[cat], key=lambda x: x["title"].lower()):
+            pos += 1
+            item_list.append({
+                "@type": "ListItem", "position": pos,
+                "url": f"{_SITE_BASE}/recipes/{it['slug']}", "name": it["title"],
+            })
+            cards += (
+                f'                <li><a href="/recipes/{it["slug"]}" class="block group">\n'
+                f'                    <span class="font-serif text-2xl leading-snug group-hover:text-terracotta transition-colors">{_html.escape(it["title"])}</span>\n'
+                f'                    <span class="block text-gray-500 text-sm mt-1 leading-relaxed">{_html.escape(it["description"])}</span>\n'
+                f'                </a></li>\n'
+            )
+        sections += (
+            f'        <section class="mb-16">\n'
+            f'            <h2 class="text-xs uppercase tracking-[0.3em] text-terracotta font-bold mb-8">{_html.escape(cat)}</h2>\n'
+            f'            <ul class="grid sm:grid-cols-2 gap-x-12 gap-y-8">\n{cards}            </ul>\n'
+            f'        </section>\n'
+        )
+
+    json_ld = json.dumps({
+        "@context": "https://schema.org",
+        "@type": "CollectionPage",
+        "name": "All Recipes — Muffin Pan Recipes",
+        "url": _RECIPES_CANONICAL,
+        "mainEntity": {
+            "@type": "ItemList", "numberOfItems": total, "itemListElement": item_list,
+        },
+    })
+    desc = "Browse every muffin-pan recipe — gourmet, mathematically-scaled single-serving Breakfast, Savory, Sweet, and Party bakes."
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>All Recipes | Muffin Pan Recipes</title>
+    <meta name="description" content="{desc}">
+    <link rel="canonical" href="{_RECIPES_CANONICAL}">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="{_RECIPES_CANONICAL}">
+    <meta property="og:title" content="All Recipes | Muffin Pan Recipes">
+    <meta property="og:description" content="{desc}">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>&#x1f9c1;</text></svg>">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {{ theme: {{ extend: {{
+            fontFamily: {{ serif: ['"Playfair Display"', 'serif'], sans: ['Inter', 'sans-serif'] }},
+            colors: {{ sage: '#717D7E', terracotta: '#C5705D', linen: '#F9F7F2' }}
+        }} }} }}
+    </script>
+    <script type="application/ld+json">{json_ld}</script>
+</head>
+<body class="text-gray-900 font-sans antialiased bg-white">
+    <nav class="max-w-screen-xl mx-auto px-6 py-8">
+        <a href="/" class="group inline-flex items-center text-xs uppercase tracking-[0.3em] text-sage font-bold hover:text-terracotta transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-2 transform group-hover:-translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+            Home
+        </a>
+    </nav>
+    <main class="max-w-screen-md mx-auto px-6 pb-24">
+        <div class="text-center mb-16">
+            <p class="text-xs uppercase tracking-[0.3em] text-terracotta font-bold mb-4">The Library</p>
+            <h1 class="font-serif text-5xl md:text-7xl mb-6 leading-tight">All Recipes</h1>
+            <p class="text-gray-500 text-lg max-w-lg mx-auto">{total} muffin-pan recipes, scaled for the tin and grouped by occasion.</p>
+        </div>
+{sections}    </main>
+    <footer class="py-16 px-6 bg-gray-50 text-center border-t border-gray-100">
+        <p class="font-serif text-xl mb-3 italic">The struggle is the story.</p>
+        <p class="text-sage text-xs uppercase tracking-widest">&copy; 2026 Muffin Pan Recipes</p>
+    </footer>
+</body>
+</html>
+"""
+
+
+@router.get("/recipes")
+async def recipes_index():
+    """Server-rendered, crawlable hub linking to every recipe (internal-linking
+    pass 2). Built live from the catalog so it's always current with zero
+    weekly maintenance. Replaces the old bare-/recipes = JS homepage duplicate."""
+    return HTMLResponse(content=_render_recipes_index(_load_catalog_recipes()))
 
 
 _SEED_RECIPES_CACHE: dict | None = None
