@@ -270,10 +270,11 @@ def test_sitemap_lists_catalog_recipes_and_site_roots() -> None:
     xml = bytes(resp.body).decode()
     assert resp.media_type == "application/xml"
     assert "<loc>https://muffinpanrecipes.com/</loc>" in xml
+    assert "<loc>https://muffinpanrecipes.com/recipes</loc>" in xml
     assert "<loc>https://muffinpanrecipes.com/this-week</loc>" in xml
     assert "<loc>https://muffinpanrecipes.com/recipes/savory-bacon-biscuit-rounds</loc>" in xml
     assert "<loc>https://muffinpanrecipes.com/recipes/spinach-feta-egg-bites</loc>" in xml
-    assert xml.count("<url>") == 4  # slug-less entry skipped
+    assert xml.count("<url>") == 5  # 3 site roots + 2 recipes; slug-less entry skipped
 
 
 def test_sitemap_lastmod_is_the_weeks_sunday() -> None:
@@ -295,7 +296,7 @@ def test_sitemap_falls_back_to_static_catalog_when_blob_empty() -> None:
     )
     seed_count = len([r for r in static["recipes"] if r.get("slug")])
     assert seed_count >= 10  # guard: the seed file itself went missing/empty
-    assert xml.count("<url>") == 2 + seed_count
+    assert xml.count("<url>") == 3 + seed_count  # /, /recipes, /this-week + seeds
     assert "spinach-feta-egg-bites" in xml
 
 
@@ -304,7 +305,28 @@ def test_sitemap_survives_corrupt_catalog() -> None:
         resp = asyncio.run(episode_routes.sitemap_xml())
     xml = bytes(resp.body).decode()
     assert "<loc>https://muffinpanrecipes.com/</loc>" in xml
-    assert xml.count("<url>") == 2
+    assert xml.count("<url>") == 3  # site roots only: /, /recipes, /this-week
+
+
+# ---------------------------------------------------------------------------
+# /recipes — server-rendered crawlable hub index
+# ---------------------------------------------------------------------------
+
+def test_recipes_index_renders_crawlable_links() -> None:
+    catalog = json.dumps({"recipes": [
+        {"slug": "alpha-cups", "title": "Alpha Cups", "category": "Savory", "description": "d"},
+        {"slug": "beta-bites", "title": "Beta Bites", "category": "Sweet", "description": "d"},
+        {"title": "No slug — skipped"},
+    ]})
+    with patch.object(episode_routes.storage, "load_page", return_value=catalog):
+        resp = asyncio.run(episode_routes.recipes_index())
+    assert resp.status_code == 200
+    body = bytes(resp.body).decode()
+    assert '<a href="/recipes/alpha-cups"' in body
+    assert '<a href="/recipes/beta-bites"' in body
+    assert body.count('href="/recipes/') == 2  # slug-less entry skipped, no self/extra links
+    assert 'rel="canonical" href="https://muffinpanrecipes.com/recipes"' in body
+    assert '"@type": "CollectionPage"' in body
 
 
 # ---------------------------------------------------------------------------

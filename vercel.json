@@ -58,6 +58,10 @@
             "dest": "backend/admin/app.py"
         },
         {
+            "src": "/recipes/?$",
+            "dest": "backend/admin/app.py"
+        },
+        {
             "src": "/blob-images/(.*)",
             "dest": "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/images/$1",
             "headers": {
