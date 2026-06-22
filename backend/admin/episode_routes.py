@@ -134,6 +134,7 @@ async def sitemap_xml():
     # signal that actually matters.
     entries = [
         f"  <url><loc>{_SITE_BASE}/</loc></url>",
+        f"  <url><loc>{_SITE_BASE}/recipes</loc></url>",
         f"  <url><loc>{_SITE_BASE}/this-week</loc></url>",
     ]
     for r in recipes:
