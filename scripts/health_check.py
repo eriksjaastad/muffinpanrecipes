@@ -138,9 +138,31 @@ def check_this_week_page(report: Report) -> None:
     def _check():
         status, body = _fetch_text(THIS_WEEK_URL)
         assert status == 200, f"/this-week returned HTTP {status}"
-        assert len(body) > 20_000, (
-            f"/this-week body is {len(body)} bytes, expected > 20000. "
-            f"Page is suspiciously thin — likely a render failure or empty episode."
+        if len(body) > 20_000:
+            return  # full episode page rendered — healthy
+
+        # Thin page. Early in a new ISO week, /this-week is LEGITIMATELY a
+        # placeholder until that week's Monday cron (14:30 UTC Mon) generates
+        # the recipe. Only treat thin-ness as a failure once this week's Monday
+        # stage is actually complete — otherwise it's the expected pre-cron
+        # window and we must NOT alert (that was the Monday-morning false alarm).
+        iso = datetime.now(timezone.utc).isocalendar()
+        week_id = f"{iso.year}-W{iso.week:02d}"
+        try:
+            episode = _fetch_json(f"{BLOB_CDN}/episodes/{week_id}.json")
+        except Exception:
+            episode = None
+        monday_done = (
+            isinstance(episode, dict)
+            and episode.get("stages", {}).get("monday", {}).get("status") == "complete"
+        )
+        assert not monday_done, (
+            f"/this-week body is {len(body)} bytes, expected > 20000, and "
+            f"{week_id} Monday IS complete — likely a real render failure."
+        )
+        print(
+            f"    (this-week is the expected pre-cron placeholder for {week_id} "
+            f"— Monday recipe not generated yet)"
         )
 
     report.check("this_week_renders", _check)
