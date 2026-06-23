@@ -79,3 +79,48 @@ def test_messages_carry_a_utc_timestamp(monkeypatch, tmp_path):
     _, ok_posts = _run(monkeypatch, tmp_path, healthy=True)
     assert "UTC" in fail_posts[0]
     assert "UTC" in ok_posts[0]
+
+
+# ---------------------------------------------------------------------------
+# this_week_renders must NOT false-alarm on the Monday pre-cron placeholder
+# (2026-06-22: two false alerts fired during the legitimate pre-cron window).
+# ---------------------------------------------------------------------------
+
+def _run_this_week(*, body_len: int, episode):
+    """Run check_this_week_page with /this-week sized to body_len and the
+    current-week episode JSON stubbed (episode=None simulates a 404)."""
+    def _fake_json(url, timeout=15):
+        if episode is None:
+            raise Exception("404 not found")
+        return episode
+
+    report = hc.Report()
+    with patch.object(hc, "_fetch_text", lambda url, timeout=15: (200, "x" * body_len)), \
+         patch.object(hc, "_fetch_json", _fake_json):
+        hc.check_this_week_page(report)
+    return report
+
+
+def test_this_week_full_page_passes():
+    r = _run_this_week(body_len=25_000, episode=None)
+    assert "this_week_renders" in r.passed and not r.failed
+
+
+def test_this_week_thin_before_monday_cron_passes():
+    # New ISO week, episode not generated yet (404) -> placeholder is expected.
+    r = _run_this_week(body_len=1585, episode=None)
+    assert "this_week_renders" in r.passed and not r.failed
+
+
+def test_this_week_thin_with_monday_incomplete_passes():
+    # Episode exists but Monday not complete yet -> still the pre-cron window.
+    ep = {"stages": {"monday": {"status": None}}}
+    r = _run_this_week(body_len=1585, episode=ep)
+    assert "this_week_renders" in r.passed and not r.failed
+
+
+def test_this_week_thin_when_monday_complete_fails():
+    # Monday IS complete but the page is thin -> a REAL render failure.
+    ep = {"stages": {"monday": {"status": "complete"}}}
+    r = _run_this_week(body_len=1585, episode=ep)
+    assert r.failed and r.failed[0][0] == "this_week_renders"
