@@ -85,14 +85,6 @@
             "dest": "backend/admin/app.py"
         },
         {
-            "src": "/episodes/([^/]+)/?$",
-            "dest": "/src/episodes/$1/index.html"
-        },
-        {
-            "src": "/test/?$",
-            "dest": "/src/test/index.html"
-        },
-        {
             "src": "/this-week/?$",
             "dest": "backend/admin/app.py"
         },
