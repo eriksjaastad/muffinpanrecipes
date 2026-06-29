@@ -207,15 +207,15 @@ def _render_recipes_index(recipes: list) -> str:
                 "url": f"{_SITE_BASE}/recipes/{it['slug']}", "name": it["title"],
             })
             cards += (
-                f'                <li><a href="/recipes/{it["slug"]}" class="block group">\n'
-                f'                    <span class="font-serif text-2xl leading-snug group-hover:text-terracotta transition-colors">{_html.escape(it["title"])}</span>\n'
-                f'                    <span class="block text-gray-500 text-sm mt-1 leading-relaxed">{_html.escape(it["description"])}</span>\n'
+                f'                <li><a href="/recipes/{it["slug"]}" class="recipe-link">\n'
+                f'                    <span class="recipe-link__title">{_html.escape(it["title"])}</span>\n'
+                f'                    <span class="recipe-link__desc">{_html.escape(it["description"])}</span>\n'
                 f'                </a></li>\n'
             )
         sections += (
-            f'        <section class="mb-16">\n'
-            f'            <h2 class="text-xs uppercase tracking-[0.3em] text-terracotta font-bold mb-8">{_html.escape(cat)}</h2>\n'
-            f'            <ul class="grid sm:grid-cols-2 gap-x-12 gap-y-8">\n{cards}            </ul>\n'
+            f'        <section class="recipe-section">\n'
+            f'            <h2 class="recipe-section__title">{_html.escape(cat)}</h2>\n'
+            f'            <ul class="recipe-grid">\n{cards}            </ul>\n'
             f'        </section>\n'
         )
 
@@ -243,33 +243,27 @@ def _render_recipes_index(recipes: list) -> str:
     <meta property="og:title" content="All Recipes | Muffin Pan Recipes">
     <meta property="og:description" content="{desc}">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>&#x1f9c1;</text></svg>">
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/assets/site.css">
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <script>
-        tailwind.config = {{ theme: {{ extend: {{
-            fontFamily: {{ serif: ['"Playfair Display"', 'serif'], sans: ['Inter', 'sans-serif'] }},
-            colors: {{ sage: '#717D7E', terracotta: '#C5705D', linen: '#F9F7F2' }}
-        }} }} }}
-    </script>
     <script type="application/ld+json">{json_ld}</script>
 </head>
-<body class="text-gray-900 font-sans antialiased bg-white">
-    <nav class="max-w-screen-xl mx-auto px-6 py-8">
-        <a href="/" class="group inline-flex items-center text-xs uppercase tracking-[0.3em] text-sage font-bold hover:text-terracotta transition-colors">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-2 transform group-hover:-translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+<body>
+    <nav class="site-nav">
+        <a href="/" class="site-nav__back">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
             Home
         </a>
     </nav>
-    <main class="max-w-screen-md mx-auto px-6 pb-24">
-        <div class="text-center mb-16">
-            <p class="text-xs uppercase tracking-[0.3em] text-terracotta font-bold mb-4">The Library</p>
-            <h1 class="font-serif text-5xl md:text-7xl mb-6 leading-tight">All Recipes</h1>
-            <p class="text-gray-500 text-lg max-w-lg mx-auto">{total} muffin-pan recipes, scaled for the tin and grouped by occasion.</p>
+    <main class="site-main">
+        <div class="page-head">
+            <p class="page-head__eyebrow">The Library</p>
+            <h1 class="page-head__title">All Recipes</h1>
+            <p class="page-head__sub">{total} muffin-pan recipes, scaled for the tin and grouped by occasion.</p>
         </div>
 {sections}    </main>
-    <footer class="py-16 px-6 bg-gray-50 text-center border-t border-gray-100">
-        <p class="font-serif text-xl mb-3 italic">The struggle is the story.</p>
-        <p class="text-sage text-xs uppercase tracking-widest">&copy; 2026 Muffin Pan Recipes</p>
+    <footer class="site-footer">
+        <p class="site-footer__motto">The struggle is the story.</p>
+        <p class="site-footer__copy">&copy; 2026 Muffin Pan Recipes</p>
     </footer>
 </body>
 </html>
@@ -345,20 +339,20 @@ def _placeholder_page(episode_id: str) -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>This Week's Recipe | Muffin Pan Recipes</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>&#x1f9c1;</text></svg>">
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/assets/site.css">
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
 </head>
-<body class="text-gray-900 font-sans antialiased bg-white">
-    <nav class="max-w-screen-xl mx-auto px-6 py-8">
-        <a href="/" class="text-xs uppercase tracking-[0.3em] text-gray-400 font-bold hover:text-gray-900 transition-colors">
+<body>
+    <nav class="site-nav">
+        <a href="/" class="site-nav__back site-nav__back--muted">
             &larr; Return to Library
         </a>
     </nav>
-    <main class="max-w-screen-md mx-auto px-6 py-24 text-center">
-        <p class="text-xs uppercase tracking-[0.3em] text-gray-400 font-bold mb-8">{episode_id}</p>
-        <h1 class="font-serif text-5xl mb-8 italic" style="font-family: 'Playfair Display', serif">Something's Baking...</h1>
-        <p class="text-gray-500 max-w-md mx-auto mb-12">The team hasn't started this week's recipe yet. Check back Monday morning when the brainstorm begins.</p>
-        <a href="/" class="inline-block px-8 py-4 border-2 border-gray-900 font-bold uppercase tracking-widest text-xs hover:bg-gray-900 hover:text-white transition-all">
+    <main class="site-main placeholder">
+        <p class="placeholder__eyebrow">{episode_id}</p>
+        <h1 class="placeholder__title">Something's Baking...</h1>
+        <p class="placeholder__body">The team hasn't started this week's recipe yet. Check back Monday morning when the brainstorm begins.</p>
+        <a href="/" class="btn-outline">
             Browse Recipes
         </a>
     </main>

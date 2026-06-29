@@ -63,97 +63,43 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,700&family=Inter:wght@400;500;600;700&display=swap"
         rel="stylesheet">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    fontFamily: {
-                        serif: ['"Playfair Display"', 'serif'],
-                        sans: ['Inter', 'sans-serif'],
-                    },
-                    colors: {
-                        sage: '#717D7E',
-                        terracotta: '#C0392B',
-                        linen: '#FDFEFE',
-                    }
-                }
-            }
-        }
-    </script>
-    <style>
-        body {
-            background-color: #FFFFFF;
-        }
-
-        .recipe-grid-card {
-            text-decoration: none !important;
-            color: inherit !important;
-        }
-
-        .recipe-grid-card:hover .recipe-title {
-            color: #C0392B;
-        }
-
-        .active-filter {
-            color: #C0392B !important;
-            border-bottom: 2px solid #C0392B;
-            padding-bottom: 2px;
-        }
-
-        .image-placeholder {
-            background: linear-gradient(45deg, #FDFEFE 25%, #F4F6F6 25%, #F4F6F6 50%, #FDFEFE 50%, #FDFEFE 75%, #F4F6F6 75%, #F4F6F6 100%);
-            background-size: 40px 40px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 100%;
-            width: 100%;
-            color: #717D7E;
-            font-family: 'Playfair Display', serif;
-            font-style: italic;
-            font-size: 0.875rem;
-            border: 1px solid #F2F3F4;
-        }
-    </style>
+    <link rel="stylesheet" href="/assets/site.css">
 </head>
 
-<body class="text-gray-900 font-sans antialiased">
+<body class="home">
 
     <!-- Minimal Editorial Header -->
-    <header class="py-12 px-6 text-center border-b border-gray-100">
-        <h1 class="font-serif text-5xl md:text-6xl mb-2 tracking-tight">Muffin Pan Recipes</h1>
-        <p class="text-sage uppercase tracking-widest text-xs font-bold">The Art of the Single Serving</p>
+    <header class="home-header">
+        <h1 class="home-header__title">Muffin Pan Recipes</h1>
+        <p class="home-header__tagline">The Art of the Single Serving</p>
     </header>
 
     <!-- Category Filter -->
-    <nav class="sticky top-0 bg-white/90 backdrop-blur-md z-50 border-b border-gray-50 py-4 mb-12">
-        <div class="flex flex-wrap justify-center gap-x-8 gap-y-2 px-4 text-xs font-bold uppercase tracking-widest text-gray-400"
-            id="filter-buttons">
-            <button class="hover:text-terracotta transition-colors active-filter text-terracotta"
-                onclick="setFilter('All')">All</button>
-            <button class="hover:text-terracotta transition-colors" onclick="setFilter('Breakfast')">Breakfast</button>
-            <button class="hover:text-terracotta transition-colors" onclick="setFilter('Savory')">Savory</button>
-            <button class="hover:text-terracotta transition-colors" onclick="setFilter('Sweet')">Sweet</button>
-            <button class="hover:text-terracotta transition-colors" onclick="setFilter('Party')">Party</button>
+    <nav class="filter-nav">
+        <div class="filter-nav__list" id="filter-buttons">
+            <button class="filter-btn is-active" onclick="setFilter('All')">All</button>
+            <button class="filter-btn" onclick="setFilter('Breakfast')">Breakfast</button>
+            <button class="filter-btn" onclick="setFilter('Savory')">Savory</button>
+            <button class="filter-btn" onclick="setFilter('Sweet')">Sweet</button>
+            <button class="filter-btn" onclick="setFilter('Party')">Party</button>
         </div>
     </nav>
 
-    <main class="max-w-screen-xl mx-auto px-6 pb-24">
+    <main class="site-main site-main--wide">
 
         <!-- Featured Recipe Hero -->
         <!-- Skeleton mirrors the loaded layout so the async swap doesn't shift
              the page mid-tap (mobile taps were landing on the wrong element
              while content loaded in). -->
-        <section id="featured-recipe" class="mb-20" aria-live="polite">
-            <div class="grid md:grid-cols-2 gap-12 items-center" aria-hidden="true">
-                <div class="aspect-[4/3] bg-gray-50 rounded-lg animate-pulse"></div>
+        <section id="featured-recipe" class="featured" aria-live="polite">
+            <div class="featured__grid" aria-hidden="true">
+                <div class="skeleton skeleton--img"></div>
                 <div>
-                    <div class="h-3 w-32 bg-gray-100 rounded mb-6 animate-pulse"></div>
-                    <div class="h-12 w-3/4 bg-gray-100 rounded mb-6 animate-pulse"></div>
-                    <div class="h-4 w-full bg-gray-50 rounded mb-3 animate-pulse"></div>
-                    <div class="h-4 w-5/6 bg-gray-50 rounded mb-8 animate-pulse"></div>
-                    <div class="h-12 w-44 bg-gray-100 rounded animate-pulse"></div>
+                    <div class="skeleton" style="height:0.75rem;width:8rem;margin-bottom:1.5rem"></div>
+                    <div class="skeleton" style="height:3rem;width:75%;margin-bottom:1.5rem"></div>
+                    <div class="skeleton skeleton--soft" style="height:1rem;width:100%;margin-bottom:0.75rem"></div>
+                    <div class="skeleton skeleton--soft" style="height:1rem;width:83.3333%;margin-bottom:2rem"></div>
+                    <div class="skeleton" style="height:3rem;width:11rem"></div>
                 </div>
             </div>
         </section>
@@ -176,38 +122,38 @@
         -->
 
         <!-- This Week's Episode Teaser -->
-        <section id="episode-teaser" class="mb-20 hidden">
-            <a href="/this-week" class="block group border border-gray-100 rounded-lg p-8 hover:border-terracotta/30 hover:shadow-lg transition-all">
-                <div class="flex items-center justify-between mb-4">
-                    <p class="text-xs uppercase tracking-[0.2em] text-terracotta font-bold" id="teaser-stage">This Week</p>
-                    <span class="text-xs text-sage uppercase tracking-widest font-bold group-hover:text-terracotta transition-colors">See the conversation &rarr;</span>
+        <section id="episode-teaser" class="teaser" hidden>
+            <a href="/this-week" class="teaser__card">
+                <div class="teaser__head">
+                    <p class="teaser__stage" id="teaser-stage">This Week</p>
+                    <span class="teaser__more">See the conversation &rarr;</span>
                 </div>
-                <h3 class="font-serif text-3xl mb-4 group-hover:text-terracotta transition-colors" id="teaser-title"></h3>
-                <div class="flex items-start gap-3">
-                    <div class="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" id="teaser-avatar"></div>
-                    <div class="bg-gray-50 rounded-2xl rounded-tl-sm px-4 py-3 max-w-lg">
-                        <p class="text-sm text-gray-600 leading-relaxed" id="teaser-message"></p>
+                <h3 class="teaser__title" id="teaser-title"></h3>
+                <div class="teaser__msg-row">
+                    <div class="teaser__avatar" id="teaser-avatar"></div>
+                    <div class="teaser__bubble">
+                        <p id="teaser-message"></p>
                     </div>
                 </div>
             </a>
         </section>
 
         <!-- Editorial Grid -->
-        <h2 id="recipes-heading" class="font-serif text-4xl mb-12 text-center scroll-mt-24">Recipes</h2>
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-16" id="recipe-grid">
+        <h2 id="recipes-heading" class="recipes-heading">Recipes</h2>
+        <div class="recipe-card-grid" id="recipe-grid">
             <!-- Grid items will be populated here -->
         </div>
 
         <!-- Crawlable hub link: a real anchor so the recipe index is reachable
              without JS (the grid above is JS-rendered). -->
-        <div class="text-center mt-16">
-            <a href="/recipes" class="inline-block px-8 py-4 border-2 border-gray-900 font-bold uppercase tracking-widest text-xs hover:bg-gray-900 hover:text-white transition-all">View All Recipes</a>
+        <div class="home-cta">
+            <a href="/recipes" class="btn-outline">View All Recipes</a>
         </div>
     </main>
 
-    <footer class="py-24 px-6 bg-gray-50 text-center border-t border-gray-100">
-        <p class="font-serif text-2xl mb-4 italic">Everything fits in a muffin pan.</p>
-        <p class="text-sage text-xs uppercase tracking-widest">&copy; 2026 Muffin Pan Recipes</p>
+    <footer class="site-footer site-footer--home">
+        <p class="site-footer__motto">Everything fits in a muffin pan.</p>
+        <p class="site-footer__copy">&copy; 2026 Muffin Pan Recipes</p>
     </footer>
 
     <!-- Simple JS to handle recipes and filtering -->
@@ -222,8 +168,8 @@
             // 1. Loading State
             if (retryCount === 0) {
                 grid.innerHTML = `
-                    <div class="col-span-full py-24 text-center">
-                        <p class="font-serif text-2xl italic text-sage animate-pulse">Baking Recipes...</p>
+                    <div class="grid-state">
+                        <p class="grid-state__loading">Baking Recipes...</p>
                     </div>
                 `;
             }
@@ -256,9 +202,9 @@
                     // placeholder above the error reads as a second failure.
                     document.getElementById('featured-recipe').innerHTML = '';
                     grid.innerHTML = `
-                        <div class="col-span-full py-24 text-center">
-                            <p class="font-serif text-2xl mb-6 text-terracotta">Oven Error: Could not load recipes.</p>
-                            <button onclick="retryLoad()" class="px-8 py-3 border-2 border-gray-900 font-bold uppercase tracking-widest text-xs hover:bg-gray-900 hover:text-white transition-colors">
+                        <div class="grid-state">
+                            <p class="grid-state__error">Oven Error: Could not load recipes.</p>
+                            <button onclick="retryLoad()" class="btn-outline">
                                 Retry Baking
                             </button>
                         </div>
@@ -306,18 +252,17 @@
                 .filter(r => filter === 'All' || r.category === filter)
                 .forEach(recipe => {
                 const card = `
-                    <a href="${recipeHref(recipe.slug)}" class="recipe-grid-card group block">
-                        <div class="aspect-[4/5] bg-gray-50 mb-6 overflow-hidden relative">
-                            <div class="absolute inset-0 bg-sage/5 transition-opacity group-hover:opacity-0"></div>
-                            <img src="${recipe.image}" 
-                                 onerror="handleImageError(this)" 
+                    <a href="${recipeHref(recipe.slug)}" class="recipe-grid-card">
+                        <div class="recipe-grid-card__image">
+                            <div class="recipe-grid-card__overlay"></div>
+                            <img src="${recipe.image}"
+                                 onerror="handleImageError(this)"
                                  loading="lazy"
-                                 class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" 
                                  alt="${recipe.title}">
                         </div>
-                        <p class="text-[10px] uppercase tracking-[0.2em] text-sage font-bold mb-3">${recipe.category}</p>
-                        <h3 class="recipe-title font-serif text-3xl transition-colors mb-3 leading-tight">${recipe.title}</h3>
-                        <p class="text-gray-500 text-sm leading-relaxed">${recipe.description}</p>
+                        <p class="recipe-grid-card__category">${recipe.category}</p>
+                        <h3 class="recipe-title">${recipe.title}</h3>
+                        <p class="recipe-grid-card__desc">${recipe.description}</p>
                     </a>
                 `;
                 grid.innerHTML += card;
@@ -329,11 +274,9 @@
             const buttons = document.querySelectorAll('#filter-buttons button');
             buttons.forEach(btn => {
                 if (btn.innerText.toLowerCase() === filter.toLowerCase()) {
-                    btn.classList.add('text-terracotta');
-                    btn.classList.add('active-filter');
+                    btn.classList.add('is-active');
                 } else {
-                    btn.classList.remove('text-terracotta');
-                    btn.classList.remove('active-filter');
+                    btn.classList.remove('is-active');
                 }
             });
             // The grid lives well below the fold on phones. Without this
@@ -350,26 +293,23 @@
             const featuredSection = document.getElementById('featured-recipe');
 
             featuredSection.innerHTML = `
-                <a href="${recipeHref(featured.slug)}" class="block group">
-                    <div class="grid md:grid-cols-2 gap-12 items-center">
-                        <div class="aspect-[4/3] bg-gray-50 overflow-hidden rounded-lg">
-                            <img src="${featured.image}" 
+                <a href="${recipeHref(featured.slug)}" class="featured-link">
+                    <div class="featured__grid">
+                        <div class="featured__image">
+                            <img src="${featured.image}"
                                  onerror="handleImageError(this)"
-                                 class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" 
                                  alt="${featured.title}">
                         </div>
                         <div>
-                            <p class="text-xs uppercase tracking-widest text-terracotta font-bold mb-4">Featured Recipe</p>
-                            <h2 class="font-serif text-5xl md:text-6xl mb-6 leading-tight group-hover:text-terracotta transition-colors">${featured.title}</h2>
-                            <p class="text-gray-600 text-lg mb-8 leading-relaxed">${featured.description}</p>
-                            <div class="flex gap-6 text-sm text-sage mb-8">
+                            <p class="featured__eyebrow">Featured Recipe</p>
+                            <h2 class="featured__title">${featured.title}</h2>
+                            <p class="featured__desc">${featured.description}</p>
+                            <div class="featured__meta">
                                 <span>⏱️ ${featured.prep}</span>
                                 <span>🔥 ${featured.cook}</span>
                                 <span>🧁 ${featured.yield}</span>
                             </div>
-                            <span class="inline-block px-8 py-4 border-2 border-gray-900 font-bold uppercase tracking-widest text-xs group-hover:bg-gray-900 group-hover:text-white transition-all">
-                                View Recipe →
-                            </span>
+                            <span class="featured__cta">View Recipe →</span>
                         </div>
                     </div>
                 </a>
@@ -450,7 +390,7 @@
                 avatar.style.color = style.fg;
                 avatar.textContent = data.character_initials || '??';
 
-                document.getElementById('episode-teaser').classList.remove('hidden');
+                document.getElementById('episode-teaser').hidden = false;
             } catch (e) {
                 // Silently fail — teaser is non-critical
             }
