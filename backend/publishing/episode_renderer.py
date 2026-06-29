@@ -141,22 +141,22 @@ def _render_chat_message(msg: dict, image_url_map: dict[str, str] | None = None)
             url = image_url_map.get(att, "")
             if url:
                 img_tags.append(
-                    f'<img src="{html.escape(url)}" class="rounded-lg w-full max-w-sm" '
+                    f'<img src="{html.escape(url)}" '
                     f'alt="Photography option" loading="lazy">'
                 )
         if img_tags:
-            images_html = f'<div class="flex flex-wrap gap-3 mt-3">{"".join(img_tags)}</div>'
+            images_html = f'<div class="chat-msg__images">{"".join(img_tags)}</div>'
 
     role = info.get("role", "")
-    role_html = f' <span class="text-gray-300">&middot;</span> <span class="text-gray-300">{html.escape(role)}</span>' if role else ""
+    role_html = f' <span class="chat-role">&middot;</span> <span class="chat-role">{html.escape(role)}</span>' if role else ""
 
     return f"""
-            <div class="flex items-start gap-3">
-                <div class="avatar avatar-{slug} mt-1">{info['initials']}</div>
+            <div class="chat-msg">
+                <div class="avatar avatar-{slug} avatar--msg">{info['initials']}</div>
                 <div>
-                    <p class="text-[11px] text-gray-400 mb-1">{html.escape(char_name)}{role_html}</p>
-                    <div class="chat-bubble chat-{slug} rounded-2xl rounded-tl-sm px-4 py-3">
-                        <p class="text-sm leading-relaxed">{message}</p>{images_html}
+                    <p class="chat-msg__meta">{html.escape(char_name)}{role_html}</p>
+                    <div class="chat-bubble chat-{slug}">
+                        <p>{message}</p>{images_html}
                     </div>
                 </div>
             </div>"""
@@ -192,19 +192,19 @@ def _render_conversation_section(episode: dict) -> str:
         messages_html = "\n".join(_render_chat_message(m, image_url_map) for m in dialogue)
 
         sections.append(f"""
-        <div class="stage-divider mb-8">
-            <span class="text-xs uppercase tracking-[0.3em] text-sage font-bold whitespace-nowrap">{label}</span>
+        <div class="stage-divider">
+            <span class="stage-divider__label">{label}</span>
         </div>
 
-        <div class="space-y-4 mb-20">
+        <div class="conversation">
 {messages_html}
         </div>""")
 
     if not has_any_dialogue:
         return """
-        <div class="text-center py-16 text-gray-400">
-            <p class="font-serif text-2xl italic mb-2">The conversation hasn't started yet.</p>
-            <p class="text-sm">Check back as the team develops this recipe throughout the week.</p>
+        <div class="conversation-empty">
+            <p class="conversation-empty__lead">The conversation hasn't started yet.</p>
+            <p>Check back as the team develops this recipe throughout the week.</p>
         </div>"""
 
     return "\n".join(sections)
@@ -267,15 +267,14 @@ def _related_block_html(related: list) -> str:
     if not related:
         return ""
     links = "\n".join(
-        f'            <li><a href="/recipes/{r["slug"]}" '
-        f'class="text-sage hover:text-terracotta transition-colors">'
+        f'            <li><a href="/recipes/{r["slug"]}">'
         f'{html.escape(r["title"])}</a></li>'
         for r in related
     )
     return (
-        '\n    <nav class="max-w-screen-md mx-auto px-6 pb-16" aria-label="More recipes">\n'
-        '        <p class="text-xs uppercase tracking-[0.3em] text-terracotta font-bold mb-6 text-center">More Muffin Pan Recipes</p>\n'
-        f'        <ul class="grid sm:grid-cols-2 gap-x-8 gap-y-3 font-serif text-lg">\n{links}\n        </ul>\n'
+        '\n    <nav class="related" aria-label="More recipes">\n'
+        '        <p class="related__title">More Muffin Pan Recipes</p>\n'
+        f'        <ul class="related__list">\n{links}\n        </ul>\n'
         '    </nav>\n'
     )
 
@@ -340,14 +339,14 @@ def render_episode_page(
         text = f"{amount} {item}".strip()
         if notes:
             text += f" ({notes})"
-        ingredients_html += f'<li class="border-b border-gray-50 pb-2">{html.escape(sanitize_text(text))}</li>\n'
+        ingredients_html += f'<li>{html.escape(sanitize_text(text))}</li>\n'
 
     instructions_html = ""
     for i, step in enumerate(instructions):
         step_text = step if isinstance(step, str) else str(step)
         instructions_html += (
-            f'<li class="flex gap-4">'
-            f'<span class="font-serif text-terracotta font-bold italic text-xl">{i + 1:02d}</span>'
+            f'<li>'
+            f'<span class="instructions__num">{i + 1:02d}</span>'
             f'<span>{html.escape(sanitize_text(step_text))}</span></li>\n'
         )
 
@@ -361,25 +360,25 @@ def render_episode_page(
             image_block = (
                 f'<picture>'
                 f'<source srcset="{escaped_webp}" type="image/webp">'
-                f'<img src="{escaped_png}" class="w-full h-full object-cover" '
+                f'<img src="{escaped_png}" '
                 f'loading="lazy" decoding="async" alt="{html.escape(title)}">'
                 f'</picture>'
             )
         else:
             image_block = (
-                f'<img src="{escaped_png}" class="w-full h-full object-cover" '
+                f'<img src="{escaped_png}" '
                 f'loading="lazy" decoding="async" alt="{html.escape(title)}">'
             )
     else:
-        image_block = '<div class="flex items-center justify-center h-full text-gray-400 font-serif italic text-xl">Photo coming Wednesday</div>'
+        image_block = '<div class="recipe-hero__image-placeholder">Photo coming Wednesday</div>'
 
     # Chef notes
     chef_notes_html = ""
     if chef_notes:
         chef_notes_html = f"""
-            <div class="mt-12 pt-8 border-t border-gray-100">
-                <h3 class="font-serif text-xl mb-4 italic text-sage">Chef's Notes</h3>
-                <p class="text-gray-600 leading-relaxed">{html.escape(chef_notes)}</p>
+            <div class="chef-notes">
+                <h3 class="chef-notes__heading">Chef's Notes</h3>
+                <p>{html.escape(chef_notes)}</p>
             </div>"""
 
     # Conversation section (feature-flagged; off entirely for seed recipes)
@@ -394,36 +393,36 @@ def render_episode_page(
     if has_recipe:
         recipe_card_html = f"""
         <!-- THE RECIPE CARD -->
-        <div id="recipe-card" class="bg-linen border border-gray-100 p-8 md:p-12 mt-16 shadow-2xl shadow-gray-200/50">
-            <div class="flex flex-wrap justify-between items-center border-b border-gray-100 pb-8 mb-12 gap-6">
-                <div class="text-center px-4">
-                    <span class="block text-[10px] uppercase tracking-widest text-sage font-bold mb-1">Prep</span>
-                    <span class="text-xl font-medium">{prep_time} mins</span>
+        <div id="recipe-card" class="recipe-card">
+            <div class="recipe-card__meta">
+                <div class="recipe-card__stat">
+                    <span class="recipe-card__stat-label">Prep</span>
+                    <span class="recipe-card__stat-value">{prep_time} mins</span>
                 </div>
-                <div class="text-center px-4">
-                    <span class="block text-[10px] uppercase tracking-widest text-sage font-bold mb-1">Cook</span>
-                    <span class="text-xl font-medium">{cook_time} mins</span>
+                <div class="recipe-card__stat">
+                    <span class="recipe-card__stat-label">Cook</span>
+                    <span class="recipe-card__stat-value">{cook_time} mins</span>
                 </div>
-                <div class="text-center px-4">
-                    <span class="block text-[10px] uppercase tracking-widest text-sage font-bold mb-1">Yield</span>
-                    <span class="text-xl font-medium">{servings} servings</span>
+                <div class="recipe-card__stat">
+                    <span class="recipe-card__stat-label">Yield</span>
+                    <span class="recipe-card__stat-value">{servings} servings</span>
                 </div>
-                <div class="text-center px-4">
-                    <span class="block text-[10px] uppercase tracking-widest text-sage font-bold mb-1">Difficulty</span>
-                    <span class="text-xl font-medium">{html.escape(difficulty)}</span>
+                <div class="recipe-card__stat">
+                    <span class="recipe-card__stat-label">Difficulty</span>
+                    <span class="recipe-card__stat-value">{html.escape(difficulty)}</span>
                 </div>
             </div>
 
-            <div class="mb-12">
-                <h3 class="font-serif text-2xl mb-8 italic border-l-4 border-terracotta pl-4 uppercase tracking-tighter">Ingredients</h3>
-                <ul class="grid md:grid-cols-2 gap-x-12 gap-y-4 list-none p-0 text-gray-700">
+            <div class="recipe-card__section">
+                <h3 class="recipe-card__heading">Ingredients</h3>
+                <ul class="ingredients">
                     {ingredients_html}
                 </ul>
             </div>
 
-            <div class="border-t border-gray-100 pt-12">
-                <h3 class="font-serif text-2xl mb-8 italic border-l-4 border-terracotta pl-4 uppercase tracking-tighter">Instructions</h3>
-                <ol class="space-y-8 list-none p-0 text-gray-700 max-w-2xl">
+            <div class="recipe-card__section recipe-card__section--bordered">
+                <h3 class="recipe-card__heading">Instructions</h3>
+                <ol class="instructions">
                     {instructions_html}
                 </ol>
             </div>
@@ -435,8 +434,8 @@ def render_episode_page(
     for day in DAYS:
         short = day[:3].title()
         done = day in completed_stages
-        color = "bg-terracotta text-white" if done else "bg-gray-100 text-gray-400"
-        progress_dots += f'<div class="text-center"><div class="w-8 h-8 rounded-full {color} flex items-center justify-center text-[10px] font-bold mx-auto mb-1">{short[:2]}</div><p class="text-[9px] text-gray-400">{short}</p></div>\n'
+        dot_class = "progress__dot progress__dot--done" if done else "progress__dot"
+        progress_dots += f'<div class="progress__day"><div class="{dot_class}">{short[:2]}</div><p class="progress__label">{short}</p></div>\n'
 
     # Absolute image URL for og:image / twitter:image / JSON-LD — social
     # crawlers and Google both require absolute URLs, and Google requires
@@ -495,8 +494,8 @@ def render_episode_page(
     if not is_published:
         current_day = completed_stages[-1].title() if completed_stages else "Starting"
         status_banner = f"""
-        <div class="bg-linen border border-gray-200 rounded-lg p-4 mb-8 text-center">
-            <p class="text-sm text-sage"><span class="font-bold">In Progress</span> &mdash; Last updated: {html.escape(current_day)}</p>
+        <div class="status-banner">
+            <p><span class="status-banner__label">In Progress</span> &mdash; Last updated: {html.escape(current_day)}</p>
         </div>"""
 
     title_escaped = html.escape(title)
@@ -534,49 +533,49 @@ def render_episode_page(
     bts_jump = ""
     bts_section = ""
     if show_bts:
-        bts_jump = '<a href="#behind-the-scenes" class="block w-full py-8 border-4 border-gray-900 font-bold uppercase tracking-[0.4em] text-sm hover:bg-gray-900 hover:text-white transition-all transform active:scale-[0.98]">Jump to Behind the Scenes</a>'
+        bts_jump = '<a href="#behind-the-scenes" class="bts-jump">Jump to Behind the Scenes</a>'
         bts_section = f"""<!-- BEHIND THE SCENES -->
-        <div id="behind-the-scenes" class="mt-24">
-            <div class="text-center mb-16">
-                <p class="text-xs uppercase tracking-[0.3em] text-terracotta font-bold mb-4">Behind the Scenes</p>
-                <h2 class="font-serif text-4xl mb-4 italic">How This Recipe Was Made</h2>
-                <p class="text-gray-500 max-w-lg mx-auto">Follow the creative team's conversation as they developed, photographed, and published this recipe.</p>
+        <div id="behind-the-scenes" class="bts">
+            <div class="bts__head">
+                <p class="page-head__eyebrow">Behind the Scenes</p>
+                <h2 class="bts__title">How This Recipe Was Made</h2>
+                <p class="bts__sub">Follow the creative team's conversation as they developed, photographed, and published this recipe.</p>
             </div>
 
-            <div class="flex justify-center gap-4 mb-8">
+            <div class="progress">
                 {progress_dots}
             </div>
 
-            <div class="flex justify-center gap-6 mb-16">
-                <div class="text-center">
-                    <div class="avatar avatar-margaret mx-auto mb-2">MC</div>
-                    <p class="text-[10px] uppercase tracking-widest text-sage font-bold">Margaret</p>
-                    <p class="text-[9px] text-gray-400">Head Baker</p>
+            <div class="team">
+                <div class="team__member">
+                    <div class="avatar avatar-margaret avatar--roster">MC</div>
+                    <p class="team__name">Margaret</p>
+                    <p class="team__role">Head Baker</p>
                 </div>
-                <div class="text-center">
-                    <div class="avatar avatar-marcus mx-auto mb-2">MR</div>
-                    <p class="text-[10px] uppercase tracking-widest text-sage font-bold">Marcus</p>
-                    <p class="text-[9px] text-gray-400">Copywriter</p>
+                <div class="team__member">
+                    <div class="avatar avatar-marcus avatar--roster">MR</div>
+                    <p class="team__name">Marcus</p>
+                    <p class="team__role">Copywriter</p>
                 </div>
-                <div class="text-center">
-                    <div class="avatar avatar-steph mx-auto mb-2">SW</div>
-                    <p class="text-[10px] uppercase tracking-widest text-sage font-bold">Steph</p>
-                    <p class="text-[9px] text-gray-400">Project Manager</p>
+                <div class="team__member">
+                    <div class="avatar avatar-steph avatar--roster">SW</div>
+                    <p class="team__name">Steph</p>
+                    <p class="team__role">Project Manager</p>
                 </div>
-                <div class="text-center">
-                    <div class="avatar avatar-julian mx-auto mb-2">JT</div>
-                    <p class="text-[10px] uppercase tracking-widest text-sage font-bold">Julian</p>
-                    <p class="text-[9px] text-gray-400">Art Director</p>
+                <div class="team__member">
+                    <div class="avatar avatar-julian avatar--roster">JT</div>
+                    <p class="team__name">Julian</p>
+                    <p class="team__role">Art Director</p>
                 </div>
-                <div class="text-center">
-                    <div class="avatar avatar-devon mx-auto mb-2">DP</div>
-                    <p class="text-[10px] uppercase tracking-widest text-sage font-bold">Devon</p>
-                    <p class="text-[9px] text-gray-400">Site Architect</p>
+                <div class="team__member">
+                    <div class="avatar avatar-devon avatar--roster">DP</div>
+                    <p class="team__name">Devon</p>
+                    <p class="team__role">Site Architect</p>
                 </div>
-                <div class="text-center">
-                    <div class="avatar avatar-ria mx-auto mb-2">RC</div>
-                    <p class="text-[10px] uppercase tracking-widest text-sage font-bold">Ria</p>
-                    <p class="text-[9px] text-gray-400">Social Media Manager</p>
+                <div class="team__member">
+                    <div class="avatar avatar-ria avatar--roster">RC</div>
+                    <p class="team__name">Ria</p>
+                    <p class="team__role">Social Media Manager</p>
                 </div>
             </div>
 
@@ -620,74 +619,31 @@ def render_episode_page(
     <meta property="og:description" content="{desc_escaped}">
     {seo_meta}
 
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/assets/site.css">
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <script>
-        tailwind.config = {{
-            theme: {{
-                extend: {{
-                    fontFamily: {{
-                        serif: ['"Playfair Display"', 'serif'],
-                        sans: ['Inter', 'sans-serif'],
-                    }},
-                    colors: {{
-                        sage: '#717D7E',
-                        terracotta: '#C5705D',
-                        linen: '#F9F7F2',
-                    }}
-                }}
-            }}
-        }}
-    </script>
-    <style>
-        .chat-bubble {{ max-width: 85%; position: relative; }}
-        .chat-margaret {{ background-color: #F0EDE6; }}
-        .chat-marcus {{ background-color: #E8EDF2; }}
-        .chat-steph {{ background-color: #F2EBF0; }}
-        .chat-julian {{ background-color: #E6EDE8; }}
-        .chat-devon {{ background-color: #EDEDED; }}
-        .chat-ria {{ background-color: #F5F3EE; }}
-        .avatar {{
-            width: 36px; height: 36px; border-radius: 50%;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 14px; font-weight: 700; flex-shrink: 0;
-        }}
-        .avatar-margaret {{ background: #C9B99A; color: #5C4E2F; }}
-        .avatar-marcus {{ background: #9AABBF; color: #2F3D5C; }}
-        .avatar-steph {{ background: #BF9AB5; color: #5C2F4E; }}
-        .avatar-julian {{ background: #9ABFA3; color: #2F5C3D; }}
-        .avatar-devon {{ background: #ABABAB; color: #3D3D3D; }}
-        .avatar-ria {{ background: #FFFFFF; color: #2A2A2A; border: 1px solid #E5E0D5; }}
-        .stage-divider {{
-            display: flex; align-items: center; gap: 1rem;
-        }}
-        .stage-divider::before, .stage-divider::after {{
-            content: ''; flex: 1; height: 1px; background: #E5E7EB;
-        }}
-    </style>
     {json_ld_html}
     {breadcrumb_ld_html}
 </head>
-<body class="text-gray-900 font-sans antialiased bg-white">
+<body>
 
-    <nav class="max-w-screen-xl mx-auto px-6 py-8">
-        <a href="/" class="group inline-flex items-center text-xs uppercase tracking-[0.3em] text-sage font-bold hover:text-terracotta transition-colors">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-2 transform group-hover:-translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <nav class="site-nav">
+        <a href="/" class="site-nav__back">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
             </svg>
             Return to Library
         </a>
     </nav>
 
-    <main class="max-w-screen-md mx-auto px-6 pb-24">
+    <main class="site-main">
 
         {status_banner}
 
         <!-- HERO SECTION -->
-        <div class="text-center mb-16">
-            <p class="text-xs uppercase tracking-[0.3em] text-terracotta font-bold mb-4">{html.escape(category)}</p>
-            <h1 class="font-serif text-5xl md:text-7xl mb-8 leading-tight">{title_escaped}</h1>
-            <div class="aspect-video bg-gray-50 mb-12 flex items-center justify-center overflow-hidden">
+        <div class="recipe-hero">
+            <p class="recipe-hero__category">{html.escape(category)}</p>
+            <h1 class="recipe-hero__title">{title_escaped}</h1>
+            <div class="recipe-hero__image">
                 {image_block}
             </div>
 
@@ -695,9 +651,9 @@ def render_episode_page(
         </div>
 
         <!-- EDITORIAL INTRO -->
-        <div class="prose prose-lg max-w-none">
-            <h2 class="font-serif text-3xl mb-6">Why Muffin Pans?</h2>
-            <p class="text-gray-600 mb-12 italic">{desc_escaped}</p>
+        <div class="editorial">
+            <h2 class="editorial__heading">Why Muffin Pans?</h2>
+            <p class="editorial__lead">{desc_escaped}</p>
         </div>
 
 {recipe_card_html}
@@ -705,16 +661,16 @@ def render_episode_page(
         {bts_section}
 
         <!-- FOOTER NAVIGATION -->
-        <div class="mt-24 text-center border-t border-gray-100 pt-12">
-            <a href="/" class="font-serif text-2xl italic text-sage hover:text-terracotta transition-colors">
+        <div class="explore-more">
+            <a href="/">
                 Explore more Muffin Pan Masterpieces &rarr;
             </a>
         </div>
     </main>
 {related_block_html}
-    <footer class="py-16 px-6 bg-gray-50 text-center border-t border-gray-100">
-        <p class="font-serif text-xl mb-3 italic">The struggle is the story.</p>
-        <p class="text-sage text-xs uppercase tracking-widest">&copy; 2026 Muffin Pan Recipes</p>
+    <footer class="site-footer">
+        <p class="site-footer__motto">The struggle is the story.</p>
+        <p class="site-footer__copy">&copy; 2026 Muffin Pan Recipes</p>
     </footer>
 
 </body>
