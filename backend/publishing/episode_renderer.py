@@ -381,9 +381,17 @@ def render_episode_page(
                 <p>{html.escape(chef_notes)}</p>
             </div>"""
 
-    # Conversation section (feature-flagged; off entirely for seed recipes)
+    # Conversation section (feature-flagged; off entirely for seed recipes).
+    # Also suppressed when the episode carries no dialogue at all: a finished
+    # recipe that never got a conversation (W10 lemon-meringue) should not
+    # render the "conversation hasn't started yet" placeholder as if it were
+    # mid-week. With dialogue, the section renders as normal.
+    has_dialogue = any(
+        episode.get("stages", {}).get(d, {}).get("dialogue") for d in DAYS
+    )
     show_bts = (
         with_conversation
+        and has_dialogue
         and os.environ.get("ENABLE_BEHIND_THE_SCENES", "true").lower() != "false"
     )
     conversation_html = _render_conversation_section(episode) if show_bts else ""
