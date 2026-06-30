@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
@@ -168,6 +169,62 @@ def check_this_week_page(report: Report) -> None:
     report.check("this_week_renders", _check)
 
 
+def _resolve_image_url(src: str) -> str:
+    """Resolve a page image reference to an absolute URL we can HEAD."""
+    if src.startswith("/blob-images/"):
+        return f"{BLOB_CDN}/images/{src[len('/blob-images/'):]}"
+    if src.startswith("/"):
+        return f"{SITE_BASE}{src}"
+    return src
+
+
+def check_recipe_page_images(report: Report) -> None:
+    """Every recipe page's hero image must actually load (HTTP 200).
+
+    Checks the RENDERED pages, not the catalog: a recipe can carry a healthy
+    catalog image while its pre-rendered blob page points at a stale/dead path.
+    That is exactly the W10 lemon-meringue flat-vs-hierarchical bug — catalog
+    image 200 but the rendered page 404s — which a catalog-only check misses.
+    """
+    def _check():
+        catalog = _fetch_json(CATALOG_BLOB_URL)
+        recipes = catalog if isinstance(catalog, list) else catalog.get("recipes", [])
+        assert recipes, "catalog is empty — cannot verify recipe images"
+        broken = []
+        for r in recipes:
+            slug = r.get("slug")
+            if not slug:
+                continue
+            status, body = _fetch_text(f"{SITE_BASE}/recipes/{slug}")
+            if status != 200:
+                broken.append(f"{slug}: page HTTP {status}")
+                continue
+            # Hero image = the first real image asset(s) on the page. The nav
+            # uses an inline SVG, so the hero <picture>/<img> is first. Matching
+            # on the URL (not a CSS class) keeps this working before and after
+            # the vanilla-CSS migration.
+            srcs = re.findall(r'<(?:img[^>]+src|source[^>]+srcset)="([^"]+)"', body)
+            hero = [
+                s for s in srcs
+                if "/blob-images/" in s or "/assets/images" in s
+                or "blob.vercel-storage.com" in s
+            ][:2]
+            for s in hero:
+                url = _resolve_image_url(s)
+                try:
+                    code = requests.head(url, timeout=12, allow_redirects=True).status_code
+                except Exception as exc:
+                    code = type(exc).__name__
+                if code != 200:
+                    broken.append(f"{slug}: [{code}] {s}")
+        assert not broken, (
+            f"{len(broken)} recipe hero image(s) failed to load:\n    "
+            + "\n    ".join(broken[:10])
+        )
+
+    report.check("recipe_page_hero_images_load", _check)
+
+
 def _utc_stamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
@@ -235,6 +292,7 @@ def main() -> int:
     check_catalog_counts_match(report, args.baseline)
     check_teaser_current_week(report)
     check_this_week_page(report)
+    check_recipe_page_images(report)
 
     print()
     print(f"Passed: {len(report.passed)}  Failed: {len(report.failed)}")
