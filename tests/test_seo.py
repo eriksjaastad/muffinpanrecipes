@@ -215,10 +215,12 @@ def test_with_conversation_false_suppresses_bts() -> None:
         "concept": "X",
         "image_urls": [],
         "stages": {
-            "monday": {"status": "complete", "recipe_data": {
-                "title": "X Cups", "description": "d", "category": "Savory",
-                "ingredients": ["1 egg"], "instructions": ["Bake."],
-            }},
+            "monday": {"status": "complete",
+                       "recipe_data": {
+                           "title": "X Cups", "description": "d", "category": "Savory",
+                           "ingredients": ["1 egg"], "instructions": ["Bake."],
+                       },
+                       "dialogue": [{"character": "Margaret Chen", "message": "Let's bake."}]},
             "sunday": {"status": "complete"},
         },
     }
@@ -226,6 +228,26 @@ def test_with_conversation_false_suppresses_bts() -> None:
     without = render_episode_page(episode, with_conversation=False)
     assert "Behind the Scenes" in with_bts
     assert "Behind the Scenes" not in without
+
+
+def test_published_recipe_without_dialogue_suppresses_bts() -> None:
+    """A finished recipe that never had a conversation (W10 lemon-meringue)
+    must NOT render the 'conversation hasn't started yet' placeholder — the
+    behind-the-scenes section is dropped entirely when there is no dialogue."""
+    episode = {
+        "concept": "Mini Lemon Meringue Cups",
+        "image_urls": [],
+        "stages": {
+            "monday": {"status": "complete", "recipe_data": {
+                "title": "Mini Lemon Meringue Cups", "description": "d", "category": "Sweet",
+                "ingredients": ["1 lemon"], "instructions": ["Bake."],
+            }},
+            "sunday": {"status": "complete"},
+        },
+    }
+    html = render_episode_page(episode, with_conversation=True)
+    assert "Behind the Scenes" not in html
+    assert "conversation hasn't started" not in html
 
 
 # ---------------------------------------------------------------------------
