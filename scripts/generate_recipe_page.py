@@ -31,20 +31,48 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from pathlib import Path
 from typing import Optional
 
 import requests
 
 
 BLOB_API = "https://blob.vercel-storage.com"
+PUBLIC_BLOB_CDN = "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com"
+
+
+def _make_preview_self_contained(html: str) -> str:
+    """Make a generated preview render fully styled off the site origin.
+
+    Previews are viewed at the raw Vercel Blob URL (run_full_week's "VIEW IT
+    HERE") or a local --output file. There the production page's root-relative
+    `/assets/site.css` and `/blob-images/...` resolve to the wrong origin and
+    404, so the preview renders unstyled with no images. Inline the stylesheet
+    and absolutize the image paths to the public CDN so the artifact is
+    self-contained. Production pages (rendered directly by render_episode_page)
+    are untouched and keep the root-relative form.
+    """
+    css = (Path(__file__).resolve().parents[1] / "src" / "assets" / "site.css").read_text(
+        encoding="utf-8"
+    )
+    html = html.replace(
+        '<link rel="stylesheet" href="/assets/site.css">',
+        f"<style>\n{css}\n</style>",
+    )
+    # Visible hero/conversation images use src="/blob-images/..." / srcset=...;
+    # the CDN serves those under /images/. (og:image is already absolute.)
+    html = html.replace('"/blob-images/', f'"{PUBLIC_BLOB_CDN}/images/')
+    return html
 
 
 def generate_page(episode: dict, image_url: Optional[str] = None, **_unused) -> str:
-    """Generate the full recipe page HTML from episode data.
+    """Generate a self-contained recipe-preview page from episode data.
 
-    Delegates to the production renderer so test-preview pages use the exact
-    same template and stylesheet (src/assets/site.css) as the live site — one
-    source of truth, and no Tailwind Play CDN baked into generated artifacts.
+    Delegates to the production renderer so previews use the exact same template
+    and stylesheet (src/assets/site.css) as the live site — one source of truth,
+    no Tailwind Play CDN — then inlines the stylesheet and absolutizes image
+    paths so the preview renders correctly when viewed off the site origin (raw
+    blob URL / local file). See _make_preview_self_contained.
 
     `**_unused` absorbs the legacy `blob_token`/`prefix` keyword args that
     callers still pass: render_episode_page resolves conversation/hero images
@@ -52,7 +80,7 @@ def generate_page(episode: dict, image_url: Optional[str] = None, **_unused) -> 
     """
     from backend.publishing.episode_renderer import render_episode_page
 
-    return render_episode_page(episode, image_url=image_url)
+    return _make_preview_self_contained(render_episode_page(episode, image_url=image_url))
 
 
 def _load_episode_from_blob(
