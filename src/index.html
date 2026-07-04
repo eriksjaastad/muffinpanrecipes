@@ -104,22 +104,6 @@
             </div>
         </section>
 
-        <!-- Newsletter Signup (hidden until wired up) -->
-        <!--
-        <section class="mb-20 bg-gradient-to-br from-terracotta to-red-700 text-white rounded-lg p-12 text-center">
-            <h2 class="font-serif text-4xl md:text-5xl mb-4">Never Miss a Recipe</h2>
-            <p class="text-white/90 mb-8 text-lg">Get new muffin pan masterpieces delivered to your inbox weekly</p>
-            <form id="newsletter-form" class="max-w-md mx-auto flex flex-col sm:flex-row gap-3">
-                <input type="email" id="newsletter-email" placeholder="your@email.com" required
-                    class="flex-1 px-6 py-4 rounded-lg text-gray-900 focus:outline-none focus:ring-4 focus:ring-white/50">
-                <button type="submit"
-                    class="px-8 py-4 bg-white text-terracotta font-bold uppercase tracking-widest text-sm rounded-lg hover:bg-gray-100 transition-all transform active:scale-95">
-                    Subscribe
-                </button>
-            </form>
-            <p id="newsletter-message" class="mt-4 text-sm text-white/80 hidden"></p>
-        </section>
-        -->
 
         <!-- This Week's Episode Teaser -->
         <section id="episode-teaser" class="teaser" hidden>
@@ -315,53 +299,6 @@
                 </a>
             `;
         }
-
-        // Newsletter form handling
-        document.addEventListener('DOMContentLoaded', () => {
-            const form = document.getElementById('newsletter-form');
-            const messageEl = document.getElementById('newsletter-message');
-
-            if (form) {
-                form.addEventListener('submit', async (e) => {
-                    e.preventDefault();
-
-                    const email = document.getElementById('newsletter-email').value;
-                    const submitBtn = form.querySelector('button[type="submit"]');
-                    const originalText = submitBtn.textContent;
-
-                    // Disable button and show loading
-                    submitBtn.disabled = true;
-                    submitBtn.textContent = 'Subscribing...';
-                    messageEl.classList.add('hidden');
-
-                    try {
-                        const response = await fetch('/api/newsletter/subscribe', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ email: email })
-                        });
-
-                        const data = await response.json();
-
-                        if (response.ok) {
-                            messageEl.textContent = '✓ ' + (data.message || 'Successfully subscribed!');
-                            messageEl.classList.remove('hidden', 'text-red-200');
-                            messageEl.classList.add('text-green-200');
-                            form.reset();
-                        } else {
-                            throw new Error(data.detail || 'Subscription failed');
-                        }
-                    } catch (error) {
-                        messageEl.textContent = '✗ ' + error.message;
-                        messageEl.classList.remove('hidden', 'text-green-200');
-                        messageEl.classList.add('text-red-200');
-                    } finally {
-                        submitBtn.disabled = false;
-                        submitBtn.textContent = originalText;
-                    }
-                });
-            }
-        });
 
         // Character avatar colors (must match episode_renderer.py)
         const AVATAR_STYLES = {
