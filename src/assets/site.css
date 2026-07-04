@@ -34,14 +34,6 @@
     --gray-900: #111827;
 }
 
-/* The homepage shipped with its own brighter accent + paper white. Preserved
- * here so it stays pixel-identical; unify with the recipe palette later if we
- * want one brand red. */
-body.home {
-    --terracotta: #C0392B;
-    --linen: #FDFEFE;
-}
-
 *, *::before, *::after { box-sizing: border-box; }
 
 html { -webkit-text-size-adjust: 100%; }
