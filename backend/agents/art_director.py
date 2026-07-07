@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import hashlib
 import os
 import random
 import shutil
@@ -142,6 +143,20 @@ class ArtDirectorAgent(Agent):
         "muffin cup. Regardless of what the recipe name suggests, the food "
         "must clearly look muffin-tin-made. Never sheet-pan squares, bars, "
         "slices, flat discs, or loaf shapes. "
+        "Portions sit flat, level, and separate - never stacked, piled, leaning, "
+        "or resting on top of one another. Each portion is whole and intact, never "
+        "smashed (a single deliberate cross-section in the hero shot is the only exception). "
+    )
+
+    # House visual style ("Warm Rustic" - approved 2026-07). Replaces the old
+    # generic "Clean Kitchen Editorial" white-marble/high-key look, which read as
+    # the default AI-food-photo aesthetic with no personality. Kept inline (not in
+    # Documents/, which is .vercelignore'd and never reached the image Lambda).
+    _STYLE_CLAUSE = (
+        "STYLE - Warm Rustic house look: warm golden-hour light, cozy and appetizing, "
+        "gentle steam. Reclaimed-wood and slate surfaces, rich warm amber tones, soft deep "
+        "shadows, a rustic terracotta linen. Moody but inviting, artisanal, full of character. "
+        "Not sterile, not clinical, not flat high-key white. "
     )
 
     def _build_prompt(self, recipe_title: str, variant: str) -> str:
@@ -152,8 +167,7 @@ class ArtDirectorAgent(Agent):
                 "15-degree low angle, ONE single item filling the entire frame. "
                 "Visible crumb structure, steam wisps, glistening texture detail. "
                 "Shot on 100mm macro lens, f/2.0, razor-thin depth of field. "
-                "Bright, high-key lighting, natural daylight from the side. "
-                "White marble countertop. Editorial cookbook style. "
+                f"{self._STYLE_CLAUSE}"
                 "No full tin visible, but the single item's round muffin-cup form "
                 "with molded ridged sides must be obvious. "
                 "No multiple items, no bird's eye view. "
@@ -165,9 +179,8 @@ class ArtDirectorAgent(Agent):
                 "Full tin visible from directly above, portions still seated in the muffin cups, "
                 "scattered ingredient garnishes around the tin. "
                 "Shot on 35mm lens, f/5.6, everything in sharp focus. "
-                "Bright, high-key lighting, natural daylight. "
-                "White marble countertop with flour dusting and herb sprigs. "
-                "Flat lay editorial style, geometric composition. "
+                f"{self._STYLE_CLAUSE}"
+                "Flat lay editorial composition, geometric, scattered herb sprigs on the wood. "
                 "No shallow depth of field, no single item close-up, no low angle. "
                 "No people, no hands, no text, no watermark."
             ),
@@ -177,9 +190,8 @@ class ArtDirectorAgent(Agent):
                 "2-3 items arranged on a rustic wooden board, one broken open showing interior cross-section, "
                 "each unbroken item showing its round molded muffin-cup silhouette. "
                 "Shot on 85mm lens, f/2.8, soft background blur. "
-                "Bright, high-key lighting, natural daylight from the side. "
-                "White marble countertop with minimal props - linen napkin, vintage fork. "
-                "Editorial cookbook style, warm and inviting. "
+                f"{self._STYLE_CLAUSE}"
+                "Minimal props - linen napkin, vintage fork. "
                 "No extreme close-up, no overhead flat lay, no 90 degree angle. "
                 "No people, no hands, no text, no watermark."
             ),
@@ -347,7 +359,7 @@ class ArtDirectorAgent(Agent):
             return {"passed": True, "fallback": True, "per_image": [], "reason": f"vision eval error: {e}"}
 
     def _call_stability(self, api_key: str, prompt: str, variant: str | None = None) -> bytes:
-        base_negative = "people, hands, text, watermark, clutter, dark moody lighting"
+        base_negative = "people, hands, text, watermark, clutter, stacked food, piled food, food on top of food, flat high-key white studio lighting"
         variant_negative = self._VARIANT_NEGATIVES.get(variant or "", "")
         negative_prompt = f"{base_negative}, {variant_negative}" if variant_negative else base_negative
 
@@ -501,9 +513,17 @@ class ArtDirectorAgent(Agent):
             rounds.append(round_data)
 
             if vision_eval.get("passed", True):
-                # Pick winner from vision recommendation or best-scored
-                rec = vision_eval.get("recommended_winner", 1)
-                winner_idx = max(0, min(rec - 1, len(variant_outputs) - 1))
+                # Hero variety: rotate which composition leads across recipes so the
+                # catalog stops being all macro-in-pan (every recent hero was
+                # macro_closeup because the vision default was image 1). Deterministic
+                # by recipe_id so re-renders stay stable. All variants here passed QA,
+                # so the rotated pick is on-brand. If the vision model named a specific
+                # winner (>1), honor it; otherwise rotate.
+                rec = vision_eval.get("recommended_winner")
+                if isinstance(rec, int) and rec > 1:
+                    winner_idx = min(rec - 1, len(variant_outputs) - 1)
+                else:
+                    winner_idx = int(hashlib.sha1(recipe_id.encode()).hexdigest(), 16) % len(variant_outputs)
                 winner_info = {
                     **variant_outputs[winner_idx],
                     "round": round_num,
