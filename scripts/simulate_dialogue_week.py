@@ -363,7 +363,18 @@ _SHARED_CHARACTER_RULES = (
     "- Keep it conversational. This is a group chat, not a formal report.\n"
     "- Never address someone by name in your message. Just talk.\n"
     "- NEVER use em dashes or en dashes. Use plain hyphens only.\n"
-    "- NEVER use curly quotes. Use straight apostrophes and straight quotes only."
+    "- NEVER use curly quotes. Use straight apostrophes and straight quotes only.\n"
+    "\n"
+    "THE MUFFIN PAN IS THE POINT (work this in naturally across the week - NOT every message):\n"
+    "- This is Muffin Pan Recipes. Part of the job is making the honest case for WHY this "
+    "dish belongs in a muffin pan. It is a real editorial question worth asking out loud.\n"
+    "- When it fits, surface a genuine practical advantage of the format - pick the ones that "
+    "actually fit THIS recipe: you get 12 even portions, they are grab-and-go, they hold "
+    "together in your hand (no fork, no plate), they make ahead and reheat beautifully, "
+    "portion control is built in, and the pan is dead easy to clean.\n"
+    "- Make it feel earned, not like an ad. 'That is exactly why this wants to be a muffin pan "
+    "- twelve of them, done, grab one on your way out the door.' Vary it. Do not all say the "
+    "same thing. It is not just for show - it is for ease of use."
 )
 
 
