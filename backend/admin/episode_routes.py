@@ -222,7 +222,7 @@ def _render_recipes_index(recipes: list) -> str:
     json_ld = json.dumps({
         "@context": "https://schema.org",
         "@type": "CollectionPage",
-        "name": "All Recipes — Muffin Pan Recipes",
+        "name": "All Muffin Pan Recipes",
         "url": _RECIPES_CANONICAL,
         "mainEntity": {
             "@type": "ItemList", "numberOfItems": total, "itemListElement": item_list,
@@ -235,12 +235,12 @@ def _render_recipes_index(recipes: list) -> str:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>All Recipes | Muffin Pan Recipes</title>
+    <title>All Muffin Pan Recipes</title>
     <meta name="description" content="{desc}">
     <link rel="canonical" href="{_RECIPES_CANONICAL}">
     <meta property="og:type" content="website">
     <meta property="og:url" content="{_RECIPES_CANONICAL}">
-    <meta property="og:title" content="All Recipes | Muffin Pan Recipes">
+    <meta property="og:title" content="All Muffin Pan Recipes">
     <meta property="og:description" content="{desc}">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>&#x1f9c1;</text></svg>">
     <link rel="stylesheet" href="/assets/site.css">
@@ -257,7 +257,7 @@ def _render_recipes_index(recipes: list) -> str:
     <main class="site-main">
         <div class="page-head">
             <p class="page-head__eyebrow">The Library</p>
-            <h1 class="page-head__title">All Recipes</h1>
+            <h1 class="page-head__title">All Muffin Pan Recipes</h1>
             <p class="page-head__sub">{total} muffin-pan recipes, scaled for the tin and grouped by occasion.</p>
         </div>
 {sections}    </main>
