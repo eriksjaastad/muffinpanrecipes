@@ -4,24 +4,6 @@
 
 ---
 
-## Git Workflow (ENFORCED — not a suggestion)
-
-### Branch Protection
-- **main is protected.** Direct pushes to main are blocked at the GitHub level.
-- **All work must be on a feature branch.** Create a branch, do your work, open a PR.
-- **PRs require 1 approving review** before merge. The Judge (Claude Code) reviews against acceptance criteria.
-- **Never force-push to main.** Force pushes are blocked.
-
-### Branch Naming
-- Use descriptive branch names: `feat/first-recipe-pipeline`, `fix/discord-notification-link`
-- Keep branches focused — one feature or fix per branch
-
-### Commit Messages
-- Follow conventional commits: `feat:`, `fix:`, `docs:`, `chore:`
-- Include task ID if applicable: `feat: add baker agent (#1234)`
-
----
-
 ## Governance Rules
 
 ### 1. Trash, Don't Delete
