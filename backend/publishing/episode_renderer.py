@@ -140,10 +140,20 @@ def _render_chat_message(msg: dict, image_url_map: dict[str, str] | None = None)
         for att in attachments:
             url = image_url_map.get(att, "")
             if url:
-                img_tags.append(
-                    f'<img src="{html.escape(url)}" '
-                    f'alt="Photography option" loading="lazy">'
+                escaped_url = html.escape(url)
+                webp_url = _to_webp_url(url)
+                image = (
+                    f'<img src="{escaped_url}" alt="Photography option" '
+                    f'loading="lazy" decoding="async">'
                 )
+                if webp_url and webp_url != url:
+                    image = (
+                        f'<picture>'
+                        f'<source srcset="{html.escape(webp_url)}" type="image/webp">'
+                        f'{image}'
+                        f'</picture>'
+                    )
+                img_tags.append(image)
         if img_tags:
             images_html = f'<div class="chat-msg__images">{"".join(img_tags)}</div>'
 
