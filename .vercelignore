@@ -8,8 +8,14 @@ docs/
 .agent/
 *.md
 !README.md
-# Exclude AI-generated variant directories (UUIDs), keep recipe .webp files
-src/assets/images/*/
+# Exclude generated images from upload: variant dirs (UUIDs) AND accumulated
+# top-level winner PNGs (~87MB of local runtime artifacts — canonical copies
+# live in Vercel Blob; on Lambda the art director writes to /tmp, never here).
+# Keep only the seed-recipe .webp files, which src/seed_recipes.json serves
+# statically at /assets/images/<slug>.webp. Without this, the Python function
+# bundle blows the 225MB Vercel cap (failed deploy 2026-07-16, 288MB).
+src/assets/images/*
+!src/assets/images/*.webp
 scripts/*
 !scripts/simulate_dialogue_week.py
 !scripts/__init__.py
