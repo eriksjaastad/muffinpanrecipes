@@ -99,3 +99,42 @@ class TestHeroPictureTag:
         assert 'type="image/webp"' in html
         assert 'loading="lazy"' in html
         assert 'decoding="async"' in html
+
+
+class TestGalleryPictureTag:
+    def test_png_attachment_renders_webp_source_with_png_fallback(self):
+        from backend.publishing.episode_renderer import _render_chat_message
+
+        rendered = _render_chat_message(
+            {
+                "character": "Julian Torres",
+                "message": "Here is an option.",
+                "attachments": ["round_1/option.png"],
+            },
+            {"round_1/option.png": "/blob-images/foo/round_1/option.png"},
+        )
+
+        assert "<picture>" in rendered
+        assert 'srcset="/blob-images/foo/round_1/option.webp"' in rendered
+        assert 'type="image/webp"' in rendered
+        assert 'src="/blob-images/foo/round_1/option.png"' in rendered
+        assert 'loading="lazy"' in rendered
+        assert 'decoding="async"' in rendered
+
+    def test_non_png_attachment_remains_plain_img(self):
+        from backend.publishing.episode_renderer import _render_chat_message
+
+        rendered = _render_chat_message(
+            {
+                "character": "Julian Torres",
+                "message": "Here is an option.",
+                "attachments": ["round_1/option.jpg"],
+            },
+            {"round_1/option.jpg": "/blob-images/foo/round_1/option.jpg"},
+        )
+
+        assert "<picture>" not in rendered
+        assert "<source" not in rendered
+        assert 'src="/blob-images/foo/round_1/option.jpg"' in rendered
+        assert 'loading="lazy"' in rendered
+        assert 'decoding="async"' in rendered
