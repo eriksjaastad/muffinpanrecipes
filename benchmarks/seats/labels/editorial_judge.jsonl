@@ -1,0 +1,3 @@
+{"fixture_id":"judge_1","expected_output":{"verdict":"PASS","recorded_qa":94,"required_reasoning":["character voices are distinguishable","creative tension advances the recipe","flag Steph's excessive hedging as a weakness rather than a fatal failure"]}}
+{"fixture_id":"judge_2","expected_output":{"verdict":"PASS","recorded_qa":91,"required_reasoning":["ground the decision in the tracked full-week transcript","identify any continuity or character weakness concretely"]}}
+{"fixture_id":"judge_4","expected_output":{"verdict":"PASS","recorded_qa":95,"required_reasoning":["ground the decision in the tracked scene-style transcript","identify any title repetition or publishability issue concretely"]}}

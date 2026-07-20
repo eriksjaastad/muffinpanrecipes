@@ -1,0 +1,253 @@
+schema_version: seats.v1
+project:
+  id: muffinpanrecipes
+  name: Muffin Pan Recipes
+  owner: muffinpanrecipes
+  seats_file: seats.yaml
+  notes: Production model chairs for the autonomous weekly recipe episode. This file documents current pins; it does not change runtime configuration.
+
+seats:
+  - id: dialogue_generation
+    job: Generate one in-character group-chat message grounded in the recipe, stage, prior dialogue, and character memory.
+    output_contract:
+      type: free_text
+      validation: Require non-empty plain text with no speaker prefix or chain-of-thought markup, then score recipe fidelity, voice, continuity, tension, and stage relevance.
+    input_character: messy
+    supervision: unattended
+    required_capabilities: [long_context]
+    review_gates:
+      - type: model
+        seat_id: editorial_judge
+        required: true
+        notes: Each production day is regenerated within the bounded retry limit when the judge fails it.
+    failure_cost:
+      level: high
+      description: Off-character or recipe-inaccurate dialogue is published as user-visible episode content.
+    volume:
+      expected: 28
+      unit: messages_per_week
+      burst: 56
+    cost_sensitivity: high
+    latency_tolerance: standard
+    current_pin:
+      provider: anthropic
+      model: claude-haiku-4-5
+      status: LIVE
+      reason: Current production dialogue chair documented as the Doppler prd override in docs/ENV_VARS.md.
+    eval_fixtures:
+      path: benchmarks/seats/dialogue_generation.jsonl
+      format: jsonl
+      id_field: fixture_id
+      input_field: input
+      expected_output_field: expected_output
+      context_providers:
+        - id: character_profiles
+          source: project_file
+          source_ref: backend/data/agent_personalities.json
+          required: true
+        - id: creative_bible
+          source: project_file
+          source_ref: docs/CREATIVE_BIBLE.md
+          required: true
+      sealed_labels:
+        policy: external
+        path: benchmarks/seats/labels/dialogue_generation.jsonl
+      split: &standard_split
+        method: deterministic_hash_modulo
+        hash_field: fixture_id
+        modulo: 5
+        dev_remainders: [1, 2, 3, 4]
+        sealed_remainders: [0]
+        sealed_unseal_env: MODEL_BENCH_UNSEAL
+
+  - id: recipe_copy_generation
+    job: Generate either a complete muffin-pan recipe object or the structured editorial-copy object used by the weekly episode.
+    output_contract:
+      type: json
+      schema_ref: schemas/recipe-copy-generation.schema.json
+      validation: Parse the task-specific schema branch, then run title, US-unit, muffin-pan-form, ingredient, instruction, and word-count gates.
+    input_character: messy
+    supervision: unattended
+    required_capabilities: [json_mode, long_context]
+    review_gates:
+      - type: model
+        seat_id: editorial_judge
+        required: true
+        notes: Sunday editorial QA reviews the assembled recipe and bounded auto-fixes run on failure.
+    failure_cost:
+      level: critical
+      description: A malformed recipe can reach the public site, while weak copy degrades the primary user-facing page.
+    volume:
+      expected: 2
+      unit: outputs_per_week
+      burst: 5
+    cost_sensitivity: medium
+    latency_tolerance: batch
+    current_pin:
+      provider: openai
+      model: gpt-5.1
+      status: LIVE
+      reason: Current production recipe chair documented in CLAUDE.md; RECIPE_MODEL supplies recipe and copy generation.
+    eval_fixtures:
+      path: benchmarks/seats/recipe_copy_generation.jsonl
+      format: jsonl
+      id_field: fixture_id
+      input_field: input
+      expected_output_field: expected_output
+      context_providers:
+        - id: production_prompts
+          source: project_file
+          source_ref: backend/utils/recipe_prompts.py
+          required: true
+        - id: title_policy
+          source: project_file
+          source_ref: backend/utils/title_validator.py
+          required: true
+      sealed_labels:
+        policy: external
+        path: benchmarks/seats/labels/recipe_copy_generation.jsonl
+      split: *standard_split
+
+  - id: vision_art_direction
+    job: Score a generated food-photo set, enforce muffin-pan brand form and diversity, and recommend the winning image.
+    output_contract:
+      type: json
+      schema_ref: schemas/vision-art-direction.schema.json
+      validation: Validate per-image dimensions and set fields, recompute production pass thresholds, and reject missing artifacts or muffin_pan_form scores.
+    input_character: messy
+    supervision: unattended
+    required_capabilities: [vision, json_mode]
+    failure_cost:
+      level: critical
+      description: A false pass can publish off-brand food photography or select the wrong hero image.
+    volume:
+      expected: 1
+      unit: image_sets_per_week
+      burst: 2
+    cost_sensitivity: medium
+    latency_tolerance: standard
+    current_pin:
+      provider: openai
+      model: gpt-5-mini
+      status: LIVE
+      reason: Current VISION_EVAL_MODEL default in backend/agents/art_director.py and docs/ENV_VARS.md.
+      parameters:
+        temperature: 0.3
+    eval_fixtures:
+      path: benchmarks/seats/vision_art_direction.jsonl
+      format: jsonl
+      id_field: fixture_id
+      input_field: input
+      expected_output_field: expected_output
+      context_providers:
+        - id: image_artifacts
+          source: fixture_field
+          source_ref: input.image_refs
+          required: true
+        - id: production_art_direction
+          source: project_file
+          source_ref: backend/agents/art_director.py
+          required: true
+      sealed_labels:
+        policy: external
+        path: benchmarks/seats/labels/vision_art_direction.jsonl
+      split: *standard_split
+
+  - id: image_generation
+    job: Generate a warm-rustic, square food photograph whose portions unmistakably carry muffin-cup form.
+    output_contract:
+      type: image
+      image:
+        allowed_mime_types: [image/png]
+        min_width_px: 1024
+        min_height_px: 1024
+        max_bytes: 10485760
+        allowed_aspect_ratios: ["1:1"]
+      validation: Decode the artifact, enforce PNG, dimensions, byte size, and square aspect ratio, then apply the vision art-direction rubric.
+    input_character: clean
+    supervision: unattended
+    required_capabilities: [image_generation]
+    review_gates:
+      - type: model
+        seat_id: vision_art_direction
+        required: true
+    failure_cost:
+      level: high
+      description: Bad images consume paid generation and storage budget and can become the public hero and social-preview asset.
+    volume:
+      expected: 3
+      unit: images_per_week
+      burst: 6
+    cost_sensitivity: high
+    latency_tolerance: batch
+    current_pin:
+      provider: stability-ai
+      model: stable-image-core
+      status: LIVE
+      reason: Production photography calls Stability's v2beta stable-image generate/core endpoint directly.
+      parameters:
+        output_format: png
+        aspect_ratio: "1:1"
+    eval_fixtures:
+      path: benchmarks/seats/image_generation.jsonl
+      format: jsonl
+      id_field: fixture_id
+      input_field: input
+      expected_output_field: expected_output
+      context_providers:
+        - id: production_prompt
+          source: fixture_field
+          source_ref: input.prompt
+          required: true
+        - id: style_guide
+          source: project_file
+          source_ref: Documents/core/IMAGE_STYLE_GUIDE.md
+          required: true
+      sealed_labels:
+        policy: external
+        path: benchmarks/seats/labels/image_generation.jsonl
+      split: *standard_split
+
+  - id: editorial_judge
+    job: Gate daily dialogue and the final recipe package for fidelity, character, continuity, publishability, and title repetition.
+    output_contract:
+      type: free_text
+      validation: Dialogue tasks require exactly one PASS or FAIL line with a reason; recipe tasks require a recognizable PASS or FAIL status and concrete issue text.
+    input_character: messy
+    supervision: unattended
+    required_capabilities: [long_context]
+    failure_cost:
+      level: critical
+      description: False passes publish bad content; false failures trigger paid regeneration and can halt the weekly pipeline.
+    volume:
+      expected: 8
+      unit: judgments_per_week
+      burst: 17
+    cost_sensitivity: low
+    latency_tolerance: standard
+    current_pin:
+      provider: anthropic
+      model: claude-opus-4-6
+      status: LIVE
+      reason: Current production judge chair documented in CLAUDE.md and docs/ENV_VARS.md.
+      parameters:
+        temperature: 0.2
+    eval_fixtures:
+      path: benchmarks/seats/editorial_judge.jsonl
+      format: jsonl
+      id_field: fixture_id
+      input_field: input
+      expected_output_field: expected_output
+      context_providers:
+        - id: judge_policy
+          source: project_file
+          source_ref: backend/admin/cron_routes.py
+          required: true
+        - id: full_week_rubric
+          source: project_file
+          source_ref: scripts/judge_conversation.py
+          required: false
+      sealed_labels:
+        policy: external
+        path: benchmarks/seats/labels/editorial_judge.jsonl
+      split: *standard_split

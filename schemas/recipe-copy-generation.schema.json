@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "description", "servings", "prep_time", "cook_time", "difficulty", "category", "cuisine", "ingredients", "instructions", "chef_notes"],
+      "properties": {
+        "title": {"type": "string", "minLength": 3},
+        "description": {"type": "string", "minLength": 20},
+        "servings": {"type": "integer", "minimum": 1},
+        "prep_time": {"type": "integer", "minimum": 1},
+        "cook_time": {"type": "integer", "minimum": 1},
+        "difficulty": {"enum": ["easy", "medium", "hard"]},
+        "category": {"enum": ["breakfast", "savory", "sweet", "party"]},
+        "cuisine": {"type": "string", "minLength": 2},
+        "ingredients": {
+          "type": "array",
+          "minItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["item", "amount", "notes"],
+            "properties": {
+              "item": {"type": "string", "minLength": 1},
+              "amount": {"type": "string", "minLength": 1},
+              "notes": {"type": "string"}
+            }
+          }
+        },
+        "instructions": {"type": "array", "minItems": 3, "items": {"type": "string", "minLength": 8}},
+        "chef_notes": {"type": "string", "minLength": 10}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["body", "word_count", "target_word_count"],
+      "properties": {
+        "body": {"type": "string", "minLength": 80},
+        "word_count": {"type": "integer", "minimum": 1},
+        "target_word_count": {"type": "integer", "minimum": 1}
+      }
+    }
+  ]
+}
