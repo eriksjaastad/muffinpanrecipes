@@ -153,8 +153,8 @@ class ArtDirectorAgent(Agent):
     # the default AI-food-photo aesthetic with no personality. Kept inline (not in
     # Documents/, which is .vercelignore'd and never reached the image Lambda).
     _STYLE_CLAUSE = (
-        "STYLE - Warm Rustic house look: warm golden-hour light, cozy and appetizing, "
-        "gentle steam. Reclaimed-wood and slate surfaces, rich warm amber tones, soft deep "
+        "STYLE - Warm Rustic house look: warm golden-hour light, cozy and appetizing. "
+        "Reclaimed-wood and slate surfaces, rich warm amber tones, soft deep "
         "shadows, a rustic terracotta linen. Moody but inviting, artisanal, full of character. "
         "Not sterile, not clinical, not flat high-key white. "
     )
@@ -165,7 +165,7 @@ class ArtDirectorAgent(Agent):
                 f"Extreme close-up food photography of {recipe_title}. "
                 f"{self._MUFFIN_FORM_CLAUSE}"
                 "15-degree low angle, ONE single item filling the entire frame. "
-                "Visible crumb structure, steam wisps, glistening texture detail. "
+                "Visible crumb structure, glistening texture detail. "
                 "Shot on 100mm macro lens, f/2.0, razor-thin depth of field. "
                 f"{self._STYLE_CLAUSE}"
                 "No full tin visible, but the single item's round muffin-cup form "
