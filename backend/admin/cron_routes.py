@@ -1541,9 +1541,8 @@ async def cron_sunday(request: Request):
         recipe_title = monday.get("recipe_data", {}).get("title", "")
         if recipe_title:
             slug = _slugify(recipe_title)
-            image_urls = ep.get("image_urls", [])
-            recipe_image = image_urls[0] if image_urls else None
-            recipe_html = render_episode_page(ep, image_url=recipe_image)
+            # Hero is derived from the confirmed winner inside render_episode_page
+            recipe_html = render_episode_page(ep)
             storage.save_page(f"pages/recipes/{slug}/index.html", recipe_html)
             logger.info(f"Published recipe page at /recipes/{slug}")
 

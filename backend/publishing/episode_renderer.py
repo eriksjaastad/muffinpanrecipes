@@ -116,6 +116,28 @@ def _to_local_image_url(blob_url: str) -> str:
     return blob_url
 
 
+def _hero_image_url(episode: dict) -> str:
+    """Pick the recipe-page hero image.
+
+    Prefer the art director's confirmed winner (the shot the vision pass and
+    hero-variety rotation actually selected). Historically the page hero was
+    hardwired to image_urls[0] — always the macro_closeup — so the winner only
+    ever reached the OG/social thumbnail, and the page never varied. Falling
+    back to image_urls[0] keeps older episodes (no confirmed_winner) unchanged.
+    """
+    winner = (
+        episode.get("stages", {}).get("wednesday", {}).get("confirmed_winner")
+        or {}
+    )
+    featured = winner.get("featured_image", "")
+    if featured:
+        url = storage.get_image_url(featured)
+        if url:
+            return url
+    image_urls = episode.get("image_urls", [])
+    return image_urls[0] if image_urls else ""
+
+
 def _char_info(name: str) -> dict:
     """Look up character info, falling back to generic."""
     for key, info in CHARACTERS.items():
@@ -327,10 +349,9 @@ def render_episode_page(
     instructions = recipe.get("instructions", [])
     chef_notes = sanitize_text(recipe.get("chef_notes", ""))
 
-    # Image — use provided URL, or fall back to episode data
+    # Image — use provided URL, or fall back to the winner hero (then image_urls[0])
     if not image_url:
-        image_urls = episode.get("image_urls", [])
-        image_url = image_urls[0] if image_urls else ""
+        image_url = _hero_image_url(episode)
     if image_url:
         image_url = _to_local_image_url(image_url)
 
@@ -913,13 +934,9 @@ def regenerate_and_upload(episode: dict) -> str | None:
     """
     episode_id = episode.get("episode_id", "unknown")
 
-    # Find hero image URL from episode data
-    image_urls = episode.get("image_urls", [])
-    image_url = image_urls[0] if image_urls else None
-
     try:
-        # 1. Render and upload the episode page
-        page_html = render_episode_page(episode, image_url=image_url)
+        # 1. Render and upload the episode page (hero derived from the winner)
+        page_html = render_episode_page(episode)
         pathname = f"pages/{episode_id}/index.html"
         url = storage.save_page(pathname, page_html)
         logger.info(f"Uploaded episode page: {pathname} ({len(page_html)} bytes)")
