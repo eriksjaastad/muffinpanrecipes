@@ -62,15 +62,13 @@ def fix_episode(episode_id: str, dry_run: bool = False) -> bool:
         return False
 
     slug = _slugify(title)
-    image_urls = ep.get("image_urls", [])
-    image_url = image_urls[0] if image_urls else None
 
     if dry_run:
         print(f"  WOULD FIX {episode_id}: /recipes/{slug} ({title})")
         return True
 
-    # Re-render fresh from episode JSON
-    page_html = render_episode_page(ep, image_url=image_url)
+    # Re-render fresh from episode JSON (hero derived from the confirmed winner)
+    page_html = render_episode_page(ep)
 
     # Upload episode page
     storage.save_page(f"pages/{episode_id}/index.html", page_html)
