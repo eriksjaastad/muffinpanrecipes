@@ -154,6 +154,37 @@ class TestHeroFromWinner:
         # No winner recorded → legacy behavior (image_urls[0] = macro)
         assert "round_1/macro_closeup" in html
 
+    def test_midweek_episode_has_no_wednesday_stage_renders_placeholder(self):
+        """Mon/Tue episodes (no photography yet) must render the placeholder,
+        not crash in _hero_image_url."""
+        from backend.publishing import episode_renderer
+
+        ep = {
+            "episode_id": "ep-mon",
+            "concept": "Test",
+            "stages": {
+                "monday": {
+                    "recipe_data": {
+                        "title": "Test Muffins",
+                        "description": "delicious",
+                        "ingredients": [{"item": "flour", "amount": "1 cup"}],
+                        "instructions": ["mix it", "bake it"],
+                    },
+                },
+            },
+        }
+        html = episode_renderer.render_episode_page(ep)
+        assert "recipe-hero__image-placeholder" in html
+
+    def test_hero_handles_non_dict_confirmed_winner(self):
+        """A malformed confirmed_winner must not crash the render."""
+        from backend.publishing import episode_renderer
+
+        ep = self._episode(winner_featured=None)
+        ep["stages"]["wednesday"]["confirmed_winner"] = "oops-not-a-dict"
+        html = episode_renderer.render_episode_page(ep)
+        assert "round_1/macro_closeup" in html
+
 
 class TestGalleryPictureTag:
     def test_png_attachment_renders_webp_source_with_png_fallback(self):

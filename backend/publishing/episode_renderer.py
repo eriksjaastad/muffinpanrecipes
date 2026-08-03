@@ -125,10 +125,9 @@ def _hero_image_url(episode: dict) -> str:
     ever reached the OG/social thumbnail, and the page never varied. Falling
     back to image_urls[0] keeps older episodes (no confirmed_winner) unchanged.
     """
-    winner = (
-        episode.get("stages", {}).get("wednesday", {}).get("confirmed_winner")
-        or {}
-    )
+    winner = episode.get("stages", {}).get("wednesday", {}).get("confirmed_winner")
+    if not isinstance(winner, dict):
+        winner = {}
     featured = winner.get("featured_image", "")
     if featured:
         url = storage.get_image_url(featured)
