@@ -101,6 +101,91 @@ class TestHeroPictureTag:
         assert 'decoding="async"' in html
 
 
+class TestHeroFromWinner:
+    """The page hero should come from the art director's confirmed winner,
+    not from image_urls[0] (the always-macro first variant)."""
+
+    def _episode(self, winner_featured=None):
+        wed: dict = {
+            "image_urls": [
+                "https://example.com/images/foo/round_1/macro_closeup.png",
+                "https://example.com/images/foo/round_1/overhead_flatlay.png",
+            ],
+        }
+        if winner_featured is not None:
+            wed["confirmed_winner"] = {"featured_image": winner_featured}
+        return {
+            "episode_id": "ep-test",
+            "concept": "Test",
+            "stages": {
+                "monday": {
+                    "recipe_data": {
+                        "title": "Test Muffins",
+                        "description": "delicious",
+                        "ingredients": [{"item": "flour", "amount": "1 cup"}],
+                        "instructions": ["mix it", "bake it"],
+                    },
+                },
+                "wednesday": wed,
+            },
+            "image_urls": wed["image_urls"],
+        }
+
+    def test_hero_uses_winner_featured_image(self):
+        from unittest.mock import patch
+        from backend.publishing import episode_renderer
+
+        ep = self._episode(winner_featured="src/assets/images/foo.png")
+        with patch.object(
+            episode_renderer.storage, "get_image_url",
+            return_value="/blob-images/foo.png",
+        ):
+            html = episode_renderer.render_episode_page(ep)
+        # Winner (foo.png) leads, not the macro first variant
+        assert 'src="/blob-images/foo.png"' in html
+        assert 'srcset="/blob-images/foo.webp"' in html
+        assert "round_1/macro_closeup.png" not in html.split("recipe-hero__image")[1][:400]
+
+    def test_hero_falls_back_to_first_url_without_winner(self):
+        from backend.publishing import episode_renderer
+
+        ep = self._episode(winner_featured=None)
+        html = episode_renderer.render_episode_page(ep)
+        # No winner recorded → legacy behavior (image_urls[0] = macro)
+        assert "round_1/macro_closeup" in html
+
+    def test_midweek_episode_has_no_wednesday_stage_renders_placeholder(self):
+        """Mon/Tue episodes (no photography yet) must render the placeholder,
+        not crash in _hero_image_url."""
+        from backend.publishing import episode_renderer
+
+        ep = {
+            "episode_id": "ep-mon",
+            "concept": "Test",
+            "stages": {
+                "monday": {
+                    "recipe_data": {
+                        "title": "Test Muffins",
+                        "description": "delicious",
+                        "ingredients": [{"item": "flour", "amount": "1 cup"}],
+                        "instructions": ["mix it", "bake it"],
+                    },
+                },
+            },
+        }
+        html = episode_renderer.render_episode_page(ep)
+        assert "recipe-hero__image-placeholder" in html
+
+    def test_hero_handles_non_dict_confirmed_winner(self):
+        """A malformed confirmed_winner must not crash the render."""
+        from backend.publishing import episode_renderer
+
+        ep = self._episode(winner_featured=None)
+        ep["stages"]["wednesday"]["confirmed_winner"] = "oops-not-a-dict"
+        html = episode_renderer.render_episode_page(ep)
+        assert "round_1/macro_closeup" in html
+
+
 class TestGalleryPictureTag:
     def test_png_attachment_renders_webp_source_with_png_fallback(self):
         from backend.publishing.episode_renderer import _render_chat_message
