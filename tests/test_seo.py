@@ -502,6 +502,16 @@ def test_injection_never_breaks_a_page() -> None:
     assert ensure_ga4_tag("<html><body>no head</body></html>") == "<html><body>no head</body></html>"
 
 
+def test_missing_head_is_logged_not_silent(caplog) -> None:
+    """Serving untagged is acceptable; doing it silently is not — an untagged
+    page looks healthy in a browser and is invisible in GA4."""
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        ensure_ga4_tag("<html><body>no head</body></html>")
+    assert any("no <head>" in r.getMessage() for r in caplog.records)
+
+
 def test_recipe_route_serves_tagged_legacy_page() -> None:
     with patch.object(episode_routes.storage, "load_page", return_value=_LEGACY_PAGE):
         resp = asyncio.run(episode_routes.recipe_page("spanakopita-phyllo-cups"))

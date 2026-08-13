@@ -18,6 +18,10 @@ file no Python process ever renders.
 
 from __future__ import annotations
 
+from backend.utils.logging import get_logger
+
+logger = get_logger(__name__)
+
 GA4_MEASUREMENT_ID = "G-05P73D3237"
 
 GA4_TAG = f"""<!-- Google tag (gtag.js) -->
@@ -56,6 +60,9 @@ def ensure_ga4_tag(html: str) -> str:
         return html
     idx = html.find(_HEAD_OPEN)
     if idx == -1:
+        # Serve the page regardless, but never silently: an untagged page
+        # looks perfectly healthy in a browser and is invisible in GA4.
+        logger.warning("GA4 tag not injected: no <head> in page HTML (%d bytes)", len(html))
         return html
     at = idx + len(_HEAD_OPEN)
     return f"{html[:at]}\n    {GA4_TAG}{html[at:]}"
