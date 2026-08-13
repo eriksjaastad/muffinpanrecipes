@@ -19,6 +19,7 @@ import os
 import re
 from typing import Optional
 
+from backend.publishing.analytics import GA4_TAG
 from backend.storage import storage
 from backend.utils.logging import get_logger
 from backend.utils.text_sanitize import sanitize_text
@@ -648,6 +649,7 @@ def render_episode_page(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    {GA4_TAG}
     <meta name="description" content="{desc_escaped}">
     <title>{title_escaped} | Muffin Pan Recipes</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>&#x1f9c1;</text></svg>">
