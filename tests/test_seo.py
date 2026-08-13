@@ -462,3 +462,55 @@ def test_admin_pages_do_not_carry_ga4_tag() -> None:
 def test_ga4_tag_constant_is_well_formed() -> None:
     assert _tagged(GA4_TAG)
     assert GA4_MEASUREMENT_ID.startswith("G-")
+
+
+# ---------------------------------------------------------------------------
+# Legacy blob pages: serve-time GA4 injection
+# ---------------------------------------------------------------------------
+
+from backend.publishing.analytics import ensure_ga4_tag  # noqa: E402
+
+_LEGACY_PAGE = (
+    "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n"
+    "    <meta charset=\"UTF-8\">\n"
+    "    <title>Spanakopita Phyllo Cups | Muffin Pan Recipes</title>\n"
+    "</head>\n<body><h1>Spanakopita Phyllo Cups</h1></body>\n</html>"
+)
+
+
+def test_injects_tag_into_legacy_page() -> None:
+    """The 21 pages published before the tag shipped are frozen in blob and
+    must still be measured."""
+    out = ensure_ga4_tag(_LEGACY_PAGE)
+    assert _tagged(out)
+    assert "<title>Spanakopita Phyllo Cups" in out  # original content preserved
+    assert out.index(GA4_MEASUREMENT_ID) < out.index("</head>")  # landed in <head>
+
+
+def test_injection_is_idempotent() -> None:
+    """Freshly rendered pages already carry the tag — no double-tagging, which
+    would double-count every pageview."""
+    already = render_episode_page(_published_episode())
+    assert ensure_ga4_tag(already) == already
+    assert ensure_ga4_tag(ensure_ga4_tag(_LEGACY_PAGE)) == ensure_ga4_tag(_LEGACY_PAGE)
+    assert ensure_ga4_tag(_LEGACY_PAGE).count(f"gtag('config', '{GA4_MEASUREMENT_ID}')") == 1
+
+
+def test_injection_never_breaks_a_page() -> None:
+    """Analytics must never take down a live recipe page."""
+    assert ensure_ga4_tag("") == ""
+    assert ensure_ga4_tag("<html><body>no head</body></html>") == "<html><body>no head</body></html>"
+
+
+def test_recipe_route_serves_tagged_legacy_page() -> None:
+    with patch.object(episode_routes.storage, "load_page", return_value=_LEGACY_PAGE):
+        resp = asyncio.run(episode_routes.recipe_page("spanakopita-phyllo-cups"))
+    assert resp.status_code == 200
+    assert _tagged(bytes(resp.body).decode())
+
+
+def test_this_week_route_serves_tagged_legacy_page() -> None:
+    with patch.object(episode_routes.storage, "load_page", return_value=_LEGACY_PAGE):
+        resp = asyncio.run(episode_routes.this_week_page())
+    assert resp.status_code == 200
+    assert _tagged(bytes(resp.body).decode())

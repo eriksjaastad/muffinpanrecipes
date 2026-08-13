@@ -29,3 +29,33 @@ GA4_TAG = f"""<!-- Google tag (gtag.js) -->
 
       gtag('config', '{GA4_MEASUREMENT_ID}');
     </script>"""
+
+_HEAD_OPEN = "<head>"
+
+
+def ensure_ga4_tag(html: str) -> str:
+    """Inject the GA4 tag into stored page HTML that predates the tag.
+
+    Recipe pages and /this-week are pre-rendered at publish time and frozen
+    in blob storage, so a renderer change does NOT reach the 21 pages
+    already published — they would serve untagged forever.
+
+    Re-rendering them is the obvious fix and the wrong one: a fresh render
+    also picks up every *other* renderer change since publish. As of PR #82
+    that includes hero selection, which would swap 19 of 21 heroes from the
+    macro close-up to the confirmed winner — a deliberate, still-open
+    decision that has nothing to do with analytics. Injecting at serve time
+    keeps the two concerns apart.
+
+    Idempotent: freshly rendered pages already carry the tag and pass
+    through untouched. Malformed HTML with no <head> is returned unchanged
+    rather than raising — a missing analytics tag must never take down a
+    live recipe page.
+    """
+    if not html or GA4_MEASUREMENT_ID in html:
+        return html
+    idx = html.find(_HEAD_OPEN)
+    if idx == -1:
+        return html
+    at = idx + len(_HEAD_OPEN)
+    return f"{html[:at]}\n    {GA4_TAG}{html[at:]}"
