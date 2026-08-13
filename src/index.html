@@ -4,6 +4,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Google tag (gtag.js) — keep in sync with backend/publishing/analytics.py.
+         This file is served statically by Vercel, so it can't import the
+         shared constant; tests/test_seo.py asserts the two agree. -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-05P73D3237"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'G-05P73D3237');
+    </script>
+
     <title>Muffin Pan Recipes | Editorial Cookery</title>
     <meta name="description"
         content="Gourmet, mathematically-scaled recipes designed exclusively for muffin tins. Breakfast, Savory, and Sweet single-serving meals.">

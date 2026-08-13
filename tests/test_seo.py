@@ -400,3 +400,65 @@ def test_related_recipes_same_category_excludes_self() -> None:
     slugs = [r["slug"] for r in rel]
     assert "alpha-cups" not in slugs
     assert slugs == ["beta-bites", "delta-dish", "echo-eggs", "gamma-gratin"]
+
+
+# ---------------------------------------------------------------------------
+# Analytics: the GA4 tag must reach every public page and no admin page
+# ---------------------------------------------------------------------------
+
+from backend.publishing.analytics import GA4_MEASUREMENT_ID, GA4_TAG  # noqa: E402
+
+
+def _tagged(html: str) -> bool:
+    """Both halves must be present: the loader AND the config call. A page
+    with only the loader collects nothing."""
+    return (
+        f"googletagmanager.com/gtag/js?id={GA4_MEASUREMENT_ID}" in html
+        and f"gtag('config', '{GA4_MEASUREMENT_ID}')" in html
+    )
+
+
+def test_recipe_page_carries_ga4_tag() -> None:
+    assert _tagged(render_episode_page(_published_episode()))
+
+
+def test_unpublished_this_week_page_carries_ga4_tag() -> None:
+    """Mid-week the page is still public and still worth measuring, even
+    though it deliberately has no canonical yet."""
+    ep = _published_episode()
+    ep["stages"].pop("sunday")
+    ep.pop("published_at")
+    assert _tagged(render_episode_page(ep))
+
+
+def test_this_week_placeholder_carries_ga4_tag() -> None:
+    assert _tagged(episode_routes._placeholder_page("2026-W33"))
+
+
+def test_recipes_index_carries_ga4_tag() -> None:
+    catalog = json.dumps({"recipes": [
+        {"slug": "alpha-cups", "title": "Alpha Cups", "category": "Savory", "description": "d"},
+    ]})
+    with patch.object(episode_routes.storage, "load_page", return_value=catalog):
+        resp = asyncio.run(episode_routes.recipes_index())
+    assert _tagged(bytes(resp.body).decode())
+
+
+def test_static_homepage_tag_matches_shared_constant() -> None:
+    """src/index.html is served statically and cannot import the constant, so
+    the two are asserted to agree here. Drift = a silently untagged homepage."""
+    index = Path(__file__).resolve().parents[1] / "src" / "index.html"
+    assert _tagged(index.read_text())
+
+
+def test_admin_pages_do_not_carry_ga4_tag() -> None:
+    """Internal traffic must stay out of the property — on a site this size a
+    few admin sessions a day would visibly distort engagement metrics."""
+    templates = Path(__file__).resolve().parents[1] / "backend" / "admin" / "templates"
+    tagged = [p.name for p in templates.glob("*.html") if GA4_MEASUREMENT_ID in p.read_text()]
+    assert tagged == [], f"admin templates must not carry the GA4 tag: {tagged}"
+
+
+def test_ga4_tag_constant_is_well_formed() -> None:
+    assert _tagged(GA4_TAG)
+    assert GA4_MEASUREMENT_ID.startswith("G-")
