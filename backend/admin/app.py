@@ -103,14 +103,19 @@ def create_admin_app(
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
 
-        # CSP: safe for admin dashboard (Tailwind CDN, Google Fonts)
+        # CSP: safe for admin dashboard (Tailwind CDN, Google Fonts).
+        # This middleware applies to EVERY lambda route, including the public
+        # recipe pages — so it must also allow GA4. Without the googletagmanager
+        # entry the tag is silently blocked on /recipes/* and /this-week while
+        # the static homepage (no CSP) tracks fine, which looks exactly like a
+        # broken analytics install. Found 2026-08-15.
         csp_parts = [
             "default-src 'self'",
-            "script-src 'self' 'unsafe-inline' cdn.tailwindcss.com",
+            "script-src 'self' 'unsafe-inline' cdn.tailwindcss.com https://www.googletagmanager.com",
             "style-src 'self' 'unsafe-inline' cdn.tailwindcss.com fonts.googleapis.com",
             "font-src 'self' fonts.gstatic.com",
-            "img-src 'self' data:",
-            "connect-src 'self'",
+            "img-src 'self' data: https://www.google-analytics.com https://*.google-analytics.com",
+            "connect-src 'self' https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com",
             "object-src 'none'",
             "base-uri 'self'",
             "form-action 'self'",
