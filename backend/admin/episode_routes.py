@@ -18,7 +18,7 @@ from pathlib import Path
 from fastapi import APIRouter, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from backend.publishing.analytics import GA4_TAG
+from backend.publishing.analytics import GA4_TAG, ensure_ga4_tag
 from backend.storage import storage
 from backend.utils.logging import get_logger
 
@@ -45,7 +45,7 @@ async def this_week_page():
     episode_id = _current_episode_id()
     page_html = storage.load_page(f"pages/{episode_id}/index.html")
     if page_html:
-        return HTMLResponse(content=page_html)
+        return HTMLResponse(content=ensure_ga4_tag(page_html))
 
     return HTMLResponse(content=_placeholder_page(episode_id), status_code=200)
 
@@ -317,7 +317,7 @@ async def recipe_page(slug: str):
     # Try blob (cron-generated recipe pages)
     page = storage.load_page(f"pages/recipes/{slug}/index.html")
     if page:
-        return HTMLResponse(content=page)
+        return HTMLResponse(content=ensure_ga4_tag(page))
 
     # Seed recipes — rendered from src/seed_recipes.json (single renderer).
     seed = _load_seed_recipes().get(slug)
