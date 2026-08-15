@@ -524,3 +524,19 @@ def test_this_week_route_serves_tagged_legacy_page() -> None:
         resp = asyncio.run(episode_routes.this_week_page())
     assert resp.status_code == 200
     assert _tagged(bytes(resp.body).decode())
+
+
+def test_csp_allows_ga4() -> None:
+    """The security middleware applies to public recipe pages too. A CSP that
+    omits googletagmanager silently blocks the tag on every lambda-served page
+    while the static homepage keeps tracking — which reads as a broken install.
+    """
+    from fastapi.testclient import TestClient
+    from backend.admin.app import create_admin_app
+
+    with TestClient(create_admin_app()) as client:
+        csp = client.get("/health").headers.get("content-security-policy", "")
+
+    assert "https://www.googletagmanager.com" in csp, "gtag.js would be blocked"
+    connect = next(p for p in csp.split("; ") if p.startswith("connect-src"))
+    assert "google-analytics.com" in connect, "GA4 could not send collected data"
