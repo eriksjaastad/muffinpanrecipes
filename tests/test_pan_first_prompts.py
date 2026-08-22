@@ -129,6 +129,33 @@ def test_parser_defaults_cuisine_empty_when_absent() -> None:
     assert _parse_recipe_response(response, "c")["cuisine"] == ""
 
 
+# ---------------------------------------------------------------------------
+# Calories: asked for, parsed, never invented
+# ---------------------------------------------------------------------------
+
+def test_output_format_asks_for_calories() -> None:
+    prompt = _build_recipe_system_prompt({"name": "Margaret Chen"})
+    assert "CALORIES:" in prompt
+    assert "per serving" in prompt
+
+
+def test_parser_captures_calories_as_int() -> None:
+    response = (
+        "TITLE: Plain Cups\n"
+        "CALORIES: 185\n"
+        "INGREDIENTS:\n- 1 egg\n"
+        "INSTRUCTIONS:\n1. Bake.\n"
+    )
+    assert _parse_recipe_response(response, "c")["calories"] == 185
+
+
+def test_parser_leaves_calories_none_when_absent() -> None:
+    """No fabricated default — an absent figure must stay absent so the page
+    and its JSON-LD both omit nutrition."""
+    response = "TITLE: Plain Cups\nINGREDIENTS:\n- 1 egg\nINSTRUCTIONS:\n1. Bake.\n"
+    assert _parse_recipe_response(response, "c")["calories"] is None
+
+
 def test_user_prompt_always_encourages_global_cuisines() -> None:
     prompt = " ".join(_build_recipe_user_prompt("Egg Cups").split())
     assert "Reach beyond American comfort food" in prompt

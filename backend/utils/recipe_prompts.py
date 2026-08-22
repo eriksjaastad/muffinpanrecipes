@@ -109,6 +109,7 @@ DESCRIPTION: [2-3 sentences describing the dish and what makes it special]
 SERVINGS: [number]
 PREP_TIME: [minutes]
 COOK_TIME: [minutes]
+CALORIES: [approximate calories per serving - whole number only, no units. Omit this line entirely if you cannot estimate it honestly.]
 DIFFICULTY: [easy/medium/hard]
 CATEGORY: [breakfast/savory/sweet/party] (party = finger foods, appetizers, entertaining bites)
 CUISINE: [the dish's actual culinary tradition — e.g. American, Italian, Mexican, Korean, Indian, Greek, Thai, French, Middle Eastern, Vietnamese. Be honest and specific: a muffin-tin shepherd's pie is British, a muffin-tin lasagna is Italian. Do NOT default to American — reach for the world.]
@@ -172,6 +173,9 @@ def _parse_recipe_response(response: str, concept: str) -> Dict[str, Any]:
         "servings": 12,
         "prep_time": 15,
         "cook_time": 20,
+        # No default: a fabricated calorie figure would be published as fact
+        # and mirrored into JSON-LD. Absent means the page omits it entirely.
+        "calories": None,
         "difficulty": "medium",
         "category": "savory",
         "cuisine": "",
@@ -208,6 +212,10 @@ def _parse_recipe_response(response: str, concept: str) -> Dict[str, Any]:
             match = re.search(r"\d+", line)
             if match:
                 result["cook_time"] = int(match.group())
+        elif line.startswith("CALORIES:"):
+            match = re.search(r"\d+", line)
+            if match:
+                result["calories"] = int(match.group())
         elif line.startswith("DIFFICULTY:"):
             diff = line.replace("DIFFICULTY:", "").strip().lower()
             if diff in ["easy", "medium", "hard"]:
