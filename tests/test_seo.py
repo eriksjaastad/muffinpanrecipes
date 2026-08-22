@@ -18,7 +18,7 @@ from unittest.mock import patch
 import pytest
 
 from backend.admin import episode_routes
-from backend.publishing.episode_renderer import _step_name, render_episode_page
+from backend.publishing.episode_renderer import _slugify, _step_name, render_episode_page
 
 
 def _published_episode() -> dict:
@@ -126,6 +126,74 @@ def test_json_ld_omits_cuisine_when_absent() -> None:
     ep["stages"]["monday"]["recipe_data"].pop("cuisine")
     ld = _extract_json_ld(render_episode_page(ep))
     assert "recipeCuisine" not in ld
+
+
+# ---------------------------------------------------------------------------
+# HowToStep url — each step must link to the anchor it describes
+# ---------------------------------------------------------------------------
+
+def test_json_ld_steps_link_to_anchors_that_exist_on_the_page() -> None:
+    """Every HowToStep url points at a `step-N` id actually rendered in the
+    <ol class="instructions">, on the page's own canonical URL."""
+    html_text = render_episode_page(_published_episode())
+    ld = _extract_json_ld(html_text)
+    canonical = "https://muffinpanrecipes.com/recipes/cheddar-broccoli-egg-bites"
+    steps = ld["recipeInstructions"]
+    assert [s["url"] for s in steps] == [
+        f"{canonical}#step-1",
+        f"{canonical}#step-2",
+    ]
+    for i, _ in enumerate(steps):
+        assert f'<li id="step-{i + 1}">' in html_text
+
+
+def test_step_urls_use_the_served_slug_not_the_title_slug() -> None:
+    """Seed recipes are served under a catalog slug that can differ from
+    _slugify(title); a title-derived step url would anchor into a 404."""
+    seeds = _seed_recipes()
+    slug = next(s for s in sorted(seeds) if s != _slugify(seeds[s]["recipe_data"]["title"]))
+    rec = seeds[slug]
+    html_text = render_seed_recipe_page(rec["recipe_data"], rec.get("image", ""), slug)
+    ld = _extract_json_ld(html_text)
+    for i, step in enumerate(ld["recipeInstructions"]):
+        assert step["url"] == f"https://muffinpanrecipes.com/recipes/{slug}#step-{i + 1}"
+        assert f'<li id="step-{i + 1}">' in html_text
+
+
+# ---------------------------------------------------------------------------
+# Nutrition — JSON-LD must never claim a figure the page doesn't show
+# ---------------------------------------------------------------------------
+
+def test_nutrition_rendered_and_marked_up_when_calories_exist() -> None:
+    ep = _published_episode()
+    ep["stages"]["monday"]["recipe_data"]["calories"] = 210
+    html_text = render_episode_page(ep)
+    assert _extract_json_ld(html_text)["nutrition"] == {
+        "@type": "NutritionInformation",
+        "calories": "210 calories",
+    }
+    # Visible on the page, labelled as an approximation.
+    assert "Calories (approx)" in html_text
+    assert "210 per serving" in html_text
+
+
+def test_nutrition_absent_when_recipe_has_no_calories() -> None:
+    """Recipes generated before CALORIES: shipped carry no figure — omit the
+    field entirely rather than defaulting to a fabricated number."""
+    html_text = render_episode_page(_published_episode())
+    assert "nutrition" not in _extract_json_ld(html_text)
+    assert "Calories (approx)" not in html_text
+
+
+@pytest.mark.parametrize("bad", ["", None, "not a number", 0, -50])
+def test_nutrition_omitted_for_unusable_calorie_values(bad) -> None:
+    """A junk value must degrade to "no nutrition", never to a broken stat or
+    a JSON-LD field with no visible counterpart."""
+    ep = _published_episode()
+    ep["stages"]["monday"]["recipe_data"]["calories"] = bad
+    html_text = render_episode_page(ep)
+    assert "nutrition" not in _extract_json_ld(html_text)
+    assert "Calories (approx)" not in html_text
 
 
 # ---------------------------------------------------------------------------

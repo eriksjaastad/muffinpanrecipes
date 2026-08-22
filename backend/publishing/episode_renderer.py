@@ -345,6 +345,16 @@ def render_episode_page(
     servings = recipe.get("servings", 12)
     difficulty = recipe.get("difficulty", "medium").title()
     cuisine = str(recipe.get("cuisine", "")).strip()
+    # Calories per serving. Optional and never defaulted — older episodes and
+    # seed recipes predate the field, and a fabricated figure would be both
+    # published as fact and mirrored into JSON-LD.
+    try:
+        raw_calories = recipe.get("calories")
+        calories = int(raw_calories) if raw_calories is not None else None
+    except (TypeError, ValueError):
+        calories = None
+    if calories is not None and calories <= 0:
+        calories = None
     ingredients = recipe.get("ingredients", [])
     instructions = recipe.get("instructions", [])
     chef_notes = sanitize_text(recipe.get("chef_notes", ""))
@@ -372,11 +382,14 @@ def render_episode_page(
             text += f" ({notes})"
         ingredients_html += f'<li>{html.escape(sanitize_text(text))}</li>\n'
 
+    # Each step gets a stable `step-N` anchor so the HowToStep `url` in the
+    # JSON-LD can point at the visible step it describes (Google flags steps
+    # without a url).
     instructions_html = ""
     for i, step in enumerate(instructions):
         step_text = step if isinstance(step, str) else str(step)
         instructions_html += (
-            f'<li>'
+            f'<li id="step-{i + 1}">'
             f'<span class="instructions__num">{i + 1:02d}</span>'
             f'<span>{html.escape(sanitize_text(step_text))}</span></li>\n'
         )
@@ -427,6 +440,17 @@ def render_episode_page(
     )
     conversation_html = _render_conversation_section(episode) if show_bts else ""
 
+    # Calorie stat — rendered only when the recipe actually carries a figure.
+    # Google requires the JSON-LD nutrition value to match visible content, so
+    # this block and ld_data["nutrition"] are gated on the same condition.
+    calories_stat_html = ""
+    if calories is not None:
+        calories_stat_html = f"""
+                <div class="recipe-card__stat">
+                    <span class="recipe-card__stat-label">Calories (approx)</span>
+                    <span class="recipe-card__stat-value">{calories} per serving</span>
+                </div>"""
+
     # Recipe card — only show full card when we have ingredients
     recipe_card_html = ""
     if has_recipe:
@@ -449,7 +473,7 @@ def render_episode_page(
                 <div class="recipe-card__stat">
                     <span class="recipe-card__stat-label">Difficulty</span>
                     <span class="recipe-card__stat-value">{html.escape(difficulty)}</span>
-                </div>
+                </div>{calories_stat_html}
             </div>
 
             <div class="recipe-card__section">
@@ -484,6 +508,17 @@ def render_episode_page(
     if image_url:
         abs_image_url = image_url if image_url.startswith("http") else f"{site_base}{image_url}"
 
+    # Canonical URL. The same rendered HTML serves /this-week, /episodes/{id},
+    # and /recipes/{slug} — once published, the recipe URL is the canonical
+    # home, so it is what the <link rel="canonical">, og:url, and the JSON-LD
+    # HowToStep anchors all point at. For cron recipes the serving slug is
+    # _slugify(title); seed recipes are served under a hand-chosen catalog slug
+    # that can differ from the title (e.g. "classic-blueberry-muffins" vs title
+    # "Classic Blueberry Muffin Tops"), so the caller passes the real serving
+    # slug — re-deriving from the title would point the canonical at a 404.
+    serve_slug = canonical_slug or _slugify(title)
+    canonical_url = f"{site_base}/recipes/{serve_slug}"
+
     # JSON-LD (only on published pages with full recipe data)
     json_ld_html = ""
     if is_published and has_recipe:
@@ -510,7 +545,12 @@ def render_episode_page(
             "keywords": f"muffin pan, muffin tin, {category.lower()}",
             "recipeIngredient": ld_ingredients,
             "recipeInstructions": [
-                {"@type": "HowToStep", "name": _step_name(str(s), i), "text": str(s)}
+                {
+                    "@type": "HowToStep",
+                    "name": _step_name(str(s), i),
+                    "text": str(s),
+                    "url": f"{canonical_url}#step-{i + 1}",
+                }
                 for i, s in enumerate(instructions)
             ],
         }
@@ -525,6 +565,13 @@ def render_episode_page(
             ld_data["totalTime"] = f"PT{total_minutes}M"
         if published_at:
             ld_data["datePublished"] = published_at
+        if calories is not None:
+            # Mirrors the visible "Calories (approx)" stat — never emitted
+            # without it, per Google's match-the-page requirement.
+            ld_data["nutrition"] = {
+                "@type": "NutritionInformation",
+                "calories": f"{calories} calories",
+            }
         ld_json = json.dumps(ld_data)
         json_ld_html = f'<script type="application/ld+json">{ld_json}</script>'
 
@@ -540,20 +587,11 @@ def render_episode_page(
     title_escaped = html.escape(title)
     desc_escaped = html.escape(description)
 
-    # Canonical + social meta. The same rendered HTML serves /this-week,
-    # /episodes/{id}, and /recipes/{slug} — once published, the recipe URL
-    # is the canonical home so the transient URLs don't compete with it.
+    # Canonical + social meta (canonical_url computed above, alongside the
+    # JSON-LD that shares it). Only published pages get a canonical — the
+    # transient URLs shouldn't compete with the recipe's permanent home.
     seo_meta = ""
     if is_published and has_recipe:
-        # Canonical must match the URL the page is actually served at. For
-        # cron recipes that's _slugify(title) (the slug they're published
-        # under). Seed recipes are served under a hand-chosen catalog slug
-        # that can differ from the title (e.g. "classic-blueberry-muffins"
-        # vs title "Classic Blueberry Muffin Tops"), so the caller passes
-        # the real serving slug — re-deriving from the title would point the
-        # canonical at a 404.
-        serve_slug = canonical_slug or _slugify(title)
-        canonical_url = f"{site_base}/recipes/{serve_slug}"
         seo_meta += (
             f'<link rel="canonical" href="{canonical_url}">\n'
             f'    <meta property="og:url" content="{canonical_url}">\n'
@@ -622,10 +660,9 @@ def render_episode_page(
         </div>"""
 
     # Crawlable internal links: deterministic related recipes in the footer.
-    current_slug = canonical_slug or _slugify(title)
     related_catalog = catalog if catalog is not None else _load_catalog_safe()
     related_block_html = _related_block_html(
-        build_related_recipes(related_catalog, current_slug, category)
+        build_related_recipes(related_catalog, serve_slug, category)
     )
 
     # BreadcrumbList JSON-LD (Home > Recipes > this recipe) — a second ld+json
