@@ -44,6 +44,67 @@ EPISODES_DIR = ROOT / "data" / "episodes"
 SIMULATIONS_DIR = ROOT / "data" / "simulations"
 IMAGES_DIR = ROOT / "src" / "assets" / "images"
 
+SOCIAL_IMAGE_SIZE = (1200, 630)
+JPEG_SUFFIX = ".jpg"
+SOCIAL_IMAGE_SUFFIX = ".social.jpg"
+
+
+def _social_jpeg_key(png_key: str) -> str:
+    """Return the deterministic social-image sibling key for a PNG key."""
+    if not png_key.lower().endswith(".png"):
+        raise ValueError(f"Social JPEG siblings require a PNG key: {png_key!r}")
+    return png_key[:-4] + SOCIAL_IMAGE_SUFFIX
+
+
+def _jpeg_key(png_key: str) -> str:
+    """Return the deterministic same-dimensions JPEG sibling key."""
+    if not png_key.lower().endswith(".png"):
+        raise ValueError(f"JPEG siblings require a PNG key: {png_key!r}")
+    return png_key[:-4] + JPEG_SUFFIX
+
+
+def _encode_jpeg(png_bytes: bytes, size: tuple[int, int] | None = None) -> bytes:
+    """Encode PNG bytes as RGB JPEG, optionally fitting to ``size``.
+
+    The source PNG remains the canonical upload. ``ImageOps.fit`` gives the
+    social asset a fixed aspect ratio while preserving the important center;
+    without ``size`` the original dimensions are preserved. Transparent PNGs
+    are composited onto white because JPEG has no alpha channel. No source
+    bytes are modified.
+    """
+    from io import BytesIO
+
+    from PIL import Image, ImageOps
+
+    with Image.open(BytesIO(png_bytes)) as source:
+        rgba = source.convert("RGBA")
+        fitted = (
+            ImageOps.fit(
+                rgba,
+                size,
+                method=Image.Resampling.LANCZOS,
+                centering=(0.5, 0.5),
+            )
+            if size
+            else rgba
+        )
+        background = Image.new("RGB", fitted.size, (255, 255, 255))
+        background.paste(fitted, mask=fitted.getchannel("A"))
+        output = BytesIO()
+        background.save(
+            output,
+            format="JPEG",
+            quality=85,
+            optimize=True,
+            progressive=True,
+        )
+        return output.getvalue()
+
+
+def _encode_social_jpeg(png_bytes: bytes) -> bytes:
+    """Create a deterministic 1200x630 JPEG suitable for social metadata."""
+    return _encode_jpeg(png_bytes, SOCIAL_IMAGE_SIZE)
+
 
 class _FilesystemBackend:
     """Local filesystem storage — used for LOCAL_DEV."""
@@ -485,7 +546,22 @@ class _CloudBackend:
         # still the canonical source). <picture> tag in the renderer
         # picks up the .webp via srcset when available.
         if key.lower().endswith(".png"):
-            self._upload_webp_sibling(key, image_bytes)
+            try:
+                self._upload_webp_sibling(key, image_bytes)
+            except Exception as e:  # noqa: BLE001 - optimization must not block publishing
+                # Sibling variants are an optimization. The canonical PNG
+                # upload above must remain the only publishing dependency.
+                logger.warning(f"WebP sibling pipeline failed for {key}: {e}")
+            try:
+                self._upload_social_jpeg_sibling(key, image_bytes)
+            except Exception as e:  # noqa: BLE001 - optimization must not block publishing
+                # Keep the publishing path safe even if an unexpected
+                # dependency/runtime error escapes the helper's guards.
+                logger.warning(f"Social JPEG sibling pipeline failed for {key}: {e}")
+            try:
+                self._upload_jpeg_sibling(key, image_bytes)
+            except Exception as e:  # noqa: BLE001 - optimization must not block publishing
+                logger.warning(f"JPEG sibling pipeline failed for {key}: {e}")
 
         return blob_url
 
@@ -498,6 +574,7 @@ class _CloudBackend:
         """
         try:
             from io import BytesIO
+
             from PIL import Image
 
             with Image.open(BytesIO(png_bytes)) as im:
@@ -531,6 +608,69 @@ class _CloudBackend:
             )
         except Exception as e:
             logger.warning(f"WebP upload failed for {webp_key}: {e}")
+
+    def _upload_social_jpeg_sibling(self, png_key: str, png_bytes: bytes) -> None:
+        """Best-effort upload of a deterministic 1200x630 social JPEG.
+
+        The source PNG remains canonical and the existing WebP sibling is
+        independent of this pipeline. Both encoding and upload failures are
+        swallowed so social metadata generation can never fail publishing.
+        """
+        try:
+            jpeg_bytes = _encode_social_jpeg(png_bytes)
+            social_key = _social_jpeg_key(png_key)
+        except Exception as e:
+            logger.warning(f"Social JPEG encode failed for {png_key}: {e}")
+            return
+
+        import requests as _requests
+
+        upload_url = f"https://blob.vercel-storage.com/{social_key}"
+        headers = {
+            "Authorization": f"Bearer {self._blob_token}",
+            "Content-Type": "image/jpeg",
+            "x-vercel-access": "public",
+            "x-add-random-suffix": "0",
+            "x-allow-overwrite": "1",
+        }
+        try:
+            resp = _requests.put(upload_url, data=jpeg_bytes, headers=headers, timeout=60)
+            resp.raise_for_status()
+            logger.info(
+                f"Uploaded social JPEG sibling: {social_key} "
+                f"({len(jpeg_bytes)}B from {len(png_bytes)}B PNG)"
+            )
+        except Exception as e:
+            logger.warning(f"Social JPEG upload failed for {social_key}: {e}")
+
+    def _upload_jpeg_sibling(self, png_key: str, png_bytes: bytes) -> None:
+        """Best-effort upload of a same-dimensions JPEG page fallback."""
+        try:
+            jpeg_bytes = _encode_jpeg(png_bytes)
+            jpeg_key = _jpeg_key(png_key)
+        except Exception as e:
+            logger.warning(f"JPEG encode failed for {png_key}: {e}")
+            return
+
+        import requests as _requests
+
+        upload_url = f"https://blob.vercel-storage.com/{jpeg_key}"
+        headers = {
+            "Authorization": f"Bearer {self._blob_token}",
+            "Content-Type": "image/jpeg",
+            "x-vercel-access": "public",
+            "x-add-random-suffix": "0",
+            "x-allow-overwrite": "1",
+        }
+        try:
+            resp = _requests.put(upload_url, data=jpeg_bytes, headers=headers, timeout=60)
+            resp.raise_for_status()
+            logger.info(
+                f"Uploaded JPEG sibling: {jpeg_key} "
+                f"({len(jpeg_bytes)}B from {len(png_bytes)}B PNG)"
+            )
+        except Exception as e:
+            logger.warning(f"JPEG upload failed for {jpeg_key}: {e}")
 
     def get_image_url(self, relative_path: str) -> str:
         if not self._has_cloud():
