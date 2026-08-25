@@ -96,9 +96,36 @@ class TestHeroPictureTag:
         )
         assert "<picture>" in html
         assert 'srcset="/blob-images/foo/hero.webp"' in html
+        assert 'src="/blob-images/foo/hero.jpg"' in html
         assert 'type="image/webp"' in html
-        assert 'loading="lazy"' in html
+        assert 'loading="eager"' in html
+        assert 'fetchpriority="high"' in html
+        assert 'loading="lazy"' not in html
         assert 'decoding="async"' in html
+
+    def test_webp_only_asset_does_not_get_a_fabricated_png_fallback(self):
+        """No local PNG exists for some seed assets; keep the real WebP URL."""
+        from backend.publishing import episode_renderer
+
+        ep = {
+            "concept": "Seed",
+            "stages": {
+                "monday": {
+                    "recipe_data": {
+                        "title": "Seed Muffins",
+                        "description": "short",
+                        "ingredients": ["flour"],
+                        "instructions": ["bake"],
+                    },
+                },
+            },
+        }
+
+        html = episode_renderer.render_episode_page(
+            ep, image_url="/assets/images/seed-muffins.webp"
+        )
+        assert 'src="/assets/images/seed-muffins.webp"' in html
+        assert "/assets/images/seed-muffins.png" not in html
 
 
 class TestHeroFromWinner:
@@ -141,8 +168,9 @@ class TestHeroFromWinner:
             return_value="/blob-images/foo.png",
         ):
             html = episode_renderer.render_episode_page(ep)
-        # Winner (foo.png) leads, not the macro first variant
-        assert 'src="/blob-images/foo.png"' in html
+        # Winner (foo.png) leads, not the macro first variant. The rendered
+        # fallback is the compressed JPEG sibling.
+        assert 'src="/blob-images/foo.jpg"' in html
         assert 'srcset="/blob-images/foo.webp"' in html
         assert "round_1/macro_closeup.png" not in html.split("recipe-hero__image")[1][:400]
 
@@ -202,8 +230,9 @@ class TestGalleryPictureTag:
         assert "<picture>" in rendered
         assert 'srcset="/blob-images/foo/round_1/option.webp"' in rendered
         assert 'type="image/webp"' in rendered
-        assert 'src="/blob-images/foo/round_1/option.png"' in rendered
+        assert 'src="/blob-images/foo/round_1/option.jpg"' in rendered
         assert 'loading="lazy"' in rendered
+        assert 'fetchpriority="high"' not in rendered
         assert 'decoding="async"' in rendered
 
     def test_non_png_attachment_remains_plain_img(self):
@@ -222,4 +251,5 @@ class TestGalleryPictureTag:
         assert "<source" not in rendered
         assert 'src="/blob-images/foo/round_1/option.jpg"' in rendered
         assert 'loading="lazy"' in rendered
+        assert 'fetchpriority="high"' not in rendered
         assert 'decoding="async"' in rendered

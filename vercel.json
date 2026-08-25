@@ -89,8 +89,13 @@
             "dest": "backend/admin/app.py"
         },
         {
-            "src": "/(.*)",
+            "src": "/",
             "dest": "/src/index.html"
+        },
+        {
+            "src": "/(.*)",
+            "dest": "/src/404.html",
+            "status": 404
         }
     ],
     "crons": [
