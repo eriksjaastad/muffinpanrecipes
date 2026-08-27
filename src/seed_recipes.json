@@ -3,7 +3,7 @@
     "image": "/assets/images/baked-oatmeal-cups.webp",
     "recipe_data": {
       "title": "Baked Oatmeal Breakfast Cups",
-      "description": "Hearty, portable oatmeal portions that are naturally sweetened and perfect for a quick morning fuel.",
+      "description": "Baked oatmeal cups combine oats, maple syrup, and blueberries in portable portions. The muffin pan makes a naturally sweet breakfast for busy mornings.",
       "category": "Breakfast",
       "prep_time": 10,
       "cook_time": 25,
@@ -30,7 +30,7 @@
     "image": "/assets/images/buffalo-chicken-mac-bites.webp",
     "recipe_data": {
       "title": "Buffalo Chicken Mac & Cheese Bites",
-      "description": "Creamy mac and cheese with a spicy buffalo kick, crisped to perfection.",
+      "description": "Buffalo chicken mac and cheese bites combine cheddar, tender chicken, and spicy sauce in crisped portions. Bake them in a muffin pan for an easy party snack.",
       "category": "Savory",
       "prep_time": 20,
       "cook_time": 15,
@@ -57,7 +57,7 @@
     "image": "/assets/images/classic-blueberry-muffins.webp",
     "recipe_data": {
       "title": "Classic Blueberry Muffin Tops",
-      "description": "The gold standard: bursting with berries and a perfectly domed top.",
+      "description": "Classic blueberry muffin tops bake with golden edges and a tender, berry-filled center in a standard muffin pan. An easy breakfast or afternoon treat.",
       "category": "Sweet",
       "prep_time": 15,
       "cook_time": 20,
@@ -84,7 +84,7 @@
     "image": "/assets/images/dark-chocolate-chip-muffins.webp",
     "recipe_data": {
       "title": "Dark Chocolate Chip Decadence",
-      "description": "Rich, cocoa-infused muffins loaded with dark chocolate chips.",
+      "description": "Rich cocoa muffins loaded with dark chocolate chips bake into individual portions with crisp edges and a tender center. Make a batch for a chocolate snack.",
       "category": "Sweet",
       "prep_time": 15,
       "cook_time": 18,
@@ -111,7 +111,7 @@
     "image": "/assets/images/jumbo-cornbread-bites.webp",
     "recipe_data": {
       "title": "Jumbo Cornbread Honey Bites",
-      "description": "Massive, moist, and sweet cornbread muffins for chili or BBQ.",
+      "description": "Jumbo cornbread honey bites are moist, lightly sweet, and perfect with chili or barbecue. The muffin pan gives each portion golden edges and a tender center.",
       "category": "Savory",
       "prep_time": 10,
       "cook_time": 22,
@@ -138,7 +138,7 @@
     "image": "/assets/images/mini-meatloaf-bites.webp",
     "recipe_data": {
       "title": "Mini Meatloaf Bites",
-      "description": "Savory, glazed mini meatloaves that cook in half the time of a traditional loaf.",
+      "description": "Savory mini meatloaf bites cook quickly and finish with a sweet ketchup glaze. The muffin pan makes neat portions for dinner or meal prep.",
       "category": "Savory",
       "prep_time": 15,
       "cook_time": 20,
@@ -165,7 +165,7 @@
     "image": "/assets/images/mini-pancake-bites.webp",
     "recipe_data": {
       "title": "Mini Pancake Bites",
-      "description": "Fluffy pancake portions that you don't have to flip. Perfect for dipping.",
+      "description": "Fluffy mini pancake bites bake in the muffin pan, so there is no flipping at the stove. Serve the tender portions with maple syrup, fruit, or your favorite dip.",
       "category": "Breakfast",
       "prep_time": 5,
       "cook_time": 12,
@@ -192,7 +192,7 @@
     "image": "/assets/images/mini-shepherds-pie.webp",
     "recipe_data": {
       "title": "Mini Shepherd's Pie Pots",
-      "description": "Individual servings of classic Shepherd's Pie with a toasted potato peak.",
+      "description": "Individual Shepherd's pie cups layer savory meat filling beneath a toasted potato peak. The muffin pan turns this comfort food into easy portions for sharing.",
       "category": "Savory",
       "prep_time": 25,
       "cook_time": 20,
@@ -219,7 +219,7 @@
     "image": "/assets/images/muffin-tin-lasagna.webp",
     "recipe_data": {
       "title": "Muffin Tin Lasagna Cups",
-      "description": "Crispy-edged, multi-layered mini lasagnas using wonton wrappers.",
+      "description": "Muffin tin lasagna cups layer crisp wonton wrappers, marinara, ricotta, and mozzarella. Each portion has golden edges and classic Italian comfort.",
       "category": "Savory",
       "prep_time": 20,
       "cook_time": 20,
@@ -246,7 +246,7 @@
     "image": "/assets/images/spinach-feta-egg-bites.webp",
     "recipe_data": {
       "title": "Spinach & Feta Egg Bites",
-      "description": "Velvety, protein-packed egg bites that mimic the sous-vide texture.",
+      "description": "Velvety spinach and feta egg bites have a tender, sous-vide-style texture and savory flavor. Bake them in a muffin pan for a protein-packed breakfast.",
       "category": "Breakfast",
       "prep_time": 10,
       "cook_time": 20,
