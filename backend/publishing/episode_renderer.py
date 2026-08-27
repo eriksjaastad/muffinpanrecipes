@@ -13,7 +13,6 @@ Progressive rendering:
 
 from __future__ import annotations
 
-import hashlib
 import html
 import json
 import os
@@ -358,6 +357,18 @@ def build_related_recipes(catalog, current_slug, current_category, n=RELATED_REC
     directed graph deterministically, assigning each source its lowest-
     inbound candidates and preferring the same category on ties. This keeps
     the footer contextual while distributing incoming links evenly.
+
+    One recipe yields one set of links, whether or not its slug is already in
+    the catalog. Sunday renders the same recipe twice around the catalog
+    insert — /this-week before, /recipes/{slug} after — so "slug not in the
+    catalog" is half of every publish, not an edge case. A missing current
+    slug is synthesized into the item set so the graph has the same shape
+    either way.
+
+    Ordering is keyed on slug, never on title: the synthesized entry has no
+    title to sort by, and a title-keyed order would move a recipe to a
+    different point in the graph walk depending on whether the catalog
+    already carried its title.
     """
     if n <= 0:
         return []
@@ -371,38 +382,38 @@ def build_related_recipes(catalog, current_slug, current_category, n=RELATED_REC
         for r in (catalog or [])
         if r.get("slug") and r.get("title")
     ]
-    if not items:
-        return []
 
-    items.sort(key=lambda x: (x["title"].casefold(), x["slug"]))
+    current_slug = str(current_slug) if current_slug else ""
     if not any(item["slug"] == current_slug for item in items):
-        digest = hashlib.sha256(str(current_slug).encode("utf-8")).digest()
-        start = int.from_bytes(digest[:8], "big") % len(items)
-        current_cat = _canon_category(current_category)
-        candidates = [
-            item for item in items
-            if item["cat"] == current_cat
-        ] + [item for item in items if item["cat"] != current_cat]
-        rotated = candidates[start % len(candidates):] + candidates[:start % len(candidates)]
-        picks = rotated[:n]
-    else:
-        incoming = {item["slug"]: 0 for item in items}
-        related_by_source: dict[str, list[dict]] = {}
-        for source in items:
-            candidates = [item for item in items if item["slug"] != source["slug"]]
-            candidates.sort(
-                key=lambda item: (
-                    incoming[item["slug"]],
-                    item["cat"] != source["cat"],
-                    item["title"].casefold(),
-                    item["slug"],
-                )
+        # Pre-insert render: stand the page in for itself. Its title is never
+        # emitted (a page never links to itself), only its slug and category
+        # matter, and both are known before the catalog knows them.
+        items.append(
+            {
+                "title": "",
+                "slug": current_slug,
+                "cat": _canon_category(current_category),
+            }
+        )
+
+    items.sort(key=lambda x: x["slug"])
+
+    incoming = {item["slug"]: 0 for item in items}
+    picks: list[dict] = []
+    for source in items:
+        candidates = [item for item in items if item["slug"] != source["slug"]]
+        candidates.sort(
+            key=lambda item: (
+                incoming[item["slug"]],
+                item["cat"] != source["cat"],
+                item["slug"],
             )
-            picks_for_source = candidates[:n]
-            related_by_source[source["slug"]] = picks_for_source
-            for item in picks_for_source:
-                incoming[item["slug"]] += 1
-        picks = related_by_source[current_slug]
+        )
+        picks_for_source = candidates[:n]
+        if source["slug"] == current_slug:
+            picks = picks_for_source
+        for item in picks_for_source:
+            incoming[item["slug"]] += 1
 
     return [{"title": x["title"], "slug": x["slug"]} for x in picks]
 

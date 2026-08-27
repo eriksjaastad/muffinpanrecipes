@@ -558,6 +558,106 @@ def test_related_recipes_balance_inbound_distribution() -> None:
     assert max(inbound.values()) == min(inbound.values())
 
 
+def test_related_recipes_identical_absent_or_present_in_catalog() -> None:
+    """THE regression test for the Sunday split-footer bug.
+
+    Sunday renders the same recipe twice, straddling the catalog insert:
+    regenerate_and_upload() runs before publish_recipe_to_catalog() (slug NOT
+    yet in the catalog) and render_episode_page() runs after (slug present).
+    Two structurally different algorithms used to sit behind that branch, so
+    /this-week and /recipes/{slug} shipped different related-recipe footers
+    for the same recipe on every publish. Absent and present must agree.
+    """
+    for entry in _RELATED_CATALOG:
+        without_self = [r for r in _RELATED_CATALOG if r["slug"] != entry["slug"]]
+
+        absent = build_related_recipes(without_self, entry["slug"], entry["category"])
+        present = build_related_recipes(_RELATED_CATALOG, entry["slug"], entry["category"])
+
+        assert absent == present, f"footer diverges for {entry['slug']}"
+
+
+def test_related_recipes_deterministic_across_repeated_calls() -> None:
+    """Same inputs, same bytes — a rebuild that diffs old vs new HTML per page
+    is useless if re-rendering churns the footer."""
+    for catalog, slug in (
+        (_RELATED_CATALOG, "gamma-gratin"),
+        ([r for r in _RELATED_CATALOG if r["slug"] != "gamma-gratin"], "gamma-gratin"),
+    ):
+        runs = [build_related_recipes(catalog, slug, "Savory") for _ in range(5)]
+        assert all(run == runs[0] for run in runs)
+
+
+def test_related_recipes_never_self_links() -> None:
+    for entry in _RELATED_CATALOG:
+        related = build_related_recipes(
+            _RELATED_CATALOG, entry["slug"], entry["category"]
+        )
+        assert entry["slug"] not in [r["slug"] for r in related]
+
+
+def test_related_recipes_returns_exactly_min_n_and_available() -> None:
+    """Never silently short: exactly min(n, len(other_recipes))."""
+    catalog = _RELATED_CATALOG  # 8 entries -> 7 others for a member slug
+    assert len(build_related_recipes(catalog, "alpha-cups", "Savory", n=3)) == 3
+    assert len(build_related_recipes(catalog, "alpha-cups", "Savory", n=7)) == 7
+    assert len(build_related_recipes(catalog, "alpha-cups", "Savory", n=99)) == 7
+    # Absent slug: all 8 catalog entries are "other".
+    assert len(build_related_recipes(catalog, "not-in-catalog", "Savory", n=99)) == 8
+    assert len(build_related_recipes(catalog[:2], "not-in-catalog", "Savory", n=4)) == 2
+
+
+_CATEGORY_PREFERENCE_CATALOG = [
+    # Slug order puts the source first, so every candidate is at zero inbound
+    # links and category is the only thing left to break the tie.
+    {"title": "A Self", "slug": "a-self", "category": "Sweet"},
+    {"title": "B Savory", "slug": "b-savory", "category": "Savory"},
+    {"title": "C Savory", "slug": "c-savory", "category": "Savory"},
+    {"title": "D Savory", "slug": "d-savory", "category": "Savory"},
+    {"title": "E Sweet", "slug": "e-sweet", "category": "Sweet"},
+    {"title": "F Sweet", "slug": "f-sweet", "category": "Sweet"},
+]
+
+
+def test_related_recipes_same_category_preference_is_real() -> None:
+    """The deleted rotation branch CLAIMED category preference and then threw
+    it away with a rotation offset. This fails if the preference is a no-op:
+    slug order alone would pick b/c/d/e, the preference pulls e/f to the front.
+    """
+    picks = [
+        r["slug"]
+        for r in build_related_recipes(_CATEGORY_PREFERENCE_CATALOG, "a-self", "Sweet", n=4)
+    ]
+    assert picks[:2] == ["e-sweet", "f-sweet"]
+    assert picks[2:] == ["b-savory", "c-savory"]
+
+
+def test_related_recipes_edge_cases() -> None:
+    assert build_related_recipes([], "alpha-cups", "Savory") == []
+    assert build_related_recipes(None, "alpha-cups", "Savory") == []
+    # Catalog of one, which is the page itself.
+    solo = [{"title": "Alpha Cups", "slug": "alpha-cups", "category": "Savory"}]
+    assert build_related_recipes(solo, "alpha-cups", "Savory") == []
+    # n <= 0.
+    assert build_related_recipes(_RELATED_CATALOG, "alpha-cups", "Savory", n=0) == []
+    assert build_related_recipes(_RELATED_CATALOG, "alpha-cups", "Savory", n=-3) == []
+    # Entries missing slug or title are skipped, never rendered as blanks.
+    ragged = [
+        {"title": "No Slug", "category": "Savory"},
+        {"slug": "no-title", "category": "Savory"},
+        {"title": "Real One", "slug": "real-one", "category": "Savory"},
+    ]
+    assert build_related_recipes(ragged, "alpha-cups", "Savory") == [
+        {"title": "Real One", "slug": "real-one"}
+    ]
+    # A category no recipe shares still fills the footer.
+    unknown_cat = build_related_recipes(_RELATED_CATALOG, "alpha-cups", "Interstellar")
+    assert len(unknown_cat) == 4
+    # Missing category on catalog entries is not a crash.
+    no_cats = [{"title": "One", "slug": "one"}, {"title": "Two", "slug": "two"}]
+    assert len(build_related_recipes(no_cats, "one", "Savory")) == 1
+
+
 # ---------------------------------------------------------------------------
 # Analytics: the GA4 tag must reach every public page and no admin page
 # ---------------------------------------------------------------------------
