@@ -5,9 +5,11 @@ REST API to verify correct request structure, caching, and fallback behavior.
 """
 
 import os
-from unittest.mock import patch, MagicMock
+from io import BytesIO
+from unittest.mock import MagicMock, patch
 
 import pytest
+from PIL import Image
 
 
 @pytest.fixture(autouse=True)
@@ -240,3 +242,100 @@ class TestCloudBackendNoToken:
 
         with pytest.raises(RuntimeError, match="BLOB_READ_WRITE_TOKEN"):
             _CloudBackend()
+
+
+class TestCloudBackendImageSiblings:
+    @staticmethod
+    def _png_bytes() -> bytes:
+        image = Image.new("RGBA", (16, 8), (220, 80, 40, 255))
+        image.putpixel((0, 0), (0, 0, 0, 0))
+        output = BytesIO()
+        image.save(output, format="PNG")
+        return output.getvalue()
+
+    @staticmethod
+    def _response(url: str) -> MagicMock:
+        response = MagicMock()
+        response.json.return_value = {"url": url}
+        response.raise_for_status = MagicMock()
+        return response
+
+    def test_social_encoder_outputs_jpeg_at_social_dimensions(self):
+        from backend.storage import SOCIAL_IMAGE_SIZE, _encode_social_jpeg
+
+        result = _encode_social_jpeg(self._png_bytes())
+
+        with Image.open(BytesIO(result)) as image:
+            assert image.format == "JPEG"
+            assert image.size == SOCIAL_IMAGE_SIZE == (1200, 630)
+            assert image.mode == "RGB"
+
+    def test_png_upload_keeps_canonical_and_uploads_deterministic_siblings(
+        self, cloud_backend
+    ):
+        canonical = self._response("https://cdn.example.com/images/recipe/hero.png")
+        webp = self._response("https://cdn.example.com/images/recipe/hero.webp")
+        jpeg = self._response("https://cdn.example.com/images/recipe/hero.jpg")
+        social = self._response("https://cdn.example.com/images/recipe/hero.social.jpg")
+
+        with patch("requests.put", side_effect=[canonical, webp, social, jpeg]) as mock_put:
+            result = cloud_backend.save_image(
+                "src/assets/images/recipe/hero.png", self._png_bytes()
+            )
+
+        assert result == "https://cdn.example.com/images/recipe/hero.png"
+        assert mock_put.call_count == 4
+
+        canonical_call, webp_call, social_call, jpeg_call = mock_put.call_args_list
+        assert canonical_call.args[0].endswith("/images/recipe/hero.png")
+        assert webp_call.args[0].endswith("/images/recipe/hero.webp")
+        assert social_call.args[0].endswith("/images/recipe/hero.social.jpg")
+
+        assert canonical_call.kwargs["headers"]["Content-Type"] == "image/png"
+        assert webp_call.kwargs["headers"]["Content-Type"] == "image/webp"
+        social_headers = social_call.kwargs["headers"]
+        assert social_headers == {
+            "Authorization": "Bearer fake-token-for-test",
+            "Content-Type": "image/jpeg",
+            "x-vercel-access": "public",
+            "x-add-random-suffix": "0",
+            "x-allow-overwrite": "1",
+        }
+        with Image.open(BytesIO(social_call.kwargs["data"])) as image:
+            assert image.format == "JPEG"
+            assert image.size == (1200, 630)
+        assert jpeg_call.args[0].endswith("/images/recipe/hero.jpg")
+        assert jpeg_call.kwargs["headers"]["Content-Type"] == "image/jpeg"
+        with Image.open(BytesIO(jpeg_call.kwargs["data"])) as image:
+            assert image.format == "JPEG"
+            assert image.size == (16, 8)
+
+    def test_sibling_conversion_or_upload_failure_does_not_fail_png_publish(
+        self, cloud_backend
+    ):
+        canonical = self._response("https://cdn.example.com/images/recipe/hero.png")
+
+        with patch(
+            "requests.put",
+            side_effect=[
+                canonical,
+                RuntimeError("webp unavailable"),
+                RuntimeError("social jpeg unavailable"),
+                RuntimeError("jpeg unavailable"),
+            ],
+        ):
+            result = cloud_backend.save_image(
+                "src/assets/images/recipe/hero.png", self._png_bytes()
+            )
+
+        assert result == "https://cdn.example.com/images/recipe/hero.png"
+
+        with (
+            patch("backend.storage._encode_social_jpeg", side_effect=OSError("bad PNG")),
+            patch("requests.put", return_value=canonical),
+        ):
+            result = cloud_backend.save_image(
+                "src/assets/images/recipe/hero.png", self._png_bytes()
+            )
+
+        assert result == "https://cdn.example.com/images/recipe/hero.png"

@@ -18,7 +18,12 @@ from unittest.mock import patch
 import pytest
 
 from backend.admin import episode_routes
-from backend.publishing.episode_renderer import _slugify, _step_name, render_episode_page
+from backend.publishing.episode_renderer import (
+    _seo_description,
+    _slugify,
+    _step_name,
+    render_episode_page,
+)
 
 
 def _published_episode() -> dict:
@@ -60,12 +65,68 @@ def test_published_page_has_canonical_and_og_url() -> None:
 
 def test_published_page_has_social_image_and_twitter_card() -> None:
     html = render_episode_page(_published_episode())
-    abs_img = "https://muffinpanrecipes.com/blob-images/ffd2aff5/round_1/macro_closeup.png"
-    assert f'<meta property="og:image" content="{abs_img}">' in html
+    social_img = "https://muffinpanrecipes.com/blob-images/ffd2aff5/round_1/macro_closeup.social.jpg"
+    assert f'<meta property="og:image" content="{social_img}">' in html
     # Twitter Card spec uses name=, not property= (X reads both; this is correct).
-    assert f'<meta name="twitter:image" content="{abs_img}">' in html
+    assert f'<meta name="twitter:image" content="{social_img}">' in html
     assert 'twitter:card" content="summary_large_image"' in html
     assert 'property="twitter:' not in html  # no stray property= twitter tags
+
+
+def test_social_metadata_accepts_safe_existing_asset_without_changing_recipe_image() -> None:
+    social_image = "/blob-images/ffd2aff5/social/cheddar-broccoli.jpg"
+    html = render_episode_page(_published_episode(), social_image_url=social_image)
+
+    social_abs = "https://muffinpanrecipes.com" + social_image
+    hero_abs = "https://muffinpanrecipes.com/blob-images/ffd2aff5/round_1/macro_closeup.jpg"
+    assert f'<meta property="og:image" content="{social_abs}">' in html
+    assert f'<meta name="twitter:image" content="{social_abs}">' in html
+    assert _extract_json_ld(html)["image"] == [hero_abs]
+
+
+def test_unsupported_social_format_uses_png_social_sibling() -> None:
+    html = render_episode_page(
+        _published_episode(),
+        social_image_url="/blob-images/ffd2aff5/social/cheddar-broccoli.webp",
+    )
+    fallback = "https://muffinpanrecipes.com/blob-images/ffd2aff5/round_1/macro_closeup.social.jpg"
+    assert f'<meta property="og:image" content="{fallback}">' in html
+    assert ".webp\">" not in html.split('property="og:image"', 1)[1].split(">", 1)[0]
+
+
+def test_description_metadata_is_word_bounded_but_editorial_copy_is_complete() -> None:
+    full_description = (
+        "These sturdy egg bites layer a crisp hash brown base with tender eggs, "
+        "cheddar, and broccoli for a make-ahead breakfast that belongs in every "
+        "muffin pan. Serve them warm, pack them for the week, or freeze a batch "
+        "for an easy savory start to busy mornings."
+    )
+    episode = _published_episode()
+    episode["stages"]["monday"]["recipe_data"]["description"] = full_description
+    html = render_episode_page(episode)
+    bounded = _seo_description(full_description)
+
+    assert len(bounded) <= 160
+    assert bounded.endswith("…")
+    assert full_description.startswith(bounded[:-1])
+    assert full_description[len(bounded) - 1].isspace()
+    assert full_description in html
+    assert f'<meta name="description" content="{bounded}">' in html
+    assert f'<meta property="og:description" content="{bounded}">' in html
+    assert f'<meta name="twitter:description" content="{bounded}">' in html
+    assert _extract_json_ld(html)["description"] == full_description
+
+
+def test_short_description_is_not_padded_or_truncated() -> None:
+    short_description = "Crisp, cheesy egg bites for a quick breakfast."
+    episode = _published_episode()
+    episode["stages"]["monday"]["recipe_data"]["description"] = short_description
+    html = render_episode_page(episode)
+
+    assert _seo_description(short_description) == short_description
+    assert f'<meta name="description" content="{short_description}">' in html
+    assert f'<meta property="og:description" content="{short_description}">' in html
+    assert f'<meta name="twitter:description" content="{short_description}">' in html
 
 
 def test_published_page_has_breadcrumb_jsonld() -> None:
@@ -97,7 +158,7 @@ def _extract_json_ld(html: str) -> dict:
 def test_json_ld_has_rich_result_fields() -> None:
     ld = _extract_json_ld(render_episode_page(_published_episode()))
     assert ld["image"] == [
-        "https://muffinpanrecipes.com/blob-images/ffd2aff5/round_1/macro_closeup.png"
+        "https://muffinpanrecipes.com/blob-images/ffd2aff5/round_1/macro_closeup.jpg"
     ]
     assert ld["author"] == {"@type": "Organization", "name": "Muffin Pan Recipes"}
     assert ld["datePublished"] == "2026-06-14"
@@ -246,6 +307,15 @@ def test_seed_recipes_file_has_ten_complete_entries() -> None:
         assert rec.get("image"), f"{slug} missing image"
         rd = rec["recipe_data"]
         assert rd.get("title") and rd.get("ingredients") and rd.get("instructions"), slug
+
+
+def test_seed_meta_descriptions_fit_the_preview_window() -> None:
+    """Seed copy should not rely on renderer truncation for basic SERP copy."""
+    descriptions = [
+        rec["recipe_data"]["description"]
+        for rec in _seed_recipes().values()
+    ]
+    assert all(70 <= len(description) <= 160 for description in descriptions)
 
 
 @pytest.mark.parametrize("slug", sorted(_seed_recipes().keys()))
@@ -458,9 +528,9 @@ def test_related_recipes_deterministic_no_self_and_fills() -> None:
 
 
 def test_related_recipes_dessert_groups_with_sweet() -> None:
-    """"Dessert" is a stray label for "Sweet" — it must group with Sweet first."""
+    """"Dessert" is a stray label for "Sweet" in category tie-breaking."""
     rel = build_related_recipes(_RELATED_CATALOG, "stray-dessert", "Dessert")
-    assert rel[0]["slug"] == "sweet-one"
+    assert "sweet-one" in [recipe["slug"] for recipe in rel]
 
 
 def test_related_recipes_same_category_excludes_self() -> None:
@@ -468,6 +538,124 @@ def test_related_recipes_same_category_excludes_self() -> None:
     slugs = [r["slug"] for r in rel]
     assert "alpha-cups" not in slugs
     assert slugs == ["beta-bites", "delta-dish", "echo-eggs", "gamma-gratin"]
+
+
+def test_related_recipes_balance_inbound_distribution() -> None:
+    """The shared ring must not give early alphabetic titles extra authority."""
+    from collections import Counter
+
+    inbound = Counter()
+    for current in _RELATED_CATALOG:
+        related = build_related_recipes(
+            _RELATED_CATALOG,
+            current["slug"],
+            current["category"],
+        )
+        for recipe in related:
+            inbound[recipe["slug"]] += 1
+
+    assert set(inbound) == {recipe["slug"] for recipe in _RELATED_CATALOG}
+    assert max(inbound.values()) == min(inbound.values())
+
+
+def test_related_recipes_identical_absent_or_present_in_catalog() -> None:
+    """THE regression test for the Sunday split-footer bug.
+
+    Sunday renders the same recipe twice, straddling the catalog insert:
+    regenerate_and_upload() runs before publish_recipe_to_catalog() (slug NOT
+    yet in the catalog) and render_episode_page() runs after (slug present).
+    Two structurally different algorithms used to sit behind that branch, so
+    /this-week and /recipes/{slug} shipped different related-recipe footers
+    for the same recipe on every publish. Absent and present must agree.
+    """
+    for entry in _RELATED_CATALOG:
+        without_self = [r for r in _RELATED_CATALOG if r["slug"] != entry["slug"]]
+
+        absent = build_related_recipes(without_self, entry["slug"], entry["category"])
+        present = build_related_recipes(_RELATED_CATALOG, entry["slug"], entry["category"])
+
+        assert absent == present, f"footer diverges for {entry['slug']}"
+
+
+def test_related_recipes_deterministic_across_repeated_calls() -> None:
+    """Same inputs, same bytes — a rebuild that diffs old vs new HTML per page
+    is useless if re-rendering churns the footer."""
+    for catalog, slug in (
+        (_RELATED_CATALOG, "gamma-gratin"),
+        ([r for r in _RELATED_CATALOG if r["slug"] != "gamma-gratin"], "gamma-gratin"),
+    ):
+        runs = [build_related_recipes(catalog, slug, "Savory") for _ in range(5)]
+        assert all(run == runs[0] for run in runs)
+
+
+def test_related_recipes_never_self_links() -> None:
+    for entry in _RELATED_CATALOG:
+        related = build_related_recipes(
+            _RELATED_CATALOG, entry["slug"], entry["category"]
+        )
+        assert entry["slug"] not in [r["slug"] for r in related]
+
+
+def test_related_recipes_returns_exactly_min_n_and_available() -> None:
+    """Never silently short: exactly min(n, len(other_recipes))."""
+    catalog = _RELATED_CATALOG  # 8 entries -> 7 others for a member slug
+    assert len(build_related_recipes(catalog, "alpha-cups", "Savory", n=3)) == 3
+    assert len(build_related_recipes(catalog, "alpha-cups", "Savory", n=7)) == 7
+    assert len(build_related_recipes(catalog, "alpha-cups", "Savory", n=99)) == 7
+    # Absent slug: all 8 catalog entries are "other".
+    assert len(build_related_recipes(catalog, "not-in-catalog", "Savory", n=99)) == 8
+    assert len(build_related_recipes(catalog[:2], "not-in-catalog", "Savory", n=4)) == 2
+
+
+_CATEGORY_PREFERENCE_CATALOG = [
+    # Slug order puts the source first, so every candidate is at zero inbound
+    # links and category is the only thing left to break the tie.
+    {"title": "A Self", "slug": "a-self", "category": "Sweet"},
+    {"title": "B Savory", "slug": "b-savory", "category": "Savory"},
+    {"title": "C Savory", "slug": "c-savory", "category": "Savory"},
+    {"title": "D Savory", "slug": "d-savory", "category": "Savory"},
+    {"title": "E Sweet", "slug": "e-sweet", "category": "Sweet"},
+    {"title": "F Sweet", "slug": "f-sweet", "category": "Sweet"},
+]
+
+
+def test_related_recipes_same_category_preference_is_real() -> None:
+    """The deleted rotation branch CLAIMED category preference and then threw
+    it away with a rotation offset. This fails if the preference is a no-op:
+    slug order alone would pick b/c/d/e, the preference pulls e/f to the front.
+    """
+    picks = [
+        r["slug"]
+        for r in build_related_recipes(_CATEGORY_PREFERENCE_CATALOG, "a-self", "Sweet", n=4)
+    ]
+    assert picks[:2] == ["e-sweet", "f-sweet"]
+    assert picks[2:] == ["b-savory", "c-savory"]
+
+
+def test_related_recipes_edge_cases() -> None:
+    assert build_related_recipes([], "alpha-cups", "Savory") == []
+    assert build_related_recipes(None, "alpha-cups", "Savory") == []
+    # Catalog of one, which is the page itself.
+    solo = [{"title": "Alpha Cups", "slug": "alpha-cups", "category": "Savory"}]
+    assert build_related_recipes(solo, "alpha-cups", "Savory") == []
+    # n <= 0.
+    assert build_related_recipes(_RELATED_CATALOG, "alpha-cups", "Savory", n=0) == []
+    assert build_related_recipes(_RELATED_CATALOG, "alpha-cups", "Savory", n=-3) == []
+    # Entries missing slug or title are skipped, never rendered as blanks.
+    ragged = [
+        {"title": "No Slug", "category": "Savory"},
+        {"slug": "no-title", "category": "Savory"},
+        {"title": "Real One", "slug": "real-one", "category": "Savory"},
+    ]
+    assert build_related_recipes(ragged, "alpha-cups", "Savory") == [
+        {"title": "Real One", "slug": "real-one"}
+    ]
+    # A category no recipe shares still fills the footer.
+    unknown_cat = build_related_recipes(_RELATED_CATALOG, "alpha-cups", "Interstellar")
+    assert len(unknown_cat) == 4
+    # Missing category on catalog entries is not a crash.
+    no_cats = [{"title": "One", "slug": "one"}, {"title": "Two", "slug": "two"}]
+    assert len(build_related_recipes(no_cats, "one", "Savory")) == 1
 
 
 # ---------------------------------------------------------------------------

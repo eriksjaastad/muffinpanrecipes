@@ -20,7 +20,7 @@ import re
 from typing import Optional
 
 from backend.publishing.analytics import GA4_TAG
-from backend.storage import storage
+from backend.storage import JPEG_SUFFIX, SOCIAL_IMAGE_SUFFIX, storage
 from backend.utils.logging import get_logger
 from backend.utils.text_sanitize import sanitize_text
 
@@ -51,6 +51,8 @@ STAGE_LABELS = {
 DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
 BLOB_CDN_PREFIX = "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/images/"
+SEO_DESCRIPTION_MAX_LENGTH = 160
+_SOCIAL_IMAGE_SAFE_EXTENSIONS = (".png", ".jpg", ".jpeg")
 
 def _step_name(text: str, index: int) -> str:
     """Concise label for a recipe HowToStep.
@@ -95,6 +97,85 @@ def _to_webp_url(image_url: str) -> str:
     stripped = _VERCEL_RANDOM_SUFFIX_RE.sub(".png", path)
     webp_path = stripped[:-4] + ".webp"
     return webp_path + (sep + tail if sep else "")
+
+
+def _seo_description(description: str, max_length: int = SEO_DESCRIPTION_MAX_LENGTH) -> str:
+    """Bound a description for search/social snippets without changing copy.
+
+    The visible editorial paragraph and Recipe JSON-LD retain the complete
+    description. Search and social cards have a finite preview surface, so
+    only those metadata values use this word-boundary truncation. A short
+    description is returned unchanged; an unusually long unbroken token is
+    capped without inventing a partial word boundary.
+    """
+    text = (description or "").strip()
+    if len(text) <= max_length:
+        return text
+    if max_length <= 1:
+        return text[:max_length]
+
+    candidate = text[: max_length - 1].rstrip()
+    if " " in candidate:
+        candidate = candidate.rsplit(" ", 1)[0].rstrip()
+    return f"{candidate}\N{HORIZONTAL ELLIPSIS}"
+
+
+def _has_safe_social_image_format(image_url: str) -> bool:
+    """Return whether a URL names a broadly supported social image format."""
+    path = image_url.split("?", 1)[0].split("#", 1)[0].lower()
+    return path.endswith(_SOCIAL_IMAGE_SAFE_EXTENSIONS)
+
+
+def _to_social_image_url(image_url: str) -> str:
+    """Return the deterministic social sibling URL for a PNG image."""
+    if not image_url:
+        return image_url
+    path, sep, tail = image_url.partition("?")
+    if not sep:
+        path, sep, tail = image_url.partition("#")
+    if not path.lower().endswith(".png"):
+        return image_url
+    return path[:-4] + SOCIAL_IMAGE_SUFFIX + (sep + tail if sep else "")
+
+
+def _to_jpeg_url(image_url: str) -> str:
+    """Return the deterministic same-dimensions JPEG sibling URL."""
+    if not image_url:
+        return image_url
+    path, sep, tail = image_url.partition("?")
+    if not sep:
+        path, sep, tail = image_url.partition("#")
+    if not path.lower().endswith(".png"):
+        return image_url
+    return path[:-4] + JPEG_SUFFIX + (sep + tail if sep else "")
+
+
+def _select_social_image_url(page_image_url: str, social_image_url: str = "") -> str:
+    """Choose a safe image URL for ``og:image`` and ``twitter:image``.
+
+    A publisher may pass an existing purpose-built PNG/JPEG through
+    ``social_image_url``. Otherwise a PNG page image maps to the deterministic
+    ``.social.jpg`` sibling created by storage (or the historical backfill).
+    The renderer does not generate or crop an asset, and it does not replace
+    the page's PNG/JPEG fallback with WebP for social crawlers whose format
+    support varies. For a WebP-only asset, it keeps the real URL.
+    An unsupported explicit format is ignored rather than making social
+    previews less compatible.
+    """
+    candidate = _to_local_image_url(str(social_image_url or "").strip())
+    if not candidate:
+        candidate = _to_social_image_url(page_image_url)
+    if candidate:
+        if _has_safe_social_image_format(candidate):
+            return candidate
+        logger.warning(
+            "Ignoring unsupported social image format: %s",
+            candidate,
+        )
+        derived = _to_social_image_url(page_image_url)
+        if _has_safe_social_image_format(derived):
+            return derived
+    return page_image_url
 
 
 def _to_local_image_url(blob_url: str) -> str:
@@ -162,10 +243,11 @@ def _render_chat_message(msg: dict, image_url_map: dict[str, str] | None = None)
         for att in attachments:
             url = image_url_map.get(att, "")
             if url:
-                escaped_url = html.escape(url)
                 webp_url = _to_webp_url(url)
+                fallback_url = _to_jpeg_url(url)
+                escaped_fallback = html.escape(fallback_url)
                 image = (
-                    f'<img src="{escaped_url}" alt="Photography option" '
+                    f'<img src="{escaped_fallback}" alt="Photography option" '
                     f'loading="lazy" decoding="async">'
                 )
                 if webp_url and webp_url != url:
@@ -268,13 +350,29 @@ def _load_catalog_safe() -> list:
 
 
 def build_related_recipes(catalog, current_slug, current_category, n=RELATED_RECIPE_COUNT):
-    """Deterministically pick up to `n` other recipes to link to.
+    """Pick contextual, balanced, deterministic related recipes.
 
-    Same (canonical) category first, alphabetical by title, excluding self; if
-    that yields fewer than `n`, fill from the rest of the catalog (also
-    alphabetical). Deterministic so re-renders produce identical links and the
-    internal link graph doesn't churn week to week.
+    The old implementation selected the first alphabetic recipes for every
+    page, which made early titles absorb internal authority. Build the small
+    directed graph deterministically, assigning each source its lowest-
+    inbound candidates and preferring the same category on ties. This keeps
+    the footer contextual while distributing incoming links evenly.
+
+    One recipe yields one set of links, whether or not its slug is already in
+    the catalog. Sunday renders the same recipe twice around the catalog
+    insert — /this-week before, /recipes/{slug} after — so "slug not in the
+    catalog" is half of every publish, not an edge case. A missing current
+    slug is synthesized into the item set so the graph has the same shape
+    either way.
+
+    Ordering is keyed on slug, never on title: the synthesized entry has no
+    title to sort by, and a title-keyed order would move a recipe to a
+    different point in the graph walk depending on whether the catalog
+    already carried its title.
     """
+    if n <= 0:
+        return []
+
     items = [
         {
             "title": r.get("title", ""),
@@ -282,14 +380,41 @@ def build_related_recipes(catalog, current_slug, current_category, n=RELATED_REC
             "cat": _canon_category(r.get("category", "")),
         }
         for r in (catalog or [])
-        if r.get("slug") and r.get("title") and r.get("slug") != current_slug
+        if r.get("slug") and r.get("title")
     ]
-    items.sort(key=lambda x: x["title"].lower())
-    cur = _canon_category(current_category)
-    picks = [x for x in items if x["cat"] == cur][:n]
-    if len(picks) < n:
-        chosen = {x["slug"] for x in picks}
-        picks += [x for x in items if x["slug"] not in chosen][: n - len(picks)]
+
+    current_slug = str(current_slug) if current_slug else ""
+    if not any(item["slug"] == current_slug for item in items):
+        # Pre-insert render: stand the page in for itself. Its title is never
+        # emitted (a page never links to itself), only its slug and category
+        # matter, and both are known before the catalog knows them.
+        items.append(
+            {
+                "title": "",
+                "slug": current_slug,
+                "cat": _canon_category(current_category),
+            }
+        )
+
+    items.sort(key=lambda x: x["slug"])
+
+    incoming = {item["slug"]: 0 for item in items}
+    picks: list[dict] = []
+    for source in items:
+        candidates = [item for item in items if item["slug"] != source["slug"]]
+        candidates.sort(
+            key=lambda item: (
+                incoming[item["slug"]],
+                item["cat"] != source["cat"],
+                item["slug"],
+            )
+        )
+        picks_for_source = candidates[:n]
+        if source["slug"] == current_slug:
+            picks = picks_for_source
+        for item in picks_for_source:
+            incoming[item["slug"]] += 1
+
     return [{"title": x["title"], "slug": x["slug"]} for x in picks]
 
 
@@ -318,6 +443,7 @@ def render_episode_page(
     with_conversation: bool = True,
     canonical_slug: Optional[str] = None,
     catalog: Optional[list] = None,
+    social_image_url: Optional[str] = None,
 ) -> str:
     """Generate the full recipe page HTML from episode data.
 
@@ -331,6 +457,10 @@ def render_episode_page(
     `canonical_slug` overrides the slug used in the canonical/og:url when
     the page is served under a slug that differs from _slugify(title) — the
     seed recipes' hand-chosen catalog slugs do.
+
+    `social_image_url` is an optional existing PNG/JPEG for social cards. When
+    omitted, PNG page images use their deterministic `.social.jpg` sibling;
+    the page image remains the fallback until that sibling is backfilled.
     """
     concept = episode.get("concept", "Muffin Pan Recipe")
 
@@ -394,24 +524,31 @@ def render_episode_page(
             f'<span>{html.escape(sanitize_text(step_text))}</span></li>\n'
         )
 
-    # Image block — <picture> with WebP primary + PNG fallback (#5251).
-    # Lazy-loaded + async-decoded so hero doesn't block first paint.
+    # Image block — WebP is the preferred source, while the compressed JPEG
+    # sibling is the fallback for browsers that cannot decode WebP. The
+    # recipe hero is the one above-the-fold image: load it eagerly and give it
+    # high fetch priority. Gallery/chat images remain lazy in
+    # _render_chat_message.
     if has_image:
-        escaped_png = html.escape(image_url)
+        jpeg_url = _to_jpeg_url(image_url)
+        fallback_url = jpeg_url if jpeg_url != image_url else image_url
+        escaped_fallback = html.escape(fallback_url)
         webp_url = _to_webp_url(image_url)
         if webp_url and webp_url != image_url:
             escaped_webp = html.escape(webp_url)
             image_block = (
                 f'<picture>'
                 f'<source srcset="{escaped_webp}" type="image/webp">'
-                f'<img src="{escaped_png}" '
-                f'loading="lazy" decoding="async" alt="{html.escape(title)}">'
+                f'<img src="{escaped_fallback}" '
+                f'loading="eager" fetchpriority="high" decoding="async" '
+                f'alt="{html.escape(title)}">'
                 f'</picture>'
             )
         else:
             image_block = (
-                f'<img src="{escaped_png}" '
-                f'loading="lazy" decoding="async" alt="{html.escape(title)}">'
+                f'<img src="{escaped_fallback}" '
+                f'loading="eager" fetchpriority="high" decoding="async" '
+                f'alt="{html.escape(title)}">'
             )
     else:
         image_block = '<div class="recipe-hero__image-placeholder">Photo coming Wednesday</div>'
@@ -506,7 +643,19 @@ def render_episode_page(
     site_base = "https://muffinpanrecipes.com"
     abs_image_url = ""
     if image_url:
-        abs_image_url = image_url if image_url.startswith("http") else f"{site_base}{image_url}"
+        schema_image_url = _to_jpeg_url(image_url)
+        abs_image_url = (
+            schema_image_url
+            if schema_image_url.startswith("http")
+            else f"{site_base}{schema_image_url}"
+        )
+    requested_social_image_url = social_image_url or episode.get("social_image_url", "")
+    social_image = _select_social_image_url(image_url, requested_social_image_url)
+    abs_social_image_url = ""
+    if social_image:
+        abs_social_image_url = (
+            social_image if social_image.startswith("http") else f"{site_base}{social_image}"
+        )
 
     # Canonical URL. The same rendered HTML serves /this-week, /episodes/{id},
     # and /recipes/{slug} — once published, the recipe URL is the canonical
@@ -586,6 +735,7 @@ def render_episode_page(
 
     title_escaped = html.escape(title)
     desc_escaped = html.escape(description)
+    seo_description_escaped = html.escape(_seo_description(description))
 
     # Canonical + social meta (canonical_url computed above, alongside the
     # JSON-LD that shares it). Only published pages get a canonical — the
@@ -599,12 +749,12 @@ def render_episode_page(
     seo_meta += (
         f'    <meta name="twitter:card" content="summary_large_image">\n'
         f'    <meta name="twitter:title" content="{title_escaped} | Muffin Pan Recipes">\n'
-        f'    <meta name="twitter:description" content="{desc_escaped}">\n'
+        f'    <meta name="twitter:description" content="{seo_description_escaped}">\n'
     )
-    if abs_image_url:
+    if abs_social_image_url:
         seo_meta += (
-            f'    <meta property="og:image" content="{abs_image_url}">\n'
-            f'    <meta name="twitter:image" content="{abs_image_url}">\n'
+            f'    <meta property="og:image" content="{abs_social_image_url}">\n'
+            f'    <meta name="twitter:image" content="{abs_social_image_url}">\n'
         )
 
     bts_jump = ""
@@ -687,13 +837,13 @@ def render_episode_page(
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     {GA4_TAG}
-    <meta name="description" content="{desc_escaped}">
+    <meta name="description" content="{seo_description_escaped}">
     <title>{title_escaped} | Muffin Pan Recipes</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>&#x1f9c1;</text></svg>">
 
     <meta property="og:type" content="article">
     <meta property="og:title" content="{title_escaped} | Muffin Pan Recipes">
-    <meta property="og:description" content="{desc_escaped}">
+    <meta property="og:description" content="{seo_description_escaped}">
     {seo_meta}
 
     <link rel="stylesheet" href="/assets/site.css">
