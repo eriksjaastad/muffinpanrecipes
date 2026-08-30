@@ -45,7 +45,6 @@ SIMULATIONS_DIR = ROOT / "data" / "simulations"
 IMAGES_DIR = ROOT / "src" / "assets" / "images"
 
 SOCIAL_IMAGE_SIZE = (1200, 630)
-JPEG_SUFFIX = ".jpg"
 SOCIAL_IMAGE_SUFFIX = ".social.jpg"
 
 
@@ -54,13 +53,6 @@ def _social_jpeg_key(png_key: str) -> str:
     if not png_key.lower().endswith(".png"):
         raise ValueError(f"Social JPEG siblings require a PNG key: {png_key!r}")
     return png_key[:-4] + SOCIAL_IMAGE_SUFFIX
-
-
-def _jpeg_key(png_key: str) -> str:
-    """Return the deterministic same-dimensions JPEG sibling key."""
-    if not png_key.lower().endswith(".png"):
-        raise ValueError(f"JPEG siblings require a PNG key: {png_key!r}")
-    return png_key[:-4] + JPEG_SUFFIX
 
 
 def _encode_jpeg(png_bytes: bytes, size: tuple[int, int] | None = None) -> bytes:
@@ -261,10 +253,11 @@ class _CloudBackend:
         self._blob_token = os.environ.get("BLOB_READ_WRITE_TOKEN", "")
         self._fs = _FilesystemBackend()  # fallback for local data
         self.prefix: str = ""  # "test/" for test mode, "" for production
-        # In-memory cache: episode_id -> dict. Populated by save_episode so
-        # that load_episode in the same Lambda invocation gets fresh data
-        # without hitting the CDN (which may serve stale content for seconds).
-        self._episode_cache: dict[str, dict] = {}
+        # In-memory cache: (storage prefix, episode_id) -> dict. Populated by
+        # save_episode so that load_episode in the same Lambda invocation gets
+        # fresh data without hitting the CDN (which may serve stale content
+        # for seconds).
+        self._episode_cache: dict[tuple[str, str], dict] = {}
         self._page_cache: dict[str, str] = {}
         if not self._blob_token and os.environ.get("VERCEL_ENV"):
             raise RuntimeError(
@@ -323,9 +316,10 @@ class _CloudBackend:
         # this is fine. For rapid testing, callers should add a delay between writes
         # and reads (see scripts/run_full_week.py --stage-delay).
         # Check in-memory cache first (same Lambda invocation)
-        if episode_id in self._episode_cache:
+        cache_key = (self.prefix, episode_id)
+        if cache_key in self._episode_cache:
             logger.debug(f"load_episode cache hit for {episode_id}")
-            return self._episode_cache[episode_id]
+            return self._episode_cache[cache_key]
 
         pathname = f"{self.prefix}episodes/{episode_id}.json"
         try:
@@ -344,11 +338,44 @@ class _CloudBackend:
             content_resp = _requests.get(blob_url, timeout=15)
             content_resp.raise_for_status()
             data = content_resp.json()
-            self._episode_cache[episode_id] = data
+            self._episode_cache[cache_key] = data
             return data
         except Exception as e:
             logger.warning(f"Blob load_episode failed for {episode_id}, falling back to filesystem: {e}")
             return self._fs.load_episode(episode_id)
+
+    def load_episode_strict(self, episode_id: str) -> Optional[dict]:
+        """Load an episode without masking cloud failures with local data.
+
+        Static deployment builds use this authoritative form so a transient
+        Blob failure cannot publish a page set assembled from stale disk data.
+        Runtime readers retain the compatibility fallback in ``load_episode``.
+        """
+        if not self._has_cloud():
+            return self._fs.load_episode(episode_id)
+
+        import requests as _requests
+
+        cache_key = (self.prefix, episode_id)
+        if cache_key in self._episode_cache:
+            return self._episode_cache[cache_key]
+
+        pathname = f"{self.prefix}episodes/{episode_id}.json"
+        resp = _requests.get(
+            self._BLOB_API,
+            params={"prefix": pathname, "limit": "1"},
+            headers=self._auth_headers(),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        blobs = resp.json().get("blobs", [])
+        if not blobs:
+            return None
+        content_resp = _requests.get(blobs[0]["url"], timeout=15)
+        content_resp.raise_for_status()
+        data = content_resp.json()
+        self._episode_cache[cache_key] = data
+        return data
 
     def save_episode(self, episode_id: str, data: dict) -> None:
         if not self._has_cloud():
@@ -378,7 +405,7 @@ class _CloudBackend:
             blob_url = resp.json().get("url", "")
             logger.info(f"Saved episode to Vercel Blob: {blob_url}")
             # Update in-memory cache so same-invocation reads get fresh data
-            self._episode_cache[episode_id] = data
+            self._episode_cache[(self.prefix, episode_id)] = data
         except Exception as e:
             logger.error(f"Blob save_episode failed for {episode_id}: {e}")
             raise
@@ -386,8 +413,9 @@ class _CloudBackend:
         # Try local filesystem cache for same-invocation reads (may fail on read-only FS)
         try:
             self._fs.save_episode(episode_id, data)
-        except OSError:
-            pass  # Read-only filesystem (Vercel Lambda) — blob save already succeeded
+        except OSError as exc:
+            # Read-only filesystem (Vercel Lambda) — blob save already succeeded.
+            logger.debug("Local episode cache unavailable for %s: %s", episode_id, exc)
 
     def list_episodes(self) -> list[dict]:
         if not self._has_cloud():
@@ -413,7 +441,8 @@ class _CloudBackend:
                 for blob in data.get("blobs", []):
                     pathname = blob.get("pathname", "")
                     if pathname.endswith(".json"):
-                        episode_id = pathname.removeprefix("episodes/").removesuffix(".json")
+                        episode_path = pathname.removeprefix(self.prefix)
+                        episode_id = episode_path.removeprefix("episodes/").removesuffix(".json")
                         # Fetch full episode data
                         try:
                             content_resp = _requests.get(
@@ -434,6 +463,51 @@ class _CloudBackend:
             return self._fs.list_episodes()
 
         # Sort newest first by created_at
+        results.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+        return results
+
+    def list_episodes_strict(self) -> list[dict]:
+        """List episodes without falling back to stale local data.
+
+        The static builder uses this authoritative form; public runtime code
+        continues to use ``list_episodes`` for its existing compatibility
+        behavior.
+        """
+        if not self._has_cloud():
+            return self._fs.list_episodes()
+
+        import requests as _requests
+
+        results = []
+        cursor: Optional[str] = None
+        while True:
+            params: dict = {"prefix": f"{self.prefix}episodes/", "limit": "100"}
+            if cursor:
+                params["cursor"] = cursor
+            resp = _requests.get(
+                self._BLOB_API,
+                params=params,
+                headers=self._auth_headers(),
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            for blob in data.get("blobs", []):
+                pathname = blob.get("pathname", "")
+                if not pathname.endswith(".json"):
+                    continue
+                episode_path = pathname.removeprefix(self.prefix)
+                episode_id = episode_path.removeprefix("episodes/").removesuffix(".json")
+                content_resp = _requests.get(
+                    blob["url"], headers=self._auth_headers(), timeout=15
+                )
+                content_resp.raise_for_status()
+                ep_data = content_resp.json()
+                results.append({"episode_id": episode_id, **ep_data})
+            if not data.get("hasMore"):
+                break
+            cursor = data.get("cursor")
+
         results.sort(key=lambda x: x.get("created_at", ""), reverse=True)
         return results
 
@@ -558,10 +632,6 @@ class _CloudBackend:
                 # Keep the publishing path safe even if an unexpected
                 # dependency/runtime error escapes the helper's guards.
                 logger.warning(f"Social JPEG sibling pipeline failed for {key}: {e}")
-            try:
-                self._upload_jpeg_sibling(key, image_bytes)
-            except Exception as e:  # noqa: BLE001 - optimization must not block publishing
-                logger.warning(f"JPEG sibling pipeline failed for {key}: {e}")
 
         return blob_url
 
@@ -642,35 +712,6 @@ class _CloudBackend:
             )
         except Exception as e:
             logger.warning(f"Social JPEG upload failed for {social_key}: {e}")
-
-    def _upload_jpeg_sibling(self, png_key: str, png_bytes: bytes) -> None:
-        """Best-effort upload of a same-dimensions JPEG page fallback."""
-        try:
-            jpeg_bytes = _encode_jpeg(png_bytes)
-            jpeg_key = _jpeg_key(png_key)
-        except Exception as e:
-            logger.warning(f"JPEG encode failed for {png_key}: {e}")
-            return
-
-        import requests as _requests
-
-        upload_url = f"https://blob.vercel-storage.com/{jpeg_key}"
-        headers = {
-            "Authorization": f"Bearer {self._blob_token}",
-            "Content-Type": "image/jpeg",
-            "x-vercel-access": "public",
-            "x-add-random-suffix": "0",
-            "x-allow-overwrite": "1",
-        }
-        try:
-            resp = _requests.put(upload_url, data=jpeg_bytes, headers=headers, timeout=60)
-            resp.raise_for_status()
-            logger.info(
-                f"Uploaded JPEG sibling: {jpeg_key} "
-                f"({len(jpeg_bytes)}B from {len(png_bytes)}B PNG)"
-            )
-        except Exception as e:
-            logger.warning(f"JPEG upload failed for {jpeg_key}: {e}")
 
     def get_image_url(self, relative_path: str) -> str:
         if not self._has_cloud():

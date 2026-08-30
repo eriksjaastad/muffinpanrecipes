@@ -30,7 +30,7 @@
     "image": "/assets/images/buffalo-chicken-mac-bites.webp",
     "recipe_data": {
       "title": "Buffalo Chicken Mac & Cheese Bites",
-      "description": "Buffalo chicken mac and cheese bites combine cheddar, tender chicken, and spicy sauce in crisped portions. Bake them in a muffin pan for an easy party snack.",
+      "description": "Buffalo chicken mac and cheese bites combine cheddar, chicken, and spicy sauce in crisped portions. Bake them in a muffin pan for an easy party snack.",
       "category": "Savory",
       "prep_time": 20,
       "cook_time": 15,
@@ -111,7 +111,7 @@
     "image": "/assets/images/jumbo-cornbread-bites.webp",
     "recipe_data": {
       "title": "Jumbo Cornbread Honey Bites",
-      "description": "Jumbo cornbread honey bites are moist, lightly sweet, and perfect with chili or barbecue. The muffin pan gives each portion golden edges and a tender center.",
+      "description": "Jumbo cornbread honey bites are moist, lightly sweet, and perfect with chili or barbecue. The muffin pan gives each portion golden edges.",
       "category": "Savory",
       "prep_time": 10,
       "cook_time": 22,
@@ -165,7 +165,7 @@
     "image": "/assets/images/mini-pancake-bites.webp",
     "recipe_data": {
       "title": "Mini Pancake Bites",
-      "description": "Fluffy mini pancake bites bake in the muffin pan, so there is no flipping at the stove. Serve the tender portions with maple syrup, fruit, or your favorite dip.",
+      "description": "Fluffy mini pancake bites bake in the muffin pan, so there is no flipping at the stove. Serve with maple syrup, fruit, or your favorite dip.",
       "category": "Breakfast",
       "prep_time": 5,
       "cook_time": 12,
@@ -192,7 +192,7 @@
     "image": "/assets/images/mini-shepherds-pie.webp",
     "recipe_data": {
       "title": "Mini Shepherd's Pie Pots",
-      "description": "Individual Shepherd's pie cups layer savory meat filling beneath a toasted potato peak. The muffin pan turns this comfort food into easy portions for sharing.",
+      "description": "Individual Shepherd's pie cups layer savory meat filling beneath a toasted potato peak. The muffin pan turns this comfort food into easy portions.",
       "category": "Savory",
       "prep_time": 25,
       "cook_time": 20,

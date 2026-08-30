@@ -1,6 +1,6 @@
 {
     "version": 2,
-    "buildCommand": "npm run build:css",
+    "buildCommand": "npm run build:site",
     "builds": [
         {
             "src": "backend/admin/app.py",
@@ -20,6 +20,16 @@
         }
     ],
     "routes": [
+        {
+            "src": "/(.*)",
+            "headers": {
+                "X-Frame-Options": "DENY",
+                "X-Content-Type-Options": "nosniff",
+                "Referrer-Policy": "strict-origin-when-cross-origin",
+                "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://www.google-analytics.com https://*.google-analytics.com; connect-src 'self' https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+            },
+            "continue": true
+        },
         {
             "src": "/(.*)",
             "headers": {
@@ -55,11 +65,11 @@
         },
         {
             "src": "/recipes/([^/]+)$",
-            "dest": "backend/admin/app.py"
+            "dest": "/src/recipes/$1/index.html"
         },
         {
             "src": "/recipes/?$",
-            "dest": "backend/admin/app.py"
+            "dest": "/src/recipes/index.html"
         },
         {
             "src": "/blob-images/(.*)",
@@ -74,7 +84,7 @@
         },
         {
             "src": "/sitemap\\.xml",
-            "dest": "backend/admin/app.py"
+            "dest": "/src/sitemap.xml"
         },
         {
             "src": "/robots\\.txt",
@@ -82,11 +92,11 @@
         },
         {
             "src": "/recipes\\.json",
-            "dest": "backend/admin/app.py"
+            "dest": "/src/recipes.json"
         },
         {
             "src": "/this-week/?$",
-            "dest": "backend/admin/app.py"
+            "dest": "/src/this-week/index.html"
         },
         {
             "src": "/",

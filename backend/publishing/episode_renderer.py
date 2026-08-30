@@ -17,10 +17,11 @@ import html
 import json
 import os
 import re
+from pathlib import Path
 from typing import Optional
 
 from backend.publishing.analytics import GA4_TAG
-from backend.storage import JPEG_SUFFIX, SOCIAL_IMAGE_SUFFIX, storage
+from backend.storage import SOCIAL_IMAGE_SUFFIX, storage
 from backend.utils.logging import get_logger
 from backend.utils.text_sanitize import sanitize_text
 
@@ -51,8 +52,39 @@ STAGE_LABELS = {
 DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
 BLOB_CDN_PREFIX = "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/images/"
-SEO_DESCRIPTION_MAX_LENGTH = 160
+SEO_DESCRIPTION_MAX_LENGTH = 155
 _SOCIAL_IMAGE_SAFE_EXTENSIONS = (".png", ".jpg", ".jpeg")
+_GENERATED_IMAGE_DIMENSIONS = (1536, 1536)
+
+
+def _image_dimensions(image_url: str) -> tuple[int, int]:
+    """Return the intrinsic dimensions for a rendered image.
+
+    Seed images are checked from the repository so the attributes stay true if
+    an asset is replaced. Generated photography lives in Blob and is produced
+    at 1536x1536 by the Nano Banana path; that measured production dimension is
+    the safe fallback when only a public URL is available to the renderer.
+    """
+    path = image_url.split("?", 1)[0].split("#", 1)[0]
+    if path.startswith("/assets/"):
+        asset_path = Path(__file__).resolve().parents[2] / "src" / path.removeprefix("/")
+        if asset_path.is_file():
+            try:
+                from PIL import Image
+
+                with Image.open(asset_path) as image:
+                    return image.size
+            except (OSError, ValueError):
+                logger.warning("Could not read intrinsic dimensions for %s", asset_path)
+        else:
+            logger.warning("Local asset for intrinsic dimensions was not found: %s", asset_path)
+    return _GENERATED_IMAGE_DIMENSIONS
+
+
+def _intrinsic_image_attributes(image_url: str) -> str:
+    """Format true pixel dimensions for an ``img`` element."""
+    width, height = _image_dimensions(image_url)
+    return f'width="{width}" height="{height}"'
 
 def _step_name(text: str, index: int) -> str:
     """Concise label for a recipe HowToStep.
@@ -136,18 +168,6 @@ def _to_social_image_url(image_url: str) -> str:
     if not path.lower().endswith(".png"):
         return image_url
     return path[:-4] + SOCIAL_IMAGE_SUFFIX + (sep + tail if sep else "")
-
-
-def _to_jpeg_url(image_url: str) -> str:
-    """Return the deterministic same-dimensions JPEG sibling URL."""
-    if not image_url:
-        return image_url
-    path, sep, tail = image_url.partition("?")
-    if not sep:
-        path, sep, tail = image_url.partition("#")
-    if not path.lower().endswith(".png"):
-        return image_url
-    return path[:-4] + JPEG_SUFFIX + (sep + tail if sep else "")
 
 
 def _select_social_image_url(page_image_url: str, social_image_url: str = "") -> str:
@@ -244,11 +264,15 @@ def _render_chat_message(msg: dict, image_url_map: dict[str, str] | None = None)
             url = image_url_map.get(att, "")
             if url:
                 webp_url = _to_webp_url(url)
-                fallback_url = _to_jpeg_url(url)
+                # The canonical PNG remains the fallback.  The plain JPEG
+                # sibling was never consumed by a renderer and is no longer
+                # uploaded; only the purpose-built social JPEG remains.
+                fallback_url = url
                 escaped_fallback = html.escape(fallback_url)
+                dimensions = _intrinsic_image_attributes(fallback_url)
                 image = (
                     f'<img src="{escaped_fallback}" alt="Photography option" '
-                    f'loading="lazy" decoding="async">'
+                    f'{dimensions} loading="lazy" decoding="async">'
                 )
                 if webp_url and webp_url != url:
                     image = (
@@ -530,24 +554,25 @@ def render_episode_page(
     # high fetch priority. Gallery/chat images remain lazy in
     # _render_chat_message.
     if has_image:
-        jpeg_url = _to_jpeg_url(image_url)
-        fallback_url = jpeg_url if jpeg_url != image_url else image_url
+        fallback_url = image_url
         escaped_fallback = html.escape(fallback_url)
         webp_url = _to_webp_url(image_url)
         if webp_url and webp_url != image_url:
             escaped_webp = html.escape(webp_url)
+            dimensions = _intrinsic_image_attributes(fallback_url)
             image_block = (
                 f'<picture>'
                 f'<source srcset="{escaped_webp}" type="image/webp">'
                 f'<img src="{escaped_fallback}" '
-                f'loading="eager" fetchpriority="high" decoding="async" '
+                f'{dimensions} loading="eager" fetchpriority="high" decoding="async" '
                 f'alt="{html.escape(title)}">'
                 f'</picture>'
             )
         else:
+            dimensions = _intrinsic_image_attributes(fallback_url)
             image_block = (
                 f'<img src="{escaped_fallback}" '
-                f'loading="eager" fetchpriority="high" decoding="async" '
+                f'{dimensions} loading="eager" fetchpriority="high" decoding="async" '
                 f'alt="{html.escape(title)}">'
             )
     else:
@@ -643,7 +668,7 @@ def render_episode_page(
     site_base = "https://muffinpanrecipes.com"
     abs_image_url = ""
     if image_url:
-        schema_image_url = _to_jpeg_url(image_url)
+        schema_image_url = image_url
         abs_image_url = (
             schema_image_url
             if schema_image_url.startswith("http")
@@ -905,7 +930,13 @@ def render_episode_page(
 """
 
 
-def render_seed_recipe_page(recipe_data: dict, image_url: str = "", slug: str = "") -> str:
+def render_seed_recipe_page(
+    recipe_data: dict,
+    image_url: str = "",
+    slug: str = "",
+    *,
+    catalog: Optional[list] = None,
+) -> str:
     """Render one of the original seed recipes through the shared renderer.
 
     The 10 launch recipes used to be hand-coded static HTML — a second
@@ -927,7 +958,10 @@ def render_seed_recipe_page(recipe_data: dict, image_url: str = "", slug: str = 
         },
     }
     return render_episode_page(
-        episode, with_conversation=False, canonical_slug=slug or None
+        episode,
+        with_conversation=False,
+        canonical_slug=slug or None,
+        catalog=catalog,
     )
 
 
@@ -1061,6 +1095,7 @@ def publish_recipe_to_catalog(episode: dict) -> str | None:
         for s in recipe.get("instructions", [])
     ]
 
+    image_width, image_height = _image_dimensions(image_url) if image_url else (0, 0)
     new_entry = {
         "slug": slug,
         "title": title,
@@ -1069,6 +1104,8 @@ def publish_recipe_to_catalog(episode: dict) -> str | None:
         "category": recipe.get("category", "Savory").title(),
         "cuisine": str(recipe.get("cuisine", "")).strip(),
         "image": image_url,
+        "image_width": image_width,
+        "image_height": image_height,
         "description": recipe.get("description", ""),
         "prep": f"{recipe.get('prep_time', 15)} mins",
         "cook": f"{recipe.get('cook_time', 20)} mins",

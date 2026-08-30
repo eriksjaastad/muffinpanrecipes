@@ -67,7 +67,7 @@ class TestCloudBackendSaveEpisode:
             with patch.object(cloud_backend._fs, "save_episode"):
                 cloud_backend.save_episode("ep-test-001", sample_episode)
 
-        assert cloud_backend._episode_cache["ep-test-001"] == sample_episode
+        assert cloud_backend._episode_cache[("", "ep-test-001")] == sample_episode
 
     def test_save_raises_on_api_failure(self, cloud_backend, sample_episode):
         mock_resp = MagicMock()
@@ -94,7 +94,7 @@ class TestCloudBackendSaveEpisode:
 
 class TestCloudBackendLoadEpisode:
     def test_load_returns_cached_data(self, cloud_backend, sample_episode):
-        cloud_backend._episode_cache["ep-cached"] = sample_episode
+        cloud_backend._episode_cache[("", "ep-cached")] = sample_episode
         result = cloud_backend.load_episode("ep-cached")
         assert result == sample_episode
 
@@ -116,7 +116,30 @@ class TestCloudBackendLoadEpisode:
 
         assert result == sample_episode
         # Should also cache the result
-        assert cloud_backend._episode_cache["ep-test-001"] == sample_episode
+        assert cloud_backend._episode_cache[("", "ep-test-001")] == sample_episode
+
+    def test_load_does_not_use_cache_from_another_prefix(self, cloud_backend, sample_episode):
+        production_episode = {**sample_episode, "concept": "Production Muffins"}
+        test_episode = {**sample_episode, "concept": "Test Muffins"}
+        cloud_backend._episode_cache[("", "ep-shared")] = production_episode
+
+        mock_list = MagicMock()
+        mock_list.json.return_value = {
+            "blobs": [{"url": "https://cdn.example.com/test-ep.json"}]
+        }
+        mock_list.raise_for_status = MagicMock()
+        mock_content = MagicMock()
+        mock_content.json.return_value = test_episode
+        mock_content.raise_for_status = MagicMock()
+
+        with patch("requests.get", side_effect=[mock_list, mock_content]) as mock_get:
+            with cloud_backend.prefix_scope("test/"):
+                result = cloud_backend.load_episode("ep-shared")
+
+        assert result == test_episode
+        assert mock_get.call_args_list[0].kwargs["params"]["prefix"] == "test/episodes/ep-shared.json"
+        assert cloud_backend._episode_cache[("", "ep-shared")] == production_episode
+        assert cloud_backend._episode_cache[("test/", "ep-shared")] == test_episode
 
     def test_load_falls_back_to_filesystem_on_empty_blobs(self, cloud_backend, sample_episode):
         mock_list = MagicMock()
@@ -137,6 +160,14 @@ class TestCloudBackendLoadEpisode:
 
         mock_fs.assert_called_once_with("ep-broken")
         assert result == sample_episode
+
+    def test_strict_load_does_not_fall_back_on_api_error(self, cloud_backend):
+        with patch("requests.get", side_effect=Exception("Network error")), \
+             patch.object(cloud_backend._fs, "load_episode") as mock_fs:
+            with pytest.raises(Exception, match="Network error"):
+                cloud_backend.load_episode_strict("ep-broken")
+
+        mock_fs.assert_not_called()
 
 
 class TestCloudBackendListEpisodes:
@@ -177,6 +208,35 @@ class TestCloudBackendListEpisodes:
 
         mock_fs.assert_called_once()
         assert results == []
+
+    def test_strict_list_does_not_fall_back_on_error(self, cloud_backend):
+        with patch("requests.get", side_effect=Exception("timeout")), \
+             patch.object(cloud_backend._fs, "list_episodes") as mock_fs:
+            with pytest.raises(Exception, match="timeout"):
+                cloud_backend.list_episodes_strict()
+
+        mock_fs.assert_not_called()
+
+    def test_list_strips_storage_prefix_from_episode_ids(self, cloud_backend):
+        cloud_backend.set_prefix("preview/")
+        episode = {"episode_id": "2026-W34", "created_at": "2026-08-24T00:00:00Z"}
+        mock_list = MagicMock()
+        mock_list.json.return_value = {
+            "blobs": [{
+                "pathname": "preview/episodes/2026-W34.json",
+                "url": "https://cdn.example.com/w34.json",
+            }],
+            "hasMore": False,
+        }
+        mock_list.raise_for_status = MagicMock()
+        mock_content = MagicMock()
+        mock_content.json.return_value = episode
+        mock_content.raise_for_status = MagicMock()
+
+        with patch("requests.get", side_effect=[mock_list, mock_content]):
+            results = cloud_backend.list_episodes()
+
+        assert [item["episode_id"] for item in results] == ["2026-W34"]
 
     def test_list_handles_pagination(self, cloud_backend):
         # First page
@@ -275,21 +335,22 @@ class TestCloudBackendImageSiblings:
     ):
         canonical = self._response("https://cdn.example.com/images/recipe/hero.png")
         webp = self._response("https://cdn.example.com/images/recipe/hero.webp")
-        jpeg = self._response("https://cdn.example.com/images/recipe/hero.jpg")
         social = self._response("https://cdn.example.com/images/recipe/hero.social.jpg")
 
-        with patch("requests.put", side_effect=[canonical, webp, social, jpeg]) as mock_put:
+        with patch("requests.put", side_effect=[canonical, webp, social]) as mock_put:
             result = cloud_backend.save_image(
                 "src/assets/images/recipe/hero.png", self._png_bytes()
             )
 
         assert result == "https://cdn.example.com/images/recipe/hero.png"
-        assert mock_put.call_count == 4
+        assert mock_put.call_count == 3
 
-        canonical_call, webp_call, social_call, jpeg_call = mock_put.call_args_list
-        assert canonical_call.args[0].endswith("/images/recipe/hero.png")
-        assert webp_call.args[0].endswith("/images/recipe/hero.webp")
-        assert social_call.args[0].endswith("/images/recipe/hero.social.jpg")
+        canonical_call, webp_call, social_call = mock_put.call_args_list
+        assert [call.args[0] for call in mock_put.call_args_list] == [
+            "https://blob.vercel-storage.com/images/recipe/hero.png",
+            "https://blob.vercel-storage.com/images/recipe/hero.webp",
+            "https://blob.vercel-storage.com/images/recipe/hero.social.jpg",
+        ]
 
         assert canonical_call.kwargs["headers"]["Content-Type"] == "image/png"
         assert webp_call.kwargs["headers"]["Content-Type"] == "image/webp"
@@ -304,11 +365,6 @@ class TestCloudBackendImageSiblings:
         with Image.open(BytesIO(social_call.kwargs["data"])) as image:
             assert image.format == "JPEG"
             assert image.size == (1200, 630)
-        assert jpeg_call.args[0].endswith("/images/recipe/hero.jpg")
-        assert jpeg_call.kwargs["headers"]["Content-Type"] == "image/jpeg"
-        with Image.open(BytesIO(jpeg_call.kwargs["data"])) as image:
-            assert image.format == "JPEG"
-            assert image.size == (16, 8)
 
     def test_sibling_conversion_or_upload_failure_does_not_fail_png_publish(
         self, cloud_backend
@@ -321,14 +377,14 @@ class TestCloudBackendImageSiblings:
                 canonical,
                 RuntimeError("webp unavailable"),
                 RuntimeError("social jpeg unavailable"),
-                RuntimeError("jpeg unavailable"),
             ],
-        ):
+        ) as mock_put:
             result = cloud_backend.save_image(
                 "src/assets/images/recipe/hero.png", self._png_bytes()
             )
 
         assert result == "https://cdn.example.com/images/recipe/hero.png"
+        assert mock_put.call_count == 3
 
         with (
             patch("backend.storage._encode_social_jpeg", side_effect=OSError("bad PNG")),

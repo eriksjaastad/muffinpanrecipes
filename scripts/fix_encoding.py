@@ -5,14 +5,17 @@ Fixes double-encoded UTF-8 (mojibake) in blob-stored recipe pages by
 re-rendering them fresh from the episode data.
 
 Usage:
-    # Dry run (show what would be fixed):
-    doppler run --project muffinpanrecipes --config prd -- uv run python scripts/fix_encoding.py --dry-run
+    # Dry run one episode (show what would be fixed):
+    doppler run --project muffinpanrecipes --config prd -- uv run python scripts/fix_encoding.py --episode 2026-W34 --dry-run
 
-    # Fix all published recipes:
-    doppler run --project muffinpanrecipes --config prd -- uv run python scripts/fix_encoding.py
+    # Dry run all published recipes:
+    doppler run --project muffinpanrecipes --config prd -- uv run python scripts/fix_encoding.py --all --dry-run
 
     # Fix a specific episode:
     doppler run --project muffinpanrecipes --config prd -- uv run python scripts/fix_encoding.py --episode 2026-W12
+
+    # Explicitly authorize a full bulk rewrite:
+    doppler run --project muffinpanrecipes --config prd -- uv run python scripts/fix_encoding.py --all --full-rebuild
 """
 
 from __future__ import annotations
@@ -23,12 +26,15 @@ import sys
 # Ensure project root is on path
 sys.path.insert(0, ".")
 
-from backend.storage import storage
 from backend.publishing.episode_renderer import (
-    render_episode_page,
-    _slugify,
     _clean_title,
+    _slugify,
+    render_episode_page,
 )
+from backend.storage import storage
+from backend.utils.recipe_prompts import normalize_recipe_instructions
+
+W34_EPISODE_ID = "2026-W34"
 
 
 def fix_episode(episode_id: str, dry_run: bool = False) -> bool:
@@ -61,6 +67,28 @@ def fix_episode(episode_id: str, dry_run: bool = False) -> bool:
         print(f"  SKIP {episode_id}: no recipe title")
         return False
 
+    # W34 is the only known stored episode with markdown-shaped instruction
+    # entries.  Keep this repair explicitly scoped so a bulk page rebuild can
+    # never silently rewrite another week's approved recipe data.
+    if episode_id == W34_EPISODE_ID:
+        original_instructions = recipe.get("instructions", [])
+        repaired_instructions = normalize_recipe_instructions(original_instructions)
+        if repaired_instructions != original_instructions:
+            if dry_run:
+                print(
+                    f"  WOULD REPAIR {episode_id}: "
+                    f"{len(original_instructions)} instructions -> "
+                    f"{len(repaired_instructions)}"
+                )
+            else:
+                recipe["instructions"] = repaired_instructions
+                storage.save_episode(episode_id, ep)
+                print(
+                    f"  REPAIRED {episode_id}: "
+                    f"{len(original_instructions)} instructions -> "
+                    f"{len(repaired_instructions)}"
+                )
+
     slug = _slugify(title)
 
     if dry_run:
@@ -85,7 +113,22 @@ def main():
     parser = argparse.ArgumentParser(description="Fix encoding in published recipe pages")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be fixed without making changes")
     parser.add_argument("--episode", type=str, help="Fix a specific episode ID (e.g. 2026-W12)")
+    parser.add_argument(
+        "--all", action="store_true",
+        help="Process every published episode (requires --full-rebuild unless dry-running)",
+    )
+    parser.add_argument(
+        "--full-rebuild", action="store_true",
+        help="Explicitly authorize a bulk rewrite of existing published pages",
+    )
     args = parser.parse_args()
+
+    if not args.episode and not args.all:
+        parser.error("choose --episode or explicitly opt in with --all")
+    if args.episode and args.all:
+        parser.error("choose either --episode or --all, not both")
+    if args.all and not args.dry_run and not args.full_rebuild:
+        parser.error("--all requires --full-rebuild when it will write pages")
 
     print(f"{'DRY RUN: ' if args.dry_run else ''}Re-rendering published recipe pages...\n")
 
@@ -93,7 +136,9 @@ def main():
         fixed = fix_episode(args.episode, dry_run=args.dry_run)
         total = 1 if fixed else 0
     else:
-        episodes = storage.list_episodes()
+        strict_lister = getattr(storage, "list_episodes_strict", None)
+        lister = strict_lister if callable(strict_lister) else storage.list_episodes
+        episodes = lister()
         print(f"Found {len(episodes)} episodes\n")
         total = 0
         for ep_summary in episodes:
