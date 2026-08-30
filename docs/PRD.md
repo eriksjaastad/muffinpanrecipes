@@ -303,12 +303,12 @@ review_notes: string (nullable, from Erik)
 **Pipeline Steps (current architecture):**
 1. Sunday cron stage runs for the week's episode
 2. `episode_renderer` renders the recipe page from the episode's `recipe_data` — a single renderer serves every recipe page (the 10 original recipes live as data in `src/seed_recipes.json` and render through the same path)
-3. The rendered page is written to Vercel Blob at `pages/recipes/{slug}/index.html`; `/recipes/{slug}` serves blob-first, falling back to the seed-data renderer
-4. The catalog (`pages/recipes.json` in Blob) is updated with the new entry
-5. `/sitemap.xml` is a dynamic FastAPI route built live from the catalog — nothing to regenerate
-6. `published_at` is stamped on the episode (sticky idempotency guard)
+3. The published episode and catalog (`pages/recipes.json`) are written to Vercel Blob as authoritative build sources
+4. The cron requests a Vercel deploy hook; `build:site` reads those sources and emits static recipe pages, the catalog, and sitemap as deployment artifacts
+5. `/recipes/{slug}`, `/recipes.json`, and `/sitemap.xml` are served from those static artifacts without invoking the reader lambda
+6. `published_at` and a retryable static-deploy state are stamped on the episode (sticky idempotency guard)
 
-> No static HTML files and no git push are involved in publishing content — the cron writes directly to Blob. Auto-deploy is OFF; **code** changes deploy via manual `vercel deploy && vercel deploy --prod`.
+> Content publishing remains cron-driven and does not require a source-code commit. Blob stores the source records; the deploy hook rebuilds and promotes the static reader artifacts. Design changes still use the explicit preview → verify → promote flow from #6688.
 
 **Rollback:** If a stage fails, the episode is left unpublished (no `published_at`) and Discord is notified.
 
