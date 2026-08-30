@@ -140,6 +140,7 @@ class StaticSiteBuilder:
         full_rebuild: bool = False,
         storage_client=storage,
         storage_prefix: str = "",
+        require_cloud: bool = False,
     ) -> None:
         self.project_root = Path(project_root).resolve()
         raw_output = Path(output_dir) if output_dir is not None else self.project_root / "src"
@@ -149,6 +150,7 @@ class StaticSiteBuilder:
         self.full_rebuild = full_rebuild
         self.storage = storage_client
         self.storage_prefix = storage_prefix
+        self.require_cloud = require_cloud
 
     def _storage_has_cloud(self) -> bool:
         """Return whether storage is configured for authoritative cloud reads."""
@@ -449,6 +451,11 @@ class StaticSiteBuilder:
         """Build all requested static artifacts with an atomic mutation gate."""
         requested_ids = tuple(episode_ids or ())
         with self.storage.prefix_scope(self.storage_prefix):
+            if self.require_cloud and not self._storage_has_cloud():
+                raise SiteBuildError(
+                    "Vercel static build requires cloud recipe sources; "
+                    "configure BLOB_READ_WRITE_TOKEN at build time"
+                )
             catalog = self._load_catalog()
             seeds = self._load_seeds()
             episodes = self._load_episodes(requested_ids or None)
@@ -498,10 +505,12 @@ def build_site(
     episode_ids: Iterable[str] | None = None,
     storage_prefix: str = "",
     dry_run: bool = False,
+    require_cloud: bool = False,
 ) -> BuildResult:
     """Convenience entry point for scripts and deployment tooling."""
     return StaticSiteBuilder(
         output_dir=output_dir,
         full_rebuild=full_rebuild,
         storage_prefix=storage_prefix,
+        require_cloud=require_cloud,
     ).build(episode_ids, dry_run=dry_run)

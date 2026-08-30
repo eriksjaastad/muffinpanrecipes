@@ -321,7 +321,7 @@ def test_preview_main_failure_has_no_alert_or_status_side_effects(monkeypatch):
          patch.object(hc, "post_discord_recovery") as recovery, \
          patch.object(hc, "write_status") as write_status, \
          patch.object(hc.sys, "argv", [
-             "health_check.py", "--base-url", "https://preview.example", "--strict"
+             "health_check.py", "--base-url", "https://preview.example"
          ]):
         rc = hc.main()
 

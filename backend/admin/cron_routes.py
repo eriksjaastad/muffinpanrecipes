@@ -44,11 +44,6 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
 from backend.config import config
-from backend.publishing.deploy_hook import (
-    DeployHookError,
-    DeployHookResult,
-    trigger_vercel_deploy_hook,
-)
 from backend.publishing.episode_renderer import regenerate_and_upload
 from backend.storage import storage
 from backend.utils.logging import get_logger
@@ -948,7 +943,8 @@ def _catalog_contains_episode(ep: dict) -> bool:
 def _publish_sunday_sources(ep: dict) -> None:
     """Write the Sunday Blob sources and retain legacy page compatibility."""
     # This page remains for non-reader consumers. Static reader artifacts are
-    # rebuilt from the episode and catalog sources by the deploy hook.
+    # rebuilt from the episode and catalog sources by the explicit manual
+    # preview -> verify -> promote deployment flow.
     regenerate_and_upload(ep)
 
     from backend.publishing.episode_renderer import publish_recipe_to_catalog
@@ -978,13 +974,8 @@ def _publish_sunday_sources(ep: dict) -> None:
             )
 
 
-def _complete_static_deploy_handoff(
-    episode_id: str,
-    ep: dict,
-    *,
-    test_mode: bool,
-) -> DeployHookResult | None:
-    """Finish source writes, then request one static deployment if needed."""
+def _complete_static_source_handoff(episode_id: str, ep: dict) -> None:
+    """Finish retryable source writes before the manual static deployment."""
     state = _static_deploy_state(ep)
     state_status = state.get("status")
     source_needs_retry = state_status == "pending" or (
@@ -1005,43 +996,12 @@ def _complete_static_deploy_handoff(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=(
                     "Sunday publish source write failed; "
-                    "Vercel deploy hook was not requested"
+                    "manual static deployment is still pending"
                 ),
             ) from exc
 
-        _set_static_deploy_state(ep, "source_ready")
+        _set_static_deploy_state(ep, "source_ready", phase="manual_deploy")
         storage.save_episode(episode_id, ep)
-
-    if _static_deploy_state(ep).get("status") == "triggered":
-        return DeployHookResult(triggered=True)
-
-    try:
-        result = trigger_vercel_deploy_hook(test_mode=test_mode)
-    except DeployHookError as exc:
-        _persist_static_deploy_failure(
-            episode_id,
-            ep,
-            phase="deploy_hook",
-            error=str(exc),
-        )
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(exc),
-        ) from exc
-
-    if result.triggered:
-        _set_static_deploy_state(ep, "triggered", phase="deploy_hook")
-        storage.save_episode(episode_id, ep)
-    elif not result.skipped:
-        _set_static_deploy_state(
-            ep,
-            "failed",
-            phase="deploy_hook",
-            error="Vercel deploy-hook request failed outside production",
-        )
-        storage.save_episode(episode_id, ep)
-
-    return result
 
 
 def _save_stage_failure(ep: dict, stage: str, error: Exception) -> None:
@@ -1578,12 +1538,11 @@ async def cron_sunday(request: Request):
 
       if ep.get("published_at"):
         handoff_status = _static_deploy_state(ep).get("status")
-        if handoff_status in {"pending", "source_ready", "failed"}:
-            _complete_static_deploy_handoff(
-                episode_id,
-                ep,
-                test_mode=body.test,
-            )
+        if handoff_status == "pending" or (
+            handoff_status == "failed"
+            and _static_deploy_state(ep).get("phase") == "sources"
+        ):
+            _complete_static_source_handoff(episode_id, ep)
         sunday_stage = ep.get("stages", {}).get("sunday", {})
         return _stage_response("sunday", episode_id, concept, {
             "published": True,
@@ -1714,14 +1673,11 @@ async def cron_sunday(request: Request):
             logger.warning(f"Memory generation failed (non-fatal): {e}")
 
         # Persist the published episode before writing the catalog so a crash
-        # between authoritative writes and the deploy-hook call is retryable.
+        # between authoritative writes and the manual deployment handoff is
+        # retryable.
         _set_static_deploy_state(ep, "pending")
         storage.save_episode(episode_id, ep)
-        _complete_static_deploy_handoff(
-            episode_id,
-            ep,
-            test_mode=body.test,
-        )
+        _complete_static_source_handoff(episode_id, ep)
 
     return _stage_response("sunday", episode_id, concept, {
         "published": True,

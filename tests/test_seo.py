@@ -783,7 +783,7 @@ def test_this_week_route_does_not_mutate_legacy_page() -> None:
     assert bytes(resp.body).decode() == _LEGACY_PAGE
 
 
-def test_csp_allows_ga4() -> None:
+def test_csp_allows_ga4(monkeypatch) -> None:
     """The security middleware applies to public recipe pages too. A CSP that
     omits googletagmanager silently blocks the tag on every lambda-served page
     while the static homepage keeps tracking — which reads as a broken install.
@@ -791,9 +791,21 @@ def test_csp_allows_ga4() -> None:
     from fastapi.testclient import TestClient
     from backend.admin.app import create_admin_app
 
+    monkeypatch.delenv("VERCEL_ENV", raising=False)
     with TestClient(create_admin_app()) as client:
         csp = client.get("/health").headers.get("content-security-policy", "")
 
     assert "https://www.googletagmanager.com" in csp, "gtag.js would be blocked"
     connect = next(p for p in csp.split("; ") if p.startswith("connect-src"))
     assert "google-analytics.com" in connect, "GA4 could not send collected data"
+
+
+def test_vercel_lambda_leaves_csp_to_global_route_header(monkeypatch) -> None:
+    from fastapi.testclient import TestClient
+    from backend.admin.app import create_admin_app
+
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    with TestClient(create_admin_app()) as client:
+        csp = client.get("/health").headers.get("content-security-policy")
+
+    assert csp is None

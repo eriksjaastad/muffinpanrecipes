@@ -57,6 +57,11 @@ def _parser() -> argparse.ArgumentParser:
         help="Write to .scratch/site-preview instead of the deployable src/ tree.",
     )
     parser.add_argument(
+        "--require-cloud",
+        action="store_true",
+        help="Require authoritative cloud sources (used by the Vercel build).",
+    )
+    parser.add_argument(
         "--storage-prefix",
         default="",
         help="Isolated storage prefix for preview/test source data (for example test/).",
@@ -80,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
         output_dir=output_dir,
         full_rebuild=args.full_rebuild,
         storage_prefix=args.storage_prefix,
+        require_cloud=args.require_cloud,
     )
     try:
         result = builder.build(args.episode_ids, dry_run=args.dry_run)

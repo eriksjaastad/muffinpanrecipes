@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -39,8 +38,7 @@ def test_cron_sunday_returns_without_side_effects_when_already_published():
          patch.object(cron_routes.storage, "save_episode") as save_episode, \
          patch.object(cron_routes, "_generate_and_judge_dialogue") as generate_dialogue, \
          patch.object(cron_routes, "_editorial_qa_review") as qa_review, \
-         patch.object(cron_routes, "regenerate_and_upload") as regenerate, \
-         patch.object(cron_routes, "trigger_vercel_deploy_hook") as trigger_hook:
+         patch.object(cron_routes, "regenerate_and_upload") as regenerate:
         result = asyncio.run(cron_routes.cron_sunday(_request()))
 
     assert result["published"] is True
@@ -51,12 +49,38 @@ def test_cron_sunday_returns_without_side_effects_when_already_published():
     generate_dialogue.assert_not_called()
     qa_review.assert_not_called()
     regenerate.assert_not_called()
-    trigger_hook.assert_not_called()
 
 
-def test_cron_sunday_still_publishes_unpublished_episode(monkeypatch, caplog):
+def test_already_published_retries_pending_static_sources():
+    episode = {
+        "episode_id": "2026-W20",
+        "concept": "Herbed Sausage Sunrise Cups",
+        "published_at": "2026-05-17T12:00:00+00:00",
+        "static_deploy": {"status": "pending"},
+        "stages": {"sunday": {"status": "complete", "dialogue": []}},
+        "events": [],
+    }
+    saved_states = []
+
+    def capture_save(_episode_id, data):
+        saved_states.append(data["static_deploy"]["status"])
+
+    with patch.object(cron_routes, "_verify_cron_secret"), \
+         patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=_body())), \
+         patch.object(cron_routes, "_verify_day_of_week"), \
+         patch.object(cron_routes.storage, "load_episode", return_value=episode), \
+         patch.object(cron_routes.storage, "save_episode", side_effect=capture_save), \
+         patch.object(cron_routes, "_publish_sunday_sources") as publish_sources:
+        result = asyncio.run(cron_routes.cron_sunday(_request()))
+
+    assert result["already_published"] is True
+    publish_sources.assert_called_once_with(episode)
+    assert saved_states == ["source_ready"]
+    assert episode["static_deploy"]["phase"] == "manual_deploy"
+
+
+def test_cron_sunday_still_publishes_unpublished_episode(monkeypatch):
     monkeypatch.delenv("VERCEL_ENV", raising=False)
-    monkeypatch.delenv("VERCEL_DEPLOY_HOOK_URL", raising=False)
 
     episode = {
         "episode_id": "2026-W20",
@@ -87,8 +111,7 @@ def test_cron_sunday_still_publishes_unpublished_episode(monkeypatch, caplog):
     def capture_save(_episode_id, data):
         saved_states.append(data["static_deploy"]["status"])
 
-    with caplog.at_level(logging.WARNING), \
-         patch.object(cron_routes, "_verify_cron_secret"), \
+    with patch.object(cron_routes, "_verify_cron_secret"), \
          patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=_body())), \
          patch.object(cron_routes, "_verify_day_of_week"), \
          patch.object(cron_routes.storage, "load_episode", return_value=episode), \
@@ -101,7 +124,6 @@ def test_cron_sunday_still_publishes_unpublished_episode(monkeypatch, caplog):
          patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "STATUS: PASS")), \
          patch.object(cron_routes, "_generate_episode_memories"), \
          patch.object(cron_routes, "regenerate_and_upload"), \
-         patch.object(cron_routes, "trigger_vercel_deploy_hook", wraps=cron_routes.trigger_vercel_deploy_hook) as trigger_hook, \
          patch("backend.publishing.episode_renderer.publish_recipe_to_catalog") as publish_catalog, \
          patch("backend.publishing.episode_renderer.render_episode_page", return_value="<html></html>"):
         result = asyncio.run(cron_routes.cron_sunday(_request()))
@@ -113,7 +135,6 @@ def test_cron_sunday_still_publishes_unpublished_episode(monkeypatch, caplog):
     assert save_episode.call_count == 2
     assert saved_states == ["pending", "source_ready"]
     assert episode["static_deploy"]["status"] == "source_ready"
+    assert episode["static_deploy"]["phase"] == "manual_deploy"
     publish_catalog.assert_called_once()
     save_page.assert_called_once()
-    trigger_hook.assert_called_once_with(test_mode=False)
-    assert any("VERCEL_DEPLOY_HOOK_URL is not configured" in record.getMessage() for record in caplog.records)

@@ -3,6 +3,13 @@
 from __future__ import annotations
 
 
+def test_seed_webp_dimensions_are_read_from_repository_assets():
+    from backend.publishing.episode_renderer import _image_dimensions
+
+    assert _image_dimensions("/assets/images/classic-blueberry-muffins.webp") == (1024, 1024)
+    assert _image_dimensions("/assets/images/muffin-tin-lasagna.webp") == (1024, 1024)
+
+
 class TestToWebpUrl:
     def test_png_path_becomes_webp(self):
         from backend.publishing.episode_renderer import _to_webp_url

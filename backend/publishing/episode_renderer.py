@@ -67,15 +67,17 @@ def _image_dimensions(image_url: str) -> tuple[int, int]:
     """
     path = image_url.split("?", 1)[0].split("#", 1)[0]
     if path.startswith("/assets/"):
-        asset_path = Path(__file__).resolve().parents[2] / "src" / path.removeprefix("/assets/")
+        asset_path = Path(__file__).resolve().parents[2] / "src" / path.removeprefix("/")
         if asset_path.is_file():
             try:
                 from PIL import Image
 
                 with Image.open(asset_path) as image:
                     return image.size
-            except Exception:  # noqa: BLE001 - dimensions must not break rendering
+            except (OSError, ValueError):
                 logger.warning("Could not read intrinsic dimensions for %s", asset_path)
+        else:
+            logger.warning("Local asset for intrinsic dimensions was not found: %s", asset_path)
     return _GENERATED_IMAGE_DIMENSIONS
 
 
