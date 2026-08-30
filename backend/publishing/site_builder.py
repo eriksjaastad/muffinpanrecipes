@@ -179,7 +179,11 @@ class StaticSiteBuilder:
         invalid = [
             str(index)
             for index, recipe in enumerate(recipes)
-            if not isinstance(recipe, dict) or not str(recipe.get("slug") or "").strip()
+            if (
+                not isinstance(recipe, dict)
+                or not str(recipe.get("slug") or "").strip()
+                or not str(recipe.get("title") or "").strip()
+            )
         ]
         if invalid:
             raise SiteBuildError(
