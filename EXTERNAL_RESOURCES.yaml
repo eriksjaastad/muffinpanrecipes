@@ -42,7 +42,7 @@ external_resources:
     env_vars:
       - BLOB_READ_WRITE_TOKEN
       - VERCEL_ENV
-    notes: Storage uses backend/storage.py and Vercel Blob REST API.
+    notes: Storage uses backend/storage.py and Vercel Blob REST API; the Vercel build reads authoritative episode and catalog sources from Blob. Sunday source publication does not trigger an automatic deploy.
 
   - name: Discord Webhooks
     purpose: Notifications for review and pipeline status.

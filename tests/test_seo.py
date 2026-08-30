@@ -19,6 +19,7 @@ import pytest
 
 from backend.admin import episode_routes
 from backend.publishing.episode_renderer import (
+    SEO_DESCRIPTION_MAX_LENGTH,
     _seo_description,
     _slugify,
     _step_name,
@@ -78,7 +79,7 @@ def test_social_metadata_accepts_safe_existing_asset_without_changing_recipe_ima
     html = render_episode_page(_published_episode(), social_image_url=social_image)
 
     social_abs = "https://muffinpanrecipes.com" + social_image
-    hero_abs = "https://muffinpanrecipes.com/blob-images/ffd2aff5/round_1/macro_closeup.jpg"
+    hero_abs = "https://muffinpanrecipes.com/blob-images/ffd2aff5/round_1/macro_closeup.png"
     assert f'<meta property="og:image" content="{social_abs}">' in html
     assert f'<meta name="twitter:image" content="{social_abs}">' in html
     assert _extract_json_ld(html)["image"] == [hero_abs]
@@ -106,7 +107,7 @@ def test_description_metadata_is_word_bounded_but_editorial_copy_is_complete() -
     html = render_episode_page(episode)
     bounded = _seo_description(full_description)
 
-    assert len(bounded) <= 160
+    assert len(bounded) <= SEO_DESCRIPTION_MAX_LENGTH
     assert bounded.endswith("…")
     assert full_description.startswith(bounded[:-1])
     assert full_description[len(bounded) - 1].isspace()
@@ -158,7 +159,7 @@ def _extract_json_ld(html: str) -> dict:
 def test_json_ld_has_rich_result_fields() -> None:
     ld = _extract_json_ld(render_episode_page(_published_episode()))
     assert ld["image"] == [
-        "https://muffinpanrecipes.com/blob-images/ffd2aff5/round_1/macro_closeup.jpg"
+        "https://muffinpanrecipes.com/blob-images/ffd2aff5/round_1/macro_closeup.png"
     ]
     assert ld["author"] == {"@type": "Organization", "name": "Muffin Pan Recipes"}
     assert ld["datePublished"] == "2026-06-14"
@@ -315,7 +316,7 @@ def test_seed_meta_descriptions_fit_the_preview_window() -> None:
         rec["recipe_data"]["description"]
         for rec in _seed_recipes().values()
     ]
-    assert all(70 <= len(description) <= 160 for description in descriptions)
+    assert all(70 <= len(description) <= SEO_DESCRIPTION_MAX_LENGTH for description in descriptions)
 
 
 @pytest.mark.parametrize("slug", sorted(_seed_recipes().keys()))
@@ -768,21 +769,21 @@ def test_missing_head_is_logged_not_silent(caplog) -> None:
     assert any("no <head>" in r.getMessage() for r in caplog.records)
 
 
-def test_recipe_route_serves_tagged_legacy_page() -> None:
+def test_recipe_route_does_not_mutate_legacy_page() -> None:
     with patch.object(episode_routes.storage, "load_page", return_value=_LEGACY_PAGE):
         resp = asyncio.run(episode_routes.recipe_page("spanakopita-phyllo-cups"))
     assert resp.status_code == 200
-    assert _tagged(bytes(resp.body).decode())
+    assert bytes(resp.body).decode() == _LEGACY_PAGE
 
 
-def test_this_week_route_serves_tagged_legacy_page() -> None:
+def test_this_week_route_does_not_mutate_legacy_page() -> None:
     with patch.object(episode_routes.storage, "load_page", return_value=_LEGACY_PAGE):
         resp = asyncio.run(episode_routes.this_week_page())
     assert resp.status_code == 200
-    assert _tagged(bytes(resp.body).decode())
+    assert bytes(resp.body).decode() == _LEGACY_PAGE
 
 
-def test_csp_allows_ga4() -> None:
+def test_csp_allows_ga4(monkeypatch) -> None:
     """The security middleware applies to public recipe pages too. A CSP that
     omits googletagmanager silently blocks the tag on every lambda-served page
     while the static homepage keeps tracking — which reads as a broken install.
@@ -790,9 +791,21 @@ def test_csp_allows_ga4() -> None:
     from fastapi.testclient import TestClient
     from backend.admin.app import create_admin_app
 
+    monkeypatch.delenv("VERCEL_ENV", raising=False)
     with TestClient(create_admin_app()) as client:
         csp = client.get("/health").headers.get("content-security-policy", "")
 
     assert "https://www.googletagmanager.com" in csp, "gtag.js would be blocked"
     connect = next(p for p in csp.split("; ") if p.startswith("connect-src"))
     assert "google-analytics.com" in connect, "GA4 could not send collected data"
+
+
+def test_vercel_lambda_leaves_csp_to_global_route_header(monkeypatch) -> None:
+    from fastapi.testclient import TestClient
+    from backend.admin.app import create_admin_app
+
+    monkeypatch.setenv("VERCEL_ENV", "production")
+    with TestClient(create_admin_app()) as client:
+        csp = client.get("/health").headers.get("content-security-policy")
+
+    assert csp is None

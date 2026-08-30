@@ -7,7 +7,7 @@ routed through generate_response() so any provider works.
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterable, Optional
 
 from backend.config import config
 from backend.utils.logging import get_logger
@@ -166,6 +166,63 @@ Remember:
 Generate the complete recipe now."""
 
 
+_INSTRUCTION_MARKER_RE = re.compile(r"^\s*(?:\d+[.)]|[-*•])(?=\s|$)\s*")
+
+
+def _strip_surrounding_markdown_emphasis(text: str) -> str:
+    """Remove one pair of emphasis delimiters surrounding ``text``.
+
+    Delimiters inside the line are intentionally left alone.  This keeps
+    emphasis such as ``Fold **very gently** into the batter`` intact while
+    removing formatting accidentally applied to a whole instruction.
+    """
+    for opening, closing in (("**", "**"), ("__", "__"), ("*", "*"), ("_", "_")):
+        if text.startswith(opening) and text.endswith(closing):
+            inner = text[len(opening):-len(closing)]
+            if inner.strip():
+                return inner.strip()
+    return text.strip()
+
+
+def normalize_recipe_instructions(instructions: Iterable[Any] | None) -> list[Any]:
+    """Return instruction lines with presentation-only markdown removed.
+
+    The normalizer is deliberately content-preserving: it only removes a
+    leading list marker, outer markdown emphasis, and section labels that are
+    just a colon-terminated header.  Non-string values are carried through
+    unchanged so malformed stored data is not silently replaced with text.
+    """
+    if instructions is None:
+        return []
+    if isinstance(instructions, str):
+        instructions = [instructions]
+
+    normalized: list[Any] = []
+    for instruction in instructions:
+        if not isinstance(instruction, str):
+            normalized.append(instruction)
+            continue
+
+        text = instruction.strip()
+        # Handle both ordinary bullets and a bullet wrapped in whole-line
+        # emphasis (for example, ``**- Mix well**``) without touching a
+        # legitimate leading hyphen in ``-inch`` or a decimal such as ``1.5``.
+        for _ in range(2):
+            previous = text
+            text = _INSTRUCTION_MARKER_RE.sub("", text, count=1).strip()
+            text = _strip_surrounding_markdown_emphasis(text)
+            if text == previous:
+                break
+
+        # W34 contains section labels as instruction entries.  They are
+        # structural headers, not recipe steps, and must not render as steps.
+        if not text or text.endswith(":"):
+            continue
+        normalized.append(text)
+
+    return normalized
+
+
 def _parse_recipe_response(response: str, concept: str) -> Dict[str, Any]:
     result: Dict[str, Any] = {
         "title": concept,
@@ -192,57 +249,59 @@ def _parse_recipe_response(response: str, concept: str) -> Dict[str, Any]:
         if not line:
             continue
 
-        # Strip markdown bold formatting
-        if line.startswith("**") and ":**" in line:
-            line = line.replace("**", "")
+        # Use a control-only version for field/section detection.  Keep the
+        # original line for instructions so inner emphasis survives parsing.
+        control_line = _strip_surrounding_markdown_emphasis(line)
 
-        if line.startswith("TITLE:"):
-            result["title"] = line.replace("TITLE:", "").strip()
-        elif line.startswith("DESCRIPTION:"):
-            result["description"] = line.replace("DESCRIPTION:", "").strip()
-        elif line.startswith("SERVINGS:"):
-            match = re.search(r"\d+", line)
+        if control_line.startswith("TITLE:"):
+            result["title"] = control_line.replace("TITLE:", "").strip()
+        elif control_line.startswith("DESCRIPTION:"):
+            result["description"] = control_line.replace("DESCRIPTION:", "").strip()
+        elif control_line.startswith("SERVINGS:"):
+            match = re.search(r"\d+", control_line)
             if match:
                 result["servings"] = int(match.group())
-        elif line.startswith("PREP_TIME:"):
-            match = re.search(r"\d+", line)
+        elif control_line.startswith("PREP_TIME:"):
+            match = re.search(r"\d+", control_line)
             if match:
                 result["prep_time"] = int(match.group())
-        elif line.startswith("COOK_TIME:"):
-            match = re.search(r"\d+", line)
+        elif control_line.startswith("COOK_TIME:"):
+            match = re.search(r"\d+", control_line)
             if match:
                 result["cook_time"] = int(match.group())
-        elif line.startswith("CALORIES:"):
-            match = re.search(r"\d+", line)
+        elif control_line.startswith("CALORIES:"):
+            match = re.search(r"\d+", control_line)
             if match:
                 result["calories"] = int(match.group())
-        elif line.startswith("DIFFICULTY:"):
-            diff = line.replace("DIFFICULTY:", "").strip().lower()
+        elif control_line.startswith("DIFFICULTY:"):
+            diff = control_line.replace("DIFFICULTY:", "").strip().lower()
             if diff in ["easy", "medium", "hard"]:
                 result["difficulty"] = diff
-        elif line.startswith("CATEGORY:"):
-            result["category"] = line.replace("CATEGORY:", "").strip().lower()
-        elif line.startswith("CUISINE:"):
+        elif control_line.startswith("CATEGORY:"):
+            result["category"] = control_line.replace("CATEGORY:", "").strip().lower()
+        elif control_line.startswith("CUISINE:"):
             # Strip any bracketed example text the LLM might echo; keep it short.
-            cuisine = line.replace("CUISINE:", "").strip().strip("[]").strip()
+            cuisine = control_line.replace("CUISINE:", "").strip().strip("[]").strip()
             result["cuisine"] = cuisine[:40]
-        elif line.startswith("INGREDIENTS:"):
+        elif control_line.startswith("INGREDIENTS:"):
             current_section = "ingredients"
-        elif line.startswith("INSTRUCTIONS:"):
+        elif control_line.startswith("INSTRUCTIONS:"):
             current_section = "instructions"
-        elif line.startswith("CHEF_NOTES:"):
+        elif control_line.startswith("CHEF_NOTES:"):
             current_section = "chef_notes"
-            result["chef_notes"] = line.replace("CHEF_NOTES:", "").strip()
+            result["chef_notes"] = control_line.replace("CHEF_NOTES:", "").strip()
         elif current_section == "ingredients" and (line.startswith("-") or line.startswith("*")):
             ingredient = _parse_ingredient(line[1:].strip())
             if ingredient:
                 result["ingredients"].append(ingredient)
-        elif current_section == "instructions" and (line[0].isdigit() or line.startswith("-") or line.startswith("*")):
-            instruction = re.sub(r"^[\d\-]+[\.\)]\s*", "", line).strip()
-            if instruction:
-                result["instructions"].append(instruction)
-        elif current_section == "chef_notes" and not line.startswith(("TITLE", "DESCRIPTION", "SERVINGS")):
+        elif current_section == "instructions" and (
+            line[0].isdigit() or line.startswith(("-", "*", "•"))
+        ):
+            result["instructions"].append(line)
+        elif current_section == "chef_notes" and not control_line.startswith(("TITLE", "DESCRIPTION", "SERVINGS")):
             result["chef_notes"] += " " + line
+
+    result["instructions"] = normalize_recipe_instructions(result["instructions"])
 
     if not result["ingredients"]:
         logger.warning(f"No ingredients parsed from response for {concept}")

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Production health check for muffinpanrecipes (#5918).
+"""Production and preview health check for muffinpanrecipes (#5918).
 
 Read-only synthetic monitor. Asserts production invariants that would
 have caught the #5911 test-mode contamination incident within 60 seconds.
-Exits 0 on pass, non-zero on any failure. Optionally posts a Discord
-alert when `MUFFINPAN_DISCORD_WEBHOOK` is set.
+Exits 0 on pass, non-zero on any failure. Preview runs are automatically
+side-effect free; production runs optionally post a Discord alert when
+MUFFINPAN_DISCORD_WEBHOOK is set.
 
 Run modes:
     # Manual
@@ -13,8 +14,8 @@ Run modes:
     # Fail on catalog drop
     uv run python scripts/health_check.py --baseline 15
 
-    # Post-deploy (CI)
-    uv run python scripts/health_check.py --strict
+    # Post-deploy preview (CI)
+    uv run python scripts/health_check.py --base-url https://preview.example
 
 See RUNBOOK.md Incident 1 for the incident this is designed to catch.
 """
@@ -22,13 +23,16 @@ See RUNBOOK.md Incident 1 for the incident this is designed to catch.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Callable
+from urllib.parse import urljoin, urlsplit, urlunsplit
+from xml.etree import ElementTree
 
 import requests
 
@@ -47,12 +51,78 @@ def _state_file() -> Path:
     # freeze the path at import, before any override is set.
     return Path(os.environ.get("MUFFINPAN_HEALTH_STATE_FILE", DEFAULT_STATE_FILE))
 
-SITE_BASE = "https://muffinpanrecipes.com"
+PRODUCTION_BASE_URL = "https://muffinpanrecipes.com"
 BLOB_CDN = "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com"
-CATALOG_SITE_URL = f"{SITE_BASE}/recipes.json"
+GA4_MEASUREMENT_ID = "G-05P73D3237"
 CATALOG_BLOB_URL = f"{BLOB_CDN}/pages/recipes.json"
-TEASER_URL = f"{SITE_BASE}/api/episodes/teaser"
-THIS_WEEK_URL = f"{SITE_BASE}/this-week"
+UNMATCHED_PATH = "/__health_check_unmatched__"
+REQUIRED_SECURITY_HEADERS = (
+    "x-frame-options",
+    "x-content-type-options",
+    "referrer-policy",
+    "content-security-policy",
+)
+REQUIRED_SECURITY_HEADER_VALUES = {
+    "x-frame-options": "DENY",
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "strict-origin-when-cross-origin",
+}
+REQUIRED_CSP_DIRECTIVES = {
+    "default-src": ("'self'",),
+    "script-src": ("'self'", "'unsafe-inline'", "https://www.googletagmanager.com"),
+    "style-src": ("'self'", "'unsafe-inline'", "https://fonts.googleapis.com"),
+    "font-src": ("'self'", "https://fonts.gstatic.com"),
+    "img-src": (
+        "'self'",
+        "data:",
+        "https://www.google-analytics.com",
+        "https://*.google-analytics.com",
+    ),
+    "connect-src": (
+        "'self'",
+        "https://www.google-analytics.com",
+        "https://*.google-analytics.com",
+        "https://*.analytics.google.com",
+        "https://*.googletagmanager.com",
+    ),
+    "object-src": ("'none'",),
+    "base-uri": ("'self'",),
+    "form-action": ("'self'",),
+    "frame-ancestors": ("'none'",),
+}
+
+
+def _normalize_base_url(base_url: str) -> str:
+    """Return a safe absolute origin for all requests in one health run."""
+    value = str(base_url).strip().rstrip("/")
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError(f"base URL must be an absolute http(s) URL: {base_url!r}")
+    if parsed.path or parsed.query or parsed.fragment:
+        raise ValueError(f"base URL must not include a path, query, or fragment: {base_url!r}")
+    return urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
+
+
+def _url(base_url: str, path: str) -> str:
+    """Resolve a public path against the run's base URL."""
+    return f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+
+
+def _header(headers: object, name: str) -> str | None:
+    """Get a response header from requests or a plain dict, case-insensitively."""
+    if headers is None:
+        return None
+    getter = getattr(headers, "get", None)
+    if callable(getter):
+        value = getter(name)
+        if value:
+            return str(value)
+    items = getattr(headers, "items", None)
+    if callable(items):
+        for key, value in items():
+            if str(key).lower() == name.lower() and value:
+                return str(value)
+    return None
 
 
 @dataclass
@@ -88,32 +158,49 @@ def _fetch_text(url: str, timeout: int = 15) -> tuple[int, str]:
     return resp.status_code, resp.text
 
 
+def _fetch_page(url: str, timeout: int = 15) -> tuple[int, str, object]:
+    """Fetch a page while retaining headers needed by response-level checks."""
+    resp = requests.get(url, timeout=timeout)
+    return resp.status_code, resp.text, resp.headers
+
+
 def current_iso_week_id() -> str:
     iso_year, iso_week, _ = date.today().isocalendar()
     return f"{iso_year}-W{iso_week:02d}"
 
 
-def check_catalog_counts_match(report: Report, baseline: int) -> None:
+def check_catalog_counts_match(
+    report: Report, baseline: int, base_url: str = PRODUCTION_BASE_URL
+) -> None:
     def _check():
-        site_catalog = _fetch_json(CATALOG_SITE_URL)
-        blob_catalog = _fetch_json(CATALOG_BLOB_URL)
-        site_count = len(site_catalog) if isinstance(site_catalog, list) else len(site_catalog.get("recipes", []))
-        blob_count = len(blob_catalog) if isinstance(blob_catalog, list) else len(blob_catalog.get("recipes", []))
-        assert site_count == blob_count, (
-            f"site catalog has {site_count} recipes but blob has {blob_count}. "
-            f"Drift here means FastAPI is reading stale or prefixed data."
+        site_catalog = _fetch_json(_url(base_url, "/recipes.json"))
+        site_count = (
+            len(site_catalog)
+            if isinstance(site_catalog, list)
+            else len(site_catalog.get("recipes", []))
         )
-        assert blob_count >= baseline, (
-            f"blob catalog has {blob_count} recipes, expected >= {baseline}. "
+        assert site_count >= baseline, (
+            f"site catalog has {site_count} recipes, expected >= {baseline}. "
             f"Catalog shrinkage means something deleted or overwrote entries."
         )
+        if base_url == PRODUCTION_BASE_URL:
+            blob_catalog = _fetch_json(CATALOG_BLOB_URL)
+            blob_count = (
+                len(blob_catalog)
+                if isinstance(blob_catalog, list)
+                else len(blob_catalog.get("recipes", []))
+            )
+            assert site_count == blob_count, (
+                f"site catalog has {site_count} recipes but blob has {blob_count}. "
+                f"Drift here means FastAPI is reading stale or prefixed data."
+            )
 
     report.check("catalog_counts_match_baseline", _check)
 
 
-def check_teaser_current_week(report: Report) -> None:
+def check_teaser_current_week(report: Report, base_url: str = PRODUCTION_BASE_URL) -> None:
     def _check():
-        data = _fetch_json(TEASER_URL)
+        data = _fetch_json(_url(base_url, "/api/episodes/teaser"))
         assert isinstance(data, dict), f"teaser returned non-dict: {type(data).__name__}"
         # On Sunday after publish, the endpoint suppresses the teaser
         # (read-side check in episode_routes.py) so the homepage Featured
@@ -135,9 +222,9 @@ def check_teaser_current_week(report: Report) -> None:
     report.check("teaser_is_current_iso_week", _check)
 
 
-def check_this_week_page(report: Report) -> None:
+def check_this_week_page(report: Report, base_url: str = PRODUCTION_BASE_URL) -> None:
     def _check():
-        status, body = _fetch_text(THIS_WEEK_URL)
+        status, body = _fetch_text(_url(base_url, "/this-week"))
         assert status == 200, f"/this-week returned HTTP {status}"
         if len(body) > 20_000:
             return  # full episode page rendered — healthy
@@ -150,7 +237,14 @@ def check_this_week_page(report: Report) -> None:
         iso = datetime.now(timezone.utc).isocalendar()
         week_id = f"{iso.year}-W{iso.week:02d}"
         try:
-            episode = _fetch_json(f"{BLOB_CDN}/episodes/{week_id}.json")
+            # A preview deployment may intentionally still be a placeholder
+            # while the shared production Blob already has this week's
+            # episode. Never let that shared state make a preview fail.
+            episode = (
+                _fetch_json(f"{BLOB_CDN}/episodes/{week_id}.json")
+                if base_url == PRODUCTION_BASE_URL
+                else None
+            )
         except Exception:
             episode = None
         monday_done = (
@@ -169,16 +263,18 @@ def check_this_week_page(report: Report) -> None:
     report.check("this_week_renders", _check)
 
 
-def _resolve_image_url(src: str) -> str:
+def _resolve_image_url(src: str, base_url: str = PRODUCTION_BASE_URL) -> str:
     """Resolve a page image reference to an absolute URL we can HEAD."""
     if src.startswith("/blob-images/"):
-        return f"{BLOB_CDN}/images/{src[len('/blob-images/'):]}"
+        return f"{base_url}/blob-images/{src[len('/blob-images/'):]}"
     if src.startswith("/"):
-        return f"{SITE_BASE}{src}"
-    return src
+        return f"{base_url}{src}"
+    return urljoin(f"{base_url.rstrip('/')}/", src)
 
 
-def check_recipe_page_images(report: Report) -> None:
+def check_recipe_page_images(
+    report: Report, base_url: str = PRODUCTION_BASE_URL
+) -> None:
     """Every recipe page's hero image must actually load (HTTP 200).
 
     Checks the RENDERED pages, not the catalog: a recipe can carry a healthy
@@ -187,7 +283,7 @@ def check_recipe_page_images(report: Report) -> None:
     image 200 but the rendered page 404s — which a catalog-only check misses.
     """
     def _check():
-        catalog = _fetch_json(CATALOG_BLOB_URL)
+        catalog = _fetch_json(_url(base_url, "/recipes.json"))
         recipes = catalog if isinstance(catalog, list) else catalog.get("recipes", [])
         assert recipes, "catalog is empty — cannot verify recipe images"
         broken = []
@@ -195,7 +291,7 @@ def check_recipe_page_images(report: Report) -> None:
             slug = r.get("slug")
             if not slug:
                 continue
-            status, body = _fetch_text(f"{SITE_BASE}/recipes/{slug}")
+            status, body = _fetch_text(_url(base_url, f"/recipes/{slug}"))
             if status != 200:
                 broken.append(f"{slug}: page HTTP {status}")
                 continue
@@ -210,7 +306,7 @@ def check_recipe_page_images(report: Report) -> None:
                 or "blob.vercel-storage.com" in s
             ][:2]
             for s in hero:
-                url = _resolve_image_url(s)
+                url = _resolve_image_url(s, base_url)
                 try:
                     code = requests.head(url, timeout=12, allow_redirects=True).status_code
                 except Exception as exc:
@@ -223,6 +319,420 @@ def check_recipe_page_images(report: Report) -> None:
         )
 
     report.check("recipe_page_hero_images_load", _check)
+
+
+def _sitemap_urls(base_url: str) -> list[str]:
+    """Return sitemap paths resolved against this run's base URL.
+
+    The application currently emits the production origin in <loc> even from
+    a preview deployment. Keeping only the path prevents a preview run from
+    accidentally checking production pages.
+    """
+    status, body = _fetch_text(_url(base_url, "/sitemap.xml"))
+    assert status == 200, f"/sitemap.xml returned HTTP {status}"
+    try:
+        root = ElementTree.fromstring(body)
+    except ElementTree.ParseError as exc:
+        raise AssertionError(f"/sitemap.xml is not valid XML: {exc}") from exc
+
+    urls: list[str] = []
+    seen: set[str] = set()
+    for element in root.iter():
+        if element.tag.rsplit("}", 1)[-1] != "loc":
+            continue
+        location = (element.text or "").strip()
+        if not location:
+            continue
+        parsed = urlsplit(location)
+        path = parsed.path or "/"
+        if parsed.query:
+            path += f"?{parsed.query}"
+        target = _url(base_url, path)
+        if target not in seen:
+            seen.add(target)
+            urls.append(target)
+    assert urls, "/sitemap.xml contains no <loc> URLs"
+    return urls
+
+
+def _page_path(url: str) -> str:
+    path = urlsplit(url).path or "/"
+    return path if path == "/" else path.rstrip("/")
+
+
+def _is_recipe_url(url: str) -> bool:
+    path = _page_path(url)
+    return path.startswith("/recipes/") and path.count("/") == 2
+
+
+def _is_this_week_url(url: str) -> bool:
+    return _page_path(url) == "/this-week"
+
+
+def _tag_attribute(tag: str, attribute: str) -> str | None:
+    match = re.search(
+        rf"\b{re.escape(attribute)}\s*=\s*(?:(['\"])(.*?)\1|([^\s>]+))",
+        tag,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not match:
+        return None
+    return (match.group(2) or match.group(3) or "").strip()
+
+
+def _html_tags(body: str, tag_name: str) -> list[str]:
+    return re.findall(
+        rf"<{tag_name}\b[^>]*>", body, flags=re.IGNORECASE | re.DOTALL
+    )
+
+
+def _check_ga4_tag(body: str) -> None:
+    loader = re.findall(
+        rf"https://www\.googletagmanager\.com/gtag/js\?id={re.escape(GA4_MEASUREMENT_ID)}\b",
+        body,
+        flags=re.IGNORECASE,
+    )
+    config = re.findall(
+        rf"gtag\s*\(\s*['\"]config['\"]\s*,\s*['\"]{re.escape(GA4_MEASUREMENT_ID)}['\"]\s*\)",
+        body,
+        flags=re.IGNORECASE,
+    )
+    assert len(loader) == 1, (
+        f"GA4 loader occurs {len(loader)} times; expected exactly once"
+    )
+    assert len(config) == 1, (
+        f"GA4 config occurs {len(config)} times; expected exactly once"
+    )
+
+
+def _json_ld_objects(body: str) -> list[object]:
+    blocks = re.findall(
+        r"<script\b[^>]*type\s*=\s*(['\"])application/ld\+json\1[^>]*>(.*?)</script\s*>",
+        body,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    objects: list[object] = []
+    for _quote, raw in blocks:
+        try:
+            objects.append(json.loads(raw.strip()))
+        except json.JSONDecodeError as exc:
+            raise AssertionError(f"invalid JSON-LD: {exc.msg}") from exc
+    return objects
+
+
+def _iter_json_ld_dicts(value: object) -> list[dict]:
+    if isinstance(value, dict):
+        values = [value]
+        graph = value.get("@graph")
+        if isinstance(graph, list):
+            values.extend(item for item in graph if isinstance(item, dict))
+        return values
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+    return []
+
+
+def _check_recipe_json_ld(body: str) -> None:
+    objects = _json_ld_objects(body)
+    recipe_objects = [
+        item
+        for obj in objects
+        for item in _iter_json_ld_dicts(obj)
+        if (
+            item.get("@type") == "Recipe"
+            or (
+                isinstance(item.get("@type"), list)
+                and "Recipe" in item["@type"]
+            )
+        )
+    ]
+    assert recipe_objects, "page has no Recipe JSON-LD object"
+    recipe = recipe_objects[0]
+    required = (
+        "@context",
+        "@type",
+        "name",
+        "image",
+        "recipeIngredient",
+        "recipeInstructions",
+    )
+    missing = [key for key in required if not recipe.get(key)]
+    assert not missing, f"Recipe JSON-LD missing required fields: {', '.join(missing)}"
+    assert isinstance(recipe["recipeIngredient"], list) and recipe["recipeIngredient"], (
+        "Recipe JSON-LD recipeIngredient must be a non-empty list"
+    )
+    assert isinstance(recipe["recipeInstructions"], list) and recipe["recipeInstructions"], (
+        "Recipe JSON-LD recipeInstructions must be a non-empty list"
+    )
+
+
+def _image_references(body: str) -> list[str]:
+    """Extract the first picture/source and img URLs, preserving hero order."""
+    references: list[str] = []
+    for tag in _html_tags(body, "source") + _html_tags(body, "img"):
+        value = _tag_attribute(tag, "srcset") or _tag_attribute(tag, "src")
+        if not value:
+            continue
+        # For srcset, the first candidate is sufficient for a reachability
+        # probe; the corresponding fallback <img> is also checked below.
+        value = value.split(",", 1)[0].strip().split(None, 1)[0]
+        if value.startswith("data:") or value in references:
+            continue
+        references.append(value)
+    return references
+
+
+def _check_hero_image(body: str, base_url: str, *, required: bool) -> None:
+    references = _image_references(body)
+    if not references:
+        if required:
+            raise AssertionError("page has no hero image URL")
+        return
+
+    broken: list[str] = []
+    for source in references[:2]:
+        image_url = _resolve_image_url(source, base_url)
+        try:
+            status = requests.head(
+                image_url, timeout=12, allow_redirects=True
+            ).status_code
+        except Exception as exc:
+            status = f"{type(exc).__name__}: {exc}"
+        if status != 200:
+            broken.append(f"[{status}] {source}")
+    assert not broken, "hero image(s) failed to load: " + ", ".join(broken)
+
+
+def _check_intrinsic_image_dimensions(body: str) -> None:
+    missing: list[str] = []
+    for index, tag in enumerate(_html_tags(body, "img"), start=1):
+        width = _tag_attribute(tag, "width")
+        height = _tag_attribute(tag, "height")
+        if not width or not re.fullmatch(r"[1-9]\d*", width):
+            missing.append(f"img {index} width={width!r}")
+        if not height or not re.fullmatch(r"[1-9]\d*", height):
+            missing.append(f"img {index} height={height!r}")
+    assert not missing, "images missing intrinsic width/height: " + ", ".join(missing)
+
+
+def _check_canonical_and_og(url: str, body: str, base_url: str) -> None:
+    canonical = next(
+        (
+            _tag_attribute(tag, "href")
+            for tag in _html_tags(body, "link")
+            if "canonical" in (_tag_attribute(tag, "rel") or "").lower().split()
+        ),
+        None,
+    )
+    og_url = next(
+        (
+            _tag_attribute(tag, "content")
+            for tag in _html_tags(body, "meta")
+            if (_tag_attribute(tag, "property") or "").lower() == "og:url"
+        ),
+        None,
+    )
+
+    if _is_this_week_url(url) and not canonical and not og_url:
+        # The pre-cron placeholder intentionally has no canonical. Once a
+        # recipe exists, the rendered page canonicalises to that recipe URL.
+        return
+
+    assert canonical and og_url, "page must contain both canonical and og:url"
+    assert canonical == og_url, "canonical and og:url must match"
+    expected = _url(base_url, _page_path(url))
+    if _is_this_week_url(url):
+        canonical_path = _page_path(canonical)
+        canonical_origin = urlsplit(canonical)
+        allowed_origins = {
+            urlsplit(base_url).netloc,
+            urlsplit(PRODUCTION_BASE_URL).netloc,
+        }
+        assert (
+            canonical_origin.scheme in {"http", "https"}
+            and canonical_origin.netloc in allowed_origins
+        ), f"/this-week canonical has unexpected origin: {canonical!r}"
+        assert canonical_path.startswith("/recipes/") and canonical_path.count("/") == 2, (
+            f"/this-week canonical must point to a recipe, got {canonical!r}"
+        )
+    else:
+        accepted = {expected}
+        if base_url != PRODUCTION_BASE_URL:
+            # Preview artifacts intentionally retain the public production
+            # canonical so search engines do not index a deployment URL.
+            accepted.add(_url(PRODUCTION_BASE_URL, _page_path(url)))
+        assert canonical in accepted, (
+            f"canonical is {canonical!r}, expected one of {sorted(accepted)!r}"
+        )
+
+
+def _check_csp(headers: object) -> None:
+    csp = _header(headers, "content-security-policy")
+    assert csp, "response is missing Content-Security-Policy"
+    directives: dict[str, list[str]] = {}
+    for directive in csp.split(";"):
+        parts = directive.strip().lower().split()
+        if parts:
+            assert parts[0] not in directives, (
+                f"Content-Security-Policy repeats directive {parts[0]!r}"
+            )
+            directives[parts[0]] = parts[1:]
+    missing = [name for name in REQUIRED_CSP_DIRECTIVES if name not in directives]
+    assert not missing, (
+        "Content-Security-Policy missing required directives: " + ", ".join(missing)
+    )
+    unexpected = sorted(set(directives) - set(REQUIRED_CSP_DIRECTIVES))
+    assert not unexpected, (
+        "Content-Security-Policy has unexpected directives: " + ", ".join(unexpected)
+    )
+
+    source_mismatches = []
+    for name, expected in REQUIRED_CSP_DIRECTIVES.items():
+        actual = directives[name]
+        expected_sources = {source.lower() for source in expected}
+        actual_sources = set(actual)
+        missing_sources = sorted(expected_sources - actual_sources)
+        extra_sources = sorted(actual_sources - expected_sources)
+        duplicate_sources = sorted(
+            source for source in set(actual) if actual.count(source) > 1
+        )
+        if missing_sources or extra_sources or duplicate_sources:
+            details = []
+            if missing_sources:
+                details.append("missing " + " ".join(missing_sources))
+            if extra_sources:
+                details.append("unexpected " + " ".join(extra_sources))
+            if duplicate_sources:
+                details.append("duplicate " + " ".join(duplicate_sources))
+            source_mismatches.append(f"{name}: {', '.join(details)}")
+    assert not source_mismatches, (
+        "Content-Security-Policy source policy mismatch: "
+        + "; ".join(source_mismatches)
+    )
+
+
+def _check_security_headers(headers: object) -> None:
+    failures = []
+    for name, expected in REQUIRED_SECURITY_HEADER_VALUES.items():
+        actual = _header(headers, name)
+        if actual != expected:
+            failures.append(f"{name}={actual!r}, expected {expected!r}")
+    if failures:
+        raise AssertionError("security headers have unexpected values: " + "; ".join(failures))
+    _check_csp(headers)
+
+
+def _page_checks(
+    url: str, status: int, body: str, headers: object, base_url: str
+) -> list[str]:
+    failures: list[str] = []
+    if status != 200:
+        return [f"HTTP {status}"]
+    checks: list[tuple[str, Callable[[], None]]] = [
+        ("GA4 exactly once", lambda: _check_ga4_tag(body)),
+        ("canonical/og:url", lambda: _check_canonical_and_og(url, body, base_url)),
+        ("security headers", lambda: _check_security_headers(headers)),
+        ("intrinsic img dimensions", lambda: _check_intrinsic_image_dimensions(body)),
+    ]
+    if _is_recipe_url(url):
+        checks.extend(
+            [
+                ("Recipe JSON-LD", lambda: _check_recipe_json_ld(body)),
+                (
+                    "hero image HTTP 200",
+                    lambda: _check_hero_image(body, base_url, required=True),
+                ),
+            ]
+        )
+    elif (
+        _is_this_week_url(url)
+        and "application/ld+json" in body
+        and '"Recipe"' in body
+    ):
+        # A full /this-week page is a recipe page; its pre-cron placeholder is
+        # valid without recipe data or an image.
+        checks.extend(
+            [
+                ("Recipe JSON-LD", lambda: _check_recipe_json_ld(body)),
+                (
+                    "hero image HTTP 200",
+                    lambda: _check_hero_image(body, base_url, required=True),
+                ),
+            ]
+        )
+    for label, check in checks:
+        try:
+            check()
+        except AssertionError as exc:
+            failures.append(f"{label}: {exc}")
+        except Exception as exc:
+            failures.append(f"{label}: {type(exc).__name__}: {exc}")
+    return failures
+
+
+def check_sitemap_pages(report: Report, base_url: str = PRODUCTION_BASE_URL) -> None:
+    """Run the deploy-gating checks against every sitemap URL."""
+    def _check() -> None:
+        urls = _sitemap_urls(base_url)
+        failures: list[str] = []
+        print("Per-URL results:")
+        for url in urls:
+            path = _page_path(url)
+            try:
+                status, body, headers = _fetch_page(url)
+                page_failures = _page_checks(url, status, body, headers, base_url)
+            except Exception as exc:
+                page_failures = [f"request: {type(exc).__name__}: {exc}"]
+            if page_failures:
+                result = "FAIL"
+                failures.extend(f"{path}: {detail}" for detail in page_failures)
+            else:
+                result = "PASS"
+            print(f"  {result:<4} {path} ({url})")
+            for detail in page_failures:
+                print(f"         - {detail}")
+        assert not failures, "sitemap page checks failed:\n    " + "\n    ".join(failures)
+
+    report.check("sitemap_pages", _check)
+
+
+def check_static_security_headers(
+    report: Report, base_url: str = PRODUCTION_BASE_URL
+) -> None:
+    """Verify headers on static routes and the lambda health route.
+
+    Vercel owns the production CSP header, so checking ``/health`` verifies
+    that the global route header also survives a lambda proxy response.
+    """
+    def _check() -> None:
+        failures: list[str] = []
+        for path, expected_status in (
+            ("/", 200),
+            (UNMATCHED_PATH, 404),
+            ("/health", 200),
+        ):
+            status, _body, headers = _fetch_page(_url(base_url, path))
+            if status != expected_status:
+                failures.append(f"{path}: HTTP {status}, expected {expected_status}")
+            try:
+                _check_security_headers(headers)
+            except AssertionError as exc:
+                failures.append(f"{path}: {exc}")
+        assert not failures, "static security headers failed:\n    " + "\n    ".join(failures)
+
+    report.check("static_security_headers", _check)
+
+
+def check_unmatched_url_404(
+    report: Report, base_url: str = PRODUCTION_BASE_URL
+) -> None:
+    def _check() -> None:
+        status, _body, _headers = _fetch_page(_url(base_url, UNMATCHED_PATH))
+        assert status == 404, (
+            f"{UNMATCHED_PATH} returned HTTP {status}; expected a hard 404"
+        )
+
+    report.check("unmatched_url_is_404", _check)
 
 
 def _utc_stamp() -> str:
@@ -278,31 +788,51 @@ def post_discord_recovery(report: Report) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--base-url",
+        default=PRODUCTION_BASE_URL,
+        help=f"Site origin to check (default: {PRODUCTION_BASE_URL}).",
+    )
+    parser.add_argument(
         "--baseline", type=int, default=15,
         help="Minimum expected catalog count. Fails if blob catalog has fewer recipes.",
     )
     parser.add_argument(
-        "--strict", action="store_true",
-        help="Exit non-zero on ANY failure. Without this, exits 0 but still prints.",
+        "--no-alert",
+        action="store_true",
+        help="Suppress Discord alerts and persisted status writes.",
     )
     args = parser.parse_args()
 
-    print(f"Health check against {SITE_BASE}")
+    try:
+        base_url = _normalize_base_url(args.base_url)
+    except ValueError as exc:
+        parser.error(str(exc))
+    no_alert = args.no_alert or base_url != PRODUCTION_BASE_URL
+
+    print(f"Health check against {base_url}")
+    if no_alert:
+        print("Alerts and persisted status writes: disabled")
     report = Report()
-    check_catalog_counts_match(report, args.baseline)
-    check_teaser_current_week(report)
-    check_this_week_page(report)
-    check_recipe_page_images(report)
+    check_catalog_counts_match(report, args.baseline, base_url=base_url)
+    check_teaser_current_week(report, base_url=base_url)
+    check_this_week_page(report, base_url=base_url)
+    check_recipe_page_images(report, base_url=base_url)
+    check_sitemap_pages(report, base_url=base_url)
+    check_static_security_headers(report, base_url=base_url)
+    check_unmatched_url_404(report, base_url=base_url)
 
     print()
     print(f"Passed: {len(report.passed)}  Failed: {len(report.failed)}")
+
+    if no_alert:
+        return 1 if not report.ok else 0
 
     last_status = read_last_status()
 
     if not report.ok:
         post_discord_alert(report)
         write_status("failed")
-        return 1  # Always non-zero on failure; --strict reserved for future nuance.
+        return 1
 
     # Healthy — only announce recovery when the previous run was failing,
     # so steady-state passes stay silent.

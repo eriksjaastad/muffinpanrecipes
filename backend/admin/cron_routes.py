@@ -862,6 +862,148 @@ def _test_mode_scope(body: StageRequest):
     return storage.prefix_scope("test/" if body.test else "")
 
 
+_STATIC_DEPLOY_STATE_KEY = "static_deploy"
+
+
+def _static_deploy_state(ep: dict) -> dict:
+    state = ep.get(_STATIC_DEPLOY_STATE_KEY, {})
+    return state if isinstance(state, dict) else {}
+
+
+def _set_static_deploy_state(
+    ep: dict,
+    status_value: str,
+    *,
+    phase: str | None = None,
+    error: str | None = None,
+) -> None:
+    state = {
+        "status": status_value,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if phase:
+        state["phase"] = phase
+    if error:
+        state["error"] = error
+    ep[_STATIC_DEPLOY_STATE_KEY] = state
+
+
+def _persist_static_deploy_failure(
+    episode_id: str,
+    ep: dict,
+    *,
+    phase: str,
+    error: str,
+) -> None:
+    """Record a retryable handoff failure without masking the root error."""
+    _set_static_deploy_state(ep, "failed", phase=phase, error=error)
+    try:
+        storage.save_episode(episode_id, ep)
+    except Exception as persist_error:
+        logger.error(
+            "Could not persist static deployment failure for %s "
+            "(error_type=%s)",
+            episode_id,
+            type(persist_error).__name__,
+        )
+
+
+def _catalog_contains_episode(ep: dict) -> bool:
+    """Return whether the authoritative catalog already contains this recipe."""
+    catalog_json = storage.load_page("pages/recipes.json")
+    if not catalog_json or not isinstance(catalog_json, str):
+        return False
+    try:
+        catalog = json.loads(catalog_json)
+    except json.JSONDecodeError:
+        return False
+
+    recipe = ep.get("stages", {}).get("monday", {}).get("recipe_data", {})
+    title = str(recipe.get("title") or "").strip()
+    episode_id = str(ep.get("episode_id") or "")
+    if not title or not episode_id:
+        return False
+
+    from backend.publishing.episode_renderer import _slugify
+
+    slug = _slugify(title)
+    for entry in catalog.get("recipes", []):
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("episode_id") == episode_id:
+            return True
+        # Older catalog entries do not always carry episode_id. A matching
+        # slug is still an idempotent success when the catalog writer skipped
+        # an already-present recipe.
+        if not entry.get("episode_id") and entry.get("slug") == slug:
+            return True
+    return False
+
+
+def _publish_sunday_sources(ep: dict) -> None:
+    """Write the Sunday Blob sources and retain legacy page compatibility."""
+    # This page remains for non-reader consumers. Static reader artifacts are
+    # rebuilt from the episode and catalog sources by the explicit manual
+    # preview -> verify -> promote deployment flow.
+    regenerate_and_upload(ep)
+
+    from backend.publishing.episode_renderer import publish_recipe_to_catalog
+
+    catalog_url = publish_recipe_to_catalog(ep)
+    if catalog_url is None and not _catalog_contains_episode(ep):
+        raise RuntimeError("Recipe catalog write did not complete")
+
+    # Keep the legacy Blob reader page for compatibility, but never make a
+    # non-reader page failure prevent the static deployment handoff.
+    from backend.publishing.episode_renderer import _slugify, render_episode_page
+
+    monday = ep.get("stages", {}).get("monday", {})
+    recipe_title = monday.get("recipe_data", {}).get("title", "")
+    if recipe_title:
+        slug = _slugify(recipe_title)
+        try:
+            recipe_html = render_episode_page(ep)
+            storage.save_page(f"pages/recipes/{slug}/index.html", recipe_html)
+            logger.info("Published recipe page at /recipes/%s", slug)
+        except Exception as exc:
+            logger.warning(
+                "Legacy Blob recipe page write failed for %s "
+                "(error_type=%s); static deployment will continue",
+                slug,
+                type(exc).__name__,
+            )
+
+
+def _complete_static_source_handoff(episode_id: str, ep: dict) -> None:
+    """Finish retryable source writes before the manual static deployment."""
+    state = _static_deploy_state(ep)
+    state_status = state.get("status")
+    source_needs_retry = state_status == "pending" or (
+        state_status == "failed" and state.get("phase") == "sources"
+    )
+
+    if source_needs_retry:
+        try:
+            _publish_sunday_sources(ep)
+        except Exception as exc:
+            _persist_static_deploy_failure(
+                episode_id,
+                ep,
+                phase="sources",
+                error="Sunday authoritative source write failed",
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=(
+                    "Sunday publish source write failed; "
+                    "manual static deployment is still pending"
+                ),
+            ) from exc
+
+        _set_static_deploy_state(ep, "source_ready", phase="manual_deploy")
+        storage.save_episode(episode_id, ep)
+
+
 def _save_stage_failure(ep: dict, stage: str, error: Exception) -> None:
     """Write a failed-stage marker and persist the episode."""
     ep.setdefault("stages", {})[stage] = {"status": "failed", "error": str(error)}
@@ -1395,6 +1537,12 @@ async def cron_sunday(request: Request):
       concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
 
       if ep.get("published_at"):
+        handoff_status = _static_deploy_state(ep).get("status")
+        if handoff_status == "pending" or (
+            handoff_status == "failed"
+            and _static_deploy_state(ep).get("phase") == "sources"
+        ):
+            _complete_static_source_handoff(episode_id, ep)
         sunday_stage = ep.get("stages", {}).get("sunday", {})
         return _stage_response("sunday", episode_id, concept, {
             "published": True,
@@ -1524,27 +1672,12 @@ async def cron_sunday(request: Request):
         except Exception as e:
             logger.warning(f"Memory generation failed (non-fatal): {e}")
 
+        # Persist the published episode before writing the catalog so a crash
+        # between authoritative writes and the manual deployment handoff is
+        # retryable.
+        _set_static_deploy_state(ep, "pending")
         storage.save_episode(episode_id, ep)
-        regenerate_and_upload(ep)
-
-        # Publish to the main page recipe catalog
-        from backend.publishing.episode_renderer import publish_recipe_to_catalog
-        try:
-            publish_recipe_to_catalog(ep)
-        except Exception as e:
-            logger.warning(f"Recipe catalog publish failed (non-fatal): {e}")
-
-        # Upload the recipe's standalone page (render fresh, don't copy from blob
-        # to avoid encoding round-trip issues)
-        from backend.publishing.episode_renderer import render_episode_page, _slugify
-        monday = ep.get("stages", {}).get("monday", {})
-        recipe_title = monday.get("recipe_data", {}).get("title", "")
-        if recipe_title:
-            slug = _slugify(recipe_title)
-            # Hero is derived from the confirmed winner inside render_episode_page
-            recipe_html = render_episode_page(ep)
-            storage.save_page(f"pages/recipes/{slug}/index.html", recipe_html)
-            logger.info(f"Published recipe page at /recipes/{slug}")
+        _complete_static_source_handoff(episode_id, ep)
 
     return _stage_response("sunday", episode_id, concept, {
         "published": True,

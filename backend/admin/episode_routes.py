@@ -18,7 +18,8 @@ from pathlib import Path
 from fastapi import APIRouter, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from backend.publishing.analytics import GA4_TAG, ensure_ga4_tag
+from backend.publishing.analytics import GA4_TAG
+from backend.publishing.static_renderer import render_recipes_index
 from backend.storage import storage
 from backend.utils.logging import get_logger
 
@@ -45,7 +46,11 @@ async def this_week_page():
     episode_id = _current_episode_id()
     page_html = storage.load_page(f"pages/{episode_id}/index.html")
     if page_html:
-        return HTMLResponse(content=ensure_ga4_tag(page_html))
+        # Public Vercel traffic is served from build-time static artifacts.
+        # Keep this API fallback byte-for-byte with the stored page; mutating
+        # reader responses here would make analytics and other HTML behavior
+        # depend on whether a request bypassed the static route.
+        return HTMLResponse(content=page_html)
 
     return HTMLResponse(content=_placeholder_page(episode_id), status_code=200)
 
@@ -277,7 +282,7 @@ async def recipes_index():
     """Server-rendered, crawlable hub linking to every recipe (internal-linking
     pass 2). Built live from the catalog so it's always current with zero
     weekly maintenance. Replaces the old bare-/recipes = JS homepage duplicate."""
-    return HTMLResponse(content=_render_recipes_index(_load_catalog_recipes()))
+    return HTMLResponse(content=render_recipes_index(_load_catalog_recipes()))
 
 
 _SEED_RECIPES_CACHE: dict | None = None
@@ -317,7 +322,7 @@ async def recipe_page(slug: str):
     # Try blob (cron-generated recipe pages)
     page = storage.load_page(f"pages/recipes/{slug}/index.html")
     if page:
-        return HTMLResponse(content=ensure_ga4_tag(page))
+        return HTMLResponse(content=page)
 
     # Seed recipes — rendered from src/seed_recipes.json (single renderer).
     seed = _load_seed_recipes().get(slug)
