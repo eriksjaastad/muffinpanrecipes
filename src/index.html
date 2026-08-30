@@ -239,6 +239,19 @@
             return '/recipes/' + slug;
         }
 
+        function imageDimension(recipe, key) {
+            const value = Number(recipe[key]);
+            if (Number.isFinite(value) && value > 0) return value;
+            // Seed images are 1024px square; generated photography is 1536px
+            // square. The catalog stores these values for new entries, while
+            // this fallback keeps older catalog records valid during rollout.
+            const isSeedAsset = recipe.image && (
+                recipe.image.startsWith('assets/images/') ||
+                recipe.image.includes('/assets/images/')
+            );
+            return isSeedAsset ? 1024 : 1536;
+        }
+
         function renderGrid(filter = 'All') {
             const grid = document.getElementById('recipe-grid');
             grid.innerHTML = '';
@@ -253,6 +266,8 @@
                         <div class="recipe-grid-card__image">
                             <div class="recipe-grid-card__overlay"></div>
                             <img src="${recipe.image}"
+                                 width="${imageDimension(recipe, 'image_width')}"
+                                 height="${imageDimension(recipe, 'image_height')}"
                                  onerror="handleImageError(this)"
                                  loading="lazy"
                                  alt="${recipe.title}">
@@ -294,6 +309,8 @@
                     <div class="featured__grid">
                         <div class="featured__image">
                             <img src="${featured.image}"
+                                 width="${imageDimension(featured, 'image_width')}"
+                                 height="${imageDimension(featured, 'image_height')}"
                                  onerror="handleImageError(this)"
                                  alt="${featured.title}">
                         </div>
