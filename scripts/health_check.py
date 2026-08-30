@@ -581,16 +581,33 @@ def _check_csp(headers: object) -> None:
     assert not missing, (
         "Content-Security-Policy missing required directives: " + ", ".join(missing)
     )
-    missing_sources = {
-        name: [source for source in required if source.lower() not in directives[name]]
-        for name, required in REQUIRED_CSP_DIRECTIVES.items()
-        if any(source.lower() not in directives[name] for source in required)
-    }
-    assert not missing_sources, (
-        "Content-Security-Policy missing required sources: "
-        + "; ".join(
-            f"{name} {' '.join(sources)}" for name, sources in missing_sources.items()
+    unexpected = sorted(set(directives) - set(REQUIRED_CSP_DIRECTIVES))
+    assert not unexpected, (
+        "Content-Security-Policy has unexpected directives: " + ", ".join(unexpected)
+    )
+
+    source_mismatches = []
+    for name, expected in REQUIRED_CSP_DIRECTIVES.items():
+        actual = directives[name]
+        expected_sources = {source.lower() for source in expected}
+        actual_sources = set(actual)
+        missing_sources = sorted(expected_sources - actual_sources)
+        extra_sources = sorted(actual_sources - expected_sources)
+        duplicate_sources = sorted(
+            source for source in set(actual) if actual.count(source) > 1
         )
+        if missing_sources or extra_sources or duplicate_sources:
+            details = []
+            if missing_sources:
+                details.append("missing " + " ".join(missing_sources))
+            if extra_sources:
+                details.append("unexpected " + " ".join(extra_sources))
+            if duplicate_sources:
+                details.append("duplicate " + " ".join(duplicate_sources))
+            source_mismatches.append(f"{name}: {', '.join(details)}")
+    assert not source_mismatches, (
+        "Content-Security-Policy source policy mismatch: "
+        + "; ".join(source_mismatches)
     )
 
 

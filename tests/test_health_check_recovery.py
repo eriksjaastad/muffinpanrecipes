@@ -14,13 +14,21 @@ hc = importlib.import_module("scripts.health_check")
 
 
 def _valid_headers():
-    csp = "; ".join(
-        f"{name} {' '.join(sources)}"
-        for name, sources in hc.REQUIRED_CSP_DIRECTIVES.items()
-    )
     return {
-        **hc.REQUIRED_SECURITY_HEADER_VALUES,
-        "content-security-policy": csp,
+        "x-frame-options": "DENY",
+        "x-content-type-options": "nosniff",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "content-security-policy": (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "img-src 'self' data: https://www.google-analytics.com https://*.google-analytics.com; "
+            "connect-src 'self' https://www.google-analytics.com "
+            "https://*.google-analytics.com https://*.analytics.google.com "
+            "https://*.googletagmanager.com; "
+            "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+        ),
     }
 
 
@@ -362,6 +370,53 @@ def test_csp_must_allow_google_tag_in_script_sources():
         assert "required directives" in str(exc)
     else:
         raise AssertionError("CSP allowing GTM only in connect-src was accepted")
+
+
+def _assert_csp_rejected(csp: str, expected_detail: str) -> None:
+    try:
+        hc._check_csp({"content-security-policy": csp})
+    except AssertionError as exc:
+        assert expected_detail in str(exc)
+    else:
+        raise AssertionError("CSP with an unauthorized policy entry was accepted")
+
+
+def test_csp_rejects_extra_script_source():
+    csp = _valid_headers()["content-security-policy"]
+    _assert_csp_rejected(
+        csp.replace(
+            "https://www.googletagmanager.com",
+            "https://www.googletagmanager.com https://evil.example",
+        ),
+        "script-src",
+    )
+
+
+def test_csp_rejects_extra_style_source():
+    csp = _valid_headers()["content-security-policy"]
+    _assert_csp_rejected(
+        csp.replace(
+            "https://fonts.googleapis.com",
+            "https://fonts.googleapis.com https://evil.example",
+        ),
+        "style-src",
+    )
+
+
+def test_csp_rejects_extra_connect_source():
+    csp = _valid_headers()["content-security-policy"]
+    _assert_csp_rejected(
+        csp.replace(
+            "https://*.googletagmanager.com",
+            "https://*.googletagmanager.com https://evil.example",
+        ),
+        "connect-src",
+    )
+
+
+def test_csp_rejects_extra_directive():
+    csp = _valid_headers()["content-security-policy"] + "; media-src 'self'"
+    _assert_csp_rejected(csp, "media-src")
 
 
 def test_preview_catalog_check_does_not_fetch_production_catalog():

@@ -26,6 +26,7 @@ Single source of truth for every environment variable the muffinpanrecipes codeb
 | `STABILITY_API_KEY` | R, S | `scripts/validate_env.py:12`, `scripts/direct_harvest.py:21`, `backend/agents/art_director.py:334` | Stability AI auth for image generation. Required for photography stage |
 | `BLOB_READ_WRITE_TOKEN` | R, S | `backend/storage.py:200`, `scripts/backfill_webp.py:102`, `scripts/fix_catalog.py:56`, `scripts/run_full_week.py:317`, `scripts/score_episodes.py:59`, `scripts/generate_recipe_page.py:527` | Vercel Blob auth for episode + image persistence. `_CloudBackend` crashes on start if missing on Vercel |
 | `CRON_SECRET` | R, S | `scripts/run_full_week.py:316`, `backend/admin/cron_routes.py` (via header check) | Vercel cron endpoint shared secret |
+| `VERCEL_DEPLOY_HOOK_URL` | R in production, S | `backend/publishing/deploy_hook.py`, `backend/admin/cron_routes.py` | Vercel deploy hook called after Sunday Blob source writes so static reader artifacts are rebuilt. Missing or failed in production blocks the cron response; local/test runs warn or skip |
 | `JWT_SECRET` | R, S | `backend/auth/session.py:32`, `tests/test_auth.py:109` | Admin UI session token signing |
 | `MUFFINPAN_DISCORD_WEBHOOK` | O, S | `backend/utils/discord.py:12`, `scripts/health_check.py:129` | Discord failure alerts + health-check pings. `_pytest_gate()` suppresses during tests |
 | `NEWSLETTER_API_KEY` | O, S | `backend/newsletter/manager.py:53` | Newsletter service auth (currently unused — `NEWSLETTER_SERVICE=file`) |
