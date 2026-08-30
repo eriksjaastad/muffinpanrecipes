@@ -126,6 +126,22 @@ def test_incremental_build_refuses_existing_mutations_before_any_write(tmp_path)
     assert storage.prefix == ""
 
 
+def test_deployment_build_requires_cloud_recipe_sources(tmp_path):
+    _write_local_sources(tmp_path)
+    storage = FakeStorage()
+    storage._has_cloud = lambda: False
+
+    builder = StaticSiteBuilder(
+        project_root=tmp_path,
+        output_dir=tmp_path / "site",
+        storage_client=storage,
+        require_cloud=True,
+    )
+
+    with pytest.raises(SiteBuildError, match="BLOB_READ_WRITE_TOKEN"):
+        builder.build(["2026-W34"])
+
+
 def test_full_rebuild_writes_local_artifacts_and_never_blob_pages(tmp_path):
     _write_local_sources(tmp_path)
     storage = FakeStorage()

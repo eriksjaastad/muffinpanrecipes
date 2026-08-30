@@ -8,6 +8,7 @@ Provides a web interface for:
 - Triggering new recipe generation
 """
 
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -121,7 +122,11 @@ def create_admin_app(
             "form-action 'self'",
             "frame-ancestors 'none'",
         ]
-        response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
+        # Vercel's global route header is the production CSP owner. Avoid
+        # emitting a second policy on lambda responses, since browsers enforce
+        # multiple CSP headers as an intersection.
+        if not os.environ.get("VERCEL_ENV"):
+            response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
 
         # HSTS: Only when serving over HTTPS
         if request.url.scheme == "https":

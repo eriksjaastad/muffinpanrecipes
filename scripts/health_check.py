@@ -15,7 +15,7 @@ Run modes:
     uv run python scripts/health_check.py --baseline 15
 
     # Post-deploy preview (CI)
-    uv run python scripts/health_check.py --base-url https://preview.example --strict
+    uv run python scripts/health_check.py --base-url https://preview.example
 
 See RUNBOOK.md Incident 1 for the incident this is designed to catch.
 """
@@ -787,10 +787,6 @@ def main() -> int:
     parser.add_argument(
         "--baseline", type=int, default=15,
         help="Minimum expected catalog count. Fails if blob catalog has fewer recipes.",
-    )
-    parser.add_argument(
-        "--strict", action="store_true",
-        help="Use this result as a deploy gate; exit non-zero on any failure.",
     )
     parser.add_argument(
         "--no-alert",

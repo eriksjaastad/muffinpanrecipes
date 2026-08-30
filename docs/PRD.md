@@ -298,17 +298,18 @@ review_notes: string (nullable, from Erik)
 
 ### Publishing Pipeline
 
-**Requirement:** Recipes MUST be published to the live site by the weekly cron without manual intervention.
+**Requirement:** Sunday cron MUST publish the authoritative recipe and catalog sources without manual intervention. Static reader visibility remains behind the explicit manual preview → verify → promote gate in #6688.
 
 **Pipeline Steps (current architecture):**
 1. Sunday cron stage runs for the week's episode
 2. `episode_renderer` renders the recipe page from the episode's `recipe_data` — a single renderer serves every recipe page (the 10 original recipes live as data in `src/seed_recipes.json` and render through the same path)
 3. The published episode and catalog (`pages/recipes.json`) are written to Vercel Blob as authoritative build sources
-4. The cron requests a Vercel deploy hook; `build:site` reads those sources and emits static recipe pages, the catalog, and sitemap as deployment artifacts
-5. `/recipes/{slug}`, `/recipes.json`, and `/sitemap.xml` are served from those static artifacts without invoking the reader lambda
-6. `published_at` and a retryable static-deploy state are stamped on the episode (sticky idempotency guard)
+4. The episode is marked `published_at` and a retryable source-publication state is stamped on it (sticky idempotency guard)
+5. An operator runs the explicit preview → verify → promote flow: `build_site.py --preview --full-rebuild`, #6687 against the preview, then a manual Vercel production deploy
+6. `build:site` reads the authoritative Blob sources at build time and emits static recipe pages, the catalog, and sitemap
+7. `/recipes/{slug}`, `/recipes.json`, and `/sitemap.xml` are served from those static artifacts without invoking the reader lambda
 
-> Content publishing remains cron-driven and does not require a source-code commit. Blob stores the source records; the deploy hook rebuilds and promotes the static reader artifacts. Design changes still use the explicit preview → verify → promote flow from #6688.
+> Content source publishing remains cron-driven and does not require a source-code commit. Blob stores the source records; automatic production deploys remain disabled because of the incident-driven operating policy. Static artifacts are promoted only after preview verification.
 
 **Rollback:** If a stage fails, the episode is left unpublished (no `published_at`) and Discord is notified.
 
