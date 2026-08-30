@@ -337,6 +337,7 @@ def test_static_headers_and_unmatched_url_are_checked():
     responses = {
         f"{base}/": _Response(headers=headers),
         f"{base}{hc.UNMATCHED_PATH}": _Response(status_code=404, headers=headers),
+        f"{base}/health": _Response(headers=headers),
     }
     with patch.object(hc, "_fetch_page", side_effect=lambda url: (
         responses[url].status_code, responses[url].text, responses[url].headers
@@ -443,6 +444,7 @@ def test_static_security_headers_reject_wrong_value():
     responses = {
         f"{base}/": _Response(headers=headers),
         f"{base}{hc.UNMATCHED_PATH}": _Response(status_code=404, headers=headers),
+        f"{base}/health": _Response(headers=headers),
     }
     with patch.object(hc, "_fetch_page", side_effect=lambda url: (
         responses[url].status_code, responses[url].text, responses[url].headers
@@ -451,3 +453,21 @@ def test_static_security_headers_reject_wrong_value():
         hc.check_static_security_headers(report, base)
     assert report.failed
     assert "expected 'DENY'" in report.failed[0][1]
+
+
+def test_static_security_headers_check_lambda_health_route():
+    base = "https://preview.example"
+    headers = _valid_headers()
+    responses = {
+        f"{base}/": _Response(headers=headers),
+        f"{base}{hc.UNMATCHED_PATH}": _Response(status_code=404, headers=headers),
+        f"{base}/health": _Response(headers={}),
+    }
+    with patch.object(hc, "_fetch_page", side_effect=lambda url: (
+        responses[url].status_code, responses[url].text, responses[url].headers
+    )):
+        report = hc.Report()
+        hc.check_static_security_headers(report, base)
+
+    assert report.failed
+    assert "/health" in report.failed[0][1]
