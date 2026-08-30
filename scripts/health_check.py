@@ -699,10 +699,18 @@ def check_sitemap_pages(report: Report, base_url: str = PRODUCTION_BASE_URL) -> 
 def check_static_security_headers(
     report: Report, base_url: str = PRODUCTION_BASE_URL
 ) -> None:
-    """Verify security headers on both static home and branded 404 routes."""
+    """Verify headers on static routes and the lambda health route.
+
+    Vercel owns the production CSP header, so checking ``/health`` verifies
+    that the global route header also survives a lambda proxy response.
+    """
     def _check() -> None:
         failures: list[str] = []
-        for path, expected_status in (("/", 200), (UNMATCHED_PATH, 404)):
+        for path, expected_status in (
+            ("/", 200),
+            (UNMATCHED_PATH, 404),
+            ("/health", 200),
+        ):
             status, _body, headers = _fetch_page(_url(base_url, path))
             if status != expected_status:
                 failures.append(f"{path}: HTTP {status}, expected {expected_status}")
