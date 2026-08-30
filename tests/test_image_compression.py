@@ -96,7 +96,7 @@ class TestHeroPictureTag:
         )
         assert "<picture>" in html
         assert 'srcset="/blob-images/foo/hero.webp"' in html
-        assert 'src="/blob-images/foo/hero.jpg"' in html
+        assert 'src="/blob-images/foo/hero.png"' in html
         assert 'type="image/webp"' in html
         assert 'loading="eager"' in html
         assert 'fetchpriority="high"' in html
@@ -169,8 +169,9 @@ class TestHeroFromWinner:
         ):
             html = episode_renderer.render_episode_page(ep)
         # Winner (foo.png) leads, not the macro first variant. The rendered
-        # fallback is the compressed JPEG sibling.
-        assert 'src="/blob-images/foo.jpg"' in html
+        # The PNG remains the browser fallback; only the social JPEG is a
+        # purpose-built sibling now.
+        assert 'src="/blob-images/foo.png"' in html
         assert 'srcset="/blob-images/foo.webp"' in html
         assert "round_1/macro_closeup.png" not in html.split("recipe-hero__image")[1][:400]
 
@@ -230,7 +231,7 @@ class TestGalleryPictureTag:
         assert "<picture>" in rendered
         assert 'srcset="/blob-images/foo/round_1/option.webp"' in rendered
         assert 'type="image/webp"' in rendered
-        assert 'src="/blob-images/foo/round_1/option.jpg"' in rendered
+        assert 'src="/blob-images/foo/round_1/option.png"' in rendered
         assert 'loading="lazy"' in rendered
         assert 'fetchpriority="high"' not in rendered
         assert 'decoding="async"' in rendered
