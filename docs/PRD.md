@@ -306,10 +306,12 @@ review_notes: string (nullable, from Erik)
 3. The published episode and catalog (`pages/recipes.json`) are written to Vercel Blob as authoritative build sources
 4. The episode is marked `published_at` and a retryable source-publication state is stamped on it (sticky idempotency guard)
 5. An operator runs the explicit preview → verify → promote flow: `build_site.py --preview --full-rebuild`, #6687 against the preview, then a manual Vercel production deploy
-6. `build:site` reads the authoritative Blob sources at build time and emits static recipe pages, the catalog, and sitemap
-7. `/recipes/{slug}`, `/recipes.json`, and `/sitemap.xml` are served from those static artifacts without invoking the reader lambda
+6. An operator regenerates the committed reader artifacts from the authoritative Blob sources and commits them: `doppler run -- uv run python -m scripts.build_site --full-rebuild`, which rewrites `src/recipes/**`, `src/recipes.json`, `src/sitemap.xml` and `src/this-week/index.html`
+7. `/recipes`, `/recipes/{slug}`, `/recipes.json`, `/sitemap.xml` and `/this-week` are served from those committed artifacts without invoking the reader lambda
 
-> Content source publishing remains cron-driven and does not require a source-code commit. Blob stores the source records; automatic production deploys remain disabled because of the incident-driven operating policy. Static artifacts are promoted only after preview verification.
+> **There is no Vercel build step.** `vercel.json` has a top-level `builds` array, and Vercel ignores Build & Development Settings — `buildCommand` included — whenever that array is present. The reader artifacts are therefore generated locally and committed (card #6793); `npm run build:site` and `npm run build:css` are operator commands, not deploy hooks. A route that points at a file no one committed is a 404, so `tests/test_static_deployment_artifacts.py` fails CI if an artifact goes missing.
+
+> Content source publishing remains cron-driven and does not require a source-code commit, but **reader visibility does**: a week's recipe is not on the static site until step 6 is committed and deployed. Blob stores the source records; automatic production deploys remain disabled because of the incident-driven operating policy. Static artifacts are promoted only after preview verification.
 
 **Rollback:** If a stage fails, the episode is left unpublished (no `published_at`) and Discord is notified.
 

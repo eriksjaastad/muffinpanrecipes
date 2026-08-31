@@ -1,6 +1,5 @@
 {
     "version": 2,
-    "buildCommand": "npm run build:site",
     "builds": [
         {
             "src": "backend/admin/app.py",

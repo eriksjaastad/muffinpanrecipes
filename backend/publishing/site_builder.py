@@ -24,6 +24,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from backend.publishing.episode_renderer import (
+    _catalog_duplicate_reason,
     _clean_title,
     _image_dimensions,
     _slugify,
@@ -358,21 +359,49 @@ class StaticSiteBuilder:
                 known_slugs.add(seed_entry["slug"])
 
         episode_slugs: dict[str, str] = {}
-        known_episode_ids = {
-            str(recipe.get("episode_id"))
+        # Which episode already owns a slug in this build. Catalog entries
+        # published before the pipeline stamped episode_id carry no owner, so
+        # they are adoptable by the episode they were published from.
+        slug_owner: dict[str, str] = {
+            str(recipe.get("slug")): str(recipe.get("episode_id") or "").strip()
             for recipe in recipes
-            if recipe.get("episode_id")
+            if recipe.get("slug")
         }
         for episode in episodes:
             episode_id = str(episode.get("episode_id", ""))
-            if episode_id in known_episode_ids:
-                existing = next(
-                    recipe for recipe in recipes if str(recipe.get("episode_id")) == episode_id
-                )
-                episode_slugs[episode_id] = str(existing["slug"])
-                continue
-
             base_slug = _episode_slug(episode)
+            candidate = self._episode_catalog_entry(episode, base_slug)
+
+            # Reuse the catalog's own duplicate rule so the builder and the
+            # Sunday catalog publish agree on what "the same recipe" means.
+            # Without this an older catalog entry that predates episode_id
+            # stamping is re-added under a "<slug>-2026-wNN" alias, which
+            # ships two pages, two sitemap URLs and two catalog rows for one
+            # recipe.
+            existing = next(
+                (
+                    recipe
+                    for recipe in recipes
+                    if _catalog_duplicate_reason(candidate, recipe)
+                ),
+                None,
+            )
+            if existing is not None:
+                existing_slug = str(existing.get("slug") or base_slug)
+                owner = slug_owner.get(existing_slug, "")
+                if not owner or owner == episode_id:
+                    if episode_id:
+                        existing["episode_id"] = episode_id
+                        if candidate.get("recipe_id") and not str(
+                            existing.get("recipe_id") or ""
+                        ).strip():
+                            existing["recipe_id"] = candidate["recipe_id"]
+                        slug_owner[existing_slug] = episode_id
+                    episode_slugs[episode_id] = existing_slug
+                    continue
+                # A different episode already owns that entry: this really is
+                # a second recipe, so fall through and give it its own slug.
+
             slug = base_slug
             if slug in known_slugs:
                 suffix = _safe_episode_suffix(episode_id)
@@ -381,10 +410,11 @@ class StaticSiteBuilder:
                 while slug in known_slugs:
                     slug = f"{base_slug}-{suffix or 'episode'}-{counter}"
                     counter += 1
+                candidate = self._episode_catalog_entry(episode, slug)
 
-            recipes.append(self._episode_catalog_entry(episode, slug))
+            recipes.append(candidate)
             known_slugs.add(slug)
-            known_episode_ids.add(episode_id)
+            slug_owner[slug] = episode_id
             episode_slugs[episode_id] = slug
 
         return recipes, episode_slugs

@@ -250,3 +250,65 @@ def test_storage_without_cloud_probe_uses_local_sources(tmp_path):
         storage_client=LocalStorageWithoutProbe(),
     ).build(["2026-W34"])
     assert "recipes.json" in result.written
+
+
+def test_published_episode_adopts_its_legacy_catalog_entry(tmp_path):
+    """A catalog entry written before episode_id stamping is the same recipe.
+
+    Older entries in pages/recipes.json carry no episode_id. Keying dedup on
+    episode_id alone made the builder re-add each of those episodes under a
+    "<slug>-2026-wNN" alias, shipping two pages, two sitemap URLs and two
+    catalog rows for one recipe.
+    """
+    _write_local_sources(tmp_path)
+    storage = FakeStorage(
+        catalog=[{"slug": "kimchi-cheddar-rice-cups", "title": "Kimchi Cheddar Rice Cups"}]
+    )
+    output = tmp_path / "site"
+
+    result = StaticSiteBuilder(
+        project_root=tmp_path,
+        output_dir=output,
+        full_rebuild=True,
+        storage_client=storage,
+    ).build(["2026-W34"])
+
+    assert "recipes/kimchi-cheddar-rice-cups/index.html" in result.written
+    assert not [path for path in result.written if "2026-w34" in path]
+
+    catalog = json.loads((output / "recipes.json").read_text(encoding="utf-8"))["recipes"]
+    matching = [
+        recipe for recipe in catalog if recipe["slug"] == "kimchi-cheddar-rice-cups"
+    ]
+    assert len(matching) == 1
+    # The adopted entry is stamped so later builds dedupe on episode_id alone.
+    assert matching[0]["episode_id"] == "2026-W34"
+
+
+def test_distinct_episode_sharing_a_slug_still_gets_its_own_page(tmp_path):
+    """A catalog entry owned by a *different* episode is a real collision."""
+    _write_local_sources(tmp_path)
+    storage = FakeStorage(
+        catalog=[
+            {
+                "slug": "kimchi-cheddar-rice-cups",
+                "title": "Kimchi Cheddar Rice Cups",
+                "episode_id": "2026-W01",
+            }
+        ]
+    )
+    output = tmp_path / "site"
+
+    result = StaticSiteBuilder(
+        project_root=tmp_path,
+        output_dir=output,
+        full_rebuild=True,
+        storage_client=storage,
+    ).build(["2026-W34"])
+
+    assert "recipes/kimchi-cheddar-rice-cups-2026-w34/index.html" in result.written
+
+    catalog = json.loads((output / "recipes.json").read_text(encoding="utf-8"))["recipes"]
+    slugs = [recipe["slug"] for recipe in catalog]
+    assert "kimchi-cheddar-rice-cups" in slugs
+    assert "kimchi-cheddar-rice-cups-2026-w34" in slugs
