@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from contextlib import contextmanager
 
 import pytest
@@ -312,3 +313,46 @@ def test_distinct_episode_sharing_a_slug_still_gets_its_own_page(tmp_path):
     slugs = [recipe["slug"] for recipe in catalog]
     assert "kimchi-cheddar-rice-cups" in slugs
     assert "kimchi-cheddar-rice-cups-2026-w34" in slugs
+
+
+def test_heuristic_image_match_adopts_but_warns_loudly(tmp_path, caplog):
+    """An image/body match is a guess, and a wrong guess merges two recipes.
+
+    slug, recipe_id and episode_id are exact identity. The remaining branches
+    of _catalog_duplicate_reason are heuristics, so the build has to say out
+    loud which rule fired — otherwise a false positive is only visible as a
+    catalog row that quietly went missing.
+    """
+    _write_local_sources(tmp_path)
+    storage = FakeStorage(
+        catalog=[
+            {
+                # Same photo, different title — no slug, recipe_id or
+                # episode_id in common with the episode below.
+                "slug": "renamed-rice-cups",
+                "title": "Renamed Rice Cups",
+                "image": (
+                    "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com"
+                    "/images/abc123/round_1/hero.png"
+                ),
+            }
+        ]
+    )
+    storage.episode["stages"]["wednesday"] = {
+        "image_urls": ["/blob-images/abc123/round_1/hero.png"]
+    }
+    output = tmp_path / "site"
+
+    with caplog.at_level(logging.WARNING):
+        result = StaticSiteBuilder(
+            project_root=tmp_path,
+            output_dir=output,
+            full_rebuild=True,
+            storage_client=storage,
+        ).build(["2026-W34"])
+
+    assert "recipes/renamed-rice-cups/index.html" in result.written
+    assert "recipes/kimchi-cheddar-rice-cups/index.html" not in result.written
+
+    warnings = [record.message for record in caplog.records if record.levelno >= logging.WARNING]
+    assert any("heuristic match" in message and "image=" in message for message in warnings), warnings

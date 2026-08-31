@@ -378,18 +378,40 @@ class StaticSiteBuilder:
             # stamping is re-added under a "<slug>-2026-wNN" alias, which
             # ships two pages, two sitemap URLs and two catalog rows for one
             # recipe.
-            existing = next(
-                (
-                    recipe
-                    for recipe in recipes
-                    if _catalog_duplicate_reason(candidate, recipe)
-                ),
-                None,
-            )
+            existing = None
+            reason = ""
+            for recipe in recipes:
+                match_reason = _catalog_duplicate_reason(candidate, recipe)
+                if match_reason:
+                    existing = recipe
+                    reason = match_reason
+                    break
+
             if existing is not None:
                 existing_slug = str(existing.get("slug") or base_slug)
                 owner = slug_owner.get(existing_slug, "")
                 if not owner or owner == episode_id:
+                    # slug / recipe_id / episode_id are exact identity. An
+                    # image or recipe-body match is a heuristic, and a false
+                    # positive there silently merges two real recipes onto one
+                    # page — a row count is the only other symptom. Say which
+                    # rule fired, the way publish_recipe_to_catalog does.
+                    if reason.split("=", 1)[0] in {"slug", "recipe_id", "episode_id"}:
+                        logger.info(
+                            "Static build: episode %s reuses catalog entry '%s' (%s)",
+                            episode_id or "<unknown>",
+                            existing_slug,
+                            reason,
+                        )
+                    else:
+                        logger.warning(
+                            "Static build: episode %s adopted catalog entry '%s' on a "
+                            "heuristic match (%s), not an exact identity match — "
+                            "confirm they are the same recipe before deploying",
+                            episode_id or "<unknown>",
+                            existing_slug,
+                            reason,
+                        )
                     if episode_id:
                         existing["episode_id"] = episode_id
                         if candidate.get("recipe_id") and not str(
