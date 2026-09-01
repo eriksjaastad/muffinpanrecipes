@@ -1151,11 +1151,21 @@ def publish_recipe_to_catalog(episode: dict) -> str | None:
         return None
 
 
-def regenerate_and_upload(episode: dict) -> str | None:
+def regenerate_and_upload(episode: dict, *, strict: bool = False) -> str | None:
     """Regenerate the episode page HTML and teaser JSON, upload both to blob.
 
-    Called after each cron stage. Returns the page URL or None on failure.
-    Also uploads a teaser JSON at pages/latest.json for the main page to fetch.
+    Called after each cron stage. Returns the page URL, or None on failure when
+    ``strict`` is False. Also uploads a teaser JSON at pages/latest.json for the
+    main page to fetch.
+
+    Mid-week a failed re-render is genuinely non-fatal: the stored page simply
+    does not grow that day and the next stage rewrites it from the same episode
+    JSON, so the default stays fail-open to avoid paging on a transient blip.
+
+    Sunday is different. Sunday's write is what readers land on, so the Sunday
+    handler passes ``strict=True`` and a failure raises instead of returning
+    None. Better to miss an update and leave last week's site standing than to
+    report a successful publish over a page that was never written.
     """
     episode_id = episode.get("episode_id", "unknown")
 
@@ -1185,6 +1195,8 @@ def regenerate_and_upload(episode: dict) -> str | None:
         return url
     except Exception as e:
         logger.error(f"Failed to regenerate episode page for {episode_id}: {e}")
+        if strict:
+            raise
         return None
 
 

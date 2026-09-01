@@ -46,11 +46,33 @@ async def this_week_page():
     episode_id = _current_episode_id()
     page_html = storage.load_page(f"pages/{episode_id}/index.html")
     if page_html:
-        # Public Vercel traffic is served from build-time static artifacts.
-        # Keep this API fallback byte-for-byte with the stored page; mutating
-        # reader responses here would make analytics and other HTML behavior
-        # depend on whether a request bypassed the static route.
+        # Serve the stored page byte-for-byte. Mutating reader responses here
+        # would make analytics and other HTML behavior depend on the route
+        # a request happened to take.
         return HTMLResponse(content=page_html)
+
+    # No stored page. Distinguish the two reasons, because they are opposites:
+    #
+    #   1. Early in a new ISO week, before Monday's cron runs, no episode
+    #      exists yet. A placeholder is the correct, healthy response.
+    #   2. The episode EXISTS but its page is missing. That means a publish
+    #      wrote episode JSON and then failed to write the page. Returning a
+    #      cheerful 200 there is what let a broken publish look healthy to
+    #      every downstream check, since status alone never revealed it.
+    #
+    # Case 2 is a server-side failure and must say so.
+    if storage.load_episode(episode_id) is not None:
+        logger.error(
+            "Episode %s exists but pages/%s/index.html is missing; "
+            "serving 503 rather than a healthy-looking placeholder",
+            episode_id,
+            episode_id,
+        )
+        return HTMLResponse(
+            content=_placeholder_page(episode_id),
+            status_code=503,
+            headers={"Retry-After": "300"},
+        )
 
     return HTMLResponse(content=_placeholder_page(episode_id), status_code=200)
 
