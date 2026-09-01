@@ -941,11 +941,11 @@ def _catalog_contains_episode(ep: dict) -> bool:
 
 
 def _publish_sunday_sources(ep: dict) -> None:
-    """Write the Sunday Blob sources and retain legacy page compatibility."""
-    # This page remains for non-reader consumers. Static reader artifacts are
-    # rebuilt from the episode and catalog sources by the explicit manual
-    # preview -> verify -> promote deployment flow.
-    regenerate_and_upload(ep)
+    """Write the Sunday Blob sources. Every write here is reader-facing."""
+    # /this-week serves this page directly from Blob, so a failed write must
+    # fail the publish rather than report success over a page nobody wrote.
+    if regenerate_and_upload(ep, strict=True) is None:
+        raise RuntimeError("Episode page write did not complete")
 
     from backend.publishing.episode_renderer import publish_recipe_to_catalog
 
@@ -953,25 +953,20 @@ def _publish_sunday_sources(ep: dict) -> None:
     if catalog_url is None and not _catalog_contains_episode(ep):
         raise RuntimeError("Recipe catalog write did not complete")
 
-    # Keep the legacy Blob reader page for compatibility, but never make a
-    # non-reader page failure prevent the static deployment handoff.
+    # This is THE reader page: vercel.json routes /recipes/<slug> at the lambda,
+    # which serves this stored file. A swallowed failure here would return
+    # {"published": true} while the recipe 404s for every reader, so it raises.
     from backend.publishing.episode_renderer import _slugify, render_episode_page
 
     monday = ep.get("stages", {}).get("monday", {})
     recipe_title = monday.get("recipe_data", {}).get("title", "")
-    if recipe_title:
-        slug = _slugify(recipe_title)
-        try:
-            recipe_html = render_episode_page(ep)
-            storage.save_page(f"pages/recipes/{slug}/index.html", recipe_html)
-            logger.info("Published recipe page at /recipes/%s", slug)
-        except Exception as exc:
-            logger.warning(
-                "Legacy Blob recipe page write failed for %s "
-                "(error_type=%s); static deployment will continue",
-                slug,
-                type(exc).__name__,
-            )
+    if not recipe_title:
+        raise RuntimeError("Sunday publish has no recipe title; cannot write reader page")
+
+    slug = _slugify(recipe_title)
+    recipe_html = render_episode_page(ep)
+    storage.save_page(f"pages/recipes/{slug}/index.html", recipe_html)
+    logger.info("Published recipe page at /recipes/%s", slug)
 
 
 def _complete_static_source_handoff(episode_id: str, ep: dict) -> None:
