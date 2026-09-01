@@ -83,3 +83,56 @@ def test_homepage_js_reserves_intrinsic_space_for_seed_and_generated_images() ->
     assert 'width="${imageDimension(recipe, \'image_width\')}"' in page
     assert "recipe.image.startsWith('assets/images/')" in page
     assert "return isSeedAsset ? 1024 : 1536;" in page
+
+
+def test_every_static_dest_points_at_a_file_that_exists() -> None:
+    """The PR #88 regression: a `dest` may not name an artifact nothing builds.
+
+    PR #88 repointed five reader routes at `src/recipes/`, `src/this-week/` and
+    `src/sitemap.xml`, none of which are ever generated — `vercel.json` has a
+    top-level `builds` array, and Vercel ignores `buildCommand` whenever
+    `builds` is present, so the build step that was meant to create them never
+    ran. A missing artifact behind an explicit `dest` returns Vercel's raw
+    NOT_FOUND rather than falling through to a later route, so all five 404'd.
+
+    The pre-existing ordering test could not catch this: it asserts `src`
+    values only and never looks at `dest`.
+    """
+    missing: list[str] = []
+    for route in _routes():
+        dest = route.get("dest", "")
+        if not dest.startswith("/src/"):
+            continue  # lambda, external rewrite, or no dest
+        if "$" in dest:
+            continue  # capture-group substitution; path is not statically known
+        if not (ROOT / dest.lstrip("/")).exists():
+            missing.append(f"{route.get('src')} -> {dest}")
+
+    assert not missing, (
+        "vercel.json routes point at static artifacts that do not exist and "
+        "are never built; these return NOT_FOUND in production: " + "; ".join(missing)
+    )
+
+
+def test_reader_routes_are_served_by_the_lambda() -> None:
+    """Reader routes must reach the FastAPI app, not a frozen static file.
+
+    These five serve content the weekly cron writes to Blob. Pointing them at
+    committed artifacts freezes them at whatever was last committed — that is
+    how `/recipes.json` came to serve 10 seed recipes while the live catalog
+    had 34, and how the dynamic sitemap from PR #55 was replaced by a file that
+    PR #55 had deleted.
+    """
+    dests = {route["src"]: route.get("dest") for route in _routes()}
+
+    for src in (
+        "/recipes/([^/]+)$",
+        "/recipes/?$",
+        "/sitemap\\.xml",
+        "/recipes\\.json",
+        "/this-week/?$",
+    ):
+        assert src in dests, f"reader route {src!r} disappeared from vercel.json"
+        assert dests[src] == "backend/admin/app.py", (
+            f"reader route {src!r} must be served by the lambda, got {dests[src]!r}"
+        )
