@@ -1,6 +1,5 @@
 {
     "version": 2,
-    "buildCommand": "npm run build:site",
     "builds": [
         {
             "src": "backend/admin/app.py",
@@ -65,11 +64,11 @@
         },
         {
             "src": "/recipes/([^/]+)$",
-            "dest": "/src/recipes/$1/index.html"
+            "dest": "backend/admin/app.py"
         },
         {
             "src": "/recipes/?$",
-            "dest": "/src/recipes/index.html"
+            "dest": "backend/admin/app.py"
         },
         {
             "src": "/blob-images/(.*)",
@@ -84,7 +83,7 @@
         },
         {
             "src": "/sitemap\\.xml",
-            "dest": "/src/sitemap.xml"
+            "dest": "backend/admin/app.py"
         },
         {
             "src": "/robots\\.txt",
@@ -92,11 +91,11 @@
         },
         {
             "src": "/recipes\\.json",
-            "dest": "/src/recipes.json"
+            "dest": "backend/admin/app.py"
         },
         {
             "src": "/this-week/?$",
-            "dest": "/src/this-week/index.html"
+            "dest": "backend/admin/app.py"
         },
         {
             "src": "/",
