@@ -372,9 +372,14 @@ _SHARED_CHARACTER_RULES = (
     "actually fit THIS recipe: you get 12 even portions, they are grab-and-go, they hold "
     "together in your hand (no fork, no plate), they make ahead and reheat beautifully, "
     "portion control is built in, and the pan is dead easy to clean.\n"
-    "- Make it feel earned, not like an ad. 'That is exactly why this wants to be a muffin pan "
-    "- twelve of them, done, grab one on your way out the door.' Vary it. Do not all say the "
-    "same thing. It is not just for show - it is for ease of use."
+    "- Make the case with a property specific to THIS dish - something that would not be "
+    "true of just any handheld food. Name the mechanism: what the pan's walls, depth, or "
+    "heat do to THIS batter, dough, or filling.\n"
+    "- Never state the pan-case as a bare conclusion. It has to follow from something a "
+    "character just observed, so it reads as a person reasoning rather than a slogan.\n"
+    "- Do not open a conversation with the pan-case. The first message of a stage has "
+    "nothing to refer back to, so a 'that is exactly why...' construction there is broken.\n"
+    "- Vary it. Do not all say the same thing. It is not just for show - it is for ease of use."
 )
 
 
