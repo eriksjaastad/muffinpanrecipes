@@ -159,6 +159,28 @@ class TestFindRegressions:
 
         assert find_regressions(rows, rows) == []
 
+    def test_a_page_that_vanished_from_the_crawl_is_reported(self) -> None:
+        """The failure the runbook calls 'never normal'.
+
+        An intersection-only comparison cannot see this, because a vanished
+        page is by definition not in the intersection.
+        """
+        before = keyed([page("https://x.test/recipes/a"), page("https://x.test/recipes/b")])
+        after = keyed([page("https://x.test/recipes/a")])
+
+        (regression,) = find_regressions(before, after)
+
+        assert "https://x.test/recipes/b" in regression
+        assert "absent from the crawl" in regression
+
+    def test_a_non_indexable_page_disappearing_is_not_a_regression(self) -> None:
+        """Removing a noindex page is usually deliberate cleanup."""
+        before = keyed(
+            [page("https://x.test/draft", **{"Indexability": "Non-Indexable"})]
+        )
+
+        assert find_regressions(before, {}) == []
+
 
 class TestThinInlinks:
     def test_flags_a_page_reachable_from_only_one_other_page(self) -> None:
@@ -225,3 +247,52 @@ class TestReportExitCode:
         )
 
         assert report(before, after) == 0
+
+    def test_exits_nonzero_when_a_published_page_vanished(self, tmp_path: Path) -> None:
+        """A page disappearing must fail the run, not pass it quietly."""
+        before = write_export(
+            tmp_path / "before.csv", [page("https://x.test/a"), page("https://x.test/b")]
+        )
+        after = write_export(tmp_path / "after.csv", [page("https://x.test/a")])
+
+        assert report(before, after) == 1
+
+    def test_exits_nonzero_when_a_page_stops_being_html(self, tmp_path: Path) -> None:
+        """Dropping out of the HTML set is a disappearance by another route."""
+        before = write_export(tmp_path / "before.csv", [page("https://x.test/a")])
+        after = write_export(
+            tmp_path / "after.csv",
+            [page("https://x.test/a", **{"Content Type": "application/json"})],
+        )
+
+        assert report(before, after) == 1
+
+
+class TestDisplayPath:
+    def test_a_repo_path_renders_relative_so_no_home_dir_is_committed(self) -> None:
+        from scripts.seo_crawl_diff import display_path
+
+        repo_file = Path(__file__).resolve().parent.parent / "seo-audits" / "x.csv"
+
+        assert display_path(repo_file) == "seo-audits/x.csv"
+
+    def test_a_path_outside_the_repo_falls_back_to_the_bare_filename(self) -> None:
+        from scripts.seo_crawl_diff import display_path
+
+        assert display_path(Path("/somewhere/else/internal_all.csv")) == "internal_all.csv"
+
+
+class TestAsInt:
+    def test_a_blank_cell_is_zero_without_a_warning(self, capsys: pytest.CaptureFixture[str]) -> None:
+        from scripts.seo_crawl_diff import as_int
+
+        assert as_int("") == 0
+        assert capsys.readouterr().err == ""
+
+    def test_an_unparseable_cell_warns_rather_than_inventing_a_number(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from scripts.seo_crawl_diff import as_int
+
+        assert as_int("N/A") == 0
+        assert "unparseable" in capsys.readouterr().err

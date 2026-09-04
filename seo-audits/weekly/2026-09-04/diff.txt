@@ -1,7 +1,7 @@
 # SEO crawl diff
 
-before: /Users/eriksjaastad/projects/muffinpanrecipes/seo-audits/baseline-2026-08/screaming-frog-internal_all.csv
-after:  /Users/eriksjaastad/projects/muffinpanrecipes/seo-audits/weekly/2026-09-04/internal_all.csv
+before: seo-audits/baseline-2026-08/screaming-frog-internal_all.csv
+after:  seo-audits/weekly/2026-09-04/internal_all.csv
 
 ## Crawl size
   all URLs     109 ->  118  (+9)

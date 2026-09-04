@@ -65,19 +65,51 @@ def html_pages(rows: Rows) -> Rows:
 
 
 def as_int(value: str | None) -> int:
-    try:
-        return int(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
+    """Coerce a Screaming Frog numeric cell to an int, defaulting to 0.
+
+    A blank cell genuinely means zero. A cell holding something unparseable
+    does not, and reading it as zero would flag the page as orphaned or thin
+    on no evidence — so say so on stderr rather than quietly inventing a
+    number.
+    """
+    if value is None or not value.strip():
         return 0
+    try:
+        return int(value)
+    except ValueError:
+        print(f"warning: unparseable numeric cell {value!r}, reading as 0", file=sys.stderr)
+        return 0
+
+
+def display_path(path: Path) -> str:
+    """Render a path relative to the repo when possible.
+
+    The diff output is committed under seo-audits/, so an absolute path would
+    bake whichever machine ran the crawl into the tracked record.
+    """
+    try:
+        return str(path.resolve().relative_to(Path(__file__).resolve().parent.parent))
+    except ValueError:
+        return path.name
 
 
 def find_regressions(before: Rows, after: Rows) -> list[str]:
     """Report only changes that are unambiguously worse or need explaining.
 
     New pages are not regressions — a weekly recipe publish adds one every
-    Sunday by design.
+    Sunday by design. A page that *disappears* is the opposite: a published
+    recipe should never stop being crawlable, so vanishing counts here and
+    drives the exit code.
     """
     regressions: list[str] = []
+
+    # Checked before the intersection below, because a page that vanished is
+    # by definition not in it. This is the failure mode the weekly run exists
+    # to catch, and the one an intersection-only loop silently misses.
+    for url in sorted(set(before) - set(after)):
+        if before[url].get("Indexability") == "Indexable":
+            regressions.append(f"{url}\n    was indexable, now absent from the crawl")
+
     for url in sorted(set(before) & set(after)):
         was, now = before[url], after[url]
 
@@ -147,7 +179,10 @@ def report(before_path: Path, after_path: Path) -> int:
     before, after = load_export(before_path), load_export(after_path)
     before_html, after_html = html_pages(before), html_pages(after)
 
-    print(f"# SEO crawl diff\n\nbefore: {before_path}\nafter:  {after_path}")
+    print(
+        f"# SEO crawl diff\n\nbefore: {display_path(before_path)}\n"
+        f"after:  {display_path(after_path)}"
+    )
 
     print("\n## Crawl size")
     print(f"  all URLs    {len(before):>4} -> {len(after):>4}  ({len(after) - len(before):+d})")
