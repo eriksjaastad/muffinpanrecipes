@@ -1,0 +1,3 @@
+# Screaming Frog's own debug log — ~85KB of INFO lines per run, useful only
+# while a crawl is failing. The CSV export and the diff are the artifacts.
+weekly/*/crawl.log
