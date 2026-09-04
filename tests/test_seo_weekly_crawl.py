@@ -81,12 +81,15 @@ def run_script(audit_dir: Path, spider: Path, *args: str) -> subprocess.Complete
         "SEO_SPIDER_BIN": str(spider),
         "SEO_SITE": "https://x.test",
     }
+    # timeout: a future edit that leaves the script waiting on stdin would
+    # otherwise hang the whole suite instead of failing.
     return subprocess.run(
         ["bash", str(SCRIPT), *args],
         capture_output=True,
         text=True,
         env=env,
         cwd=REPO_ROOT,
+        timeout=30,
     )
 
 
