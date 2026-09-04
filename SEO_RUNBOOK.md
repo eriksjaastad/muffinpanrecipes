@@ -35,9 +35,12 @@ browser, so the agent never sees or handles a password.
 
 ### Screaming Frog — the agent's own tool
 
-Verified working 2026-09-04: a headless crawl of the live site returned 122 URLs in 21
-seconds and exported CSV, with **columns identical to the August baseline**, so diffs
-against that baseline are valid.
+Verified working 2026-09-04: a headless crawl of the live site finished in about 20
+seconds and exported **118 URLs** to CSV, with **columns identical to the August
+baseline**, so diffs against that baseline are valid. (Screaming Frog's own log reports
+a slightly higher count — it counts responses it fetched, while `Internal:All` exports
+the rows it kept. The export is the number that matters, because the export is what the
+diff reads.)
 
 ```
 /Applications/Screaming Frog SEO Spider.app/Contents/MacOS/ScreamingFrogSEOSpiderLauncher
@@ -48,7 +51,7 @@ against that baseline are valid.
 
 | Free-tier limit | Consequence here |
 |---|---|
-| 500 URLs per crawl | Fine — the site is at 122. **Watch the headroom.** |
+| 500 URLs per crawl | Fine — the site exports 118. **Watch the headroom.** |
 | No `--save-crawl` | No `.seospider` files, so no built-in `--crawl-comparison`. |
 | Configuration locked to defaults | Diffs are automatically comparable, which is a genuine upside. |
 | API integrations (GSC/GA4/PageSpeed) unavailable | The crawl carries no traffic data — join it manually. |
@@ -140,9 +143,9 @@ everything gets skimmed by week three and ignored by week six.
 
 | Section | What it means |
 |---|---|
-| **Regressions** | The only section that should ever stop you. A page that was 200 and indexable is no longer. Investigate before anything else. |
+| **Regressions** | The only section that should ever stop you, and the only one that sets the exit code. Covers a changed status code, a page that stopped being indexable, a moved canonical, and an indexable page that **vanished from the crawl entirely**. Investigate before anything else. |
 | **URLs added** | Expected: one recipe page plus its images, every Sunday. Anything else needs explaining. |
-| **URLs removed** | Never normal. A published recipe should not vanish. |
+| **URLs removed** | Never normal — a published recipe should not vanish, so this also lands in Regressions and fails the run. |
 | **Thin internal linking** | Pages under 2 unique inlinks. Structural, slow-moving, tracked as a trend. |
 | **On-page gaps** | Missing title/description, or under 200 words. |
 
@@ -151,8 +154,10 @@ everything gets skimmed by week three and ignored by week six.
 - **A regression appears** → check `RUNBOOK.md` for a matching known incident *before*
   improvising. The 2026-04-14 storage-prefix contamination presented exactly as pages
   reading wrong, and guessing cost hours.
-- **The crawl hits 500 URLs** → the export is silently truncated and the diff is
-  worthless. The script warns. Erik needs to decide on a licence.
+- **The crawl hits 500 URLs** → the export is silently truncated, which would surface as
+  a wave of phantom "removed" pages. The script warns on the terminal *and* writes the
+  warning into `diff.txt`, so the committed record says the run is untrustworthy. Erik
+  needs to decide on a licence.
 - **Screaming Frog is missing or won't launch** → fall back to the escalation template.
 
 ### What to do with findings

@@ -8,9 +8,11 @@ result. Nothing here should be read as an outcome of any change.
 | `screaming-frog-internal_all.csv` | Screaming Frog SEO Spider, full internal crawl | 22 Aug 2026 |
 | [`docs/assets/seo/ahrefs-site-audit-2026-08.pdf`](../../docs/assets/seo/ahrefs-site-audit-2026-08.pdf) | Ahrefs Site Audit overview | 24 Aug 2026 |
 
-The Ahrefs PDF lives under `docs/assets/` rather than beside the CSV: the repo's
-artifact guard only accepts tracked binaries in approved asset paths, and a rendered
-PDF is not diffable anyway. The CSV is the machine-readable half and stays here.
+The Ahrefs PDF lives under `docs/assets/` rather than beside the CSV. The reason is
+external to this repo: the user-scope `git-artifact-guard` pre-commit hook in
+`~/.claude/hooks/` only accepts tracked binaries under approved asset paths, so nothing
+in this repository enforces it — don't go looking. It is the right shape anyway, since a
+rendered PDF is not something a diff can use. The machine-readable CSV stays here.
 
 ## The point of them
 
