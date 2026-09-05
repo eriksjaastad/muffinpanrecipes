@@ -16,8 +16,16 @@ docs/
 # bundle blows the 225MB Vercel cap (failed deploy 2026-07-16, 288MB).
 src/assets/images/*
 !src/assets/images/*.webp
+# scripts/ is developer tooling and stays out of the bundle — EXCEPT the
+# modules backend/ imports at runtime. Anything listed in a `from scripts.X
+# import ...` inside backend/ MUST have a `!scripts/X.py` line here, or the
+# import raises ModuleNotFoundError in the Lambda and only in the Lambda.
+# tests/test_vercel_bundle.py enforces that. pick_concept.py was missing for
+# months: every production Monday fell through to the placeholder concept
+# with the catalog-aware duplicate check switched off (#6855).
 scripts/*
 !scripts/simulate_dialogue_week.py
+!scripts/pick_concept.py
 !scripts/__init__.py
 tests/
 .grepai/
