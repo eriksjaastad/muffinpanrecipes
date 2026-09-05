@@ -52,10 +52,14 @@ def _run(monkeypatch, tmp_path, *, healthy: bool):
     def _pass(report, *, base_url):
         report.passed.append("stubbed")
 
+    def _episode(report, *, base_url, expect_episode=None):
+        report.passed.append("episode_integrity")
+
     posts: list[str] = []
     with patch.object(hc, "check_catalog_counts_match", _catalog), \
          patch.object(hc, "check_teaser_current_week", _teaser), \
          patch.object(hc, "check_this_week_page", _this_week), \
+         patch.object(hc, "check_episode_integrity", _episode), \
          patch.object(hc, "check_recipe_page_images", _pass), \
          patch.object(hc, "check_sitemap_pages", _pass), \
          patch.object(hc, "check_static_security_headers", _pass), \
