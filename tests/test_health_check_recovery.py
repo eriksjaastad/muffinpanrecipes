@@ -1,6 +1,6 @@
 """health_check.py recovery notification — ping 'all clear' only on FAIL->PASS.
 
-A failing run alerts Discord; a healthy run should stay silent UNLESS the
+A failing run alerts every configured channel; a healthy run should stay silent UNLESS the
 previous run was failing, in which case it announces recovery. This is the
 fix for a stale failure alert lingering for days with no 'working again'
 counterpart (W24, 2026-06-10).
@@ -64,10 +64,17 @@ def _run(monkeypatch, tmp_path, *, healthy: bool):
          patch.object(hc, "check_sitemap_pages", _pass), \
          patch.object(hc, "check_static_security_headers", _pass), \
          patch.object(hc, "check_unmatched_url_404", _pass), \
-         patch.object(hc, "requests") as req, \
          patch.object(hc.sys, "argv", ["health_check.py"]):
-        req.post.side_effect = lambda url, json, timeout: posts.append(json["content"])
-        rc = hc.main()
+        # Capture at the alert seam, not the transport. health_check no longer
+        # owns a webhook — it formats and hands off to
+        # backend/utils/alerts.py::send_alert, which fans out to every
+        # configured channel. These tests are about WHICH runs announce
+        # themselves, so the dispatcher is the right place to intercept.
+        with patch.object(hc, "send_alert") as send:
+            send.side_effect = lambda subject, body, severity="warning", **kw: (
+                posts.append(f"{subject}\n{body}") or True
+            )
+            rc = hc.main()
     return rc, posts
 
 
@@ -321,8 +328,8 @@ def test_preview_main_failure_has_no_alert_or_status_side_effects(monkeypatch):
          patch.object(hc, "check_sitemap_pages", _fail), \
          patch.object(hc, "check_static_security_headers", _fail), \
          patch.object(hc, "check_unmatched_url_404", _fail), \
-         patch.object(hc, "post_discord_alert") as alert, \
-         patch.object(hc, "post_discord_recovery") as recovery, \
+         patch.object(hc, "post_alert") as alert, \
+         patch.object(hc, "post_recovery") as recovery, \
          patch.object(hc, "write_status") as write_status, \
          patch.object(hc.sys, "argv", [
              "health_check.py", "--base-url", "https://preview.example"
