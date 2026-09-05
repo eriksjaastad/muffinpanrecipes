@@ -4,8 +4,10 @@
 Read-only synthetic monitor. Asserts production invariants that would
 have caught the #5911 test-mode contamination incident within 60 seconds.
 Exits 0 on pass, non-zero on any failure. Preview runs are automatically
-side-effect free; production runs optionally post a Discord alert when
-MUFFINPAN_DISCORD_WEBHOOK is set.
+side-effect free; production runs announce failures through
+backend/utils/alerts.py::send_alert, which fans out to every configured
+channel (Discord today, email on a follow-up card). Use --no-alert to stay
+silent.
 
 Run modes:
     # Manual
@@ -35,6 +37,13 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 from xml.etree import ElementTree
 
 import requests
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from backend.utils.alerts import send_alert  # noqa: E402
+from backend.utils.episode_integrity import (  # noqa: E402
+    episode_integrity_failures,
+    episode_summary,
+)
 
 # Persisted last-run status so we only ping "recovered" on an actual
 # FAIL -> PASS transition (not on every healthy run). The synthetic monitor
@@ -270,6 +279,98 @@ def _resolve_image_url(src: str, base_url: str = PRODUCTION_BASE_URL) -> str:
     if src.startswith("/"):
         return f"{base_url}{src}"
     return urljoin(f"{base_url.rstrip('/')}/", src)
+
+
+def check_episode_integrity(
+    report: Report,
+    base_url: str = PRODUCTION_BASE_URL,
+    expect_episode: str | None = None,
+) -> None:
+    """Assert the weekly episode is sound, not merely renderable (#6857).
+
+    Every other check here looks at the SITE. This one looks at the PIPELINE
+    that produced it, because the two can disagree completely: W36 rendered a
+    real recipe with a real title on a healthy page while its concept was the
+    placeholder, the novelty scorer had never run, and the recipe duplicated
+    one already in the catalog. Six of seven checks passed. Nobody knew for
+    five days.
+
+    Reads the episode straight from the public blob CDN, so it needs no
+    credentials and shares no state with the lambda. `base_url` is accepted
+    for signature uniformity with the other checks and deliberately unused —
+    the episode is pipeline state, identical whichever deployment you point at.
+    """
+    def _check() -> None:
+        episode_id = expect_episode or current_iso_week_id()
+        try:
+            episode = _fetch_json(f"{BLOB_CDN}/episodes/{episode_id}.json")
+        except Exception as exc:
+            if expect_episode:
+                # The operator asserted this episode must exist (#6828).
+                raise AssertionError(
+                    f"episode {episode_id} could not be read from blob: "
+                    f"{type(exc).__name__}: {exc}"
+                ) from exc
+            # Before Monday's cron the current week legitimately has no
+            # episode yet. Same pre-cron window check_this_week_page allows.
+            print(f"    (no episode for {episode_id} yet — pre-Monday window)")
+            return
+
+        assert isinstance(episode, dict), (
+            f"episode {episode_id} is not a JSON object"
+        )
+
+        catalog: list[dict] | None = None
+        try:
+            raw = _fetch_json(CATALOG_BLOB_URL)
+            catalog = raw if isinstance(raw, list) else raw.get("recipes", [])
+        except Exception as exc:
+            # Skip only the title-collision assertion; the rest still run.
+            print(f"    (catalog unavailable, skipping title check: {exc})")
+
+        failures = episode_integrity_failures(episode, catalog=catalog)
+        assert not failures, (
+            f"{episode_id} is degraded ({episode_summary(episode)}):\n    - "
+            + "\n    - ".join(failures)
+        )
+        print(f"    ({episode_summary(episode)})")
+
+    report.check("episode_integrity", _check)
+
+
+def check_expected_episode_renders(
+    report: Report, base_url: str, expect_episode: str
+) -> None:
+    """Assert /this-week actually renders the episode the operator named (#6828).
+
+    check_this_week_page only consults the Blob episode when base_url is
+    production, because prod and preview share ONE Blob store and prod data
+    saying "Monday complete" made previews fail. The cost of that guard is
+    that a preview's `assert not monday_done` passes unconditionally, so a
+    green 7/7 preview never proved /this-week was healthy. This closes it by
+    having the operator state what the deploy must show instead of having the
+    check guess from shared state.
+    """
+    def _check() -> None:
+        status, body = _fetch_text(_url(base_url, "/this-week"))
+        assert status == 200, f"/this-week returned HTTP {status}"
+
+        episode = _fetch_json(f"{BLOB_CDN}/episodes/{expect_episode}.json")
+        title = (
+            (episode.get("stages", {}).get("monday", {}).get("recipe_data") or {})
+            .get("title", "")
+            .strip()
+        )
+        assert title, (
+            f"{expect_episode} has no recipe title, so there is nothing to "
+            f"assert /this-week against"
+        )
+        assert title in body, (
+            f"/this-week does not render {expect_episode}'s recipe {title!r} "
+            f"({len(body)} bytes returned)"
+        )
+
+    report.check("expected_episode_renders", _check)
 
 
 def check_recipe_page_images(
@@ -759,29 +860,34 @@ def write_status(status: str) -> None:
         print(f"(health state write failed: {e})", file=sys.stderr)
 
 
-def _post_discord(content: str) -> None:
-    webhook = os.environ.get("MUFFINPAN_DISCORD_WEBHOOK")
-    if not webhook:
-        return
-    try:
-        requests.post(webhook, json={"content": content[:1900]}, timeout=10)
-    except Exception as e:
-        print(f"(Discord post failed: {e})", file=sys.stderr)
+def post_alert(report: Report) -> None:
+    """Announce a failing run through every configured alert channel.
 
-
-def post_discord_alert(report: Report) -> None:
+    Formats only — delivery is backend/utils/alerts.py::send_alert, so when
+    email lands as a second channel this monitor gets it for free.
+    """
     # Timestamp so a scrolled-back alert can't be mistaken for a live failure.
-    lines = [f"🚨 **health_check.py FAILED** — {_utc_stamp()}", ""]
-    for name, detail in report.failed:
-        lines.append(f"• **{name}**: {detail[:300]}")
-    _post_discord("\n".join(lines))
+    body = "\n".join(
+        [f"health_check.py FAILED — {_utc_stamp()}", ""]
+        + [f"• **{name}**: {detail[:300]}" for name, detail in report.failed]
+    )
+    send_alert(
+        subject="🚨 health_check.py FAILED",
+        body=body[:1900],
+        severity="critical",
+        fields=[(name, detail[:300], False) for name, detail in report.failed[:5]],
+    )
 
 
-def post_discord_recovery(report: Report) -> None:
+def post_recovery(report: Report) -> None:
     names = ", ".join(report.passed)
-    _post_discord(
-        f"✅ **health_check.py RECOVERED** — {_utc_stamp()} — "
-        f"all {len(report.passed)} checks passing again ({names})."
+    send_alert(
+        subject="✅ health_check.py RECOVERED",
+        body=(
+            f"{_utc_stamp()} — all {len(report.passed)} checks passing again "
+            f"({names})."
+        )[:1900],
+        severity="info",
     )
 
 
@@ -801,6 +907,16 @@ def main() -> int:
         action="store_true",
         help="Suppress Discord alerts and persisted status writes.",
     )
+    parser.add_argument(
+        "--expect-episode",
+        metavar="EPISODE_ID",
+        help=(
+            "ISO week the deploy must render, e.g. 2026-W36. Asserts that "
+            "episode's integrity and that /this-week actually shows it, "
+            "instead of inferring from shared prod/preview Blob state. Use "
+            "this to verify a preview deploy (#6828)."
+        ),
+    )
     args = parser.parse_args()
 
     try:
@@ -816,6 +932,11 @@ def main() -> int:
     check_catalog_counts_match(report, args.baseline, base_url=base_url)
     check_teaser_current_week(report, base_url=base_url)
     check_this_week_page(report, base_url=base_url)
+    check_episode_integrity(
+        report, base_url=base_url, expect_episode=args.expect_episode
+    )
+    if args.expect_episode:
+        check_expected_episode_renders(report, base_url, args.expect_episode)
     check_recipe_page_images(report, base_url=base_url)
     check_sitemap_pages(report, base_url=base_url)
     check_static_security_headers(report, base_url=base_url)
@@ -830,14 +951,14 @@ def main() -> int:
     last_status = read_last_status()
 
     if not report.ok:
-        post_discord_alert(report)
+        post_alert(report)
         write_status("failed")
         return 1
 
     # Healthy — only announce recovery when the previous run was failing,
     # so steady-state passes stay silent.
     if last_status == "failed":
-        post_discord_recovery(report)
+        post_recovery(report)
     write_status("passed")
     return 0
 
