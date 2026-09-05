@@ -218,7 +218,8 @@ def test_explicit_concept_always_wins() -> None:
     episode = _fresh_episode()
     episode["concept"] = "Portuguese Custard Tarts"
 
-    with patch.object(cron_routes, "_pick_weekly_concept") as picker:
+    with patch.object(cron_routes, "_pick_weekly_concept") as picker, \
+         patch("scripts.pick_concept.pick_target_category", return_value="Sweet"):
         concept, _ = cron_routes._resolve_monday_concept(
             cron_routes.StageRequest(episode_id="2026-W36", concept="Gochujang Pork Bites"),
             episode,
@@ -226,3 +227,52 @@ def test_explicit_concept_always_wins() -> None:
 
     picker.assert_not_called()
     assert concept == "Gochujang Pork Bites"
+
+
+def test_explicit_concept_still_picks_a_target_category() -> None:
+    """The RUNBOOK's own INCIDENT 4 recovery command must leave a clean week.
+
+    The recovery path passes an explicit concept, which skips the concept
+    picker. If it skipped the CATEGORY picker too, target_category would stay
+    None — and `episode_integrity_failures` reads a None target_category as
+    "the picker never ran". The documented fix would permanently look
+    degraded, and the check would cry wolf on its own recovery procedure.
+    pick_target_category only reads the catalog, so it costs nothing to run.
+    """
+    episode = _fresh_episode()
+    with patch("scripts.pick_concept.pick_target_category", return_value="Sweet") as picker:
+        _concept, category = cron_routes._resolve_monday_concept(
+            cron_routes.StageRequest(episode_id="2026-W36", concept="Gochujang Pork Bites"),
+            episode,
+        )
+
+    picker.assert_called_once()
+    assert category == "Sweet"
+
+
+def test_explicit_concept_keeps_an_existing_category_without_re_picking() -> None:
+    episode = _fresh_episode()
+    episode["target_category"] = "Savory"
+    with patch("scripts.pick_concept.pick_target_category") as picker:
+        _concept, category = cron_routes._resolve_monday_concept(
+            cron_routes.StageRequest(episode_id="2026-W36", concept="Gochujang Pork Bites"),
+            episode,
+        )
+
+    picker.assert_not_called()
+    assert category == "Savory"
+
+
+def test_explicit_concept_survives_a_broken_category_picker() -> None:
+    """Recovery must still work when the picker module is the thing that broke."""
+    episode = _fresh_episode()
+    with patch(
+        "scripts.pick_concept.pick_target_category", side_effect=RuntimeError("blob down")
+    ):
+        concept, category = cron_routes._resolve_monday_concept(
+            cron_routes.StageRequest(episode_id="2026-W36", concept="Gochujang Pork Bites"),
+            episode,
+        )
+
+    assert concept == "Gochujang Pork Bites"
+    assert category is None

@@ -343,6 +343,13 @@ def _judge_dialogue(
 
 class JudgeFailedError(Exception):
     """Raised when dialogue fails judge review after all retries."""
+
+    # notify_judge_failure has already fired by the time this is raised, with
+    # far better detail than a generic stage alert. Without this flag the same
+    # event pings Discord twice — once as a judge failure, once as a stage
+    # failure — on what is the most common real failure mode there is.
+    already_notified = True
+
     def __init__(self, stage: str, verdict: str, attempts: int):
         self.stage = stage
         self.verdict = verdict
@@ -767,7 +774,13 @@ def _editorial_qa_review(episode: dict) -> tuple[bool, str]:
             + "\n".join(f"  - {t}" for t in recent_titles)
             + "\n\n"
         )
-    else:
+    elif not episode.get("catalog_context_degraded_at"):
+        # Alert once per episode, not once per auto-fix retry: this function
+        # runs up to three times in the fix loop and the catalog is just as
+        # absent each time. The stamp is persisted with the episode, so it
+        # also records for later that this publish's duplicate detection was
+        # running blind.
+        episode["catalog_context_degraded_at"] = datetime.now(timezone.utc).isoformat()
         logger.error(
             "Editorial QA has NO catalog context: the title-repetition rule "
             "is running blind for episode %s",
@@ -1176,6 +1189,10 @@ def _save_stage_failure(ep: dict, stage: str, error: Exception) -> None:
     """
     ep.setdefault("stages", {})[stage] = {"status": "failed", "error": str(error)}
     storage.save_episode(ep["episode_id"], ep)
+    if getattr(error, "already_notified", False):
+        # The raiser sent a better-targeted alert before raising (see
+        # JudgeFailedError). Loud once, not twice.
+        return
     notify_pipeline_failure(
         recipe_id=ep.get("recipe_id") or "unknown",
         concept=ep.get("concept") or "unknown",
@@ -1340,7 +1357,27 @@ def _resolve_monday_concept(body: StageRequest, ep: dict) -> tuple[str, str | No
     ).get("target_category")
 
     if body.concept:
-        return body.concept.strip(), stored_category
+        # An explicit concept skips the picker, but NOT the category pick.
+        # target_category is the integrity check's proxy for "the picker ran",
+        # so leaving it None here would make the RUNBOOK's own INCIDENT 4
+        # recovery command produce a permanently DEGRADED-looking week.
+        # pick_target_category only reads the catalog — no scraping, no spend —
+        # so it is cheap enough to run on the manual path too. Best effort: if
+        # it fails, the picker module really is broken, and reporting the week
+        # as degraded is then the correct answer rather than a false alarm.
+        category = stored_category
+        if not category:
+            try:
+                from scripts.pick_concept import pick_target_category
+
+                category = pick_target_category()
+            except Exception as exc:
+                logger.error(
+                    f"Explicit concept given but the category picker failed "
+                    f"({type(exc).__name__}: {exc}); this week will read as "
+                    f"degraded until a stage sets target_category"
+                )
+        return body.concept.strip(), category
 
     stored = str(ep.get("concept") or "").strip()
     if stored and stored != PLACEHOLDER_CONCEPT and not body.force:
