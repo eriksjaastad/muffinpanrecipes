@@ -1,27 +1,29 @@
-"""Discord webhook integration for recipe review notifications."""
+"""Notification formatting for recipe-pipeline events.
+
+This module used to own the Discord webhook — four near-identical copies of
+"build an embed, httpx.post it, check for 204". It no longer talks to any
+channel. Each function here decides only WHAT an event says; `send_alert` in
+backend/utils/alerts.py decides WHERE it goes.
+
+That split exists because Erik does not read Discord ("I've noticed all of the
+Discord notifications, but I just don't look. Emails do show up."), so email is
+landing as a second channel. With the transport behind `send_alert`, that is a
+one-file change instead of an edit at every call site.
+
+The public function names and signatures are unchanged — `orchestrator.py`,
+`cron_routes.py`, `art_director.py`, and `run_pipeline_stage.py` all import
+them by name.
+"""
 
 import os
 from typing import Optional
-import httpx
 
+from backend.utils.alerts import _pytest_gate, send_alert  # noqa: F401
 from backend.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Webhook URL must come from environment (no hardcoded defaults)
-DISCORD_WEBHOOK_URL = os.getenv("MUFFINPAN_DISCORD_WEBHOOK")
 ADMIN_BASE_URL = os.getenv("MUFFINPAN_ADMIN_BASE_URL", "http://localhost:8000").rstrip("/")
-
-
-def _pytest_gate() -> bool:
-    """Return True if we should skip notifying (we're inside pytest).
-
-    pytest auto-sets PYTEST_CURRENT_TEST for every test run. #5911 session
-    surfaced this: test_pipeline_fail_fast.py legitimately exercises the
-    failure path, but the notify call inside orchestrator re-raised after
-    firing, so pytest.raises caught it but Discord had already been pinged.
-    """
-    return bool(os.environ.get("PYTEST_CURRENT_TEST"))
 
 
 def build_recipe_review_url(recipe_id: str, base_url: Optional[str] = None) -> str:
@@ -37,8 +39,7 @@ def notify_recipe_ready(
     ingredient_count: int = 0,
     review_url: Optional[str] = None,
 ) -> bool:
-    """
-    Send a Discord notification when a recipe is ready for review.
+    """Send a notification when a recipe is ready for review.
 
     Args:
         recipe_title: The recipe title
@@ -48,54 +49,33 @@ def notify_recipe_ready(
         review_url: Optional direct admin review URL. If omitted, one is built.
 
     Returns:
-        True if notification sent successfully
+        True if the alert was delivered to at least one channel.
     """
-    if _pytest_gate():
-        return False
-    if not DISCORD_WEBHOOK_URL:
-        logger.warning("Discord webhook URL not configured")
-        return False
-
     recipe_review_url = review_url or build_recipe_review_url(recipe_id)
 
-    # Build rich embed
-    embed = {
-        "title": "🧁 New Recipe Ready for Review",
-        "description": (
+    fields = [
+        ("Recipe ID", recipe_id, True),
+        ("Ingredients", str(ingredient_count), True),
+        ("Review Link", recipe_review_url, False),
+    ]
+    if description_preview:
+        preview = (
+            description_preview[:200] + "..."
+            if len(description_preview) > 200
+            else description_preview
+        )
+        fields.append(("Description Preview", preview, False))
+
+    return send_alert(
+        subject="🧁 New Recipe Ready for Review",
+        body=(
             f"**{recipe_title}**\n"
             f"🔎 **Review now:** [Open admin review page]({recipe_review_url})"
         ),
-        "url": recipe_review_url,
-        "color": 0xF5A623,  # Muffin-ish orange
-        "fields": [
-            {"name": "Recipe ID", "value": recipe_id, "inline": True},
-            {"name": "Ingredients", "value": str(ingredient_count), "inline": True},
-            {"name": "Review Link", "value": recipe_review_url, "inline": False},
-        ],
-    }
-
-    if description_preview:
-        preview = description_preview[:200] + "..." if len(description_preview) > 200 else description_preview
-        embed["fields"].append({
-            "name": "Description Preview",
-            "value": preview,
-            "inline": False,
-        })
-
-    payload = {
-        "embeds": [embed],
-    }
-
-    try:
-        response = httpx.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10.0)
-        if response.status_code == 204:
-            logger.info(f"Discord notification sent for recipe: {recipe_title}")
-            return True
-        logger.error(f"Discord webhook failed: {response.status_code} - {response.text}")
-        return False
-    except Exception as e:
-        logger.error(f"Discord notification error: {e}")
-        return False
+        severity="info",
+        fields=fields,
+        url=recipe_review_url,
+    )
 
 
 def notify_pipeline_failure(
@@ -105,35 +85,16 @@ def notify_pipeline_failure(
     error_message: str,
 ) -> bool:
     """Send a loud failure alert so pipeline issues are never silent."""
-    if _pytest_gate():
-        return False
-    if not DISCORD_WEBHOOK_URL:
-        logger.warning("Discord webhook URL not configured for failure alert")
-        return False
-
-    embed = {
-        "title": "🚨 Pipeline Failure",
-        "description": f"Recipe pipeline stopped for **{concept}**",
-        "color": 0xE74C3C,
-        "fields": [
-            {"name": "Recipe ID", "value": recipe_id, "inline": True},
-            {"name": "Failed Stage", "value": stage or "unknown", "inline": True},
-            {"name": "Error", "value": (error_message[:900] or "unknown error"), "inline": False},
+    return send_alert(
+        subject="🚨 Pipeline Failure",
+        body=f"Recipe pipeline stopped for **{concept}**",
+        severity="critical",
+        fields=[
+            ("Recipe ID", recipe_id, True),
+            ("Failed Stage", stage or "unknown", True),
+            ("Error", error_message[:900] or "unknown error", False),
         ],
-    }
-
-    payload = {"embeds": [embed]}
-
-    try:
-        response = httpx.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10.0)
-        if response.status_code == 204:
-            logger.info("Pipeline failure notification sent")
-            return True
-        logger.error(f"Discord failure notification failed: {response.status_code} - {response.text}")
-        return False
-    except Exception as e:
-        logger.error(f"Discord failure notification error: {e}")
-        return False
+    )
 
 
 def notify_judge_failure(
@@ -148,75 +109,41 @@ def notify_judge_failure(
     This means the conversation had quality issues that couldn't be fixed
     by regenerating. Episode is paused — needs manual review.
     """
-    if _pytest_gate():
-        return False
-    if not DISCORD_WEBHOOK_URL:
-        logger.warning("Discord webhook URL not configured for judge alert")
-        return False
-
-    embed = {
-        "title": "Judge Failed — Episode Paused",
-        "description": f"**{concept}** — {stage.title()} dialogue failed quality review",
-        "color": 0xE67E22,  # Orange for judge failure (not red — not a crash)
-        "fields": [
-            {"name": "Episode", "value": episode_id, "inline": True},
-            {"name": "Day", "value": stage.title(), "inline": True},
-            {"name": "Attempts", "value": str(attempts), "inline": True},
-            {"name": "Last Verdict", "value": verdict[:900], "inline": False},
+    return send_alert(
+        subject="Judge Failed — Episode Paused",
+        body=f"**{concept}** — {stage.title()} dialogue failed quality review",
+        # Warning, not critical: the pipeline stopped on purpose at a quality
+        # gate. Nothing crashed and nothing bad shipped.
+        severity="warning",
+        fields=[
+            ("Episode", episode_id, True),
+            ("Day", stage.title(), True),
+            ("Attempts", str(attempts), True),
+            ("Last Verdict", verdict[:900], False),
         ],
-    }
-
-    payload = {"embeds": [embed]}
-
-    try:
-        response = httpx.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10.0)
-        if response.status_code == 204:
-            logger.info(f"Judge failure notification sent for {stage}")
-            return True
-        logger.error(f"Discord judge notification failed: {response.status_code}")
-        return False
-    except Exception as e:
-        logger.error(f"Discord judge notification error: {e}")
-        return False
+    )
 
 
 def notify_batch_complete(
     recipe_count: int,
     recipe_titles: list[str],
 ) -> bool:
-    """
-    Send notification when a batch of recipes is complete.
+    """Send notification when a batch of recipes is complete.
 
     Args:
         recipe_count: Number of recipes in batch
         recipe_titles: List of recipe titles
 
     Returns:
-        True if notification sent successfully
+        True if the alert was delivered to at least one channel.
     """
-    if _pytest_gate():
-        return False
-    if not DISCORD_WEBHOOK_URL:
-        return False
-
     titles_preview = "\n".join(f"• {t}" for t in recipe_titles[:5])
     if len(recipe_titles) > 5:
         titles_preview += f"\n... and {len(recipe_titles) - 5} more"
 
-    embed = {
-        "title": "🧁 Recipe Batch Complete",
-        "description": f"**{recipe_count} recipes** ready for review",
-        "color": 0x27AE60,  # Green for complete
-        "fields": [
-            {"name": "Recipes", "value": titles_preview, "inline": False},
-        ],
-    }
-
-    payload = {"embeds": [embed]}
-
-    try:
-        response = httpx.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10.0)
-        return response.status_code == 204
-    except Exception as e:
-        logger.error(f"Discord batch notification error: {e}")
-        return False
+    return send_alert(
+        subject="🧁 Recipe Batch Complete",
+        body=f"**{recipe_count} recipes** ready for review",
+        severity="info",
+        fields=[("Recipes", titles_preview, False)],
+    )

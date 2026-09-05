@@ -4,8 +4,10 @@
 Read-only synthetic monitor. Asserts production invariants that would
 have caught the #5911 test-mode contamination incident within 60 seconds.
 Exits 0 on pass, non-zero on any failure. Preview runs are automatically
-side-effect free; production runs optionally post a Discord alert when
-MUFFINPAN_DISCORD_WEBHOOK is set.
+side-effect free; production runs announce failures through
+backend/utils/alerts.py::send_alert, which fans out to every configured
+channel (Discord today, email on a follow-up card). Use --no-alert to stay
+silent.
 
 Run modes:
     # Manual
@@ -37,6 +39,7 @@ from xml.etree import ElementTree
 import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from backend.utils.alerts import send_alert  # noqa: E402
 from backend.utils.episode_integrity import (  # noqa: E402
     episode_integrity_failures,
     episode_summary,
@@ -857,29 +860,34 @@ def write_status(status: str) -> None:
         print(f"(health state write failed: {e})", file=sys.stderr)
 
 
-def _post_discord(content: str) -> None:
-    webhook = os.environ.get("MUFFINPAN_DISCORD_WEBHOOK")
-    if not webhook:
-        return
-    try:
-        requests.post(webhook, json={"content": content[:1900]}, timeout=10)
-    except Exception as e:
-        print(f"(Discord post failed: {e})", file=sys.stderr)
+def post_alert(report: Report) -> None:
+    """Announce a failing run through every configured alert channel.
 
-
-def post_discord_alert(report: Report) -> None:
+    Formats only — delivery is backend/utils/alerts.py::send_alert, so when
+    email lands as a second channel this monitor gets it for free.
+    """
     # Timestamp so a scrolled-back alert can't be mistaken for a live failure.
-    lines = [f"🚨 **health_check.py FAILED** — {_utc_stamp()}", ""]
-    for name, detail in report.failed:
-        lines.append(f"• **{name}**: {detail[:300]}")
-    _post_discord("\n".join(lines))
+    body = "\n".join(
+        [f"health_check.py FAILED — {_utc_stamp()}", ""]
+        + [f"• **{name}**: {detail[:300]}" for name, detail in report.failed]
+    )
+    send_alert(
+        subject="🚨 health_check.py FAILED",
+        body=body[:1900],
+        severity="critical",
+        fields=[(name, detail[:300], False) for name, detail in report.failed[:5]],
+    )
 
 
-def post_discord_recovery(report: Report) -> None:
+def post_recovery(report: Report) -> None:
     names = ", ".join(report.passed)
-    _post_discord(
-        f"✅ **health_check.py RECOVERED** — {_utc_stamp()} — "
-        f"all {len(report.passed)} checks passing again ({names})."
+    send_alert(
+        subject="✅ health_check.py RECOVERED",
+        body=(
+            f"{_utc_stamp()} — all {len(report.passed)} checks passing again "
+            f"({names})."
+        )[:1900],
+        severity="info",
     )
 
 
@@ -943,14 +951,14 @@ def main() -> int:
     last_status = read_last_status()
 
     if not report.ok:
-        post_discord_alert(report)
+        post_alert(report)
         write_status("failed")
         return 1
 
     # Healthy — only announce recovery when the previous run was failing,
     # so steady-state passes stay silent.
     if last_status == "failed":
-        post_discord_recovery(report)
+        post_recovery(report)
     write_status("passed")
     return 0
 
