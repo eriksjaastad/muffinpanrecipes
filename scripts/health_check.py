@@ -36,6 +36,12 @@ from xml.etree import ElementTree
 
 import requests
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from backend.utils.episode_integrity import (  # noqa: E402
+    episode_integrity_failures,
+    episode_summary,
+)
+
 # Persisted last-run status so we only ping "recovered" on an actual
 # FAIL -> PASS transition (not on every healthy run). The synthetic monitor
 # runs from a fixed machine, so a small on-disk file is enough; override the
@@ -270,6 +276,98 @@ def _resolve_image_url(src: str, base_url: str = PRODUCTION_BASE_URL) -> str:
     if src.startswith("/"):
         return f"{base_url}{src}"
     return urljoin(f"{base_url.rstrip('/')}/", src)
+
+
+def check_episode_integrity(
+    report: Report,
+    base_url: str = PRODUCTION_BASE_URL,
+    expect_episode: str | None = None,
+) -> None:
+    """Assert the weekly episode is sound, not merely renderable (#6857).
+
+    Every other check here looks at the SITE. This one looks at the PIPELINE
+    that produced it, because the two can disagree completely: W36 rendered a
+    real recipe with a real title on a healthy page while its concept was the
+    placeholder, the novelty scorer had never run, and the recipe duplicated
+    one already in the catalog. Six of seven checks passed. Nobody knew for
+    five days.
+
+    Reads the episode straight from the public blob CDN, so it needs no
+    credentials and shares no state with the lambda. `base_url` is accepted
+    for signature uniformity with the other checks and deliberately unused —
+    the episode is pipeline state, identical whichever deployment you point at.
+    """
+    def _check() -> None:
+        episode_id = expect_episode or current_iso_week_id()
+        try:
+            episode = _fetch_json(f"{BLOB_CDN}/episodes/{episode_id}.json")
+        except Exception as exc:
+            if expect_episode:
+                # The operator asserted this episode must exist (#6828).
+                raise AssertionError(
+                    f"episode {episode_id} could not be read from blob: "
+                    f"{type(exc).__name__}: {exc}"
+                ) from exc
+            # Before Monday's cron the current week legitimately has no
+            # episode yet. Same pre-cron window check_this_week_page allows.
+            print(f"    (no episode for {episode_id} yet — pre-Monday window)")
+            return
+
+        assert isinstance(episode, dict), (
+            f"episode {episode_id} is not a JSON object"
+        )
+
+        catalog: list[dict] | None = None
+        try:
+            raw = _fetch_json(CATALOG_BLOB_URL)
+            catalog = raw if isinstance(raw, list) else raw.get("recipes", [])
+        except Exception as exc:
+            # Skip only the title-collision assertion; the rest still run.
+            print(f"    (catalog unavailable, skipping title check: {exc})")
+
+        failures = episode_integrity_failures(episode, catalog=catalog)
+        assert not failures, (
+            f"{episode_id} is degraded ({episode_summary(episode)}):\n    - "
+            + "\n    - ".join(failures)
+        )
+        print(f"    ({episode_summary(episode)})")
+
+    report.check("episode_integrity", _check)
+
+
+def check_expected_episode_renders(
+    report: Report, base_url: str, expect_episode: str
+) -> None:
+    """Assert /this-week actually renders the episode the operator named (#6828).
+
+    check_this_week_page only consults the Blob episode when base_url is
+    production, because prod and preview share ONE Blob store and prod data
+    saying "Monday complete" made previews fail. The cost of that guard is
+    that a preview's `assert not monday_done` passes unconditionally, so a
+    green 7/7 preview never proved /this-week was healthy. This closes it by
+    having the operator state what the deploy must show instead of having the
+    check guess from shared state.
+    """
+    def _check() -> None:
+        status, body = _fetch_text(_url(base_url, "/this-week"))
+        assert status == 200, f"/this-week returned HTTP {status}"
+
+        episode = _fetch_json(f"{BLOB_CDN}/episodes/{expect_episode}.json")
+        title = (
+            (episode.get("stages", {}).get("monday", {}).get("recipe_data") or {})
+            .get("title", "")
+            .strip()
+        )
+        assert title, (
+            f"{expect_episode} has no recipe title, so there is nothing to "
+            f"assert /this-week against"
+        )
+        assert title in body, (
+            f"/this-week does not render {expect_episode}'s recipe {title!r} "
+            f"({len(body)} bytes returned)"
+        )
+
+    report.check("expected_episode_renders", _check)
 
 
 def check_recipe_page_images(
@@ -801,6 +899,16 @@ def main() -> int:
         action="store_true",
         help="Suppress Discord alerts and persisted status writes.",
     )
+    parser.add_argument(
+        "--expect-episode",
+        metavar="EPISODE_ID",
+        help=(
+            "ISO week the deploy must render, e.g. 2026-W36. Asserts that "
+            "episode's integrity and that /this-week actually shows it, "
+            "instead of inferring from shared prod/preview Blob state. Use "
+            "this to verify a preview deploy (#6828)."
+        ),
+    )
     args = parser.parse_args()
 
     try:
@@ -816,6 +924,11 @@ def main() -> int:
     check_catalog_counts_match(report, args.baseline, base_url=base_url)
     check_teaser_current_week(report, base_url=base_url)
     check_this_week_page(report, base_url=base_url)
+    check_episode_integrity(
+        report, base_url=base_url, expect_episode=args.expect_episode
+    )
+    if args.expect_episode:
+        check_expected_episode_renders(report, base_url, args.expect_episode)
     check_recipe_page_images(report, base_url=base_url)
     check_sitemap_pages(report, base_url=base_url)
     check_static_security_headers(report, base_url=base_url)
