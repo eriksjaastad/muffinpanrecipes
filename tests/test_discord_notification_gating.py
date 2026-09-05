@@ -6,8 +6,10 @@ notify_pipeline_failure in an except block before re-raising. pytest.raises
 caught the exception but Discord had already been pinged. #5911 session
 surfaced 3 Discord alerts during a single pytest run.
 
-These tests lock in the `_pytest_gate()` early-return in every notify_*
-helper by mocking httpx.post and asserting it's never called.
+These tests lock in the `_pytest_gate()` early-return by mocking the real
+httpx.post site and asserting it is never called. That site now lives in
+backend/utils/alerts.py — discord.py only formats — so a single gate covers
+every notify_* helper AND any future channel.
 """
 
 from __future__ import annotations
@@ -25,9 +27,9 @@ def _webhook_set(monkeypatch):
 
 class TestPytestGate:
     def test_notify_recipe_ready_does_not_post(self):
-        from backend.utils import discord
+        from backend.utils import alerts, discord
 
-        with patch.object(discord.httpx, "post") as mock_post:
+        with patch.object(alerts.httpx, "post") as mock_post:
             result = discord.notify_recipe_ready(
                 recipe_title="Gated Muffins",
                 recipe_id="test-rid",
@@ -39,9 +41,9 @@ class TestPytestGate:
         mock_post.assert_not_called()
 
     def test_notify_pipeline_failure_does_not_post(self):
-        from backend.utils import discord
+        from backend.utils import alerts, discord
 
-        with patch.object(discord.httpx, "post") as mock_post:
+        with patch.object(alerts.httpx, "post") as mock_post:
             result = discord.notify_pipeline_failure(
                 recipe_id="test-rid",
                 concept="Fail Fast Test Muffins",
@@ -53,9 +55,9 @@ class TestPytestGate:
         mock_post.assert_not_called()
 
     def test_notify_judge_failure_does_not_post(self):
-        from backend.utils import discord
+        from backend.utils import alerts, discord
 
-        with patch.object(discord.httpx, "post") as mock_post:
+        with patch.object(alerts.httpx, "post") as mock_post:
             result = discord.notify_judge_failure(
                 concept="Gated",
                 stage="monday",
@@ -68,9 +70,9 @@ class TestPytestGate:
         mock_post.assert_not_called()
 
     def test_notify_batch_complete_does_not_post(self):
-        from backend.utils import discord
+        from backend.utils import alerts, discord
 
-        with patch.object(discord.httpx, "post") as mock_post:
+        with patch.object(alerts.httpx, "post") as mock_post:
             result = discord.notify_batch_complete(
                 recipe_count=2,
                 recipe_titles=["A", "B"],

@@ -46,6 +46,7 @@ from pydantic import BaseModel
 from backend.config import config
 from backend.publishing.episode_renderer import regenerate_and_upload
 from backend.storage import storage
+from backend.utils import episode_integrity
 from backend.utils.logging import get_logger
 from backend.utils.discord import notify_judge_failure, notify_pipeline_failure
 from backend.utils.model_router import generate_judge_response, generate_response
@@ -107,6 +108,26 @@ def _verify_cron_secret(request: Request) -> None:
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
+
+# The concept a week carries before anything has picked one. It must NEVER
+# survive into a stored episode: a stored placeholder means the catalog-aware
+# novelty scorer in scripts/pick_concept.py never ran, and with it every
+# duplicate defense that reads the published catalog. Every production week
+# from 2026-W30 to 2026-W35 stored exactly this string — see RUNBOOK
+# "INCIDENT 4" and card #6855. Defined in backend/utils/episode_integrity so
+# the health check and the session-start surface assert against the same
+# literal this module writes.
+PLACEHOLDER_CONCEPT = episode_integrity.PLACEHOLDER_CONCEPT
+
+
+class ConceptSelectionError(RuntimeError):
+    """Monday could not select a real concept for the week.
+
+    Deliberately fatal. A week with no concept has no duplicate avoidance,
+    so it must stop at Monday rather than publish something the novelty
+    scorer never saw.
+    """
+
 
 STAGE_TO_ROLE = {
     "monday": "brainstorm",
@@ -211,6 +232,12 @@ def _generate_dialogue(
         )
         return result.get("messages", [])
     except Exception as e:
+        # TRIAGE (#6856): non-fatal HERE, fail-closed in the caller.
+        # This helper has two callers with different contracts:
+        # _generate_and_judge_dialogue (the cron path) treats an empty list as
+        # a hard stage failure, and execute_cron_stage_stub (admin simulation)
+        # tolerates it. Returning [] keeps that split honest; do NOT "fix" the
+        # cron path by swallowing it further down.
         import traceback
         tb = traceback.format_exc()
         logger.error(f"Dialogue generation FAILED for stage={stage}: {type(e).__name__}: {e}\n{tb}")
@@ -305,12 +332,24 @@ def _judge_dialogue(
         logger.info(f"Judge verdict for {stage}: {verdict[:200]}")
         return passed, verdict
     except Exception as e:
-        logger.warning(f"Judge failed for {stage}: {e}")
+        # TRIAGE (#6856): FAILS CLOSED, deliberately. Returning False routes
+        # into the retry loop in _generate_and_judge_dialogue, which raises
+        # JudgeFailedError + Discord-notifies once retries are exhausted. A
+        # provider outage therefore pauses the episode instead of waving
+        # unjudged dialogue through (the PR #45 contract).
+        logger.error(f"Judge errored for {stage} (treated as FAIL): {type(e).__name__}: {e}")
         return False, f"JUDGE ERROR: {type(e).__name__}: {e}"
 
 
 class JudgeFailedError(Exception):
     """Raised when dialogue fails judge review after all retries."""
+
+    # notify_judge_failure has already fired by the time this is raised, with
+    # far better detail than a generic stage alert. Without this flag the same
+    # event pings Discord twice — once as a judge failure, once as a stage
+    # failure — on what is the most common real failure mode there is.
+    already_notified = True
+
     def __init__(self, stage: str, verdict: str, attempts: int):
         self.stage = stage
         self.verdict = verdict
@@ -346,7 +385,11 @@ def _score_dialogue_qa(
         result = score_quality(messages, personas, concept=concept)
         return {"score": result.get("score", 0), "details": result}
     except Exception as e:
-        logger.warning(f"QA scoring failed (non-fatal): {e}")
+        # TRIAGE (#6856): GENUINELY NON-FATAL, logged. QA scoring is a
+        # descriptive metric written alongside the dialogue, not a gate — the
+        # judge above is the gate. Losing a score costs a data point in the
+        # tuning log; it cannot ship anything wrong to readers.
+        logger.warning(f"QA scoring failed (non-fatal, metric only): {type(e).__name__}: {e}")
         return {}
 
 
@@ -387,7 +430,16 @@ def _generate_and_judge_dialogue(
             recipe_context=recipe_context or None,
         )
         if not dialogue:
-            return dialogue, "NO DIALOGUE GENERATED"
+            # FAIL CLOSED (#6856). This used to return the sentinel verdict
+            # "NO DIALOGUE GENERATED", which the handlers stored verbatim and
+            # then marked the stage `complete` — a day with zero turns, green
+            # status and no alert. The dialogue IS the product; an empty one
+            # is a stage failure, so raise and let _run_stage record it and
+            # notify.
+            raise RuntimeError(
+                f"Dialogue generation produced no messages for {stage}. "
+                f"See the DIALOGUE GENERATION FAILED log line for the cause."
+            )
 
         passed, verdict = _judge_dialogue(
             concept, stage, dialogue, episode,
@@ -575,8 +627,57 @@ def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
         return True
 
     except Exception as e:
-        logger.warning(f"Auto-fix failed: {e}")
+        # TRIAGE (#6856): NON-FATAL, and the surrounding gate fails closed.
+        # Returning False breaks the Sunday auto-fix loop, which then raises
+        # HTTP 400 + notify_judge_failure because editorial QA never passed.
+        # The recipe is left untouched, so nothing half-fixed can publish.
+        logger.error(f"Auto-fix failed (recipe left unmodified): {type(e).__name__}: {e}")
         return False
+
+
+# Sentinel prefix marking a QA report that means "the reviewer never ran",
+# as opposed to "the reviewer ran and rejected the recipe". The Sunday loop
+# checks for it so it doesn't burn auto-fix LLM calls trying to repair a
+# recipe nobody actually reviewed.
+QA_UNAVAILABLE_MARKER = "EDITORIAL QA UNAVAILABLE"
+
+
+def _recent_catalog_titles(limit: int = 8) -> list[str]:
+    """Return the most recently published recipe titles, or [] if unavailable.
+
+    Two independent readers, because this feeds a duplicate defense:
+      1. the storage layer (respects the test/ prefix, so test runs review
+         against test data), and
+      2. title_validator.load_catalog_titles, which reads the public blob CDN
+         directly and itself falls back to the static src/recipes.json.
+
+    Every failure is logged. The caller alerts when the result is empty.
+    """
+    try:
+        catalog_raw = storage.load_page("pages/recipes.json")
+        if catalog_raw:
+            catalog = json.loads(catalog_raw)
+            titles = [
+                str(r.get("title", "")).strip()
+                for r in catalog.get("recipes", [])[:limit]
+            ]
+            titles = [t for t in titles if t]
+            if titles:
+                return titles
+        logger.warning("Catalog read via storage returned no recipe titles")
+    except Exception as e:
+        logger.error(
+            f"Catalog read via storage FAILED: {type(e).__name__}: {e}. "
+            f"Falling back to the public CDN reader."
+        )
+
+    try:
+        from backend.utils.title_validator import load_catalog_titles
+
+        return load_catalog_titles()[:limit]
+    except Exception as e:
+        logger.error(f"Public-CDN catalog fallback FAILED: {type(e).__name__}: {e}")
+        return []
 
 
 def _editorial_qa_review(episode: dict) -> tuple[bool, str]:
@@ -654,17 +755,17 @@ def _editorial_qa_review(episode: dict) -> tuple[bool, str]:
         for i, s in enumerate(instructions)
     )
 
-    # Load recently published recipe titles for repetition check
-    recent_titles: list[str] = []
-    try:
-        catalog_raw = storage.load_page("pages/recipes.json")
-        if catalog_raw:
-            catalog = json.loads(catalog_raw)
-            recent_titles = [
-                r.get("title", "") for r in catalog.get("recipes", [])[:8]
-            ]
-    except Exception:
-        pass
+    # Load recently published recipe titles for the repetition check.
+    #
+    # TRIAGE (#6856): this is a DUPLICATE DEFENSE, so it must never vanish
+    # quietly. It used to be a bare `except Exception: pass` with no log line
+    # at all — the most invisible failure in this file. When it fired,
+    # catalog_context became "" and rule 10c of the QA prompt ("must NOT
+    # repeat key words from recently published recipes") silently reviewed
+    # against an empty list. Now: the blob read is backed by the public-CDN
+    # reader in title_validator (which has its own static fallback), and an
+    # empty result on a site that has published before is alerted, not shrugged off.
+    recent_titles = _recent_catalog_titles(limit=8)
 
     catalog_context = ""
     if recent_titles:
@@ -672,6 +773,29 @@ def _editorial_qa_review(episode: dict) -> tuple[bool, str]:
             "RECENTLY PUBLISHED RECIPES (check title for repetition):\n"
             + "\n".join(f"  - {t}" for t in recent_titles)
             + "\n\n"
+        )
+    elif not episode.get("catalog_context_degraded_at"):
+        # Alert once per episode, not once per auto-fix retry: this function
+        # runs up to three times in the fix loop and the catalog is just as
+        # absent each time. The stamp is persisted with the episode, so it
+        # also records for later that this publish's duplicate detection was
+        # running blind.
+        episode["catalog_context_degraded_at"] = datetime.now(timezone.utc).isoformat()
+        logger.error(
+            "Editorial QA has NO catalog context: the title-repetition rule "
+            "is running blind for episode %s",
+            episode.get("episode_id"),
+        )
+        notify_pipeline_failure(
+            recipe_id=episode.get("recipe_id") or "unknown",
+            concept=episode.get("concept") or "unknown",
+            stage="sunday (editorial QA)",
+            error_message=(
+                "Editorial QA could not load any published recipe titles. "
+                "The title-repetition check reviewed this recipe against an "
+                "empty catalog — duplicate detection is DEGRADED for this "
+                "publish. Verify the recipe title by hand."
+            ),
         )
 
     review_prompt = (
@@ -696,8 +820,19 @@ def _editorial_qa_review(episode: dict) -> tuple[bool, str]:
         logger.info(f"Editorial QA verdict: {verdict[:300]}")
         return passed, verdict
     except Exception as e:
-        logger.warning(f"Editorial QA review failed, defaulting to PASS: {e}")
-        return True, f"EDITORIAL QA ERROR (defaulting to PASS): {e}"
+        # FAIL CLOSED (#6505, #6856). This used to return
+        # (True, "EDITORIAL QA ERROR (defaulting to PASS)"), so a provider
+        # outage on a Sunday published an unreviewed recipe with a green
+        # `editorial_qa.passed: true` in the episode JSON. The dialogue judge
+        # was made fail-closed in PR #45; the publish gate is now symmetric.
+        logger.error(f"Editorial QA review FAILED (treated as FAIL): {type(e).__name__}: {e}")
+        return False, (
+            "STATUS: FAIL\n"
+            f"ISSUES:\n  - {QA_UNAVAILABLE_MARKER}: {type(e).__name__}: {e}\n"
+            "RECOMMENDATION: The editorial reviewer could not run, so this "
+            "recipe has NOT been reviewed. Do not publish until the reviewer "
+            "is reachable; re-fire /api/cron/sunday once it is."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -744,6 +879,7 @@ def _generate_episode_memories(episode: dict, concept: str) -> None:
 
     week_label = episode.get("episode_id", "unknown")
     model = config.dialogue_model  # cheap model for summaries
+    failed_chars: list[str] = []
 
     for char_name, char_msgs in by_char.items():
         transcript_excerpt = "\n".join(char_msgs[-15:])
@@ -769,7 +905,14 @@ def _generate_episode_memories(episode: dict, concept: str) -> None:
             ).strip()
             summary = sanitize_text(summary)
         except Exception as e:
-            logger.warning(f"Memory generation failed for {char_name}: {e}")
+            # TRIAGE (#6856): GENUINELY NON-FATAL, logged and recorded.
+            # Character memories are flavour for next week's prompts; a gap
+            # costs continuity, never correctness, and the publish already
+            # happened by the time this runs. Recorded on the episode below
+            # so a missing memory is visible in the JSON rather than only in
+            # a Lambda log nobody reads.
+            logger.error(f"Memory generation failed for {char_name}: {type(e).__name__}: {e}")
+            failed_chars.append(char_name)
             continue
 
         sentences = summary.split(". ")
@@ -797,6 +940,11 @@ def _generate_episode_memories(episode: dict, concept: str) -> None:
         mem_path.write_text(_json.dumps(data, indent=2))
         logger.info(f"Saved memory for {char_name}: {summary[:80]}")
 
+    if failed_chars:
+        episode.setdefault("events", []).append(
+            "sunday: memory generation failed for " + ", ".join(sorted(failed_chars))
+        )
+
 
 class StageRequest(BaseModel):
     episode_id: Optional[str] = None   # defaults to current ISO week
@@ -808,13 +956,24 @@ class StageRequest(BaseModel):
 
 async def _parse_body(request: Request) -> StageRequest:
     """Parse JSON body from POST, return defaults for GET (Vercel cron sends GET)."""
-    if request.method == "POST":
-        try:
-            data = await request.json()
-            return StageRequest(**data)
-        except Exception:
-            return StageRequest()
-    return StageRequest()
+    if request.method != "POST":
+        return StageRequest()
+
+    # A body-less POST is a legitimate "run this stage with defaults" call and
+    # keeps working. A body that IS present but malformed used to be swallowed
+    # into the same defaults (#6856) — so a typo'd episode_id or a misspelled
+    # "concept" key silently ran auto-pick against the current week instead.
+    # That is now a 400.
+    raw = await request.body()
+    if not raw.strip():
+        return StageRequest()
+    try:
+        return StageRequest(**json.loads(raw))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Malformed cron request body: {type(e).__name__}: {e}",
+        ) from e
 
 
 _DAY_TO_WEEKDAY = {
@@ -900,6 +1059,11 @@ def _persist_static_deploy_failure(
     try:
         storage.save_episode(episode_id, ep)
     except Exception as persist_error:
+        # TRIAGE (#6856): NON-FATAL last resort. We are already inside a
+        # failure path; the caller re-raises the original error, so swallowing
+        # this one preserves the root cause instead of masking it with a blob
+        # write error. Logged at ERROR because it means the retry marker did
+        # not land and the handoff cannot self-heal on the next invocation.
         logger.error(
             "Could not persist static deployment failure for %s "
             "(error_type=%s)",
@@ -981,11 +1145,26 @@ def _complete_static_source_handoff(episode_id: str, ep: dict) -> None:
         try:
             _publish_sunday_sources(ep)
         except Exception as exc:
+            # TRIAGE (#6856): FAILS CLOSED, and now alerts. It already
+            # persisted a retry marker and raised a 500, but _run_stage
+            # re-raises HTTPException untouched — so this reader-facing
+            # publish failure reached nothing but the Lambda log.
             _persist_static_deploy_failure(
                 episode_id,
                 ep,
                 phase="sources",
                 error="Sunday authoritative source write failed",
+            )
+            notify_pipeline_failure(
+                recipe_id=ep.get("recipe_id") or "unknown",
+                concept=ep.get("concept") or "unknown",
+                stage="sunday (source write)",
+                error_message=(
+                    f"Sunday publish source write failed for {episode_id}: "
+                    f"{type(exc).__name__}: {exc}. The episode is marked "
+                    f"published but the reader pages/catalog were NOT written. "
+                    f"Re-fire /api/cron/sunday to retry the handoff."
+                ),
             )
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1000,9 +1179,29 @@ def _complete_static_source_handoff(episode_id: str, ep: dict) -> None:
 
 
 def _save_stage_failure(ep: dict, stage: str, error: Exception) -> None:
-    """Write a failed-stage marker and persist the episode."""
+    """Write a failed-stage marker, persist the episode, and alert.
+
+    The Discord ping is the point (#6856). Before it, a stage that blew up
+    wrote {"status": "failed"} into a blob file nobody opens and returned a
+    500 to a Vercel cron runner that discards the response. Monday could fail
+    on a Monday and the first human signal was Tuesday's 409 — or, if nothing
+    downstream tripped, nothing at all.
+    """
     ep.setdefault("stages", {})[stage] = {"status": "failed", "error": str(error)}
     storage.save_episode(ep["episode_id"], ep)
+    if getattr(error, "already_notified", False):
+        # The raiser sent a better-targeted alert before raising (see
+        # JudgeFailedError). Loud once, not twice.
+        return
+    notify_pipeline_failure(
+        recipe_id=ep.get("recipe_id") or "unknown",
+        concept=ep.get("concept") or "unknown",
+        stage=stage,
+        error_message=(
+            f"Stage '{stage}' failed for episode {ep.get('episode_id')}: "
+            f"{type(error).__name__}: {error}"
+        ),
+    )
 
 
 
@@ -1049,10 +1248,146 @@ def _run_stage(ep: dict, stage: str):
     try:
         yield
     except HTTPException:
-        raise  # let explicit HTTP errors through unchanged
+        # Explicit HTTP errors are raised by code that has already decided how
+        # loud to be (the _require_monday_recipe 409 and the Sunday source-write
+        # 500 both notify before raising). Re-raise unchanged.
+        raise
     except Exception as e:
+        # TRIAGE (#6856): FAILS CLOSED, and _save_stage_failure now alerts.
         _save_stage_failure(ep, stage, e)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Monday concept selection (#6855)
+# ---------------------------------------------------------------------------
+
+# Two attempts, no sleep. pick_concept() already spends up to ~25s scraping
+# five sites with its own per-request timeouts, and Monday's Lambda budget is
+# 300s; a second pass is worth it for a transient throw, a third is not.
+_CONCEPT_PICK_ATTEMPTS = 2
+
+
+def _pick_weekly_concept() -> tuple[str, str | None]:
+    """Pick this week's concept and target category, or fail closed.
+
+    Returns (concept, target_category). Raises ConceptSelectionError rather
+    than falling back to PLACEHOLDER_CONCEPT: pick_concept() is where
+    duplicate avoidance lives (it scores candidates against the entire
+    published catalog), so a week that skips it has one weak defense left.
+
+    pick_concept() degrades on its own when the external recipe sites are
+    unreachable — an empty scrape routes to a curated fallback list that is
+    still filtered against catalog novelty, which needs no third-party
+    network. So "sources unreachable" is survivable and only "no candidate
+    survived novelty filtering" reaches the raise below.
+    """
+    try:
+        from scripts.pick_concept import pick_concept, pick_target_category
+    except ImportError as exc:
+        # NOT transient. scripts/ is excluded from the Vercel bundle except
+        # for the explicit re-includes in .vercelignore, and pick_concept.py
+        # was not one of them — so this import raised on EVERY production
+        # Monday and the old `except Exception` turned it into the
+        # placeholder concept. 2026-W30 through 2026-W35 all stored
+        # "Weekly Muffin Pan Recipe" with target_category None. See #6855.
+        raise ConceptSelectionError(
+            f"Concept picker is not importable in this deployment: {exc}. "
+            f"This is a packaging bug, not a transient one — check the "
+            f"scripts/ re-includes in .vercelignore."
+        ) from exc
+
+    last_error: Exception | None = None
+    for attempt in range(1, _CONCEPT_PICK_ATTEMPTS + 1):
+        try:
+            target_category = pick_target_category()
+            picks = pick_concept(count=1, target_category=target_category)
+        except Exception as exc:
+            last_error = exc
+            logger.warning(
+                f"Concept pick attempt {attempt}/{_CONCEPT_PICK_ATTEMPTS} "
+                f"raised {type(exc).__name__}: {exc}"
+            )
+            continue
+
+        concept = str(picks[0]).strip() if picks else ""
+        if concept and concept != PLACEHOLDER_CONCEPT:
+            logger.info(f"Auto-selected concept={concept!r}, category={target_category}")
+            return concept, target_category
+
+        last_error = ConceptSelectionError(
+            "concept picker returned no candidate: external sources were "
+            "unreachable AND every curated fallback was filtered out by the "
+            "novelty check"
+        )
+        logger.warning(
+            f"Concept pick attempt {attempt}/{_CONCEPT_PICK_ATTEMPTS} "
+            f"produced no usable concept"
+        )
+
+    raise ConceptSelectionError(
+        f"Could not select a concept after {_CONCEPT_PICK_ATTEMPTS} attempts: "
+        f"{type(last_error).__name__}: {last_error}. Re-fire "
+        f"/api/cron/monday with an explicit 'concept' in the body to proceed."
+    ) from last_error
+
+
+def _resolve_monday_concept(body: StageRequest, ep: dict) -> tuple[str, str | None]:
+    """Decide which concept this Monday run uses.
+
+    Precedence:
+      1. An explicit body.concept always wins — that is the documented manual
+         override and the RUNBOOK recovery path.
+      2. A real stored concept is kept, so re-firing Monday mid-week does not
+         swap the dish out from under stages that already ran.
+      3. Otherwise pick fresh.
+
+    A stored PLACEHOLDER_CONCEPT is NOT a real concept, so it never blocks a
+    re-pick. That was the second half of the W36 bug: the old line
+
+        concept = body.concept or ep.get("concept") or concept
+
+    let a stored placeholder override a concept we had just picked
+    successfully, so re-running Monday on an existing episode could never
+    repair the week. `force=true` — already the flag for "I am deliberately
+    re-running this stage" — also re-picks.
+    """
+    stored_category = ep.get("target_category") or ep.get("stages", {}).get(
+        "monday", {}
+    ).get("target_category")
+
+    if body.concept:
+        # An explicit concept skips the picker, but NOT the category pick.
+        # target_category is the integrity check's proxy for "the picker ran",
+        # so leaving it None here would make the RUNBOOK's own INCIDENT 4
+        # recovery command produce a permanently DEGRADED-looking week.
+        # pick_target_category only reads the catalog — no scraping, no spend —
+        # so it is cheap enough to run on the manual path too. Best effort: if
+        # it fails, the picker module really is broken, and reporting the week
+        # as degraded is then the correct answer rather than a false alarm.
+        category = stored_category
+        if not category:
+            try:
+                from scripts.pick_concept import pick_target_category
+
+                category = pick_target_category()
+            except Exception as exc:
+                logger.error(
+                    f"Explicit concept given but the category picker failed "
+                    f"({type(exc).__name__}: {exc}); this week will read as "
+                    f"degraded until a stage sets target_category"
+                )
+        return body.concept.strip(), category
+
+    stored = str(ep.get("concept") or "").strip()
+    if stored and stored != PLACEHOLDER_CONCEPT and not body.force:
+        logger.info(
+            f"Keeping stored concept {stored!r} for {ep.get('episode_id')} "
+            f"(pass force=true or an explicit concept to re-pick)"
+        )
+        return stored, stored_category
+
+    return _pick_weekly_concept()
 
 
 # ---------------------------------------------------------------------------
@@ -1084,27 +1419,7 @@ async def cron_monday(request: Request):
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     with _test_mode_scope(body):
       episode_id = body.episode_id or _current_episode_id()
-
-      # --- Auto-select concept and target category when not provided ---
-      target_category: str | None = None
-      if body.concept:
-          concept = body.concept
-      else:
-          try:
-              from scripts.pick_concept import pick_concept, pick_target_category
-              target_category = pick_target_category()
-              picks = pick_concept(count=1, target_category=target_category)
-              concept = picks[0] if picks else "Weekly Muffin Pan Recipe"
-              logger.info(f"Auto-selected concept={concept!r}, category={target_category}")
-          except Exception as exc:
-              logger.warning(f"Auto concept pick failed, using default: {exc}")
-              concept = "Weekly Muffin Pan Recipe"
-
-      ep = _load_or_create_episode(episode_id, concept)
-      concept = body.concept or ep.get("concept") or concept
-      ep["concept"] = concept
-      if target_category:
-          ep["target_category"] = target_category
+      ep = _load_or_create_episode(episode_id, body.concept or PLACEHOLDER_CONCEPT)
 
       # W15 narrative injection: characters discover the "Party" category
       injected_event: str | None = None
@@ -1118,6 +1433,20 @@ async def cron_monday(request: Request):
           )
 
       with _run_stage(ep, "monday"):
+        # Concept selection runs INSIDE the stage scope so a failure writes a
+        # failed-stage record and Discord-alerts, instead of quietly seeding
+        # the week with the placeholder (#6855).
+        concept, target_category = _resolve_monday_concept(body, ep)
+        if not concept or concept == PLACEHOLDER_CONCEPT:
+            raise ConceptSelectionError(
+                "Refusing to run the week on the placeholder concept "
+                f"{PLACEHOLDER_CONCEPT!r}: it means the catalog-aware novelty "
+                "scorer never ran, so nothing is preventing a duplicate."
+            )
+        ep["concept"] = concept
+        if target_category:
+            ep["target_category"] = target_category
+
         import uuid
         if not ep.get("recipe_id"):
             ep["recipe_id"] = str(uuid.uuid4())[:8]
@@ -1250,8 +1579,8 @@ async def cron_tuesday(request: Request):
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     with _test_mode_scope(body):
       episode_id = body.episode_id or _current_episode_id()
-      ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
-      concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
+      ep = _load_or_create_episode(episode_id, body.concept or PLACEHOLDER_CONCEPT)
+      concept: str = body.concept or ep.get("concept") or PLACEHOLDER_CONCEPT
       _require_monday_recipe(ep, "tuesday")
 
       with _run_stage(ep, "tuesday"):
@@ -1286,8 +1615,8 @@ async def cron_wednesday(request: Request):
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     with _test_mode_scope(body):
       episode_id = body.episode_id or _current_episode_id()
-      ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
-      concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
+      ep = _load_or_create_episode(episode_id, body.concept or PLACEHOLDER_CONCEPT)
+      concept: str = body.concept or ep.get("concept") or PLACEHOLDER_CONCEPT
       _require_monday_recipe(ep, "wednesday")
       recipe_data = ep.get("stages", {}).get("monday", {}).get("recipe_data", {})
 
@@ -1314,12 +1643,21 @@ async def cron_wednesday(request: Request):
                     if lp and cp:
                         local_to_canonical[cp] = lp
 
+        # TRIAGE (#6856): the HERO fails closed, the rest alert.
+        # image_paths[0] is the shot the recipe page and every social card
+        # use; publishing without it ships a recipe with no photograph, so a
+        # hero failure raises and _run_stage records + alerts. A non-hero
+        # failure only costs a gallery slot, and raising there would force a
+        # full reshoot of every image in the week — real Stability/Nano
+        # Banana spend to recover a cosmetic gap. Those alert instead.
         image_urls = []
+        failed_uploads: list[str] = []
         for canonical_path in image_paths:
             local_path = local_to_canonical.get(canonical_path, "")
             if not local_path:
-                logger.warning(f"No local_path for {canonical_path}")
+                logger.error(f"No local_path for {canonical_path}")
                 image_urls.append("")
+                failed_uploads.append(f"{canonical_path}: no local path")
                 continue
             try:
                 lp = Path(local_path)
@@ -1327,11 +1665,30 @@ async def cron_wednesday(request: Request):
                     blob_url = storage.save_image(canonical_path, lp.read_bytes())
                     image_urls.append(blob_url)
                 else:
-                    logger.warning(f"Image file missing: {lp}")
+                    logger.error(f"Image file missing: {lp}")
                     image_urls.append("")
+                    failed_uploads.append(f"{canonical_path}: file missing at {lp}")
             except Exception as e:
-                logger.warning(f"Failed to upload image {canonical_path}: {e}")
+                logger.error(f"Failed to upload image {canonical_path}: {type(e).__name__}: {e}")
                 image_urls.append("")
+                failed_uploads.append(f"{canonical_path}: {type(e).__name__}: {e}")
+
+        if image_urls and not image_urls[0]:
+            raise RuntimeError(
+                "Hero image upload failed, so the week has no publishable "
+                f"photograph: {failed_uploads[0]}"
+            )
+        if failed_uploads:
+            notify_pipeline_failure(
+                recipe_id=ep.get("recipe_id") or "unknown",
+                concept=concept,
+                stage="wednesday (image upload)",
+                error_message=(
+                    f"{len(failed_uploads)} non-hero image(s) failed to upload "
+                    f"for {episode_id}; the hero is fine and the week "
+                    f"continues:\n" + "\n".join(failed_uploads[:5])
+                ),
+            )
 
         dialogue, judge_verdict = _generate_and_judge_dialogue(
             "wednesday", concept, ep,
@@ -1379,8 +1736,8 @@ async def cron_thursday(request: Request):
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     with _test_mode_scope(body):
       episode_id = body.episode_id or _current_episode_id()
-      ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
-      concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
+      ep = _load_or_create_episode(episode_id, body.concept or PLACEHOLDER_CONCEPT)
+      concept: str = body.concept or ep.get("concept") or PLACEHOLDER_CONCEPT
       _require_monday_recipe(ep, "thursday")
       recipe_data = ep.get("stages", {}).get("monday", {}).get("recipe_data", {})
 
@@ -1428,8 +1785,8 @@ async def cron_friday(request: Request):
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     with _test_mode_scope(body):
       episode_id = body.episode_id or _current_episode_id()
-      ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
-      concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
+      ep = _load_or_create_episode(episode_id, body.concept or PLACEHOLDER_CONCEPT)
+      concept: str = body.concept or ep.get("concept") or PLACEHOLDER_CONCEPT
       _require_monday_recipe(ep, "friday")
 
       with _run_stage(ep, "friday"):
@@ -1483,8 +1840,8 @@ async def cron_saturday(request: Request):
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     with _test_mode_scope(body):
       episode_id = body.episode_id or _current_episode_id()
-      ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
-      concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
+      ep = _load_or_create_episode(episode_id, body.concept or PLACEHOLDER_CONCEPT)
+      concept: str = body.concept or ep.get("concept") or PLACEHOLDER_CONCEPT
       _require_monday_recipe(ep, "saturday")
 
       with _run_stage(ep, "saturday"):
@@ -1528,8 +1885,8 @@ async def cron_sunday(request: Request):
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     with _test_mode_scope(body):
       episode_id = body.episode_id or _current_episode_id()
-      ep = _load_or_create_episode(episode_id, body.concept or "Weekly Muffin Pan Recipe")
-      concept: str = body.concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
+      ep = _load_or_create_episode(episode_id, body.concept or PLACEHOLDER_CONCEPT)
+      concept: str = body.concept or ep.get("concept") or PLACEHOLDER_CONCEPT
 
       if ep.get("published_at"):
         handoff_status = _static_deploy_state(ep).get("status")
@@ -1568,7 +1925,14 @@ async def cron_sunday(request: Request):
         # Editorial QA gate with auto-fix retry loop
         qa_passed, qa_report = _editorial_qa_review(ep)
         fix_attempts = 0
-        while not qa_passed and fix_attempts < MAX_QA_FIX_ATTEMPTS:
+        while (
+            not qa_passed
+            and fix_attempts < MAX_QA_FIX_ATTEMPTS
+            # An unreachable reviewer is not a fixable recipe. Auto-fixing here
+            # would burn LLM calls against the same dead provider and then fail
+            # anyway, so skip straight to the hard stop below (#6505).
+            and QA_UNAVAILABLE_MARKER not in qa_report
+        ):
             fix_attempts += 1
             ep["events"].append(
                 f"sunday: editorial QA FAILED (attempt {fix_attempts}), auto-fixing"
@@ -1629,7 +1993,27 @@ async def cron_sunday(request: Request):
                             recipe.save_to_file(data_dir)
                             logger.info(f"Set featured_photo={web_image_path} on recipe {recipe_id}")
                         except Exception as e:
-                            logger.warning(f"Failed to set featured_photo on recipe {recipe_id}: {e}")
+                            # TRIAGE (#6856): NON-FATAL, now alerted. This
+                            # writes the legacy Recipe record; the reader page
+                            # takes its hero from ep["image_urls"], which the
+                            # Wednesday gate above guarantees. So the publish
+                            # is still correct, but a silent failure here
+                            # leaves the two stores disagreeing — worth a ping.
+                            logger.error(
+                                f"Failed to set featured_photo on recipe {recipe_id}: "
+                                f"{type(e).__name__}: {e}"
+                            )
+                            notify_pipeline_failure(
+                                recipe_id=recipe_id,
+                                concept=concept,
+                                stage="sunday (featured_photo)",
+                                error_message=(
+                                    f"Could not write featured_photo={web_image_path} "
+                                    f"to the Recipe record for {episode_id}. The "
+                                    f"published page still uses the episode hero; "
+                                    f"the legacy record is now out of sync."
+                                ),
+                            )
                         break
 
         # Post-publish cleanup: trash variant directories if image was confirmed/overridden
@@ -1645,7 +2029,17 @@ async def cron_sunday(request: Request):
                         wed_stage["image_status"] = "cleaned"
                         published_image_cleaned = True
                 except Exception as e:
-                    logger.warning(f"Image cleanup failed for {recipe_id}: {e}")
+                    # TRIAGE (#6856): GENUINELY NON-FATAL, logged. This only
+                    # trashes losing image variants after the winner is
+                    # published. Failing leaves orphaned blobs — a storage
+                    # cost, never a reader-visible defect — and blocking the
+                    # publish over it would be strictly worse. Not alerted:
+                    # a weekly ping about janitorial work is how alerts get
+                    # ignored. scripts/cleanup_image_backlog.py sweeps these.
+                    logger.error(
+                        f"Image cleanup failed for {recipe_id} (orphaned variants "
+                        f"left in blob): {type(e).__name__}: {e}"
+                    )
 
         ep["published_at"] = datetime.now(timezone.utc).isoformat()
         ep["stages"]["sunday"] = {
@@ -1665,7 +2059,14 @@ async def cron_sunday(request: Request):
             _generate_episode_memories(ep, concept)
             ep["events"].append("sunday: memories generated")
         except Exception as e:
-            logger.warning(f"Memory generation failed (non-fatal): {e}")
+            # TRIAGE (#6856): GENUINELY NON-FATAL, logged and recorded. This
+            # runs AFTER published_at is set — the recipe is already live and
+            # correct. Character memories only feed next week's prompts, and
+            # per-character failures are already handled inside; this outer
+            # guard catches a total failure (e.g. a read-only filesystem).
+            # Recorded as an episode event so it is visible in the JSON.
+            logger.error(f"Memory generation failed (non-fatal): {type(e).__name__}: {e}")
+            ep["events"].append(f"sunday: memory generation failed ({type(e).__name__})")
 
         # Persist the published episode before writing the catalog so a crash
         # between authoritative writes and the manual deployment handoff is
@@ -1704,7 +2105,7 @@ async def execute_cron_stage_stub(stage: str, episode_id: str, concept: str, mod
         raise ValueError(f"Unknown cron stage: {stage!r}")
     # Bypass cron secret verification — caller is already auth'd via admin UI
     ep = _load_or_create_episode(episode_id, concept)
-    ep_concept: str = concept or ep.get("concept") or "Weekly Muffin Pan Recipe"
+    ep_concept: str = concept or ep.get("concept") or PLACEHOLDER_CONCEPT
     recipe_data = ep.get("stages", {}).get("monday", {}).get("recipe_data")
     dialogue = _generate_dialogue(
         stage, ep_concept, model=model,

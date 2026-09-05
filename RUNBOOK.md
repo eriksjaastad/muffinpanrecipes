@@ -4,7 +4,166 @@
 
 ---
 
+## INCIDENT 4 — "We published a recipe we already have" (the SILENT twin of Incident 3)
+
+> **Read INCIDENT 3 first, then this.** They share the placeholder concept string
+> and share nothing else. Incident 3 is loud: Monday *fails*, the placeholder
+> reaches the homepage, `_require_monday_recipe` blocks the week. Incident 4 is
+> silent: Monday *succeeds*, the page looks perfect, and the duplicate ships.
+> Every fix shipped for Incident 3 misses this one.
+
+### Symptom
+
+- A published recipe is the same dish as one already in the catalog, under a
+  different name (W36: "Greek Spanakopita Cups" vs the existing "Spanakopita
+  Phyllo Cups" — same phyllo, spinach, feta, parmesan, dill, nutmeg, eggs).
+- **Everything looks fine.** All stages `complete` with empty errors, the judge
+  PASSed all six days, `/this-week` renders a real title, `health_check.py`
+  passes.
+- The only trace is inside the episode JSON: `concept` is the literal
+  `"Weekly Muffin Pan Recipe"` and `stages.monday.target_category` is `null`.
+
+**Panic reaction to avoid:** tightening `check_title_conflict`. That is the
+*third* and weakest defense, deliberately relaxed by PR #51, and tightening it
+re-triggers INCIDENT 3 (an over-strict validator failed Monday and the week ran
+headless). See card #6854 — the dish-noun weighting is the only safe direction.
+
+### Root cause — the concept picker was not in the Vercel bundle
+
+`.vercelignore` excludes `scripts/*` and re-includes named files. `pick_concept.py`
+was never re-included, so this line in `cron_routes.cron_monday`
+
+```python
+from scripts.pick_concept import pick_concept, pick_target_category
+```
+
+raised `ModuleNotFoundError` **in the Lambda and only in the Lambda** — never
+locally, never in tests. The surrounding `except Exception` downgraded it to a
+`logger.warning` and continued with the placeholder concept.
+
+`pick_concept()` is where duplicate avoidance lives: `_load_recent_concepts()`
+reads the entire published catalog from blob and scores candidates for novelty
+against it. When the import failed, that whole system was skipped and the baker
+invented a title with zero catalog awareness.
+
+**This was not intermittent.** Every production week from 2026-W30 to 2026-W35
+stored `concept: "Weekly Muffin Pan Recipe"`, `target_category: null`. The
+picker had never once run in production.
+
+A second bug made it unrecoverable by re-running Monday:
+
+```python
+concept = body.concept or ep.get("concept") or concept   # the stored placeholder wins
+```
+
+The stored placeholder out-ranked a freshly picked concept, so re-firing Monday
+on an existing episode could never re-pick.
+
+### How to verify this is the incident
+
+```bash
+cd "$HOME/projects/muffinpanrecipes"
+uv run python scripts/session_pipeline_status.py
+```
+
+`DEGRADED` plus a line naming the placeholder concept or a null `target_category`
+is this incident. For an arbitrary week:
+
+```bash
+WEEK=2026-W36 uv run python -c 'import json,os,urllib.request as u; ep=json.load(u.urlopen(f"https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/episodes/{os.environ[\"WEEK\"]}.json")); print("concept:", repr(ep.get("concept"))); print("target_category:", repr(ep.get("stages",{}).get("monday",{}).get("target_category")))'
+```
+
+`concept: 'Weekly Muffin Pan Recipe'` with `target_category: None` is the
+fingerprint. Either one alone is enough — `target_category` is written only on
+the picker's success path, so a null survives even after someone repairs the
+concept string by hand.
+
+### Recovery
+
+The week has a real recipe; the problem is that nothing checked it against the
+catalog. So: check it by hand, and regenerate only if it is genuinely a duplicate.
+
+```bash
+# 1. Does this week's title actually collide?
+WEEK=2026-W36 uv run python -c 'import json,os,urllib.request as u; from backend.utils.title_validator import check_title_conflict, load_catalog_titles; ep=json.load(u.urlopen(f"https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/episodes/{os.environ[\"WEEK\"]}.json")); t=ep["stages"]["monday"]["recipe_data"]["title"]; print(t, "->", check_title_conflict(t, [x for x in load_catalog_titles() if x != t.lower()]))'
+```
+
+`check_title_conflict` needs two shared distinctive words, so **read the
+ingredient list yourself** — a same-dish duplicate under a different name will
+clear the gate (that is exactly what W36 did).
+
+If it is a duplicate, re-fire Monday with an explicit concept, then the rest of
+the week in order. Pick a category and cuisine the catalog is thin on.
+
+```bash
+WEEK=2026-W36
+doppler run --project muffinpanrecipes --config prd -- sh -lc \
+  "curl -s -m 280 -X POST https://muffinpanrecipes.com/api/cron/monday \
+    -H \"Authorization: Bearer \$CRON_SECRET\" -H 'Content-Type: application/json' \
+    -d '{\"episode_id\":\"$WEEK\",\"force\":true,\"concept\":\"Portuguese Custard Tarts baked in a muffin pan\"}'"
+# then tuesday..saturday, each depending on the prior stage's output
+```
+
+### Verify recovery
+
+```bash
+uv run python scripts/session_pipeline_status.py
+# Expect: "muffinpanrecipes pipeline: OK — <week> "<title>", N/7 stages complete"
+
+doppler run --project muffinpanrecipes --config prd -- \
+  uv run python scripts/health_check.py --no-alert
+# Expect: episode_integrity ✓
+```
+
+### How to avoid retriggering
+
+- **Never add a `from scripts.X import` to `backend/` without a matching
+  `!scripts/X.py` line in `.vercelignore`.** `tests/test_vercel_bundle.py`
+  enforces this now; it is the only thing standing between a local-only import
+  and a production-only failure.
+- Do not restore a fallback to `PLACEHOLDER_CONCEPT`. A week with no concept has
+  no duplicate avoidance and must stop at Monday.
+- Read the `muffinpanrecipes pipeline:` line at session start. Its whole job is
+  to make this visible on day one instead of day five. The check lives here
+  (`scripts/session_pipeline_status.py`); the SessionStart hook that runs it is
+  machine-local at `~/.claude/hooks/muffinpan-pipeline-status.sh`, per the
+  portfolio rule that all hooks live at user scope. If you never see that line,
+  the hook is not installed on this machine — run the script by hand.
+
+### Permanent fix (shipped)
+
+- `.vercelignore` re-includes `scripts/pick_concept.py`, with
+  `tests/test_vercel_bundle.py` asserting the invariant for every `scripts/`
+  module `backend/` imports.
+- `cron_routes._pick_weekly_concept()` retries and then raises
+  `ConceptSelectionError`. Monday fails closed, writes a failed-stage record and
+  Discord-alerts. `PLACEHOLDER_CONCEPT` is never persisted.
+- `cron_routes._resolve_monday_concept()` treats a stored placeholder as "no
+  concept", so a re-run can re-pick; `force=true` re-picks unconditionally.
+- `backend/utils/episode_integrity.py` + `health_check.py --expect-episode` +
+  `scripts/session_pipeline_status.py` detect the shape from outside.
+
+Regression coverage: `tests/test_concept_selection_fail_closed.py`,
+`tests/test_episode_integrity.py`, `tests/test_vercel_bundle.py`.
+
+### First occurrence
+
+**2026-08-31** — W36 picked "Greek Spanakopita Cups" against the existing
+"Spanakopita Phyllo Cups". Undetected for five days; found 2026-09-05 by a
+Saturday pre-flight that opened the episode JSON by hand, hours before the
+autonomous Sunday publish. No reader ever saw the duplicate. Blob evidence
+showed W30–W35 carried the same fingerprint, so the picker had been dead since
+at least 2026-07-20. Cards #6855, #6856, #6857.
+
+---
+
 ## INCIDENT 3 — "The homepage shows 'Weekly Muffin Pan Recipe' as the title"
+
+> **If you grepped your way here on the string "Weekly Muffin Pan Recipe", read
+> INCIDENT 4 too.** The same placeholder has two failure modes. Here it reaches
+> the *homepage* because Monday failed. In Incident 4 it sits in the episode's
+> `concept` field while Monday reports `complete` and the homepage looks
+> perfect — and it ships a duplicate recipe.
 
 ### Symptom
 
