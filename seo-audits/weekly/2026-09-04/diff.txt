@@ -1,0 +1,59 @@
+# SEO crawl diff
+
+before: seo-audits/baseline-2026-08/screaming-frog-internal_all.csv
+after:  seo-audits/weekly/2026-09-04/internal_all.csv
+
+## Crawl size
+  all URLs     109 ->  118  (+9)
+  HTML pages    36 ->   37  (+1)
+
+## Status codes (all URLs)
+  200                           109 ->  118  (+9)
+
+## Indexability (HTML pages)
+  Indexable                      36 ->   37  (+1)
+
+## URLs added (9)
+  + https://muffinpanrecipes.com/blob-images/aab568be.png
+  + https://muffinpanrecipes.com/blob-images/aab568be/round_1/hero_threequarter.png
+  + https://muffinpanrecipes.com/blob-images/aab568be/round_1/macro_closeup.png
+  + https://muffinpanrecipes.com/blob-images/aab568be/round_1/overhead_flatlay.png
+  + https://muffinpanrecipes.com/blob-images/e7956950.png
+  + https://muffinpanrecipes.com/blob-images/e7956950/round_1/hero_threequarter.png
+  + https://muffinpanrecipes.com/blob-images/e7956950/round_1/macro_closeup.png
+  + https://muffinpanrecipes.com/blob-images/e7956950/round_1/overhead_flatlay.png
+  + https://muffinpanrecipes.com/recipes/lemon-ricotta-polenta-cups
+
+## URLs removed (0)
+  none
+
+## Regressions (0)
+  none
+
+## Thin internal linking (indexable pages under 2 unique inlinks)
+  5 -> 1  (-4)
+      https://muffinpanrecipes.com/recipes  (1 inlinks)
+
+## On-page gaps on indexable pages (11)
+  https://muffinpanrecipes.com/
+      thin: 19 words
+  https://muffinpanrecipes.com/recipes/baked-oatmeal-cups
+      thin: 97 words
+  https://muffinpanrecipes.com/recipes/buffalo-chicken-mac-bites
+      thin: 101 words
+  https://muffinpanrecipes.com/recipes/classic-blueberry-muffins
+      thin: 94 words
+  https://muffinpanrecipes.com/recipes/dark-chocolate-chip-muffins
+      thin: 100 words
+  https://muffinpanrecipes.com/recipes/jumbo-cornbread-bites
+      thin: 95 words
+  https://muffinpanrecipes.com/recipes/mini-meatloaf-bites
+      thin: 94 words
+  https://muffinpanrecipes.com/recipes/mini-pancake-bites
+      thin: 99 words
+  https://muffinpanrecipes.com/recipes/mini-shepherds-pie
+      thin: 97 words
+  https://muffinpanrecipes.com/recipes/muffin-tin-lasagna
+      thin: 92 words
+  https://muffinpanrecipes.com/recipes/spinach-feta-egg-bites
+      thin: 99 words

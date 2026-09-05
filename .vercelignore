@@ -22,3 +22,7 @@ scripts/*
 tests/
 .grepai/
 .claude/
+
+# SEO crawl exports: reference data, never served. Grows ~80KB/week and the
+# Python bundle sits against a 225MB Vercel cap.
+seo-audits/
