@@ -161,6 +161,45 @@ def test_stage_failure_notifies_discord() -> None:
     assert "baker exploded" in notify.call_args.kwargs["error_message"]
 
 
+def test_a_judge_failure_is_announced_once_not_twice() -> None:
+    """notify_judge_failure already fired, with better detail.
+
+    JudgeFailedError propagates through _run_stage's generic handler, so
+    without the already_notified flag the single most common real failure
+    mode pings Discord twice for one event.
+    """
+    episode = {"episode_id": "2026-W36", "concept": "Custard Tarts", "recipe_id": "abc12345"}
+    error = cron_routes.JudgeFailedError(stage="tuesday", verdict="FAIL - flat", attempts=3)
+
+    with patch.object(cron_routes.storage, "save_episode"), \
+         patch.object(cron_routes, "notify_pipeline_failure") as notify:
+        with pytest.raises(HTTPException):
+            with cron_routes._run_stage(episode, "tuesday"):
+                raise error
+
+    # Still recorded as a failed stage...
+    assert episode["stages"]["tuesday"]["status"] == "failed"
+    # ...but not double-announced.
+    notify.assert_not_called()
+
+
+def test_degraded_catalog_alerts_once_per_episode_not_per_retry() -> None:
+    """_editorial_qa_review runs up to three times in the auto-fix loop."""
+    episode = _reviewable_episode()
+    with patch.object(cron_routes, "_recent_catalog_titles", return_value=[]), \
+         patch.object(
+             cron_routes, "generate_judge_response",
+             return_value="STATUS: PASS\nISSUES: None\nRECOMMENDATION: Ship it.",
+         ), \
+         patch.object(cron_routes, "notify_pipeline_failure") as notify:
+        for _ in range(3):
+            cron_routes._editorial_qa_review(episode)
+
+    notify.assert_called_once()
+    # And the degradation is recorded on the episode, not only in a log.
+    assert episode.get("catalog_context_degraded_at")
+
+
 def test_explicit_http_errors_pass_through_run_stage_untouched() -> None:
     """_require_monday_recipe and the Sunday source-write already alerted."""
     episode = {"episode_id": "2026-W36", "stages": {}}

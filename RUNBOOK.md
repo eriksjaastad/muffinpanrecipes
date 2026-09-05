@@ -123,9 +123,12 @@ doppler run --project muffinpanrecipes --config prd -- \
   and a production-only failure.
 - Do not restore a fallback to `PLACEHOLDER_CONCEPT`. A week with no concept has
   no duplicate avoidance and must stop at Monday.
-- Read `session_pipeline_status.py` output at session start. It is wired into
-  SessionStart, and its whole job is to make this visible on day one instead of
-  day five.
+- Read the `muffinpanrecipes pipeline:` line at session start. Its whole job is
+  to make this visible on day one instead of day five. The check lives here
+  (`scripts/session_pipeline_status.py`); the SessionStart hook that runs it is
+  machine-local at `~/.claude/hooks/muffinpan-pipeline-status.sh`, per the
+  portfolio rule that all hooks live at user scope. If you never see that line,
+  the hook is not installed on this machine — run the script by hand.
 
 ### Permanent fix (shipped)
 
