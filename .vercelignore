@@ -34,3 +34,22 @@ tests/
 # SEO crawl exports: reference data, never served. Grows ~80KB/week and the
 # Python bundle sits against a 225MB Vercel cap.
 seo-audits/
+
+# ---------------------------------------------------------------------------
+# Local-only artifacts. .vercelignore is a SEPARATE list from .gitignore —
+# "gitignored" does NOT mean "not uploaded". Without these lines the CLI
+# uploaded 613MB of developer junk on every deploy and the function bundle hit
+# 277.52MB against a 225MB cap (measured 2026-09-05, card #6868).
+#
+# .scratch/ matters beyond size: the locked hygiene contract promises files
+# there "never reach a PR", which is a statement about git only. Nothing else
+# kept scratch content out of a third-party upload.
+# ---------------------------------------------------------------------------
+.scratch/
+.venv/
+venv/
+.vercel/
+node_modules/
+.hypothesis/
+.pytest_cache/
+.ruff_cache/
