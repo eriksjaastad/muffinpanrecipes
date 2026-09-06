@@ -38,9 +38,25 @@ logger = get_logger(__name__)
 VALID_CATEGORIES: tuple[str, ...] = ("Breakfast", "Savory", "Sweet", "Party")
 
 
+# Stray labels the baker has actually produced, folded into the shelf they
+# mean. "Dessert" shipped in W10 and had to be hand-corrected in the live
+# catalog (scripts/fix_category_dessert_to_sweet.py); episode_renderer,
+# static_renderer and episode_routes each grew their own alias for it. On the
+# Monday path a stray label must not become a null target_category (the
+# INCIDENT 4 fingerprint) or an undercounted shelf, so the alias lives here too.
+CATEGORY_ALIASES: dict[str, str] = {"dessert": "Sweet", "desserts": "Sweet"}
+
+
 def normalize_category(value: object) -> str | None:
-    """Title-case a category label if it is one of VALID_CATEGORIES, else None."""
-    label = str(value or "").strip().title()
+    """Canonical Title-cased shelf for a category label, or None if unknown.
+
+    Folds known stray spellings (CATEGORY_ALIASES) before checking membership
+    in VALID_CATEGORIES.
+    """
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    label = CATEGORY_ALIASES.get(raw.lower(), raw.title())
     return label if label in VALID_CATEGORIES else None
 
 
@@ -128,10 +144,10 @@ def catalog_titles(catalog: dict[str, Any]) -> list[str]:
 
 
 def category_counts(catalog: dict[str, Any]) -> Counter[str]:
-    """Count published recipes per Title-cased category (e.g. ``Sweet``)."""
+    """Count published recipes per canonical shelf (aliases folded, unknown labels dropped)."""
     counts: Counter[str] = Counter()
     for recipe in catalog_recipes(catalog):
-        category = str(recipe.get("category") or "").strip().title()
+        category = normalize_category(recipe.get("category"))
         if category:
             counts[category] += 1
     return counts

@@ -135,7 +135,7 @@ def _singularize(word: str) -> str:
     return word
 
 
-def normalize_ingredient(raw: str | dict) -> frozenset[str] | None:
+def normalize_ingredient(raw: object) -> frozenset[str] | None:
     """Reduce one ingredient (either shape) to a comparable set of words.
 
     Dict-shaped ingredients (the baker's ``recipe_data``,
@@ -154,8 +154,12 @@ def normalize_ingredient(raw: str | dict) -> frozenset[str] | None:
     """
     if isinstance(raw, dict):
         text = str(raw.get("item") or "")
+    elif isinstance(raw, str):
+        text = raw
     else:
-        text = str(raw)
+        # A stray null/number in an ingredients array is garbage, not an
+        # ingredient — str(None) would otherwise mint the word "none".
+        return None
 
     text = text.lower()
     text = re.sub(r"\([^)]*\)", " ", text)  # drop parentheticals
@@ -200,33 +204,43 @@ def items_match(a: frozenset[str], b: frozenset[str]) -> bool:
     return a == b or a <= b or b <= a
 
 
-def _greedy_match(
+def _max_match(
     a: list[frozenset[str]], b: list[frozenset[str]]
 ) -> list[frozenset[str]]:
-    """The subset of `a` that finds a one-to-one match in `b` (greedy, first-fit).
+    """The subset of `a` in a MAXIMUM one-to-one matching with `b`.
 
-    Each `b` item is consumed by at most one `a` item, so a recipe listing
-    "salt" and "kosher salt" as two entries in `a` cannot both match a
-    single "salt" in `b` and inflate the score.
+    One-to-one, so a recipe listing "salt" and "kosher salt" as two entries in
+    `a` cannot both match a single "salt" in `b` and inflate the score. And
+    maximum — Kuhn's augmenting-path algorithm — not greedy first-fit: with
+    subset matching, "cheddar" can pair with either "cheddar cheese" or
+    "sharp cheddar cheese", and a greedy pass that grabbed the wrong one
+    first left the other unmatched. That undercounted overlap depending on
+    incidental list order (review finding, 2026-09-05) — the one direction a
+    duplicate gate must never err in. Lists are a few dozen items at most,
+    so O(|a|·|b|) augmenting paths is instantaneous.
     """
-    used: set[int] = set()
-    matched: list[frozenset[str]] = []
-    for item in a:
+    match_b: dict[int, int] = {}  # b index -> a index it is matched to
+
+    def _augment(i: int, seen: set[int]) -> bool:
         for j, other in enumerate(b):
-            if j in used:
+            if j in seen or not items_match(a[i], other):
                 continue
-            if items_match(item, other):
-                used.add(j)
-                matched.append(item)
-                break
-    return matched
+            seen.add(j)
+            if j not in match_b or _augment(match_b[j], seen):
+                match_b[j] = i
+                return True
+        return False
+
+    for i in range(len(a)):
+        _augment(i, set())
+    return [a[i] for i in sorted(set(match_b.values()))]
 
 
 def overlap_coefficient(a: list[frozenset[str]], b: list[frozenset[str]]) -> float:
     """matched items / min(|A|, |B|). 0.0 if either side is empty."""
     if not a or not b:
         return 0.0
-    matched = _greedy_match(a, b)
+    matched = _max_match(a, b)
     return len(matched) / min(len(a), len(b))
 
 
@@ -297,7 +311,7 @@ def find_ingredient_overlaps(
         if len(existing_items) < min_items:
             continue
 
-        matched = _greedy_match(new_items, existing_items)
+        matched = _max_match(new_items, existing_items)
         score = len(matched) / min(len(new_items), len(existing_items))
         matches.append(
             OverlapMatch(

@@ -16,6 +16,7 @@ import scripts.pick_concept as pc
 from scripts.pick_concept import (
     Candidate,
     CURATED_CONCEPTS,
+    pick_concept_candidates,
     MUFFIN_PAN_FORM_NOUNS,
     NoConceptAvailableError,
     _build_word_freq,
@@ -418,3 +419,34 @@ def test_significant_words_import_still_works():
     # Sanity check that the title_validator import used for dish_noun_collision
     # is wired correctly (normalizes plurals, drops stop words).
     assert _significant_words("Caramelized Custard Tart Cups") == {"caramelized", "custard", "tart"}
+
+
+# ---------------------------------------------------------------------------
+# Provenance and accent handling (review findings 2026-09-05)
+# ---------------------------------------------------------------------------
+
+def test_pick_concept_candidates_reports_curated_source_when_brainstorm_fails():
+    def _boom(*_a, **_k):
+        raise RuntimeError("provider 503")
+
+    picks = pick_concept_candidates(
+        count=1, target_category="Sweet", catalog=_catalog(), generate=_boom,
+        fetch_inspiration=False,
+    )
+    assert len(picks) == 1
+    score, cand = picks[0]
+    assert cand.source == "curated"
+    assert cand.concept in {c for c, _ in CURATED_CONCEPTS["Sweet"]}
+    assert pick_concept(
+        count=1, target_category="Sweet", catalog=_catalog(), generate=_boom,
+        fetch_inspiration=False,
+    ) == [cand.concept]
+
+
+def test_accented_candidate_collides_with_unaccented_catalog_dish_noun():
+    """'Crème Brûlée' must not look fresh against a catalog 'Creme Brulee'."""
+    catalog = _catalog(titles=["Vanilla Creme Brulee Cups"])
+    candidate = Candidate("Lavender Crème Brûlée Tartlets", "Sweet", "French", "sets as it chills", "brainstorm")
+    survivors, rejected = rank_candidates([candidate], "Sweet", catalog)
+    assert survivors == []
+    assert rejected[0][1].startswith("dish_noun_collision")

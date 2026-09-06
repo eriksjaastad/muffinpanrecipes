@@ -98,3 +98,18 @@ def test_helpers_normalise_titles_and_categories() -> None:
 def test_zero_attempts_is_a_programming_error() -> None:
     with pytest.raises(ValueError):
         cat.load_published_catalog(attempts=0)
+
+
+def test_stray_dessert_label_is_an_alias_for_sweet() -> None:
+    """The baker produced 'Dessert' in W10 and it had to be hand-corrected; the
+    Monday path must not turn that stray into a null category or a lost count."""
+    assert cat.normalize_category("Dessert") == "Sweet"
+    assert cat.normalize_category("desserts") == "Sweet"
+    assert cat.normalize_category("sweet") == "Sweet"
+    assert cat.normalize_category("Brunch") is None
+    assert cat.normalize_category(None) is None
+    counts = cat.category_counts({"recipes": [
+        {"category": "Dessert"}, {"category": "Dessert"}, {"category": "Sweet"},
+        {"category": "party"}, {"category": "Brunch"},
+    ]})
+    assert counts == {"Sweet": 3, "Party": 1}

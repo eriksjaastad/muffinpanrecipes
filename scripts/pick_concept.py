@@ -66,11 +66,15 @@ from backend.utils.muffin_pan_form import (  # noqa: E402
     MUFFIN_PAN_FORM_NOUNS,
     OFF_BRAND_TITLE_SHAPES,
 )
+from backend.utils.logging import get_logger  # noqa: E402
 from backend.utils.title_validator import (  # noqa: E402
     STOP_WORDS,
     _normalize_title_word,
     _significant_words,
+    _title_word_sequence,
 )
+
+logger = get_logger(__name__)
 
 ROOT = Path(__file__).resolve().parents[1]
 EPISODES_DIR = ROOT / "data" / "episodes"
@@ -136,9 +140,6 @@ WORLD_CUISINES = [
     "Argentinian", "Nigerian", "Georgian", "Uzbek", "Malaysian",
     "Indonesian", "Egyptian",
 ]
-
-_WORD_RE = re.compile(r"[a-z0-9]+(?:'[a-z0-9]+)?")
-
 
 class NoConceptAvailableError(RuntimeError):
     """Raised when zero candidates survive filtering from BOTH pools.
@@ -399,7 +400,10 @@ def pick_target_category(catalog: Optional[dict[str, Any]] = None) -> str:
 # ---------------------------------------------------------------------------
 
 def _title_words(title: str) -> list[str]:
-    return _WORD_RE.findall(title.lower())
+    # One tokenizer for the picker and the title gate: accent-folded,
+    # apostrophe-straightened, so a candidate and a catalog title spelled with
+    # and without diacritics compare as the same words.
+    return _title_word_sequence(title)
 
 
 def _dish_noun(title: str) -> str:
@@ -628,12 +632,14 @@ def _parse_brainstorm_json(raw: str) -> list[Candidate]:
         end = raw.rindex("]")
         data = json.loads(raw[start : end + 1])
     except Exception as exc:
-        print(f"  [warn] brainstorm output unparseable ({type(exc).__name__}: {exc}); "
-              f"treating as zero candidates", file=sys.stderr)
+        logger.warning(
+            f"brainstorm output unparseable ({type(exc).__name__}: {exc}); "
+            f"treating as zero candidates"
+        )
         return []
 
     if not isinstance(data, list):
-        print("  [warn] brainstorm output was not a JSON array; treating as zero candidates", file=sys.stderr)
+        logger.warning("brainstorm output was not a JSON array; treating as zero candidates")
         return []
 
     candidates: list[Candidate] = []
@@ -668,8 +674,10 @@ def _brainstorm(
     try:
         raw = generate_fn(prompt, system_prompt, model=model, temperature=0.9)
     except Exception as exc:
-        print(f"  [warn] brainstorm call failed ({type(exc).__name__}: {exc}); "
-              f"treating as zero candidates", file=sys.stderr)
+        logger.warning(
+            f"brainstorm call failed ({type(exc).__name__}: {exc}); treating as "
+            f"zero candidates — the curated pool will be used"
+        )
         return []
 
     return _parse_brainstorm_json(raw)
@@ -708,7 +716,7 @@ def _print_dry_run(
     print(f"{'=' * 70}\n")
 
 
-def pick_concept(
+def pick_concept_candidates(
     dry_run: bool = False,
     count: int = 1,
     target_category: Optional[str] = None,
@@ -716,18 +724,23 @@ def pick_concept(
     catalog: Optional[dict[str, Any]] = None,
     generate: Optional[Callable[..., str]] = None,
     fetch_inspiration: bool = True,
-) -> list[str]:
-    """Pick this week's concept(s). Returns the top `count` concept strings.
+) -> list[tuple[float, Candidate]]:
+    """Pick this week's concept(s) with their scores and provenance.
 
-    Never returns []: with zero survivors from both the brainstorm and
-    curated pools this raises NoConceptAvailableError instead (#6858) —
-    the cron caller already treats any exception here as a retryable, then
-    fail-closed, condition (see cron_routes._pick_weekly_concept).
+    Returns the top `count` survivors as (score, Candidate) pairs, best first.
+    Candidate.source says whether the pick came from the LLM brainstorm or the
+    curated fallback pool — the cron caller records that on the episode, so a
+    brainstorm that has been failing for weeks is visible in the week's JSON
+    rather than only in a Lambda log line (#6858 review, 2026-09-05).
+
+    Never returns []: with zero survivors from both pools this raises
+    NoConceptAvailableError instead (#6858) — the cron caller treats any
+    exception here as a retryable, then fail-closed, condition (see
+    cron_routes._pick_weekly_concept).
 
     `catalog`, `generate`, and `fetch_inspiration` exist for injection in
-    tests; production calls (cron_routes.py, scripts/run_pipeline_stage.py)
-    leave them at their defaults, which load the live catalog and call the
-    real LLM.
+    tests; production leaves them at their defaults, which load the live
+    catalog and call the real LLM.
 
     CatalogUnavailableError from load_published_catalog() is intentionally
     left to propagate — a picker that cannot see the catalog has no basis
@@ -752,6 +765,11 @@ def pick_concept(
     )
 
     if not survivors:
+        logger.warning(
+            f"brainstorm produced no usable {target_category} candidate "
+            f"({len(brainstorm_candidates)} proposed, {len(rejected)} rejected); "
+            f"falling back to the curated pool"
+        )
         curated_candidates = _curated_pool(target_category)
         c_survivors, c_rejected = rank_candidates(
             curated_candidates, target_category, catalog,
@@ -766,11 +784,34 @@ def pick_concept(
     if not survivors:
         raise NoConceptAvailableError(_no_concept_message(target_category, rejected))
 
-    chosen = [cand.concept for _, cand in survivors[:count]]
+    chosen = survivors[:count]
     if not dry_run:
-        for score, cand in survivors[:count]:
+        for score, cand in chosen:
             print(f"  ✅ Selected: {cand.concept}  (score={score}, source={cand.source})", file=sys.stderr)
     return chosen
+
+
+def pick_concept(
+    dry_run: bool = False,
+    count: int = 1,
+    target_category: Optional[str] = None,
+    *,
+    catalog: Optional[dict[str, Any]] = None,
+    generate: Optional[Callable[..., str]] = None,
+    fetch_inspiration: bool = True,
+) -> list[str]:
+    """Concept strings only — see pick_concept_candidates for the details.
+
+    Kept for the CLI and scripts/run_pipeline_stage.py; cron_routes uses
+    pick_concept_candidates so it can persist the pick's provenance.
+    """
+    return [
+        cand.concept
+        for _, cand in pick_concept_candidates(
+            dry_run=dry_run, count=count, target_category=target_category,
+            catalog=catalog, generate=generate, fetch_inspiration=fetch_inspiration,
+        )
+    ]
 
 
 def main() -> None:
