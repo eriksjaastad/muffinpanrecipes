@@ -198,6 +198,21 @@ def _load_seed_recipes() -> dict:
     return data
 
 
+@router.get("/src/recipes/{slug}/index.html", include_in_schema=False)
+async def recipe_page_rewritten_path(slug: str):
+    """The Lambda fallback for a recipe page that is not committed yet (#6684).
+
+    vercel.json first tries the committed static file with a ``check: true``
+    rewrite to ``/src/recipes/<slug>/index.html``. When that file does not
+    exist — a week published to Blob after the last deploy — Vercel continues
+    routing with the REWRITTEN path (observed on the 2026-09-05 preview: the
+    unrewritten fallback never matched and requests fell to the static 404).
+    So the fallback route matches this path and the app must answer it here,
+    exactly as it answers /recipes/<slug>.
+    """
+    return await recipe_page(slug)
+
+
 @router.get("/recipes/{slug}")
 async def recipe_page(slug: str):
     """Serve an individual recipe page.

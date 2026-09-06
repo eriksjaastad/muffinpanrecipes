@@ -58,6 +58,7 @@ def test_public_routes_are_present_and_ordered() -> None:
         "/recipes/([^/]+)$",
         None,  # {"handle": "filesystem"} has no "src" key
         "/recipes/([^/]+)$",
+        "^/src/recipes/([^/]+)/index\\.html$",  # the rewritten path a check:true miss continues with
         "/blob-images/(.*)",
         "/assets/(.*)",
         "/robots\\.txt",
@@ -212,6 +213,19 @@ def test_recipe_slug_route_has_static_candidate_and_lambda_fallback() -> None:
         "the static-first candidate must precede {'handle': 'filesystem'}, and "
         "the lambda fallback must follow it, or a miss can't fall through"
     )
+
+    # Observed on the 2026-09-05 preview: after a `check: true` miss Vercel keeps
+    # routing against the REWRITTEN path (/src/recipes/<slug>/index.html), so a
+    # fallback keyed on the original path never matched and a week published
+    # to Blob since the last deploy would have hit the static 404. The fallback
+    # must match the rewritten path too, and sit before the catch-all.
+    rewritten_fallback = next(
+        (r for r in routes if r.get("src") == "^/src/recipes/([^/]+)/index\\.html$"), None
+    )
+    assert rewritten_fallback is not None, "missing the rewritten-path lambda fallback"
+    assert rewritten_fallback["dest"] == "backend/admin/app.py"
+    catch_all_index = next(i for i, r in enumerate(routes) if r.get("src") == "/(.*)" and r.get("status") == 404)
+    assert handle_index < routes.index(rewritten_fallback) < catch_all_index
 
 
 def test_about_route_exists() -> None:
