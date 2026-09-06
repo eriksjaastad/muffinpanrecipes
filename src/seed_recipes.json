@@ -8,6 +8,7 @@
       "prep_time": 10,
       "cook_time": 25,
       "servings": 12,
+      "calories": 160,
       "difficulty": "easy",
       "cuisine": "American",
       "ingredients": [
@@ -35,6 +36,7 @@
       "prep_time": 20,
       "cook_time": 15,
       "servings": 24,
+      "calories": 85,
       "difficulty": "medium",
       "cuisine": "American",
       "ingredients": [
@@ -62,6 +64,7 @@
       "prep_time": 15,
       "cook_time": 20,
       "servings": 12,
+      "calories": 210,
       "difficulty": "easy",
       "cuisine": "American",
       "ingredients": [
@@ -89,6 +92,7 @@
       "prep_time": 15,
       "cook_time": 18,
       "servings": 12,
+      "calories": 240,
       "difficulty": "easy",
       "cuisine": "American",
       "ingredients": [
@@ -116,6 +120,7 @@
       "prep_time": 10,
       "cook_time": 22,
       "servings": 6,
+      "calories": 280,
       "difficulty": "easy",
       "cuisine": "American",
       "ingredients": [
@@ -143,6 +148,7 @@
       "prep_time": 15,
       "cook_time": 20,
       "servings": 12,
+      "calories": 185,
       "difficulty": "medium",
       "cuisine": "American",
       "ingredients": [
@@ -170,6 +176,7 @@
       "prep_time": 5,
       "cook_time": 12,
       "servings": 24,
+      "calories": 65,
       "difficulty": "easy",
       "cuisine": "American",
       "ingredients": [
@@ -197,6 +204,7 @@
       "prep_time": 25,
       "cook_time": 20,
       "servings": 12,
+      "calories": 230,
       "difficulty": "medium",
       "cuisine": "British",
       "ingredients": [
@@ -224,6 +232,7 @@
       "prep_time": 20,
       "cook_time": 20,
       "servings": 12,
+      "calories": 210,
       "difficulty": "medium",
       "cuisine": "Italian",
       "ingredients": [
@@ -251,6 +260,7 @@
       "prep_time": 10,
       "cook_time": 20,
       "servings": 12,
+      "calories": 95,
       "difficulty": "easy",
       "cuisine": "American",
       "ingredients": [

@@ -8,14 +8,15 @@ recipe. Brand drift incident: W24 "Cheddar Broccoli Egg Squares".
 
 from __future__ import annotations
 
-from unittest.mock import patch
+import json
+
 
 from backend.admin.cron_routes import _RECIPE_FIX_SYSTEM_PROMPT
 from backend.utils.recipe_prompts import (
     _build_recipe_system_prompt,
     _build_recipe_user_prompt,
 )
-from scripts.pick_concept import pick_concept, score_candidate
+from scripts.pick_concept import CURATED_CONCEPTS, Candidate, pick_concept, rank_candidates
 
 
 # ---------------------------------------------------------------------------
@@ -63,7 +64,14 @@ def test_fix_prompt_carries_pan_geometry_and_shape_ban() -> None:
 # Concept picker
 # ---------------------------------------------------------------------------
 
-def test_off_brand_shape_candidates_score_zero() -> None:
+def _sweet(name: str) -> Candidate:
+    return Candidate(name, "Sweet", "French", "sets as it cools", "brainstorm")
+
+
+def test_off_brand_shape_candidates_are_hard_rejected() -> None:
+    """Squares/bars/slices/wedges/traybake name a shape a muffin pan cannot
+    make. They used to score 0.0 and could still slip through a thin pool's
+    weighted floor; now they are rejected before scoring (#6858)."""
     for name in (
         "Lemon Crumble Bars",
         "Sheet Pan Frittata Squares",
@@ -71,31 +79,41 @@ def test_off_brand_shape_candidates_score_zero() -> None:
         "Brownie Wedges",
         "Chicken Traybake",
     ):
-        assert score_candidate(name, recent_concepts=[], current_month=6) == 0.0, name
+        survivors, rejected = rank_candidates([_sweet(name)], "Sweet", {"recipes": []})
+        assert survivors == [], name
+        assert rejected[0][1].startswith("off_brand_shape"), (name, rejected[0][1])
 
 
-def test_on_brand_candidates_still_score() -> None:
-    score = score_candidate(
-        "Spinach Feta Egg Cups", recent_concepts=[], current_month=6
+def test_on_brand_candidates_survive_and_score() -> None:
+    survivors, rejected = rank_candidates(
+        [Candidate("Spinach Feta Egg Cups", "Breakfast", "Greek", "", "curated")],
+        "Breakfast",
+        {"recipes": []},
     )
-    assert score > 0.0
+    assert rejected == []
+    assert survivors[0][0] > 0.0
 
 
-def test_all_off_brand_scrape_falls_back_to_curated_list() -> None:
-    """An all-zero scrape must use the curated fallbacks, not pick an
-    off-brand candidate through the weighted pool's 0.1 floor."""
-    def _fake_fetch(url, timeout=5):
-        return "<html></html>"
+def test_all_off_brand_brainstorm_falls_back_to_curated_list(monkeypatch) -> None:
+    """A brainstorm that only proposes off-brand shapes must route to the
+    curated pool, never return one of the shapes (#6858)."""
+    monkeypatch.setenv("CONCEPT_MODEL", "test/fake-model")
 
-    with patch("scripts.pick_concept._fetch", side_effect=_fake_fetch), \
-         patch("scripts.pick_concept._extract_recipe_names",
-               return_value=["Lemon Crumble Bars", "Brownie Wedges"]), \
-         patch("scripts.pick_concept._load_recent_concepts", return_value=[]):
-        picks = pick_concept(count=1)
+    def fake_generate(prompt, system_prompt=None, *, model, temperature):
+        return json.dumps([
+            {"concept": "Lemon Crumble Bars", "category": "Sweet", "cuisine": "American", "binds_how": ""},
+            {"concept": "Brownie Wedges", "category": "Sweet", "cuisine": "American", "binds_how": ""},
+        ])
+
+    picks = pick_concept(
+        count=1, target_category="Sweet", catalog={"recipes": []},
+        generate=fake_generate, fetch_inspiration=False,
+    )
 
     assert len(picks) == 1
     assert "bars" not in picks[0].lower()
     assert "wedges" not in picks[0].lower()
+    assert picks[0] in {concept for concept, _ in CURATED_CONCEPTS["Sweet"]}
 
 
 # ---------------------------------------------------------------------------

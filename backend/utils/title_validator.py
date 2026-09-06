@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 import urllib.request
 from pathlib import Path
 from typing import Optional
@@ -100,8 +101,19 @@ def load_recent_cuisines(n: int = 4) -> list[str]:
 
 
 def _title_word_sequence(title: str) -> list[str]:
-    """Ordered lowercase tokens, stop words included (for phrase matching)."""
-    return re.findall(r"[a-z0-9]+(?:'[a-z0-9]+)?", title.lower())
+    """Ordered lowercase tokens, stop words included (for phrase matching).
+
+    Curly apostrophes are straightened and accents folded first, so
+    "Crème Brûlée Cups" tokenizes as [creme, brulee, cups] instead of
+    fragmenting into ASCII shards that match nothing — which would let an
+    accented duplicate through and let an accented candidate look "fresh".
+    The concept picker tokenizes titles through this same function so the
+    two stay aligned (#6858 review, 2026-09-05).
+    """
+    text = title.replace("\u2019", "'").replace("\u2018", "'")
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    return re.findall(r"[a-z0-9]+(?:'[a-z0-9]+)?", text.lower())
 
 
 def _contains_phrase(haystack: list[str], needle: list[str]) -> bool:
