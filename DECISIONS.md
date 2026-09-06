@@ -81,3 +81,11 @@
 ### 2026-09-05: Cloud image-variant cleanup is an honest no-op (#6712)
 
 **Decision:** `_CloudBackend.cleanup_image_variants` returns `[]` with a docstring: round-1 variants are live behind-the-scenes gallery content, not discards, so there is nothing to clean in Blob. It previously delegated to a filesystem trash on a directory that does not exist on Vercel and silently claimed success. Not wired to `delete_by_prefix` on purpose.
+
+### 2026-09-05: A published week's hero is pinned data, and the Lambda fallback matches the rewritten path (#6688, #6685, #6684)
+
+**Context:** The first live full rebuild changed the hero on 20 of 25 published pages. The renderer's "prefer the art director's confirmed winner" rule post-dates those pages, and the static builder carried its own copy of the rule; several winners point at a top-level copy that was never uploaded. Erik pinned published heroes on 2026-08-22, but the pin lived only in intent. Separately, the first preview showed that after a `check: true` miss Vercel keeps routing against the rewritten path, so a Lambda fallback keyed on the original path never matched and a week published after the last deploy would have hit the static 404.
+
+**Decision:** `hero_image_url` on the episode is authoritative in both the renderer and the builder. Sunday writes it before the page renders; `scripts/pin_published_heroes.py` backfilled the 25 live weeks from the exact image each production page shows (0 of 25 differ after rebuild). The fallback route matches `/src/recipes/<slug>/index.html` and the app answers that path like `/recipes/<slug>`; the proof is that a missing slug returns the Lambda's own "Recipe not found", not the static 404.
+
+**Reasoning:** A pin that depends on a rule is not a pin. Two copies of one rule drift. Routing semantics that are not documented must be proven on a preview before promotion, which is why the deploy ritual keeps the preview step.
