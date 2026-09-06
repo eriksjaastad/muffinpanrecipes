@@ -883,12 +883,10 @@ dependencies = [
     { name = "fastapi" },
     { name = "google-genai" },
     { name = "httpx" },
-    { name = "hypothesis" },
     { name = "jinja2" },
     { name = "openai" },
     { name = "pillow" },
     { name = "pydantic" },
-    { name = "pytest" },
     { name = "python-jose", extra = ["cryptography"] },
     { name = "requests" },
     { name = "send2trash" },
@@ -906,6 +904,12 @@ dev = [
     { name = "ruff" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "hypothesis" },
+    { name = "pytest" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "anthropic", specifier = ">=0.39.0" },
@@ -916,14 +920,12 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "google-genai", specifier = ">=1.68.0" },
     { name = "httpx", specifier = ">=0.27.0" },
-    { name = "hypothesis", specifier = ">=6.0.0" },
     { name = "jinja2", specifier = ">=3.1.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "openai", specifier = ">=1.40.0" },
     { name = "pillow", specifier = ">=10.0.0,<11.0.0" },
     { name = "playwright", marker = "extra == 'dev'", specifier = ">=1.40.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
-    { name = "pytest", specifier = ">=7.0.0" },
     { name = "pytest-playwright", marker = "extra == 'dev'", specifier = ">=0.4.0" },
     { name = "python-jose", extras = ["cryptography"], specifier = ">=3.3.0" },
     { name = "requests", specifier = ">=2.28.0" },
@@ -932,6 +934,12 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
 ]
 provides-extras = ["dev"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "hypothesis", specifier = ">=6.0.0" },
+    { name = "pytest", specifier = ">=7.0.0" },
+]
 
 [[package]]
 name = "mypy"

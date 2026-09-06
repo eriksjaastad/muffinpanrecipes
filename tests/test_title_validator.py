@@ -204,6 +204,37 @@ def test_load_recent_cuisines_empty_when_none_declared() -> None:
 
 
 # ---------------------------------------------------------------------------
+# #6878 — catalog-unreachable degrades to [] with a logged error, never the
+# src/recipes.json seed fallback (which was deleted).
+# ---------------------------------------------------------------------------
+
+def test_load_recent_cuisines_degrades_to_empty_on_catalog_failure(caplog) -> None:
+    with patch.object(
+        _tv, "_load_catalog", side_effect=_tv.CatalogUnavailableError("boom")
+    ):
+        with caplog.at_level("ERROR"):
+            assert _tv.load_recent_cuisines() == []
+    assert any("boom" in rec.message for rec in caplog.records)
+
+
+def test_load_catalog_titles_degrades_to_empty_on_catalog_failure(caplog) -> None:
+    with patch.object(
+        _tv, "_load_catalog", side_effect=_tv.CatalogUnavailableError("boom")
+    ):
+        with caplog.at_level("ERROR"):
+            assert _tv.load_catalog_titles() == []
+    assert any("boom" in rec.message for rec in caplog.records)
+
+
+def test_load_catalog_wraps_strict_reader() -> None:
+    """_load_catalog is now a thin wrapper around the strict catalog reader —
+    no static-file fallback exists to reach for on failure (#6878)."""
+    sentinel = {"recipes": [{"title": "Sentinel Cups"}]}
+    with patch.object(_tv, "load_published_catalog", return_value=sentinel):
+        assert _tv._load_catalog() == sentinel
+
+
+# ---------------------------------------------------------------------------
 # Tokenizer folds accents and curly apostrophes (review finding 2026-09-05)
 # ---------------------------------------------------------------------------
 
