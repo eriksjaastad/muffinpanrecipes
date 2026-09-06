@@ -1288,10 +1288,13 @@ def _run_stage(ep: dict, stage: str):
 _CONCEPT_PICK_ATTEMPTS = 2
 
 
-def _pick_weekly_concept() -> tuple[str, str | None]:
+def _pick_weekly_concept() -> tuple[str, str | None, str]:
     """Pick this week's concept and target category, or fail closed.
 
-    Returns (concept, target_category). Raises ConceptSelectionError rather
+    Returns (concept, target_category, source) where source is "brainstorm"
+    or "curated" — the Monday stage records it, so a brainstorm that has been
+    failing for weeks shows up in the episode JSON, not only in a Lambda log
+    line. Raises ConceptSelectionError rather
     than falling back to PLACEHOLDER_CONCEPT: pick_concept() is where
     duplicate avoidance lives (it scores candidates against the entire
     published catalog), so a week that skips it has one weak defense left.
@@ -1305,7 +1308,7 @@ def _pick_weekly_concept() -> tuple[str, str | None]:
     which mean nothing is standing between this week and a duplicate.
     """
     try:
-        from scripts.pick_concept import pick_concept, pick_target_category
+        from scripts.pick_concept import pick_concept_candidates, pick_target_category
     except ImportError as exc:
         # NOT transient. scripts/ is excluded from the Vercel bundle except
         # for the explicit re-includes in .vercelignore, and pick_concept.py
@@ -1322,8 +1325,13 @@ def _pick_weekly_concept() -> tuple[str, str | None]:
     last_error: Exception | None = None
     for attempt in range(1, _CONCEPT_PICK_ATTEMPTS + 1):
         try:
-            target_category = pick_target_category()
-            picks = pick_concept(count=1, target_category=target_category)
+            # One catalog read per attempt, shared by the category pick and the
+            # concept pick — each used to fetch (and retry) on its own.
+            catalog = load_published_catalog()
+            target_category = pick_target_category(catalog)
+            picks = pick_concept_candidates(
+                count=1, target_category=target_category, catalog=catalog,
+            )
         except Exception as exc:
             last_error = exc
             logger.warning(
@@ -1332,10 +1340,23 @@ def _pick_weekly_concept() -> tuple[str, str | None]:
             )
             continue
 
-        concept = str(picks[0]).strip() if picks else ""
+        concept = str(picks[0][1].concept).strip() if picks else ""
+        source = str(picks[0][1].source) if picks else ""
         if concept and concept != PLACEHOLDER_CONCEPT:
-            logger.info(f"Auto-selected concept={concept!r}, category={target_category}")
-            return concept, target_category
+            if source == "curated":
+                # Loud on purpose: the curated pool is eight concepts per shelf.
+                # One week of this is fine; several in a row means the LLM
+                # brainstorm is broken and variety is silently capped.
+                logger.warning(
+                    f"Concept {concept!r} came from the CURATED fallback pool — "
+                    f"the brainstorm failed or every candidate was rejected. "
+                    f"Check the picker if this repeats."
+                )
+            logger.info(
+                f"Auto-selected concept={concept!r}, category={target_category}, "
+                f"source={source}"
+            )
+            return concept, target_category, source
 
         last_error = ConceptSelectionError(
             "concept picker returned no candidate: every brainstormed and "
@@ -1354,8 +1375,11 @@ def _pick_weekly_concept() -> tuple[str, str | None]:
     ) from last_error
 
 
-def _resolve_monday_concept(body: StageRequest, ep: dict) -> tuple[str, str | None]:
+def _resolve_monday_concept(body: StageRequest, ep: dict) -> tuple[str, str | None, str]:
     """Decide which concept this Monday run uses.
+
+    Returns (concept, target_category, source); source is one of "explicit",
+    "stored", "brainstorm" or "curated" and is written to the Monday stage.
 
     Precedence:
       1. An explicit body.concept always wins — that is the documented manual
@@ -1395,7 +1419,7 @@ def _resolve_monday_concept(body: StageRequest, ep: dict) -> tuple[str, str | No
         # — the integrity check reads a null as "the picker never ran", and the
         # RUNBOOK INCIDENT 4 recovery must leave a clean week.
         category = normalize_category(body.target_category) or stored_category
-        return body.concept.strip(), category
+        return body.concept.strip(), category, "explicit"
 
     stored = str(ep.get("concept") or "").strip()
     if stored and stored != PLACEHOLDER_CONCEPT and not body.force:
@@ -1403,7 +1427,7 @@ def _resolve_monday_concept(body: StageRequest, ep: dict) -> tuple[str, str | No
             f"Keeping stored concept {stored!r} for {ep.get('episode_id')} "
             f"(pass force=true or an explicit concept to re-pick)"
         )
-        return stored, stored_category
+        return stored, stored_category, "stored"
 
     return _pick_weekly_concept()
 
@@ -1627,7 +1651,7 @@ async def cron_monday(request: Request):
         # Concept selection runs INSIDE the stage scope so a failure writes a
         # failed-stage record and Discord-alerts, instead of quietly seeding
         # the week with the placeholder (#6855).
-        concept, target_category = _resolve_monday_concept(body, ep)
+        concept, target_category, concept_source = _resolve_monday_concept(body, ep)
         if not concept or concept == PLACEHOLDER_CONCEPT:
             raise ConceptSelectionError(
                 "Refusing to run the week on the placeholder concept "
@@ -1685,6 +1709,7 @@ async def cron_monday(request: Request):
             "status": "complete",
             "concept": concept,
             "target_category": target_category,
+            "concept_source": concept_source,
             "recipe_data": recipe_data,
             "gate_trace": gate_trace,
             "dialogue": dialogue,

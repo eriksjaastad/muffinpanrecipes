@@ -297,19 +297,50 @@ def test_explicit_concept_without_a_category_adopts_the_bakers_label() -> None:
 
 
 def test_picked_category_is_enforced_when_the_picker_chooses() -> None:
-    with patch.object(cron_routes, "_pick_weekly_concept", return_value=("Pastel de Nata Cups", "Party")):
+    with patch.object(
+        cron_routes, "_pick_weekly_concept",
+        return_value=("Pastel de Nata Cups", "Party", "brainstorm"),
+    ):
         run = _run_monday([_recipe("Pastel de Nata Cups", NATA, category="sweet")], body={})
 
     assert run.error is None, run.error
     assert run.episode["stages"]["monday"]["recipe_data"]["category"] == "party"
     assert run.episode["target_category"] == "Party"
+    assert run.episode["stages"]["monday"]["concept_source"] == "brainstorm"
+
+
+def test_concept_provenance_is_written_to_the_stage() -> None:
+    """A curated-pool pick must be visible in the episode JSON, not only in a
+    Lambda log line — weeks of curated picks means the brainstorm is broken."""
+    with patch.object(
+        cron_routes, "_pick_weekly_concept",
+        return_value=("Pastel de Nata Cups", "Sweet", "curated"),
+    ):
+        run = _run_monday([_recipe("Pastel de Nata Cups", NATA, category="sweet")], body={})
+
+    assert run.error is None, run.error
+    assert run.episode["stages"]["monday"]["concept_source"] == "curated"
+
+    run = _run_monday([_recipe("Pastel de Nata Cups", NATA, category="sweet")])
+    assert run.episode["stages"]["monday"]["concept_source"] == "explicit"
+
+
+def test_stray_dessert_label_is_folded_into_sweet_on_the_explicit_path() -> None:
+    """W10 shipped 'Dessert'; without the alias the adopted target_category
+    would be None — the INCIDENT 4 fingerprint — on a perfectly good week."""
+    run = _run_monday([_recipe("Pastel de Nata Cups", NATA, category="Dessert")],
+                      body={"concept": "Pastel de Nata Cups"})
+
+    assert run.error is None, run.error
+    assert run.episode["target_category"] == "Sweet"
+    assert run.episode["stages"]["monday"]["target_category"] == "Sweet"
 
 
 # ---------------------------------------------------------------------------
 # Request validation
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("value", ["Dessert", "sweets", "", " "])
+@pytest.mark.parametrize("value", ["Brunch", "sweets", "", " "])
 def test_unknown_target_category_is_a_400(value: str) -> None:
     request = SimpleNamespace(
         method="POST",
@@ -321,11 +352,20 @@ def test_unknown_target_category_is_a_400(value: str) -> None:
     assert "target_category" in exc.value.detail
 
 
-@pytest.mark.parametrize("value", ["Sweet", "sweet", "PARTY"])
+@pytest.mark.parametrize("value", ["Sweet", "sweet", "PARTY", "Dessert"])
 def test_known_target_category_is_accepted_in_any_case(value: str) -> None:
+    """'Dessert' is the baker's known stray for Sweet and is folded, not rejected."""
     request = SimpleNamespace(
         method="POST",
         body=AsyncMock(return_value=json.dumps({"concept": "x", "target_category": value}).encode()),
     )
     body = asyncio.run(cron_routes._parse_body(request))
     assert body.target_category == value  # normalised later, in the resolver
+
+
+def test_dessert_in_the_body_resolves_to_sweet() -> None:
+    _concept, category, source = cron_routes._resolve_monday_concept(
+        cron_routes.StageRequest(episode_id="2026-W99", concept="Pastel de Nata Cups", target_category="Dessert"),
+        {"episode_id": "2026-W99", "concept": cron_routes.PLACEHOLDER_CONCEPT, "stages": {}, "events": []},
+    )
+    assert (category, source) == ("Sweet", "explicit")

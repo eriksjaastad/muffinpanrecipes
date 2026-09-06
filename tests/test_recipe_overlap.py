@@ -373,3 +373,33 @@ def test_min_items_override_is_honored() -> None:
         thin, [ROASTED_VEGGIE_EGG_CUPS], min_items=5
     )
     assert verdict.status != "skipped_thin"
+
+
+# ---------------------------------------------------------------------------
+# Maximum matching — order-independent, symmetric (review finding 2026-09-05)
+# ---------------------------------------------------------------------------
+
+def test_matching_is_independent_of_ingredient_order() -> None:
+    """Greedy first-fit let "cheddar" grab "cheddar cheese" and strand
+    "cheddar cheese" against "sharp cheddar cheese"; a maximum matching pairs
+    both regardless of the order the recipe listed them."""
+    a1, a2 = frozenset({"cheddar"}), frozenset({"cheddar", "cheese"})
+    b1, b2 = frozenset({"cheddar", "cheese"}), frozenset({"sharp", "cheddar", "cheese"})
+    assert overlap_coefficient([a1, a2], [b1, b2]) == 1.0
+    assert overlap_coefficient([a2, a1], [b1, b2]) == 1.0
+    assert overlap_coefficient([b1, b2], [a1, a2]) == 1.0
+    assert overlap_coefficient([b2, b1], [a2, a1]) == 1.0
+
+
+def test_matching_is_still_one_to_one() -> None:
+    salt, kosher = frozenset({"salt"}), frozenset({"kosher", "salt"})
+    # Two salt entries on one side cannot both consume the single salt on the other.
+    assert overlap_coefficient([salt, kosher], [salt]) == 1.0  # min side is 1
+    assert overlap_coefficient([salt, kosher], [salt, frozenset({"pepper"})]) == 0.5
+
+
+def test_non_string_non_dict_ingredients_are_ignored() -> None:
+    assert normalize_ingredient(None) is None
+    assert normalize_ingredient(7) is None
+    assert normalize_ingredient(["1 cup", "sugar"]) is None
+    assert ingredient_items({"ingredients": [None, "1 cup sugar", 3]}) == [frozenset({"sugar"})]

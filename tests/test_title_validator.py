@@ -201,3 +201,23 @@ def test_load_recent_cuisines_empty_when_none_declared() -> None:
     catalog = {"recipes": [{"slug": "a"}, {"slug": "b", "cuisine": ""}]}
     with patch.object(_tv, "_load_catalog", return_value=catalog):
         assert _tv.load_recent_cuisines() == []
+
+
+# ---------------------------------------------------------------------------
+# Tokenizer folds accents and curly apostrophes (review finding 2026-09-05)
+# ---------------------------------------------------------------------------
+
+def test_accented_titles_tokenize_to_whole_words() -> None:
+    from backend.utils.title_validator import _title_word_sequence
+
+    assert _title_word_sequence("Crème Brûlée Cups") == ["creme", "brulee", "cups"]
+    assert _title_word_sequence("Grandma\u2019s Apple Cups") == ["grandma's", "apple", "cups"]
+    assert _title_word_sequence("Jalapeño Popper Bites") == ["jalapeno", "popper", "bites"]
+
+
+def test_accented_duplicate_is_caught_against_unaccented_catalog_title() -> None:
+    """Before folding, 'Crème Brûlée Cups' fragmented into shards and cleared
+    the gate against 'creme brulee cups'."""
+    reason = check_title_conflict("Crème Brûlée Cups", ["creme brulee cups"])
+    assert reason is not None
+    assert "creme brulee cups" in reason
