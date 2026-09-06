@@ -100,9 +100,14 @@ WEEK=2026-W36
 doppler run --project muffinpanrecipes --config prd -- sh -lc \
   "curl -s -m 280 -X POST https://muffinpanrecipes.com/api/cron/monday \
     -H \"Authorization: Bearer \$CRON_SECRET\" -H 'Content-Type: application/json' \
-    -d '{\"episode_id\":\"$WEEK\",\"force\":true,\"concept\":\"Portuguese Custard Tarts baked in a muffin pan\"}'"
+    -d '{\"episode_id\":\"$WEEK\",\"force\":true,\"concept\":\"Portuguese Custard Tarts baked in a muffin pan\",\"target_category\":\"Sweet\"}'"
 # then tuesday..saturday, each depending on the prior stage's output
 ```
+
+Pass `target_category` (Breakfast | Savory | Sweet | Party) with the concept: it
+is the shelf you chose the dish for, and Monday now stamps it on the recipe.
+Leave it out and the week is shelved by the baker's own classification — which
+is how W36 ended up filed under Savory (#6877).
 
 ### Verify recovery
 
@@ -123,6 +128,21 @@ doppler run --project muffinpanrecipes --config prd -- \
   and a production-only failure.
 - Do not restore a fallback to `PLACEHOLDER_CONCEPT`. A week with no concept has
   no duplicate avoidance and must stop at Monday.
+- Do not restore a fallback to `src/recipes.json` on Monday's path. It is the ten
+  launch seeds and nothing else; reading it instead of the live catalog turns
+  every catalog-aware gate into a ten-recipe check that still reports success.
+  Monday reads through `backend/utils/catalog.load_published_catalog()`, which
+  retries and then raises (#6854, #6858).
+- **Saturday pre-flight, ingredient-level:** the title gate cannot see a
+  same-dish duplicate under a different name (that is exactly what W36 was).
+  Score the week's recipe against the catalog by ingredients:
+
+  ```bash
+  uv run python scripts/audit_ingredient_overlap.py --episode $(date +%G-W%V)
+  ```
+
+  Exit 1 with a named match means the Monday gate (#6854) should have caught it
+  — investigate before Sunday rather than after.
 - Read the `muffinpanrecipes pipeline:` line at session start. Its whole job is
   to make this visible on day one instead of day five. The check lives here
   (`scripts/session_pipeline_status.py`); the SessionStart hook that runs it is
@@ -143,8 +163,19 @@ doppler run --project muffinpanrecipes --config prd -- \
 - `backend/utils/episode_integrity.py` + `health_check.py --expect-episode` +
   `scripts/session_pipeline_status.py` detect the shape from outside.
 
+- Monday runs a second, ingredient-level duplicate gate
+  (`backend/utils/recipe_overlap.check_ingredient_overlap`, #6854): overlap
+  coefficient ≥ 0.80 against any published recipe with ≥ 10 ingredients retries
+  the baker once with the matching recipe named, then fails closed. This is the
+  gate that would have caught W36. Calibration and threshold rationale live in
+  `DECISIONS.md` (2026-09-05) and the module docstring.
+- The concept picker itself is now self-contained and filters by category and
+  muffin-pan form instead of nudging (#6858, `DECISIONS.md` 2026-09-05).
+
 Regression coverage: `tests/test_concept_selection_fail_closed.py`,
-`tests/test_episode_integrity.py`, `tests/test_vercel_bundle.py`.
+`tests/test_episode_integrity.py`, `tests/test_vercel_bundle.py`,
+`tests/test_recipe_overlap.py`, `tests/test_pick_concept.py`,
+`tests/test_catalog_loader.py`.
 
 ### First occurrence
 
