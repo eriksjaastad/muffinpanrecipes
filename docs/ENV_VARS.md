@@ -1,6 +1,6 @@
 # Environment Variables
 
-Single source of truth for every environment variable the muffinpanrecipes codebase reads. Generated 2026-04-14 from a grep over `os.environ.get` / `os.getenv` calls across `backend/` and `scripts/` (#5814).
+Single source of truth for every environment variable the muffinpanrecipes codebase reads. Generated 2026-04-14 from a grep over `os.environ.get` / `os.getenv` calls across `backend/` and `scripts/` (#5814); rows added by hand since then, most recently 2026-09-05 (#6614) — this file is **hand-maintained**, not regenerated, so a new env var needs a manual row (see Maintenance below).
 
 **Where they come from**
 - **Production:** Vercel env + Doppler (`muffinpanrecipes` project, `prd` config)
@@ -28,6 +28,9 @@ Single source of truth for every environment variable the muffinpanrecipes codeb
 | `CRON_SECRET` | R, S | `scripts/run_full_week.py:316`, `backend/admin/cron_routes.py` (via header check) | Vercel cron endpoint shared secret |
 | `JWT_SECRET` | R, S | `backend/auth/session.py:32`, `tests/test_auth.py:109` | Admin UI session token signing |
 | `MUFFINPAN_DISCORD_WEBHOOK` | O, S | `backend/utils/discord.py:12`, `scripts/health_check.py:129` | Discord failure alerts + health-check pings. `_pytest_gate()` suppresses during tests |
+| `RESEND_API_KEY` | R\*, S | `backend/config.py` (`resend_api_key`), `backend/utils/alerts.py:_send_email` | Resend auth for the email alert channel (#6860). \*Required only for email delivery — a missing key logs at ERROR and posts a one-time Discord notice rather than crashing (`send_alert` degrades to Discord-only). Same account/domain as Erik's existing synthinsightlabs.com email, not a new provider |
+| `ALERT_EMAIL_TO` | R\*, S | `backend/config.py` (`alert_email_to`), `backend/utils/alerts.py:_send_email` | Destination inbox for `critical`-severity alert emails. Same degrade-not-crash behavior as `RESEND_API_KEY` above |
+| `ALERT_EMAIL_FROM` | O | `backend/config.py` (`alert_email_from`) | Sender address for alert emails. Defaults to `alerts@send.synthinsightlabs.com` (Erik's already-verified sending domain); override only if muffinpanrecipes.com gets its own verified Resend domain |
 | `NEWSLETTER_API_KEY` | O, S | `backend/newsletter/manager.py:53` | Newsletter service auth (currently unused — `NEWSLETTER_SERVICE=file`) |
 
 ### R2 (unused — scripts/trigger_generation.py only)
@@ -45,6 +48,7 @@ Single source of truth for every environment variable the muffinpanrecipes codeb
 | Var | Flags | Read at | Default | Purpose |
 |---|---|---|---|---|
 | `DIALOGUE_MODEL` | O | `backend/config.py:119`, `scripts/run_pipeline_stage.py:39` | `openai/gpt-5-mini` (legacy) → overridden to `anthropic/claude-haiku-4-5` in Doppler prd | Dialogue generation model |
+| `CONCEPT_MODEL` | O | `scripts/pick_concept.py:672` | falls back to `config.dialogue_model` | Optional override for the concept-brainstorm model; unset means "use whatever dialogue is using" |
 | `RECIPE_MODEL` | O | `backend/config.py:137`, `backend/agents/baker.py:201,253`, `creative_director.py:84,136,170`, `copywriter.py:164,224` | `openai/gpt-5-mini` | Recipe content model (baker + creative director + copywriter) |
 | `JUDGE_MODEL` | O | `backend/config.py:158` | `anthropic/claude-opus-4-6` (Doppler) | Dialogue QA judge |
 | `VISION_EVAL_MODEL` | O | `backend/agents/art_director.py:28` | `openai/gpt-5-mini` | Image round quality evaluator |
@@ -81,6 +85,7 @@ Single source of truth for every environment variable the muffinpanrecipes codeb
 | `AI_ROUTER_PATH` | O | `scripts/generate_image_prompts.py:18`, `scripts/art_director.py:18`, `scripts/validate_env.py:23` | `../_tools/ai_router` | Path to the AI router CLI used by a couple of legacy scripts |
 | `OUTPUT_ROOT` | O | `scripts/direct_harvest.py:20` | `$WORKSPACE_ROOT/output/muffin_pan` | Legacy harvest output dir |
 | `JOBS_FILE` | O | `scripts/direct_harvest.py:19` | `$WORKSPACE_ROOT/image_generation_jobs.json` | Legacy harvest job queue |
+| `MUFFINPAN_HEALTH_STATE_FILE` | O | `scripts/health_check.py:61` | `DEFAULT_STATE_FILE` (repo-relative) | Override the health-check state file's path for environments where the default location isn't writable/persistent |
 
 ---
 
