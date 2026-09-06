@@ -19,7 +19,7 @@ from fastapi import APIRouter, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from backend.publishing.analytics import GA4_TAG
-from backend.publishing.static_renderer import render_recipes_index
+from backend.publishing.static_renderer import render_recipes_index, render_sitemap
 from backend.storage import storage
 from backend.utils.logging import get_logger
 
@@ -130,10 +130,11 @@ async def sitemap_xml():
     cron-published recipe since W10 was invisible to crawlers (and one
     listed URL didn't exist at all). Building from the catalog keeps the
     sitemap in lockstep with what Sunday actually publishes.
-    """
-    import re as _re
-    from datetime import date
 
+    Rendering itself lives in static_renderer.render_sitemap — the same
+    function the build-time site_builder uses — so there is one sitemap
+    algorithm instead of two independently-drifting XML builders.
+    """
     catalog_raw = storage.load_page("pages/recipes.json")
     if not catalog_raw:
         static = Path(__file__).resolve().parents[2] / "src" / "recipes.json"
@@ -145,48 +146,7 @@ async def sitemap_xml():
         logger.error("sitemap: catalog JSON unparseable, emitting site roots only")
         recipes = []
 
-    def _week_lastmod(episode_id: str | None) -> str | None:
-        """ISO week id (2026-W23) → that week's Sunday (publish day)."""
-        if not episode_id:
-            return None
-        m = _re.fullmatch(r"(\d{4})-W(\d{2})", episode_id)
-        if not m:
-            return None
-        year, week = int(m.group(1)), int(m.group(2))
-        try:
-            return date.fromisocalendar(year, week, 7).isoformat()
-        except ValueError:
-            return None
-
-    # No <changefreq>: Google ignores it. <lastmod> on recipe URLs is the
-    # signal that actually matters.
-    entries = [
-        f"  <url><loc>{_SITE_BASE}/</loc></url>",
-        f"  <url><loc>{_SITE_BASE}/recipes</loc></url>",
-        f"  <url><loc>{_SITE_BASE}/this-week</loc></url>",
-    ]
-    for r in recipes:
-        slug = r.get("slug")
-        if not slug:
-            continue
-        lastmod = _week_lastmod(r.get("episode_id"))
-        lastmod_tag = f"<lastmod>{lastmod}</lastmod>" if lastmod else ""
-        entries.append(
-            f"  <url><loc>{_SITE_BASE}/recipes/{slug}</loc>{lastmod_tag}</url>"
-        )
-
-    xml = (
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-        + "\n".join(entries)
-        + "\n</urlset>\n"
-    )
-    return Response(content=xml, media_type="application/xml")
-
-
-_RECIPES_CANONICAL = f"{_SITE_BASE}/recipes"
-# Canonical display order; any unexpected category falls in alphabetically after.
-_CATEGORY_ORDER = ["Breakfast", "Savory", "Sweet", "Party"]
+    return Response(content=render_sitemap(recipes), media_type="application/xml")
 
 
 def _load_catalog_recipes() -> list:
@@ -201,102 +161,6 @@ def _load_catalog_recipes() -> list:
         logger.error("recipes index: catalog JSON unparseable")
         return []
     return data if isinstance(data, list) else data.get("recipes", [])
-
-
-def _render_recipes_index(recipes: list) -> str:
-    """Server-rendered hub page: every recipe as a real crawlable <a href>,
-    grouped by category, built live from the catalog (no JS needed)."""
-    import html as _html
-
-    groups: dict[str, list] = {}
-    for r in recipes:
-        slug, title = r.get("slug"), r.get("title")
-        if not slug or not title:
-            continue
-        cat = (r.get("category") or "").strip() or "Other"
-        if cat.lower() == "dessert":  # taxonomy stray -> Sweet
-            cat = "Sweet"
-        groups.setdefault(cat, []).append(
-            {"slug": slug, "title": title, "description": r.get("description", "")}
-        )
-
-    ordered = [c for c in _CATEGORY_ORDER if c in groups] + sorted(
-        c for c in groups if c not in _CATEGORY_ORDER
-    )
-    total = sum(len(v) for v in groups.values())
-
-    sections, item_list, pos = "", [], 0
-    for cat in ordered:
-        cards = ""
-        for it in sorted(groups[cat], key=lambda x: x["title"].lower()):
-            pos += 1
-            item_list.append({
-                "@type": "ListItem", "position": pos,
-                "url": f"{_SITE_BASE}/recipes/{it['slug']}", "name": it["title"],
-            })
-            cards += (
-                f'                <li><a href="/recipes/{it["slug"]}" class="recipe-link">\n'
-                f'                    <span class="recipe-link__title">{_html.escape(it["title"])}</span>\n'
-                f'                    <span class="recipe-link__desc">{_html.escape(it["description"])}</span>\n'
-                f'                </a></li>\n'
-            )
-        sections += (
-            f'        <section class="recipe-section">\n'
-            f'            <h2 class="recipe-section__title">{_html.escape(cat)}</h2>\n'
-            f'            <ul class="recipe-grid">\n{cards}            </ul>\n'
-            f'        </section>\n'
-        )
-
-    json_ld = json.dumps({
-        "@context": "https://schema.org",
-        "@type": "CollectionPage",
-        "name": "All Muffin Pan Recipes",
-        "url": _RECIPES_CANONICAL,
-        "mainEntity": {
-            "@type": "ItemList", "numberOfItems": total, "itemListElement": item_list,
-        },
-    })
-    desc = "Browse every muffin-pan recipe — gourmet, mathematically-scaled single-serving Breakfast, Savory, Sweet, and Party bakes."
-
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    {GA4_TAG}
-    <title>All Muffin Pan Recipes</title>
-    <meta name="description" content="{desc}">
-    <link rel="canonical" href="{_RECIPES_CANONICAL}">
-    <meta property="og:type" content="website">
-    <meta property="og:url" content="{_RECIPES_CANONICAL}">
-    <meta property="og:title" content="All Muffin Pan Recipes">
-    <meta property="og:description" content="{desc}">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>&#x1f9c1;</text></svg>">
-    <link rel="stylesheet" href="/assets/site.css">
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <script type="application/ld+json">{json_ld}</script>
-</head>
-<body>
-    <nav class="site-nav">
-        <a href="/" class="site-nav__back">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
-            Home
-        </a>
-    </nav>
-    <main class="site-main">
-        <div class="page-head">
-            <p class="page-head__eyebrow">The Library</p>
-            <h1 class="page-head__title">All Muffin Pan Recipes</h1>
-            <p class="page-head__sub">{total} muffin-pan recipes, scaled for the tin and grouped by occasion.</p>
-        </div>
-{sections}    </main>
-    <footer class="site-footer">
-        <p class="site-footer__motto">The struggle is the story.</p>
-        <p class="site-footer__copy">&copy; 2026 Muffin Pan Recipes</p>
-    </footer>
-</body>
-</html>
-"""
 
 
 @router.get("/recipes")
@@ -370,7 +234,6 @@ def _placeholder_page(episode_id: str) -> str:
     <title>This Week's Recipe | Muffin Pan Recipes</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>&#x1f9c1;</text></svg>">
     <link rel="stylesheet" href="/assets/site.css">
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
 </head>
 <body>
     <nav class="site-nav">
