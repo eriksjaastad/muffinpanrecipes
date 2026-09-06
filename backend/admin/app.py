@@ -116,11 +116,15 @@ def create_admin_app(
         # dead weight the whole time — and it also drifted this local-only CSP
         # out of sync with vercel.json's production policy, which never allowed
         # it (#6395).
+        #
+        # No Google Fonts hosts either: the admin templates load Inter from
+        # /admin/static/admin-fonts.css, which points at the same self-hosted
+        # woff2 files the public site uses (#6892).
         csp_parts = [
             "default-src 'self'",
             "script-src 'self' 'unsafe-inline' https://www.googletagmanager.com",
-            "style-src 'self' 'unsafe-inline' fonts.googleapis.com",
-            "font-src 'self' fonts.gstatic.com",
+            "style-src 'self' 'unsafe-inline'",
+            "font-src 'self'",
             "img-src 'self' data: https://www.google-analytics.com https://*.google-analytics.com",
             "connect-src 'self' https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com",
             "object-src 'none'",
