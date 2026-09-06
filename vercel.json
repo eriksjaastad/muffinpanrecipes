@@ -63,11 +63,35 @@
             "dest": "backend/admin/app.py"
         },
         {
-            "src": "/recipes/([^/]+)$",
+            "src": "/this-week/?$",
             "dest": "backend/admin/app.py"
         },
         {
             "src": "/recipes/?$",
+            "dest": "backend/admin/app.py"
+        },
+        {
+            "src": "/recipes\\.json",
+            "dest": "backend/admin/app.py"
+        },
+        {
+            "src": "/sitemap\\.xml",
+            "dest": "backend/admin/app.py"
+        },
+        {
+            "src": "/recipes/([^/]+)$",
+            "dest": "/src/recipes/$1/index.html",
+            "check": true
+        },
+        {
+            "handle": "filesystem"
+        },
+        {
+            "src": "/recipes/([^/]+)$",
+            "dest": "backend/admin/app.py"
+        },
+        {
+            "src": "^/src/recipes/([^/]+)/index\\.html$",
             "dest": "backend/admin/app.py"
         },
         {
@@ -82,20 +106,12 @@
             "dest": "/src/assets/$1"
         },
         {
-            "src": "/sitemap\\.xml",
-            "dest": "backend/admin/app.py"
-        },
-        {
             "src": "/robots\\.txt",
             "dest": "/src/robots.txt"
         },
         {
-            "src": "/recipes\\.json",
-            "dest": "backend/admin/app.py"
-        },
-        {
-            "src": "/this-week/?$",
-            "dest": "backend/admin/app.py"
+            "src": "/about",
+            "dest": "/src/about.html"
         },
         {
             "src": "/",

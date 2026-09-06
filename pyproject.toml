@@ -6,8 +6,6 @@ authors = [{name = "Erik Sjaastad"}]
 requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.0.0",
-    "hypothesis>=6.0.0",
-    "pytest>=7.0.0",
     "httpx>=0.27.0",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
@@ -32,6 +30,18 @@ dev = [
     "mypy>=1.0.0",
     "playwright>=1.40.0",
     "pytest-playwright>=0.4.0",
+]
+
+# uv's [dependency-groups] "dev" (PEP 735) — distinct from the
+# [project.optional-dependencies] "dev" extra above. This group is what
+# `uv sync`/`uv run` install by default (opt out with --no-dev) and what
+# `requirements.txt`'s `uv export --no-dev` excludes. Test-only packages
+# live here, not in [project.dependencies], so they never ship in the
+# ~190MB Python Lambda bundle against Vercel's 225MB cap (#6514).
+[dependency-groups]
+dev = [
+    "hypothesis>=6.0.0",
+    "pytest>=7.0.0",
 ]
 
 [build-system]

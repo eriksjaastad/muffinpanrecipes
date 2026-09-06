@@ -1,6 +1,96 @@
+# AI crawler policy (#6820). Training and retrieval crawlers are controlled
+# independently by every major AI company, so a single blanket rule can only
+# get this half right. Recipe content is exactly what people ask assistants
+# about, and retrieval bots are what let this site show up as a cited source
+# in AI answers — blocking them removes the site from AI search entirely.
+
+# Retrieval bots: fetch pages live to answer a specific user query and cite
+# the source. Explicitly allowed by name rather than allowed only by
+# omission, so a future blanket Disallow can't silently drop the site out of
+# AI search results without someone noticing this group.
+User-agent: OAI-SearchBot
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /src/
+
+User-agent: ChatGPT-User
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /src/
+
+User-agent: Claude-SearchBot
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /src/
+
+User-agent: Claude-User
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /src/
+
+User-agent: PerplexityBot
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /src/
+
+# Training bots: crawl to build model training sets, unrelated to any single
+# user query. Decision (Erik's SEO notes, job-search/seo-learning/
+# knowledge-base.md Q15): allow. Google documents that Google-Extended
+# "does not impact a site's inclusion in Google Search nor is it used as a
+# ranking signal in Google Search" — opting a training bot out buys nothing
+# in Search, and it costs future model training data / AI-answer visibility.
+User-agent: GPTBot
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /src/
+
+User-agent: ClaudeBot
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /src/
+
+User-agent: Google-Extended
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /src/
+
+User-agent: Bytespider
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /src/
+
+User-agent: Applebot-Extended
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /src/
+
+User-agent: Meta-ExternalAgent
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /src/
+
+User-agent: CCBot
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /src/
+
+# Catch-all for every other crawler (search engines, uncategorized bots).
 User-agent: *
 Allow: /
 Disallow: /api/
+Disallow: /admin/
+Disallow: /src/
 
 Sitemap: https://muffinpanrecipes.com/sitemap.xml
-

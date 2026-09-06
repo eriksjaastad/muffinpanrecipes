@@ -11,6 +11,7 @@ Recipe rich results.
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 from pathlib import Path
 from unittest.mock import patch
@@ -25,6 +26,7 @@ from backend.publishing.episode_renderer import (
     _step_name,
     render_episode_page,
 )
+from backend.publishing.static_renderer import render_home, render_recipes_index
 
 
 def _published_episode() -> dict:
@@ -490,6 +492,36 @@ def test_recipes_index_renders_crawlable_links() -> None:
     assert '"@type": "CollectionPage"' in body
 
 
+def test_recipes_index_route_uses_the_single_shared_renderer() -> None:
+    """The Lambda route and the build-time site_builder must render /recipes
+    through the same function (#6822) — two independent HTML builders is how
+    the old inline copy silently missed og:image while the other got it."""
+    assert episode_routes.recipes_index.__globals__["render_recipes_index"] is render_recipes_index
+
+
+def test_recipes_index_has_social_card_and_descriptive_title() -> None:
+    """#6822 (og:image) + #6823 (thin 22-char title): the collection page is
+    what people share when linking the whole library, and it had neither."""
+    catalog = json.dumps({"recipes": [
+        {"slug": "alpha-cups", "title": "Alpha Cups", "category": "Savory", "description": "d"},
+    ]})
+    with patch.object(episode_routes.storage, "load_page", return_value=catalog):
+        resp = asyncio.run(episode_routes.recipes_index())
+    body = bytes(resp.body).decode()
+
+    title = re.search(r"<title>([^<]+)</title>", body).group(1)
+    assert 40 <= len(title) <= 60, f"title is {len(title)} chars: {title!r}"
+    assert re.search(r'<meta property="og:title" content="[^"]{40,60}">', body)
+
+    og_image = re.search(r'<meta property="og:image" content="([^"]+)">', body)
+    assert og_image and og_image.group(1).startswith("https://muffinpanrecipes.com/")
+    assert re.search(r'<meta property="og:image:width" content="\d+">', body)
+    assert re.search(r'<meta property="og:image:height" content="\d+">', body)
+    assert 'name="twitter:card" content="summary_large_image"' in body
+    twitter_image = re.search(r'<meta name="twitter:image" content="([^"]+)">', body)
+    assert twitter_image and twitter_image.group(1).startswith("https://muffinpanrecipes.com/")
+
+
 # ---------------------------------------------------------------------------
 # Internal linking: crawlable related-recipe footer links
 # ---------------------------------------------------------------------------
@@ -708,6 +740,203 @@ def test_static_homepage_tag_matches_shared_constant() -> None:
     assert _tagged(index.read_text())
 
 
+# ---------------------------------------------------------------------------
+# Homepage — server-rendered hero + grid (#6821)
+#
+# src/index.html used to be a JS-only shell: the hero and grid were both
+# empty containers filled entirely by client-side fetch(recipes.json). A
+# non-JS crawler measured 43 words on the page — the least content on the
+# site's most-linked URL. render_home bakes the featured recipe and the
+# full grid in from the catalog at build time; the client JS still runs to
+# refresh both from the live catalog (progressive enhancement).
+# ---------------------------------------------------------------------------
+
+def _home_catalog() -> list[dict]:
+    return [
+        {
+            "slug": "alpha-cups",
+            "title": "Alpha Cups",
+            "category": "Savory",
+            "description": "Crisp savory cups with a rich, buttery crumb and a peppery finish.",
+            "image": "assets/images/alpha-cups.webp",
+            "prep": "10 mins",
+            "cook": "20 mins",
+            "yield": "12 muffins",
+        },
+        {
+            "slug": "beta-bites",
+            "title": "Beta Bites",
+            "category": "Sweet",
+            "description": "Tender, honey-glazed bites finished with a dusting of flaky sea salt.",
+            "image": "assets/images/beta-bites.webp",
+            "prep": "15 mins",
+            "cook": "18 mins",
+            "yield": "12 muffins",
+        },
+        {
+            "slug": "gamma-gratin",
+            "title": "Gamma Gratin",
+            "category": "Breakfast",
+            "description": "A make-ahead breakfast gratin layered with potatoes, cheese, and herbs.",
+            "image": "assets/images/gamma-gratin.webp",
+            "prep": "12 mins",
+            "cook": "25 mins",
+            "yield": "12 muffins",
+        },
+    ]
+
+
+def _visible_word_count(html_text: str) -> int:
+    """Word count of what a non-JS crawler sees: no <script>/<style> bodies,
+    tags stripped, entities unescaped."""
+    stripped = re.sub(r"<(script|style)\b.*?</\1>", " ", html_text, flags=re.S | re.I)
+    stripped = re.sub(r"<[^>]+>", " ", stripped)
+    return len([w for w in html.unescape(stripped).split() if w.strip()])
+
+
+def test_render_home_has_substantive_visible_text() -> None:
+    """The regression guard for #6821: raw HTML must carry real content, not
+    the 43-word shell a non-JS crawler used to see."""
+    assert _visible_word_count(render_home(_home_catalog())) >= 90
+
+
+def test_committed_homepage_has_substantive_visible_text() -> None:
+    """The actual acceptance criterion (#6821): a non-JS crawler hitting the
+    real, committed src/index.html — built from the real catalog, not a
+    3-item fixture — must see >= 150 words in the raw HTML response."""
+    index = Path(__file__).resolve().parents[1] / "src" / "index.html"
+    assert _visible_word_count(index.read_text(encoding="utf-8")) >= 150
+
+
+def test_render_home_links_every_recipe_exactly_once() -> None:
+    page = render_home(_home_catalog())
+    anchors = re.findall(r'<a href="/recipes/([^"]+)"', page)
+    assert sorted(anchors) == ["alpha-cups", "beta-bites", "gamma-gratin"]
+
+
+def test_committed_homepage_has_one_link_per_recipe() -> None:
+    """render_home output for the real catalog must not drop or double a
+    recipe's link — the featured hero and the grid share one pool.
+
+    The committed page was built with `--full-rebuild` against whatever
+    catalog + published-episode sources were available on the build
+    machine, which is a superset of src/recipes.json ∪ src/seed_recipes.json
+    (it can also pick up locally-stored published episodes) — so this
+    checks the invariant that must hold regardless of build machine: every
+    catalog/seed recipe is linked, and no recipe is linked twice."""
+    root = Path(__file__).resolve().parents[1]
+    catalog = json.loads((root / "src" / "recipes.json").read_text(encoding="utf-8"))
+    recipes = catalog["recipes"] if isinstance(catalog, dict) else catalog
+    slugs = {r["slug"] for r in recipes if r.get("slug") and r.get("title")}
+    seeds = json.loads((root / "src" / "seed_recipes.json").read_text(encoding="utf-8"))
+    slugs |= set(seeds.keys())
+
+    index = root / "src" / "index.html"
+    anchors = re.findall(r'<a href="/recipes/([^"]+)"', index.read_text(encoding="utf-8"))
+    assert slugs <= set(anchors), f"missing from homepage: {slugs - set(anchors)}"
+    assert len(anchors) == len(set(anchors)), "a recipe link is duplicated on the homepage"
+
+
+def test_render_home_carries_ga4_tag_exactly_once() -> None:
+    page = render_home(_home_catalog())
+    assert _tagged(page)
+    assert page.count(f"gtag('config', '{GA4_MEASUREMENT_ID}')") == 1
+
+
+def test_render_home_featured_recipe_is_not_duplicated_in_the_grid() -> None:
+    """The featured hero is recipes[0]; the grid must show the rest, not
+    recipes[0] again (would double-count it in the "one <a> per recipe" link
+    graph and mislead a reader into thinking it's two different recipes)."""
+    page = render_home(_home_catalog())
+    assert page.count('href="/recipes/alpha-cups"') == 1
+
+
+def test_render_home_handles_empty_catalog_without_crashing() -> None:
+    """Defensive only — build_site.py itself refuses an empty catalog before
+    ever calling this, but the renderer must not assume a non-empty list."""
+    page = render_home([])
+    assert "<!DOCTYPE html>" in page
+    assert _tagged(page)
+
+
+def test_homepage_links_to_about() -> None:
+    index = Path(__file__).resolve().parents[1] / "src" / "index.html"
+    assert 'href="/about"' in index.read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# /about — E-E-A-T disclosure page (#6667)
+# ---------------------------------------------------------------------------
+
+_ABOUT_TEAM = [
+    ("Margaret Chen", "Baker"),
+    ("Stephanie", "Creative Director"),
+    ("Julian Torres", "Art Director"),
+    ("Marcus Reid", "Copywriter"),
+    ("Devon Park", "Site Architect"),
+    ("Ria Castillo", "Social Media Manager"),
+]
+
+
+def _about_html() -> str:
+    return (Path(__file__).resolve().parents[1] / "src" / "about.html").read_text(encoding="utf-8")
+
+
+def test_about_page_names_every_character_and_role() -> None:
+    """E-E-A-T: who actually makes this food. Names must match the source of
+    truth in backend/data/agent_personalities.json, not paraphrase it."""
+    about = _about_html()
+    for name, role in _ABOUT_TEAM:
+        assert name in about, f"missing character name: {name}"
+        assert role in about, f"missing character role: {role}"
+
+
+def test_about_page_discloses_ai_generation_and_automated_publish() -> None:
+    """The other half of E-E-A-T: the process must be disclosed, not implied.
+    A reader must be able to tell this isn't human-tested unless stated."""
+    about = _about_html().lower()
+    assert "generated by ai" in about
+    assert "not tested in a physical kitchen" in about
+    assert "sunday" in about
+    assert "erik sjaastad" in about
+
+
+def test_about_page_has_substantive_body_copy() -> None:
+    """Card asks for ~300-400 words; give real headroom either side of that
+    so small copy edits don't make this test the bottleneck."""
+    word_count = _visible_word_count(_about_html())
+    assert 250 <= word_count <= 550, word_count
+
+
+def test_about_page_carries_ga4_tag_exactly_once() -> None:
+    about = _about_html()
+    assert _tagged(about)
+    assert about.count(f"gtag('config', '{GA4_MEASUREMENT_ID}')") == 1
+
+
+def test_about_page_has_canonical_og_and_aboutpage_jsonld() -> None:
+    about = _about_html()
+    canonical = "https://muffinpanrecipes.com/about"
+    assert f'<link rel="canonical" href="{canonical}">' in about
+    assert f'<meta property="og:url" content="{canonical}">' in about
+    assert 'property="og:image"' in about
+    assert 'name="twitter:card" content="summary_large_image"' in about
+
+    ld = _extract_json_ld(about)
+    types = {node["@type"] for node in ld["@graph"]}
+    assert "AboutPage" in types
+    assert "Organization" in types
+
+
+def test_recipes_index_and_about_page_footers_link_to_about() -> None:
+    """The card asks for a link from the homepage/footer and the recipe
+    pages' footer where one is shared; /recipes shares static_renderer's
+    footer, so it's covered here alongside the standalone about page."""
+    recipes_html = render_recipes_index([{"slug": "a", "title": "A", "category": "Savory"}])
+    assert 'href="/about"' in recipes_html
+    assert 'href="/about"' in _about_html()
+
+
 def test_admin_pages_do_not_carry_ga4_tag() -> None:
     """Internal traffic must stay out of the property — on a site this size a
     few admin sessions a day would visibly distort engagement metrics."""
@@ -809,3 +1038,122 @@ def test_vercel_lambda_leaves_csp_to_global_route_header(monkeypatch) -> None:
         csp = client.get("/health").headers.get("content-security-policy")
 
     assert csp is None
+
+
+# ---------------------------------------------------------------------------
+# robots.txt — AI crawler directives (#6820)
+#
+# Training and retrieval crawlers are independently controllable, and the
+# repo's own robots.txt used to name zero of either kind (a bare "User-agent:
+# *" group). Retrieval bots feed cited AI-search answers, so allowing them
+# is the point; training bots are a deliberate allow per Erik's SEO notes
+# (Google-Extended opt-out costs nothing in Search, and buys nothing here).
+# ---------------------------------------------------------------------------
+
+_RETRIEVAL_BOTS = (
+    "OAI-SearchBot",
+    "ChatGPT-User",
+    "Claude-SearchBot",
+    "Claude-User",
+    "PerplexityBot",
+)
+_TRAINING_BOTS = (
+    "GPTBot",
+    "ClaudeBot",
+    "Google-Extended",
+    "Bytespider",
+    "Applebot-Extended",
+    "Meta-ExternalAgent",
+    "CCBot",
+)
+
+
+def _robots_txt() -> str:
+    return (Path(__file__).resolve().parents[1] / "src" / "robots.txt").read_text(encoding="utf-8")
+
+
+def _agent_block(robots: str, agent: str) -> str:
+    """Return the directive lines for one 'User-agent: <agent>' group."""
+    pattern = re.compile(
+        rf"^User-agent: {re.escape(agent)}$(.*?)(?=^User-agent:|\Z)",
+        re.MULTILINE | re.DOTALL,
+    )
+    match = pattern.search(robots)
+    assert match, f"no 'User-agent: {agent}' group in robots.txt"
+    return match.group(1)
+
+
+@pytest.mark.parametrize("agent", _RETRIEVAL_BOTS + _TRAINING_BOTS)
+def test_named_ai_bot_group_allows_and_disallows_api_and_admin(agent) -> None:
+    """Every named bot gets its own group, explicitly allowed, with the same
+    /api/ and /admin/ guard every other group carries."""
+    block = _agent_block(_robots_txt(), agent)
+    assert "Allow: /" in block
+    assert "Disallow: /api/" in block
+    assert "Disallow: /admin/" in block
+
+
+def test_wildcard_catch_all_group_still_present() -> None:
+    """Named-bot groups must not replace the fallback for every other
+    crawler (search engines, unlisted bots)."""
+    block = _agent_block(_robots_txt(), "*")
+    assert "Allow: /" in block
+    assert "Disallow: /api/" in block
+    assert "Disallow: /admin/" in block
+
+
+def test_robots_txt_declares_sitemap() -> None:
+    assert "Sitemap: https://muffinpanrecipes.com/sitemap.xml" in _robots_txt()
+
+
+# ---------------------------------------------------------------------------
+# Responsive images (#6755) — the recipe hero's <picture> must always carry
+# a sizes attribute, whether or not width-variant blobs exist yet.
+# ---------------------------------------------------------------------------
+
+def test_published_hero_picture_source_has_sizes_attribute() -> None:
+    html = render_episode_page(_published_episode())
+    assert 'sizes="(max-width: 768px) 100vw, 720px"' in html
+
+
+def test_published_hero_srcset_uses_width_descriptors_once_variants_exist() -> None:
+    with patch(
+        "backend.publishing.episode_renderer.storage.image_variants_available",
+        return_value=True,
+    ):
+        html = render_episode_page(_published_episode())
+
+    assert (
+        'srcset="/blob-images/ffd2aff5/round_1/macro_closeup-400w.webp 400w, '
+        '/blob-images/ffd2aff5/round_1/macro_closeup-800w.webp 800w, '
+        '/blob-images/ffd2aff5/round_1/macro_closeup.webp 1536w"'
+    ) in html
+
+
+def test_homepage_emits_srcset_only_when_variants_exist() -> None:
+    """The homepage hero is its LCP image; it must get 400w/800w candidates when
+    the variants exist and must never advertise one that would 404 (#6755)."""
+    from unittest.mock import patch
+
+    from backend.publishing import static_renderer
+
+    recipes = [
+        {"slug": "a-cups", "title": "A Cups", "image": "/blob-images/aa11/round_1/macro_closeup.webp", "category": "Sweet"},
+        {"slug": "b-cups", "title": "B Cups", "image": "/blob-images/bb22/round_1/macro_closeup.webp", "category": "Party"},
+    ]
+    with patch("backend.publishing.episode_renderer._variants_available", side_effect=lambda url, cache=None: "aa11" in url):
+        page = static_renderer.render_home(recipes)
+
+    assert 'srcset="/blob-images/aa11/round_1/macro_closeup-400w.webp 400w, /blob-images/aa11/round_1/macro_closeup-800w.webp 800w' in page
+    assert "bb22/round_1/macro_closeup-400w.webp" not in page
+    assert page.count("sizes=") == 1
+
+
+def test_every_robots_group_disallows_the_rewrite_continuation_path() -> None:
+    """/src/ is the path Vercel continues routing with after a check:true miss
+    and is reachable directly; it must never be crawled as a duplicate."""
+    robots = _robots_txt()
+    groups = [g for g in robots.split("User-agent:")[1:] if g.strip()]  # [0] is the preamble comment
+    assert groups
+    for group in groups:
+        assert "Disallow: /src/" in group, group.splitlines()[0]
