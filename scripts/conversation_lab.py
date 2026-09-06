@@ -1129,10 +1129,13 @@ def _derive_max_calls(mode: str, *, scenario_count: int, runs: int, stage: str) 
     budget) - a lone --concept/--recipe-context run has no panel size to
     derive a formula from.
 
-    "testbed"/"sweep": `scenario_count * runs * (2 * max_turns + 2)` -
-    `2 * max_turns` estimates one pair's control + variant generation
-    calls (each arm can run up to `max_turns` turns - see
-    `_max_turns_for_stage`), `+ 2` its two position-swapped judge calls.
+    "testbed"/"sweep": `scenario_count * runs * (3 * max_turns + 2)` -
+    `3 * max_turns` estimates one pair's control + variant generation
+    calls with retry headroom (each arm can run up to `max_turns` turns -
+    see `_max_turns_for_stage` - and a live turn can cost a second call
+    for the CoT-leak retry or the repetition rewrite, so 2x would abort a
+    normal live variant mid-run), `+ 2` its two position-swapped judge
+    calls.
     Both modes use this same formula; a --sweep's shared control makes
     the true call count lower than this in practice (the control is
     generated once, not once per variant), so the derived cap is a
@@ -1141,7 +1144,7 @@ def _derive_max_calls(mode: str, *, scenario_count: int, runs: int, stage: str) 
     if mode == "single":
         return _SINGLE_CONCEPT_MAX_CALLS
     max_turns = _max_turns_for_stage(stage)
-    return scenario_count * runs * (2 * max_turns + 2)
+    return scenario_count * runs * (3 * max_turns + 2)
 
 
 def cmd_ab(args: argparse.Namespace) -> None:
