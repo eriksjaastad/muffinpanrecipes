@@ -59,6 +59,7 @@ def _run_monday(episode: dict, body: cron_routes.StageRequest):
              side_effect=lambda _id, ep: saved.append(ep),
          ), \
          patch.object(cron_routes, "_get_orchestrator") as orchestrator, \
+         patch.object(cron_routes, "load_published_catalog", return_value={"recipes": []}), \
          patch.object(cron_routes, "_generate_and_judge_dialogue") as dialogue, \
          patch.object(cron_routes, "regenerate_and_upload"), \
          patch.object(cron_routes, "notify_pipeline_failure") as notify:
@@ -229,25 +230,40 @@ def test_explicit_concept_always_wins() -> None:
     assert concept == "Gochujang Pork Bites"
 
 
-def test_explicit_concept_still_picks_a_target_category() -> None:
-    """The RUNBOOK's own INCIDENT 4 recovery command must leave a clean week.
+def test_explicit_concept_takes_the_category_from_the_body() -> None:
+    """The RUNBOOK INCIDENT 4 recovery passes the shelf it chose the dish for."""
+    episode = _fresh_episode()
+    with patch("scripts.pick_concept.pick_target_category") as picker:
+        _concept, category = cron_routes._resolve_monday_concept(
+            cron_routes.StageRequest(
+                episode_id="2026-W36", concept="Pastel de Nata Cups", target_category="sweet",
+            ),
+            episode,
+        )
 
-    The recovery path passes an explicit concept, which skips the concept
-    picker. If it skipped the CATEGORY picker too, target_category would stay
-    None — and `episode_integrity_failures` reads a None target_category as
-    "the picker never ran". The documented fix would permanently look
-    degraded, and the check would cry wolf on its own recovery procedure.
-    pick_target_category only reads the catalog, so it costs nothing to run.
+    picker.assert_not_called()
+    assert category == "Sweet"  # normalised to the catalog's Title Case
+
+
+def test_explicit_concept_without_a_category_does_not_guess_the_thinnest_shelf() -> None:
+    """An operator-chosen dish is not re-labelled by what happens to be thin (#6877).
+
+    The old code ran pick_target_category() here. With Monday now enforcing
+    the target category on the recipe (#6858), that guess would have stamped
+    W36's Portuguese custard tarts as whichever shelf was thinnest that day.
+    The resolver returns None and cron_monday adopts the baker's own
+    classification after baking — see tests/test_monday_gates.py.
     """
     episode = _fresh_episode()
-    with patch("scripts.pick_concept.pick_target_category", return_value="Sweet") as picker:
-        _concept, category = cron_routes._resolve_monday_concept(
+    with patch("scripts.pick_concept.pick_target_category") as picker:
+        concept, category = cron_routes._resolve_monday_concept(
             cron_routes.StageRequest(episode_id="2026-W36", concept="Gochujang Pork Bites"),
             episode,
         )
 
-    picker.assert_called_once()
-    assert category == "Sweet"
+    picker.assert_not_called()
+    assert concept == "Gochujang Pork Bites"
+    assert category is None
 
 
 def test_explicit_concept_keeps_an_existing_category_without_re_picking() -> None:
@@ -263,12 +279,10 @@ def test_explicit_concept_keeps_an_existing_category_without_re_picking() -> Non
     assert category == "Savory"
 
 
-def test_explicit_concept_survives_a_broken_category_picker() -> None:
+def test_explicit_concept_survives_a_broken_picker_module() -> None:
     """Recovery must still work when the picker module is the thing that broke."""
     episode = _fresh_episode()
-    with patch(
-        "scripts.pick_concept.pick_target_category", side_effect=RuntimeError("blob down")
-    ):
+    with patch.dict("sys.modules", {"scripts.pick_concept": None}):
         concept, category = cron_routes._resolve_monday_concept(
             cron_routes.StageRequest(episode_id="2026-W36", concept="Gochujang Pork Bites"),
             episode,
