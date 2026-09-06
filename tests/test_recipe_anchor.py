@@ -7,6 +7,7 @@ the judge prompts so they stay anchored to the actual dish.
 """
 
 import asyncio
+import json
 from unittest.mock import patch
 
 import pytest
@@ -82,7 +83,7 @@ def test_judge_prompt_includes_recipe_anchor():
     def fake_generate(prompt, system_prompt, **_kwargs):
         captured["prompt"] = prompt
         captured["system_prompt"] = system_prompt
-        return "PASS - anchored to the recipe"
+        return json.dumps({"scores": {}, "verdict": "PASS", "weakest": [], "reason": "anchored to the recipe"})
 
     dialogue = [{"character": "Margaret", "message": "Trays cooled overnight."}]
     episode = {"episode_id": "2026-W18", "stages": {}}

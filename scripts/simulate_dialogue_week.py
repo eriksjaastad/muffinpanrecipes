@@ -239,6 +239,19 @@ PROMPT_ECHO_PATTERNS = [
     "injected event",
 ]
 
+# #6840 - turn-taking nudge (one lever). Erik's complaint: conversations "are
+# like sound bites that have been put next to each other" - every non-opening
+# turn only had to "respond", which the model satisfied with a full, polished
+# paragraph regardless of what came before. This adds explicit permission for
+# a turn to be short, and puts answering a direct question ahead of anything
+# new, so a one-liner or a direct answer isn't read as an incomplete attempt.
+_REACTION_DIRECTIVE = (
+    "Your first sentence must respond to what was just said. Don't change the subject. "
+    "A turn can be one sentence, a single question, or a direct answer to the last "
+    "speaker - that is a complete turn, not a shortfall. If the last message asked "
+    "you something, answer it before you add anything new.\n"
+)
+
 
 @dataclass
 class Message:
@@ -257,9 +270,14 @@ def load_personas() -> dict[str, dict[str, Any]]:
 
 def participants_for_day(day: str) -> list[str]:
     if day == "monday":
-        return ["Margaret Chen", "Marcus Reid", "Stephanie 'Steph' Whitmore", "Ria Castillo"]
+        # Julian added (#6832) — CHARACTER_DAY_GOALS already writes him a
+        # Monday goal ("You're already thinking about how this will
+        # photograph"), but the roster excluded him, so W36's Monday
+        # discussed photographing the dish with no photographer present.
+        return ["Margaret Chen", "Marcus Reid", "Stephanie 'Steph' Whitmore", "Julian Torres", "Ria Castillo"]
     if day == "tuesday":
-        return ["Margaret Chen", "Stephanie 'Steph' Whitmore", "Marcus Reid"]
+        # Devon added (#6832) — same mismatch as Julian above, one day later.
+        return ["Margaret Chen", "Stephanie 'Steph' Whitmore", "Marcus Reid", "Devon Park"]
     if day == "wednesday":
         return ["Julian Torres", "Stephanie 'Steph' Whitmore", "Margaret Chen", "Ria Castillo"]
     if day == "thursday":
@@ -368,13 +386,13 @@ _SHARED_CHARACTER_RULES = (
     "THE MUFFIN PAN IS THE POINT (work this in naturally across the week - NOT every message):\n"
     "- This is Muffin Pan Recipes. Part of the job is making the honest case for WHY this "
     "dish belongs in a muffin pan. It is a real editorial question worth asking out loud.\n"
-    "- When it fits, surface a genuine practical advantage of the format - pick the ones that "
-    "actually fit THIS recipe: you get 12 even portions, they are grab-and-go, they hold "
-    "together in your hand (no fork, no plate), they make ahead and reheat beautifully, "
-    "portion control is built in, and the pan is dead easy to clean.\n"
-    "- Make the case with a property specific to THIS dish - something that would not be "
-    "true of just any handheld food. Name the mechanism: what the pan's walls, depth, or "
-    "heat do to THIS batter, dough, or filling.\n"
+    "- Make the case with a property specific to THIS dish, not a generic list (#6832 - the "
+    "generic menu used to sit right above this rule and read as license to fall back on it). "
+    "Name the mechanism: what the pan's walls, depth, or heat do to THIS batter, dough, or "
+    "filling. Only once that mechanism is on the table can a practical upside it produces "
+    "follow - even portions, grab-and-go, holds together in your hand, make-ahead, portion "
+    "control, easy cleanup - but the upside has to follow FROM the mechanism, never stand in "
+    "for it.\n"
     "- Never state the pan-case as a bare conclusion. It has to follow from something a "
     "character just observed, so it reads as a person reasoning rather than a slogan.\n"
     "- Do not open a conversation with the pan-case. The first message of a stage has "
@@ -819,7 +837,7 @@ def generate_turn(
                 "no inner thoughts, no 'what X feels', no meta-commentary."
             ) if previous_speaker else "React to what was just said. Stay in the scene."
 
-            reaction_directive = "Your first sentence must respond to what was just said. Don't change the subject.\n"
+            reaction_directive = _REACTION_DIRECTIVE
 
             prompt = (
                 f"Day: {day.title()} - {stage}.\n"
@@ -849,7 +867,7 @@ def generate_turn(
                 f"Arrival context: {full_arrival}\n"
             )
         else:
-            reaction_hint = "Your first sentence must respond to what was just said. Don't change the subject.\n"
+            reaction_hint = _REACTION_DIRECTIVE
         prompt = (
             f"Episode concept: {concept}\n"
             f"{recipe_line}"
@@ -974,9 +992,33 @@ def _guard_cot_leak(
     return retry
 
 
+def _word_shingles(text: str, n: int = 6) -> set[tuple[str, ...]]:
+    words = re.findall(r"[a-z']+", text.lower())
+    return {tuple(words[i:i + n]) for i in range(len(words) - n + 1)}
+
+
+# #6840 - is_prompt_echo only knew about scaffolding LABELS (PROMPT_ECHO_PATTERNS
+# below), not the rules' actual CONTENT. W36's Monday opener recited a
+# _SHARED_CHARACTER_RULES example sentence verbatim and scored prompt_echo_hits: 0.
+# Precomputed once at import time - _SHARED_CHARACTER_RULES is fixed at runtime.
+_SHARED_RULES_SHINGLES = _word_shingles(_SHARED_CHARACTER_RULES)
+
+
 def is_prompt_echo(text: str) -> bool:
+    """True if a message recites prompt scaffolding or the shared rules verbatim.
+
+    Two independent detectors:
+    1. Static PROMPT_ECHO_PATTERNS - literal scaffolding labels ('day:',
+       'scene goal:', etc.) that should never appear in spoken dialogue.
+    2. Word-shingle overlap against _SHARED_CHARACTER_RULES (#6840) - any
+       run of 6+ consecutive words shared between the message and the rules
+       block, regardless of which sentence it came from or whether it
+       matches a hardcoded pattern.
+    """
     t = text.lower()
-    return any(p in t for p in PROMPT_ECHO_PATTERNS)
+    if any(p in t for p in PROMPT_ECHO_PATTERNS):
+        return True
+    return bool(_word_shingles(t) & _SHARED_RULES_SHINGLES)
 
 
 _TYPOGRAPHIC_REPLACEMENTS = [
