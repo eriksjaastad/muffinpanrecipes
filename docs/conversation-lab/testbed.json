@@ -1,0 +1,46 @@
+{
+  "description": "Frozen panel of five scenarios for scripts/conversation_lab.py ab --testbed. Card #6492. Concept/category/cuisine/recipe_context captured once from data/episodes/ on 2026-09-06 so experiments stay comparable across months - no runtime dependency on those episode files after this point.",
+  "generated_at": "2026-09-06T00:00:00+00:00",
+  "scenarios": [
+    {
+      "id": "2026-W36",
+      "concept": "Caramelized Custard Tart Cups",
+      "category": "sweet",
+      "cuisine": "Portuguese",
+      "recipe_context": "This week's recipe: Caramelized Custard Tart Cups (sweet). Key ingredients: Frozen puff pastry sheet, thawed, Granulated sugar, Water, Cinnamon stick, Lemon peel strip.",
+      "source_episode": "2026-W36"
+    },
+    {
+      "id": "2026-W32",
+      "concept": "Miso Ginger Donburi Cups",
+      "category": "savory",
+      "cuisine": null,
+      "recipe_context": "This week's recipe: Miso Ginger Donburi Cups (savory). Key ingredients: short-grain sushi rice, uncooked, water, kosher salt, unseasoned rice vinegar, granulated sugar.",
+      "source_episode": "2026-W32"
+    },
+    {
+      "id": "2026-W27",
+      "concept": "Paneer Saag Egg Bites",
+      "category": "breakfast",
+      "cuisine": "Indian",
+      "recipe_context": "This week's recipe: Paneer Saag Egg Bites (breakfast). Key ingredients: ghee, neutral oil, finely diced yellow onion, serrano chile, seeded and finely minced, finely grated fresh ginger.",
+      "source_episode": "2026-W27"
+    },
+    {
+      "id": "2026-W33",
+      "concept": "Kimchi Cheddar Rice Cups",
+      "category": "party",
+      "cuisine": "Korean",
+      "recipe_context": "This week's recipe: Kimchi Cheddar Rice Cups (party). Key ingredients: cooked short-grain white rice, finely chopped napa kimchi, shredded sharp cheddar cheese, eggs, kimchi juice.",
+      "source_episode": "2026-W33"
+    },
+    {
+      "id": "2026-W11",
+      "concept": "Make-Ahead Veggie & Sausage Egg Cups",
+      "category": "breakfast",
+      "cuisine": null,
+      "recipe_context": "This week's recipe: Make-Ahead Veggie & Sausage Egg Cups (breakfast). Key ingredients: spray, eggs, liquid egg whites, whole milk, kosher salt.",
+      "source_episode": "2026-W11"
+    }
+  ]
+}
