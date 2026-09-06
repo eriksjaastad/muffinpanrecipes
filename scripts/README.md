@@ -26,9 +26,10 @@ The most complex part of the system is the 4-step automated photography pipeline
 
 See `docs/conversation-lab/PROTOCOL.md` for the full method (card #6492).
 
-- **`review_episode.py`**: weekly measurement pass over a week's dialogue against the 6-dimension conversation rubric - zero paid API calls.
-- **`conversation_lab.py`**: experiment runner with `baseline` / `ab` / `calibrate` subcommands for offline blind position-swapped A/B testing of a single prompt lever.
-- **`conversation_metrics.py`**: deterministic (non-LLM) dialogue metrics - turn length, shared-rules echo detection, cast coverage - used by `review_episode.py`.
+- **`review_episode.py`**: weekly measurement pass over a week's dialogue against the 6-dimension conversation rubric - zero paid API calls. This is the weekly read; it does not import `conversation_metrics.py`.
+- **`conversation_lab.py`**: experiment runner with `baseline` / `ab` / `calibrate` / `pairs` subcommands for offline blind position-swapped A/B testing of a single prompt lever; a targeted `ab --sweep DIR` (see `docs/conversation-lab/PROTOCOL.md`'s "Weekly sweep" section, and `ab --help` for whether it has landed yet) would run a batch of variant files against one shared control on the test bed instead of paying for a fresh control per variant.
+- **`conversation_metrics.py`**: deterministic (non-LLM) dialogue metrics - turn length, shared-rules echo detection, cast coverage, and the structure-tell rates (dash-clause, frame-claim, agree-opener, pitch-vocabulary) - used by `conversation_lab.py`'s `baseline` command, not by `review_episode.py`. `brand_term_rate` (the muffin-pan mechanism-justification rate named in PROTOCOL.md's "Areas") is not yet one of them.
+- **`conversation_heatmap.py`**: cross-corpus phrase/structure heat map across every published week, writing the matrix to `docs/conversation-lab/results/` - see `--help` for its flags and `docs/conversation-lab/EXPERIMENTS.md`'s "Heat map baseline v0" section for the 2026-09-06 manual read done ahead of the script's existence.
 
 `conversation_lab.py ab` and `conversation_lab.py calibrate` call `DIALOGUE_MODEL` / `JUDGE_MODEL` and need `doppler run -- `. `--dry-run` and `baseline` are free and need no Doppler wrapper.
 
