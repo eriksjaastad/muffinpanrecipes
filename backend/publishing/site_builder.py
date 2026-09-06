@@ -293,6 +293,16 @@ class StaticSiteBuilder:
         This keeps preview builds independent from the process-global storage
         singleton and avoids accidentally emitting a machine-local path.
         """
+        # A published week's hero is pinned on the episode (Erik, 2026-08-22;
+        # written by Sunday's publish and scripts/pin_published_heroes.py). It
+        # wins over any picking rule here exactly as it does in
+        # episode_renderer._hero_image_url — the first live full rebuild
+        # (2026-09-05) re-picked 20 of 25 heroes because this helper had its
+        # own copy of the rule and never saw the pin.
+        pinned = str(episode.get("hero_image_url") or "").strip()
+        if pinned:
+            return _to_local_image_url(pinned)
+
         winner = episode.get("stages", {}).get("wednesday", {}).get("confirmed_winner")
         featured = winner.get("featured_image") if isinstance(winner, dict) else ""
         if featured:
