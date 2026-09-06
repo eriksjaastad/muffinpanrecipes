@@ -403,7 +403,14 @@ def check_recipe_page_images(
             # uses an inline SVG, so the hero <picture>/<img> is first. Matching
             # on the URL (not a CSS class) keeps this working before and after
             # the vanilla-CSS migration.
-            srcs = re.findall(r'<(?:img[^>]+src|source[^>]+srcset)="([^"]+)"', body)
+            # A srcset holds comma-separated "<url> <descriptor>" candidates
+            # (#6755 added 400w/800w widths); each url is checked on its own.
+            srcs = [
+                candidate.strip().split()[0]
+                for value in re.findall(r'<(?:img[^>]+src|source[^>]+srcset)="([^"]+)"', body)
+                for candidate in value.split(",")
+                if candidate.strip()
+            ]
             hero = [
                 s for s in srcs
                 if "/blob-images/" in s or "/assets/images" in s
@@ -607,9 +614,23 @@ def _check_hero_image(body: str, base_url: str, *, required: bool) -> None:
     assert not broken, "hero image(s) failed to load: " + ", ".join(broken)
 
 
+_SCRIPT_BLOCK_RE = re.compile(r"<script\b[^>]*>.*?</script>", re.IGNORECASE | re.DOTALL)
+
+
+def _without_scripts(body: str) -> str:
+    """Drop <script> blocks before scanning markup.
+
+    The baked homepage keeps its client-side templates inline, and those
+    contain literal '<img width="${...}">' strings that are not markup — the
+    scanner read them as images missing dimensions (preview health check,
+    2026-09-05).
+    """
+    return _SCRIPT_BLOCK_RE.sub("", body)
+
+
 def _check_intrinsic_image_dimensions(body: str) -> None:
     missing: list[str] = []
-    for index, tag in enumerate(_html_tags(body, "img"), start=1):
+    for index, tag in enumerate(_html_tags(_without_scripts(body), "img"), start=1):
         width = _tag_attribute(tag, "width")
         height = _tag_attribute(tag, "height")
         if not width or not re.fullmatch(r"[1-9]\d*", width):
