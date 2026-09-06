@@ -31,9 +31,15 @@ score comparable across weeks.
 
 | Week | Tit | Arc | Voice | Tech | Prog | P/D | promptV | Notes |
 |------|-----|-----|-------|------|------|-----|---------|-------|
-| W32 (Miso Ginger Salmon Cups) | 2 | 2* | 4 | 3 | 4 | 3 | v1 | Baseline. Salmon vanished into a rice essay (title fidelity). Tuesday's "rice sticking" problem got reframed as a story beat, never solved (arc). Voices strong. Baked sushi rice is culinarily shaky (tech). *Arc partial - only Mon/Tue existed at read time. |
+| W32 (Miso Ginger Donburi Cups) | 2 | 2* | 4 | 3 | 4 | 3 | v1 | Baseline. Salmon vanished into a rice essay (title fidelity). Tuesday's "rice sticking" problem got reframed as a story beat, never solved (arc). Voices strong. Baked sushi rice is culinarily shaky (tech). *Arc partial - only Mon/Tue existed at read time. |
 | W36 (Greek Spanakopita Cups) - BEFORE | 4 | 3* | 2 | 2 | 2 | 3 | v1 | Prompt leak: Margaret's first line recited the `_SHARED_RULES` example sentence verbatim. "Crispy when it cools" is wrong for phyllo. Marcus took two near-identical turns. "X is actually the story" appeared 3x. |
 | W36 (Greek Spanakopita Cups) - AFTER | 4 | 4* | 3 | 4 | 4 | 4 | v2 | Regenerated Mon+Tue via the production call path; Opus judge PASS both days. Real disagreement was reached and resolved. Still only 4 of 7 characters present; Marcus's tic persists. |
+
+Note: `_SHARED_RULES`, named in the W36 BEFORE row above and in v1/v2
+below, is the pre-2026-09-05 name of the code symbol now called
+`_SHARED_CHARACTER_RULES` (`scripts/simulate_dialogue_week.py:368`). The
+rename happened as part of the #6832/#6840 work that produced v3; these
+entries predate it and are left as originally logged.
 
 ## Prompt versions
 
@@ -64,3 +70,48 @@ write them so the log and the tool never drift apart.
 
 | Date | Experiment ID | Lever (one) | Target dimension(s) | N | Wins/Ties/Losses on target | Other dimensions lost | Decision | Shipped PR | Live confirmation week + scores |
 |------|----------------|--------------|----------------------|---|------------------------------|------------------------|-----------|-------------|-----------------------------------|
+
+## Heat map baseline v0 (2026-09-06)
+
+A one-off read across the full corpus (W11-W36, 917 dialogue lines) to size
+the "Areas" named in `PROTOCOL.md` before picking a lever - not an A/B
+experiment, so it does not use the table above. See `PROTOCOL.md`'s "Areas"
+and "Corpus baseline 2026-09-06" sections for what each number means and
+which lever it points at.
+
+| Metric | Corpus (W11-W36) | W36 alone |
+|---|---|---|
+| Dash-clause sentences | 86% | 91% |
+| Frame claims | 30% | 33% |
+| Agree-openers | 21% | 26% |
+| Lines under 8 words | 1% | 2% |
+| Mean turn length | 24.1 words (stdev 8.1) | 24.5 words (stdev 7.8) |
+| Questions | 20% | 16% |
+
+Top cross-week phrases (3-word runs, by number of distinct weeks they
+appear in out of 25):
+
+| Phrase | Weeks |
+|---|---|
+| "now should be live" | 23 |
+| "should be live" | 22 |
+| "we need to" | 21 |
+| "in a few" | 19 |
+| "stops the scroll" | 16 |
+| "the muffin pan" | 15 |
+| "the cross section" | 14 |
+| "we're good to" | 14 |
+| "staging the muffin" | 13 |
+| "the three quarter" | 13 |
+| "people need to" | 13 |
+| "the whole point" | 12 |
+| "what if we" | 12 |
+
+The em-dash ban (house style, this card) moved the model from an em dash to
+a plain hyphen but did not move any of the numbers above - the glyph was
+never the problem.
+
+The full matrix behind this table (every week, every metric) now comes from
+`scripts/conversation_heatmap.py` (run its `--help` for the exact flags)
+and lands under `docs/conversation-lab/results/`. This section stays as
+the one-off manual read that motivated building it.

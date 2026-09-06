@@ -176,6 +176,139 @@ def test_length_stats_empty_messages():
 
 
 # ---------------------------------------------------------------------------
+# Structure-tell metrics (card #6492 slice 2) - tiny hand-written
+# transcripts with a known, hand-computed rate each.
+# ---------------------------------------------------------------------------
+
+
+def test_dash_clause_rate_counts_spaced_hyphen_and_dashes():
+    messages = [
+        _msg("Margaret Chen", "The crust holds up - crisp all the way through."),
+        _msg("Marcus Reid", "Nothing unusual here."),
+    ]
+    result = cm.dash_clause_rate(messages)
+    assert result == {"rate": 0.5, "hit_count": 1, "line_count": 2}
+
+
+def test_dash_clause_rate_catches_em_and_en_dash():
+    messages = [
+        _msg("Margaret Chen", "Crisp edges\u2014soft center."),
+        _msg("Marcus Reid", "Ten to twelve\u2013minute bake."),
+        _msg("Julian Torres", "No dash in this one at all."),
+    ]
+    result = cm.dash_clause_rate(messages)
+    assert result["hit_count"] == 2
+    assert result["rate"] == round(2 / 3, 4)
+
+
+def test_dash_clause_rate_empty_messages():
+    assert cm.dash_clause_rate([]) == {"rate": 0.0, "hit_count": 0, "line_count": 0}
+
+
+def test_frame_claim_rate_detects_pronouncement_frames():
+    messages = [
+        _msg("Marcus Reid", "That's the story right there."),
+        _msg("Julian Torres", "Let's just bake it and see."),
+    ]
+    result = cm.frame_claim_rate(messages)
+    assert result == {"rate": 0.5, "hit_count": 1, "line_count": 2}
+
+
+def test_agree_opener_rate_detects_tokens_and_name_is_right():
+    messages = [
+        _msg("Julian Torres", "Fair, let's do that."),
+        _msg("Devon Park", "Marcus is right about the ratio."),
+        _msg("Marcus Reid", "I disagree completely."),
+    ]
+    result = cm.agree_opener_rate(messages)
+    assert result["hit_count"] == 2
+    assert result["rate"] == round(2 / 3, 4)
+
+
+def test_short_line_rate_counts_lines_under_eight_words():
+    messages = [
+        _msg("Margaret Chen", "Yes."),
+        _msg("Marcus Reid", "This is a genuinely much longer sentence than the other one here."),
+    ]
+    result = cm.short_line_rate(messages)
+    assert result == {"rate": 0.5, "hit_count": 1, "line_count": 2}
+
+
+def test_question_rate_counts_lines_with_a_question_mark():
+    messages = [
+        _msg("Margaret Chen", "Should we use butter?"),
+        _msg("Marcus Reid", "Yes obviously."),
+    ]
+    result = cm.question_rate(messages)
+    assert result == {"rate": 0.5, "hit_count": 1, "line_count": 2}
+
+
+def test_length_stdev_known_population_stdev():
+    messages = [
+        _msg("Margaret Chen", "Two words."),
+        _msg("Marcus Reid", "One two three four."),
+    ]
+    result = cm.length_stdev(messages)
+    assert result == {"stdev": 1.0, "line_count": 2}
+
+
+def test_length_stdev_single_line_is_zero():
+    assert cm.length_stdev([_msg("Margaret Chen", "Hello there friend.")]) == {
+        "stdev": 0.0,
+        "line_count": 1,
+    }
+
+
+def test_opener_diversity_counts_distinct_first_two_words():
+    messages = [
+        _msg("Margaret Chen", "The pan holds fine."),
+        _msg("Marcus Reid", "The pan cracked again."),
+        _msg("Julian Torres", "Totally different opener now."),
+    ]
+    result = cm.opener_diversity(messages)
+    assert result == {"ratio": round(2 / 3, 4), "distinct_openers": 2, "line_count": 3}
+
+
+def test_pitch_vocab_rate_detects_marketing_register_phrases():
+    messages = [
+        _msg("Ria Castillo", "This shot really stops the scroll."),
+        _msg("Margaret Chen", "Nothing marketing here at all."),
+    ]
+    result = cm.pitch_vocab_rate(messages)
+    assert result == {"rate": 0.5, "hit_count": 1, "line_count": 2}
+
+
+# ---------------------------------------------------------------------------
+# brand_term_rate (card #6492 slice 3)
+# ---------------------------------------------------------------------------
+
+
+def test_brand_term_rate_detects_pan_and_cup_language():
+    messages = [
+        _msg("Margaret Chen", "Fill each cup evenly before it bakes."),
+        _msg("Marcus Reid", "The muffin pan holds twelve just fine."),
+        _msg("Julian Torres", "Nothing about the recipe in this line."),
+    ]
+    result = cm.brand_term_rate(messages)
+    assert result["hit_count"] == 2
+    assert result["rate"] == round(2 / 3, 4)
+
+
+def test_brand_term_rate_matches_pan_walls_and_grab_and_go_and_yields_twelve():
+    messages = [
+        _msg("Margaret Chen", "The pan's walls keep the edges crisp."),
+        _msg("Marcus Reid", "This batch is grab-and-go for the week."),
+        _msg("Julian Torres", "This recipe yields twelve every time."),
+    ]
+    result = cm.brand_term_rate(messages)
+    assert result == {"rate": 1.0, "hit_count": 3, "line_count": 3}
+
+
+def test_brand_term_rate_empty_messages():
+    assert cm.brand_term_rate([]) == {"rate": 0.0, "hit_count": 0, "line_count": 0}
+
+
+# ---------------------------------------------------------------------------
 # legacy_quality - wraps the production heuristic grader
 # ---------------------------------------------------------------------------
 
@@ -209,8 +342,40 @@ def test_summarize_flat_dict_has_expected_top_level_numeric_keys():
         "qa_rate", "qa_question_count", "length_mean_words", "length_min_words",
         "length_max_words", "cross_character_3gram_repeat_count",
         "per_character_4gram_tic_count", "legacy_score",
+        "dash_clause_rate", "frame_claim_rate", "agree_opener_rate",
+        "short_line_rate", "question_rate", "length_stdev", "opener_diversity",
+        "pitch_vocab_rate", "brand_term_rate",
     ):
         assert key in result, f"missing summarize() key: {key}"
     assert result["message_count"] == 2
     assert result["cast_ratio"] == 1.0
     assert isinstance(result["legacy_quality_detail"], dict)
+    assert isinstance(result["dash_clause_detail"], dict)
+    assert isinstance(result["brand_term_detail"], dict)
+
+
+# ---------------------------------------------------------------------------
+# AREA_METRICS (card #6492 slice 3) - every listed key must be a real
+# summarize() output key, so the lab runner never reads a KeyError off a
+# name that drifted out of sync.
+# ---------------------------------------------------------------------------
+
+
+def test_area_metrics_keys_exist_in_summarize():
+    expected_cast = ["Margaret Chen", "Marcus Reid"]
+    messages = [
+        _msg("Margaret Chen", "Should we lock the ratio now?"),
+        _msg("Marcus Reid", "Yes, the ratio finally works."),
+    ]
+    result = cm.summarize(messages, expected_cast, concept="Test Muffins", day="monday")
+    for area, keys in cm.AREA_METRICS.items():
+        assert keys, f"AREA_METRICS[{area!r}] must not be empty"
+        for key in keys:
+            assert key in result, f"AREA_METRICS[{area!r}] names {key!r}, missing from summarize() output"
+
+
+def test_area_metrics_covers_the_expected_areas():
+    assert set(cm.AREA_METRICS) == {
+        "Structure", "Frames", "Agree-openers", "Brand reinforcement",
+        "Pitch vocabulary", "Engagement", "Cast",
+    }
