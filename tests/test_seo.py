@@ -1147,3 +1147,13 @@ def test_homepage_emits_srcset_only_when_variants_exist() -> None:
     assert 'srcset="/blob-images/aa11/round_1/macro_closeup-400w.webp 400w, /blob-images/aa11/round_1/macro_closeup-800w.webp 800w' in page
     assert "bb22/round_1/macro_closeup-400w.webp" not in page
     assert page.count("sizes=") == 1
+
+
+def test_every_robots_group_disallows_the_rewrite_continuation_path() -> None:
+    """/src/ is the path Vercel continues routing with after a check:true miss
+    and is reachable directly; it must never be crawled as a duplicate."""
+    robots = _robots_txt()
+    groups = [g for g in robots.split("User-agent:")[1:] if g.strip()]  # [0] is the preamble comment
+    assert groups
+    for group in groups:
+        assert "Disallow: /src/" in group, group.splitlines()[0]

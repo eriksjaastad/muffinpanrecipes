@@ -446,6 +446,21 @@ class StaticSiteBuilder:
                     continue
                 # A different episode already owns that entry: this really is
                 # a second recipe, so fall through and give it its own slug.
+                # Still say so when the match was heuristic (shared hero image
+                # or byte-identical body): two distinct live episodes colliding
+                # on content is exactly what an editor needs to see before the
+                # promote, and this branch used to be the only silent one
+                # (review finding, 2026-09-05).
+                if reason.split("=", 1)[0] not in {"slug", "recipe_id", "episode_id"}:
+                    logger.warning(
+                        "Static build: episode %s matched catalog entry '%s' owned by "
+                        "episode %s on a heuristic (%s); giving it its own page — "
+                        "confirm they really are different recipes",
+                        episode_id or "<unknown>",
+                        existing_slug,
+                        owner,
+                        reason,
+                    )
 
             slug = base_slug
             if slug in known_slugs:

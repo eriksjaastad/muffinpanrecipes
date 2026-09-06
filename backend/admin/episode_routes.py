@@ -210,7 +210,11 @@ async def recipe_page_rewritten_path(slug: str):
     So the fallback route matches this path and the app must answer it here,
     exactly as it answers /recipes/<slug>.
     """
-    return await recipe_page(slug)
+    response = await recipe_page(slug)
+    # Reachable directly from the internet as well, so make sure it is never
+    # indexed as a duplicate of /recipes/<slug> (review finding, 2026-09-05).
+    response.headers["X-Robots-Tag"] = "noindex"
+    return response
 
 
 @router.get("/recipes/{slug}")

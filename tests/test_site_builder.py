@@ -349,3 +349,35 @@ def test_storage_without_cloud_probe_uses_local_sources(tmp_path):
         storage_client=LocalStorageWithoutProbe(),
     ).build(["2026-W34"])
     assert "recipes.json" in result.written
+
+
+def test_heuristic_collision_with_a_differently_owned_row_is_logged(caplog):
+    """Two distinct live episodes colliding on content/image get separate pages —
+    correct — but that collision must be visible before the promote (review
+    finding, 2026-09-05); this was the one silent branch."""
+    import logging
+
+    from backend.publishing.site_builder import StaticSiteBuilder
+
+    shared = "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/images/shared/round_1/macro_closeup.png"
+    catalog = {"recipes": [{
+        "slug": "muffin-cups", "title": "Muffin Cups", "episode_id": "2026-W10",
+        "image": "/blob-images/shared/round_1/macro_closeup.webp",
+    }]}
+    episodes = [
+        {"episode_id": "2026-W10", "image_urls": [shared],
+         "stages": {"monday": {"recipe_data": {"title": "Muffin Cups", "description": "a"}}}},
+        {"episode_id": "2026-W41", "image_urls": [shared],
+         "stages": {"monday": {"recipe_data": {"title": "Totally Different Cups", "description": "b"}}}},
+    ]
+    builder = StaticSiteBuilder.__new__(StaticSiteBuilder)
+    builder.storage = type("S", (), {"get_image_url": lambda self, p: ""})()
+
+    with caplog.at_level(logging.WARNING):
+        recipes, slugs = builder._catalog_and_episode_slugs(catalog, {}, episodes)
+
+    assert slugs["2026-W10"] == "muffin-cups"
+    assert slugs["2026-W41"] != "muffin-cups"  # its own page, not a merge
+    assert any("owned by episode 2026-W10" in r.getMessage() for r in caplog.records), [
+        r.getMessage() for r in caplog.records
+    ]

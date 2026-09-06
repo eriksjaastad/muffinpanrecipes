@@ -488,11 +488,20 @@ class TestCloudBackendImageVariantsAvailable:
         with patch("requests.head", return_value=response) as mock_head:
             assert cloud_backend.image_variants_available("recipe/hero.png") is True
 
-        called_url = mock_head.call_args.args[0]
-        assert called_url == (
-            "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/images/recipe/hero-400w.webp"
-        )
-        assert "headers" not in mock_head.call_args.kwargs, "public probe must not send the token"
+        called = [c.args[0] for c in mock_head.call_args_list]
+        assert called == [
+            "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/images/recipe/hero-400w.webp",
+            "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/images/recipe/hero-800w.webp",
+        ], "every configured width is probed, in order"
+        assert all("headers" not in c.kwargs for c in mock_head.call_args_list), "public probe must not send the token"
+
+    def test_false_when_only_the_smallest_variant_exists(self, cloud_backend):
+        """Uploads are per-width and best-effort; a 400w without an 800w must
+        not advertise an 800w candidate that would 404 (review, 2026-09-05)."""
+        ok, missing = MagicMock(), MagicMock()
+        ok.status_code, missing.status_code = 200, 404
+        with patch("requests.head", side_effect=[ok, missing]):
+            assert cloud_backend.image_variants_available("recipe/hero.png") is False
 
     def test_false_when_400w_variant_blob_missing(self, cloud_backend):
         response = MagicMock()
@@ -523,7 +532,7 @@ class TestCloudBackendImageVariantsAvailable:
         with patch("requests.head", return_value=response) as mock_head:
             cloud_backend.image_variants_available("recipe/hero.png")
 
-        called_url = mock_head.call_args.args[0]
+        called_url = mock_head.call_args_list[0].args[0]
         assert called_url == (
             "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/test/images/recipe/hero-400w.webp"
         )

@@ -295,10 +295,13 @@ class _FilesystemBackend:
         if not image_key.lower().endswith(".png"):
             return False
         try:
-            variant_key = _webp_variant_key(image_key, WEBP_VARIANT_WIDTHS[0])
+            variant_keys = [_webp_variant_key(image_key, w) for w in WEBP_VARIANT_WIDTHS]
         except ValueError:
             return False
-        return (IMAGES_DIR / variant_key).exists()
+        # Every width, not just the smallest: uploads are per-width and
+        # best-effort, so one can be missing while another exists (review
+        # finding, 2026-09-05) — and one 404 candidate breaks the image.
+        return all((IMAGES_DIR / key).exists() for key in variant_keys)
 
     def cleanup_image_variants(self, recipe_id: str) -> list[str]:
         """Trash the round directories for a recipe. Keeps {recipe_id}.png (the winner).
@@ -888,23 +891,30 @@ class _CloudBackend:
         if not image_key.lower().endswith(".png"):
             return False
         try:
-            variant_key = _webp_variant_key(f"images/{image_key}", WEBP_VARIANT_WIDTHS[0])
+            variant_keys = [
+                _webp_variant_key(f"images/{image_key}", w) for w in WEBP_VARIANT_WIDTHS
+            ]
         except ValueError:
             return False
-        key = f"{self.prefix}{variant_key}"
 
         import requests as _requests
 
         # HEAD the PUBLIC url, unauthenticated. The API host answers 404 for
         # existing blobs (see BLOB_PUBLIC_BASE), which made every rendered
         # srcset fall back to the single full-size candidate even after the
-        # variants had been uploaded.
-        try:
-            resp = _requests.head(f"{BLOB_PUBLIC_BASE}/{key}", timeout=10, allow_redirects=True)
-            return resp.status_code == 200
-        except Exception as e:
-            logger.warning(f"Variant existence check failed for {key}: {e}")
-            return False
+        # variants had been uploaded. Every width is checked: uploads are
+        # per-width and best-effort, so one can exist without the other, and
+        # a single 404 candidate breaks the image for the browser that picks it.
+        for variant_key in variant_keys:
+            key = f"{self.prefix}{variant_key}"
+            try:
+                resp = _requests.head(f"{BLOB_PUBLIC_BASE}/{key}", timeout=10, allow_redirects=True)
+            except Exception as e:
+                logger.warning(f"Variant existence check failed for {key}: {e}")
+                return False
+            if resp.status_code != 200:
+                return False
+        return True
 
     def cleanup_image_variants(self, recipe_id: str) -> list[str]:
         """No-op on cloud storage: round-1 variants are LIVE content, not discards (#6712).
