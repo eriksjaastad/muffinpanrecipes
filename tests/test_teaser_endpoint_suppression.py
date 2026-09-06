@@ -85,3 +85,4 @@ def test_rewritten_static_path_is_served_like_the_recipe_page() -> None:
         rewritten = asyncio.run(er.recipe_page_rewritten_path("pastel-de-nata-cups"))
     assert rewritten.status_code == direct.status_code == 200
     assert rewritten.body == direct.body
+    assert rewritten.headers["x-robots-tag"] == "noindex"  # a duplicate URL, never indexed
