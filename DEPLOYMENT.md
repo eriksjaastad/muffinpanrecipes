@@ -175,7 +175,7 @@ Defined in `vercel.json` at repo root. All times UTC.
 | Thursday — Copywriting | `/api/cron/thursday` | `30 14 * * 4` | 7:30 AM Thu |
 | Friday — Final Review | `/api/cron/friday` | `30 14 * * 5` | 7:30 AM Fri |
 | Saturday — Deployment | `/api/cron/saturday` | `30 14 * * 6` | 7:30 AM Sat |
-| Sunday — Publish | `/api/cron/sunday` | `0 0 * * 1` | 5:00 PM Sun |
+| Sunday — Publish | `/api/cron/sunday` | `0 0 * * 0` | 5:00 PM Sun |
 
 ### Manual trigger (dev)
 ```bash

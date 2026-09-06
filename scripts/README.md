@@ -22,6 +22,16 @@ The most complex part of the system is the 4-step automated photography pipeline
 - **`grade_simulations.py`**: Uses an LLM to grade the quality and character consistency of generated dialogues.
 - **`judge_conversation.py`**: Provides real-time feedback on agent interactions.
 
+## 🧪 Conversation Lab
+
+See `docs/conversation-lab/PROTOCOL.md` for the full method (card #6492).
+
+- **`review_episode.py`**: weekly measurement pass over a week's dialogue against the 6-dimension conversation rubric - zero paid API calls.
+- **`conversation_lab.py`**: experiment runner with `baseline` / `ab` / `calibrate` subcommands for offline blind position-swapped A/B testing of a single prompt lever.
+- **`conversation_metrics.py`**: deterministic (non-LLM) dialogue metrics - turn length, shared-rules echo detection, cast coverage - used by `review_episode.py`.
+
+`conversation_lab.py ab` and `conversation_lab.py calibrate` call `DIALOGUE_MODEL` / `JUDGE_MODEL` and need `doppler run -- `. `--dry-run` and `baseline` are free and need no Doppler wrapper.
+
 ## 🛠️ Utilities
 
 - `validate_env.py`: Ensures all required secrets (Doppler) and environment variables are present.

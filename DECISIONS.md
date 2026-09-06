@@ -70,7 +70,7 @@
 
 **Context:** Erik does not read Discord; he does read the daily email from `alerts@send.synthinsightlabs.com`. That domain already has a verified Resend configuration (SPF, MX, DKIM) and `RESEND_API_KEY` already exists in the synth-insight-labs and auxesis Doppler projects. PR #94 routed every alert through one `send_alert()` so adding a channel is one file.
 
-**Decision:** Reuse Resend and the existing sender. `send_alert` fans out to Discord and email in parallel; only `error`/`critical` email, `warning`/`info` stay Discord-only. A missing `RESEND_API_KEY` or `ALERT_EMAIL_TO` is loud (ERROR log plus a one-time Discord notice) but does not take the site down. Erik copies the key into the muffinpanrecipes Doppler project.
+**Decision:** Reuse Resend and the existing sender. `send_alert` fans out to Discord and email in parallel; only `critical` emails (`_EMAIL_SEVERITIES` in `backend/utils/alerts.py:117` is `frozenset({"critical"})`), `error`/`warning`/`info` stay Discord-only. A missing `RESEND_API_KEY` or `ALERT_EMAIL_TO` is loud (ERROR log plus a one-time Discord notice) but does not take the site down. Erik copies the key into the muffinpanrecipes Doppler project.
 
 **Reasoning:** No new provider, no new DNS, no new account. Severity routing is the whole point: if everything emails, the channel dies the way Discord did.
 
@@ -89,3 +89,11 @@
 **Decision:** `hero_image_url` on the episode is authoritative in both the renderer and the builder. Sunday writes it before the page renders; `scripts/pin_published_heroes.py` backfilled the 25 live weeks from the exact image each production page shows (0 of 25 differ after rebuild). The fallback route matches `/src/recipes/<slug>/index.html` and the app answers that path like `/recipes/<slug>`; the proof is that a missing slug returns the Lambda's own "Recipe not found", not the static 404.
 
 **Reasoning:** A pin that depends on a rule is not a pin. Two copies of one rule drift. Routing semantics that are not documented must be proven on a preview before promotion, which is why the deploy ritual keeps the preview step.
+
+### 2026-09-06: Conversation lab - measure, one lever, offline blind A/B, ship, confirm live (#6492)
+
+**Context:** Prompt-lever tuning for the weekly character dialogue was tracked only in a machine-local memory file (`project_conversation_tuning_log.md`), unreviewable in a PR and not durable across machines. Since #6861 the production judge already produces a structured 8-dimension score (`judge_scores`) per stage, giving the lab a real measurement to test against instead of a manual read alone.
+
+**Decision:** Formalize the method in `docs/conversation-lab/PROTOCOL.md`: measure the current baseline, hypothesize exactly one lever with a predicted effect on named dimensions, run an offline blind position-swapped pairwise A/B through the production call shape, ship only if the variant wins >= 65% of pairs on the target dimension and loses no other dimension by more than 50% of pairs, ship as its own PR with a `promptV` bump, confirm the effect in the first live week after, and calibrate the grader itself at kickoff and monthly. `docs/conversation-lab/EXPERIMENTS.md` is the canonical, versioned record of scores and experiments going forward, replacing the memory-file log.
+
+**Reasoning:** N is small in every offline run, so the decision rule treats a win as signal to ship, not proof, and the live-confirmation step is what actually validates it. One lever per experiment keeps a result attributable; position-swapped blind judging removes the judge's own order bias. Erik's 2026-09-06 observation that every W30-W36 stage passed the judge on the first try is an open hypothesis this protocol is built to test, not dismiss: grader calibration against known-bad transcripts (W36 BEFORE) comes before spending more experiments on character prompts that may already be fine.
