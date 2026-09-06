@@ -21,8 +21,8 @@ def _valid_headers():
         "content-security-policy": (
             "default-src 'self'; "
             "script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "font-src 'self' https://fonts.gstatic.com; "
+            "style-src 'self' 'unsafe-inline'; "
+            "font-src 'self'; "
             "img-src 'self' data: https://www.google-analytics.com https://*.google-analytics.com; "
             "connect-src 'self' https://www.google-analytics.com "
             "https://*.google-analytics.com https://*.analytics.google.com "
@@ -408,10 +408,20 @@ def test_csp_rejects_extra_style_source():
     csp = _valid_headers()["content-security-policy"]
     _assert_csp_rejected(
         csp.replace(
-            "https://fonts.googleapis.com",
-            "https://fonts.googleapis.com https://evil.example",
+            "style-src 'self' 'unsafe-inline'",
+            "style-src 'self' 'unsafe-inline' https://evil.example",
         ),
         "style-src",
+    )
+
+
+def test_csp_rejects_reintroduced_font_hosts():
+    # #6892 dropped the Google Fonts hosts; a policy that lets them back in
+    # must fail the check so the drift is caught before promotion.
+    csp = _valid_headers()["content-security-policy"]
+    _assert_csp_rejected(
+        csp.replace("font-src 'self'", "font-src 'self' https://fonts.gstatic.com"),
+        "font-src",
     )
 
 
