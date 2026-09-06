@@ -8,26 +8,23 @@ input concept. See #5911 — W16 "Roasted Veggie Egg Cups" incident.
 """
 from __future__ import annotations
 
-import json
 import re
 import unicodedata
-import urllib.request
-from pathlib import Path
 from typing import Optional
 
+from backend.utils.catalog import (
+    CATALOG_PUBLIC_URL,
+    CatalogUnavailableError,
+    load_published_catalog,
+)
 from backend.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-ROOT = Path(__file__).resolve().parents[2]
-
-# Read the catalog directly from the public blob CDN. This bypasses the
-# storage layer's prefix system (which rewrites pages/ → test/pages/ in
-# test mode) so duplicate detection always runs against the real
-# production catalog, even during test-mode cron invocations.
-CATALOG_PUBLIC_URL = (
-    "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/pages/recipes.json"
-)
+# Re-exported so existing callers/imports (RUNBOOK snippets included) keep
+# working — backend.utils.catalog is now the one source of truth for the URL
+# (#6878).
+CATALOG_PUBLIC_URL = CATALOG_PUBLIC_URL
 
 # Words too common/generic to count as overlap signals.
 # Single source of truth — scripts/pick_concept.py imports this constant.
@@ -46,36 +43,36 @@ SMALL_COMPANIONS = frozenset({
 })
 
 def _load_catalog() -> dict:
-    """Fetch the published catalog from the public blob CDN (prefix-free).
+    """Strict-read the published catalog via backend.utils.catalog (#6878).
 
-    Falls back to static src/recipes.json on CDN failure. Returns {} on
-    total failure so callers can no-op cleanly on first-ever run.
+    Raises CatalogUnavailableError on failure — no fallback to the static
+    src/recipes.json ten launch seeds. That fallback used to make a CDN
+    hiccup silently shrink every caller's view of the catalog to ten
+    recipes while still reporting success (#6878). Kept as a thin,
+    separately-patchable function so tests/test_title_validator.py and the
+    RUNBOOK diagnostic snippets can keep patching/importing it by name.
     """
-    try:
-        req = urllib.request.Request(
-            CATALOG_PUBLIC_URL,
-            headers={"User-Agent": "muffinpanrecipes-title-validator/1.0"},
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except Exception as exc:
-        logger.warning(f"title_validator: public catalog fetch failed: {exc}")
-
-    try:
-        return json.loads((ROOT / "src" / "recipes.json").read_text())
-    except Exception as exc:
-        logger.warning(f"title_validator: static catalog load failed: {exc}")
-        return {}
+    return load_published_catalog()
 
 
 def load_catalog_titles() -> list[str]:
     """Return all published recipe titles (lowercased) from the public catalog.
 
-    Reads directly from the blob CDN public URL (no auth, no prefix) so it
-    always sees the real production catalog regardless of test-mode prefix.
+    Steering/QA use only (not a publishing gate — Monday's duplicate gate
+    reads backend.utils.catalog.load_published_catalog directly and raises).
+    A catalog read failure here degrades to [] with a logged error rather
+    than raising, since the live callers (cron_routes._recent_catalog_titles
+    for QA context, and the RUNBOOK diagnostic snippets) already alert on an
+    empty result or are a human reading output by hand (#6878).
     """
+    try:
+        catalog = _load_catalog()
+    except CatalogUnavailableError as exc:
+        logger.error(f"title_validator: catalog unavailable, titles list empty: {exc}")
+        return []
+
     titles: list[str] = []
-    for recipe in _load_catalog().get("recipes", []):
+    for recipe in catalog.get("recipes", []):
         t = recipe.get("title", "").strip().lower()
         if t:
             titles.append(t)
@@ -87,11 +84,20 @@ def load_recent_cuisines(n: int = 4) -> list[str]:
 
     The catalog is prepend-ordered (newest first), so the first entries are
     the most recent. Used to steer the baker away from repeating cuisines
-    and keep the catalog globally varied. Entries without a cuisine are
-    skipped. Returns [] when no catalog/cuisines exist yet.
+    and keep the catalog globally varied — steering only, not a gate, so a
+    catalog read failure degrades to [] with a logged error instead of
+    raising: a Monday must not fail because cuisine steering could not read
+    the catalog (#6878). Entries without a cuisine are skipped. Also
+    returns [] when no catalog/cuisines exist yet.
     """
+    try:
+        catalog = _load_catalog()
+    except CatalogUnavailableError as exc:
+        logger.error(f"title_validator: catalog unavailable, cuisine steering degraded to []: {exc}")
+        return []
+
     cuisines: list[str] = []
-    for recipe in _load_catalog().get("recipes", []):
+    for recipe in catalog.get("recipes", []):
         c = str(recipe.get("cuisine", "")).strip()
         if c:
             cuisines.append(c)

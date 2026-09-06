@@ -76,3 +76,6 @@ EVIDENCE.md
 .env*.local
 .env.vercel
 .scratch/
+
+# Session handoff note — machine-local by design, never committed (#6864)
+PROGRESS.md

@@ -161,6 +161,55 @@ class _Config:
         return override
 
     @property
+    def resend_api_key(self) -> str:
+        """API key for the Resend transactional email backend (#6860).
+
+        Reuses the same provider/domain Erik already gets his daily email
+        through (alerts@send.synthinsightlabs.com, verified SPF/MX/DKIM) —
+        not a new account. Override via RESEND_API_KEY env var or Doppler.
+
+        Set via Doppler:  doppler secrets set RESEND_API_KEY "re_..." \\
+          --project muffinpanrecipes --config prd
+        """
+        override = os.environ.get("RESEND_API_KEY", "").strip()
+        if not override:
+            raise RuntimeError(
+                "RESEND_API_KEY is not set. Set it via Doppler or environment variable. "
+                "No silent fallback — a missing key must fail loudly, not disable alerts."
+            )
+        return override
+
+    @property
+    def alert_email_to(self) -> str:
+        """Destination address for critical alert emails (#6860).
+
+        Override via ALERT_EMAIL_TO env var or Doppler.
+
+        Set via Doppler:  doppler secrets set ALERT_EMAIL_TO "erik@..." \\
+          --project muffinpanrecipes --config prd
+        """
+        override = os.environ.get("ALERT_EMAIL_TO", "").strip()
+        if not override:
+            raise RuntimeError(
+                "ALERT_EMAIL_TO is not set. Set it via Doppler or environment variable. "
+                "No silent fallback — an alert with nowhere to go is worse than none."
+            )
+        return override
+
+    @property
+    def alert_email_from(self) -> str:
+        """Sender address for alert emails (#6860).
+
+        Defaults to the already-verified synthinsightlabs.com sending domain
+        Erik's daily email already comes from. Override via ALERT_EMAIL_FROM
+        only if a muffinpanrecipes.com sending domain gets verified in Resend
+        later — has a default, so unlike resend_api_key/alert_email_to it
+        does not raise when unset.
+        """
+        override = os.environ.get("ALERT_EMAIL_FROM", "").strip()
+        return override or "alerts@send.synthinsightlabs.com"
+
+    @property
     def auth_bypass(self) -> bool:
         """True when OAuth should be bypassed (local dev only).
 

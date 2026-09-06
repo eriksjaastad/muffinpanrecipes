@@ -34,6 +34,79 @@
     --gray-900: #111827;
 }
 
+/* Self-hosted fonts (#6433). Previously loaded from fonts.googleapis.com on
+ * every page — a render-blocking third-party request, and the title text
+ * visibly swapped from the Georgia fallback to Playfair Display once the
+ * webfont arrived. Files are the exact static latin-subset weights the four
+ * former <link> tags requested, downloaded once via Google Fonts' CSS API
+ * and committed under assets/fonts/. font-display: optional means a slow or
+ * blocked font never causes a layout-shifting swap — the fallback stays if
+ * the real font isn't ready in time, instead of flashing in later.
+ */
+@font-face {
+    font-family: "Playfair Display";
+    font-style: normal;
+    font-weight: 400;
+    font-display: optional;
+    src: url("/assets/fonts/playfair-display-400.woff2") format("woff2");
+}
+@font-face {
+    font-family: "Playfair Display";
+    font-style: normal;
+    font-weight: 700;
+    font-display: optional;
+    src: url("/assets/fonts/playfair-display-700.woff2") format("woff2");
+}
+@font-face {
+    font-family: "Playfair Display";
+    font-style: italic;
+    font-weight: 400;
+    font-display: optional;
+    src: url("/assets/fonts/playfair-display-400-italic.woff2") format("woff2");
+}
+@font-face {
+    font-family: "Playfair Display";
+    font-style: italic;
+    font-weight: 700;
+    font-display: optional;
+    src: url("/assets/fonts/playfair-display-700-italic.woff2") format("woff2");
+}
+@font-face {
+    font-family: "Inter";
+    font-style: normal;
+    font-weight: 300;
+    font-display: optional;
+    src: url("/assets/fonts/inter-300.woff2") format("woff2");
+}
+@font-face {
+    font-family: "Inter";
+    font-style: normal;
+    font-weight: 400;
+    font-display: optional;
+    src: url("/assets/fonts/inter-400.woff2") format("woff2");
+}
+@font-face {
+    font-family: "Inter";
+    font-style: normal;
+    font-weight: 500;
+    font-display: optional;
+    src: url("/assets/fonts/inter-500.woff2") format("woff2");
+}
+@font-face {
+    font-family: "Inter";
+    font-style: normal;
+    font-weight: 600;
+    font-display: optional;
+    src: url("/assets/fonts/inter-600.woff2") format("woff2");
+}
+@font-face {
+    font-family: "Inter";
+    font-style: normal;
+    font-weight: 700;
+    font-display: optional;
+    src: url("/assets/fonts/inter-700.woff2") format("woff2");
+}
+
 *, *::before, *::after { box-sizing: border-box; }
 
 html { -webkit-text-size-adjust: 100%; }
@@ -165,6 +238,46 @@ button { font-family: inherit; }
     transition: background-color 0.2s ease, color 0.2s ease;
 }
 .btn-outline:hover { background: var(--gray-900); color: #fff; }
+
+/* ════════════════════════════════════════════════════════════════════
+ *  /about — E-E-A-T disclosure page (#6667)
+ * ════════════════════════════════════════════════════════════════════ */
+
+.about-copy {
+    color: var(--gray-700);
+    font-size: 1.0625rem;
+    line-height: 1.75;
+    margin: 0 0 1.5rem;
+}
+.about-team {
+    list-style: none;
+    margin: 2.5rem 0;
+    padding: 0;
+    display: grid;
+    gap: 1.5rem;
+}
+@media (min-width: 640px) {
+    .about-team { grid-template-columns: 1fr 1fr; }
+}
+.about-team__item { padding-left: 1rem; border-left: 3px solid var(--terracotta); }
+.about-team__role {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    color: var(--terracotta);
+    font-weight: 700;
+    margin: 0 0 0.25rem;
+}
+.about-team__name { font-family: var(--serif); font-size: 1.25rem; margin: 0 0 0.375rem; }
+.about-team__desc { color: var(--gray-500); font-size: 0.9375rem; margin: 0; }
+.about-disclosure {
+    margin-top: 3rem;
+    padding: 1.5rem;
+    background: var(--gray-50);
+    border-radius: 0.5rem;
+}
+.about-disclosure .about-copy { margin-bottom: 0; }
+.about-disclosure .about-copy + .about-copy { margin-top: 1rem; }
 
 /* ════════════════════════════════════════════════════════════════════
  *  /recipes — category-grouped index

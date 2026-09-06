@@ -4,6 +4,72 @@
 
 ---
 
+## INCIDENT 5 — "GA4 shows no traffic from recipe pages" (CSP blocked the tag on Lambda routes; the static homepage masked it)
+
+### Symptom
+
+- GA4 Realtime shows visits to `/` but nothing for `/recipes/*` or `/this-week`.
+- The homepage (served statically by Vercel, no CSP) tracks fine, so the
+  install looks correct at a glance and reads exactly like an ad blocker.
+- Browser console on a recipe page shows `gtag.js` blocked by
+  Content-Security-Policy (`script-src` directive violation).
+
+### Root cause
+
+`backend/admin/app.py`'s security middleware sets a CSP header on **every**
+Lambda route, not just the admin dashboard it was written for — and every
+reader page (`/recipes/*`, `/this-week`) is served by that same Lambda
+(`backend/admin/episode_routes.py`). The CSP had no `googletagmanager.com` /
+`google-analytics.com` entries, so the tag and every beacon it tried to send
+were silently dropped by the browser — no server error, no log line, nothing
+`health_check.py` (at the time) checked for.
+
+### How to verify
+
+```bash
+curl -sI https://muffinpanrecipes.com/recipes/<any-slug> | grep -i content-security-policy
+# googletagmanager.com and google-analytics.com absent from script-src/connect-src = this incident
+```
+
+### Recovery
+
+None needed once the fix ships — deploy carries the corrected CSP to every
+Lambda route immediately; no retroactive data can be recovered for the
+window traffic went untracked.
+
+### Verify recovery
+
+```bash
+doppler run --project muffinpanrecipes --config prd -- \
+  uv run python scripts/health_check.py --no-alert
+# Expect: security headers check passes (asserts the CSP directive, below)
+```
+
+### How to avoid retriggering
+
+- Any change to the CSP in `backend/admin/app.py` must be checked against
+  **every** route class the app serves (admin AND public reader pages), not
+  just whichever page prompted the edit — this middleware has no per-route
+  carve-out.
+- `scripts/health_check.py::_check_csp` now asserts
+  `REQUIRED_CSP_DIRECTIVES` on live pages, so a regression here fails
+  health checks instead of waiting on someone to notice GA4 go quiet.
+
+### Permanent fix (shipped)
+
+`git show 6030c61` (2026-08-15): CSP `script-src` allows
+`https://www.googletagmanager.com`; `connect-src`/`img-src` allow the
+`google-analytics.com` endpoints the tag posts to. Nothing else widened.
+`tests/test_seo.py::test_csp_allows_ga4` and `scripts/health_check.py`'s
+`_check_csp` both assert the directive now.
+
+### First occurrence
+
+**2026-08-15** — GA4 Realtime showed homepage traffic only; reproduced in
+incognito, which ruled out an ad blocker. Fixed same day.
+
+---
+
 ## INCIDENT 4 — "We published a recipe we already have" (the SILENT twin of Incident 3)
 
 > **Read INCIDENT 3 first, then this.** They share the placeholder concept string

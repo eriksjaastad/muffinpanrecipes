@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Google tag (gtag.js) — keep in sync with backend/publishing/analytics.py.
+         This file is served statically by Vercel, so it can't import the
+         shared constant; tests/test_seo.py asserts the two agree. -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-05P73D3237"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'G-05P73D3237');
+    </script>
+
+    <title>About | Muffin Pan Recipes</title>
+    <meta name="description"
+        content="Who makes Muffin Pan Recipes: six AI characters, one automated Sunday publish, and the person who built and runs it.">
+    <link rel="canonical" href="https://muffinpanrecipes.com/about">
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://muffinpanrecipes.com/about">
+    <meta property="og:title" content="About | Muffin Pan Recipes">
+    <meta property="og:description"
+        content="Who makes Muffin Pan Recipes: six AI characters, one automated Sunday publish, and the person who built and runs it.">
+    <meta property="og:image" content="https://muffinpanrecipes.com/assets/images/classic-blueberry-muffins.webp">
+    <meta property="og:image:width" content="1024">
+    <meta property="og:image:height" content="1024">
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:url" content="https://muffinpanrecipes.com/about">
+    <meta name="twitter:title" content="About | Muffin Pan Recipes">
+    <meta name="twitter:description" content="Who makes Muffin Pan Recipes, and how the recipes actually get made.">
+    <meta name="twitter:image" content="https://muffinpanrecipes.com/assets/images/classic-blueberry-muffins.webp">
+
+    <!-- Structured data: AboutPage + Organization, with an honest founder
+         credit. No fabricated review counts or credentials — just what's
+         actually true about how this site is made and run. -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "AboutPage",
+          "@id": "https://muffinpanrecipes.com/about#page",
+          "url": "https://muffinpanrecipes.com/about",
+          "name": "About Muffin Pan Recipes",
+          "isPartOf": { "@id": "https://muffinpanrecipes.com/#website" },
+          "about": { "@id": "https://muffinpanrecipes.com/#organization" }
+        },
+        {
+          "@type": "Organization",
+          "@id": "https://muffinpanrecipes.com/#organization",
+          "name": "Muffin Pan Recipes",
+          "url": "https://muffinpanrecipes.com/",
+          "founder": { "@type": "Person", "name": "Erik Sjaastad" }
+        }
+      ]
+    }
+    </script>
+
+    <!-- Favicon -->
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧁</text></svg>">
+    <!-- Editorial Typography: Playfair Display for Serifs, Inter for Sans-Serif.
+         Self-hosted via @font-face in site.css (#6433). -->
+    <link rel="stylesheet" href="/assets/site.css">
+</head>
+
+<body>
+    <nav class="site-nav">
+        <a href="/" class="site-nav__back">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+            Home
+        </a>
+    </nav>
+
+    <main class="site-main">
+        <div class="page-head">
+            <p class="page-head__eyebrow">How This Works</p>
+            <h1 class="page-head__title">About Muffin Pan Recipes</h1>
+            <p class="page-head__sub">Six characters run this kitchen. None of them are real people, and we'd rather tell you that up front than have you guess.</p>
+        </div>
+
+        <p class="about-copy">Muffin Pan Recipes is an editorial cooking site with a twist: every recipe is brainstormed, developed, photographed, and written by a small cast of AI characters, each with their own role, opinions, and running arguments with each other. A new one publishes every Sunday, on autopilot, through an automated pipeline that runs Monday through Sunday without a human approving the finished recipe before it goes live.</p>
+
+        <p class="about-copy">Here's who's "in the kitchen":</p>
+
+        <ul class="about-team">
+            <li class="about-team__item">
+                <p class="about-team__role">Baker</p>
+                <h2 class="about-team__name">Margaret Chen</h2>
+                <p class="about-team__desc">Classically trained, exacting about technique, and the one who actually has to make the recipe work.</p>
+            </li>
+            <li class="about-team__item">
+                <p class="about-team__role">Creative Director</p>
+                <h2 class="about-team__name">Stephanie "Steph" Whitmore</h2>
+                <p class="about-team__desc">Sets the weekly direction and keeps the team pointed at one finished idea instead of six half-finished ones.</p>
+            </li>
+            <li class="about-team__item">
+                <p class="about-team__role">Art Director</p>
+                <h2 class="about-team__name">Julian Torres</h2>
+                <p class="about-team__desc">Directs every photo shoot and cares, loudly, about how the food actually looks in the shot.</p>
+            </li>
+            <li class="about-team__item">
+                <p class="about-team__role">Copywriter</p>
+                <h2 class="about-team__name">Marcus Reid</h2>
+                <p class="about-team__desc">Writes the recipe copy and headnotes, at a length the rest of the team is always trying to talk him down from.</p>
+            </li>
+            <li class="about-team__item">
+                <p class="about-team__role">Site Architect</p>
+                <h2 class="about-team__name">Devon Park</h2>
+                <p class="about-team__desc">Builds and maintains the pipeline that turns a Monday concept into a published page.</p>
+            </li>
+            <li class="about-team__item">
+                <p class="about-team__role">Social Media Manager</p>
+                <h2 class="about-team__name">Ria Castillo</h2>
+                <p class="about-team__desc">Joins the conversation Monday, Wednesday, Thursday, and Sunday, thinking about how each recipe travels beyond the site.</p>
+            </li>
+        </ul>
+
+        <p class="about-copy">You can read the full week's back-and-forth on <a href="/this-week">this week's recipe page</a> — the characters' actual dialogue, brainstorming and disagreements, not a summary of it.</p>
+
+        <div class="about-disclosure">
+            <p class="about-copy">To be direct about what that means: these recipes are generated by AI, not tested in a physical kitchen, unless a recipe page explicitly says otherwise. We build for accuracy — realistic bake times, real ratios, real technique — but treat any single recipe the way you'd treat one from a stranger's blog: read it through, use your judgment, and check for doneness rather than trusting the clock alone.</p>
+            <p class="about-copy">The site itself — the code, the pipeline, and the decision to run it this way — is built and maintained by a human, Erik Sjaastad.</p>
+        </div>
+    </main>
+
+    <footer class="site-footer">
+        <p class="site-footer__motto">The struggle is the story.</p>
+        <p class="site-footer__copy"><a href="/about">About</a> &middot; &copy; 2026 Muffin Pan Recipes</p>
+    </footer>
+</body>
+
+</html>

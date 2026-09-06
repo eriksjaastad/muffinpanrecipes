@@ -72,3 +72,17 @@ def test_malformed_blob_passes_through_to_client():
     with patch.object(episode_routes.storage, "load_page", return_value="not-json{"):
         response = _call()
     assert response.body == b"not-json{"
+
+
+def test_rewritten_static_path_is_served_like_the_recipe_page() -> None:
+    """vercel.json's Lambda fallback for an uncommitted recipe page arrives on
+    the REWRITTEN path /src/recipes/<slug>/index.html (#6684); the app must
+    answer it exactly as it answers /recipes/<slug>."""
+    from backend.admin import episode_routes as er
+
+    with patch.object(er.storage, "load_page", return_value="<html>frozen page</html>"):
+        direct = asyncio.run(er.recipe_page("pastel-de-nata-cups"))
+        rewritten = asyncio.run(er.recipe_page_rewritten_path("pastel-de-nata-cups"))
+    assert rewritten.status_code == direct.status_code == 200
+    assert rewritten.body == direct.body
+    assert rewritten.headers["x-robots-tag"] == "noindex"  # a duplicate URL, never indexed
