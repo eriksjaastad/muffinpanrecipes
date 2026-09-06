@@ -65,9 +65,13 @@ The four unconditional Lambda-only reader routes are listed **before**
 leftover `src/recipes.json` from a careless `--full-rebuild`) can never be
 checked first — see `test_lambda_only_reader_routes_precede_filesystem_handling`.
 
-**CSP note:** `style-src`/`font-src` still allow `fonts.googleapis.com` /
-`fonts.gstatic.com`. Leave this in place until fonts are confirmed
-self-hosted — a stale allow is harmless, a premature removal breaks fonts.
+**CSP note:** `style-src`/`font-src` allow only `'self'` (plus
+`'unsafe-inline'` for styles). Every font is self-hosted under
+`/assets/fonts/` — the public site through `site.css` (#6433), the admin
+templates through `/admin/static/admin-fonts.css` (#6892) — so the Google
+Fonts hosts were dropped from `vercel.json`, the app's local CSP and
+`health_check.py`'s expected policy together. If a new template ever loads
+a third-party font, all three must change again in the same PR.
 
 ---
 

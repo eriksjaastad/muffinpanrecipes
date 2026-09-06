@@ -79,11 +79,11 @@ REQUIRED_SECURITY_HEADER_VALUES = {
 REQUIRED_CSP_DIRECTIVES = {
     "default-src": ("'self'",),
     "script-src": ("'self'", "'unsafe-inline'", "https://www.googletagmanager.com"),
-    # The public site self-hosts fonts (#6433), but the admin templates still load
-    # Google Fonts and in production they rely on this same global CSP, so the two
-    # hosts stay allowed until the admin panel is migrated too.
-    "style-src": ("'self'", "'unsafe-inline'", "https://fonts.googleapis.com"),
-    "font-src": ("'self'", "https://fonts.gstatic.com"),
+    # Fonts are self-hosted everywhere: the public site since #6433, the admin
+    # templates since #6892 (/admin/static/admin-fonts.css), so the Google Fonts
+    # hosts are gone from style-src and font-src.
+    "style-src": ("'self'", "'unsafe-inline'"),
+    "font-src": ("'self'",),
     "img-src": (
         "'self'",
         "data:",
