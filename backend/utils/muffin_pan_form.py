@@ -91,6 +91,20 @@ OFF_BRAND_TITLE_SHAPES = (
     r"\bcasserole\b",
 )
 
+# The title-level form check used by the CONCEPT PICKER (#6858), not the
+# recipe-level gate above. A concept whose title doesn't end in one of these
+# nouns names a dish a muffin pan cannot naturally produce (a pork chop, a
+# salmon fillet) even before a recipe is written for it, so the picker
+# rejects it outright rather than merely down-weighting it. The recipe-level
+# check once the dish is fully written is check_muffin_pan_form() above.
+MUFFIN_PAN_FORM_NOUNS = frozenset({
+    "cup", "cups", "bite", "bites", "nest", "nests", "tassie", "tassies",
+    "muffin", "muffins", "frittata", "frittatas", "popover", "popovers",
+    "tartlet", "tartlets", "loaf", "loaves", "pot", "pots", "round", "rounds",
+    "puff", "puffs", "cake", "cakes", "tart", "tarts", "pie", "pies",
+    "top", "tops", "bun", "buns", "cheesecake", "cheesecakes",
+})
+
 
 def check_muffin_pan_form(recipe: dict[str, Any] | None) -> str | None:
     """Return a failure reason if the recipe does not take muffin-pan form."""
