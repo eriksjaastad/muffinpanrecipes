@@ -47,12 +47,65 @@ IMAGES_DIR = ROOT / "src" / "assets" / "images"
 SOCIAL_IMAGE_SIZE = (1200, 630)
 SOCIAL_IMAGE_SUFFIX = ".social.jpg"
 
+# #6755 — width-limited WebP variants generated alongside the full-size
+# sibling so the renderer's srcset can offer a phone something smaller than
+# the 1536px original. Widths are deterministic and public (baked into blob
+# keys and srcset markup), so changing this tuple requires re-running
+# scripts/backfill_image_variants.py for every already-published image.
+WEBP_VARIANT_WIDTHS: tuple[int, ...] = (400, 800)
+
+# Public, prefix-free base of the (public) blob store. Existence checks HEAD
+# this host: a HEAD against the API host (https://blob.vercel-storage.com/<key>)
+# returns 404 even for blobs that exist — verified 2026-09-05 against a live
+# variant that the public URL served with 200 — so it must never be used as a
+# presence probe. Same host the catalog and title readers hardcode.
+BLOB_PUBLIC_BASE = "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com"
+
 
 def _social_jpeg_key(png_key: str) -> str:
     """Return the deterministic social-image sibling key for a PNG key."""
     if not png_key.lower().endswith(".png"):
         raise ValueError(f"Social JPEG siblings require a PNG key: {png_key!r}")
     return png_key[:-4] + SOCIAL_IMAGE_SUFFIX
+
+
+def _webp_variant_key(png_key: str, width: int) -> str:
+    """Return the deterministic width-limited WebP variant key for a PNG key.
+
+    Mirrors the full-size sibling's '<stem>.webp' naming with a '-{width}w'
+    suffix (#6755) so the renderer can construct srcset URLs by string
+    rewrite alone — same deterministic-pathname contract as #5251
+    (x-add-random-suffix=0 / x-allow-overwrite=1, see the comment at
+    save_image's headers below).
+    """
+    if not png_key.lower().endswith(".png"):
+        raise ValueError(f"WebP variants require a PNG key: {png_key!r}")
+    return f"{png_key[:-4]}-{width}w.webp"
+
+
+def _encode_webp(png_bytes: bytes, width: int | None = None) -> bytes:
+    """Encode PNG bytes as WebP, optionally downscaled to ``width`` (#6755).
+
+    Quality=82, method=6 matches the original full-size sibling encode
+    (#5251) so a downscaled variant looks identical to the full image, just
+    smaller. Resizing is by width only, preserving aspect ratio — generated
+    photography is square (1536x1536) today but this must not assume that.
+    """
+    from io import BytesIO
+
+    from PIL import Image
+
+    with Image.open(BytesIO(png_bytes)) as source:
+        image = source
+        if width is not None:
+            orig_width, orig_height = source.size
+            if orig_width <= 0:
+                raise ValueError("Cannot resize image with zero width")
+            target_height = max(1, round(orig_height * (width / orig_width)))
+            image = source.resize((width, target_height), Image.Resampling.LANCZOS)
+        buf = BytesIO()
+        image.save(buf, format="WEBP", quality=82, method=6)
+        return buf.getvalue()
 
 
 def _encode_jpeg(png_bytes: bytes, size: tuple[int, int] | None = None) -> bytes:
@@ -196,10 +249,28 @@ class _FilesystemBackend:
         return None
 
     def save_image(self, relative_path: str, image_bytes: bytes) -> str:
-        """Save image bytes and return the local URL path."""
+        """Save image bytes and return the local URL path.
+
+        Mirrors the cloud backend's WebP sibling pipeline (#5251, #6755) so
+        local dev renders the same <picture>/srcset markup production does.
+        Best-effort, non-fatal: a bad encode must never block a local render.
+        """
         dest = self._safe_path(relative_path)
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(image_bytes)
+
+        if relative_path.lower().endswith(".png"):
+            try:
+                dest.with_suffix(".webp").write_bytes(_encode_webp(image_bytes))
+            except Exception as e:  # noqa: BLE001 - optimization must not block a local save
+                logger.warning(f"WebP sibling write failed for {dest}: {e}")
+            for width in WEBP_VARIANT_WIDTHS:
+                try:
+                    variant_path = dest.with_name(f"{dest.stem}-{width}w.webp")
+                    variant_path.write_bytes(_encode_webp(image_bytes, width=width))
+                except Exception as e:  # noqa: BLE001 - same rationale as above
+                    logger.warning(f"WebP {width}w variant write failed for {dest}: {e}")
+
         # Strip src/ prefix — static mount serves src/ at /static, assets at /assets
         url_path = relative_path.removeprefix("src/")
         return f"/{url_path}"
@@ -212,6 +283,22 @@ class _FilesystemBackend:
 
     def image_exists(self, relative_path: str) -> bool:
         return self._safe_path(relative_path).exists()
+
+    def image_variants_available(self, image_key: str) -> bool:
+        """Whether the smallest WebP variant exists for a rendered image (#6755).
+
+        ``image_key`` is the backend-agnostic '<subpath>/name.png' identity
+        the renderer derives via episode_renderer._variant_lookup_key.
+        save_image writes every configured width in the same call, so
+        checking the smallest (400w) implies the rest exist too.
+        """
+        if not image_key.lower().endswith(".png"):
+            return False
+        try:
+            variant_key = _webp_variant_key(image_key, WEBP_VARIANT_WIDTHS[0])
+        except ValueError:
+            return False
+        return (IMAGES_DIR / variant_key).exists()
 
     def cleanup_image_variants(self, recipe_id: str) -> list[str]:
         """Trash the round directories for a recipe. Keeps {recipe_id}.png (the winner).
@@ -626,6 +713,15 @@ class _CloudBackend:
                 # Sibling variants are an optimization. The canonical PNG
                 # upload above must remain the only publishing dependency.
                 logger.warning(f"WebP sibling pipeline failed for {key}: {e}")
+            # #6755 — width-limited variants so the renderer can offer a
+            # phone something smaller than the 1536px original. Each width
+            # is independently best-effort: one bad resize must not cost
+            # the other width or the full-size sibling above.
+            for width in WEBP_VARIANT_WIDTHS:
+                try:
+                    self._upload_webp_variant(key, image_bytes, width)
+                except Exception as e:  # noqa: BLE001 - optimization must not block publishing
+                    logger.warning(f"WebP {width}w variant pipeline failed for {key}: {e}")
             try:
                 self._upload_social_jpeg_sibling(key, image_bytes)
             except Exception as e:  # noqa: BLE001 - optimization must not block publishing
@@ -678,6 +774,42 @@ class _CloudBackend:
             )
         except Exception as e:
             logger.warning(f"WebP upload failed for {webp_key}: {e}")
+
+    def _upload_webp_variant(self, png_key: str, png_bytes: bytes, width: int) -> None:
+        """Encode a width-limited downscale of png_bytes and upload it (#6755).
+
+        One-way best-effort, same shape as _upload_webp_sibling: logs and
+        swallows both encode and upload failures so a bad resize never
+        blocks publishing. Deterministic '<stem>-{width}w.webp' key —
+        see _webp_variant_key — so the renderer's srcset can be built by
+        string rewrite alone.
+        """
+        try:
+            webp_bytes = _encode_webp(png_bytes, width=width)
+        except Exception as e:
+            logger.warning(f"WebP {width}w variant encode failed for {png_key}: {e}")
+            return
+
+        import requests as _requests
+
+        variant_key = _webp_variant_key(png_key, width)
+        upload_url = f"https://blob.vercel-storage.com/{variant_key}"
+        headers = {
+            "Authorization": f"Bearer {self._blob_token}",
+            "Content-Type": "image/webp",
+            "x-vercel-access": "public",
+            "x-add-random-suffix": "0",
+            "x-allow-overwrite": "1",
+        }
+        try:
+            resp = _requests.put(upload_url, data=webp_bytes, headers=headers, timeout=60)
+            resp.raise_for_status()
+            logger.info(
+                f"Uploaded WebP {width}w variant: {variant_key} "
+                f"({len(webp_bytes)}B from {len(png_bytes)}B PNG)"
+            )
+        except Exception as e:
+            logger.warning(f"WebP {width}w variant upload failed for {variant_key}: {e}")
 
     def _upload_social_jpeg_sibling(self, png_key: str, png_bytes: bytes) -> None:
         """Best-effort upload of a deterministic 1200x630 social JPEG.
@@ -739,8 +871,61 @@ class _CloudBackend:
     def image_exists(self, relative_path: str) -> bool:
         return self._fs.image_exists(relative_path)
 
+    def image_variants_available(self, image_key: str) -> bool:
+        """HEAD-check the smallest WebP variant blob for a rendered image (#6755).
+
+        ``image_key`` is the backend-agnostic '<subpath>/name.png' identity
+        the renderer derives via episode_renderer._variant_lookup_key — the
+        same slice both backends' keys share once the 'images/' segment is
+        stripped. A missing variant means the PNG predates this feature or
+        its best-effort encode/upload failed silently at publish time (see
+        _upload_webp_variant); either way the renderer must fall back to the
+        single full-size candidate — a srcset entry that 404s breaks the
+        image for whichever browser happens to pick it.
+        """
+        if not self._has_cloud():
+            return self._fs.image_variants_available(image_key)
+        if not image_key.lower().endswith(".png"):
+            return False
+        try:
+            variant_key = _webp_variant_key(f"images/{image_key}", WEBP_VARIANT_WIDTHS[0])
+        except ValueError:
+            return False
+        key = f"{self.prefix}{variant_key}"
+
+        import requests as _requests
+
+        # HEAD the PUBLIC url, unauthenticated. The API host answers 404 for
+        # existing blobs (see BLOB_PUBLIC_BASE), which made every rendered
+        # srcset fall back to the single full-size candidate even after the
+        # variants had been uploaded.
+        try:
+            resp = _requests.head(f"{BLOB_PUBLIC_BASE}/{key}", timeout=10, allow_redirects=True)
+            return resp.status_code == 200
+        except Exception as e:
+            logger.warning(f"Variant existence check failed for {key}: {e}")
+            return False
+
     def cleanup_image_variants(self, recipe_id: str) -> list[str]:
-        return self._fs.cleanup_image_variants(recipe_id)
+        """No-op on cloud storage: round-1 variants are LIVE content, not discards (#6712).
+
+        The original bug — this delegated to the filesystem backend's
+        send2trash on a local round-candidates directory that only exists
+        on a dev machine's disk — silently did nothing on Vercel while
+        claiming to clean. Wiring up delete_by_prefix instead would be
+        actively dangerous: every round_1 image is published editorial
+        content (the BTS gallery renders each one under the Wednesday /
+        Photography divider), not a discarded photography candidate, and
+        there is no orphan-amplification problem to justify deleting them
+        (see card #6712 scope correction, 2026-08-30 — vision QA converges
+        in a single round, round_2/round_3 have never existed). So this is
+        an honest no-op rather than a lying one.
+        """
+        logger.info(
+            f"cleanup_image_variants: no-op for cloud backend (recipe_id={recipe_id}); "
+            "round_1 variants are published BTS content, not discards — see #6712."
+        )
+        return []
 
     def delete_by_prefix(self, prefix: str) -> int:
         """Delete all blobs under a given prefix. Returns count deleted."""
