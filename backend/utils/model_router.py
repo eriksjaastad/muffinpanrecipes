@@ -106,6 +106,7 @@ _COST_PER_M_TOKENS: dict[str, tuple[float, float]] = {
     # Anthropic — text
     "claude-haiku-4-5-20251001": (0.80, 4.00),
     "claude-sonnet-4-6": (3.00, 15.00),
+    "claude-opus-4-6": (5.00, 25.00),  # list price verified 2026-09-06
     # Anthropic — vision
     "claude-haiku-4-5-20251001:vision": (0.80, 4.00),
     # Google — text (Gemini API pricing)
