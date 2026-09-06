@@ -309,6 +309,15 @@ def _hero_image_url(episode: dict) -> str:
     ever reached the OG/social thumbnail, and the page never varied. Falling
     back to image_urls[0] keeps older episodes (no confirmed_winner) unchanged.
     """
+    # A published week's hero is PINNED (Erik, 2026-08-22): once Sunday has
+    # rendered the page, re-rendering it must never re-pick the picture. The
+    # Sunday publish writes hero_image_url; the first live full rebuild
+    # (2026-09-05) showed why — the "prefer the confirmed winner" rule below
+    # post-dates 20 of the 25 published pages and would have swapped their
+    # heroes, several to a top-level copy that was never uploaded.
+    pinned = str(episode.get("hero_image_url") or "").strip()
+    if pinned:
+        return pinned
     winner = episode.get("stages", {}).get("wednesday", {}).get("confirmed_winner")
     if not isinstance(winner, dict):
         winner = {}

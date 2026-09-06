@@ -44,7 +44,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
 from backend.config import config
-from backend.publishing.episode_renderer import regenerate_and_upload
+from backend.publishing.episode_renderer import _hero_image_url, regenerate_and_upload
 from backend.storage import storage
 from backend.utils import episode_integrity
 from backend.utils.catalog import (
@@ -2336,6 +2336,14 @@ async def cron_sunday(request: Request):
                         f"Image cleanup failed for {recipe_id} (orphaned variants "
                         f"left in blob): {type(e).__name__}: {e}"
                     )
+
+        # Pin the hero the published page is about to render (Erik, 2026-08-22:
+        # published heroes are frozen). The renderer honours hero_image_url
+        # before any picking logic, so a later re-render — full rebuild,
+        # encoding fix — can never swap the picture. Without this, the first
+        # live full rebuild (2026-09-05) changed the hero on 20 of 25 pages.
+        if not str(ep.get("hero_image_url") or "").strip():
+            ep["hero_image_url"] = _hero_image_url(ep)
 
         ep["published_at"] = datetime.now(timezone.utc).isoformat()
         ep["stages"]["sunday"] = {
