@@ -47,7 +47,17 @@ from backend.config import config
 from backend.publishing.episode_renderer import regenerate_and_upload
 from backend.storage import storage
 from backend.utils import episode_integrity
+from backend.utils.catalog import (
+    VALID_CATEGORIES,
+    catalog_recipes as _catalog_recipes,
+    catalog_titles as _catalog_titles,
+    load_published_catalog,
+    normalize_category,
+)
 from backend.utils.logging import get_logger
+from backend.utils.muffin_pan_form import check_muffin_pan_form
+from backend.utils.recipe_overlap import check_ingredient_overlap
+from backend.utils.title_validator import check_title_conflict
 from backend.utils.discord import notify_judge_failure, notify_pipeline_failure
 from backend.utils.model_router import generate_judge_response, generate_response
 from backend.utils.text_sanitize import sanitize_text, has_encoding_issues
@@ -949,6 +959,9 @@ def _generate_episode_memories(episode: dict, concept: str) -> None:
 class StageRequest(BaseModel):
     episode_id: Optional[str] = None   # defaults to current ISO week
     concept: Optional[str] = None      # defaults to stored or generic
+    # Breakfast | Savory | Sweet | Party. Only meaningful alongside an explicit
+    # concept: it names the shelf the operator chose the dish for (#6858).
+    target_category: Optional[str] = None
     model: Optional[str] = None        # override dialogue model (e.g. "openai/gpt-5.1")
     test: bool = False                 # test mode: saves to test/ prefix in blob
     force: bool = False                # skip day-of-week check (manual catch-ups only)
@@ -968,7 +981,13 @@ async def _parse_body(request: Request) -> StageRequest:
     if not raw.strip():
         return StageRequest()
     try:
-        return StageRequest(**json.loads(raw))
+        body = StageRequest(**json.loads(raw))
+        if body.target_category is not None and normalize_category(body.target_category) is None:
+            raise ValueError(
+                f"target_category must be one of {', '.join(VALID_CATEGORIES)}, "
+                f"got {body.target_category!r}"
+            )
+        return body
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1262,9 +1281,10 @@ def _run_stage(ep: dict, stage: str):
 # Monday concept selection (#6855)
 # ---------------------------------------------------------------------------
 
-# Two attempts, no sleep. pick_concept() already spends up to ~25s scraping
-# five sites with its own per-request timeouts, and Monday's Lambda budget is
-# 300s; a second pass is worth it for a transient throw, a third is not.
+# Two attempts, no sleep. pick_concept() spends one LLM brainstorm call plus at
+# most ~6s of optional, concurrent inspiration scraping (#6858), and Monday's
+# Lambda budget is 300s; a second pass is worth it for a transient throw (a
+# provider blip, a catalog fetch that timed out), a third is not.
 _CONCEPT_PICK_ATTEMPTS = 2
 
 
@@ -1276,11 +1296,13 @@ def _pick_weekly_concept() -> tuple[str, str | None]:
     duplicate avoidance lives (it scores candidates against the entire
     published catalog), so a week that skips it has one weak defense left.
 
-    pick_concept() degrades on its own when the external recipe sites are
-    unreachable — an empty scrape routes to a curated fallback list that is
-    still filtered against catalog novelty, which needs no third-party
-    network. So "sources unreachable" is survivable and only "no candidate
-    survived novelty filtering" reaches the raise below.
+    pick_concept() no longer depends on third-party recipe sites (#6858):
+    candidates come from an LLM brainstorm over the published catalog with a
+    curated per-category pool behind it, and the scrape is optional
+    inspiration that can fail with no effect. So "sources unreachable" is a
+    non-event; what reaches the raise below is "the catalog could not be read"
+    or "no candidate survived the category / form / novelty filters" — both of
+    which mean nothing is standing between this week and a duplicate.
     """
     try:
         from scripts.pick_concept import pick_concept, pick_target_category
@@ -1316,9 +1338,9 @@ def _pick_weekly_concept() -> tuple[str, str | None]:
             return concept, target_category
 
         last_error = ConceptSelectionError(
-            "concept picker returned no candidate: external sources were "
-            "unreachable AND every curated fallback was filtered out by the "
-            "novelty check"
+            "concept picker returned no candidate: every brainstormed and "
+            "curated candidate was filtered out by the category, form and "
+            "novelty checks"
         )
         logger.warning(
             f"Concept pick attempt {attempt}/{_CONCEPT_PICK_ATTEMPTS} "
@@ -1337,7 +1359,9 @@ def _resolve_monday_concept(body: StageRequest, ep: dict) -> tuple[str, str | No
 
     Precedence:
       1. An explicit body.concept always wins — that is the documented manual
-         override and the RUNBOOK recovery path.
+         override and the RUNBOOK recovery path. Its category is
+         body.target_category, else the stored one, else None — and None is
+         resolved AFTER the baker runs, from the baker's own classification.
       2. A real stored concept is kept, so re-firing Monday mid-week does not
          swap the dish out from under stages that already ran.
       3. Otherwise pick fresh.
@@ -1357,26 +1381,20 @@ def _resolve_monday_concept(body: StageRequest, ep: dict) -> tuple[str, str | No
     ).get("target_category")
 
     if body.concept:
-        # An explicit concept skips the picker, but NOT the category pick.
-        # target_category is the integrity check's proxy for "the picker ran",
-        # so leaving it None here would make the RUNBOOK's own INCIDENT 4
-        # recovery command produce a permanently DEGRADED-looking week.
-        # pick_target_category only reads the catalog — no scraping, no spend —
-        # so it is cheap enough to run on the manual path too. Best effort: if
-        # it fails, the picker module really is broken, and reporting the week
-        # as degraded is then the correct answer rather than a false alarm.
-        category = stored_category
-        if not category:
-            try:
-                from scripts.pick_concept import pick_target_category
-
-                category = pick_target_category()
-            except Exception as exc:
-                logger.error(
-                    f"Explicit concept given but the category picker failed "
-                    f"({type(exc).__name__}: {exc}); this week will read as "
-                    f"degraded until a stage sets target_category"
-                )
+        # An explicit concept is the operator's choice of dish, so its category
+        # is the dish's own — never a guess at the thinnest shelf. The old code
+        # ran pick_target_category() here, which would have labelled W36's
+        # Portuguese custard tarts by whatever shelf happened to be thinnest
+        # (#6858, #6877) — and now that Monday enforces the target category on
+        # the recipe, that guess would have overwritten the right answer.
+        #
+        # Precedence: body.target_category (validated to one of
+        # VALID_CATEGORIES in _parse_body), then a category already stored on
+        # the episode, else None. cron_monday resolves None from the baker's
+        # own CATEGORY: line after baking, so target_category is still written
+        # — the integrity check reads a null as "the picker never ran", and the
+        # RUNBOOK INCIDENT 4 recovery must leave a clean week.
+        category = normalize_category(body.target_category) or stored_category
         return body.concept.strip(), category
 
     stored = str(ep.get("concept") or "").strip()
@@ -1388,6 +1406,179 @@ def _resolve_monday_concept(body: StageRequest, ep: dict) -> tuple[str, str | No
         return stored, stored_category
 
     return _pick_weekly_concept()
+
+
+# ---------------------------------------------------------------------------
+# Monday baker gates — title (#5911), form, ingredients (#6854), category (#6858)
+# ---------------------------------------------------------------------------
+
+# First bake plus two retries. Same worst case as the old sequential
+# title-retry-then-form-retry code (three baker calls), but every gate now runs
+# on every attempt, so a retry that satisfies one gate cannot slip past another.
+_MAX_BAKER_ATTEMPTS = 3
+
+
+def _category_from_recipe(recipe_data: dict | None) -> str | None:
+    """The baker's own CATEGORY: classification, title-cased, if it is valid."""
+    if not isinstance(recipe_data, dict):
+        return None
+    return normalize_category(recipe_data.get("category"))
+
+
+def _enforce_target_category(
+    recipe_data: dict | None, target_category: str | None
+) -> dict | None:
+    """Make the recipe's category agree with the category the week was picked for.
+
+    The picker chooses the concept FOR a category (the thinnest shelf), so the
+    category is decided before the baker runs. The baker's CATEGORY: line is
+    its own classification of its output, and it gets that wrong: W36's
+    Portuguese custard tart came back "savory" (#6877). The Sunday publisher
+    copies recipe_data.category into the catalog verbatim, so a wrong label
+    both mis-shelves the recipe on /recipes and under-reports the count the
+    next category pick reads — the imbalance quietly feeds itself (#6858).
+
+    No-op without a target (explicit-concept path with no category supplied
+    or stored): then the baker's classification is the honest one and stands.
+    """
+    if not isinstance(recipe_data, dict) or not target_category:
+        return recipe_data
+    want = target_category.strip().lower()
+    have = str(recipe_data.get("category") or "").strip().lower()
+    if have != want:
+        logger.warning(
+            f"Baker labelled '{recipe_data.get('title', '')}' as "
+            f"{have or 'nothing'!r}; overriding to this week's target category "
+            f"{want!r}"
+        )
+        recipe_data["category"] = want
+    return recipe_data
+
+
+def _bake_through_gates(
+    orchestrator,
+    ep: dict,
+    concept: str,
+    target_category: str | None,
+    recent_cuisines: list[str],
+    catalog: dict,
+) -> tuple[dict, list[dict]]:
+    """Run the baker until its recipe clears every Monday gate, or fail closed.
+
+    Gates, on EVERY attempt, in order:
+      1. title uniqueness against the catalog (#5911 — deliberately relaxed
+         threshold; read RUNBOOK INCIDENT 3 before touching it),
+      2. muffin-pan form (the pan must shape the food),
+      3. ingredient overlap against the catalog (#6854) — the gate that would
+         have caught W36, whose title was fine and whose dish was not.
+
+    Each failure appends a targeted constraint to the concept for the next
+    attempt, so the baker is told exactly what to change. After
+    _MAX_BAKER_ATTEMPTS the last failure is raised as RuntimeError, which
+    _run_stage turns into a failed-stage record, an alert and a 500. Nothing
+    off-brand or duplicate is ever written to the episode.
+
+    Returns (recipe_data, gate_trace). The trace is stored on the stage so the
+    episode JSON shows that the gates ran and what they saw — the lesson of
+    INCIDENT 4 is that a duplicate check which skips itself leaves no mark.
+    """
+    catalog_titles = _catalog_titles(catalog)
+    catalog_recipes = _catalog_recipes(catalog)
+    episode_id = str(ep.get("episode_id") or "")
+
+    constraints: list[str] = []
+    trace: list[dict] = []
+    last_failure = "baker never ran"
+
+    for attempt in range(1, _MAX_BAKER_ATTEMPTS + 1):
+        attempt_concept = (
+            concept if not constraints else f"{concept}. " + " ".join(constraints)
+        )
+        recipe_data = orchestrator._execute_stage_baker(
+            ep["recipe_id"], attempt_concept, target_category=target_category,
+            recent_cuisines=recent_cuisines,
+        )
+        recipe_data = _enforce_target_category(recipe_data, target_category)
+        baker_title = recipe_data.get("title", "") if recipe_data else ""
+
+        conflict = check_title_conflict(baker_title, catalog_titles)
+        if conflict:
+            last_failure = f"duplicate title '{baker_title}': {conflict}"
+            trace.append({"attempt": attempt, "gate": "title", "result": conflict})
+            logger.warning(
+                f"Baker attempt {attempt}: {last_failure}. Retrying with an "
+                f"explicit blacklist."
+            )
+            blacklist = ", ".join(f"'{t}'" for t in catalog_titles[:15])
+            constraints.append(
+                f"CRITICAL: the title must NOT be similar to any of these "
+                f"already-published recipes: {blacklist}. Pick a distinctive "
+                f"angle with different key words."
+            )
+            continue
+
+        form_issue = check_muffin_pan_form(recipe_data)
+        if form_issue:
+            last_failure = f"off-brand muffin-pan form '{baker_title}': {form_issue}"
+            trace.append({"attempt": attempt, "gate": "form", "result": form_issue})
+            logger.warning(
+                f"Baker attempt {attempt}: {last_failure}. Retrying with explicit "
+                f"form constraints."
+            )
+            constraints.append(
+                "CRITICAL MUFFIN-PAN FORM: the finished dish must bind into "
+                "self-contained cups, bites, nests, or mini loaves that hold "
+                "shape after removal from the pan. The muffin tin must shape "
+                "the food, not merely portion loose fillings. Previous attempt "
+                f"failed because: {form_issue}."
+            )
+            continue
+
+        verdict = check_ingredient_overlap(
+            recipe_data, catalog_recipes, exclude_episode_id=episode_id or None,
+        )
+        best = verdict.best
+        trace.append({
+            "attempt": attempt,
+            "gate": "ingredients",
+            "status": verdict.status,
+            "new_items": verdict.new_items,
+            "closest": best.title if best else None,
+            "score": best.score if best else None,
+        })
+        if verdict.status == "duplicate" and best is not None:
+            last_failure = (
+                f"same dish as a published recipe — '{baker_title}': {verdict.reason}"
+            )
+            logger.warning(
+                f"Baker attempt {attempt}: {last_failure}. Retrying with the "
+                f"match named."
+            )
+            shared = ", ".join(best.shared[:8])
+            constraints.append(
+                f"CRITICAL: an earlier attempt produced the same dish as the "
+                f"already-published '{best.title}' (ingredient overlap "
+                f"{best.score:.0%}; shared: {shared}). This week's recipe must "
+                f"be a genuinely different dish — change the core ingredients "
+                f"and the construction, not just the name."
+            )
+            continue
+        if verdict.status == "skipped_thin":
+            # Visible, not silent: a recipe too thin to compare is itself a
+            # quality signal, and the trace above records the skip.
+            logger.warning(
+                f"Ingredient gate skipped for '{baker_title}': {verdict.reason}"
+            )
+
+        if attempt > 1:
+            logger.info(f"Baker attempt {attempt} cleared every gate: '{baker_title}'")
+        return recipe_data, trace
+
+    raise RuntimeError(
+        f"Baker could not clear the Monday gates in {_MAX_BAKER_ATTEMPTS} "
+        f"attempts. Last failure: {last_failure}. Re-fire /api/cron/monday "
+        f"with an explicit 'concept' in the body to bypass auto-pick."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1463,83 +1654,25 @@ async def cron_monday(request: Request):
         from backend.utils.title_validator import load_recent_cuisines
         recent_cuisines = load_recent_cuisines()
 
-        recipe_data = orchestrator._execute_stage_baker(
-            ep["recipe_id"], concept, target_category=target_category,
-            recent_cuisines=recent_cuisines,
+        # Every Monday gate reads the catalog through the ONE strict reader.
+        # It retries, then raises — and a raise here fails Monday closed via
+        # _run_stage before the baker spends anything. The old readers fell
+        # back to src/recipes.json, i.e. the ten launch seeds, so a CDN hiccup
+        # silently shrank every duplicate check to a ten-recipe view that
+        # still reported success (#6854, #6858).
+        catalog = load_published_catalog()
+
+        recipe_data, gate_trace = _bake_through_gates(
+            orchestrator, ep, concept, target_category, recent_cuisines, catalog,
         )
 
-        # #5911 — Catalog uniqueness check on the LLM-generated title.
-        # The concept picker is catalog-aware, but the baker can still
-        # produce a duplicate title downstream (e.g. W16 regenerating
-        # "Roasted Veggie Egg Cups" from W14). Retry once with an
-        # explicit blacklist, then hard-fail so nothing bad ships.
-        from backend.utils.title_validator import (
-            load_catalog_titles,
-            check_title_conflict,
-        )
-        from backend.utils.muffin_pan_form import check_muffin_pan_form
-        catalog_titles = load_catalog_titles()
-        baker_title = recipe_data.get("title", "") if recipe_data else ""
-        conflict = check_title_conflict(baker_title, catalog_titles)
-        if conflict:
-            logger.warning(
-                f"Baker title '{baker_title}' conflicts with catalog: {conflict}. "
-                f"Retrying baker with explicit blacklist."
-            )
-            blacklist = ", ".join(f"'{t}'" for t in catalog_titles[:15])
-            retry_concept = (
-                f"{concept}. CRITICAL: the title must NOT be similar to any "
-                f"of these already-published recipes: {blacklist}. "
-                f"Pick a distinctive angle with different key words."
-            )
-            recipe_data = orchestrator._execute_stage_baker(
-                ep["recipe_id"], retry_concept, target_category=target_category,
-                recent_cuisines=recent_cuisines,
-            )
-            baker_title = recipe_data.get("title", "") if recipe_data else ""
-            conflict = check_title_conflict(baker_title, catalog_titles)
-            if conflict:
-                # Raise as RuntimeError (not HTTPException) so _run_stage's
-                # failure handler runs: writes a failure record and notifies
-                # Discord. _run_stage will wrap this to HTTPException 500.
-                raise RuntimeError(
-                    f"Baker produced duplicate title twice. "
-                    f"Last attempt '{baker_title}': {conflict}. "
-                    f"Re-fire /api/cron/monday with an explicit 'concept' "
-                    f"in the body to bypass auto-pick."
-                )
-            logger.info(f"Baker retry succeeded: '{baker_title}'")
-
-        form_issue = check_muffin_pan_form(recipe_data)
-        if form_issue:
-            logger.warning(
-                f"Baker recipe '{baker_title}' failed muffin-pan form gate: {form_issue}. "
-                "Retrying baker with explicit form constraints."
-            )
-            retry_concept = (
-                f"{concept}. CRITICAL MUFFIN-PAN FORM: the finished dish must "
-                "bind into self-contained cups, bites, nests, or mini loaves "
-                "that hold shape after removal from the pan. The muffin tin "
-                "must shape the food, not merely portion loose fillings. "
-                f"Previous attempt failed because: {form_issue}."
-            )
-            recipe_data = orchestrator._execute_stage_baker(
-                ep["recipe_id"], retry_concept, target_category=target_category,
-                recent_cuisines=recent_cuisines,
-            )
-            baker_title = recipe_data.get("title", "") if recipe_data else ""
-            conflict = check_title_conflict(baker_title, catalog_titles)
-            if conflict:
-                raise RuntimeError(
-                    f"Baker form retry produced duplicate title '{baker_title}': {conflict}."
-                )
-            form_issue = check_muffin_pan_form(recipe_data)
-            if form_issue:
-                raise RuntimeError(
-                    f"Baker produced off-brand muffin-pan form twice. "
-                    f"Last attempt '{baker_title}': {form_issue}."
-                )
-            logger.info(f"Baker form retry succeeded: '{baker_title}'")
+        if not target_category:
+            # Explicit-concept path with no category supplied or stored: the
+            # operator chose the dish, so the honest label is the dish's own —
+            # the baker's CATEGORY: line — not a guess at the thinnest shelf.
+            target_category = _category_from_recipe(recipe_data)
+            if target_category:
+                ep["target_category"] = target_category
 
         dialogue, judge_verdict = _generate_and_judge_dialogue(
             "monday", concept, ep, model=body.model,
@@ -1553,6 +1686,7 @@ async def cron_monday(request: Request):
             "concept": concept,
             "target_category": target_category,
             "recipe_data": recipe_data,
+            "gate_trace": gate_trace,
             "dialogue": dialogue,
             "judge_verdict": judge_verdict,
             "completed_at": datetime.now(timezone.utc).isoformat(),

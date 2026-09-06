@@ -181,7 +181,7 @@ def test_cron_monday_retries_baker_when_form_gate_fails():
          patch.object(cron_routes, "_test_mode_scope", return_value=nullcontext()), \
          patch.object(cron_routes, "_load_or_create_episode", return_value=episode), \
          patch.object(cron_routes, "_get_orchestrator", return_value=FakeOrchestrator), \
-         patch("backend.utils.title_validator.load_catalog_titles", return_value=[]), \
+         patch.object(cron_routes, "load_published_catalog", return_value={"recipes": []}), \
          patch.object(cron_routes, "_generate_and_judge_dialogue", return_value=(
              [{"character": "Margaret", "message": "These hold together."}],
              "PASS",
