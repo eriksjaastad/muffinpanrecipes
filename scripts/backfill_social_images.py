@@ -1,6 +1,6 @@
 """Backfill deterministic JPEG siblings for existing PNG blobs.
 
-New PNG uploads create same-dimensions ``.jpg`` and 1200x630 ``.social.jpg``
+New PNG uploads create a 1200x630 ``.social.jpg``
 siblings in the storage layer. This script handles historical images and is
 idempotent: existing siblings are skipped. It lists candidates by default and
 only downloads/uploads when ``--upload`` is explicitly supplied.
@@ -27,10 +27,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import requests
 
+# Only the 1200x630 ``.social.jpg`` sibling is real: og:image/twitter:image
+# read it (episode_renderer._select_social_image_url). The pipeline never
+# produced a same-size ``.jpg`` sibling and nothing references one, and this
+# script imported a ``_jpeg_key`` helper that storage.py never defined — so it
+# had been unrunnable since it was written (found 2026-09-05 while landing
+# #6827). Scoped to the social sibling only.
 from backend.storage import (
-    _encode_jpeg,
     _encode_social_jpeg,
-    _jpeg_key,
     _social_jpeg_key,
 )
 
@@ -127,12 +131,6 @@ def main(argv: list[str] | None = None) -> int:
         for blob in all_blobs
         if blob.get("pathname", "").lower().endswith(".png")
     ]
-    existing_jpegs = {
-        blob.get("pathname", "").lower()
-        for blob in all_blobs
-        if blob.get("pathname", "").lower().endswith(".jpg")
-        and not blob.get("pathname", "").lower().endswith(".social.jpg")
-    }
     existing_social = {
         blob.get("pathname", "").lower()
         for blob in all_blobs
@@ -141,24 +139,20 @@ def main(argv: list[str] | None = None) -> int:
     todo = [
         blob
         for blob in pngs
-        if (
-            _jpeg_key(blob["pathname"]).lower() not in existing_jpegs
-            or _social_jpeg_key(blob["pathname"]).lower() not in existing_social
-        )
+        if _social_jpeg_key(blob["pathname"]).lower() not in existing_social
     ]
 
     mode = "upload" if args.upload else "dry-run"
     print(
-        f"JPEG image backfill ({mode}): {len(pngs)} PNGs, "
-        f"{len(existing_jpegs)} page JPEGs, {len(existing_social)} social JPEGs, "
-        f"{len(todo)} PNGs with missing siblings"
+        f"Social JPEG backfill ({mode}): {len(pngs)} PNGs, "
+        f"{len(existing_social)} social JPEGs, "
+        f"{len(todo)} PNGs missing a .social.jpg sibling"
     )
 
     if not args.upload:
         for blob in todo:
             print(
                 f"  would process: {blob['pathname']} -> "
-                f"{_jpeg_key(blob['pathname'])}, "
                 f"{_social_jpeg_key(blob['pathname'])}"
             )
         return 0
@@ -170,11 +164,7 @@ def main(argv: list[str] | None = None) -> int:
         social_pathname = _social_jpeg_key(png_pathname)
         try:
             png_bytes = fetch_blob_bytes(blob.get("url", ""))
-            jpeg_pathname = _jpeg_key(png_pathname)
-            if jpeg_pathname.lower() not in existing_jpegs:
-                upload_jpeg(token, jpeg_pathname, _encode_jpeg(png_bytes))
-            if social_pathname.lower() not in existing_social:
-                upload_jpeg(token, social_pathname, _encode_social_jpeg(png_bytes))
+            upload_jpeg(token, social_pathname, _encode_social_jpeg(png_bytes))
         except Exception:  # noqa: BLE001 - continue the idempotent batch after one bad image
             # Continue so one corrupt image or transient upload does not stop
             # the rest of the idempotent backfill.
