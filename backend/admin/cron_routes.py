@@ -256,9 +256,19 @@ def _generate_dialogue(
 
 DAY_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
+# #6861 - the judge used to be a boolean ("Respond with EXACTLY one line: PASS
+# or FAIL"). Nothing accumulated, so nothing could trend, and its checklist
+# never asked whether the expected characters showed up or whether anyone
+# was actually talking TO anyone else - the two failures Erik reported
+# (Julian/Devon absent from a photography day; dialogue reading as "sound
+# bites... put next to each other"). This version scores 8 dimensions,
+# still resolves to a PASS/FAIL gate, and fails closed on its own output
+# instead of ever defaulting to PASS (this is the publish gate).
 _JUDGE_SYSTEM_PROMPT = (
     "You are a senior editorial judge for a food content site. "
-    "6 characters (Margaret, Steph, Julian, Marcus, Devon, Ria) collaborate on a muffin-tin recipe each week.\n\n"
+    "6 characters (Margaret, Steph, Julian, Marcus, Devon, Ria) collaborate on a muffin-tin "
+    "recipe each week. Not everyone appears every day - the EXPECTED CAST FOR TODAY line in "
+    "the prompt below tells you who is supposed to be in today's scene.\n\n"
     "CHARACTER RULES:\n"
     "- Margaret: Blunt, short sentences, zero fluff, standards enforcer\n"
     "- Steph: Warm, diplomatic, NOT a nervous intern\n"
@@ -266,19 +276,63 @@ _JUDGE_SYSTEM_PROMPT = (
     "- Marcus: Literary, verbose, metaphor-heavy\n"
     "- Devon: Efficient, understated, speaks only when needed\n"
     "- Ria: Direct, platform-savvy, thinks in hooks and engagement, impatient with process\n\n"
-    "CHECK FOR:\n"
+    "AUTOMATIC FAIL, regardless of the scores below:\n"
     "1. RECIPE FIDELITY: When a 'This week's recipe:' line is provided, the dialogue\n"
     "   must stay anchored to that dish. FAIL if characters discuss techniques or\n"
     "   ingredients that contradict it (e.g., 'brown butter' or 'glaze' for a savory\n"
     "   sausage-and-egg recipe; 'pastry ratios' for a hash-brown nest).\n"
-    "2. HALLUCINATIONS: Wrong ingredients/details not matching the recipe or concept\n"
-    "3. CHARACTER BREAKS: Someone wildly out of character\n"
-    "4. CONTINUITY: References to previous days must be accurate\n"
-    "5. NATURALNESS: Should sound like real coworkers\n\n"
-    "Respond with EXACTLY one line: PASS or FAIL followed by a brief reason.\n"
-    "Example: PASS - Characters are distinct, recipe-anchored, good tension.\n"
-    "Example: FAIL - Margaret talks 'pastry ratios' but the recipe is hash brown nests."
+    "2. HALLUCINATIONS: Wrong ingredients/details not matching the recipe or concept.\n"
+    "3. CHARACTER BREAKS: Someone wildly out of character.\n"
+    "4. CONTINUITY: A reference to a previous day that is not accurate.\n\n"
+    "SCORE EACH DIMENSION 1-5 (1 = fails badly, 5 = excellent):\n"
+    "- title_fidelity: does the talk stay anchored to the named dish/hero ingredient,\n"
+    "  or does it wander into an unrelated tangent (e.g. a salmon dish disappearing\n"
+    "  into a rice essay)?\n"
+    "- arc_resolution: does a problem a character raises actually get resolved, not\n"
+    "  reframed away or dropped?\n"
+    "- voice_distinctiveness: are the characters who spoke today separable blind, each\n"
+    "  sounding like themselves and nobody else?\n"
+    "- technical_credibility: would a real cook believe the food science here?\n"
+    "- natural_progression: does the conversation build, or do characters repeat\n"
+    "  themselves and agree in circles?\n"
+    "- promise_delivery: does the dialogue promise something (a technique, a visual, a\n"
+    "  result) that the recipe or images plausibly can't deliver?\n"
+    "- turn_taking: do lines actually respond to the one before them - addressing,\n"
+    "  answering, questioning, pushing back - or does each message read as a polished\n"
+    "  monologue stacked next to the last one, sound bites rather than a conversation?\n"
+    "- cast_coverage: EXPECTED CAST FOR TODAY is given in the prompt below. Score 5\n"
+    "  only if everyone on that list actually spoke and contributed something\n"
+    "  substantive; score low if someone on the list is silent, or a no-show in a\n"
+    "  scene that is supposed to be about their job (e.g. a photography discussion\n"
+    "  with no photographer).\n\n"
+    "Respond with ONLY a JSON object - no markdown fences, no prose before or after it:\n"
+    '{"scores": {"title_fidelity": 1-5, "arc_resolution": 1-5, "voice_distinctiveness": 1-5, '
+    '"technical_credibility": 1-5, "natural_progression": 1-5, "promise_delivery": 1-5, '
+    '"turn_taking": 1-5, "cast_coverage": 1-5}, "verdict": "PASS" or "FAIL", '
+    '"weakest": ["<1-3 lowest-scoring dimension names>"], "reason": "<one sentence>"}\n'
+    "FAIL if any automatic-fail condition above applies, or if the scores overall don't "
+    "support shipping this to readers. PASS only when the conversation is genuinely "
+    "ready to publish."
 )
+
+
+def _parse_judge_json(raw: str) -> dict | None:
+    """Extract and parse the judge's structured verdict.
+
+    Slices from the first '{' to the last '}' so a stray markdown fence or a
+    sentence of preamble the model adds despite instructions doesn't break
+    parsing. Returns None on any failure - callers retry once, then fail
+    closed (#6861: this is the publish gate, never default to PASS).
+    """
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
+    try:
+        parsed = json.loads(raw[start:end + 1])
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
 
 
 def _judge_dialogue(
@@ -290,7 +344,12 @@ def _judge_dialogue(
 ) -> tuple[bool, str]:
     """Judge today's dialogue with growing context from previous days.
 
-    Returns (passed: bool, verdict: str).
+    Returns (passed: bool, verdict: str) — kept as a 2-tuple for backward
+    compatibility; several tests and every call site unpack exactly this.
+    The full structured score (#6861) is written onto `episode` instead —
+    judge_scores / judge_weakest / judge_reason, each keyed by `stage` —
+    mirroring how `_score_dialogue_qa` already stashes qa_scores on the
+    episode rather than widening this function's return signature.
 
     When recipe_context is supplied, the judge enforces recipe fidelity —
     flagging dialogue that drifts off the actual dish (e.g., characters
@@ -322,25 +381,35 @@ def _judge_dialogue(
         context_section = "PREVIOUS DAYS:\n" + "\n\n".join(previous_context) + "\n\n---\n\n"
 
     recipe_section = f"{recipe_context}\n\n" if recipe_context else ""
+
+    # Expected cast for today, so cast_coverage is judgeable (#6861/#6832).
+    # Lazy import mirrors _get_run_simulation()'s pattern above — the judge
+    # path only needs one function out of the simulator module.
+    from scripts.simulate_dialogue_week import participants_for_day
+    roster_line = f"Expected cast for today ({stage}): {', '.join(participants_for_day(stage))}\n"
+
     prompt = (
         f"Recipe concept: {concept}\n"
         f"{recipe_section}"
+        f"{roster_line}"
         f"{context_section}"
         f"TODAY IS {stage.upper()}:\n"
         + "\n".join(today_lines)
-        + "\n\nJudge this day. One line: PASS or FAIL with reason."
+        + "\n\nScore this day and return the JSON verdict described in your instructions."
     )
 
+    def _record_judge_meta(scores: dict, weakest: list, reason: str) -> None:
+        episode.setdefault("judge_scores", {})[stage] = scores
+        episode.setdefault("judge_weakest", {})[stage] = weakest
+        episode.setdefault("judge_reason", {})[stage] = reason
+
     try:
-        verdict = generate_judge_response(
+        raw = generate_judge_response(
             prompt=prompt,
             system_prompt=_JUDGE_SYSTEM_PROMPT,
             model=judge_model,
             temperature=0.2,
         ).strip()
-        passed = verdict.upper().startswith("PASS")
-        logger.info(f"Judge verdict for {stage}: {verdict[:200]}")
-        return passed, verdict
     except Exception as e:
         # TRIAGE (#6856): FAILS CLOSED, deliberately. Returning False routes
         # into the retry loop in _generate_and_judge_dialogue, which raises
@@ -349,6 +418,68 @@ def _judge_dialogue(
         # unjudged dialogue through (the PR #45 contract).
         logger.error(f"Judge errored for {stage} (treated as FAIL): {type(e).__name__}: {e}")
         return False, f"JUDGE ERROR: {type(e).__name__}: {e}"
+
+    parsed = _parse_judge_json(raw)
+    if parsed is None:
+        # One retry with a stricter reminder — models occasionally wrap the
+        # JSON in a markdown fence or add a sentence of preamble despite
+        # being told not to (#6861).
+        retry_prompt = (
+            f"{prompt}\n\nCRITICAL: your previous response could not be parsed as JSON. "
+            "Return ONLY the JSON object described above. No markdown fences, no prose "
+            "before or after it."
+        )
+        try:
+            raw = generate_judge_response(
+                prompt=retry_prompt,
+                system_prompt=_JUDGE_SYSTEM_PROMPT,
+                model=judge_model,
+                temperature=0.1,
+            ).strip()
+        except Exception as e:
+            logger.error(f"Judge errored on retry for {stage} (treated as FAIL): {type(e).__name__}: {e}")
+            return False, f"JUDGE ERROR: {type(e).__name__}: {e}"
+        parsed = _parse_judge_json(raw)
+
+    if parsed is None:
+        # FAIL CLOSED (#6861). This is the publish gate — an unparseable
+        # verdict must never be waved through as a PASS by default.
+        reason = "judge output unparseable"
+        _record_judge_meta({}, [], reason)
+        logger.error(f"Judge output unparseable for {stage} after retry: {raw[:200]!r}")
+        return False, f"FAIL - {reason}"
+
+    scores = parsed.get("scores")
+    scores = scores if isinstance(scores, dict) else {}
+    weakest = parsed.get("weakest")
+    weakest = weakest if isinstance(weakest, list) else ([str(weakest)] if weakest else [])
+    reason = str(parsed.get("reason") or "")
+    passed = str(parsed.get("verdict") or "").strip().upper() == "PASS"
+
+    _record_judge_meta(scores, weakest, reason)
+
+    verdict = f"{'PASS' if passed else 'FAIL'}" + (f" - {reason}" if reason else "")
+    if not passed and weakest:
+        verdict += f" | weakest: {', '.join(str(w) for w in weakest[:3])}"
+    if not passed and scores:
+        verdict += f" | scores: {scores}"
+    logger.info(f"Judge verdict for {stage}: {verdict[:300]}")
+    return passed, verdict
+
+
+def _judge_meta_fields(episode: dict, stage: str) -> dict:
+    """Structured judge output for `stage`, for spreading into a stage record
+    next to judge_verdict (#6861). `_judge_dialogue` writes these onto the
+    episode as a side effect (mirroring qa_scores) since its return stays a
+    2-tuple for compatibility; empty defaults when the judge was mocked out
+    or never ran (test call sites that patch `_generate_and_judge_dialogue`
+    wholesale never populate them, which is fine).
+    """
+    return {
+        "judge_scores": episode.get("judge_scores", {}).get(stage, {}),
+        "judge_weakest": episode.get("judge_weakest", {}).get(stage, []),
+        "judge_reason": episode.get("judge_reason", {}).get(stage, ""),
+    }
 
 
 class JudgeFailedError(Exception):
@@ -1714,6 +1845,7 @@ async def cron_monday(request: Request):
             "gate_trace": gate_trace,
             "dialogue": dialogue,
             "judge_verdict": judge_verdict,
+            **_judge_meta_fields(ep, "monday"),
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
         ep["events"].append("monday: complete")
@@ -1754,6 +1886,7 @@ async def cron_tuesday(request: Request):
             "recipe_data_ref": "from monday stage",
             "dialogue": dialogue,
             "judge_verdict": judge_verdict,
+            **_judge_meta_fields(ep, "tuesday"),
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
         ep["events"].append("tuesday: complete")
@@ -1869,6 +2002,7 @@ async def cron_wednesday(request: Request):
             "confirmed_winner": photography_result.get("winner", {}) if isinstance(photography_result, dict) else {},
             "dialogue": dialogue,
             "judge_verdict": judge_verdict,
+            **_judge_meta_fields(ep, "wednesday"),
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
         ep["image_paths"] = image_paths
@@ -1921,6 +2055,7 @@ async def cron_thursday(request: Request):
             "copy_text": copy_text,
             "dialogue": dialogue,
             "judge_verdict": judge_verdict,
+            **_judge_meta_fields(ep, "thursday"),
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
         ep["events"].append("thursday: complete")
@@ -1976,6 +2111,7 @@ async def cron_friday(request: Request):
             "review_data": review_output,
             "dialogue": dialogue,
             "judge_verdict": judge_verdict,
+            **_judge_meta_fields(ep, "friday"),
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
         ep["events"].append("friday: complete")
@@ -2024,6 +2160,7 @@ async def cron_saturday(request: Request):
             "deployment_status": "staged",
             "dialogue": dialogue,
             "judge_verdict": judge_verdict,
+            **_judge_meta_fields(ep, "saturday"),
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
         ep["events"].append("saturday: complete")
@@ -2209,6 +2346,7 @@ async def cron_sunday(request: Request):
             "image_cleaned": published_image_cleaned,
             "dialogue": dialogue,
             "judge_verdict": judge_verdict,
+            **_judge_meta_fields(ep, "sunday"),
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
         ep["events"].append("sunday: complete (published)")
