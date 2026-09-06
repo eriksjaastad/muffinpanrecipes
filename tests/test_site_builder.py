@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from contextlib import contextmanager
 
 import pytest
@@ -232,6 +233,104 @@ def test_no_cloud_uses_validated_local_sources(tmp_path):
         storage_client=LocalStorage(),
     ).build(["2026-W34"])
     assert "recipes.json" in result.written
+
+
+def test_pre_episode_id_catalog_entry_is_adopted_not_duplicated(tmp_path):
+    """#6688: a catalog entry published before the pipeline stamped
+    episode_id used to be re-added under a "<slug>-2026-wNN" alias because
+    the old dedup keyed on episode_id alone, which no pre-stamp entry has.
+    Same slug (an exact identity match, per _catalog_duplicate_reason) must
+    adopt the existing row instead of minting a second page for it."""
+    _write_local_sources(tmp_path)
+    storage = FakeStorage(
+        catalog=[{"slug": "kimchi-cheddar-rice-cups", "title": "Kimchi Cheddar Rice Cups"}]
+    )
+    builder = StaticSiteBuilder(
+        project_root=tmp_path,
+        output_dir=tmp_path / "site",
+        full_rebuild=True,
+        storage_client=storage,
+    )
+
+    result = builder.build(["2026-W34"])
+
+    catalog = json.loads((tmp_path / "site" / "recipes.json").read_text(encoding="utf-8"))
+    slugs = [r["slug"] for r in catalog["recipes"]]
+    assert slugs.count("kimchi-cheddar-rice-cups") == 1
+    assert not any(slug.endswith("-2026-w34") for slug in slugs)
+    adopted = next(r for r in catalog["recipes"] if r["slug"] == "kimchi-cheddar-rice-cups")
+    assert adopted["episode_id"] == "2026-W34"
+    assert "recipes/kimchi-cheddar-rice-cups/index.html" in result.written
+    assert not any(path.endswith("-2026-w34/index.html") for path in result.written)
+
+
+def test_two_different_episodes_that_would_share_a_slug_both_get_pages(tmp_path):
+    """A slug collision between two genuinely different episodes (no shared
+    identity) must still fall through to the old suffixing behavior — dedup
+    must never merge two real recipes onto one page."""
+    _write_local_sources(tmp_path)
+    first = _episode("2026-W10")
+    second = _episode("2026-W11")
+    second["stages"]["monday"]["recipe_data"]["description"] = "A completely different filling."
+    second["stages"]["monday"]["recipe_data"]["ingredients"] = [{"amount": "2 cups", "item": "beans"}]
+
+    class TwoEpisodeStorage(FakeStorage):
+        def load_episode(self, episode_id):
+            return {"2026-W10": first, "2026-W11": second}.get(episode_id)
+
+        def list_episodes(self):
+            return [first, second]
+
+    builder = StaticSiteBuilder(
+        project_root=tmp_path,
+        output_dir=tmp_path / "site",
+        full_rebuild=True,
+        storage_client=TwoEpisodeStorage(catalog=[{"slug": "unrelated-cup", "title": "Unrelated Cup"}]),
+    )
+
+    builder.build(["2026-W10", "2026-W11"])
+
+    catalog = json.loads((tmp_path / "site" / "recipes.json").read_text(encoding="utf-8"))
+    slugs = {r["slug"] for r in catalog["recipes"]}
+    kimchi_slugs = {slug for slug in slugs if slug.startswith("kimchi-cheddar-rice-cups")}
+    assert "kimchi-cheddar-rice-cups" in kimchi_slugs
+    assert len(kimchi_slugs) == 2, f"expected two distinct pages, got {kimchi_slugs}"
+
+
+def test_heuristic_duplicate_match_logs_a_warning(tmp_path, caplog):
+    """Slug/recipe_id/episode_id are exact identity; an image-key match is a
+    heuristic. A false positive there silently merges two real recipes onto
+    one page, so it must be loud (warning), not quiet (info) like the exact
+    matches above."""
+    _write_local_sources(tmp_path)
+    episode = _episode("2026-W34")
+    episode["image_urls"] = ["/blob-images/abc123/round_1/hero.png"]
+    storage = FakeStorage(
+        episode=episode,
+        catalog=[
+            {
+                "slug": "old-name-for-this-cup",
+                "title": "Old Name For This Cup",
+                "image": "/blob-images/abc123/round_1/hero.png",
+            }
+        ],
+    )
+    builder = StaticSiteBuilder(
+        project_root=tmp_path,
+        output_dir=tmp_path / "site",
+        full_rebuild=True,
+        storage_client=storage,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = builder.build(["2026-W34"])
+
+    assert any("heuristic match" in record.getMessage() for record in caplog.records)
+    catalog = json.loads((tmp_path / "site" / "recipes.json").read_text(encoding="utf-8"))
+    slugs = [r["slug"] for r in catalog["recipes"]]
+    assert slugs.count("old-name-for-this-cup") == 1
+    assert "kimchi-cheddar-rice-cups" not in slugs
+    assert "recipes/old-name-for-this-cup/index.html" in result.written
 
 
 def test_storage_without_cloud_probe_uses_local_sources(tmp_path):

@@ -5,9 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <!-- Google tag (gtag.js) — keep in sync with backend/publishing/analytics.py.
-         This file is served statically by Vercel, so it can't import the
-         shared constant; tests/test_seo.py asserts the two agree. -->
+    <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-05P73D3237"></script>
     <script>
       window.dataLayer = window.dataLayer || [];
@@ -18,16 +16,14 @@
     </script>
 
     <title>Muffin Pan Recipes | Editorial Cookery</title>
-    <meta name="description"
-        content="Gourmet, mathematically-scaled recipes designed exclusively for muffin tins. Breakfast, Savory, and Sweet single-serving meals.">
+    <meta name="description" content="Gourmet, mathematically-scaled recipes designed exclusively for muffin tins. Breakfast, Savory, and Sweet single-serving meals.">
     <link rel="canonical" href="https://muffinpanrecipes.com/">
 
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://muffinpanrecipes.com/">
     <meta property="og:title" content="Muffin Pan Recipes | Editorial Cookery">
-    <meta property="og:description"
-        content="Gourmet, mathematically-scaled recipes designed exclusively for muffin tins. Breakfast, Savory, and Sweet single-serving meals.">
+    <meta property="og:description" content="Gourmet, mathematically-scaled recipes designed exclusively for muffin tins. Breakfast, Savory, and Sweet single-serving meals.">
     <meta property="og:image" content="https://muffinpanrecipes.com/assets/images/classic-blueberry-muffins.webp">
     <meta property="og:image:width" content="1024">
     <meta property="og:image:height" content="1024">
@@ -36,8 +32,7 @@
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:url" content="https://muffinpanrecipes.com/">
     <meta name="twitter:title" content="Muffin Pan Recipes | Editorial Cookery">
-    <meta name="twitter:description"
-        content="Gourmet, mathematically-scaled recipes designed exclusively for muffin tins.">
+    <meta name="twitter:description" content="Gourmet, mathematically-scaled recipes designed exclusively for muffin tins.">
     <meta name="twitter:image" content="https://muffinpanrecipes.com/assets/images/classic-blueberry-muffins.webp">
 
     <!-- Structured data: site identity. Gives Google a stable WebSite +
@@ -69,13 +64,9 @@
     </script>
 
     <!-- Favicon -->
-    <link rel="icon"
-        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧁</text></svg>">
-    <!-- Vercel Speed Insights -->
-    <!-- Editorial Typography: Playfair Display for Serifs, Inter for Sans-Serif -->
-    <link
-        href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,700&family=Inter:wght@400;500;600;700&display=swap"
-        rel="stylesheet">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧁</text></svg>">
+    <!-- Editorial Typography: Playfair Display for Serifs, Inter for Sans-Serif.
+         Self-hosted via @font-face in site.css (#6433). -->
     <link rel="stylesheet" href="/assets/site.css">
 </head>
 
@@ -100,21 +91,32 @@
 
     <main class="site-main site-main--wide">
 
-        <!-- Featured Recipe Hero -->
-        <!-- Skeleton mirrors the loaded layout so the async swap doesn't shift
-             the page mid-tap (mobile taps were landing on the wrong element
-             while content loaded in). -->
+        <!-- Featured Recipe Hero — server-rendered from the build catalog
+             (#6821); the JS below repaints this on load from the live
+             /recipes.json, replacing (not appending to) this markup. -->
         <section id="featured-recipe" class="featured" aria-live="polite">
-            <div class="featured__grid" aria-hidden="true">
-                <div class="skeleton skeleton--img"></div>
-                <div>
-                    <div class="skeleton" style="height:0.75rem;width:8rem;margin-bottom:1.5rem"></div>
-                    <div class="skeleton" style="height:3rem;width:75%;margin-bottom:1.5rem"></div>
-                    <div class="skeleton skeleton--soft" style="height:1rem;width:100%;margin-bottom:0.75rem"></div>
-                    <div class="skeleton skeleton--soft" style="height:1rem;width:83.3333%;margin-bottom:2rem"></div>
-                    <div class="skeleton" style="height:3rem;width:11rem"></div>
-                </div>
-            </div>
+            <a href="/recipes/caramelized-custard-tart-cups" class="featured-link">
+                    <div class="featured__grid">
+                        <div class="featured__image">
+                            <img src="/blob-images/e7956950/round_1/macro_closeup.webp" srcset="/blob-images/e7956950/round_1/macro_closeup-400w.webp 400w, /blob-images/e7956950/round_1/macro_closeup-800w.webp 800w, /blob-images/e7956950/round_1/macro_closeup.webp 1536w" sizes="(max-width: 768px) 100vw, 720px"
+                                 width="1536"
+                                 height="1536"
+                                 onerror="handleImageError(this)"
+                                 alt="Caramelized Custard Tart Cups">
+                        </div>
+                        <div>
+                            <p class="featured__eyebrow">Featured Recipe</p>
+                            <h2 class="featured__title">Caramelized Custard Tart Cups</h2>
+                            <p class="featured__desc">These Portuguese-inspired custard tart cups capture the blistered, caramelized tops and shattering layers of traditional pastéis de nata, reimagined for a standard muffin pan. A quick laminated puff pastry base hugs a silky lemon–cinnamon custard that bakes into golden, freckled rounds that lift cleanly from the tin.</p>
+                            <div class="featured__meta">
+                                <span>⏱️ 15 mins</span>
+                                <span>🔥 20 mins</span>
+                                <span>🧁 12 servings</span>
+                            </div>
+                            <span class="featured__cta">View Recipe →</span>
+                        </div>
+                    </div>
+                </a>
         </section>
 
 
@@ -135,14 +137,491 @@
             </a>
         </section>
 
-        <!-- Editorial Grid -->
+        <!-- Editorial Grid — server-rendered from the build catalog (#6821);
+             the JS below repaints this on load from the live /recipes.json,
+             replacing (not appending to) these cards. -->
         <h2 id="recipes-heading" class="recipes-heading">Recipes</h2>
         <div class="recipe-card-grid" id="recipe-grid">
-            <!-- Grid items will be populated here -->
+            <a href="/recipes/lemon-ricotta-polenta-cups" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="/blob-images/aab568be/round_1/macro_closeup.webp" srcset="/blob-images/aab568be/round_1/macro_closeup-400w.webp 400w, /blob-images/aab568be/round_1/macro_closeup-800w.webp 800w, /blob-images/aab568be/round_1/macro_closeup.webp 1536w" sizes="(max-width: 640px) 100vw, 400px"
+                         width="1536"
+                         height="1536"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Lemon Ricotta Polenta Cups">
+                </div>
+                <p class="recipe-grid-card__category">Sweet</p>
+                <h3 class="recipe-title">Lemon Ricotta Polenta Cups</h3>
+                <p class="recipe-grid-card__desc">These tender Italian-inspired cups layer a crisp, buttery polenta base with a creamy lemon–ricotta custard that bakes up just set and lightly golden. Each round, molded portion pops out of the tin as a self-contained, cheesecake-adjacent bite with a pleasantly sandy cornmeal crust and bright citrus finish. Serve warm or at room temperature with a dusting of powdered sugar and a few fresh berries.</p>
+            </a>
+            <a href="/recipes/tandoori-chicken-naan-cups" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="/blob-images/2937a3d6/round_1/macro_closeup.webp" srcset="/blob-images/2937a3d6/round_1/macro_closeup-400w.webp 400w, /blob-images/2937a3d6/round_1/macro_closeup-800w.webp 800w, /blob-images/2937a3d6/round_1/macro_closeup.webp 1536w" sizes="(max-width: 640px) 100vw, 400px"
+                         width="1536"
+                         height="1536"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Tandoori Chicken Naan Cups">
+                </div>
+                <p class="recipe-grid-card__category">Party</p>
+                <h3 class="recipe-title">Tandoori Chicken Naan Cups</h3>
+                <p class="recipe-grid-card__desc">These Tandoori Chicken Naan Cups pack smoky spiced chicken, cooling yogurt, and quick pickled onions into a soft, crisp-edged naan base molded right into the muffin wells. Each round cup holds together as a hand-held Indian-inspired bite with charry flavor and bright, tangy crunch. They’re just as good warm from the oven as they are at room temperature for lunches or parties.</p>
+            </a>
+            <a href="/recipes/kimchi-cheddar-rice-cups" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="/blob-images/2a2615c6/round_1/macro_closeup.webp" srcset="/blob-images/2a2615c6/round_1/macro_closeup-400w.webp 400w, /blob-images/2a2615c6/round_1/macro_closeup-800w.webp 800w, /blob-images/2a2615c6/round_1/macro_closeup.webp 1536w" sizes="(max-width: 640px) 100vw, 400px"
+                         width="1536"
+                         height="1536"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Kimchi Cheddar Rice Cups">
+                </div>
+                <p class="recipe-grid-card__category">Party</p>
+                <h3 class="recipe-title">Kimchi Cheddar Rice Cups</h3>
+                <p class="recipe-grid-card__desc">These Korean-inspired rice cups bake into crisp-edged, cheesy rounds packed with tangy kimchi, scallions, and sesame. Each cup holds together like a little rice cake with molten cheddar inside and a spicy gochujang drizzle on top. They’re equally good warm from the pan or at room temperature for lunches and parties.</p>
+            </a>
+            <a href="/recipes/miso-ginger-donburi-cups" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="/blob-images/999de521/round_1/macro_closeup.webp" srcset="/blob-images/999de521/round_1/macro_closeup-400w.webp 400w, /blob-images/999de521/round_1/macro_closeup-800w.webp 800w, /blob-images/999de521/round_1/macro_closeup.webp 1536w" sizes="(max-width: 640px) 100vw, 400px"
+                         width="1536"
+                         height="1536"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Miso Ginger Donburi Cups">
+                </div>
+                <p class="recipe-grid-card__category">Savory</p>
+                <h3 class="recipe-title">Miso Ginger Donburi Cups</h3>
+                <p class="recipe-grid-card__desc">Tender miso-ginger glazed salmon is tucked into crisp nori–sesame rice bases that bake into sturdy, round cups you can lift straight from the pan. Each molded cup eats like a single-serving salmon donburi, finished with scallions, cucumber, and a touch of Japanese mayo for richness.</p>
+            </a>
+            <a href="/recipes/smoky-chorizo-tortilla-cups" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="/blob-images/b040c5ab/round_1/macro_closeup.webp" srcset="/blob-images/b040c5ab/round_1/macro_closeup-400w.webp 400w, /blob-images/b040c5ab/round_1/macro_closeup-800w.webp 800w, /blob-images/b040c5ab/round_1/macro_closeup.webp 1536w" sizes="(max-width: 640px) 100vw, 400px"
+                         width="1536"
+                         height="1536"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Smoky Chorizo Tortilla Cups">
+                </div>
+                <p class="recipe-grid-card__category">Party</p>
+                <h3 class="recipe-title">Smoky Chorizo Tortilla Cups</h3>
+                <p class="recipe-grid-card__desc">Corn tortillas are pressed into the muffin wells to form crisp, golden cups, then filled with smoky Spanish chorizo, sautéed peppers and onions, and a rich paprika‑spiked egg custard. Each round, flared cup bakes up into a self-contained bite with a tender center and crisp edges, perfect with a dollop of garlicky tomato aioli. These travel well, reheat beautifully, and hit that sweet spot between tapas and brunch.</p>
+            </a>
+            <a href="/recipes/saigon-sunrise-breakfast-cups" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="/blob-images/95e1af22/round_1/macro_closeup.webp" srcset="/blob-images/95e1af22/round_1/macro_closeup-400w.webp 400w, /blob-images/95e1af22/round_1/macro_closeup-800w.webp 800w, /blob-images/95e1af22/round_1/macro_closeup.webp 1536w" sizes="(max-width: 640px) 100vw, 400px"
+                         width="1536"
+                         height="1536"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Saigon Sunrise Breakfast Cups">
+                </div>
+                <p class="recipe-grid-card__category">Savory</p>
+                <h3 class="recipe-title">Saigon Sunrise Breakfast Cups</h3>
+                <p class="recipe-grid-card__desc">These Vietnamese-inspired breakfast cups bake up into tender, custardy rounds packed with caramelized pork, quick-pickled vegetables, and fresh herbs. Each cup carries the flavors of a classic bánh mì—savory, sweet, tangy, and herbaceous—held together in a neat, hand-friendly bite.</p>
+            </a>
+            <a href="/recipes/salsa-verde-chilaquiles-cups" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="/blob-images/c116e712/round_1/macro_closeup.webp" srcset="/blob-images/c116e712/round_1/macro_closeup-400w.webp 400w, /blob-images/c116e712/round_1/macro_closeup-800w.webp 800w, /blob-images/c116e712/round_1/macro_closeup.webp 1536w" sizes="(max-width: 640px) 100vw, 400px"
+                         width="1536"
+                         height="1536"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Salsa Verde Chilaquiles Cups">
+                </div>
+                <p class="recipe-grid-card__category">Breakfast</p>
+                <h3 class="recipe-title">Salsa Verde Chilaquiles Cups</h3>
+                <p class="recipe-grid-card__desc">Corn tortilla strips are baked into crisp, saucy cups with roasted tomatillo salsa, black beans, and melty Oaxaca cheese, then finished with crema, avocado, and cilantro. These chilaquiles cups hold their shape straight from the muffin pan but eat like a cozy Mexican brunch, with bright heat and satisfying crunch in every bite.</p>
+            </a>
+            <a href="/recipes/spanakopita-phyllo-cups" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="/blob-images/2068c0cc/round_1/macro_closeup.webp" srcset="/blob-images/2068c0cc/round_1/macro_closeup-400w.webp 400w, /blob-images/2068c0cc/round_1/macro_closeup-800w.webp 800w, /blob-images/2068c0cc/round_1/macro_closeup.webp 1536w" sizes="(max-width: 640px) 100vw, 400px"
+                         width="1536"
+                         height="1536"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Spanakopita Phyllo Cups">
+                </div>
+                <p class="recipe-grid-card__category">Savory</p>
+                <h3 class="recipe-title">Spanakopita Phyllo Cups</h3>
+                <p class="recipe-grid-card__desc">These spanakopita cups tuck garlicky spinach, leeks, and salty feta into crisp, flaky phyllo that bakes into perfectly round, hand-held bites. The muffin wells shape the layered dough into sturdy little shells so you get shattering crunch around a soft, savory Greek-inspired filling. Ideal warm or at room temperature for lunches, mezze platters, or parties.</p>
+            </a>
+            <a href="/recipes/paneer-saag-egg-bites" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="/blob-images/e55d4bb6/round_1/macro_closeup.webp" srcset="/blob-images/e55d4bb6/round_1/macro_closeup-400w.webp 400w, /blob-images/e55d4bb6/round_1/macro_closeup-800w.webp 800w, /blob-images/e55d4bb6/round_1/macro_closeup.webp 1536w" sizes="(max-width: 640px) 100vw, 400px"
+                         width="1536"
+                         height="1536"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Paneer Saag Egg Bites">
+                </div>
+                <p class="recipe-grid-card__category">Breakfast</p>
+                <h3 class="recipe-title">Paneer Saag Egg Bites</h3>
+                <p class="recipe-grid-card__desc">These paneer saag egg bites tuck spiced spinach, soft paneer, and a whisper of garam masala into tender, protein-rich cups that pop cleanly out of the pan. They eat like individual Indian-inspired frittatas, perfect with chutney for breakfast or a light lunch.</p>
+            </a>
+            <a href="/recipes/teriyaki-salmon-rice-cups" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="/blob-images/37649269/round_1/macro_closeup.webp" srcset="/blob-images/37649269/round_1/macro_closeup-400w.webp 400w, /blob-images/37649269/round_1/macro_closeup-800w.webp 800w, /blob-images/37649269/round_1/macro_closeup.webp 1536w" sizes="(max-width: 640px) 100vw, 400px"
+                         width="1536"
+                         height="1536"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Teriyaki Salmon Rice Cups">
+                </div>
+                <p class="recipe-grid-card__category">Savory</p>
+                <h3 class="recipe-title">Teriyaki Salmon Rice Cups</h3>
+                <p class="recipe-grid-card__desc">These teriyaki salmon rice cups tuck soy-glazed salmon, sticky rice, and scallions into crisp-edged, molded rounds that lift cleanly from the pan. They eat like handheld sushi bowls with a glossy homemade teriyaki glaze, a touch of sesame, and a cool cucumber topping.</p>
+            </a>
+            <a href="/recipes/harissa-chickpea-feta-cups" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="/blob-images/71cc5af9/round_1/macro_closeup.webp" srcset="/blob-images/71cc5af9/round_1/macro_closeup-400w.webp 400w, /blob-images/71cc5af9/round_1/macro_closeup-800w.webp 800w, /blob-images/71cc5af9/round_1/macro_closeup.webp 1536w" sizes="(max-width: 640px) 100vw, 400px"
+                         width="1536"
+                         height="1536"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Harissa Chickpea Feta Cups">
+                </div>
+                <p class="recipe-grid-card__category">Breakfast</p>
+                <h3 class="recipe-title">Harissa Chickpea Feta Cups</h3>
+                <p class="recipe-grid-card__desc">These savory North African–inspired cups bake chickpeas, roasted peppers, and spinach into a softly set egg base with pockets of salty feta and smoky harissa heat. Each round, golden portion pops out of the tin as a complete protein-packed bite that reheats beautifully for weekday breakfasts or light lunches.</p>
+            </a>
+            <a href="/recipes/roasted-broccoli-egg-cups" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="/blob-images/ffd2aff5/round_1/macro_closeup.webp" srcset="/blob-images/ffd2aff5/round_1/macro_closeup-400w.webp 400w, /blob-images/ffd2aff5/round_1/macro_closeup-800w.webp 800w, /blob-images/ffd2aff5/round_1/macro_closeup.webp 1536w" sizes="(max-width: 640px) 100vw, 400px"
+                         width="1536"
+                         height="1536"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Roasted Broccoli Egg Cups">
+                </div>
+                <p class="recipe-grid-card__category">Savory</p>
+                <h3 class="recipe-title">Roasted Broccoli Egg Cups</h3>
+                <p class="recipe-grid-card__desc">Tender baked egg cups packed with sharp cheese, roasted broccoli, and a touch of smoked paprika for warmth. They’re richly savory, beautifully set, and just as appealing at a leisurely brunch as they are straight from the fridge.</p>
+            </a>
+            <a href="/recipes/savory-bacon-biscuit-rounds" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="/blob-images/61866ec6/round_1/macro_closeup.webp" srcset="/blob-images/61866ec6/round_1/macro_closeup-400w.webp 400w, /blob-images/61866ec6/round_1/macro_closeup-800w.webp 800w, /blob-images/61866ec6/round_1/macro_closeup.webp 1536w" sizes="(max-width: 640px) 100vw, 400px"
+                         width="1536"
+                         height="1536"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Savory Bacon Biscuit Rounds">
+                </div>
+                <p class="recipe-grid-card__category">Breakfast</p>
+                <h3 class="recipe-title">Savory Bacon Biscuit Rounds</h3>
+                <p class="recipe-grid-card__desc">These hearty biscuit rounds bake up as individual portions layered with smoky bacon, sharp cheddar, and scallions—sturdy enough for grab-and-go breakfasts all week. They reheat beautifully and eat like a cross between a biscuit and a breakfast sandwich without the fuss of assembly.</p>
+            </a>
+            <a href="/recipes/crispy-chorizo-breakfast-cups" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="/blob-images/cae75160/round_1/macro_closeup.webp" srcset="/blob-images/cae75160/round_1/macro_closeup-400w.webp 400w, /blob-images/cae75160/round_1/macro_closeup-800w.webp 800w, /blob-images/cae75160/round_1/macro_closeup.webp 1536w" sizes="(max-width: 640px) 100vw, 400px"
+                         width="1536"
+                         height="1536"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Crispy Chorizo Breakfast Cups">
+                </div>
+                <p class="recipe-grid-card__category">Savory</p>
+                <h3 class="recipe-title">Crispy Chorizo Breakfast Cups</h3>
+                <p class="recipe-grid-card__desc">Smoky chorizo, crisp golden hash browns, and a creamy pepper-jack egg custard bake into rich, savory little cups with a gentle kick and plenty of crunch in every bite.</p>
+            </a>
+            <a href="/recipes/herbed-sausage-sunrise-cups" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="/blob-images/e9f30301/round_1/macro_closeup.webp" srcset="/blob-images/e9f30301/round_1/macro_closeup-400w.webp 400w, /blob-images/e9f30301/round_1/macro_closeup-800w.webp 800w, /blob-images/e9f30301/round_1/macro_closeup.webp 1536w" sizes="(max-width: 640px) 100vw, 400px"
+                         width="1536"
+                         height="1536"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Herbed Sausage Sunrise Cups">
+                </div>
+                <p class="recipe-grid-card__category">Savory</p>
+                <h3 class="recipe-title">Herbed Sausage Sunrise Cups</h3>
+                <p class="recipe-grid-card__desc">Crisp-edged sweet potato rounds cradle juicy turkey sausage, tender peppers, and a fluffy herb-flecked egg custard, all crowned with sharp cheddar and Parmesan. Each bite is rich, aromatic, and deeply satisfying—perfect alongside hot coffee or a bright citrus salad.</p>
+            </a>
+            <a href="/recipes/smoky-sweet-potato-frittatas" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="/blob-images/cb37b7bb/round_1/macro_closeup.webp" srcset="/blob-images/cb37b7bb/round_1/macro_closeup-400w.webp 400w, /blob-images/cb37b7bb/round_1/macro_closeup-800w.webp 800w, /blob-images/cb37b7bb/round_1/macro_closeup.webp 1536w" sizes="(max-width: 640px) 100vw, 400px"
+                         width="1536"
+                         height="1536"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Smoky Sweet Potato Frittatas">
+                </div>
+                <p class="recipe-grid-card__category">Savory</p>
+                <h3 class="recipe-title">Smoky Sweet Potato Frittatas</h3>
+                <p class="recipe-grid-card__desc">Tender, custardy cups packed with caramelized sweet potato, smoky paprika, and sharp cheddar, these little frittatas taste like a pan of roasted vegetables wrapped in rich, savory eggs. A spoonful of Greek yogurt keeps them silky, while a tangle of greens and herbs adds fresh, gardeny flavor in every bite.</p>
+            </a>
+            <a href="/recipes/maple-hash-brown-nests" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="/blob-images/b1f8e7f4/round_1/macro_closeup.png"
+                         width="1536"
+                         height="1536"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Maple Hash Brown Nests">
+                </div>
+                <p class="recipe-grid-card__category">Savory</p>
+                <h3 class="recipe-title">Maple Hash Brown Nests</h3>
+                <p class="recipe-grid-card__desc">These maple-scented hash brown nests bake up into crisp-edged, tender-centered portions that stay delicious for days. Shredded potatoes form a golden crust that cradles savory breakfast pork, peppers, and a just-set egg layer. They’re sturdy enough to grab on busy mornings, but nuanced enough in flavor that you’ll still look forward to them by Thursday.</p>
+            </a>
+            <a href="/recipes/prosciutto-potato-egg-nests" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="/blob-images/41d74db3/round_1/macro_closeup.png"
+                         width="1536"
+                         height="1536"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Prosciutto Potato Egg Nests">
+                </div>
+                <p class="recipe-grid-card__category">Savory</p>
+                <h3 class="recipe-title">Prosciutto Potato Egg Nests</h3>
+                <p class="recipe-grid-card__desc">Shredded potatoes, caramelized onions, and sharp provolone are tucked into crisped prosciutto cups, then finished with a softly baked egg and chive-flecked cream. Salty, savory, and richly textured, these little nests bring serious brunch energy to any morning.</p>
+            </a>
+            <a href="/recipes/mini-caprese-bruschetta-bites" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="/blob-images/178703eb/round_1/macro_closeup.png"
+                         width="1536"
+                         height="1536"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Mini Caprese Bruschetta Bites">
+                </div>
+                <p class="recipe-grid-card__category">Party</p>
+                <h3 class="recipe-title">Mini Caprese Bruschetta Bites</h3>
+                <p class="recipe-grid-card__desc">All the flavors of a classic caprese bruschetta—garlic toast, juicy tomatoes, fresh mozzarella, and basil—baked into tidy, handheld muffin tin bites. A buttery Parmesan bread base crisps in the oven, then gets filled with a warm caprese mixture and finished with a sweet-tart balsamic drizzle. Ideal as a party appetizer or light summer snack.</p>
+            </a>
+            <a href="/recipes/smoky-cheddar-breakfast-bites" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="/blob-images/fe1a35bf/round_1/macro_closeup.webp"
+                         width="1536"
+                         height="1536"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Smoky Cheddar Breakfast Bites">
+                </div>
+                <p class="recipe-grid-card__category">Savory</p>
+                <h3 class="recipe-title">Smoky Cheddar Breakfast Bites</h3>
+                <p class="recipe-grid-card__desc">Little golden bites packed with tender vegetables, sharp cheddar, Parmesan, and a whisper of smoked paprika, these savory muffins bring all the cozy flavors of a loaded frittata in handheld form. They’re rich, aromatic, and deeply satisfying—perfect with hot coffee, a splash of hot sauce, or tucked into a warm, toasty English muffin.</p>
+            </a>
+            <a href="/recipes/roasted-veggie-egg-prep-cups" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="/blob-images/d7b8b9b9/round_1/macro_closeup.webp"
+                         width="1536"
+                         height="1536"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Roasted Veggie Egg Cups">
+                </div>
+                <p class="recipe-grid-card__category">Breakfast</p>
+                <h3 class="recipe-title">Roasted Veggie Egg Cups</h3>
+                <p class="recipe-grid-card__desc">These roasted veggie egg prep cups are built for grab-and-go breakfasts all week: high-protein, packed with vegetables, and they reheat beautifully. Roasting the vegetables first concentrates their flavor so the eggs don’t taste like a sad hotel buffet. Make a pan on Sunday and you’ve got breakfast handled through Friday.</p>
+            </a>
+            <a href="/recipes/roasted-veggie-frittata-cups" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="/blob-images/20d49356/round_1/macro_closeup.webp"
+                         width="1536"
+                         height="1536"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Roasted Veggie Frittata Cups">
+                </div>
+                <p class="recipe-grid-card__category">Breakfast</p>
+                <h3 class="recipe-title">Roasted Veggie Frittata Cups</h3>
+                <p class="recipe-grid-card__desc">These muffin tin frittatas are packed with roasted vegetables, sharp cheese, and herbs for a make-ahead breakfast that actually tastes like something you’d order at a café. They reheat beautifully all week, stay tender instead of rubbery, and are endlessly adaptable to whatever’s in your crisper drawer. Make a pan on Sunday and you’ve got grab-and-go protein portions ready to go.</p>
+            </a>
+            <a href="/recipes/mini-lemon-meringue-cups" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="/blob-images/8a79d045.webp" srcset="/blob-images/8a79d045-400w.webp 400w, /blob-images/8a79d045-800w.webp 800w, /blob-images/8a79d045.webp 1536w" sizes="(max-width: 640px) 100vw, 400px"
+                         width="1536"
+                         height="1536"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Mini Lemon Meringue Cups">
+                </div>
+                <p class="recipe-grid-card__category">Sweet</p>
+                <h3 class="recipe-title">Mini Lemon Meringue Cups</h3>
+                <p class="recipe-grid-card__desc">These mini lemon meringue cups give you all the bright, tart snap of a classic lemon meringue pie in crisp, buttery, handheld portions. A shortbread-style crust, sharp lemon curd, and toasted marshmallowy meringue are built right in a standard 12-cup muffin tin—no tart rings, no drama.</p>
+            </a>
+            <a href="/recipes/make-ahead-veggie-sausage-egg-cups" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="/blob-images/a9b98b08/round_1/macro_closeup.webp"
+                         width="1536"
+                         height="1536"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Make-Ahead Veggie &amp; Sausage Egg Cups">
+                </div>
+                <p class="recipe-grid-card__category">Breakfast</p>
+                <h3 class="recipe-title">Make-Ahead Veggie &amp; Sausage Egg Cups</h3>
+                <p class="recipe-grid-card__desc">These protein-packed egg cups are built for the workweek: hearty turkey sausage, roasted peppers, spinach, and sharp cheddar baked into perfectly portioned frittata-style bites. They reheat beautifully, freeze well, and actually taste like a real breakfast, not a sad “meal prep” compromise. One pan on Sunday, grab-and-go breakfasts all week.</p>
+            </a>
+            <a href="/recipes/spinach-feta-egg-bites" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="assets/images/spinach-feta-egg-bites.webp"
+                         width="1024"
+                         height="1024"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Spinach &amp; Feta Egg Bites">
+                </div>
+                <p class="recipe-grid-card__category">Breakfast</p>
+                <h3 class="recipe-title">Spinach &amp; Feta Egg Bites</h3>
+                <p class="recipe-grid-card__desc">Velvety, protein-packed egg bites that mimic the sous-vide texture.</p>
+            </a>
+            <a href="/recipes/baked-oatmeal-cups" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="assets/images/baked-oatmeal-cups.webp"
+                         width="1024"
+                         height="1024"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Baked Oatmeal Breakfast Cups">
+                </div>
+                <p class="recipe-grid-card__category">Breakfast</p>
+                <h3 class="recipe-title">Baked Oatmeal Breakfast Cups</h3>
+                <p class="recipe-grid-card__desc">Hearty, portable oatmeal portions that are naturally sweetened and perfect for a quick morning fuel.</p>
+            </a>
+            <a href="/recipes/mini-pancake-bites" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="assets/images/mini-pancake-bites.webp"
+                         width="1024"
+                         height="1024"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Mini Pancake Bites">
+                </div>
+                <p class="recipe-grid-card__category">Breakfast</p>
+                <h3 class="recipe-title">Mini Pancake Bites</h3>
+                <p class="recipe-grid-card__desc">Fluffy pancake portions that you don&#x27;t have to flip. Perfect for dipping.</p>
+            </a>
+            <a href="/recipes/muffin-tin-lasagna" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="assets/images/muffin-tin-lasagna.webp"
+                         width="1024"
+                         height="1024"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Muffin Tin Lasagna Cups">
+                </div>
+                <p class="recipe-grid-card__category">Savory</p>
+                <h3 class="recipe-title">Muffin Tin Lasagna Cups</h3>
+                <p class="recipe-grid-card__desc">Crispy-edged, multi-layered mini lasagnas using wonton wrappers.</p>
+            </a>
+            <a href="/recipes/mini-meatloaf-bites" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="assets/images/mini-meatloaf-bites.webp"
+                         width="1024"
+                         height="1024"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Mini Meatloaf Bites">
+                </div>
+                <p class="recipe-grid-card__category">Savory</p>
+                <h3 class="recipe-title">Mini Meatloaf Bites</h3>
+                <p class="recipe-grid-card__desc">Savory, glazed mini meatloaves that cook in half the time of a traditional loaf.</p>
+            </a>
+            <a href="/recipes/buffalo-chicken-mac-bites" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="assets/images/buffalo-chicken-mac-bites.webp"
+                         width="1024"
+                         height="1024"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Buffalo Chicken Mac &amp; Cheese Bites">
+                </div>
+                <p class="recipe-grid-card__category">Savory</p>
+                <h3 class="recipe-title">Buffalo Chicken Mac &amp; Cheese Bites</h3>
+                <p class="recipe-grid-card__desc">Creamy mac and cheese with a spicy buffalo kick, crisped to perfection.</p>
+            </a>
+            <a href="/recipes/mini-shepherds-pie" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="assets/images/mini-shepherds-pie.webp"
+                         width="1024"
+                         height="1024"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Mini Shepherd&#x27;s Pie Pots">
+                </div>
+                <p class="recipe-grid-card__category">Savory</p>
+                <h3 class="recipe-title">Mini Shepherd&#x27;s Pie Pots</h3>
+                <p class="recipe-grid-card__desc">Individual servings of classic Shepherd&#x27;s Pie with a toasted potato peak.</p>
+            </a>
+            <a href="/recipes/jumbo-cornbread-bites" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="assets/images/jumbo-cornbread-bites.webp"
+                         width="1024"
+                         height="1024"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Jumbo Cornbread Honey Bites">
+                </div>
+                <p class="recipe-grid-card__category">Savory</p>
+                <h3 class="recipe-title">Jumbo Cornbread Honey Bites</h3>
+                <p class="recipe-grid-card__desc">Massive, moist, and sweet cornbread muffins for chili or BBQ.</p>
+            </a>
+            <a href="/recipes/classic-blueberry-muffins" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="assets/images/classic-blueberry-muffins.webp"
+                         width="1024"
+                         height="1024"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Classic Blueberry Muffin Tops">
+                </div>
+                <p class="recipe-grid-card__category">Sweet</p>
+                <h3 class="recipe-title">Classic Blueberry Muffin Tops</h3>
+                <p class="recipe-grid-card__desc">The gold standard: bursting with berries and a perfectly domed top.</p>
+            </a>
+            <a href="/recipes/dark-chocolate-chip-muffins" class="recipe-grid-card">
+                <div class="recipe-grid-card__image">
+                    <div class="recipe-grid-card__overlay"></div>
+                    <img src="assets/images/dark-chocolate-chip-muffins.webp"
+                         width="1024"
+                         height="1024"
+                         onerror="handleImageError(this)"
+                         loading="lazy"
+                         alt="Dark Chocolate Chip Decadence">
+                </div>
+                <p class="recipe-grid-card__category">Sweet</p>
+                <h3 class="recipe-title">Dark Chocolate Chip Decadence</h3>
+                <p class="recipe-grid-card__desc">Rich, cocoa-infused muffins loaded with dark chocolate chips.</p>
+            </a>
         </div>
 
         <!-- Crawlable hub link: a real anchor so the recipe index is reachable
-             without JS (the grid above is JS-rendered). -->
+             without JS (the grid above is JS-refreshed). -->
         <div class="home-cta">
             <a href="/recipes" class="btn-outline">View All Recipes</a>
         </div>
@@ -150,10 +629,13 @@
 
     <footer class="site-footer site-footer--home">
         <p class="site-footer__motto">Everything fits in a muffin pan.</p>
-        <p class="site-footer__copy">&copy; 2026 Muffin Pan Recipes</p>
+        <p class="site-footer__copy"><a href="/about">About</a> &middot; &copy; 2026 Muffin Pan Recipes</p>
     </footer>
 
-    <!-- Simple JS to handle recipes and filtering -->
+    <!-- Simple JS to handle recipes and filtering. Runs after the page
+         already has real content (see featured/grid markup above) — it
+         refreshes both sections from the live catalog, it doesn't create
+         them, so it must fully replace what's there rather than append. -->
     <script>
         let recipes = [];
         let retryCount = 0;
@@ -162,8 +644,12 @@
         async function loadRecipes() {
             const grid = document.getElementById('recipe-grid');
 
-            // 1. Loading State
-            if (retryCount === 0) {
+            // Only show a loading placeholder if the grid is actually empty
+            // (JS disabled/blocked JSON, or a retry after failure). The
+            // normal case already has server-rendered cards in place, and
+            // this must not blank them out while the refresh fetch is
+            // in flight.
+            if (retryCount === 0 && grid.children.length === 0) {
                 grid.innerHTML = `
                     <div class="grid-state">
                         <p class="grid-state__loading">Baking Recipes...</p>
@@ -194,9 +680,10 @@
                     retryCount++;
                     console.log(`Retrying recipe load (${retryCount}/${MAX_RETRIES})...`);
                     setTimeout(loadRecipes, 1000 * retryCount);
-                } else {
-                    // Drop the hero skeleton too — an endlessly pulsing
-                    // placeholder above the error reads as a second failure.
+                } else if (grid.children.length === 0) {
+                    // Only show the error state if there is no server-rendered
+                    // content to fall back on — a build-time catalog that's
+                    // merely stale is still a better page than an error banner.
                     document.getElementById('featured-recipe').innerHTML = '';
                     grid.innerHTML = `
                         <div class="grid-state">

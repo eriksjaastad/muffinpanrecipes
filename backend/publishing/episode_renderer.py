@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Optional
 
 from backend.publishing.analytics import GA4_TAG
-from backend.storage import SOCIAL_IMAGE_SUFFIX, storage
+from backend.storage import SOCIAL_IMAGE_SUFFIX, WEBP_VARIANT_WIDTHS, storage
 from backend.utils.logging import get_logger
 from backend.utils.text_sanitize import sanitize_text
 
@@ -129,6 +129,88 @@ def _to_webp_url(image_url: str) -> str:
     stripped = _VERCEL_RANDOM_SUFFIX_RE.sub(".png", path)
     webp_path = stripped[:-4] + ".webp"
     return webp_path + (sep + tail if sep else "")
+
+
+def _variant_lookup_key(image_url: str) -> str:
+    """Normalize a rendered image URL to the key WebP-variant checks use (#6755).
+
+    Mirrors _catalog_image_key's approach: the cloud backend's blob keys
+    strip 'assets/' while the filesystem backend keeps it, but both nest
+    photography under an 'images/' directory, so everything after the last
+    '/images/' segment (or the '/blob-images/' rewrite) is the same
+    identity either way — which is exactly what storage.image_variants_
+    available expects.
+    """
+    path = (image_url or "").split("?", 1)[0].split("#", 1)[0]
+    if "/blob-images/" in path:
+        return path.split("/blob-images/", 1)[1]
+    if "/images/" in path:
+        return path.split("/images/", 1)[1]
+    return path.lstrip("/")
+
+
+def _variants_available(png_url: str, variant_cache: dict[str, bool] | None = None) -> bool:
+    """Whether width-limited WebP variants exist for png_url's PNG (#6755).
+
+    ORDERING HAZARD: a srcset candidate that 404s breaks that image for
+    whichever browser picks it, so a missing variant must fall back to the
+    single full-size candidate rather than ever emitting the smaller ones —
+    see _to_webp_srcset. ``variant_cache`` scopes the check to once per
+    image per render_episode_page call: the same photo can appear in both
+    the hero slot and the BTS gallery, and a render should ask storage once
+    rather than re-issuing the same existence check per call site.
+    """
+    lookup_key = _variant_lookup_key(png_url)
+    if not lookup_key.lower().endswith(".png"):
+        return False
+    if variant_cache is not None and lookup_key in variant_cache:
+        return variant_cache[lookup_key]
+    available = storage.image_variants_available(lookup_key)
+    if variant_cache is not None:
+        variant_cache[lookup_key] = available
+    return available
+
+
+def _insert_width_descriptor(webp_url: str, width: int) -> str:
+    """Return webp_url's '-{width}w' variant sibling, preserving query/fragment."""
+    path, sep, tail = webp_url.partition("?")
+    if not sep:
+        path, sep, tail = webp_url.partition("#")
+    if not path.lower().endswith(".webp"):
+        return webp_url
+    variant_path = path[:-5] + f"-{width}w.webp"
+    return variant_path + (sep + tail if sep else "")
+
+
+def _to_webp_srcset(image_url: str, variant_cache: dict[str, bool] | None = None) -> str:
+    """Build a width-described srcset for image_url's WebP sibling (#6755).
+
+    Emits 400w/800w downscaled candidates plus the full-size sibling — so
+    the browser can pick something smaller than the 1536px original on a
+    narrow viewport — but ONLY when storage confirms the smaller variants
+    actually exist. An image uploaded before this feature shipped (until
+    scripts/backfill_image_variants.py runs) falls back to the single
+    full-size candidate it already had; see _variants_available.
+    """
+    # Catalog entries store the hero as the .webp sibling; recipe pages pass
+    # the .png. Accept both — variants are keyed by the PNG, so derive it.
+    png_url = image_url
+    if image_url.lower().split("?", 1)[0].endswith(".webp"):
+        head, sep, tail = image_url.partition("?")
+        png_url = head[:-5] + ".png" + (sep + tail if sep else "")
+    webp_url = _to_webp_url(png_url)
+    if not webp_url or webp_url == png_url:
+        return webp_url
+    if not _variants_available(png_url, variant_cache):
+        return webp_url
+
+    full_width, _ = _image_dimensions(png_url)
+    candidates = [
+        f"{_insert_width_descriptor(webp_url, width)} {width}w"
+        for width in WEBP_VARIANT_WIDTHS
+    ]
+    candidates.append(f"{webp_url} {full_width}w")
+    return ", ".join(candidates)
 
 
 def _seo_description(description: str, max_length: int = SEO_DESCRIPTION_MAX_LENGTH) -> str:
@@ -249,7 +331,11 @@ def _char_info(name: str) -> dict:
     return {"slug": slug, "initials": initials, "name": name, "role": "Team Member"}
 
 
-def _render_chat_message(msg: dict, image_url_map: dict[str, str] | None = None) -> str:
+def _render_chat_message(
+    msg: dict,
+    image_url_map: dict[str, str] | None = None,
+    variant_cache: dict[str, bool] | None = None,
+) -> str:
     """Render a single chat message as HTML."""
     char_name = msg.get("character", "Unknown")
     message = html.escape(sanitize_text(msg.get("message", "")))
@@ -263,7 +349,7 @@ def _render_chat_message(msg: dict, image_url_map: dict[str, str] | None = None)
         for att in attachments:
             url = image_url_map.get(att, "")
             if url:
-                webp_url = _to_webp_url(url)
+                webp_srcset = _to_webp_srcset(url, variant_cache)
                 # The canonical PNG remains the fallback.  The plain JPEG
                 # sibling was never consumed by a renderer and is no longer
                 # uploaded; only the purpose-built social JPEG remains.
@@ -274,10 +360,13 @@ def _render_chat_message(msg: dict, image_url_map: dict[str, str] | None = None)
                     f'<img src="{escaped_fallback}" alt="Photography option" '
                     f'{dimensions} loading="lazy" decoding="async">'
                 )
-                if webp_url and webp_url != url:
+                if webp_srcset and webp_srcset != url:
+                    # Gallery images render at max-width 24rem / 384px
+                    # (.chat-msg__images img, site.css) — sizes matches that.
                     image = (
                         f'<picture>'
-                        f'<source srcset="{html.escape(webp_url)}" type="image/webp">'
+                        f'<source srcset="{html.escape(webp_srcset)}" type="image/webp" '
+                        f'sizes="(max-width: 400px) 100vw, 384px">'
                         f'{image}'
                         f'</picture>'
                     )
@@ -313,11 +402,15 @@ def _build_image_url_map(episode: dict) -> dict[str, str]:
     return url_map
 
 
-def _render_conversation_section(episode: dict) -> str:
+def _render_conversation_section(episode: dict, variant_cache: dict[str, bool] | None = None) -> str:
     """Render the full week's conversation as HTML sections."""
     sections = []
     has_any_dialogue = False
     image_url_map = _build_image_url_map(episode)
+    if variant_cache is None:
+        # Same image can recur across days' attachments; scope the cache to
+        # this section's render even when the caller doesn't share one (#6755).
+        variant_cache = {}
 
     for day in DAYS:
         stage = episode.get("stages", {}).get(day, {})
@@ -327,7 +420,9 @@ def _render_conversation_section(episode: dict) -> str:
 
         has_any_dialogue = True
         label = STAGE_LABELS.get(day, day.title())
-        messages_html = "\n".join(_render_chat_message(m, image_url_map) for m in dialogue)
+        messages_html = "\n".join(
+            _render_chat_message(m, image_url_map, variant_cache) for m in dialogue
+        )
 
         sections.append(f"""
         <div class="stage-divider">
@@ -519,6 +614,11 @@ def render_episode_page(
     if image_url:
         image_url = _to_local_image_url(image_url)
 
+    # #6755 — shared across the hero image and every gallery attachment so a
+    # photo that recurs (or a slow variant-existence check) is only asked
+    # about once per page render, not once per call site.
+    variant_cache: dict[str, bool] = {}
+
     # Determine what stage we're at (for progressive rendering)
     completed_stages = [d for d in DAYS if episode.get("stages", {}).get(d, {}).get("status") == "complete"]
     is_published = "sunday" in completed_stages
@@ -556,13 +656,16 @@ def render_episode_page(
     if has_image:
         fallback_url = image_url
         escaped_fallback = html.escape(fallback_url)
-        webp_url = _to_webp_url(image_url)
-        if webp_url and webp_url != image_url:
-            escaped_webp = html.escape(webp_url)
+        webp_srcset = _to_webp_srcset(image_url, variant_cache)
+        if webp_srcset and webp_srcset != image_url:
+            escaped_webp = html.escape(webp_srcset)
             dimensions = _intrinsic_image_attributes(fallback_url)
+            # Hero fills .site-main (max-width 768px, 1.5rem side padding —
+            # site.css) at every viewport, so sizes mirrors that container.
             image_block = (
                 f'<picture>'
-                f'<source srcset="{escaped_webp}" type="image/webp">'
+                f'<source srcset="{escaped_webp}" type="image/webp" '
+                f'sizes="(max-width: 768px) 100vw, 720px">'
                 f'<img src="{escaped_fallback}" '
                 f'{dimensions} loading="eager" fetchpriority="high" decoding="async" '
                 f'alt="{html.escape(title)}">'
@@ -600,7 +703,7 @@ def render_episode_page(
         and has_dialogue
         and os.environ.get("ENABLE_BEHIND_THE_SCENES", "true").lower() != "false"
     )
-    conversation_html = _render_conversation_section(episode) if show_bts else ""
+    conversation_html = _render_conversation_section(episode, variant_cache) if show_bts else ""
 
     # Calorie stat — rendered only when the recipe actually carries a figure.
     # Google requires the JSON-LD nutrition value to match visible content, so
@@ -872,7 +975,6 @@ def render_episode_page(
     {seo_meta}
 
     <link rel="stylesheet" href="/assets/site.css">
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     {json_ld_html}
     {breadcrumb_ld_html}
 </head>
@@ -922,7 +1024,7 @@ def render_episode_page(
 {related_block_html}
     <footer class="site-footer">
         <p class="site-footer__motto">The struggle is the story.</p>
-        <p class="site-footer__copy">&copy; 2026 Muffin Pan Recipes</p>
+        <p class="site-footer__copy"><a href="/about">About</a> &middot; &copy; 2026 Muffin Pan Recipes</p>
     </footer>
 
 </body>

@@ -24,6 +24,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from backend.publishing.episode_renderer import (
+    _catalog_duplicate_reason,
     _clean_title,
     _image_dimensions,
     _slugify,
@@ -33,6 +34,7 @@ from backend.publishing.episode_renderer import (
     render_seed_recipe_page,
 )
 from backend.publishing.static_renderer import (
+    render_home,
     render_placeholder_page,
     render_recipes_index,
     render_sitemap,
@@ -347,7 +349,15 @@ class StaticSiteBuilder:
         recipes = [recipe for recipe in catalog.get("recipes", []) if isinstance(recipe, dict)]
         for recipe in recipes:
             if recipe.get("image") and not recipe.get("image_width", 0):
-                width, height = _image_dimensions(str(recipe["image"]))
+                # _image_dimensions only recognizes a local seed asset by its
+                # leading "/assets/" prefix. The catalog's own "image" field
+                # (unlike _recipe_data_to_catalog_entry's) is stored without
+                # one — e.g. "assets/images/x.webp" — so every seed entry
+                # silently fell through to the 1536x1536 generated-photo
+                # fallback (visibly wrong for a 1024x1024 seed image, and a
+                # source of layout shift once the real file loads).
+                image = str(recipe["image"])
+                width, height = _image_dimensions(image if image.startswith("/") else f"/{image}")
                 recipe["image_width"] = width
                 recipe["image_height"] = height
         known_slugs = {str(recipe.get("slug")) for recipe in recipes if recipe.get("slug")}
@@ -358,21 +368,75 @@ class StaticSiteBuilder:
                 known_slugs.add(seed_entry["slug"])
 
         episode_slugs: dict[str, str] = {}
-        known_episode_ids = {
-            str(recipe.get("episode_id"))
+        # Which episode already owns a slug in this build. Catalog entries
+        # published before the pipeline stamped episode_id carry no owner, so
+        # they are adoptable by the episode they were published from.
+        slug_owner: dict[str, str] = {
+            str(recipe.get("slug")): str(recipe.get("episode_id") or "").strip()
             for recipe in recipes
-            if recipe.get("episode_id")
+            if recipe.get("slug")
         }
         for episode in episodes:
             episode_id = str(episode.get("episode_id", ""))
-            if episode_id in known_episode_ids:
-                existing = next(
-                    recipe for recipe in recipes if str(recipe.get("episode_id")) == episode_id
-                )
-                episode_slugs[episode_id] = str(existing["slug"])
-                continue
-
             base_slug = _episode_slug(episode)
+            candidate = self._episode_catalog_entry(episode, base_slug)
+
+            # Reuse the catalog's own duplicate rule (the same one
+            # publish_recipe_to_catalog uses on Sunday) so the builder and
+            # the live catalog agree on what "the same recipe" means.
+            # Without this, an older catalog entry that predates episode_id
+            # stamping gets re-added under a "<slug>-2026-wNN" alias — two
+            # pages, two sitemap URLs, two catalog rows for one recipe
+            # (#6688: 11 published episodes duplicated this way on the
+            # first real build).
+            existing = None
+            reason = ""
+            for recipe in recipes:
+                match_reason = _catalog_duplicate_reason(candidate, recipe)
+                if match_reason:
+                    existing = recipe
+                    reason = match_reason
+                    break
+
+            if existing is not None:
+                existing_slug = str(existing.get("slug") or base_slug)
+                owner = slug_owner.get(existing_slug, "")
+                if not owner or owner == episode_id:
+                    # slug / recipe_id / episode_id are exact identity. An
+                    # image or recipe-body match is a heuristic, and a false
+                    # positive there silently merges two real recipes onto
+                    # one page — a missing catalog row is the only other
+                    # symptom. Log which rule fired, the way
+                    # publish_recipe_to_catalog does, and raise heuristic
+                    # matches to a warning so they get eyes before deploy.
+                    if reason.split("=", 1)[0] in {"slug", "recipe_id", "episode_id"}:
+                        logger.info(
+                            "Static build: episode %s reuses catalog entry '%s' (%s)",
+                            episode_id or "<unknown>",
+                            existing_slug,
+                            reason,
+                        )
+                    else:
+                        logger.warning(
+                            "Static build: episode %s adopted catalog entry '%s' on a "
+                            "heuristic match (%s), not an exact identity match — "
+                            "confirm they are the same recipe before deploying",
+                            episode_id or "<unknown>",
+                            existing_slug,
+                            reason,
+                        )
+                    if episode_id:
+                        existing["episode_id"] = episode_id
+                        if candidate.get("recipe_id") and not str(
+                            existing.get("recipe_id") or ""
+                        ).strip():
+                            existing["recipe_id"] = candidate["recipe_id"]
+                        slug_owner[existing_slug] = episode_id
+                    episode_slugs[episode_id] = existing_slug
+                    continue
+                # A different episode already owns that entry: this really is
+                # a second recipe, so fall through and give it its own slug.
+
             slug = base_slug
             if slug in known_slugs:
                 suffix = _safe_episode_suffix(episode_id)
@@ -381,10 +445,11 @@ class StaticSiteBuilder:
                 while slug in known_slugs:
                     slug = f"{base_slug}-{suffix or 'episode'}-{counter}"
                     counter += 1
+                candidate = self._episode_catalog_entry(episode, slug)
 
-            recipes.append(self._episode_catalog_entry(episode, slug))
+            recipes.append(candidate)
             known_slugs.add(slug)
-            known_episode_ids.add(episode_id)
+            slug_owner[slug] = episode_id
             episode_slugs[episode_id] = slug
 
         return recipes, episode_slugs
@@ -400,6 +465,7 @@ class StaticSiteBuilder:
 
         files: dict[str, str] = {
             "recipes.json": json.dumps({"recipes": recipes}, indent=2) + "\n",
+            "index.html": render_home(recipes),
             "recipes/index.html": render_recipes_index(recipes),
             "sitemap.xml": render_sitemap(recipes),
         }
