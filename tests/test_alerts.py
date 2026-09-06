@@ -30,6 +30,14 @@ def _outside_pytest(monkeypatch):
     """
     monkeypatch.setattr(alerts, "_pytest_gate", lambda: False)
     monkeypatch.setenv("MUFFINPAN_DISCORD_WEBHOOK", "https://discord.test/webhook")
+    # RESEND_API_KEY/ALERT_EMAIL_TO are deliberately left unset here, so the
+    # real email backend (now in _BACKENDS) raises inside config on every
+    # "critical" send in this file's Discord-focused tests. Suppress the
+    # once-per-process unconfigured notice so it can't post an extra,
+    # unmocked Discord call and steal `post.call_args` out from under a test
+    # that's asserting on the *original* alert's payload — test_alert_email.py
+    # covers the notice itself with this flag reset to False.
+    monkeypatch.setattr(alerts, "_email_unconfigured_notice_sent", True)
 
 
 class _Resp:
@@ -175,6 +183,16 @@ def test_notifiers_only_format_and_delegate(_outside_pytest) -> None:
     send.assert_called_once()
     assert send.call_args.kwargs["severity"] == "critical"
     assert "Custard Tarts" in send.call_args.kwargs["body"]
+
+
+def test_email_is_wired_into_the_backend_list() -> None:
+    """#6860: adding email was appending it to _BACKENDS, not a parallel path.
+
+    Payload/routing/missing-key behaviour for _send_email itself lives in
+    tests/test_alert_email.py — this just pins that send_alert actually
+    fans out to it.
+    """
+    assert alerts._send_email in alerts._BACKENDS
 
 
 def test_no_module_outside_alerts_posts_to_the_webhook() -> None:
