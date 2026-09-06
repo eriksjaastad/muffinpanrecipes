@@ -179,7 +179,8 @@ regardless of the dish: the Saturday "recipe now should be live in a few"
 line appeared in 23 of 25 weeks; the photography "cross section / three
 quarter / staging the muffin pan" cluster appeared in 13-14 weeks. Metric:
 cross-week phrase recitation, now `conversation_heatmap.py`'s hot-phrase
-detector (an n-gram appearing in at least `--min-weeks` distinct weeks,
+detector (an n-gram of `--min-ngram` words or more, default 3, appearing in at
+least `--min-weeks` distinct weeks,
 classified into the `Boilerplate` AREA) - distinct from `repeated_phrases`'
 within-episode n-gram detector, which stays in `conversation_metrics.py`.
 Lever: `DAY_STAGE_DIRECTIONS` (`scripts/simulate_dialogue_week.py:134`) -

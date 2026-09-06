@@ -982,8 +982,9 @@ def test_ab_testbed_default_max_calls_is_derived_from_panel_size_and_runs(tmp_pa
 
     [result_file] = list(results_dir.glob("*-ab-testbed-*.json"))
     report = json.loads(result_file.read_text())
-    # monday's max_turns is 10 -> 2 scenarios * 2 runs * (2*10 + 2) = 88.
-    assert report["max_calls"] == 88
+    # monday's max_turns is 10 -> 2 scenarios * 2 runs * (3*10 + 2) = 128
+    # (3x, not 2x, so live-mode retries do not abort a normal variant).
+    assert report["max_calls"] == 128
     assert report["max_calls_derived"] is True
     assert report["panel_size"] == 2
 

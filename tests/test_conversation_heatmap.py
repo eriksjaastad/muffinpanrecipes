@@ -148,7 +148,8 @@ def test_planted_brand_phrase_classified_brand_reinforcement(tmp_path):
     for week in ("2026-W11.json", "2026-W12.json", "2026-W13.json"):
         _write(tmp_path, week, _episode([("Margaret Chen", "Fill each cup evenly before it bakes.")]))
 
-    report = ch.build_report(tmp_path, min_weeks=3, top=60)
+    # 'each cup' is a 2-gram; the CLI default is --min-ngram 3, so ask for 2 here.
+    report = ch.build_report(tmp_path, min_weeks=3, top=60, min_ngram=2)
     hot = {hp["phrase"]: hp for hp in report["phrase_heat"]}
     assert hot["each cup"]["area"] == "Brand reinforcement"
 
@@ -365,3 +366,36 @@ def test_area_rates_reads_real_numbers_off_summarize():
     result = ch.area_rates(messages)
     assert result["Brand reinforcement"]["brand_term_rate"] == 1.0
     assert result["Cast"]["cast_ratio"] == 1.0
+
+
+def test_phrase_heat_min_ngram_drops_two_word_phrases():
+    """SHARP dogfood 2026-09-06: with 2-grams the corpus report's top rows were
+    'need to' / 'i think'. The CLI defaults --min-ngram to 3; the function
+    keeps 2 as its own default so planted two-word tics stay visible to the
+    experiment runner."""
+    from scripts import conversation_heatmap as hm
+    msgs = [{"character": "Devon Park", "message": "We need to ship the fix before lunch."},
+            {"character": "Ria Castillo", "message": "We need to ship the fix before lunch."}]
+    transcripts = {"a": msgs, "b": msgs}
+    two = hm.phrase_heat(transcripts, min_groups=2, top=50)
+    three = hm.phrase_heat(transcripts, min_groups=2, top=50, min_ngram=3)
+    two_phrases = {p["phrase"] for p in two["phrases"]}
+    three_phrases = {p["phrase"] for p in three["phrases"]}
+    assert "need to" in two_phrases
+    assert "need to" not in three_phrases
+    assert "need to ship" in three_phrases
+
+
+def test_phrase_heat_collapses_sub_phrases_into_the_longest():
+    """SHARP dogfood 2026-09-06: the recited Saturday line filled 8 of the top 12
+    rows with its own sub-phrases. With collapse on, only the longest phrase
+    survives; with it off, the sub-phrases are back."""
+    from scripts import conversation_heatmap as hm
+    line = {"character": "Devon Park", "message": "Recipe now should be live in a few minutes."}
+    transcripts = {"a": [line], "b": [line], "c": [line]}
+    collapsed = {p["phrase"] for p in hm.phrase_heat(transcripts, min_groups=3, top=50, min_ngram=3, collapse_nested=True)["phrases"]}
+    assert "now should be" not in collapsed
+    assert "should be live" not in collapsed
+    assert any(p.startswith("recipe now should") or p.startswith("now should be live") for p in collapsed)
+    expanded = {p["phrase"] for p in hm.phrase_heat(transcripts, min_groups=3, top=50, min_ngram=3, collapse_nested=False)["phrases"]}
+    assert "now should be" in expanded

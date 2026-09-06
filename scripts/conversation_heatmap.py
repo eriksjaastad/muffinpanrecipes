@@ -292,8 +292,19 @@ def phrase_heat(
     *,
     min_groups: int = 2,
     top: int = 30,
+    min_ngram: int = 2,
+    collapse_nested: bool = False,
 ) -> dict[str, Any]:
     """Phrase x label heat matrix over IN-MEMORY transcripts (card #6492 slice 3).
+
+    `min_ngram` is the smallest n-gram counted (n-grams up to 6 words are
+    scanned so a whole recited clause can surface as one row). The CLI
+    defaults it to 3 because 2-grams of common words ("need to", "i think")
+    crowd the top of the corpus report without saying anything; the
+    experiment runner keeps 2 so a short planted tic is still visible.
+    `collapse_nested` folds sub-phrases into the longest hot phrase that
+    contains them; the CLI turns it on, library callers and tests get the
+    raw table by default.
 
     `transcripts` maps an arbitrary label - a week id like "W36" for the
     corpus-wide file-based report below, or an experiment-arm name like
@@ -322,7 +333,7 @@ def phrase_heat(
         for msg in messages:
             words = _words(msg.get("message") or "")
             character = _first_name(msg.get("character"))
-            for n in (2, 3, 4):
+            for n in range(max(2, min(min_ngram, 4)), 7):
                 for gram in _ngrams(words, n):
                     if all(w in STOPWORDS for w in gram):
                         continue
@@ -346,10 +357,34 @@ def phrase_heat(
     ]
     hot.sort(key=lambda h: (-h["groups"], -h["total_occurrences"], h["phrase"]))
 
+    if collapse_nested:
+        # One recited sentence ("recipe now should be live in a few") otherwise
+        # fills the top of the table with its own sub-phrases ("now should be",
+        # "should be live", "live in a", ...). Keep the longest phrase and drop a
+        # shorter one that sits inside it when the longer phrase recurs in at
+        # least three quarters as many groups (the recited clause varies a
+        # little week to week, so an exact match would keep every fragment). Only the ranked head is compared, so
+        # the pass stays cheap on a large corpus.
+        head = hot[: max(top * 10, 200)]
+        kept: list[dict[str, Any]] = []
+        for h in head:
+            needle = f" {h['phrase']} "
+            swallowed = any(
+                k is not h
+                and len(k["phrase"]) > len(h["phrase"])
+                and needle in f" {k['phrase']} "
+                and k["groups"] >= 0.75 * h["groups"]
+                for k in head
+            )
+            if not swallowed:
+                kept.append(h)
+        hot = kept + hot[len(head):]
+
     return {
         "labels": sorted(transcripts),
         "min_groups": min_groups,
         "top": top,
+        "collapse_nested": collapse_nested,
         "phrases": hot[:top],
     }
 
@@ -427,6 +462,8 @@ def build_report(
     include_unpublished: bool = False,
     min_weeks: int = 3,
     top: int = 60,
+    min_ngram: int = 3,
+    collapse_nested: bool = False,
 ) -> dict[str, Any]:
     """Assemble the full heat-map report as a JSON-serialisable dict.
 
@@ -434,7 +471,7 @@ def build_report(
     wrapper around this.
     """
     corpus = collect_corpus(episodes_dir, weeks, include_unpublished)
-    matrix = phrase_heat(corpus["lines_by_week"], min_groups=min_weeks, top=top)
+    matrix = phrase_heat(corpus["lines_by_week"], min_groups=min_weeks, top=top, min_ngram=min_ngram, collapse_nested=collapse_nested)
     phrases = matrix["phrases"]
 
     return {
@@ -567,6 +604,14 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--top", type=int, default=60, help="Number of hot phrases to report (default: 60)")
     parser.add_argument(
+        "--min-ngram", type=int, default=3, choices=(2, 3, 4),
+        help="Smallest n-gram to count (default: 3; use 2 to include two-word phrases such as 'that's the')",
+    )
+    parser.add_argument(
+        "--no-collapse-nested", action="store_true",
+        help="Keep sub-phrases of a longer hot phrase as separate rows (default collapses them into the longest)",
+    )
+    parser.add_argument(
         "--results-dir", type=Path, default=DEFAULT_RESULTS_DIR,
         help="Where to write the <UTC stamp>-heatmap.json result (default: docs/conversation-lab/results/)",
     )
@@ -584,6 +629,8 @@ def main(argv: list[str] | None = None) -> None:
         include_unpublished=args.include_unpublished,
         min_weeks=args.min_weeks,
         top=args.top,
+        min_ngram=args.min_ngram,
+        collapse_nested=not args.no_collapse_nested,
     )
 
     results_dir = Path(args.results_dir)
