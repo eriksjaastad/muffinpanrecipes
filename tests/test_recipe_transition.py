@@ -1,7 +1,7 @@
-"""Tests for send2trash failure fallback in recipe.transition_status (#5047).
+"""Tests for the safe send2trash fallback in recipe.transition_status (#7004).
 
-Verifies that transition_status correctly falls back to unlink() when
-send2trash is unavailable, and uses send2trash when it is.
+Verifies that transition_status trashes the old file when available and keeps
+the old recipe bytes when the optional trash dependency is unavailable.
 """
 
 from pathlib import Path
@@ -45,21 +45,21 @@ class TestTransitionStatusTrashFallback:
 
         mock_trash.assert_called_once_with(str(old_file))
 
-    def test_falls_back_to_unlink_when_no_send2trash(self, tmp_path: Path):
-        """When send2trash is None, transition_status should use unlink()."""
+    def test_retains_old_file_when_no_send2trash(self, tmp_path: Path):
+        """When send2trash is unavailable, keep the old recipe recoverable."""
         recipe = _make_recipe()
 
         # Create the old file in pending/
         old_dir = tmp_path / "pending"
         old_dir.mkdir()
         old_file = old_dir / f"{recipe.recipe_id}.json"
-        old_file.write_text("{}")
+        old_file.write_text('{"recipe_id": "test-recipe-001"}')
 
         with patch("backend.data.recipe.send2trash", None):
             recipe.transition_status(RecipeStatus.APPROVED, tmp_path)
 
-        # Old file should be gone (unlinked)
-        assert not old_file.exists()
+        # The old file must remain recoverable when trash is unavailable.
+        assert old_file.read_text() == '{"recipe_id": "test-recipe-001"}'
         # New file should exist in approved/
         new_file = tmp_path / "approved" / f"{recipe.recipe_id}.json"
         assert new_file.exists()
