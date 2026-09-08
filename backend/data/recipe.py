@@ -171,8 +171,10 @@ class Recipe(BaseModel):
                 send2trash(str(old_filepath))
                 logger.info(f"Trashed old file: {old_filepath}")
             else:
-                old_filepath.unlink()
-                logger.info(f"Deleted old file (no trash available): {old_filepath}")
+                logger.warning(
+                    "send2trash unavailable; retaining old recipe file: %s",
+                    old_filepath,
+                )
 
         logger.info(f"Transitioned recipe {self.recipe_id}: {old_status.value} → {new_status.value}")
         return new_filepath
