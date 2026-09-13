@@ -62,45 +62,87 @@ _OVEN_TEMP_FLOOR_F = 200
 # ---------------------------------------------------------------------------
 # Food safety
 # ---------------------------------------------------------------------------
-# Proteins that must reach a verified internal temperature. Deliberately
-# narrow: eggs and dairy appear in nearly every recipe here and are safe as
-# baked, so including them would fire on everything and train the gate to be
-# ignored. These are the ones where undercooking is a genuine hazard.
+# Proteins that must reach a verified internal temperature.
+#
+# Widened after review: the first list held only chicken/turkey/pork/ground
+# beef/shrimp/fish/salmon, so raw bacon, generic sausage, ham, duck, chorizo,
+# lamb, veal and game skipped the safety check entirely. Bacon and sausage are
+# the most plausible ingredients on a muffin-pan breakfast site, which made
+# that the worst possible gap to leave.
+#
+# Eggs and dairy are deliberately absent: they appear in nearly every recipe
+# here and are safe once baked. The no-heat case they leave open is handled
+# separately by _check_raw_egg below.
 RISK_PROTEIN_PATTERNS = (
     r"\bchicken\b",
     r"\bturkey\b",
+    r"\bduck\b",
     r"\bpork\b",
-    r"\bground\s+(?:beef|meat|lamb|veal)\b",
-    r"\bsausage\s+meat\b",
-    r"\braw\s+sausage\b",
+    r"\bbacon\b",
+    r"\bham\b",
+    r"\bchorizo\b",
+    r"\bsausages?\b",
+    r"\blamb\b",
+    r"\bveal\b",
+    r"\bvenison\b",
+    r"\bbison\b",
+    r"\bground\s+(?:beef|meat)\b",
     r"\bshrimp\b",
+    r"\bscallops?\b",
+    r"\bcrab\b",
     # "fish" but not "fish sauce" - the condiment matched here and flagged
     # W30 as unsafe during calibration.
     r"\bfish\b(?!\s+sauce)",
     r"\bsalmon\b",
+    r"\btuna\b",
 )
 
-# Evidence that doneness is actually verified rather than assumed. Either an
-# explicit internal temperature, or unambiguous doneness language.
-# Phrasings widened against what the 36 stored recipes actually say. The
-# first draft required "no longer pink" and "opaque throughout" and flagged
-# three published recipes as unsafe; all three verified doneness, just in
-# other words - "loses its pink color", "just opaque in the center", and a
-# sausage browned in a skillet before it ever reaches the pan.
-DONENESS_PATTERNS = (
+# Doneness evidence, split by how much it actually proves.
+#
+# STRONG signals establish doneness wherever they appear. A thermometer
+# reading or an explicit "pre-cooked" is unambiguous and does not need to sit
+# next to the protein to mean what it says.
+STRONG_DONENESS_PATTERNS = (
     r"\binternal\s+temp(?:erature)?\b",
     r"\b1[4-7]\d\s*°?\s*F\b",          # 140-179F covers 145/160/165
     r"\binstant-read\b",
     r"\bthermometer\b",
+    r"\bfully\s+cooked\b",
+    r"\bpre-?cooked\b",
+    r"\balready\s+cooked\b",
+)
+
+# WEAK signals are ordinary cooking words that mean doneness only when they
+# describe the protein. Matched anywhere in the recipe they are trivially
+# satisfied by something else - "bake until the cheese tops are browned"
+# cleared raw chicken before this split - so they count only in a step that
+# also names the protein.
+WEAK_DONENESS_PATTERNS = (
     r"\bcooked\s+through\b",
     r"\bno\s+longer\s+pink\b",
     r"\bloses?\s+(?:its\s+)?pink\b",
     r"\bopaque\b",
     r"\bflakes?\s+easily\b",
     r"\bbrowned?\b",
-    r"\bfully\s+cooked\b",
-    r"\bpre-?cooked\b",
-    r"\balready\s+cooked\b",
+    r"\bcrisp(?:s|ed|y)?\b",
+)
+
+# Raw egg is safe once baked, which is why eggs are not risk proteins - but
+# that reasoning only holds if heat is actually applied. A no-bake custard or
+# mousse built on raw yolk needs pasteurized egg.
+EGG_PATTERNS = (r"\begg\b", r"\beggs\b", r"\byolks?\b", r"\bwhites?\b")
+PASTEURIZED_PATTERN = r"\bpasteuri[sz]ed\b"
+
+# Any heat step at all, oven or not: a stovetop sear cooks a protein as well
+# as an oven does, so the raw-egg check must not fire on a recipe that cooks
+# on the hob.
+HEAT_METHOD_PATTERNS = (
+    r"\bbake[sd]?\b", r"\bbaking\b", r"\boven\b", r"\broast(?:s|ed|ing)?\b",
+    r"\bbroil(?:s|ed|ing)?\b", r"\bpreheat\b", r"\bsaut[e\u00e9]\b",
+    r"\bsear(?:s|ed|ing)?\b", r"\bfry(?:ing)?\b", r"\bfried\b",
+    r"\bsimmer(?:s|ed|ing)?\b", r"\bboil(?:s|ed|ing)?\b", r"\bskillet\b",
+    r"\bsaucepan\b", r"\bpoach(?:es|ed|ing)?\b", r"\bsteam(?:s|ed|ing)?\b",
+    r"\bcook(?:s|ed|ing)?\b",
 )
 
 # Evidence the recipe actually uses an oven. Absent these, it is a no-bake
@@ -250,21 +292,68 @@ def _volumetric_cups(amount: str) -> float | None:
 
 
 def _check_food_safety(recipe: dict[str, Any], instructions: str) -> str | None:
-    """A risk protein must have its doneness verified somewhere in the method."""
+    """A risk protein must have its doneness verified, near the protein itself.
+
+    Strong evidence (a thermometer reading, "pre-cooked") counts anywhere.
+    Weak evidence — "browned", "opaque", "crisp" — counts only in a step that
+    also names the protein, because those are ordinary cooking words that
+    something else in the recipe will almost always satisfy. Before that
+    proximity rule, "bake until the cheese tops are browned" cleared a raw
+    chicken filling.
+    """
     ingredient_text = " ".join(
         str(i.get("item", "")) if isinstance(i, dict) else str(i)
         for i in (recipe.get("ingredients") or [])
     )
     if not _matches_any(ingredient_text, RISK_PROTEIN_PATTERNS):
         return None
+
+    chef_notes = str(recipe.get("chef_notes") or "")
+    if _matches_any(f"{ingredient_text} {instructions} {chef_notes}",
+                    STRONG_DONENESS_PATTERNS):
+        return None
+
+    # Weak evidence, but only where it is actually talking about the protein.
+    steps = [str(s) for s in (recipe.get("instructions") or [])]
+    if chef_notes:
+        steps.append(chef_notes)
+    for step in steps:
+        if _matches_any(step, RISK_PROTEIN_PATTERNS) and _matches_any(
+            step, WEAK_DONENESS_PATTERNS
+        ):
+            return None
+
+    return (
+        "recipe contains a raw protein (poultry, pork, bacon, sausage, ground "
+        "meat, game, or seafood) but never verifies its doneness; state an "
+        "internal temperature (165F poultry, 160F ground meat, 145F pork/fish) "
+        "in the same step that cooks it, or say explicitly that it goes in "
+        "pre-cooked"
+    )
+
+
+def _check_raw_egg(recipe: dict[str, Any], instructions: str) -> str | None:
+    """Raw egg is fine baked. It is not fine chilled and served.
+
+    Eggs are excluded from the risk-protein list because they are in nearly
+    every recipe here and baking makes them safe. That reasoning collapses in
+    a no-bake recipe — a mousse or custard set in the fridge never heats the
+    yolk at all — so this covers the case the exclusion leaves open.
+    """
+    ingredient_text = " ".join(
+        str(i.get("item", "")) if isinstance(i, dict) else str(i)
+        for i in (recipe.get("ingredients") or [])
+    )
+    if not _matches_any(ingredient_text, EGG_PATTERNS):
+        return None
+    if _matches_any(instructions, HEAT_METHOD_PATTERNS):
+        return None
     haystack = f"{ingredient_text} {instructions} {recipe.get('chef_notes') or ''}"
-    if _matches_any(haystack, DONENESS_PATTERNS):
+    if re.search(PASTEURIZED_PATTERN, haystack, re.IGNORECASE):
         return None
     return (
-        "recipe contains a raw protein (poultry, pork, ground meat, or seafood) "
-        "but never verifies doneness; state an internal temperature "
-        "(165F poultry, 160F ground meat, 145F pork/fish) or say explicitly "
-        "that the protein goes in pre-cooked"
+        "recipe uses egg but never heats anything, so the egg is served raw; "
+        "specify pasteurized eggs or add a cooking step"
     )
 
 
@@ -442,6 +531,10 @@ def check_recipe_sanity(recipe: dict[str, Any] | None) -> RecipeVerdict:
     safety = _check_food_safety(recipe, instructions)
     if safety:
         unsafe.append(safety)
+
+    raw_egg = _check_raw_egg(recipe, instructions)
+    if raw_egg:
+        unsafe.append(raw_egg)
 
     temp_issue, hottest = _check_oven_temp(instructions)
     details["oven_temp_f"] = hottest
