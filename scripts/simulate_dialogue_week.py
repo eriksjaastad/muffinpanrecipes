@@ -234,7 +234,15 @@ TICKS_RANGE: dict[str, tuple[int, int]] = {
     "thursday":  (4, 6),   # copywriting - was (3, 5); 3 could not seat a 4-person cast (#7079)
     "friday":    (5, 8),   # approval discussion
     "saturday":  (3, 5),   # enough for Devon's snag scene
-    "sunday":    (4, 6),   # publish + warmth - was (3, 4); 3 could not seat a 4-person cast (#7079)
+    # Floor is cast size + 1, not cast size (#7082). At exactly 4 turns for a
+    # 4-person cast every character spends their only line before anyone can
+    # wrap up, so the scene ends mid-thought with no sign-off - measured live
+    # in W37, where a 4-turn Sunday scored natural_progression 2 and failed
+    # the gate, and reproduced offline: 4-turn runs had no repeat speaker and
+    # no close, 5-turn runs closed cleanly. Tuesday, Wednesday, Thursday and
+    # Friday still have floors equal to their cast size and carry the same
+    # exposure - tracked in #7105, not fixed here.
+    "sunday":    (5, 6),   # publish + warmth - was (3, 4), then (4, 6) (#7079, #7082)
 }
 
 PROMPT_ECHO_PATTERNS = [
