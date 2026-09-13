@@ -1,11 +1,13 @@
-"""The email backend for backend/utils/alerts.py (#6860).
+"""The email backend for backend/utils/alerts.py (#6860, routing per #7097).
 
 Erik, 2026-09-05: "I've noticed all of the Discord notifications, but I just
 don't look. Emails do show up." This pins the behaviour that makes email a
 usable *second* channel rather than a second way to be ignored:
 
-- only `critical` reaches the inbox (warning/info stay Discord-only, so email
-  doesn't become the thing he tunes out too),
+- every severity reaches the inbox. Email was filtered to `critical` until
+  2026-09-12, when a judge failure paused a week at "warning" and reached
+  Discord only; see test_every_severity_reaches_resend below and the
+  DECISIONS.md entry for why the filter is not coming back,
 - a missing RESEND_API_KEY / ALERT_EMAIL_TO is loud (logged + a one-time
   Discord notice) but never raises out of send_alert or drops the original
   Discord alert,
@@ -278,3 +280,18 @@ def test_email_channel_status_has_no_side_effects(_unconfigured) -> None:
 
     post.assert_not_called()
     assert alerts._email_unconfigured_notice_sent is False
+
+
+def test_ambient_alert_credentials_are_stripped_from_every_test() -> None:
+    """The conftest guard is active regardless of how the suite was invoked.
+
+    This is the backstop for #7097: `doppler run -- uv run pytest` injects a
+    real RESEND_API_KEY, and a test that drops `_pytest_gate` without mocking
+    `httpx.post` would mail Erik's real inbox. No test opts into live
+    credentials, so none should be able to see them.
+    """
+    import os
+
+    assert os.environ.get("RESEND_API_KEY") is None
+    assert os.environ.get("ALERT_EMAIL_TO") is None
+    assert os.environ.get("MUFFINPAN_DISCORD_WEBHOOK") is None
