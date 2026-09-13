@@ -20,12 +20,29 @@ import random
 
 import pytest
 
+import scripts.simulate_dialogue_week as sim
+from scripts.conversation_metrics import cast_coverage
 from scripts.simulate_dialogue_week import (
     DAY_ORDER,
     TICKS_RANGE,
     _select_next_speaker,
     participants_for_day,
 )
+
+
+@pytest.fixture(autouse=True)
+def _restore_global_rng():
+    """Seed freely without leaking RNG state into whatever runs next.
+
+    The simulator draws from the module-level `random`, so these tests have
+    to seed the global RNG rather than a private `random.Random()`. Snapshot
+    and restore it so ordering with other test files stays irrelevant.
+    """
+    state = random.getstate()
+    try:
+        yield
+    finally:
+        random.setstate(state)
 
 
 def _run_day(day: str, ticks: int) -> dict[str, int]:
@@ -146,3 +163,119 @@ def test_closing_turn_goes_to_someone_who_already_spoke(day: str) -> None:
                 f"scene on their first line; order was {order}"
             )
             assert not [n for n in names if counts.get(n, 0) == 0]
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: the real run_simulation() entry point
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def stub_turns(monkeypatch):
+    """Run the real day loop with only the model call replaced.
+
+    Everything the production path does around speaker selection — tick
+    sampling from TICKS_RANGE, the closing/winding_down phases, the
+    Wednesday photography tick override — runs for real. Only the network
+    call is stubbed, so these stay free and fast.
+    """
+    def _fake_turn(**kwargs):
+        return f"{kwargs['persona']['name'].split()[0]} says something about the pan."
+
+    monkeypatch.setattr(sim, "generate_turn", _fake_turn)
+
+
+def _simulate(day: str, **overrides) -> list[dict]:
+    kwargs = dict(
+        concept="Brazilian Pao de Queijo Bites",
+        default_model="stub",
+        run_index=0,
+        stage_only=day,
+        injected_event=None,
+        ticks_per_day=0,
+        mode="normal",
+        prompt_style="plain",
+        character_models=None,
+    )
+    kwargs.update(overrides)
+    out = sim.run_simulation(**kwargs)
+    return [
+        {"character": m["character"], "message": m["message"]}
+        for m in out["messages"]
+    ]
+
+
+@pytest.mark.parametrize("day", DAY_ORDER)
+def test_run_simulation_covers_the_cast(day: str, stub_turns) -> None:
+    """The production entry point, scored with the same metric the judge uses.
+
+    `_select_next_speaker` is unit-tested above, but the cron calls
+    `run_simulation`, and the gap between the two is where the Wednesday
+    tick override and the phase logic live. This closes it.
+    """
+    expected = participants_for_day(day)
+    for seed in range(8):
+        random.seed(f"e2e-{day}-{seed}")
+        coverage = cast_coverage(expected, _simulate(day))
+        assert not coverage["missing"], (
+            f"{day} (seed {seed}) left {coverage['missing']} silent"
+        )
+        assert not coverage["unexpected"], (
+            f"{day} (seed {seed}) seated off-roster {coverage['unexpected']}"
+        )
+
+
+# These two run more seeds than the tests above, and the reason is worth
+# stating. Both exercise generous turn counts relative to cast size (7-10
+# turns for 4 people; 3 turns with no repeat possible), and at those ratios
+# the OLD pure-nudge selector already landed full coverage ~96-99% of the
+# time by luck. Measured pre-fix miss rates: 2.3% at 7 ticks, 4.3% at 10,
+# 1.3% on the forced-3 Friday. At 8 seeds these would catch a full revert
+# only ~10-17% of the time - honest assertions, but decorative as guards.
+# The coverage guarantee itself is held by the direct-selector tests above,
+# which run tighter tick counts where the old code failed 24-56% of the
+# time. What these two are really for is wiring: that the tick overrides
+# reach the selector at all. The seed counts below buy back real power for
+# the coverage assertions that ride along.
+_WIRING_SEEDS = 200
+
+
+@pytest.mark.parametrize("reshoot", [False, True])
+def test_wednesday_photography_override_reaches_the_selector(reshoot: bool, stub_turns) -> None:
+    """Wednesday raises its own tick count when photography context is present.
+
+    `run_simulation` bumps day_ticks to 7 (or 10 on a reshoot) *after*
+    sampling TICKS_RANGE, so the override has to reach
+    `_select_next_speaker` as total_ticks or the deadline is computed
+    against the wrong horizon. The length floor is the load-bearing
+    assertion here: TICKS_RANGE["wednesday"] tops out at 6, so a message
+    count of 7+ can only come from the override actually firing.
+    """
+    expected = participants_for_day("wednesday")
+    context = {"reshoot_happened": reshoot, "rounds": []}
+    floor = 10 if reshoot else 7
+    for seed in range(_WIRING_SEEDS):
+        random.seed(f"photo-{reshoot}-{seed}")
+        messages = _simulate("wednesday", photography_context=context)
+        assert len(messages) >= floor, (
+            f"reshoot={reshoot} seed {seed} produced {len(messages)} messages; "
+            f"the photography override should have forced at least {floor}"
+        )
+        assert not cast_coverage(expected, messages)["missing"]
+
+
+def test_forced_tick_count_below_cast_size_still_spreads(stub_turns) -> None:
+    """An explicit ticks_per_day under the cast size must not regress to a monologue.
+
+    Production passes ticks_per_day=0, but the CLI exposes --ticks-per-day
+    and run_simulation honours it. Coverage is impossible below the cast
+    size; giving every available turn to a different character is not.
+    """
+    expected = participants_for_day("friday")
+    for seed in range(_WIRING_SEEDS):
+        random.seed(f"forced-{seed}")
+        messages = _simulate("friday", ticks_per_day=3)
+        speakers = [m["character"] for m in messages]
+        assert len(messages) == 3
+        assert len(set(speakers)) == 3, f"a character repeated while others waited: {speakers}"
+        assert not cast_coverage(expected, messages)["unexpected"]
