@@ -221,27 +221,28 @@ PROHIBITED = [
 
 # Variable message counts by day (min, max). Sampled fresh each run.
 #
-# INVARIANT (#7079): the low end of every range must be >= the number of
-# people participants_for_day() returns for that day. Below that, the day
-# cannot seat its own cast no matter how the speaker selector behaves, and
-# the judge's cast_coverage dimension fails the stage. `test_ticks_range_
-# seats_full_cast` enforces this - if you shrink a range or add a character
-# to a roster, that test is the thing that will stop you.
+# INVARIANT (#7079, tightened by #7082/#7105): the low end of every range must
+# be STRICTLY GREATER than the number of people participants_for_day() returns
+# for that day.
+#
+# At or below the cast size the day cannot seat its own cast, and the judge's
+# cast_coverage dimension fails the stage. At exactly the cast size it seats
+# everyone and still fails differently: every character spends their only line
+# before anyone can wrap up, so nobody answers anybody and the scene ends
+# mid-thought with no sign-off. Measured at 100% over 5000 seeds, and live -
+# W37's 4-turn Sunday scored natural_progression 2 and blocked the publish
+# while scoring cast_coverage 5.
+#
+# One spare turn is what buys a reply and a closer. `test_ticks_range_
+# seats_full_cast` enforces it - if you shrink a range or add a character to a
+# roster, that test is what stops you.
 TICKS_RANGE: dict[str, tuple[int, int]] = {
     "monday":    (6, 10),  # heated concept debate
-    "tuesday":   (4, 6),   # focused recipe dev
-    "wednesday": (4, 6),   # photography + image refs (may have fewer because messages are longer)
-    "thursday":  (4, 6),   # copywriting - was (3, 5); 3 could not seat a 4-person cast (#7079)
-    "friday":    (5, 8),   # approval discussion
+    "tuesday":   (5, 6),   # focused recipe dev - floor was 4 (#7105)
+    "wednesday": (5, 6),   # photography + image refs - floor was 4 (#7105)
+    "thursday":  (5, 7),   # copywriting - was (3, 5), then (4, 6) (#7079, #7105)
+    "friday":    (6, 8),   # approval discussion - floor was 5 (#7105)
     "saturday":  (3, 5),   # enough for Devon's snag scene
-    # Floor is cast size + 1, not cast size (#7082). At exactly 4 turns for a
-    # 4-person cast every character spends their only line before anyone can
-    # wrap up, so the scene ends mid-thought with no sign-off - measured live
-    # in W37, where a 4-turn Sunday scored natural_progression 2 and failed
-    # the gate, and reproduced offline: 4-turn runs had no repeat speaker and
-    # no close, 5-turn runs closed cleanly. Tuesday, Wednesday, Thursday and
-    # Friday still have floors equal to their cast size and carry the same
-    # exposure - tracked in #7105, not fixed here.
     "sunday":    (5, 6),   # publish + warmth - was (3, 4), then (4, 6) (#7079, #7082)
 }
 
