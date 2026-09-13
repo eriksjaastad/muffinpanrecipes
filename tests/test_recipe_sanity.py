@@ -314,3 +314,150 @@ def test_warnings_never_set_blocking() -> None:
     verdict = check_recipe_sanity(_fixture("w27_bulky_spinach_overcounts_volume"))
     assert verdict.warnings
     assert not verdict.blocking
+
+
+# ---------------------------------------------------------------------------
+# Food safety, second pass — the holes adversarial review found
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        "raw bacon, diced",
+        "Italian sausage, crumbled raw",
+        "smoked ham, diced",
+        "duck breast, diced",
+        "chorizo, raw",
+        "ground venison",
+        "raw lamb, diced",
+        "veal cutlets, diced",
+        "bay scallops",
+        "lump crab meat",
+        "raw tuna, cubed",
+    ],
+)
+def test_every_risk_protein_is_covered(item: str) -> None:
+    """The first protein list held only chicken/turkey/pork/ground beef/
+    shrimp/fish/salmon, so all of these skipped the safety check entirely.
+
+    Bacon and sausage matter most: this is a muffin-pan breakfast site, so
+    they are the likeliest raw proteins it will ever publish, and they were
+    the ones going unchecked.
+    """
+    verdict = check_recipe_sanity(
+        _recipe(
+            ingredients=[{"item": item, "amount": "1 lb", "notes": ""}],
+            instructions=["Preheat the oven to 375F.", "Fill the wells and bake 20 minutes."],
+        )
+    )
+    assert verdict.status == "unsafe", f"{item} passed without a doneness check"
+
+
+def test_weak_doneness_word_elsewhere_does_not_clear_the_protein() -> None:
+    """"Browned" describing the cheese must not vouch for raw chicken.
+
+    Weak doneness words are ordinary cooking vocabulary; something in almost
+    any recipe satisfies them. Matched anywhere, they made the food-safety
+    check decorative.
+    """
+    verdict = check_recipe_sanity(
+        _recipe(
+            ingredients=[{"item": "boneless chicken thighs", "amount": "1 lb", "notes": ""}],
+            instructions=[
+                "Preheat the oven to 375F.",
+                "Fill the wells and bake until the cheese tops are browned.",
+            ],
+        )
+    )
+    assert verdict.status == "unsafe"
+
+
+def test_weak_doneness_in_the_protein_step_does_clear_it() -> None:
+    verdict = check_recipe_sanity(
+        _recipe(
+            ingredients=[{"item": "boneless chicken thighs", "amount": "1 lb", "notes": ""}],
+            instructions=[
+                "Preheat the oven to 375F.",
+                "Brown the chicken in a skillet until cooked through.",
+                "Divide among the wells and bake 20 minutes.",
+            ],
+        )
+    )
+    assert verdict.status == "clear", verdict.reason
+
+
+def test_strong_doneness_counts_anywhere() -> None:
+    """A thermometer reading is unambiguous and needs no proximity rule."""
+    verdict = check_recipe_sanity(
+        _recipe(
+            ingredients=[{"item": "boneless chicken thighs", "amount": "1 lb", "notes": ""}],
+            instructions=[
+                "Preheat the oven to 375F.",
+                "Bake until an instant-read thermometer reads 165F.",
+            ],
+        )
+    )
+    assert verdict.status == "clear"
+
+
+def test_stovetop_only_protein_still_needs_doneness() -> None:
+    """The no-bake carve-out skips the OVEN check, not the SAFETY check."""
+    verdict = check_recipe_sanity(
+        _recipe(
+            ingredients=[{"item": "boneless chicken thighs", "amount": "1 lb", "notes": ""}],
+            instructions=["Sear the chicken in a skillet.", "Divide among the wells and chill."],
+        )
+    )
+    assert verdict.status == "unsafe"
+
+
+# ---------------------------------------------------------------------------
+# Raw egg without heat
+# ---------------------------------------------------------------------------
+
+
+def test_no_bake_raw_egg_is_unsafe() -> None:
+    """Eggs are exempt from the risk-protein list because baking makes them
+    safe. A mousse set in the fridge never bakes, so the exemption has to
+    stop there."""
+    verdict = check_recipe_sanity(
+        {
+            "title": "Tiramisu Cups",
+            "servings": 12,
+            "ingredients": [{"item": "egg yolks", "amount": "4", "notes": ""}],
+            "instructions": [
+                "Whisk the yolks with sugar until pale.",
+                "Fold into the mascarpone and divide among the wells.",
+                "Chill 4 hours until set.",
+            ],
+        }
+    )
+    assert verdict.status == "unsafe"
+    assert "pasteurized" in verdict.reason
+
+
+def test_pasteurized_egg_clears_the_no_bake_case() -> None:
+    verdict = check_recipe_sanity(
+        {
+            "title": "Tiramisu Cups",
+            "servings": 12,
+            "ingredients": [{"item": "pasteurized egg yolks", "amount": "4", "notes": ""}],
+            "instructions": [
+                "Whisk the yolks with sugar until pale.",
+                "Chill 4 hours until set.",
+            ],
+        }
+    )
+    assert verdict.status == "clear", verdict.reason
+
+
+def test_baked_egg_recipe_is_not_flagged_raw() -> None:
+    """The ordinary case — every egg recipe this site publishes."""
+    verdict = check_recipe_sanity(
+        _recipe(
+            ingredients=[{"item": "eggs", "amount": "4", "notes": ""}],
+            instructions=["Preheat the oven to 375F.", "Whisk the eggs and bake 20 minutes."],
+        )
+    )
+    assert verdict.status == "clear"

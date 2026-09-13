@@ -209,7 +209,7 @@ def episode_integrity_failures(
                     f"catalog: {conflict}"
                 )
 
-    # 6. The recipe itself is safe and cookable (#7099). The Monday gate and
+    # 5. The recipe itself is safe and cookable (#7099). The Monday gate and
     #    the Sunday editorial layer both block on this, so a live episode
     #    failing here means something got past both — a hand-edited episode,
     #    a recipe written before the gate existed, or a tightened threshold.
