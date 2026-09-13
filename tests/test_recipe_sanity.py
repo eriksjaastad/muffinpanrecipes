@@ -536,3 +536,61 @@ def test_cooking_spray_does_not_count_as_cooking() -> None:
     )
     assert verdict.status == "unsafe"
     assert "pasteurized" in verdict.reason
+
+
+@pytest.mark.parametrize(
+    "pantry",
+    [
+        "clam juice", "squid ink", "steak sauce", "oyster sauce",
+        "hamburger bun crumbs", "beef-flavored bouillon cube",
+        "chicken-flavored broth", "fish stock",
+    ],
+)
+def test_products_made_from_a_protein_are_not_raw_protein(pantry: str) -> None:
+    """Widening to bare species and cut names caught their pantry products too.
+
+    Same failure class the `fish sauce` lookahead was built for. These cost a
+    wasted re-bake rather than reader safety, but a Monday false positive can
+    exhaust the three attempts and pause the week — which is the failure this
+    whole session started with.
+    """
+    verdict = check_recipe_sanity(
+        _recipe(
+            ingredients=[
+                {"item": pantry, "amount": "1 cup", "notes": ""},
+                {"item": "all-purpose flour", "amount": "1 cup", "notes": ""},
+            ],
+            instructions=[
+                "Preheat the oven to 375F.",
+                f"Whisk the {pantry} into the flour and bake 20 minutes.",
+            ],
+        )
+    )
+    assert verdict.status == "clear", verdict.reason
+
+
+@pytest.mark.parametrize(
+    "item",
+    ["littleneck clams", "raw squid, cleaned", "raw beef steak, diced",
+     "hamburger patty, raw", "raw oysters"],
+)
+def test_the_pantry_lookaheads_do_not_excuse_the_real_protein(item: str) -> None:
+    """The lookahead must suppress `clam juice`, not `clams`."""
+    verdict = check_recipe_sanity(
+        _recipe(
+            ingredients=[{"item": item, "amount": "1 lb", "notes": ""}],
+            instructions=["Preheat the oven to 375F.", "Fill the wells and bake 20 minutes."],
+        )
+    )
+    assert verdict.status == "unsafe"
+
+
+def test_hyphenated_precooked_is_accepted() -> None:
+    """Grocery labelling hyphenates; `fully\\s+cooked` missed "fully-cooked"."""
+    verdict = check_recipe_sanity(
+        _recipe(
+            ingredients=[{"item": "fully-cooked sausage links", "amount": "1 lb", "notes": ""}],
+            instructions=["Preheat the oven to 375F.", "Fill the wells and bake 20 minutes."],
+        )
+    )
+    assert verdict.status == "clear", verdict.reason

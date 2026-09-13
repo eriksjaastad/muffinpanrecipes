@@ -38,6 +38,17 @@ editorial reviewer, whose rules 6-8 cover exactly this kind of judgement —
 the point of this module is to give that reviewer a floor it cannot fall
 below, not to replace it. Do not widen WEAK_DONENESS_PATTERNS to compensate;
 that trades a narrow hole for a wide one.
+
+SECOND KNOWN LIMIT, same category. The pantry lookaheads on the risk-protein
+patterns ("chicken" but not "chicken stock") suppress the match only when the
+excluded word follows immediately, so an ingredient named backwards past the
+qualifier defeats them: "chicken stock-braised breast, raw" reads as clear.
+No ingredient in the stored corpus is phrased that way — they are uniformly
+cut-or-form first ("boneless chicken thighs", "raw salmon fillet") — and this
+is the irreducible residual of any exclusion list rather than a defect in a
+particular pattern. Adding another guard per adversarial phrasing moves the
+target instead of closing the category, so it is recorded here rather than
+chased.
 """
 
 from __future__ import annotations
@@ -90,9 +101,13 @@ _OVEN_TEMP_FLOOR_F = 200
 # here and are safe once baked. The no-heat case they leave open is handled
 # separately by _check_raw_egg below.
 RISK_PROTEIN_PATTERNS = (
-    # Poultry and game birds. The lookahead keeps stock and bouillon - pantry
-    # items, not raw protein - from demanding a doneness check.
-    r"\bchicken\b(?!\s+(?:broth|stock|bouillon|base|powder))",
+    # Poultry and game birds. The lookaheads keep pantry products made FROM a
+    # protein - stock, bouillon, clam juice, squid ink, steak sauce, hamburger
+    # buns - from demanding a doneness check they have no use for. They accept
+    # a hyphen as well as a space because grocery labelling hyphenates freely
+    # ("beef-flavored bouillon"), and a whitespace-only lookahead let that
+    # through as a raw protein.
+    r"\bchicken\b(?![\s-]+(?:broth|stock|bouillon|base|powder|flavou?red))",
     r"\bturkey\b",
     r"\bduck\b",
     r"\bquail\b",
@@ -107,9 +122,9 @@ RISK_PROTEIN_PATTERNS = (
     r"\bpancetta\b",
     # Red meat and game. Bare "beef" rather than only "ground beef" - a raw
     # patty or diced steak in a sliders concept skipped the check entirely.
-    r"\bbeef\b(?!\s+(?:broth|stock|bouillon|base|consomm))",
-    r"\bsteak\b",
-    r"\bhamburger\b",
+    r"\bbeef\b(?![\s-]+(?:broth|stock|bouillon|base|consomm|flavou?red))",
+    r"\bsteak\b(?![\s-]+sauce)",
+    r"\bhamburger\b(?![\s-]+(?:bun|roll))",
     r"\blamb\b",
     r"\bveal\b",
     r"\bvenison\b",
@@ -122,7 +137,7 @@ RISK_PROTEIN_PATTERNS = (
     # Seafood. The bare "fish" pattern only ever matched the literal word, so
     # every named species other than salmon went unchecked - a recipe built on
     # raw cod or halibut got no scrutiny at all.
-    r"\bfish\b(?!\s+(?:sauce|stock|broth))",
+    r"\bfish\b(?![\s-]+(?:sauce|stock|broth|flavou?red))",
     r"\bsalmon\b",
     r"\btuna\b",
     r"\bcod\b",
@@ -139,10 +154,10 @@ RISK_PROTEIN_PATTERNS = (
     r"\bscallops?\b",
     r"\bcrab\b",
     r"\blobster\b",
-    r"\boysters?\b",
+    r"\boysters?\b(?![\s-]+sauce)",
     r"\bmussels?\b",
-    r"\bclams?\b",
-    r"\bsquid\b",
+    r"\bclams?\b(?![\s-]+juice)",
+    r"\bsquid\b(?![\s-]+ink)",
     r"\bcalamari\b",
     r"\boctopus\b",
 )
@@ -157,9 +172,9 @@ STRONG_DONENESS_PATTERNS = (
     r"\b1[4-7]\d\s*°?\s*F\b",          # 140-179F covers 145/160/165
     r"\binstant-read\b",
     r"\bthermometer\b",
-    r"\bfully\s+cooked\b",
+    r"\bfully[\s-]+cooked\b",
     r"\bpre-?cooked\b",
-    r"\balready\s+cooked\b",
+    r"\balready[\s-]+cooked\b",
 )
 
 # WEAK signals are ordinary cooking words that mean doneness only when they
@@ -196,7 +211,7 @@ HEAT_METHOD_PATTERNS = (
     # whether the filling is cooked. 18 of 39 stored episodes mention it,
     # so without this lookahead the raw-egg check is satisfied by greasing
     # boilerplate in nearly half the site's real output.
-    r"\bcook(?:s|ed|ing)?\b(?!\s+spray)",
+    r"\bcook(?:s|ed|ing)?\b(?![\s-]+spray)",
 )
 
 # Evidence the recipe actually uses an oven. Absent these, it is a no-bake
