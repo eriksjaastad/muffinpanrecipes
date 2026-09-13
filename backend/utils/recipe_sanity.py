@@ -22,6 +22,22 @@ Two facts make this possible, both verified across all 36 stored episodes:
 ingredients are uniformly `{item, amount, notes}` (619/619), and while oven
 temperature exists only as prose inside instruction strings, it is present
 in 36/36 episodes and regex-extractable.
+
+KNOWN LIMIT, stated rather than papered over. Weak doneness evidence is
+accepted when it appears in the same instruction step as the protein, which
+is a proxy for "describes the protein" and not the same thing. A single
+compound sentence naming both defeats it:
+
+    "Stir the raw chicken into the glaze until the glaze looks glossy and
+     browned, then divide among the wells and bake 20 minutes."
+
+reads as clear, because "browned" and "chicken" share a step even though the
+word describes the glaze. Separating those needs to parse what the adjective
+attaches to, which regex cannot do. This is deliberately left to the LLM
+editorial reviewer, whose rules 6-8 cover exactly this kind of judgement —
+the point of this module is to give that reviewer a floor it cannot fall
+below, not to replace it. Do not widen WEAK_DONENESS_PATTERNS to compensate;
+that trades a narrow hole for a wide one.
 """
 
 from __future__ import annotations
@@ -74,27 +90,61 @@ _OVEN_TEMP_FLOOR_F = 200
 # here and are safe once baked. The no-heat case they leave open is handled
 # separately by _check_raw_egg below.
 RISK_PROTEIN_PATTERNS = (
-    r"\bchicken\b",
+    # Poultry and game birds. The lookahead keeps stock and bouillon - pantry
+    # items, not raw protein - from demanding a doneness check.
+    r"\bchicken\b(?!\s+(?:broth|stock|bouillon|base|powder))",
     r"\bturkey\b",
     r"\bduck\b",
+    r"\bquail\b",
+    # Pork and cured-or-not pork products. Bacon and sausage matter most here:
+    # this is a muffin-pan breakfast site, so they are the likeliest raw
+    # proteins it will ever publish, and both went unchecked in the first pass.
     r"\bpork\b",
     r"\bbacon\b",
     r"\bham\b",
     r"\bchorizo\b",
     r"\bsausages?\b",
+    r"\bpancetta\b",
+    # Red meat and game. Bare "beef" rather than only "ground beef" - a raw
+    # patty or diced steak in a sliders concept skipped the check entirely.
+    r"\bbeef\b(?!\s+(?:broth|stock|bouillon|base|consomm))",
+    r"\bsteak\b",
+    r"\bhamburger\b",
     r"\blamb\b",
     r"\bveal\b",
     r"\bvenison\b",
     r"\bbison\b",
-    r"\bground\s+(?:beef|meat)\b",
-    r"\bshrimp\b",
-    r"\bscallops?\b",
-    r"\bcrab\b",
-    # "fish" but not "fish sauce" - the condiment matched here and flagged
-    # W30 as unsafe during calibration.
-    r"\bfish\b(?!\s+sauce)",
+    r"\bgoat\b",
+    r"\brabbit\b",
+    r"\belk\b",
+    r"\bboar\b",
+    r"\bground\s+(?:meat|poultry)\b",
+    # Seafood. The bare "fish" pattern only ever matched the literal word, so
+    # every named species other than salmon went unchecked - a recipe built on
+    # raw cod or halibut got no scrutiny at all.
+    r"\bfish\b(?!\s+(?:sauce|stock|broth))",
     r"\bsalmon\b",
     r"\btuna\b",
+    r"\bcod\b",
+    r"\bhalibut\b",
+    r"\btrout\b",
+    r"\btilapia\b",
+    r"\bhaddock\b",
+    r"\bsnapper\b",
+    r"\bmahi\b",
+    r"\bsole\b",
+    r"\bcatfish\b",
+    r"\bshrimp\b",
+    r"\bprawns?\b",
+    r"\bscallops?\b",
+    r"\bcrab\b",
+    r"\blobster\b",
+    r"\boysters?\b",
+    r"\bmussels?\b",
+    r"\bclams?\b",
+    r"\bsquid\b",
+    r"\bcalamari\b",
+    r"\boctopus\b",
 )
 
 # Doneness evidence, split by how much it actually proves.
@@ -142,7 +192,11 @@ HEAT_METHOD_PATTERNS = (
     r"\bsear(?:s|ed|ing)?\b", r"\bfry(?:ing)?\b", r"\bfried\b",
     r"\bsimmer(?:s|ed|ing)?\b", r"\bboil(?:s|ed|ing)?\b", r"\bskillet\b",
     r"\bsaucepan\b", r"\bpoach(?:es|ed|ing)?\b", r"\bsteam(?:s|ed|ing)?\b",
-    r"\bcook(?:s|ed|ing)?\b",
+        # NOT "cooking spray" - that is liner prep and says nothing about
+    # whether the filling is cooked. 18 of 39 stored episodes mention it,
+    # so without this lookahead the raw-egg check is satisfied by greasing
+    # boilerplate in nearly half the site's real output.
+    r"\bcook(?:s|ed|ing)?\b(?!\s+spray)",
 )
 
 # Evidence the recipe actually uses an oven. Absent these, it is a no-bake

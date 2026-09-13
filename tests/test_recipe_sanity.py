@@ -461,3 +461,78 @@ def test_baked_egg_recipe_is_not_flagged_raw() -> None:
         )
     )
     assert verdict.status == "clear"
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        "raw cod fillet", "halibut steak", "rainbow trout", "tilapia fillet",
+        "raw oysters", "mussels", "littleneck clams", "lobster meat",
+        "hamburger patty, raw", "raw beef steak, diced",
+        "quail breast", "goat shoulder", "rabbit loin",
+    ],
+)
+def test_species_named_proteins_are_covered(item: str) -> None:
+    """A bare `fish` pattern matches only the literal word "fish".
+
+    Every named species other than salmon went unchecked — a recipe built on
+    raw cod or halibut got no doneness scrutiny at all, even though `fish`
+    sat in the pattern list looking like it covered them. Same for shellfish
+    beyond shrimp, and for whole-cut beef (only `ground beef` was covered).
+    """
+    verdict = check_recipe_sanity(
+        _recipe(
+            ingredients=[{"item": item, "amount": "1 lb", "notes": ""}],
+            instructions=["Preheat the oven to 375F.", "Fill the wells and bake 20 minutes."],
+        )
+    )
+    assert verdict.status == "unsafe", f"{item} passed without a doneness check"
+
+
+@pytest.mark.parametrize("pantry", ["chicken broth", "beef stock", "fish sauce"])
+def test_pantry_staples_are_not_raw_proteins(pantry: str) -> None:
+    """Stock, broth and fish sauce are shelf-stable, not raw protein.
+
+    Widening the protein list to bare `beef` and species names would have
+    started flagging these without the lookaheads.
+    """
+    verdict = check_recipe_sanity(
+        _recipe(
+            ingredients=[
+                {"item": pantry, "amount": "1 cup", "notes": ""},
+                {"item": "all-purpose flour", "amount": "1 cup", "notes": ""},
+            ],
+            instructions=[
+                "Preheat the oven to 375F.",
+                f"Whisk the {pantry} into the flour and bake 20 minutes.",
+            ],
+        )
+    )
+    assert verdict.status == "clear", verdict.reason
+
+
+def test_cooking_spray_does_not_count_as_cooking() -> None:
+    """Greasing the liners says nothing about whether the filling is cooked.
+
+    18 of 39 stored episodes mention cooking spray, almost always as pan
+    prep. Matching it as a heat step satisfied the raw-egg check on nearly
+    half this site's real output — in exactly the no-bake case the check
+    exists to catch.
+    """
+    verdict = check_recipe_sanity(
+        {
+            "title": "Tiramisu Cups",
+            "servings": 12,
+            "ingredients": [
+                {"item": "raw egg yolks", "amount": "4", "notes": ""},
+                {"item": "nonstick cooking spray", "amount": "1", "notes": ""},
+            ],
+            "instructions": [
+                "Lightly coat 12 silicone liners with nonstick cooking spray.",
+                "Whisk the yolks with sugar and fold into the mascarpone.",
+                "Refrigerate at least 4 hours until set.",
+            ],
+        }
+    )
+    assert verdict.status == "unsafe"
+    assert "pasteurized" in verdict.reason
