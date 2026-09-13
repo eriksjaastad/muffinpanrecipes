@@ -140,7 +140,11 @@ def test_cron_monday_retries_baker_when_form_gate_fails():
         "Spinach Feta Egg Bites",
         "Tender egg bites shaped by the muffin pan.",
         [
-            "Whisk eggs until smooth.",
+            # The oven temperature is required by the recipe-sanity gate
+            # (#7099): a recipe that says "bake" without saying how hot is
+            # blocked, and this fixture goes through the real gate stack.
+            "Preheat the oven to 350F.",
+            "Whisk eggs until smooth, then stir in the cheese.",
             "Bake until the centers are set.",
             "Rest 5 minutes, then release each bite with a thin spatula.",
         ],

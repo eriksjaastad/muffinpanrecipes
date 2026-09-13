@@ -31,6 +31,27 @@ from backend.utils.episode_integrity import (
 SATURDAY_W36 = datetime(2026, 9, 5, 17, 0, tzinfo=timezone.utc)
 
 
+def _recipe_data(title: str) -> dict:
+    """A minimal recipe that passes the sanity gate (#7099).
+
+    These fixtures used to be `{"title": ...}` alone. The integrity monitor
+    now also runs check_recipe_sanity, and a recipe with no instructions is a
+    real failure it should report — so the stub has to be a plausible recipe
+    rather than a bare title, or every test here inherits an unrelated
+    failure string.
+    """
+    return {
+        "title": title,
+        "servings": 12,
+        "cook_time": 20,
+        "ingredients": [{"item": "eggs", "amount": "4", "notes": ""}],
+        "instructions": [
+            "Preheat the oven to 375F.",
+            "Whisk the eggs, divide among the wells, and bake 20 minutes.",
+        ],
+    }
+
+
 def _healthy_episode(**overrides) -> dict:
     episode = {
         "episode_id": "2026-W36",
@@ -42,7 +63,7 @@ def _healthy_episode(**overrides) -> dict:
         },
         "events": [],
     }
-    episode["stages"]["monday"]["recipe_data"] = {"title": "Portuguese Custard Tart Cups"}
+    episode["stages"]["monday"]["recipe_data"] = _recipe_data("Portuguese Custard Tart Cups")
     episode["stages"]["monday"]["target_category"] = "Sweet"
     episode.update(overrides)
     return episode
@@ -88,7 +109,7 @@ def test_the_full_w36_episode_shape_is_caught() -> None:
     episode = _healthy_episode(concept=PLACEHOLDER_CONCEPT)
     episode.pop("target_category")
     episode["stages"]["monday"].pop("target_category")
-    episode["stages"]["monday"]["recipe_data"] = {"title": "Greek Spanakopita Cups"}
+    episode["stages"]["monday"]["recipe_data"] = _recipe_data("Greek Spanakopita Cups")
 
     failures = episode_integrity_failures(episode, catalog=CATALOG, now=SATURDAY_W36)
 
@@ -149,7 +170,7 @@ def test_sunday_is_not_due_before_the_week_ends() -> None:
 
 def test_duplicate_title_against_the_catalog_is_reported() -> None:
     episode = _healthy_episode()
-    episode["stages"]["monday"]["recipe_data"] = {"title": "Spanakopita Phyllo Cups"}
+    episode["stages"]["monday"]["recipe_data"] = _recipe_data("Spanakopita Phyllo Cups")
     failures = episode_integrity_failures(episode, catalog=CATALOG, now=SATURDAY_W36)
 
     assert any("collides with the published catalog" in f for f in failures), failures
@@ -195,7 +216,7 @@ def test_an_unpublished_week_is_not_excused_by_an_identical_catalog_title() -> N
 def test_title_check_is_skipped_when_no_catalog_is_supplied() -> None:
     """A catalog fetch failure must not fabricate a duplicate alert."""
     episode = _healthy_episode()
-    episode["stages"]["monday"]["recipe_data"] = {"title": "Spanakopita Phyllo Cups"}
+    episode["stages"]["monday"]["recipe_data"] = _recipe_data("Spanakopita Phyllo Cups")
     failures = episode_integrity_failures(episode, catalog=None, now=SATURDAY_W36)
 
     assert failures == []
