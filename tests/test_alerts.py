@@ -30,9 +30,13 @@ def _outside_pytest(monkeypatch):
     """
     monkeypatch.setattr(alerts, "_pytest_gate", lambda: False)
     monkeypatch.setenv("MUFFINPAN_DISCORD_WEBHOOK", "https://discord.test/webhook")
-    # RESEND_API_KEY/ALERT_EMAIL_TO are deliberately left unset here, so the
-    # real email backend (now in _BACKENDS) raises inside config on every
-    # "critical" send in this file's Discord-focused tests. Suppress the
+    # RESEND_API_KEY/ALERT_EMAIL_TO stay unset here, so the real email backend
+    # (now in _BACKENDS) raises inside config on every send in this file's
+    # Discord-focused tests. That is enforced by conftest's autouse
+    # _no_live_alert_credentials fixture, not by an assumption about the
+    # ambient shell - before #7097 this comment described a hope, and
+    # test_missing_webhook_is_logged_not_raised below would have mailed a real
+    # inbox under `doppler run`. Suppress the
     # once-per-process unconfigured notice so it can't post an extra,
     # unmocked Discord call and steal `post.call_args` out from under a test
     # that's asserting on the *original* alert's payload — test_alert_email.py
