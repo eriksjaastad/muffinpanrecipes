@@ -279,3 +279,52 @@ def test_forced_tick_count_below_cast_size_still_spreads(stub_turns) -> None:
         assert len(messages) == 3
         assert len(set(speakers)) == 3, f"a character repeated while others waited: {speakers}"
         assert not cast_coverage(expected, messages)["unexpected"]
+
+
+def test_sunday_can_always_close_its_own_scene() -> None:
+    """Sunday budgets at least one turn more than it has cast members (#7082).
+
+    At exactly cast-size turns the day is one line each: no character speaks
+    twice, so nobody can answer anyone and nobody is left to wrap up. W37's
+    Sunday sampled 4 turns for a 4-person cast, scored natural_progression 2,
+    and failed the publish gate with "four lines of substance that resolve
+    nothing meaningful". Offline reruns at production settings reproduced it —
+    4-turn runs ended mid-explanation, 5-turn runs closed cleanly.
+
+    Scoped to Sunday because that is where it was measured and fixed. The same
+    exposure exists on tuesday, wednesday, thursday and friday, whose floors
+    still equal their cast size; raising those is a week-wide pacing and cost
+    change and belongs to the conversation lab, not to this guarantee.
+    """
+    low, _high = TICKS_RANGE["sunday"]
+    cast_size = len(participants_for_day("sunday"))
+    assert low >= cast_size + 1, (
+        f"sunday budgets a minimum of {low} turns for {cast_size} characters; "
+        f"at least {cast_size + 1} are needed for anyone to reply or sign off"
+    )
+
+
+@pytest.mark.parametrize("day", DAY_ORDER)
+def test_days_at_exactly_cast_size_are_recorded(day: str) -> None:
+    """Inventory of which days can still produce a reply-less scene.
+
+    Not a guard — a ledger, and deliberately a temporary one. Any day whose
+    floor equals its cast size can sample a one-line-each scene, verified at
+    100% over 5000 seeds against the real selector. This names them so the
+    list cannot drift silently while **#7105** decides whether to raise all
+    four. When a day's floor goes up, delete it from here; when #7105 closes,
+    delete this test.
+
+    Do not reuse this pattern to record known bugs in place of filing a card.
+    It earns its place only because it computes the at-risk set from live
+    TICKS_RANGE and participants_for_day rather than restating prose, and
+    because it points at an open card that will retire it.
+    """
+    known_at_risk = {"tuesday", "wednesday", "thursday", "friday"}
+    low, _high = TICKS_RANGE[day]
+    cast_size = len(participants_for_day(day))
+    at_risk = low == cast_size
+    assert at_risk == (day in known_at_risk), (
+        f"{day} at-risk status changed (floor {low}, cast {cast_size}). "
+        f"Update known_at_risk and card #7105."
+    )
