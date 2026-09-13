@@ -95,9 +95,48 @@ vercel deploy   # preview URL, not --prod
 # 4. Verify against the PREVIEW URL specifically:
 uv run python scripts/health_check.py --base-url <preview-url>
 
-# 5. Promote only after verification passes.
-vercel promote <preview-deployment-url>
+# 5. Ship it, only after step 4 passes. This REBUILDS — see the note below.
+vercel deploy --prod
 ```
+
+### Step 5 rebuilds; it does not promote the artifact you just verified
+
+`vercel promote <preview-url>` used to be step 5 here. On Vercel CLI 50.1.3 it
+refuses:
+
+> This deployment is not a production deployment and cannot be directly
+> promoted. A new deployment will be built using your production environment.
+> Are you sure you want to continue? (y/N)
+
+The Vercel dashboard's "Promote to Production" button says the same thing, so
+this is Vercel's behaviour, not a CLI quirk or a missing flag — `vercel promote
+--help` shows `-y/--yes` only skips the confirmation "when linking a Project",
+not this one. `vercel promote` is for moving between deployments that are
+*already* production (a rollback, say), not for preview to prod.
+
+So the preview you health-check and the artifact that serves production are two
+separate builds. **Step 4 is a smoke test of the source, not verification of the
+bytes that ship.** That is acceptable here and worth understanding rather than
+pretending otherwise: the deployed unit is a Python Lambda, config is read from
+the environment at runtime rather than baked in at build time, and an unchanged
+local checkout between step 3 and step 5 produces the same source both times.
+Note the precondition is the untouched working tree, not `main` specifically —
+this ritual deploys from the feature branch, before the PR merges. If any of
+that stops being true — a build step that bakes in env, or a deploy from a
+dirty tree — this ritual stops being safe and the gap has to be closed.
+
+Verify production after step 5, not only the preview:
+
+```bash
+doppler run -- uv run python scripts/health_check.py --no-alert
+```
+
+An agent running step 5 may be refused by Claude Code's auto-mode classifier:
+`--prod` matches its "sensitive remote targets" rule, which flags anything
+carrying `prod` as a word. That is a Claude Code sandbox decision, unrelated to
+Vercel auth or to this project's permissions — `vercel deploy` (preview) from
+the same CLI and login succeeds. Erik runs step 5, or adjusts `autoMode` in
+`~/.claude/settings.json`.
 
 Full rebuild (`uv run python -m scripts.build_site --full-rebuild`) is an
 explicit, separate operator action — it is the only supported way to roll out
