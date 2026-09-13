@@ -220,14 +220,21 @@ PROHIBITED = [
 ]
 
 # Variable message counts by day (min, max). Sampled fresh each run.
+#
+# INVARIANT (#7079): the low end of every range must be >= the number of
+# people participants_for_day() returns for that day. Below that, the day
+# cannot seat its own cast no matter how the speaker selector behaves, and
+# the judge's cast_coverage dimension fails the stage. `test_ticks_range_
+# seats_full_cast` enforces this - if you shrink a range or add a character
+# to a roster, that test is the thing that will stop you.
 TICKS_RANGE: dict[str, tuple[int, int]] = {
     "monday":    (6, 10),  # heated concept debate
     "tuesday":   (4, 6),   # focused recipe dev
     "wednesday": (4, 6),   # photography + image refs (may have fewer because messages are longer)
-    "thursday":  (3, 5),   # copywriting
+    "thursday":  (4, 6),   # copywriting - was (3, 5); 3 could not seat a 4-person cast (#7079)
     "friday":    (5, 8),   # approval discussion
     "saturday":  (3, 5),   # enough for Devon's snag scene
-    "sunday":    (3, 4),   # brief nervousness + publish + warmth
+    "sunday":    (4, 6),   # publish + warmth - was (3, 4); 3 could not seat a 4-person cast (#7079)
 }
 
 PROMPT_ECHO_PATTERNS = [
@@ -1603,11 +1610,41 @@ def _select_next_speaker(
     speak_counts: dict[str, int],
     total_ticks: int,
 ) -> str:
-    """Select next speaker using weighted reactive selection instead of round-robin."""
-    # Turn 1: day's lead character
+    """Select next speaker using weighted reactive selection instead of round-robin.
+
+    Cast coverage is a hard constraint, not a preference (#7079). Every
+    weighting below is a *nudge* - even the 3.0x boost for a character who
+    hasn't spoken is only a thumb on a weighted-random scale, so a silent
+    character could be skipped right through the last turn. The judge's
+    `cast_coverage` dimension (#6861) scores that as a fail, which paused
+    W37 twice. So before any scoring: if the characters who haven't spoken
+    yet can only just fit in the turns that remain, the pool is restricted
+    to them. That guarantees full coverage whenever total_ticks >= len(names)
+    and degrades to best-effort when it doesn't.
+
+    The deadline lands one turn early whenever the day has a spare turn to
+    give. The final turn is the scene's closer (`phase="closing"`,
+    `is_last_turn=True`), and handing it to someone who hasn't said a word
+    all scene reads like a stranger wrapping up a meeting they weren't in.
+    Clearing the roster by the second-to-last turn leaves the closer to the
+    normal weighting, so it goes to someone with momentum. When there is no
+    spare turn (total_ticks == len(names)) the day is necessarily one line
+    each and the closer is a first-time speaker either way.
+    """
+    # Turn 1: day's lead character. Everyone is silent here, so this is the
+    # same answer the deadline branch below would give.
     if tick == 0:
         lead = _DAY_LEADS.get(day, names[0])
         return lead if lead in names else names[0]
+
+    silent = [n for n in names if speak_counts.get(n, 0) == 0]
+    # Reserve the closing turn for a character who has already spoken, but
+    # only when the day can spare it.
+    has_spare_turn = total_ticks > len(names)
+    coverage_deadline = total_ticks - 1 if has_spare_turn else total_ticks
+    if silent and len(silent) >= coverage_deadline - tick:
+        names = silent
+        speak_counts = {n: 0 for n in silent}
 
     scores: dict[str, float] = {name: 1.0 for name in names}
 
