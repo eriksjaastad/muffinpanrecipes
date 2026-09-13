@@ -1,11 +1,13 @@
-"""The email backend for backend/utils/alerts.py (#6860).
+"""The email backend for backend/utils/alerts.py (#6860, routing per #7097).
 
 Erik, 2026-09-05: "I've noticed all of the Discord notifications, but I just
 don't look. Emails do show up." This pins the behaviour that makes email a
 usable *second* channel rather than a second way to be ignored:
 
-- only `critical` reaches the inbox (warning/info stay Discord-only, so email
-  doesn't become the thing he tunes out too),
+- every severity reaches the inbox. Email was filtered to `critical` until
+  2026-09-12, when a judge failure paused a week at "warning" and reached
+  Discord only; see test_every_severity_reaches_resend below and the
+  DECISIONS.md entry for why the filter is not coming back,
 - a missing RESEND_API_KEY / ALERT_EMAIL_TO is loud (logged + a one-time
   Discord notice) but never raises out of send_alert or drops the original
   Discord alert,
@@ -57,21 +59,68 @@ def _unconfigured(monkeypatch):
 # Severity routing
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("severity", ["info", "warning"])
-def test_non_critical_severities_never_touch_resend(severity, _outside_pytest) -> None:
-    with patch.object(alerts.httpx, "post", return_value=_Resp(204)) as post:
-        alerts.send_alert("s", "b", severity)
+@pytest.mark.parametrize("severity", ["info", "warning", "critical"])
+def test_every_severity_reaches_resend(severity, _outside_pytest) -> None:
+    """Email is not a severity filter — if Discord gets it, the inbox gets it.
 
-    # Discord still posts; only the Resend call must be absent.
-    assert all(call.args[0] != alerts._RESEND_URL for call in post.call_args_list)
-
-
-def test_critical_severity_calls_resend(_outside_pytest) -> None:
+    This used to assert the opposite: `critical` emailed and info/warning
+    were Discord-only (#6860). On 2026-09-12 a judge failure paused a week
+    at `severity="warning"`, so it reached Discord and never reached the
+    inbox. Erik: "I don't check Discord, so sending something to Discord
+    only should probably be nothing." An alert quiet enough to skip the
+    inbox is an alert that shouldn't be sent at all.
+    """
     with patch.object(alerts.httpx, "post", return_value=_Resp(200)) as post:
-        assert alerts.send_alert("s", "b", "critical") is True
+        assert alerts.send_alert("s", "b", severity) is True
 
     resend_calls = [c for c in post.call_args_list if c.args[0] == alerts._RESEND_URL]
-    assert len(resend_calls) == 1
+    assert len(resend_calls) == 1, f"{severity} did not reach the inbox"
+
+
+@pytest.mark.parametrize("severity", ["info", "warning", "critical"])
+def test_discord_still_posts_for_every_severity(severity, _outside_pytest) -> None:
+    """Adding the inbox must not cost us the durable Discord log."""
+    with patch.object(alerts.httpx, "post", return_value=_Resp(200)) as post:
+        alerts.send_alert("s", "b", severity)
+
+    discord_calls = [c for c in post.call_args_list if c.args[0] != alerts._RESEND_URL]
+    assert len(discord_calls) == 1, f"{severity} did not reach Discord"
+
+
+def test_severity_still_labels_the_subject(_outside_pytest) -> None:
+    """Severity stops routing but still has to survive into the subject line."""
+    with patch.object(alerts.httpx, "post", return_value=_Resp(200)) as post:
+        alerts.send_alert("Judge Failed", "b", "warning")
+
+    resend = next(c for c in post.call_args_list if c.args[0] == alerts._RESEND_URL)
+    assert resend.kwargs["json"]["subject"] == "[muffinpanrecipes] warning: Judge Failed"
+
+
+def test_judge_failure_reaches_the_inbox(_outside_pytest) -> None:
+    """The exact alert that paused W37 and never emailed.
+
+    `notify_judge_failure` sends at `severity="warning"`, which the old
+    routing filter dropped before it ever reached Resend. This is the
+    regression guard for that specific miss, at the real call site rather
+    than through a synthetic send_alert.
+    """
+    from backend.utils import discord as discord_mod
+
+    with patch.object(alerts.httpx, "post", return_value=_Resp(200)) as post:
+        assert discord_mod.notify_judge_failure(
+            concept="Brazilian Pao de Queijo Bites",
+            stage="thursday",
+            verdict="FAIL - Steph is listed in the expected cast but never speaks",
+            episode_id="2026-W37",
+            attempts=3,
+        ) is True
+
+    resend = [c for c in post.call_args_list if c.args[0] == alerts._RESEND_URL]
+    assert len(resend) == 1, "a paused episode must reach the inbox"
+    payload = resend[0].kwargs["json"]
+    assert "Judge Failed" in payload["subject"]
+    assert "2026-W37" in payload["text"]
+    assert "thursday" in payload["text"].lower()
 
 
 # ---------------------------------------------------------------------------
@@ -231,3 +280,18 @@ def test_email_channel_status_has_no_side_effects(_unconfigured) -> None:
 
     post.assert_not_called()
     assert alerts._email_unconfigured_notice_sent is False
+
+
+def test_ambient_alert_credentials_are_stripped_from_every_test() -> None:
+    """The conftest guard is active regardless of how the suite was invoked.
+
+    This is the backstop for #7097: `doppler run -- uv run pytest` injects a
+    real RESEND_API_KEY, and a test that drops `_pytest_gate` without mocking
+    `httpx.post` would mail Erik's real inbox. No test opts into live
+    credentials, so none should be able to see them.
+    """
+    import os
+
+    assert os.environ.get("RESEND_API_KEY") is None
+    assert os.environ.get("ALERT_EMAIL_TO") is None
+    assert os.environ.get("MUFFINPAN_DISCORD_WEBHOOK") is None

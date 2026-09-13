@@ -12,10 +12,21 @@ So nothing else in the codebase talks to a webhook. `backend/utils/discord.py`
 now only *formats* the four notification types; `scripts/health_check.py` only
 formats its monitor summary. Both hand the result to `send_alert`.
 
-Severity is the channel-agnostic knob. Each backend decides what it means —
-Discord maps it to an embed color; email (#6860) uses it as a routing filter:
-only `critical` reaches Erik's inbox, because "if everything emails, he stops
-reading email too" is the exact failure this card exists to prevent.
+Severity is the channel-agnostic knob, but it is NOT a routing filter. Both
+backends receive every alert; Discord maps severity to an embed color and
+email puts it in the subject line.
+
+Email used to be reserved for `critical` (#6860), on the theory that "if
+everything emails, he stops reading email too." That traded one silent
+failure for another. Erik, 2026-09-12, after a judge failure paused a week
+and reached Discord only: *"I don't check Discord, so sending something to
+Discord only should probably be nothing. If it's going to Discord, it should
+also go to email."* The volume argument never really applied here — there
+are six alert call sites in the whole codebase, so a normal week is one to
+three mails.
+
+If you add an alert that would be noise in an inbox, the fix is not to add a
+severity filter back. It is to not send that alert.
 """
 
 from __future__ import annotations
@@ -111,11 +122,6 @@ def _send_discord(
         return False
 
 
-# Email only fires for these severities (#6860). Erik: "if everything emails,
-# he stops reading email too" — Discord stays the durable log for
-# warning/info, email is reserved for things that need a human right now.
-_EMAIL_SEVERITIES: frozenset[str] = frozenset({"critical"})
-
 # Env vars the email backend needs. Read by both _send_email (via config,
 # which raises) and email_channel_status() (which doesn't) — kept in one
 # place so the two can't drift on what "configured" means.
@@ -171,15 +177,12 @@ def _send_email(
     fields: Sequence[AlertField],
     url: str | None,
 ) -> bool:
-    """Second alert backend: Resend, reserved for severities in _EMAIL_SEVERITIES.
+    """Second alert backend: Resend. Fires for every severity.
 
     Plain text, not HTML — this is an operational page, not a newsletter.
     Uses httpx (already a runtime dependency here, via _send_discord) rather
     than adding a Resend SDK.
     """
-    if severity not in _EMAIL_SEVERITIES:
-        return False
-
     try:
         api_key = config.resend_api_key
         to_addr = config.alert_email_to
