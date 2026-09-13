@@ -46,7 +46,14 @@ def _recipe(title: str, items: list[str], *, category: str = "savory") -> dict:
         "cuisine": "Portuguese",
         "ingredients": [{"item": it, "amount": "1 cup", "notes": ""} for it in items],
         "instructions": [
-            "Press the base into each muffin cup.",
+            # Two details here are load-bearing for the recipe-sanity gate
+            # (#7099), which these fixtures now run through: the oven
+            # temperature (it blocks a recipe that says "bake" without saying
+            # how hot), and naming the ingredients in the method (an
+            # unreferenced ingredient raises an advisory warning that would
+            # otherwise show up in every trace assertion below).
+            "Preheat the oven to 375F.",
+            f"Combine the {', '.join(items)} and press the base into each cup.",
             "Bake until set and the cups hold together.",
             "Cool 5 minutes, then release each cup with a thin spatula.",
         ],
@@ -147,7 +154,9 @@ def test_same_dish_under_a_new_name_triggers_one_retry_naming_the_match() -> Non
     assert monday["recipe_data"]["title"] == "Pastel de Nata Cups"
     # The stage carries the evidence that the gate ran and what it saw.
     trace = monday["gate_trace"]
-    assert [t["gate"] for t in trace] == ["ingredients", "ingredients"]
+    assert [t["gate"] for t in trace] == [
+        "ingredients", "ingredients", "recipe_sanity",
+    ]
     assert trace[0]["status"] == "duplicate"
     assert trace[0]["closest"] == "Spanakopita Phyllo Cups"
     assert trace[0]["score"] >= 0.80
@@ -181,10 +190,12 @@ def test_thin_recipe_is_recorded_as_skipped_not_silently_passed() -> None:
 
     assert run.error is None, run.error
     trace = run.episode["stages"]["monday"]["gate_trace"]
-    assert trace == [{
-        "attempt": 1, "gate": "ingredients", "status": "skipped_thin",
-        "new_items": 6, "closest": None, "score": None,
-    }]
+    assert trace == [
+        {"attempt": 1, "gate": "ingredients", "status": "skipped_thin",
+         "new_items": 6, "closest": None, "score": None},
+        {"attempt": 1, "gate": "recipe_sanity", "status": "clear",
+         "issues": [], "warnings": [], "oven_temp_f": 375, "measured_cups": 6.0},
+    ]
 
 
 def test_own_catalog_entry_is_excluded_when_re_running_a_published_week() -> None:
@@ -241,7 +252,7 @@ def test_every_gate_runs_on_the_retry_too() -> None:
 
     assert run.error is None, run.error
     assert [t["gate"] for t in run.episode["stages"]["monday"]["gate_trace"]] == [
-        "title", "ingredients", "ingredients",
+        "title", "ingredients", "ingredients", "recipe_sanity",
     ]
     assert run.episode["stages"]["monday"]["recipe_data"]["title"] == "Cardamom Rice Pudding Cups"
 

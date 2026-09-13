@@ -57,6 +57,11 @@ from backend.utils.catalog import (
 from backend.utils.logging import get_logger
 from backend.utils.muffin_pan_form import check_muffin_pan_form
 from backend.utils.recipe_overlap import check_ingredient_overlap
+from backend.utils.recipe_sanity import (
+    OVEN_TEMP_MAX_F,
+    OVEN_TEMP_MIN_F,
+    check_recipe_sanity,
+)
 from backend.utils.title_validator import check_title_conflict
 from backend.utils.discord import notify_judge_failure, notify_pipeline_failure
 from backend.utils.model_router import generate_judge_response, generate_response
@@ -884,6 +889,27 @@ def _editorial_qa_review(episode: dict) -> tuple[bool, str]:
             "removal from the pan."
         )
         logger.warning(f"Editorial QA FAIL (muffin-pan form): {form_issue}")
+        return False, report
+
+    # Layer 2.5 (#7099): the recipe itself. Not redundant with Monday's gate
+    # — _auto_fix_recipe REPLACES recipe_data wholesale with free-form LLM
+    # JSON, and none of Monday's gates re-run on the result. Without this a
+    # fixer could introduce an unsafe recipe that only the LLM reviewer, with
+    # no ground truth, stands between and the reader.
+    sanity = check_recipe_sanity(recipe)
+    for warning in sanity.warnings:
+        logger.warning(f"Editorial QA note (recipe sanity): {warning}")
+    if sanity.blocking:
+        issues = "\n".join(f"  - RECIPE SANITY: {i}" for i in sanity.issues)
+        report = (
+            "STATUS: FAIL\n"
+            f"ISSUES:\n{issues}\n"
+            "RECOMMENDATION: State an oven temperature between "
+            f"{OVEN_TEMP_MIN_F}F and {OVEN_TEMP_MAX_F}F, and give any raw "
+            "poultry, pork, ground meat or seafood an explicit internal "
+            "temperature so a reader can confirm it is cooked through."
+        )
+        logger.warning(f"Editorial QA FAIL (recipe sanity): {sanity.reason}")
         return False, report
 
     # Format content for LLM review
@@ -1724,6 +1750,35 @@ def _bake_through_gates(
             logger.warning(
                 f"Ingredient gate skipped for '{baker_title}': {verdict.reason}"
             )
+
+        sanity = check_recipe_sanity(recipe_data)
+        trace.append({
+            "attempt": attempt,
+            "gate": "recipe_sanity",
+            "status": sanity.status,
+            "issues": list(sanity.issues),
+            "warnings": list(sanity.warnings),
+            **sanity.details,
+        })
+        for warning in sanity.warnings:
+            # Advisory checks (#7099) - measured as false-positive-prone
+            # against the stored corpus, so they are visible and never block.
+            logger.warning(f"Recipe sanity note for '{baker_title}': {warning}")
+        if sanity.blocking:
+            last_failure = f"recipe is {sanity.status}: {sanity.reason}"
+            logger.warning(
+                f"Baker attempt {attempt}: {last_failure}. Retrying with the "
+                f"defect named."
+            )
+            constraints.append(
+                f"CRITICAL: an earlier attempt produced a recipe a reader "
+                f"could not safely follow: {'; '.join(sanity.issues)}. Every "
+                f"recipe must state an oven temperature between "
+                f"{OVEN_TEMP_MIN_F}F and {OVEN_TEMP_MAX_F}F, and any raw "
+                f"poultry, pork, ground meat or seafood must reach a stated "
+                f"internal temperature."
+            )
+            continue
 
         if attempt > 1:
             logger.info(f"Baker attempt {attempt} cleared every gate: '{baker_title}'")

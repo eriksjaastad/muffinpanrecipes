@@ -209,6 +209,21 @@ def episode_integrity_failures(
                     f"catalog: {conflict}"
                 )
 
+    # 5. The recipe itself is safe and cookable (#7099). The Monday gate and
+    #    the Sunday editorial layer both block on this, so a live episode
+    #    failing here means something got past both — a hand-edited episode,
+    #    a recipe written before the gate existed, or a tightened threshold.
+    #    Blocking severities only; the advisory warnings are deliberately not
+    #    surfaced here, because a monitor that reports known-noisy signals
+    #    gets ignored.
+    recipe_data = monday.get("recipe_data")
+    if recipe_data:
+        from backend.utils.recipe_sanity import check_recipe_sanity
+
+        sanity = check_recipe_sanity(recipe_data)
+        if sanity.blocking:
+            failures.append(f"recipe is {sanity.status}: {sanity.reason}")
+
     return failures
 
 
