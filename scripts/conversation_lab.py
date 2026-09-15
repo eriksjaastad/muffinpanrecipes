@@ -258,6 +258,9 @@ ALLOWED_VARIANT_ATTRS: tuple[str, ...] = (
     "_REACTION_DIRECTIVE",
     "DAY_STAGE_DIRECTIONS",
     "CHARACTER_DAY_GOALS",
+    # #7158: the history window was a local in generate_turn, so #7160 could not be
+    # measured here at all. Shape is {"early"|"late": (opening_turn, later_turns)}.
+    "HISTORY_DEPTH",
 )
 
 # The 8 dimensions the production judge scores (backend/admin/cron_routes.py
