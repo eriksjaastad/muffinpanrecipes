@@ -646,7 +646,9 @@ def test_real_desserts_built_on_savory_staples_are_not_blocked() -> None:
     Surviving the stored corpus is not evidence a word is safe - the corpus shows
     what has been generated, not what could be.
     """
-    for ing in ("mayonnaise", "sauerkraut"):
+    # sriracha and the pickle family joined this list on the second review pass:
+    # chili-chocolate and dill pickle ice cream are the same evidentiary class.
+    for ing in ("mayonnaise", "sauerkraut", "sriracha", "dill pickle", "pickled jalapeno"):
         verdict = check_recipe_sanity(_sweet(["sugar", "cocoa", "flour", ing]))
         assert verdict.status == "clear", f"{ing} was wrongly blocked: {verdict.reason}"
 

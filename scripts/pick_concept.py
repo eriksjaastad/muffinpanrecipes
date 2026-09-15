@@ -103,7 +103,7 @@ SAVORY_MARKERS = frozenset({
     # sauerkraut and mayonnaise are deliberately absent - both are real
     # chocolate-cake ingredients. Same rule as recipe_sanity.INCOHERENT_IN_SWEET.
     "horseradish", "wasabi", "anchovy", "anchovies", "worcestershire",
-    "dijon", "sriracha", "capers", "ketchup",
+    "dijon", "capers", "ketchup",
 })
 DESSERT_MARKERS = frozenset({
     "chocolate", "brownie", "cheesecake", "caramel", "meringue", "custard",
