@@ -34,6 +34,50 @@ score comparable across weeks.
 | W32 (Miso Ginger Donburi Cups) | 2 | 2* | 4 | 3 | 4 | 3 | v1 | Baseline. Salmon vanished into a rice essay (title fidelity). Tuesday's "rice sticking" problem got reframed as a story beat, never solved (arc). Voices strong. Baked sushi rice is culinarily shaky (tech). *Arc partial - only Mon/Tue existed at read time. |
 | W36 (Greek Spanakopita Cups) - BEFORE | 4 | 3* | 2 | 2 | 2 | 3 | v1 | Prompt leak: Margaret's first line recited the `_SHARED_RULES` example sentence verbatim. "Crispy when it cools" is wrong for phyllo. Marcus took two near-identical turns. "X is actually the story" appeared 3x. |
 | W36 (Greek Spanakopita Cups) - AFTER | 4 | 4* | 3 | 4 | 4 | 4 | v2 | Regenerated Mon+Tue via the production call path; Opus judge PASS both days. Real disagreement was reached and resolved. Still only 4 of 7 characters present; Marcus's tic persists. |
+| W38 Monday, 3 runs same day (2026-09-14) | 5 | 4* | **3** | 4 | 5 | 4 | v3 | Scores are the judge's own, from the run that PASSED. *Mon only. See the three-run note below - Voice scored exactly 3 in all three, on three different character pairs. |
+
+### W38 Monday — three runs, one day, and the number that would not move
+
+2026-09-14 produced an accidental controlled experiment. Monday's cron failed
+the judge, and two re-fires followed. `force=true` re-picks the concept, so all
+three runs used a **different dish**, the same prompt version, and the same
+cast of five.
+
+| Run | Concept | Verdict | Voice | Other weak dims | Pair the judge named |
+|---|---|---|---|---|---|
+| 1 (14:30 UTC cron) | Cinnamon Apple Streusel Cakes | FAIL x3 | **3** | prog 3, turn 3 | Marcus / Julian |
+| 2 (re-fire) | Beet Horseradish Cream Cups | FAIL x3 | **3** | tech 3 | Margaret / Steph |
+| 3 (re-fire, PASS) | Cardamom Cinnamon Spiral Bites | PASS | **3** | - | Marcus / Steph |
+
+**`voice_distinctiveness` scored exactly 3 in all three runs, across three
+different character pairs, on three unrelated dishes.** Every other dimension
+moved with the concept: run 2's `technical_credibility` 3 is the incoherent
+dish (a Sweet-shelf beet-and-horseradish dessert built with sugar and vanilla -
+that is card #7154, a concept-picker and recipe-gate problem, not a dialogue
+one). Run 3 scored 5/4/**3**/4/5/4 and passed cleanly.
+
+The reading: **concept quality drives the pass/fail, and voice is a separate
+standing ceiling underneath it.** A good dish is not enough to lift Voice past
+3, and a bad dish does not push it below 3. Run 3's own PASS verdict says it
+plainly - "Marcus and Steph blur slightly in register and Margaret is less
+blunt than usual after her opening lines" - on a conversation that is otherwise
+genuinely good: a real technical tension (cardamom is volatile, the pan's whole
+argument is enclosure) resolved into a plan change (shoot it broken open while
+warm). QA 85, zero prompt-echo hits, zero cross-character overlap penalty.
+
+**Next candidate nudge (one lever, do not stack):** character-voice separation.
+This is the third consecutive Monday where the judge names a blurred *pair*
+rather than a weak individual, which points at the shared prompt flattening
+everyone toward one register rather than at any one bio. Card **#6966**
+(personality dials - make the existing numeric traits bind, per-day sampled
+state) is the designed lever and should be tried before hand-editing bios.
+
+Do not treat this as three independent samples of the same thing: runs 1 and 2
+were judged on dialogues that **no longer exist**. `_save_stage_failure` blind-
+overwrote the stage both times and destroyed all six. That is fixed as of
+#7100 (same day) - rejected attempts now persist at
+`episode["rejected_dialogues"][stage]` and `review_episode.py` renders them, so
+the next failure is readable instead of inferable from one sentence of verdict.
 
 Note: `_SHARED_RULES`, named in the W36 BEFORE row above and in v1/v2
 below, is the pre-2026-09-05 name of the code symbol now called
