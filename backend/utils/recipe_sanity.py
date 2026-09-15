@@ -592,10 +592,14 @@ def _check_time_agreement(recipe: dict[str, Any], instructions: str) -> str | No
 # list until code review caught that they violate the rule stated above. A word
 # surviving the 37-episode corpus is not evidence it is safe - the corpus only
 # shows what HAS been generated, not what could be.
+# The chili and pickle families are deliberately absent for the same reason
+# `chili` always was: chili-chocolate and Mexican chocolate are ordinary, and
+# dill pickle ice cream is a real published novelty dessert. That rules out
+# sriracha, pickled jalapeno, pickle and pickles. What is left is savory-only.
 INCOHERENT_IN_SWEET = frozenset({
     "horseradish", "wasabi", "anchovy", "anchovies", "fish sauce",
-    "worcestershire", "kimchi", "dijon", "sriracha",
-    "capers", "caper", "pickle", "pickles", "pickled jalapeno",
+    "worcestershire", "kimchi", "dijon",
+    "capers", "caper",
     "bouillon", "gravy", "ketchup",
 })
 
