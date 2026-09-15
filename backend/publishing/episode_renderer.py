@@ -780,7 +780,11 @@ def render_episode_page(
     site_base = "https://muffinpanrecipes.com"
     abs_image_url = ""
     if image_url:
-        schema_image_url = image_url
+        # #7012: Google Images and Rich Results read ld_data["image"] directly -
+        # there is no <picture> negotiation on this path, so a raw 1536px PNG here
+        # is served to Google as-is. site_builder.py:333 already does this for the
+        # catalog row; the page-schema path never got it.
+        schema_image_url = _to_webp_url(image_url)
         abs_image_url = (
             schema_image_url
             if schema_image_url.startswith("http")
@@ -1083,8 +1087,17 @@ def _slugify(title: str) -> str:
     -> 'make-ahead-veggie-sausage-egg-cups'
     """
     import re
+    import unicodedata
     # Remove parenthetical suffixes
     title = re.sub(r'\s*\(.*?\)\s*', '', title)
+    # #7106: transliterate accents BEFORE the non-alphanumeric pass, or every
+    # accented letter becomes a hyphen - W37's "Pao" (with a tilde) published at
+    # /recipes/brazilian-p-o-de-queijo-bites. NFKD splits "a-tilde" into "a" plus a
+    # combining mark; dropping category Mn keeps the base letter.
+    title = "".join(
+        c for c in unicodedata.normalize("NFKD", title)
+        if unicodedata.category(c) != "Mn"
+    )
     # Lowercase, replace non-alphanumeric with hyphens
     slug = re.sub(r'[^a-z0-9]+', '-', title.lower()).strip('-')
     # Collapse multiple hyphens
@@ -1185,9 +1198,18 @@ def publish_recipe_to_catalog(episode: dict) -> str | None:
     # weight for all 6 cron-generated recipes (#5251). Modern browsers
     # (96%+) support WebP natively; the 4% that don't fall through the
     # existing onerror handler in src/index.html.
+    # #6965: follow the PINNED hero, not image_urls[0]. image_urls[0] is always
+    # round_1/macro_closeup, so every catalog card showed the macro shot even when
+    # a different variant won (W27-W31 were overhead_flatlay, W32-W36
+    # hero_threequarter). Since 2026-09-05 (55c5ce2) every episode carries
+    # hero_image_url. Forward-only: episodes without one keep image_urls[0], which
+    # leaves the 25 existing rows byte-identical.
     image_url = ""
+    pinned_hero = str(episode.get("hero_image_url") or "").strip()
     image_urls = episode.get("image_urls", [])
-    if image_urls:
+    if pinned_hero:
+        image_url = _to_webp_url(_to_local_image_url(pinned_hero))
+    elif image_urls:
         image_url = _to_webp_url(_to_local_image_url(image_urls[0]))
 
     # Build ingredients as flat strings (matching existing recipes.json format)

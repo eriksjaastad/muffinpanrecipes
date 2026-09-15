@@ -26,6 +26,10 @@ import sys
 # Ensure project root is on path
 sys.path.insert(0, ".")
 
+from backend.utils.catalog import (
+    CatalogUnavailableError,
+    load_published_catalog,
+)
 from backend.publishing.episode_renderer import (
     _clean_title,
     _slugify,
@@ -37,7 +41,26 @@ from backend.utils.recipe_prompts import normalize_recipe_instructions
 W34_EPISODE_ID = "2026-W34"
 
 
-def fix_episode(episode_id: str, dry_run: bool = False) -> bool:
+
+def catalog_slug_for_title(title: str, catalog: dict | None) -> str | None:
+    """Return the slug the live catalog serves `title` under, or None.
+
+    Matching is on the cleaned title because catalog rows carry no episode id.
+    Returning None is deliberate: a published page whose slug we cannot confirm
+    must be left alone rather than written to a guessed path.
+    """
+    if not catalog:
+        return None
+    for row in catalog.get("recipes", []):
+        if _clean_title(str(row.get("title", ""))).casefold() == title.casefold():
+            slug = str(row.get("slug", "")).strip()
+            return slug or None
+    return None
+
+
+def fix_episode(
+    episode_id: str, dry_run: bool = False, catalog: dict | None = None
+) -> bool:
     """Re-render and re-upload a published episode's recipe page.
 
     Returns True if the page was fixed (or would be in dry-run mode).
@@ -89,14 +112,28 @@ def fix_episode(episode_id: str, dry_run: bool = False) -> bool:
                     f"{len(repaired_instructions)}"
                 )
 
-    slug = _slugify(title)
+    # The slug MUST come from the live catalog, never be re-derived from the
+    # title. Two ways re-deriving breaks a published page:
+    #   1. Seed recipes are served under a hand-chosen slug that differs from
+    #      the title ("Dark Chocolate Chip Decadence" -> dark-chocolate-chip-muffins).
+    #   2. #7106 changed _slugify itself, so W37's "Pao" (tilde) now renders
+    #      brazilian-pao-de-queijo-bites while the live URL is the old
+    #      brazilian-p-o-de-queijo-bites. Re-deriving would write a fresh orphan
+    #      page nothing links to and leave the real URL serving stale HTML.
+    # Published slugs are frozen; a re-render must never move one.
+    slug = catalog_slug_for_title(title, catalog)
+    if slug is None:
+        print(f"  SKIP {episode_id}: no catalog row for {title!r} - refusing to guess a slug")
+        return False
 
     if dry_run:
         print(f"  WOULD FIX {episode_id}: /recipes/{slug} ({title})")
         return True
 
-    # Re-render fresh from episode JSON (hero derived from the confirmed winner)
-    page_html = render_episode_page(ep)
+    # Re-render fresh from episode JSON (hero derived from the confirmed winner).
+    # canonical_slug pins <link rel=canonical>/og:url to the URL actually serving
+    # this page, instead of letting the renderer re-derive one from the title.
+    page_html = render_episode_page(ep, canonical_slug=slug)
 
     # Upload episode page
     storage.save_page(f"pages/{episode_id}/index.html", page_html)
@@ -132,8 +169,18 @@ def main():
 
     print(f"{'DRY RUN: ' if args.dry_run else ''}Re-rendering published recipe pages...\n")
 
+    # Published slugs come from the live catalog and are frozen (see
+    # catalog_slug_for_title). If the catalog is unreachable we stop rather than
+    # re-derive slugs from titles, which would write orphan pages.
+    try:
+        catalog = load_published_catalog()
+    except CatalogUnavailableError as exc:
+        print(f"ABORT: cannot read the live catalog, so serving slugs are unknown: {exc}")
+        return 1
+    print(f"Catalog: {len(catalog.get('recipes', []))} published rows\n")
+
     if args.episode:
-        fixed = fix_episode(args.episode, dry_run=args.dry_run)
+        fixed = fix_episode(args.episode, dry_run=args.dry_run, catalog=catalog)
         total = 1 if fixed else 0
     else:
         strict_lister = getattr(storage, "list_episodes_strict", None)
@@ -143,7 +190,7 @@ def main():
         total = 0
         for ep_summary in episodes:
             episode_id = ep_summary.get("episode_id", "")
-            if fix_episode(episode_id, dry_run=args.dry_run):
+            if fix_episode(episode_id, dry_run=args.dry_run, catalog=catalog):
                 total += 1
 
     action = "would fix" if args.dry_run else "fixed"
