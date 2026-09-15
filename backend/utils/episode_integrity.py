@@ -87,7 +87,7 @@ def stages_due(
     return [d for d in DAY_ORDER if now >= stage_deadline(episode_id, d) + grace]
 
 
-def episode_page_is_due(episode: dict | None) -> bool:
+def episode_page_is_due(episode: object) -> bool:
     """True when a stored `/this-week` page SHOULD already exist for this episode.
 
     The distinction this draws is the one `/this-week` gets wrong if it asks
@@ -107,7 +107,7 @@ def episode_page_is_due(episode: dict | None) -> bool:
          pipeline alerts already report; it is not a page-serving failure and
          must not be dressed up as one.
 
-    `scripts/health_check.py` has always used this rule for its own thin-page
+    `scripts/health_check.py` reads this same predicate for its own thin-page
     suppression — it only treats a placeholder as a failure once Monday is
     `complete`. Sharing one predicate is what keeps the route and the monitor
     from drifting on what "should exist by now" means.
