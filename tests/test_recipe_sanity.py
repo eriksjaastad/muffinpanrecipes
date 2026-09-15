@@ -638,3 +638,20 @@ def test_savory_recipe_with_horseradish_is_untouched() -> None:
 def test_category_coherence_survives_an_empty_ingredient_list() -> None:
     recipe = {"title": "X", "category": "Sweet", "ingredients": [], "instructions": ["Bake at 350F for 20 minutes."]}
     assert "category_incoherent" not in (check_recipe_sanity(recipe).reason or "")
+
+
+def test_real_desserts_built_on_savory_staples_are_not_blocked() -> None:
+    """Chocolate mayonnaise cake and chocolate sauerkraut cake are real (code review).
+
+    Surviving the stored corpus is not evidence a word is safe - the corpus shows
+    what has been generated, not what could be.
+    """
+    for ing in ("mayonnaise", "sauerkraut"):
+        verdict = check_recipe_sanity(_sweet(["sugar", "cocoa", "flour", ing]))
+        assert verdict.status == "clear", f"{ing} was wrongly blocked: {verdict.reason}"
+
+
+def test_category_coherence_matches_whole_words_only() -> None:
+    """Substring matching would let a future addition collide with an unrelated item."""
+    verdict = check_recipe_sanity(_sweet(["sugar", "caperberry-free sprinkles", "gravylike glaze"]))
+    assert verdict.status == "clear", verdict.reason
