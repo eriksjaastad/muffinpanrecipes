@@ -314,6 +314,17 @@ def build_header(episode: dict) -> dict[str, Any]:
     }
 
 
+def rejected_attempts(episode: dict, day: str) -> list[dict[str, Any]]:
+    """Dialogues the judge rejected before the stage failed (#7100).
+
+    Kept at episode level because `_save_stage_failure` blind-overwrites the
+    stage. Only present when a day exhausted its retries — a day that passed
+    has nothing to explain.
+    """
+    entries = (episode.get("rejected_dialogues") or {}).get(day) or []
+    return [e for e in entries if isinstance(e, dict)]
+
+
 def build_day_report(day: str, episode: dict) -> dict[str, Any]:
     stage = (episode.get("stages", {}) or {}).get(day) or {}
     dialogue = stage.get("dialogue") or []
@@ -330,6 +341,7 @@ def build_day_report(day: str, episode: dict) -> dict[str, Any]:
         "judge_weakest": judge["judge_weakest"],
         "judge_reason": judge["judge_reason"],
         "qa_scores": qa_summary(episode, day),
+        "rejected": rejected_attempts(episode, day),
     }
 
 
@@ -380,6 +392,24 @@ def render_episode_text(report: dict) -> str:
             lines.append(f"judge_weakest: {day['judge_weakest']}")
         if day["judge_reason"]:
             lines.append(f"judge_reason: {day['judge_reason']}")
+        if day["rejected"]:
+            lines.append("")
+            lines.append(
+                f"REJECTED ATTEMPTS ({len(day['rejected'])}) — "
+                f"what the judge turned down before this day failed:"
+            )
+            for entry in day["rejected"]:
+                marker = "  <- best of run" if entry.get("best_of_run") else ""
+                lines.append(
+                    f"  [attempt {entry.get('attempt', '?')}]"
+                    f" scores: {entry.get('scores') or '(none)'}{marker}"
+                )
+                if entry.get("weakest"):
+                    lines.append(f"    weakest: {', '.join(entry['weakest'])}")
+                if entry.get("reason"):
+                    lines.append(f"    reason: {entry['reason']}")
+                for line in format_transcript(entry.get("dialogue") or []):
+                    lines.append(f"    {line}")
         qa = day["qa_scores"]
         if qa:
             lines.append(
