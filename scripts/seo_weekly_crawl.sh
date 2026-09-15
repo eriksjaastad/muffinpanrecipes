@@ -23,6 +23,20 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # defaults alone in normal use.
 SPIDER="${SEO_SPIDER_BIN:-/Applications/Screaming Frog SEO Spider.app/Contents/MacOS/ScreamingFrogSEOSpiderLauncher}"
 AUDIT_DIR="${SEO_AUDIT_DIR:-$REPO_ROOT/seo-audits}"
+# #7017: uv was hardcoded to $HOME/.local/bin/uv, so this exited 127 on any
+# machine that installs it elsewhere (Homebrew, /usr/local, a CI image). Prefer
+# whatever is on PATH, fall back to the common location, and fail with a message
+# that names the problem instead of a bare 127.
+UV_BIN="${UV_BIN:-$(command -v uv || true)}"
+if [[ -z "$UV_BIN" && -x "$HOME/.local/bin/uv" ]]; then
+  UV_BIN="$HOME/.local/bin/uv"
+fi
+if [[ -z "$UV_BIN" ]]; then
+  echo "seo_weekly_crawl: uv not found on PATH or at \$HOME/.local/bin/uv." >&2
+  echo "  Install uv, or set UV_BIN=/path/to/uv." >&2
+  exit 1
+fi
+
 BASELINE="$AUDIT_DIR/baseline-2026-08/screaming-frog-internal_all.csv"
 STAMP="$(date +%Y-%m-%d)"
 OUT_DIR="$AUDIT_DIR/weekly/$STAMP"
@@ -105,6 +119,6 @@ echo
     echo "!! $TRUNCATED"
     echo
   fi
-  "$HOME/.local/bin/uv" run --no-project python "$REPO_ROOT/scripts/seo_crawl_diff.py" \
+  "$UV_BIN" run --no-project python "$REPO_ROOT/scripts/seo_crawl_diff.py" \
     "$COMPARE_TO" "$OUT_DIR/internal_all.csv"
 } | tee "$OUT_DIR/diff.txt"

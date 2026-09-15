@@ -594,3 +594,66 @@ def test_hyphenated_precooked_is_accepted() -> None:
         )
     )
     assert verdict.status == "clear", verdict.reason
+
+
+# --- #7154: category coherence -------------------------------------------------
+
+def _sweet(ingredients: list[str]) -> dict:
+    return {
+        "title": "Test Cups",
+        "category": "Sweet",
+        "ingredients": [{"item": i} for i in ingredients],
+        "instructions": ["Bake at 350F for 20 minutes until set."],
+    }
+
+
+def test_sweet_recipe_built_on_horseradish_is_implausible() -> None:
+    """The W38 re-fire draw: sugar and vanilla alongside beet and horseradish."""
+    verdict = check_recipe_sanity(
+        _sweet(["granulated sugar", "brown sugar", "vanilla", "beet puree", "prepared horseradish"])
+    )
+    assert verdict.status == "implausible"
+    assert "category_incoherent" in verdict.reason
+    assert "horseradish" in verdict.reason
+
+
+def test_sweet_recipe_with_a_crossover_vegetable_still_clears() -> None:
+    """Chocolate beet cake and carrot cake are real. The gate must not block them."""
+    for veg in ("grated beet", "grated carrot", "shredded zucchini", "sweet potato puree"):
+        verdict = check_recipe_sanity(_sweet(["sugar", "cocoa", "flour", veg]))
+        assert verdict.status == "clear", f"{veg} was wrongly blocked: {verdict.reason}"
+
+
+def test_savory_recipe_with_horseradish_is_untouched() -> None:
+    """The check only fires on a Sweet label - horseradish in a savory dish is fine."""
+    recipe = {
+        "title": "Roast Beef Cups",
+        "category": "Savory",
+        "ingredients": [{"item": "prepared horseradish"}, {"item": "sour cream"}],
+        "instructions": ["Bake at 350F for 20 minutes until heated through."],
+    }
+    assert check_recipe_sanity(recipe).status == "clear"
+
+
+def test_category_coherence_survives_an_empty_ingredient_list() -> None:
+    recipe = {"title": "X", "category": "Sweet", "ingredients": [], "instructions": ["Bake at 350F for 20 minutes."]}
+    assert "category_incoherent" not in (check_recipe_sanity(recipe).reason or "")
+
+
+def test_real_desserts_built_on_savory_staples_are_not_blocked() -> None:
+    """Chocolate mayonnaise cake and chocolate sauerkraut cake are real (code review).
+
+    Surviving the stored corpus is not evidence a word is safe - the corpus shows
+    what has been generated, not what could be.
+    """
+    # sriracha and the pickle family joined this list on the second review pass:
+    # chili-chocolate and dill pickle ice cream are the same evidentiary class.
+    for ing in ("mayonnaise", "sauerkraut", "sriracha", "dill pickle", "pickled jalapeno", "kimchi"):
+        verdict = check_recipe_sanity(_sweet(["sugar", "cocoa", "flour", ing]))
+        assert verdict.status == "clear", f"{ing} was wrongly blocked: {verdict.reason}"
+
+
+def test_category_coherence_matches_whole_words_only() -> None:
+    """Substring matching would let a future addition collide with an unrelated item."""
+    verdict = check_recipe_sanity(_sweet(["sugar", "caperberry-free sprinkles", "gravylike glaze"]))
+    assert verdict.status == "clear", verdict.reason

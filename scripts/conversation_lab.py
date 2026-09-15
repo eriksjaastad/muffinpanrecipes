@@ -258,6 +258,9 @@ ALLOWED_VARIANT_ATTRS: tuple[str, ...] = (
     "_REACTION_DIRECTIVE",
     "DAY_STAGE_DIRECTIONS",
     "CHARACTER_DAY_GOALS",
+    # #7158: the history window was a local in generate_turn, so #7160 could not be
+    # measured here at all. Shape is {"early"|"late": (opening_turn, later_turns)}.
+    "HISTORY_DEPTH",
 )
 
 # The 8 dimensions the production judge scores (backend/admin/cron_routes.py
@@ -592,10 +595,46 @@ def _apply_variant(module: Any, variant: dict[str, Any]) -> dict[str, Any]:
                 f"refusing to patch {name!r} - it is a function, not a string/dict "
                 "constant this variant mechanism can safely restore"
             )
+        _validate_lever_shape(name, value)
         original[name] = current
         setattr(module, name, value)
     _clear_prompt_cache(module)
     return original
+
+
+def _validate_lever_shape(name: str, value: Any) -> None:
+    """Reject a structurally wrong lever BEFORE any API call is made.
+
+    _apply_variant used to setattr any dict straight onto the module. A
+    HISTORY_DEPTH override missing the "late" key raised KeyError inside
+    generate_turn the moment the run reached Friday - after the earlier days had
+    already been generated and paid for, against the $5/experiment cap. Fail at
+    patch time, naming the key, instead of mid-run.
+    """
+    if name != "HISTORY_DEPTH":
+        return
+    if not isinstance(value, dict):
+        raise ConversationLabError(
+            f"HISTORY_DEPTH must be a dict of {{'early'|'late': [opening_turn, later_turns]}}, "
+            f"got {type(value).__name__}"
+        )
+    missing = sorted({"early", "late"} - set(value))
+    if missing:
+        raise ConversationLabError(
+            f"HISTORY_DEPTH override is missing required key(s) {missing}. "
+            "Both 'early' (mon-thu) and 'late' (fri-sun) must be present, or the "
+            "run crashes partway through the week with the earlier days already paid for."
+        )
+    for key in ("early", "late"):
+        pair = value[key]
+        if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+            raise ConversationLabError(
+                f"HISTORY_DEPTH['{key}'] must be a 2-item [opening_turn, later_turns], got {pair!r}"
+            )
+        if not all(isinstance(n, int) and n > 0 for n in pair):
+            raise ConversationLabError(
+                f"HISTORY_DEPTH['{key}'] entries must be positive integers, got {pair!r}"
+            )
 
 
 def _restore_variant(module: Any, original: dict[str, Any]) -> None:

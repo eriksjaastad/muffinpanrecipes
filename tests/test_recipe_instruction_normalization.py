@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from unittest.mock import patch
 
 import pytest
@@ -134,6 +135,47 @@ def _published_episode(episode_id: str) -> dict:
     }
 
 
+# fix_episode reads the serving slug from the live catalog and refuses to guess
+# one, so every test that renders a page has to supply the matching row.
+_CATALOG = {"recipes": [{"title": "Tandoori Chicken Naan Cups", "slug": "tandoori-chicken-naan-cups"}]}
+
+
+def test_fix_episode_refuses_when_the_catalog_has_no_row():
+    """A page whose serving slug we cannot confirm must be left alone (#7106).
+
+    Re-deriving it from the title would write an orphan page at a new path and
+    leave the real URL serving stale HTML.
+    """
+    episode = _published_episode("2026-W33")
+    with (
+        patch.object(fix_encoding.storage, "load_episode", return_value=episode),
+        patch.object(fix_encoding.storage, "save_page") as save_page,
+        patch.object(fix_encoding, "render_episode_page", return_value="<html></html>"),
+    ):
+        assert fix_encoding.fix_episode("2026-W33", catalog={"recipes": []}) is False
+
+    save_page.assert_not_called()
+
+
+def test_fix_episode_uses_the_catalog_slug_not_a_re_derived_one():
+    """W37's live URL predates the #7106 slugify fix; a re-render must not move it."""
+    episode = _published_episode("2026-W33")
+    episode["stages"]["monday"]["recipe_data"]["title"] = "Brazilian Pao de Queijo Bites"
+    legacy = {"recipes": [{"title": "Brazilian Pao de Queijo Bites", "slug": "brazilian-p-o-de-queijo-bites"}]}
+    with (
+        patch.object(fix_encoding.storage, "load_episode", return_value=episode),
+        patch.object(fix_encoding.storage, "save_page") as save_page,
+        patch.object(fix_encoding, "render_episode_page", return_value="<html></html>") as render,
+    ):
+        assert fix_encoding.fix_episode("2026-W33", catalog=legacy) is True
+
+    written = [c.args[0] for c in save_page.call_args_list]
+    assert "pages/recipes/brazilian-p-o-de-queijo-bites/index.html" in written
+    assert not any("brazilian-pao-de-queijo-bites" in w for w in written)
+    # and the canonical inside the HTML is pinned to that same serving slug
+    assert render.call_args.kwargs["canonical_slug"] == "brazilian-p-o-de-queijo-bites"
+
+
 def test_fix_episode_repairs_and_saves_w34_before_rendering():
     episode = _published_episode("2026-W34")
     with (
@@ -142,7 +184,7 @@ def test_fix_episode_repairs_and_saves_w34_before_rendering():
         patch.object(fix_encoding.storage, "save_page"),
         patch.object(fix_encoding, "render_episode_page", return_value="<html></html>"),
     ):
-        assert fix_encoding.fix_episode("2026-W34") is True
+        assert fix_encoding.fix_episode("2026-W34", catalog=_CATALOG) is True
 
     save_episode.assert_called_once_with("2026-W34", episode)
     assert episode["stages"]["monday"]["recipe_data"]["instructions"] == normalize_recipe_instructions(W34_INSTRUCTIONS)
@@ -156,7 +198,27 @@ def test_fix_episode_never_repairs_another_week():
         patch.object(fix_encoding.storage, "save_page"),
         patch.object(fix_encoding, "render_episode_page", return_value="<html></html>"),
     ):
-        assert fix_encoding.fix_episode("2026-W33") is True
+        assert fix_encoding.fix_episode("2026-W33", catalog=_CATALOG) is True
 
     save_episode.assert_not_called()
     assert episode["stages"]["monday"]["recipe_data"]["instructions"] == W34_INSTRUCTIONS
+
+
+def test_fix_encoding_main_aborts_when_the_catalog_is_unreachable():
+    """Without the catalog there are no confirmed serving slugs, so write nothing.
+
+    The alternative - falling back to _slugify - is what #7106 made unsafe.
+    """
+    argv = ["fix_encoding.py", "--all", "--full-rebuild"]
+    with (
+        patch.object(sys, "argv", argv),
+        patch.object(
+            fix_encoding,
+            "load_published_catalog",
+            side_effect=fix_encoding.CatalogUnavailableError("blob unreachable"),
+        ),
+        patch.object(fix_encoding.storage, "save_page") as save_page,
+    ):
+        assert fix_encoding.main() == 1
+
+    save_page.assert_not_called()

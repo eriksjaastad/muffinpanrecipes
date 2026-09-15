@@ -236,11 +236,22 @@ PROHIBITED = [
 # One spare turn is what buys a reply and a closer. `test_ticks_range_
 # seats_full_cast` enforces it - if you shrink a range or add a character to a
 # roster, that test is what stops you.
+# History window, in prior lines, shown to a speaker. (opening_turn, later_turns).
+# "early" = mon-thu, "late" = fri-sun. #7160: at 4 lines a mid-stage speaker could not
+# see the question that opened the scene, so nobody ever answered it and nobody closed
+# it. The floor here must stay above the largest TICKS_RANGE upper bound below.
+# #7158: a module attribute so scripts/conversation_lab.py can sweep it as a lever.
+HISTORY_DEPTH: dict[str, tuple[int, int]] = {
+    "early": (16, 12),
+    "late": (20, 16),
+}
+
+
 TICKS_RANGE: dict[str, tuple[int, int]] = {
     "monday":    (6, 10),  # heated concept debate
     "tuesday":   (5, 6),   # focused recipe dev - floor was 4 (#7105)
     "wednesday": (5, 6),   # photography + image refs - floor was 4 (#7105)
-    "thursday":  (5, 7),   # copywriting - was (3, 5), then (4, 6) (#7079, #7105)
+    "thursday":  (5, 6),   # copywriting - was (3, 5), (4, 6), (5, 7) (#7079, #7105)
     "friday":    (6, 8),   # approval discussion - floor was 5 (#7105)
     "saturday":  (3, 5),   # enough for Devon's snag scene
     "sunday":    (5, 6),   # publish + warmth - was (3, 4), then (4, 6) (#7079, #7082)
@@ -383,7 +394,9 @@ _CHARACTER_VOICE_GUIDES: dict[str, str] = {
 # These are injected into the system prompt alongside individual voice guides.
 _SHARED_CHARACTER_RULES = (
     "UNIVERSAL BEHAVIOR (applies to everyone):\n"
-    "- HARD LIMIT: 1-2 sentences max. If you wrote more than 25 words, rewrite shorter.\n"
+    "- Your word budget is the MAXIMUM stated in HOW YOU SPEAK above, and it is different "
+    "for every character. Obey YOUR number, not a number you infer from how others talk. "
+    "Going shorter than your budget is always fine; going over it never is.\n"
     "- This is a group chat, not an email. Be punchy.\n"
     "- Talk about the FOOD and the WORK, not the technology. No file names, pixel dimensions, "
     "color profiles, CMS paths, deployment URLs, CDN references, sRGB, aspect ratios. "
@@ -413,7 +426,12 @@ _SHARED_CHARACTER_RULES = (
     "character just observed, so it reads as a person reasoning rather than a slogan.\n"
     "- Do not open a conversation with the pan-case. The first message of a stage has "
     "nothing to refer back to, so a 'that is exactly why...' construction there is broken.\n"
-    "- Vary it. Do not all say the same thing. It is not just for show - it is for ease of use."
+    "- Vary it. Do not all say the same thing. It is not just for show - it is for ease of use.\n"
+    "\n"
+    "PUSH BACK (#7159 - measured winners from the 2026-03 prompt research):\n"
+    "- If someone just said something wrong about food or the work, push back. Don't let it slide.\n"
+    "- Your message should sound like YOU and nobody else. Voice first, content second.\n"
+    "- React to the specific food being discussed. Name the ingredient or technique. Don't be generic."
 )
 
 
@@ -731,10 +749,12 @@ def generate_turn(
 
     # Use deeper context for late-week days that need to reference earlier decisions.
     # Full-context testing showed 12/8 depth + compression highlights outperforms raw dump.
-    if day.lower() in ("friday", "saturday", "sunday"):
-        history_depth = 12 if day_turn == 1 else 8
-    else:
-        history_depth = 8 if day_turn == 1 else 4
+    # #7158: module-level so the conversation lab can override it as a variant lever.
+    # #7160: the opening-turn floor must exceed the stage's turn count, or the scene's
+    # own premise scrolls out of the window before anyone can answer it.
+    lo_key = "late" if day.lower() in ("friday", "saturday", "sunday") else "early"
+    first, rest = HISTORY_DEPTH[lo_key]
+    history_depth = first if day_turn == 1 else rest
     history = "\n".join(recent_lines[-history_depth:]) if recent_lines else "(no prior messages)"
     event_line = f"Injected event: {event}" if event else "Injected event: none"
     recipe_line = f"Recipe anchor: {recipe_context}\n" if recipe_context else ""
