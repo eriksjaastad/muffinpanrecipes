@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from unittest.mock import patch
 
 import pytest
@@ -201,3 +202,23 @@ def test_fix_episode_never_repairs_another_week():
 
     save_episode.assert_not_called()
     assert episode["stages"]["monday"]["recipe_data"]["instructions"] == W34_INSTRUCTIONS
+
+
+def test_fix_encoding_main_aborts_when_the_catalog_is_unreachable():
+    """Without the catalog there are no confirmed serving slugs, so write nothing.
+
+    The alternative - falling back to _slugify - is what #7106 made unsafe.
+    """
+    argv = ["fix_encoding.py", "--all", "--full-rebuild"]
+    with (
+        patch.object(sys, "argv", argv),
+        patch.object(
+            fix_encoding,
+            "load_published_catalog",
+            side_effect=fix_encoding.CatalogUnavailableError("blob unreachable"),
+        ),
+        patch.object(fix_encoding.storage, "save_page") as save_page,
+    ):
+        assert fix_encoding.main() == 1
+
+    save_page.assert_not_called()

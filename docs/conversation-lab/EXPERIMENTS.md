@@ -159,3 +159,64 @@ The full matrix behind this table (every week, every metric) now comes from
 `scripts/conversation_heatmap.py` (run its `--help` for the exact flags)
 and lands under `docs/conversation-lab/results/`. This section stays as
 the one-off manual read that motivated building it.
+
+---
+
+## 2026-09-15 — W38 Tuesday failure: two prompt defects, shipped unmeasured
+
+Logged here because this is the canonical record for dial changes, and these
+went to production **without** a lab sweep. That was deliberate: W38's Tuesday
+stage had already failed the Judge three times and the cron window had closed,
+so the week was dead until something changed. Both fixes address mechanical
+defects with a known cause, not taste calls. The sweep still owes us
+confirmation — see "What this does not prove" below.
+
+**The judge's verdict, verbatim:** *"Devon sounds too much like Marcus/Steph
+with verbose explanations rather than his characteristic efficiency, and the
+conversation is largely everyone agreeing."* Both halves turned out to be
+mechanical.
+
+### #7184 — the shared word limit overrode every per-character budget
+
+`_CHARACTER_VOICE_GUIDES` sets a per-character maximum: Devon 12 words,
+Margaret 15, Julian 20, Ria 20, Steph 25, Marcus 35. `_SHARED_CHARACTER_RULES`
+then opened with `HARD LIMIT: 1-2 sentences max. If you wrote more than 25
+words, rewrite shorter.` — later in the prompt, and labelled harder. A designed
+12-to-35-word spread collapses toward one ~25-word band: Devon pulled **up**,
+Marcus pulled **down**. That is the judge's first clause exactly.
+
+This is the likeliest explanation for `voice_distinctiveness` sitting at 3
+across three different character pairs on three separate W38 Monday runs (see
+the W38 entry above). That was read at the time as a standing ceiling in the
+personas. It was a prompt contradiction.
+
+### #7160 — the scene's premise fell out of the context window
+
+`history_depth` was `8 if day_turn == 1 else 4` for mon-thu. Monday runs up to
+10 turns. From turn 5 on, the question that opened the scene was not in the
+prompt, so nobody answered it and nobody closed it. Now 16/12 early, 20/16
+late, with the opening floor above the largest `TICKS_RANGE` upper bound by
+construction.
+
+**Measured cost of the wider window** (the thing a dial change must not skip):
+435 stored dialogue lines average 141 chars ≈ 35 tokens. At ~43 turns/week the
+extra 8 lines per mid-stage turn cost **~281 input tokens/turn, ~12,100/week —
+about $0.012/week, $0.63/year** on Haiku 4.5 input. Not a cost concern.
+
+### #7159 — three measured March winners that never shipped
+
+From `prompt-research/results.tsv` (2026-03-13, 261 experiments): *"push back"*
+(94.0), *"voice first, content second"* (78.4), *"name the ingredient or
+technique"* (73.4). Two other KEEP lines from that run — *"conflict is
+natural"* and *"never address someone by name"* — were already in production.
+The winners that had shipped were the mechanical/formatting ones; the
+behavioral ones had not.
+
+### What this does not prove
+
+None of the above has been through the panel. `#7158` made `HISTORY_DEPTH` a
+module constant and a lab lever precisely so `#7160` is measurable rather than
+asserted. **Next sweep must confirm `voice_distinctiveness` moves off 3.** If
+it does not, the ceiling really is in the voice guides and #7184 was a red
+herring. #7161 (every turn requests the same speech act), #6966 (personality
+dials) and #7157 (Monday produces the title) remain unshipped and sweep-gated.

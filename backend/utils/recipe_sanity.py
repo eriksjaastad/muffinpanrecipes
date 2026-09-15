@@ -587,12 +587,23 @@ def _check_time_agreement(recipe: dict[str, Any], instructions: str) -> str | No
 # potato, beet, olive oil, black pepper, chili, bacon and rosemary all appear in
 # published desserts, and a gate that blocks a chocolate beet cake is worse than
 # the hole it closes. Calibrated to zero hits across the stored corpus.
+# NOTE on two words that are NOT here: "chocolate mayonnaise cake" and
+# "chocolate sauerkraut cake" are real, published desserts. They were on this
+# list until code review caught that they violate the rule stated above. A word
+# surviving the 37-episode corpus is not evidence it is safe - the corpus only
+# shows what HAS been generated, not what could be.
 INCOHERENT_IN_SWEET = frozenset({
     "horseradish", "wasabi", "anchovy", "anchovies", "fish sauce",
-    "worcestershire", "sauerkraut", "kimchi", "dijon", "sriracha",
+    "worcestershire", "kimchi", "dijon", "sriracha",
     "capers", "caper", "pickle", "pickles", "pickled jalapeno",
-    "bouillon", "gravy", "ketchup", "mayonnaise",
+    "bouillon", "gravy", "ketchup",
 })
+
+# Word-boundary matched, not substring: a bare `m in haystack` would let a future
+# addition collide with an unrelated ingredient that merely contains it.
+_INCOHERENT_IN_SWEET_RE = re.compile(
+    r"\b(?:" + "|".join(sorted((re.escape(w) for w in INCOHERENT_IN_SWEET), key=len, reverse=True)) + r")\b"
+)
 
 _SWEET_CATEGORIES = frozenset({"sweet", "dessert", "desserts"})
 
@@ -616,7 +627,7 @@ def _check_category_coherence(recipe: dict[str, Any]) -> str | None:
     ).lower()
     if not haystack.strip():
         return None
-    hits = sorted(m for m in INCOHERENT_IN_SWEET if m in haystack)
+    hits = sorted(set(_INCOHERENT_IN_SWEET_RE.findall(haystack)))
     if hits:
         return (
             f"category_incoherent: recipe is labelled '{category}' but is built on "
