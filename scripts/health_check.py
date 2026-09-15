@@ -6,8 +6,9 @@ have caught the #5911 test-mode contamination incident within 60 seconds.
 Exits 0 on pass, non-zero on any failure. Preview runs are automatically
 side-effect free; production runs announce failures through
 backend/utils/alerts.py::send_alert, which fans out to every configured
-channel (Discord today, email on a follow-up card). Use --no-alert to stay
-silent.
+channel (Discord and email, both on every severity since #7097). Use
+--no-alert to stay silent. check_alert_channel asserts that path is
+actually deliverable before trusting any of it (#7153).
 
 Run modes:
     # Manual
@@ -39,7 +40,7 @@ from xml.etree import ElementTree
 import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from backend.utils.alerts import send_alert  # noqa: E402
+from backend.utils.alerts import email_channel_status, send_alert  # noqa: E402
 from backend.utils.episode_integrity import (  # noqa: E402
     episode_integrity_failures,
     episode_summary,
@@ -860,6 +861,38 @@ def check_unmatched_url_404(
     report.check("unmatched_url_is_404", _check)
 
 
+def check_alert_channel(report: Report) -> None:
+    """Assert this process could actually deliver an alert (#7153).
+
+    Every other check here asks whether the SITE is sound. This one asks
+    whether the monitor can tell anyone when it isn't — because a health check
+    that cannot report its own failures is decoration. `post_alert` below is
+    the thing that depends on it.
+
+    `email_channel_status()` was written for exactly this hook under #6860 and
+    then never wired to anything, so for nine days nothing verified the alert
+    path at all. That is the failure mode #6860 named in its own card: "an
+    alerting system that fails silently is the joke version of this card."
+
+    Scope, honestly: this validates the channel available to THIS process — in
+    the documented ritual, Doppler's `prd` config. It cannot see the Lambda's
+    environment, so it does not prove a cron running on Vercel can send. It
+    does prove the shared secret source is intact, and it catches the case
+    where someone runs the monitor with no Doppler context and mistakes silence
+    for health.
+    """
+
+    def _check() -> None:
+        status = email_channel_status()
+        assert status["configured"], (
+            "alert email channel is unconfigured — missing "
+            f"{', '.join(status['missing'])}. Alerts raised by this process "
+            "would go nowhere."
+        )
+
+    report.check("alert_channel_can_send", _check)
+
+
 def _utc_stamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
@@ -953,6 +986,7 @@ def main() -> int:
     if no_alert:
         print("Alerts and persisted status writes: disabled")
     report = Report()
+    check_alert_channel(report)
     check_catalog_counts_match(report, args.baseline, base_url=base_url)
     check_teaser_current_week(report, base_url=base_url)
     check_this_week_page(report, base_url=base_url)
