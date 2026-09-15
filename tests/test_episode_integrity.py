@@ -20,6 +20,7 @@ from backend.utils.episode_integrity import (
     PLACEHOLDER_CONCEPT,
     current_episode_id,
     episode_integrity_failures,
+    episode_page_is_due,
     episode_summary,
     parse_episode_id,
     stage_deadline,
@@ -280,3 +281,63 @@ def test_episode_summary_is_one_line() -> None:
     assert "2026-W36" in summary
     assert "Portuguese Custard Tart Cups" in summary
     assert "6/7" in summary
+
+
+# ---------------------------------------------------------------------------
+# episode_page_is_due — one rule for "should a page exist by now" (#7152)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "episode,expected",
+    [
+        (None, False),                                              # pre-Monday
+        ({}, False),
+        ({"episode_id": "2026-W38"}, False),                        # no stages key
+        ({"stages": {}}, False),
+        ({"stages": {"monday": {"status": "failed"}}}, False),      # paused week
+        ({"stages": {"monday": {"status": "complete"}}}, True),     # page IS owed
+        (
+            {"stages": {"monday": {"status": "failed"},
+                        "tuesday": {"status": "complete"}}},
+            True,
+        ),
+    ],
+)
+def test_episode_page_is_due(episode, expected):
+    assert episode_page_is_due(episode) is expected
+
+
+@pytest.mark.parametrize(
+    "episode",
+    [[], "nope", 7, {"stages": [{"status": "complete"}]}, {"stages": {"monday": None}}],
+)
+def test_episode_page_is_due_never_raises_on_junk(episode):
+    """It reads blob JSON that a failed write can leave in any shape."""
+    assert episode_page_is_due(episode) is False
+
+
+def test_route_and_monitor_read_the_same_predicate():
+    """The drift this was introduced to end (#7152).
+
+    /this-week asked "does an episode record exist" while health_check asked
+    "is Monday complete". They disagreed for every hour W38 was paused, and
+    the route's answer put a 5xx on a sitemap URL. If either side grows its
+    own copy of the rule again, this fails.
+    """
+    import importlib
+    import inspect
+
+    from backend.admin import episode_routes
+
+    hc = importlib.import_module("scripts.health_check")
+
+    for module in (episode_routes, hc):
+        source = inspect.getsource(module)
+        assert "episode_page_is_due" in source, (
+            f"{module.__name__} no longer reads the shared predicate"
+        )
+        assert '"status") == "complete"' not in source, (
+            f"{module.__name__} reimplements the stage-complete rule instead "
+            f"of calling episode_page_is_due()"
+        )

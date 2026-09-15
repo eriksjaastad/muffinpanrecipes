@@ -43,6 +43,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from backend.utils.alerts import email_channel_status, send_alert  # noqa: E402
 from backend.utils.episode_integrity import (  # noqa: E402
     episode_integrity_failures,
+    episode_page_is_due,
     episode_summary,
 )
 
@@ -242,11 +243,18 @@ def check_this_week_page(report: Report, base_url: str = PRODUCTION_BASE_URL) ->
         if len(body) > 20_000:
             return  # full episode page rendered — healthy
 
-        # Thin page. Early in a new ISO week, /this-week is LEGITIMATELY a
-        # placeholder until that week's Monday cron (14:30 UTC Mon) generates
-        # the recipe. Only treat thin-ness as a failure once this week's Monday
-        # stage is actually complete — otherwise it's the expected pre-cron
-        # window and we must NOT alert (that was the Monday-morning false alarm).
+        # Thin page. A placeholder is LEGITIMATE in two windows: early in a new
+        # ISO week before Monday's cron (14:30 UTC Mon), and for as long as a
+        # week stays paused on a failed stage. Only treat thin-ness as a
+        # failure once a stage has actually completed, because that is the
+        # point a real page was owed — otherwise we alert on the expected
+        # window (that was the Monday-morning false alarm).
+        #
+        # episode_page_is_due() is the same predicate /this-week uses to decide
+        # 200-vs-503 (#7152). One rule, one place: the route and the monitor
+        # must not drift on what "a page should exist by now" means, and they
+        # did — the route's own answer used to be "an episode record exists",
+        # which put a 5xx on a sitemap URL for every hour a week was paused.
         iso = datetime.now(timezone.utc).isocalendar()
         week_id = f"{iso.year}-W{iso.week:02d}"
         try:
@@ -260,17 +268,13 @@ def check_this_week_page(report: Report, base_url: str = PRODUCTION_BASE_URL) ->
             )
         except Exception:
             episode = None
-        monday_done = (
-            isinstance(episode, dict)
-            and episode.get("stages", {}).get("monday", {}).get("status") == "complete"
-        )
-        assert not monday_done, (
+        assert not episode_page_is_due(episode), (
             f"/this-week body is {len(body)} bytes, expected > 20000, and "
-            f"{week_id} Monday IS complete — likely a real render failure."
+            f"{week_id} has a completed stage — likely a real render failure."
         )
         print(
-            f"    (this-week is the expected pre-cron placeholder for {week_id} "
-            f"— Monday recipe not generated yet)"
+            f"    (this-week is the expected placeholder for {week_id} "
+            f"— no stage has completed yet)"
         )
 
     report.check("this_week_renders", _check)
