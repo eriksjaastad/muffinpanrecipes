@@ -305,11 +305,11 @@ review_notes: string (nullable, from Erik)
 2. `episode_renderer` renders the recipe page from the episode's `recipe_data` — a single renderer serves every recipe page (the 10 original recipes live as data in `src/seed_recipes.json` and render through the same path)
 3. The published episode and catalog (`pages/recipes.json`) are written to Vercel Blob as authoritative build sources
 4. The episode is marked `published_at` and a retryable source-publication state is stamped on it (sticky idempotency guard)
-5. An operator runs the explicit preview → verify → promote flow: `build_site.py --preview --full-rebuild`, #6687 against the preview, then a manual Vercel production deploy
+5. An operator runs the explicit preview → verify → promote flow: `build_site.py --preview --full-rebuild`, #6687 against the preview, then `vercel promote <preview-url> --yes`. Promoting triggers a complete production rebuild, not an alias flip, so production is verified again afterwards. `DEPLOYMENT.md` owns the exact commands and the reasoning
 6. `build:site` reads the authoritative Blob sources at build time and emits static recipe pages, the catalog, and sitemap
 7. `/recipes/{slug}`, `/recipes.json`, and `/sitemap.xml` are served from those static artifacts without invoking the reader lambda
 
-> Content source publishing remains cron-driven and does not require a source-code commit. Blob stores the source records; automatic production deploys remain disabled because of the incident-driven operating policy. Static artifacts are promoted only after preview verification.
+> Content source publishing remains cron-driven and does not require a source-code commit. Blob stores the source records; automatic production deploys remain disabled because of the incident-driven operating policy. Static artifacts are promoted only after preview verification, and because promotion rebuilds rather than re-points, production is verified again once the rebuild lands.
 
 **Rollback:** If a stage fails, the episode is left unpublished (no `published_at`) and Discord is notified.
 

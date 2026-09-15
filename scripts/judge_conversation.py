@@ -49,7 +49,7 @@ Your job is to evaluate each day's conversation for quality issues that would em
 CHARACTER QUICK REFERENCE:
 - Margaret Chen: Executive producer. Blunt, short sentences, zero patience for fluff. Standards enforcer.
 - Stephanie "Steph" Whitmore: Host/producer. Warm, diplomatic, holds the team together. NOT a nervous intern.
-- Julian Voss: Photographer/videographer. Visual thinker, theatrical, cares about light and composition.
+- Julian Torres: Photographer/videographer. Visual thinker, theatrical, cares about light and composition.
 - Marcus Reid: Copywriter. Literary, verbose, metaphor-heavy. Sometimes too clever for his own good.
 - Devon Park: Web developer. Efficient, understated, technical. Speaks only when needed.
 
