@@ -123,18 +123,65 @@ class TestThisWeekDistinguishesPlaceholderFromFailure:
 
         assert self._call().status_code == 200
 
-    def test_returns_503_when_the_episode_exists_but_its_page_does_not(self, monkeypatch):
-        """A publish wrote episode JSON and then failed to write the page."""
+    def test_returns_503_when_a_completed_stage_has_no_page(self, monkeypatch):
+        """A publish wrote episode JSON and then failed to write the page.
+
+        The stage is `complete`, so a page IS due — this is the fail-open
+        23b1b3d was written to expose, and it must still 503.
+        """
         from backend.admin import episode_routes
 
         monkeypatch.setattr(episode_routes.storage, "load_page", lambda p: None)
         monkeypatch.setattr(
-            episode_routes.storage, "load_episode", lambda e: {"episode_id": e}
+            episode_routes.storage,
+            "load_episode",
+            lambda e: {"episode_id": e, "stages": {"monday": {"status": "complete"}}},
         )
 
         response = self._call()
         assert response.status_code == 503
         assert response.headers.get("Retry-After") == "300"
+
+    def test_paused_week_serves_200_not_503(self, monkeypatch):
+        """An episode that never completed a stage was never owed a page (#7152).
+
+        W38 failed Monday's judge three times on 2026-09-14. The episode record
+        existed, no stage completed, and `/this-week` answered 5xx for the rest
+        of the day — on a URL that is in the sitemap. Nothing had failed to
+        write; the week was paused, which the pipeline alerts already report.
+        """
+        from backend.admin import episode_routes
+
+        monkeypatch.setattr(episode_routes.storage, "load_page", lambda p: None)
+        monkeypatch.setattr(
+            episode_routes.storage,
+            "load_episode",
+            lambda e: {
+                "episode_id": e,
+                "stages": {"monday": {"status": "failed", "error": "Judge failed"}},
+            },
+        )
+
+        response = self._call()
+        assert response.status_code == 200
+        assert "Retry-After" not in response.headers
+
+    def test_paused_week_placeholder_does_not_claim_the_week_has_not_started(
+        self, monkeypatch
+    ):
+        """The copy has to match reality: the team started and stalled (#7152)."""
+        from backend.admin import episode_routes
+
+        monkeypatch.setattr(episode_routes.storage, "load_page", lambda p: None)
+        monkeypatch.setattr(
+            episode_routes.storage,
+            "load_episode",
+            lambda e: {"episode_id": e, "stages": {"monday": {"status": "failed"}}},
+        )
+
+        body = self._call().body.decode()
+        assert "hasn't started" not in body
+        assert "working on this week's recipe" in body
 
     def test_serves_the_stored_page_unmodified_when_present(self, monkeypatch):
         from backend.admin import episode_routes
