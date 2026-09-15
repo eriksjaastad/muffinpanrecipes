@@ -565,6 +565,9 @@ def _generate_and_judge_dialogue(
     dialogue: list[dict] = []
     total_attempts = 1 + max_retries
     recipe_context = _build_recipe_context(recipe_data)
+    # Every attempt the judge rejects, kept so a failure leaves evidence
+    # behind (#7100). See the write below for why this is not on the stage.
+    rejected: list[dict] = []
 
     for attempt in range(total_attempts):
         dialogue = _generate_dialogue(
@@ -599,9 +602,47 @@ def _generate_and_judge_dialogue(
                 logger.info(f"QA score for {stage}: {qa_scores.get('score', '?')}/100")
             return dialogue, verdict
 
+        # _judge_dialogue writes this attempt's structured score onto the
+        # episode, keyed by stage, and the NEXT attempt overwrites it. Read it
+        # here, while it still belongs to the dialogue we are about to discard.
+        rejected.append(
+            {
+                "attempt": attempt + 1,
+                "dialogue": dialogue,
+                "verdict": verdict,
+                "scores": episode.get("judge_scores", {}).get(stage, {}),
+                "weakest": episode.get("judge_weakest", {}).get(stage, []),
+                "reason": episode.get("judge_reason", {}).get(stage, ""),
+            }
+        )
         logger.warning(f"Judge FAILED {stage} attempt {attempt + 1}/{total_attempts}: {verdict[:200]}")
 
-    # Exhausted retries — notify Erik and pause the episode
+    # Exhausted retries — keep the evidence, notify Erik, pause the episode.
+    #
+    # This goes on the EPISODE, not the stage, for two independent reasons
+    # (#7100):
+    #
+    #   1. _save_stage_failure does `ep["stages"][stage] = {...}` — a blind
+    #      overwrite. Anything written to the stage here is destroyed moments
+    #      later. Episode-level keys survive, which is how judge_scores made it
+    #      out of W38's failure on 2026-09-14 while three dialogues did not.
+    #   2. The key must not be called `dialogue`. episode_renderer reads
+    #      `stage["dialogue"]` to decide reader-facing output, so a rejected
+    #      attempt under that name would publish failed dialogue to the site.
+    #
+    # Without this, the only surviving evidence of a judge failure is one
+    # sentence of verdict, which is not enough to tune a prompt against.
+    if rejected:
+        best = max(
+            range(len(rejected)),
+            key=lambda i: sum(
+                v for v in (rejected[i].get("scores") or {}).values()
+                if isinstance(v, (int, float))
+            ),
+        )
+        rejected[best]["best_of_run"] = True
+        episode.setdefault("rejected_dialogues", {})[stage] = rejected
+
     episode_id = episode.get("episode_id", "unknown")
     notify_judge_failure(
         concept=concept,
