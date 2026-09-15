@@ -576,6 +576,56 @@ def _check_time_agreement(recipe: dict[str, Any], instructions: str) -> str | No
     return None
 
 
+
+# Ingredients that no dessert contains. Deliberately tiny and pungent-only:
+# #7154 was "Beet Horseradish Cream Cups" built with granulated sugar, brown
+# sugar and vanilla, and it cleared four rounds of adversarial review because
+# nothing here looks at the category and the ingredients TOGETHER.
+#
+# The bar for adding a word is that it cannot appear in a real dessert. Savory
+# staples that DO cross over are deliberately absent - carrot, zucchini, sweet
+# potato, beet, olive oil, black pepper, chili, bacon and rosemary all appear in
+# published desserts, and a gate that blocks a chocolate beet cake is worse than
+# the hole it closes. Calibrated to zero hits across the stored corpus.
+INCOHERENT_IN_SWEET = frozenset({
+    "horseradish", "wasabi", "anchovy", "anchovies", "fish sauce",
+    "worcestershire", "sauerkraut", "kimchi", "dijon", "sriracha",
+    "capers", "caper", "pickle", "pickles", "pickled jalapeno",
+    "bouillon", "gravy", "ketchup", "mayonnaise",
+})
+
+_SWEET_CATEGORIES = frozenset({"sweet", "dessert", "desserts"})
+
+
+def _check_category_coherence(recipe: dict[str, Any]) -> str | None:
+    """A Sweet-labelled recipe must not be built on a savory-signature ingredient.
+
+    #7154: _enforce_target_category in the picker only rewrites the LABEL, so a
+    savory concept relabelled "Sweet" reaches the baker, and the baker dutifully
+    builds it with sugar and vanilla alongside horseradish. The judge then fails
+    the DIALOGUE on technical_credibility, because characters cannot talk
+    credibly about a dish that does not cohere - which costs a whole week rather
+    than one re-bake. Catch it at the recipe.
+    """
+    category = str(recipe.get("category") or "").strip().lower()
+    if category not in _SWEET_CATEGORIES:
+        return None
+    haystack = " ".join(
+        (ing.get("item") or "") if isinstance(ing, dict) else str(ing)
+        for ing in (recipe.get("ingredients") or [])
+    ).lower()
+    if not haystack.strip():
+        return None
+    hits = sorted(m for m in INCOHERENT_IN_SWEET if m in haystack)
+    if hits:
+        return (
+            f"category_incoherent: recipe is labelled '{category}' but is built on "
+            f"{', '.join(hits)} - relabel the category or change the dish, "
+            f"do not ship a dessert nobody would eat"
+        )
+    return None
+
+
 def check_recipe_sanity(recipe: dict[str, Any] | None) -> RecipeVerdict:
     """Is this recipe safe and cookable?
 
@@ -620,6 +670,10 @@ def check_recipe_sanity(recipe: dict[str, Any] | None) -> RecipeVerdict:
     # reader mid-recipe without it - and that needs a reliable noun extractor
     # from instruction prose. Not in this pass.
     warnings.extend(_check_ingredient_use(recipe, instructions))
+
+    coherence = _check_category_coherence(recipe)
+    if coherence:
+        implausible.append(coherence)
 
     capacity_issue, total_cups = _check_capacity(recipe)
     details["measured_cups"] = round(total_cups, 2)
