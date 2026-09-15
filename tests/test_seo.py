@@ -81,7 +81,9 @@ def test_social_metadata_accepts_safe_existing_asset_without_changing_recipe_ima
     html = render_episode_page(_published_episode(), social_image_url=social_image)
 
     social_abs = "https://muffinpanrecipes.com" + social_image
-    hero_abs = "https://muffinpanrecipes.com/blob-images/ffd2aff5/round_1/macro_closeup.png"
+    # #7012: the JSON-LD image is the WebP sibling. Google reads this field
+    # directly - there is no <picture> negotiation on the schema path.
+    hero_abs = "https://muffinpanrecipes.com/blob-images/ffd2aff5/round_1/macro_closeup.webp"
     assert f'<meta property="og:image" content="{social_abs}">' in html
     assert f'<meta name="twitter:image" content="{social_abs}">' in html
     assert _extract_json_ld(html)["image"] == [hero_abs]
@@ -160,8 +162,9 @@ def _extract_json_ld(html: str) -> dict:
 
 def test_json_ld_has_rich_result_fields() -> None:
     ld = _extract_json_ld(render_episode_page(_published_episode()))
+    # #7012: WebP sibling, not the 4MB source PNG.
     assert ld["image"] == [
-        "https://muffinpanrecipes.com/blob-images/ffd2aff5/round_1/macro_closeup.png"
+        "https://muffinpanrecipes.com/blob-images/ffd2aff5/round_1/macro_closeup.webp"
     ]
     assert ld["author"] == {"@type": "Organization", "name": "Muffin Pan Recipes"}
     assert ld["datePublished"] == "2026-06-14"
