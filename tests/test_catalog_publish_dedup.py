@@ -118,3 +118,45 @@ def test_publish_recipe_to_catalog_prepends_distinct_recipe_with_identity_metada
     assert recipes[0]["episode_id"] == "2026-W20"
     assert recipes[0]["recipe_id"] == "e9f30301"
 
+
+
+def _written_row(save_page) -> dict:
+    """Return the single catalog row publish_recipe_to_catalog just wrote."""
+    payload = json.loads(save_page.call_args.args[1])
+    return payload["recipes"][-1]
+
+
+def test_catalog_row_image_follows_the_pinned_hero() -> None:
+    """#6965: the card image is the hero that actually won, not image_urls[0].
+
+    image_urls[0] is always round_1/macro_closeup, so before this every card showed
+    the macro shot even for weeks whose winner was overhead_flatlay.
+    """
+    episode = _episode(title="Pinned Hero Cups")
+    episode["image_urls"] = [
+        "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/images/e9f30301/round_1/macro_closeup.png"
+    ]
+    episode["hero_image_url"] = (
+        "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/images/e9f30301/round_1/overhead_flatlay.png"
+    )
+
+    with patch.object(episode_renderer.storage, "load_page", return_value=json.dumps({"recipes": []})), \
+         patch.object(episode_renderer.storage, "save_page") as save_page:
+        episode_renderer.publish_recipe_to_catalog(episode)
+
+    assert _written_row(save_page)["image"] == "/blob-images/e9f30301/round_1/overhead_flatlay.webp"
+
+
+def test_catalog_row_falls_back_to_image_urls_without_a_pinned_hero() -> None:
+    """Forward-only: the 25 pre-2026-09-05 rows have no hero_image_url and must not move."""
+    episode = _episode(title="Legacy Cups")
+    episode["image_urls"] = [
+        "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/images/e9f30301/round_1/macro_closeup.png"
+    ]
+    assert "hero_image_url" not in episode
+
+    with patch.object(episode_renderer.storage, "load_page", return_value=json.dumps({"recipes": []})), \
+         patch.object(episode_renderer.storage, "save_page") as save_page:
+        episode_renderer.publish_recipe_to_catalog(episode)
+
+    assert _written_row(save_page)["image"] == "/blob-images/e9f30301/round_1/macro_closeup.webp"

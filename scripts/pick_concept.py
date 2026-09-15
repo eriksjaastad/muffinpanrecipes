@@ -95,6 +95,15 @@ SAVORY_MARKERS = frozenset({
     "cheddar", "parmesan", "feta", "mozzarella", "gouda", "garlic", "onion",
     "potato", "spinach", "kale", "mushroom", "broccoli", "pepper", "chili",
     "curry", "miso", "kimchi",
+    # #7154: "Beet Horseradish Cream Cups" cleared the Sweet shelf because the
+    # list was proteins, cheeses and alliums only - it had no pungent condiments.
+    # Same bar as recipe_sanity.INCOHERENT_IN_SWEET: a word belongs here only if
+    # it cannot appear in a real dessert, which is why beet, carrot and zucchini
+    # are still absent.
+    # sauerkraut and mayonnaise are deliberately absent - both are real
+    # chocolate-cake ingredients. Same rule as recipe_sanity.INCOHERENT_IN_SWEET.
+    "horseradish", "wasabi", "anchovy", "anchovies", "worcestershire",
+    "dijon", "capers", "ketchup",
 })
 DESSERT_MARKERS = frozenset({
     "chocolate", "brownie", "cheesecake", "caramel", "meringue", "custard",

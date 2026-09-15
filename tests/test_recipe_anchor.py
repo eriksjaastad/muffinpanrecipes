@@ -16,50 +16,55 @@ from backend.admin import cron_routes
 
 
 def test_build_recipe_context_full_payload():
+    """#7104: the anchor states what the dish IS, not what is in it."""
     recipe = {
         "title": "Maple Hash Brown Nests",
         "category": "Savory",
+        "description": "Shredded potato is pressed into each well and baked until the edges go crisp while the centre stays soft. Serve warm.",
         "ingredients": [
             {"item": "russet potatoes", "amount": "1 lb"},
             {"item": "maple breakfast sausage", "amount": "8 oz"},
-            {"item": "yellow onion", "amount": "1/2 cup"},
-            {"item": "red bell pepper", "amount": "1/2 cup"},
-            {"item": "large eggs", "amount": "6"},
-            {"item": "whole milk", "amount": "1/3 cup"},  # 6th — must be excluded (cap=5)
         ],
     }
     summary = cron_routes._build_recipe_context(recipe)
     assert "Maple Hash Brown Nests" in summary
     assert "(savory)" in summary
-    assert "russet potatoes" in summary
-    assert "large eggs" in summary
-    assert "whole milk" not in summary  # capped at 5 hero items
+    assert "edges go crisp" in summary
+    # The ingredient list is deliberately gone — it invited invented texture.
+    assert "russet potatoes" not in summary
+    assert "maple breakfast sausage" not in summary
 
 
-def test_build_recipe_context_strips_parentheticals():
+def test_build_recipe_context_uses_only_the_first_description_sentence():
+    """"Light by design": a multi-sentence description must not become a recitation."""
     recipe = {
         "title": "Test Recipe",
         "category": "Savory",
-        "ingredients": [
-            {"item": "kosher salt (divided)"},
-            {"item": "black pepper (freshly ground)"},
-        ],
+        "description": "These are chewy and stretchy. Then a second sentence. And a third.",
     }
     summary = cron_routes._build_recipe_context(recipe)
-    assert "(divided)" not in summary
-    assert "(freshly ground)" not in summary
-    assert "kosher salt" in summary
+    assert "chewy and stretchy" in summary
+    assert "second sentence" not in summary
+    assert "third" not in summary
 
 
-def test_build_recipe_context_handles_string_ingredients():
+def test_build_recipe_context_truncates_a_runaway_first_sentence():
     recipe = {
         "title": "Test",
         "category": "Sweet",
-        "ingredients": ["all-purpose flour", "granulated sugar"],
+        "description": "word " * 200,
     }
     summary = cron_routes._build_recipe_context(recipe)
-    assert "all-purpose flour" in summary
-    assert "granulated sugar" in summary
+    assert len(summary) < 300
+    assert summary.endswith("...")
+
+
+def test_build_recipe_context_survives_a_missing_description():
+    """Older episodes and pre-baker runs carry no description; anchor still works."""
+    summary = cron_routes._build_recipe_context(
+        {"title": "No Description Cups", "category": "Sweet", "ingredients": [{"item": "sugar"}]}
+    )
+    assert summary == "This week's recipe: No Description Cups (sweet)."
 
 
 def test_build_recipe_context_empty_inputs():
@@ -151,6 +156,7 @@ def test_execute_cron_stage_stub_passes_recipe_context_into_dialogue():
     recipe = {
         "title": "Maple Hash Brown Nests",
         "category": "savory",
+        "description": "Shredded potato bakes crisp at the edges and stays soft in the middle.",
         "ingredients": [{"item": "potato"}, {"item": "maple sausage"}],
     }
     episode = {
@@ -184,7 +190,7 @@ def test_execute_cron_stage_stub_passes_recipe_context_into_dialogue():
     assert dialogue_calls[0]["stage"] == "tuesday"
     assert dialogue_calls[0]["model"] == "test-model"
     assert "Maple Hash Brown Nests" in dialogue_calls[0]["recipe_context"]
-    assert "potato" in dialogue_calls[0]["recipe_context"]
+    assert "crisp at the edges" in dialogue_calls[0]["recipe_context"]
     assert episode["stages"]["tuesday"]["status"] == "complete"
     save_episode.assert_called_once_with("2026-W18", episode)
     get_orchestrator.assert_not_called()
