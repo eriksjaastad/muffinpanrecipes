@@ -55,8 +55,16 @@ def _run(monkeypatch, tmp_path, *, healthy: bool):
     def _episode(report, *, base_url, expect_episode=None):
         report.passed.append("episode_integrity")
 
+    def _alert_channel(report):
+        # Stubbed like every other check here. conftest strips RESEND_API_KEY
+        # and ALERT_EMAIL_TO from every test, so the real check (#7153) would
+        # fail on principle in a suite that is about WHICH runs announce
+        # themselves, not about the channel.
+        report.passed.append("alert_channel_can_send")
+
     posts: list[str] = []
-    with patch.object(hc, "check_catalog_counts_match", _catalog), \
+    with patch.object(hc, "check_alert_channel", _alert_channel), \
+         patch.object(hc, "check_catalog_counts_match", _catalog), \
          patch.object(hc, "check_teaser_current_week", _teaser), \
          patch.object(hc, "check_this_week_page", _this_week), \
          patch.object(hc, "check_episode_integrity", _episode), \
