@@ -175,14 +175,27 @@ def _load_or_create_episode(episode_id: str, concept: str) -> dict:
     }
 
 
+# Cap for the texture/identity anchor in _build_recipe_context (#7104). Long
+# enough for a real descriptive sentence, short enough that it cannot become the
+# recitation the summary exists to prevent.
+RECIPE_CONTEXT_ANCHOR_MAX = 200
+
+
 def _build_recipe_context(recipe_data: dict | None) -> str:
     """One-line recipe summary for dialogue + judge prompts.
 
-    Light by design — title + category + up to 5 hero ingredients. Heavier
-    injection causes characters to recite recipe details instead of
+    Light by design — title + category + the recipe's own one-line description.
+    Heavier injection causes characters to recite recipe details instead of
     holding a real conversation. Empty string if recipe_data is missing
     or shapeless (e.g., Monday before the baker has run, or test runs
     that skip the baker).
+
+    #7104: this used to carry the first 5 ingredients, which say what is IN the
+    dish but nothing about what the finished thing is LIKE. Characters filled the
+    gap by inventing texture, and sometimes inverted it — W37's Sunday judge
+    caught "the tapioca's shatter" for pao de queijo, a dish whose whole identity
+    is chewy and stretchy. The description is written by the baker from the actual
+    method, so it states the texture instead of leaving it to be guessed.
     """
     if not isinstance(recipe_data, dict):
         return ""
@@ -193,19 +206,17 @@ def _build_recipe_context(recipe_data: dict | None) -> str:
     parts = [f"This week's recipe: {title}"]
     if category:
         parts.append(f"({category})")
-    hero_items: list[str] = []
-    for ing in (recipe_data.get("ingredients") or [])[:5]:
-        if isinstance(ing, dict):
-            item = (ing.get("item") or "").strip()
-        else:
-            item = str(ing).strip()
-        # Strip trailing parentheticals/notes so the summary stays short.
-        item = item.split("(", 1)[0].strip(", ").strip()
-        if item:
-            hero_items.append(item)
     summary = " ".join(parts) + "."
-    if hero_items:
-        summary += f" Key ingredients: {', '.join(hero_items)}."
+    # First sentence only. The full description runs several sentences and the
+    # docstring's "light by design" rule is what keeps characters conversing
+    # instead of reciting.
+    description = " ".join((recipe_data.get("description") or "").split())
+    if description:
+        first, sep, _ = description.partition(". ")
+        anchor = (first + ".") if sep else description
+        if len(anchor) > RECIPE_CONTEXT_ANCHOR_MAX:
+            anchor = anchor[:RECIPE_CONTEXT_ANCHOR_MAX].rsplit(" ", 1)[0].rstrip(",;:") + "..."
+        summary += f" What it is: {anchor}"
     return summary
 
 
