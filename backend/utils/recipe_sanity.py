@@ -595,10 +595,19 @@ def _check_time_agreement(recipe: dict[str, Any], instructions: str) -> str | No
 # The chili and pickle families are deliberately absent for the same reason
 # `chili` always was: chili-chocolate and Mexican chocolate are ordinary, and
 # dill pickle ice cream is a real published novelty dessert. That rules out
-# sriracha, pickled jalapeno, pickle and pickles. What is left is savory-only.
+# sriracha, pickled jalapeno, pickle and pickles. Kimchi went the same way -
+# Salt & Straw have published a kimchi ice cream, and it is fermented cabbage
+# like the sauerkraut already pulled. What is left is savory-only.
+#
+# THE PATTERN, for whoever adds to this next: every word checked against real
+# published desserts so far has failed. A denylist of "never sweet" ingredients
+# is inherently leaky, because novelty desserts are a genre. This list earns its
+# place by catching ONE observed failure (a sugar-and-vanilla dessert built on
+# horseradish); do not grow it speculatively. If it ever needs to be broad, it
+# needs a different mechanism than a word list.
 INCOHERENT_IN_SWEET = frozenset({
     "horseradish", "wasabi", "anchovy", "anchovies", "fish sauce",
-    "worcestershire", "kimchi", "dijon",
+    "worcestershire", "dijon",
     "capers", "caper",
     "bouillon", "gravy", "ketchup",
 })
