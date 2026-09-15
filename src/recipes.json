@@ -1,12 +1,49 @@
 {
   "recipes": [
     {
+      "slug": "brazilian-p-o-de-queijo-bites",
+      "title": "Brazilian P\u00e3o de Queijo Bites",
+      "episode_id": "2026-W37",
+      "recipe_id": "1845cf1b",
+      "category": "Party",
+      "cuisine": "Brazilian",
+      "image": "/blob-images/1845cf1b/round_1/macro_closeup.webp",
+      "image_width": 1536,
+      "image_height": 1536,
+      "description": "These Brazilian p\u00e3o de queijo bites bake up into round, chewy cheese puffs with crisp, golden edges that perfectly mirror the muffin cup\u2019s flared shape. Made with tapioca flour, sharp Parmesan, and nutty Minas-style cheese, they\u2019re naturally gluten-free and ideal for passing around at a party while still hot and stretchy inside.",
+      "prep": "20 mins",
+      "cook": "20 mins",
+      "yield": "24 servings",
+      "ingredients": [
+        "1 cup whole milk",
+        "1/3 cup neutral oil (such as canola or grapeseed)",
+        "1 tsp kosher salt",
+        "2 cups tapioca flour (also labeled tapioca starch)",
+        "2 large eggs (room temperature)",
+        "1 cup finely grated Parmesan cheese (Parmigiano Reggiano preferred, lightly packed)",
+        "1 cup finely shredded queijo Minas padr\u00e3o or low-moisture whole-milk mozzarella (lightly packed)",
+        "2 tbsp finely grated Parmesan (for topping, optional)",
+        "1 tbsp melted unsalted butter (for greasing, plus more if needed)"
+      ],
+      "instructions": [
+        "Adjust an oven rack to the center position and preheat the oven to 400\u00b0F. Place a 12-cup muffin tin on a sheet pan (for easier handling) and lightly brush each well with melted butter, coating the bottom and sides thoroughly.",
+        "In a small saucepan, combine the milk, neutral oil, and salt. Heat over medium until the mixture just comes to a bare simmer with small bubbles at the edges, 3\u20135 minutes. Do not let it boil vigorously. Remove from heat.",
+        "Place the tapioca flour in a medium mixing bowl. While whisking or stirring with a sturdy wooden spoon, slowly pour the hot milk mixture over the tapioca flour, stirring until it forms a thick, sticky dough and no dry pockets remain. It will look gummy and clumpy; that\u2019s correct. Let cool 5\u20137 minutes so it\u2019s warm but not hot to the touch.",
+        "In a small bowl, lightly beat the eggs. Add the eggs to the warm tapioca mixture in 2 additions, stirring vigorously after each addition until fully incorporated. The dough will look separated at first, then smooth out into a glossy, stretchy batter.",
+        "Add the 1 cup grated Parmesan and 1 cup shredded Minas cheese (or mozzarella) to the bowl. Stir until the cheeses are evenly distributed and the batter is thick but scoopable and slightly elastic. If it seems extremely runny, let it sit 5 minutes; tapioca will thicken as it hydrates.",
+        "Using a tablespoon measure or small cookie scoop, portion about 2 level tbsp of batter into each muffin well. The batter should come to about halfway up the sides of each cup; you\u2019ll get 24 bites, so plan on baking in 2 batches or using a second pan if you have one. If desired, sprinkle a pinch of the extra 2 tbsp Parmesan over the top of each portion.",
+        "Bake at 400\u00b0F for 18\u201320 minutes, until the bites are puffed, rounded, and deeply golden on the ridged sides and lightly browned on top. They should pull slightly away from the edges of the wells and feel set but still a bit springy when gently pressed.",
+        "Remove the pan from the oven and let the bites rest in the muffin tin for 3\u20134 minutes to firm up and finish steaming inside. Run a thin knife or offset spatula around the edge of each well, then gently lift out each p\u00e3o de queijo bite. The sides should show the distinct flared, molded shape from the muffin cups.",
+        "Repeat filling and baking with the remaining batter, greasing the muffin wells lightly again if needed. Serve the bites warm on a platter, or keep them loosely tented with foil at room temperature for up to 1 hour."
+      ]
+    },
+    {
       "slug": "caramelized-custard-tart-cups",
       "title": "Caramelized Custard Tart Cups",
       "episode_id": "2026-W36",
       "recipe_id": "e7956950",
-      "category": "Savory",
-      "cuisine": "",
+      "category": "Sweet",
+      "cuisine": "Portuguese",
       "image": "/blob-images/e7956950/round_1/macro_closeup.webp",
       "image_width": 1536,
       "image_height": 1536,
