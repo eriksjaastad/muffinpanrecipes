@@ -21,19 +21,13 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from backend.publishing.analytics import GA4_TAG
 from backend.publishing.static_renderer import render_recipes_index, render_sitemap
 from backend.storage import storage
+from backend.utils.episode_integrity import current_episode_id, episode_page_is_due
 from backend.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
 # Two routers: one for the public page, one for the API
 router = APIRouter(tags=["episodes"])
-
-
-def _current_episode_id() -> str:
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc)
-    iso = now.isocalendar()
-    return f"{iso.year}-W{iso.week:02d}"
 
 
 @router.get("/this-week")
@@ -43,7 +37,7 @@ async def this_week_page():
     The page is pre-rendered by each cron stage and stored in blob at
     pages/{episode_id}/index.html. Progressively grows through the week.
     """
-    episode_id = _current_episode_id()
+    episode_id = current_episode_id()
     page_html = storage.load_page(f"pages/{episode_id}/index.html")
     if page_html:
         # Serve the stored page byte-for-byte. Mutating reader responses here
@@ -51,30 +45,48 @@ async def this_week_page():
         # a request happened to take.
         return HTMLResponse(content=page_html)
 
-    # No stored page. Distinguish the two reasons, because they are opposites:
+    # No stored page. There are THREE reasons for that, not two, and only one
+    # of them is a failure — see episode_page_is_due() for the full rule.
     #
-    #   1. Early in a new ISO week, before Monday's cron runs, no episode
-    #      exists yet. A placeholder is the correct, healthy response.
-    #   2. The episode EXISTS but its page is missing. That means a publish
-    #      wrote episode JSON and then failed to write the page. Returning a
-    #      cheerful 200 there is what let a broken publish look healthy to
-    #      every downstream check, since status alone never revealed it.
+    #   1. No episode record yet (before Monday's cron). Healthy placeholder.
+    #   2. A stage COMPLETED but the page is missing. A publish wrote episode
+    #      JSON and then failed to write the page. Returning a cheerful 200
+    #      there is what let a broken publish look healthy to every downstream
+    #      check, since status alone never revealed it (23b1b3d).
+    #   3. An episode exists but no stage ever completed — the week is paused
+    #      on a failed stage. No page was ever due. This used to take the 503
+    #      branch with case 2, which put a 5xx on a sitemap URL for as long as
+    #      a week stayed stalled, and short-circuited health_check's own
+    #      thin-page suppression before it could run (#7152).
     #
-    # Case 2 is a server-side failure and must say so.
-    if storage.load_episode(episode_id) is not None:
+    # Only case 2 is a server-side failure, and it must still say so.
+    episode = storage.load_episode(episode_id)
+    if episode_page_is_due(episode):
         logger.error(
-            "Episode %s exists but pages/%s/index.html is missing; "
-            "serving 503 rather than a healthy-looking placeholder",
+            "Episode %s has a completed stage but pages/%s/index.html is "
+            "missing; serving 503 rather than a healthy-looking placeholder",
             episode_id,
             episode_id,
         )
         return HTMLResponse(
-            content=_placeholder_page(episode_id),
+            content=_placeholder_page(episode_id, in_progress=True),
             status_code=503,
             headers={"Retry-After": "300"},
         )
 
-    return HTMLResponse(content=_placeholder_page(episode_id), status_code=200)
+    if episode is not None:
+        # Case 3. Worth a log line — the week IS stalled and somebody should
+        # know — but the pipeline alerts own that signal, not the reader.
+        logger.warning(
+            "Episode %s exists with no completed stage; serving the "
+            "in-progress placeholder. The week is paused, not broken.",
+            episode_id,
+        )
+
+    return HTMLResponse(
+        content=_placeholder_page(episode_id, in_progress=episode is not None),
+        status_code=200,
+    )
 
 
 @router.get("/api/episodes/teaser")
@@ -242,8 +254,22 @@ async def recipe_page(slug: str):
     )
 
 
-def _placeholder_page(episode_id: str) -> str:
-    """Simple placeholder when no episode has started this week."""
+def _placeholder_page(episode_id: str, in_progress: bool = False) -> str:
+    """Simple placeholder for a week with no stored page yet.
+
+    `in_progress` distinguishes the two reader-facing situations. Before
+    Monday's cron there is genuinely nothing started. Once an episode record
+    exists the team HAS started — telling a reader on Monday evening to "check
+    back Monday morning" is just wrong, and that copy was written when the
+    only way to reach this page was case 1 (#7152).
+    """
+    body_copy = (
+        "The team is working on this week's recipe right now. "
+        "Check back shortly."
+        if in_progress
+        else "The team hasn't started this week's recipe yet. "
+        "Check back Monday morning when the brainstorm begins."
+    )
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -263,7 +289,7 @@ def _placeholder_page(episode_id: str) -> str:
     <main class="site-main placeholder">
         <p class="placeholder__eyebrow">{episode_id}</p>
         <h1 class="placeholder__title">Something's Baking...</h1>
-        <p class="placeholder__body">The team hasn't started this week's recipe yet. Check back Monday morning when the brainstorm begins.</p>
+        <p class="placeholder__body">{body_copy}</p>
         <a href="/" class="btn-outline">
             Browse Recipes
         </a>

@@ -87,6 +87,42 @@ def stages_due(
     return [d for d in DAY_ORDER if now >= stage_deadline(episode_id, d) + grace]
 
 
+def episode_page_is_due(episode: object) -> bool:
+    """True when a stored `/this-week` page SHOULD already exist for this episode.
+
+    The distinction this draws is the one `/this-week` gets wrong if it asks
+    "does an episode record exist" instead (#7152). An episode record is
+    written the moment Monday's cron starts, but the page is only written once
+    a stage COMPLETES. Between those two moments — and for as long as a week
+    stays paused on a failed stage — there is no page and nothing is broken.
+
+    So there are three states, not two:
+
+      1. No episode record yet (before Monday's cron). No page is due.
+      2. A stage completed. A page IS due, and its absence means a publish
+         wrote episode JSON and then failed to write the page — the fail-open
+         that `23b1b3d` was written to expose. The caller must say so loudly.
+      3. An episode exists but no stage ever completed (the week is paused on
+         a failed stage). No page is due. The week is stalled, which the
+         pipeline alerts already report; it is not a page-serving failure and
+         must not be dressed up as one.
+
+    `scripts/health_check.py` reads this same predicate for its own thin-page
+    suppression — it only treats a placeholder as a failure once Monday is
+    `complete`. Sharing one predicate is what keeps the route and the monitor
+    from drifting on what "should exist by now" means.
+    """
+    if not isinstance(episode, dict):
+        return False
+    stages = episode.get("stages") or {}
+    if not isinstance(stages, dict):
+        return False
+    return any(
+        isinstance(stage, dict) and stage.get("status") == "complete"
+        for stage in stages.values()
+    )
+
+
 def _recipe_title(episode: dict) -> str:
     monday = episode.get("stages", {}).get("monday", {})
     return str((monday.get("recipe_data") or {}).get("title") or "").strip()

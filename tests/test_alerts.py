@@ -221,3 +221,56 @@ def test_no_module_outside_alerts_posts_to_the_webhook() -> None:
         "these modules reference the Discord webhook directly; route them "
         "through backend/utils/alerts.py::send_alert instead: " + ", ".join(offenders)
     )
+
+
+# ---------------------------------------------------------------------------
+# The monitor has to be able to report its own failures (#7153)
+# ---------------------------------------------------------------------------
+
+
+def test_health_check_watches_the_alert_channel(monkeypatch) -> None:
+    """email_channel_status() must actually be wired to something.
+
+    It was written for this hook under #6860 and then left unreferenced, so
+    nothing verified the alert path at all. A health check that cannot report
+    its own failures is decoration — this is the test that keeps the wire
+    connected.
+    """
+    import importlib
+
+    hc = importlib.import_module("scripts.health_check")
+
+    monkeypatch.setenv("RESEND_API_KEY", "re_test")
+    monkeypatch.setenv("ALERT_EMAIL_TO", "someone@example.test")
+    report = hc.Report()
+    hc.check_alert_channel(report)
+    assert "alert_channel_can_send" in report.passed
+    assert report.ok
+
+
+def test_health_check_fails_when_alerts_have_nowhere_to_go(monkeypatch) -> None:
+    """Unconfigured means FAIL, and the message names what is missing."""
+    import importlib
+
+    hc = importlib.import_module("scripts.health_check")
+
+    # conftest already strips these from every test; be explicit anyway so the
+    # intent survives a change to that fixture.
+    monkeypatch.delenv("RESEND_API_KEY", raising=False)
+    monkeypatch.delenv("ALERT_EMAIL_TO", raising=False)
+    report = hc.Report()
+    hc.check_alert_channel(report)
+
+    assert not report.ok
+    name, detail = report.failed[0]
+    assert name == "alert_channel_can_send"
+    assert "RESEND_API_KEY" in detail and "ALERT_EMAIL_TO" in detail
+
+
+def test_alert_channel_check_runs_in_main(monkeypatch) -> None:
+    """Registered in main(), not merely defined — the #6860 failure repeated."""
+    import inspect
+    import importlib
+
+    hc = importlib.import_module("scripts.health_check")
+    assert "check_alert_channel(report)" in inspect.getsource(hc.main)
