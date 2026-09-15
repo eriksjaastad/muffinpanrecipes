@@ -98,8 +98,12 @@ uv run python scripts/health_check.py --base-url <preview-url>
 # 5. Promote, only after step 4 passes. --yes is REQUIRED non-interactively.
 vercel promote <preview-url> --yes
 
-# 6. Wait ~30s, then verify PRODUCTION (promote is a build, not an alias flip):
-doppler run -- uv run python scripts/health_check.py --no-alert
+# 6. Wait ~30s, then verify PRODUCTION (promote is a build, not an alias flip).
+#    NO --no-alert here (#7103): this is the one check whose subject is the bytes
+#    now serving real traffic, so a failure is exactly what you want paged. The
+#    "don't run it casually" guidance applies to ad-hoc checks during transient
+#    windows, not to post-deploy verification. Since #7097 every alert emails.
+doppler run -- uv run python scripts/health_check.py
 ```
 
 ### Why `--yes`, and why step 6 exists

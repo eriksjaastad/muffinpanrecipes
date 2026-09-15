@@ -665,7 +665,7 @@ def create_routes(app: FastAPI):
                     "mood": "witty"
                 },
                 {
-                    "name": "Julian Park (Art Director)",
+                    "name": "Julian Torres (Art Director)",
                     "role": "art_director",
                     "status": "ready",
                     "mood": "perfectionist"

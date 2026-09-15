@@ -64,7 +64,7 @@
 
 **Alternatives considered:** Deploy-time build via `@vercel/static-build` (rejected: every deploy becomes a full rebuild; unproven in this project's build container). Full static including `/this-week` (rejected: stale between manual deploys, and re-enabling any automated deploy reopens the closed auto-deploy decision). Git growth from committed HTML is roughly one 30 KB file per week, accepted.
 
-**Operator ritual:** weekly `uv run python scripts/build_site.py` (incremental) → commit `src/**` → preview deploy → `health_check.py --base-url <preview>` → promote. `--full-rebuild` only when a renderer change is meant to reach every page.
+**Operator ritual:** weekly `uv run python scripts/build_site.py` (incremental) → commit `src/**` → `vercel deploy` (preview) → `health_check.py --base-url <preview>` → `vercel promote <preview-url> --yes`. `--full-rebuild` only when a renderer change is meant to reach every page. **`DEPLOYMENT.md` owns this procedure** — it explains why `--yes` is required non-interactively, and why promoting is a full production rebuild rather than an alias flip, which is what makes the post-promote production check a separate step. Do not restate the mechanism here; follow the link.
 
 ### 2026-09-05: Alerts email through the existing Resend setup, routed by severity (#6860)
 
