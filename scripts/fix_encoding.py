@@ -83,44 +83,63 @@ def catalog_slug_for_title(
         raw = row.get(key)
         return raw.strip() if isinstance(raw, str) else ""
 
-    for key, value in (("episode_id", episode_id), ("recipe_id", recipe_id)):
-        if not value:
-            continue
-        wanted = str(value).strip()
-        hits = [r for r in rows if _field(r, key) == wanted]
-        if len(hits) == 1:
-            slug = _slug_of(hits[0])
-            if slug:
-                return slug
-            print(f"  UNUSABLE: catalog row for {key}={value!r} has no valid slug - refusing")
-            return None
-        if len(hits) > 1:
-            print(f"  AMBIGUOUS: {len(hits)} catalog rows share {key}={value!r} - refusing")
-            return None
+    wanted = {
+        "episode_id": str(episode_id).strip() if episode_id else "",
+        "recipe_id": str(recipe_id).strip() if recipe_id else "",
+    }
 
-    # Title fallback, for legacy rows only. A row that CARRIES an identity and
-    # whose identity differs from ours belongs to another episode - matching it
-    # on title would write this episode's content over that episode's page.
-    # Reproduced: a W37 repair wrote W37 content to W36's catalog path.
+    def _conflicts(row: dict) -> str | None:
+        """Does this row carry an identity that says it belongs to someone else?
+
+        Applied before EVERY accepted match, not just the title fallback. An
+        earlier version guarded only the fallback, so a row matching on
+        recipe_id while carrying `episode_id: 2026-W36` was still handed to a
+        W37 repair - which then wrote W37 content to W36's page. Both directions
+        of that conflict are checked here.
+        """
+        for key, ours in wanted.items():
+            theirs = _field(row, key)
+            if theirs and ours and theirs != ours:
+                return f"{key}={theirs!r} != {ours!r}"
+            if theirs and not ours:
+                return f"{key}={theirs!r} while ours is unknown"
+        return None
+
+    # Identity match first - exact, and still subject to the conflict check.
+    for key in ("episode_id", "recipe_id"):
+        ours = wanted[key]
+        if not ours:
+            continue
+        hits = [r for r in rows if _field(r, key) == ours]
+        if len(hits) > 1:
+            print(f"  AMBIGUOUS: {len(hits)} catalog rows share {key}={ours!r} - refusing")
+            return None
+        if len(hits) != 1:
+            continue
+        row = hits[0]
+        clash = _conflicts(row)
+        if clash:
+            print(
+                f"  OWNED: catalog row {row.get('slug')!r} matches on {key} but its "
+                f"{clash} - refusing rather than write over another episode"
+            )
+            return None
+        slug = _slug_of(row)
+        if slug:
+            return slug
+        print(f"  UNUSABLE: catalog row for {key}={ours!r} has no valid slug - refusing")
+        return None
+
+    # Title fallback, for legacy rows only.
     matches: set[str] = set()
     for row in rows:
         if _clean_title(str(row.get("title", ""))).casefold() != title.casefold():
             continue
-        conflict = False
-        for key, value in (("episode_id", episode_id), ("recipe_id", recipe_id)):
-            row_value = _field(row, key)
-            if row_value and str(value or "").strip() and row_value != str(value).strip():
-                conflict = True
-                break
-            # A row owned by SOME episode, when we do not know ours, is equally
-            # unsafe to claim by title alone.
-            if row_value and not str(value or "").strip():
-                conflict = True
-                break
-        if conflict:
+        clash = _conflicts(row)
+        if clash:
             print(
                 f"  OWNED: catalog row {row.get('slug')!r} matches {title!r} by title but "
-                f"belongs to another episode - refusing the title fallback"
+                f"its {clash} - refusing the title fallback"
             )
             continue
         slug = _slug_of(row)

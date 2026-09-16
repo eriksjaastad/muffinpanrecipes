@@ -250,6 +250,17 @@ def _fit_method(steps: list[str], budget: int) -> str:
     if len(whole) <= budget:
         return whole
 
+    def _marker(first: int, last: int) -> str:
+        return (
+            f"[... steps {first}-{last} omitted for length. Their absence is NOT "
+            f"evidence a technique is missing from the recipe - do not treat it as a "
+            f"contradiction ...]"
+        )
+
+    # Reserve the marker's ACTUAL length, not a guessed 80. The marker grew and
+    # the reserve did not, so an 8,000-char budget produced 8,010.
+    reserve = len(_marker(len(numbered), len(numbered))) + 2
+
     head: list[str] = []
     tail: list[str] = []
     head_len = tail_len = 0
@@ -263,23 +274,18 @@ def _fit_method(steps: list[str], budget: int) -> str:
         took_head = took_tail = False
         if head_len <= tail_len and lo <= hi:
             nxt = numbered[lo]
-            if head_len + tail_len + len(nxt) + 80 <= budget:
+            if head_len + tail_len + len(nxt) + reserve <= budget:
                 head.append(nxt); head_len += len(nxt) + 1; lo += 1
                 took_head = True
         if lo <= hi and (not took_head or tail_len < head_len):
             nxt = numbered[hi]
-            if head_len + tail_len + len(nxt) + 80 <= budget:
+            if head_len + tail_len + len(nxt) + reserve <= budget:
                 tail.insert(0, nxt); tail_len += len(nxt) + 1; hi -= 1
                 took_tail = True
 
     if lo > hi:
         return " ".join(head + tail)
-    marker = (
-        f"[... steps {lo + 1}-{hi + 1} omitted for length. Their absence is NOT "
-        f"evidence a technique is missing from the recipe - do not treat it as a "
-        f"contradiction ...]"
-    )
-    return " ".join(head + [marker] + tail)
+    return " ".join(head + [_marker(lo + 1, hi + 1)] + tail)
 
 def _build_judge_recipe_facts(recipe_data: dict | None) -> str:
     """Ground truth about the dish for the JUDGE, independent of what speakers saw.

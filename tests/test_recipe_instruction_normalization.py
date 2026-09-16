@@ -341,3 +341,63 @@ def test_legacy_row_without_identity_still_matches_by_title():
     assert fix_encoding.catalog_slug_for_title(
         "Legacy Cups", catalog, episode_id="2026-W14"
     ) == "legacy-cups"
+
+
+def test_exact_recipe_id_match_refuses_a_row_owned_by_another_episode():
+    """The conflict check must guard the ID branches too, not just the fallback.
+
+    Reproduced: a W37 repair matched a row by recipe_id that carried
+    episode_id 2026-W36, and wrote W37 content to W36's page.
+    """
+    catalog = {
+        "recipes": [
+            {"title": "Other", "slug": "w36-owned", "recipe_id": "abc123", "episode_id": "2026-W36"},
+        ]
+    }
+    assert fix_encoding.catalog_slug_for_title(
+        "Whatever", catalog, episode_id="2026-W37", recipe_id="abc123"
+    ) is None
+
+
+def test_exact_episode_id_match_refuses_a_conflicting_recipe_id():
+    """The other direction of the same conflict."""
+    catalog = {
+        "recipes": [
+            {"title": "Other", "slug": "w36-owned", "episode_id": "2026-W37", "recipe_id": "zzz"},
+        ]
+    }
+    assert fix_encoding.catalog_slug_for_title(
+        "Whatever", catalog, episode_id="2026-W37", recipe_id="abc123"
+    ) is None
+
+
+def test_a_fully_consistent_identity_still_matches():
+    catalog = {
+        "recipes": [
+            {"title": "X", "slug": "x", "episode_id": "2026-W37", "recipe_id": "abc123"},
+        ]
+    }
+    assert fix_encoding.catalog_slug_for_title(
+        "X", catalog, episode_id="2026-W37", recipe_id="abc123"
+    ) == "x"
+
+
+def test_conflicting_id_match_writes_nothing():
+    """Zero-write regression: refusing must happen before any page is saved."""
+    episode = _published_episode("2026-W33")
+    episode["recipe_id"] = "abc123"
+    catalog = {
+        "recipes": [
+            {"title": "Other", "slug": "w36-owned", "recipe_id": "abc123", "episode_id": "2026-W36"},
+        ]
+    }
+    with (
+        patch.object(fix_encoding.storage, "load_episode", return_value=episode),
+        patch.object(fix_encoding.storage, "save_episode") as save_episode,
+        patch.object(fix_encoding.storage, "save_page") as save_page,
+        patch.object(fix_encoding, "render_episode_page", return_value="<html></html>"),
+    ):
+        assert fix_encoding.fix_episode("2026-W33", catalog=catalog) is False
+
+    save_page.assert_not_called()
+    save_episode.assert_not_called()

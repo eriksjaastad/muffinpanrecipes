@@ -415,3 +415,16 @@ def test_fit_method_keeps_the_tail_even_when_one_step_is_enormous():
 def test_fit_method_marker_tells_the_judge_not_to_infer_contradiction():
     out = cron_routes._fit_method([f"Step {i} " + "y" * 200 for i in range(1, 40)], 1200)
     assert "NOT" in out and "contradiction" in out
+
+
+@pytest.mark.parametrize("budget", [600, 1200, 2000, 8000])
+def test_fit_method_never_exceeds_its_budget(budget):
+    """The marker's reserve must track the marker's real length (Codex).
+
+    It reserved a hardcoded 80 chars for a marker that had grown well past
+    that, so an 8,000-char budget produced 8,010.
+    """
+    steps = [f"Step {i} " + "y" * 200 for i in range(1, 80)]
+    out = cron_routes._fit_method(steps, budget)
+    assert len(out) <= budget, f"budget {budget} produced {len(out)}"
+    assert "79. Step 79" in out, "the tail must still survive"
