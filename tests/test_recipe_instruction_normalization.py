@@ -273,3 +273,21 @@ def test_catalog_slug_refuses_an_ambiguous_title():
 def test_catalog_slug_still_matches_a_legacy_row_by_title():
     catalog = {"recipes": [{"title": "Legacy Cups", "slug": "legacy-cups"}]}
     assert fix_encoding.catalog_slug_for_title("Legacy Cups", catalog) == "legacy-cups"
+
+
+def test_fix_encoding_main_fails_when_an_explicitly_named_episode_is_not_fixed():
+    """Asking for one episode by name and getting nothing is a failure, not a skip.
+
+    Bulk mode legitimately skips unpublished/test episodes, so it exits 0. A
+    named episode that cannot be repaired must not.
+    """
+    argv = ["fix_encoding.py", "--episode", "2026-W99"]
+    with (
+        patch.object(sys, "argv", argv),
+        patch.object(fix_encoding, "load_published_catalog", return_value={"recipes": []}),
+        patch.object(fix_encoding, "fix_episode", return_value=False),
+        patch.object(fix_encoding.storage, "save_page") as save_page,
+    ):
+        assert fix_encoding.main() == 1
+
+    save_page.assert_not_called()

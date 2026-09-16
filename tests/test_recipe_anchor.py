@@ -107,8 +107,11 @@ def test_judge_recipe_facts_caps_a_very_long_method():
         "instructions": [f"Step {i} with a good deal of explanatory text in it." for i in range(200)],
     }
     facts = cron_routes._build_judge_recipe_facts(recipe)
-    assert "[...truncated]" in facts
-    assert len(facts) < cron_routes.JUDGE_METHOD_MAX + 600
+    assert "omitted for length" in facts, "an over-budget method must say so"
+    assert len(facts) < cron_routes.JUDGE_METHOD_MAX + 900
+    # both ends survive: the cut comes out of the middle, not the tail
+    assert "1. Step 0 " in facts
+    assert "200. Step 199 " in facts
 
 
 def test_build_recipe_context_survives_a_missing_description():
@@ -278,3 +281,31 @@ def test_generate_and_judge_raises_after_judge_exceptions():
 
     assert "JUDGE ERROR: RuntimeError: provider down" in str(exc.value)
     notify.assert_called_once()
+
+
+def test_judge_method_budget_fits_the_longest_real_recipe():
+    """Sized against stored recipes, not guessed (Codex audit).
+
+    W35-W38 methods run 2,486-4,956 chars. A 2,000 cap truncated W38 at step 16
+    of 36 and resolved its lamination claim only because "roll the dough up into
+    a log" happened to sit at step 16 - every baking, unmolding and glazing step
+    was cut.
+    """
+    assert cron_routes.JUDGE_METHOD_MAX >= 5000
+
+
+def test_fit_method_drops_the_middle_not_the_tail():
+    """Late steps carry baking/unmolding/finishing - the claims a judge checks."""
+    steps = [f"Step {i} " + ("x" * 120) for i in range(1, 61)]
+    out = cron_routes._fit_method(steps, 2000)
+    assert len(out) <= 2000
+    assert out.startswith("1. Step 1"), "the opening steps must survive"
+    assert "60. Step 60" in out, "the closing steps must survive"
+    assert "omitted for length" in out, "the cut must be stated, not silent"
+
+
+def test_fit_method_returns_everything_when_it_fits():
+    steps = ["Mix the batter.", "Bake for 20 minutes.", "Cool and serve."]
+    out = cron_routes._fit_method(steps, 8000)
+    assert out == "1. Mix the batter. 2. Bake for 20 minutes. 3. Cool and serve."
+    assert "omitted" not in out

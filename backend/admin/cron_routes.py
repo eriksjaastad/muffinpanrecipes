@@ -180,10 +180,18 @@ def _load_or_create_episode(episode_id: str, concept: str) -> dict:
 # the recitation the summary exists to prevent.
 RECIPE_CONTEXT_ANCHOR_MAX = 400
 
-# Cap for the method block the JUDGE receives (#7104 second pass). The judge
-# runs on a frontier model a handful of times a week; a few hundred extra tokens
-# there is cheap next to shipping an episode that discusses the wrong technique.
-JUDGE_METHOD_MAX = 2000
+# Cap for the method block the JUDGE receives (#7104 second pass). Sized against
+# real stored recipes, not guessed: W35-W38 methods run 2,486-4,956 chars, the
+# 4,956 being W38's 36 steps. An earlier 2,000 truncated W38 at step 16 of 36 -
+# it resolved the lamination claim only because "roll the dough up into a log"
+# happened to sit at step 16, and every baking, unmolding and glazing step was
+# cut. A technique claim about a later step would have been unverifiable, which
+# is the exact defect this block exists to close.
+#
+# 8,000 clears the longest real recipe with headroom. The judge runs on a
+# frontier model a handful of times a week, so ~2k tokens there is cheap next to
+# shipping an episode that discusses a technique the recipe does not use.
+JUDGE_METHOD_MAX = 8000
 
 
 def _build_recipe_context(recipe_data: dict | None) -> str:
@@ -229,6 +237,41 @@ def _build_recipe_context(recipe_data: dict | None) -> str:
     return summary
 
 
+def _fit_method(steps: list[str], budget: int) -> str:
+    """Render numbered steps within `budget`, dropping from the MIDDLE if needed.
+
+    A raw character cut removes every late step, and late steps are where baking,
+    unmolding and finishing live - exactly the claims a judge needs to check. So
+    an over-budget method keeps both ends and says plainly which steps are gone,
+    rather than silently ending mid-sentence at step 16.
+    """
+    numbered = [f"{i}. {t}" for i, t in enumerate(steps, 1)]
+    whole = " ".join(numbered)
+    if len(whole) <= budget:
+        return whole
+
+    head: list[str] = []
+    tail: list[str] = []
+    head_len = tail_len = 0
+    lo, hi = 0, len(numbered) - 1
+    # Grow from both ends, leaving room for the omission marker.
+    while lo <= hi:
+        if head_len <= tail_len:
+            nxt = numbered[lo]
+            if head_len + tail_len + len(nxt) + 80 > budget:
+                break
+            head.append(nxt); head_len += len(nxt) + 1; lo += 1
+        else:
+            nxt = numbered[hi]
+            if head_len + tail_len + len(nxt) + 80 > budget:
+                break
+            tail.insert(0, nxt); tail_len += len(nxt) + 1; hi -= 1
+
+    if lo > hi:
+        return " ".join(head + tail)
+    marker = f"[... steps {lo + 1}-{hi + 1} omitted for length ...]"
+    return " ".join(head + [marker] + tail)
+
 def _build_judge_recipe_facts(recipe_data: dict | None) -> str:
     """Ground truth about the dish for the JUDGE, independent of what speakers saw.
 
@@ -272,10 +315,7 @@ def _build_judge_recipe_facts(recipe_data: dict | None) -> str:
         if str(step).strip()
     ]
     if steps:
-        method = " ".join(f"{i}. {t}" for i, t in enumerate(steps, 1))
-        if len(method) > JUDGE_METHOD_MAX:
-            method = method[:JUDGE_METHOD_MAX].rsplit(" ", 1)[0] + " [...truncated]"
-        lines.append("Method: " + method)
+        lines.append("Method: " + _fit_method(steps, JUDGE_METHOD_MAX))
 
     lines.append(
         "Judge technique claims against the Method above. If a speaker describes a "
