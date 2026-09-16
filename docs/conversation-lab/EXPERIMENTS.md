@@ -167,9 +167,11 @@ the one-off manual read that motivated building it.
 Logged here because this is the canonical record for dial changes, and these
 went to production **without** a lab sweep. That was deliberate: W38's Tuesday
 stage had already failed the Judge three times and the cron window had closed,
-so the week was dead until something changed. Both fixes address mechanical
-defects with a known cause, not taste calls. The sweep still owes us
-confirmation — see "What this does not prove" below.
+so something had to change. (The week was not in fact dead — Sunday gates on
+Wednesday, not Tuesday — so the urgency was real but smaller than stated here
+originally.) **These are hypotheses with a plausible mechanism, not defects with
+a known cause**; an earlier draft called them "mechanical defects with a known
+cause" and that is retracted. See "What this does not prove" below.
 
 **The judge's verdict, verbatim:** *"Devon sounds too much like Marcus/Steph
 with verbose explanations rather than his characteristic efficiency, and the
@@ -179,7 +181,7 @@ conversation is largely everyone agreeing."*
 said "both halves turned out to be mechanical." That overstated the evidence and
 is retracted — see "What this does not prove".
 
-### #7184 — the shared word limit overrode every per-character budget
+### #7184 — hypothesis: the shared word limit suppressed the per-character budgets (REFUTED as stated)
 
 `_CHARACTER_VOICE_GUIDES` sets a per-character maximum: Devon 12 words,
 Margaret 15, Julian 20, Ria 20, Steph 25, Marcus 35. `_SHARED_CHARACTER_RULES`
@@ -208,8 +210,10 @@ Note the accepted run is not cleaner than the rejected ones on length: Margaret'
 ### #7160 — the scene's premise fell out of the context window
 
 `history_depth` was `8 if day_turn == 1 else 4` for mon-thu. Monday runs up to
-10 turns. From turn 5 on, the question that opened the scene was not in the
-prompt, so nobody answered it and nobody closed it. Now 16/12 early, 20/16
+10 turns, so with four prior lines retained the opening message first drops out
+on **turn 6** (an earlier draft said turn 5 — corrected). From there the question
+that opened the scene was not in the prompt. That it therefore went unanswered is
+an inference, not a demonstrated cause. Now 16/12 early, 20/16
 late, with the opening floor above the largest `TICKS_RANGE` upper bound by
 construction.
 

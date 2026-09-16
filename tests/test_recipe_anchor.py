@@ -309,3 +309,109 @@ def test_fit_method_returns_everything_when_it_fits():
     out = cron_routes._fit_method(steps, 8000)
     assert out == "1. Mix the batter. 2. Bake for 20 minutes. 3. Cool and serve."
     assert "omitted" not in out
+
+
+def test_judge_facts_keep_ingredient_amounts_and_notes():
+    """Names alone made different recipes look identical to the judge (Codex).
+
+    "1 tbsp melted butter" and "2 cups cold, cubed butter" produced the same
+    facts whenever the method did not repeat the detail - so a ratio or
+    technique claim was unverifiable for exactly the recipes where it matters.
+    """
+    melted = {
+        "title": "A", "category": "Sweet", "instructions": ["Bake."],
+        "ingredients": [{"amount": "1 tbsp", "item": "butter", "notes": "melted"}],
+    }
+    cubed = {
+        "title": "A", "category": "Sweet", "instructions": ["Bake."],
+        "ingredients": [{"amount": "2 cups", "item": "butter", "notes": "cold, cubed"}],
+    }
+    a = cron_routes._build_judge_recipe_facts(melted)
+    b = cron_routes._build_judge_recipe_facts(cubed)
+    assert "1 tbsp butter (melted)" in a
+    assert "2 cups butter (cold, cubed)" in b
+    assert a != b, "two different recipes must not produce identical judge facts"
+
+
+def test_judge_facts_handle_plain_string_ingredients():
+    recipe = {"title": "A", "category": "Sweet", "ingredients": ["2 eggs", "flour"], "instructions": ["Bake."]}
+    facts = cron_routes._build_judge_recipe_facts(recipe)
+    assert "2 eggs" in facts and "flour" in facts
+
+
+def test_judge_prompt_actually_receives_the_recipe_facts():
+    """Wiring, not construction (Codex): the facts must reach the real prompt.
+
+    The other judge-facts tests only prove the string is BUILT correctly. They
+    would all stay green if the recipe_facts argument stopped being threaded
+    into _judge_dialogue's prompt, which is the regression that matters.
+    """
+    captured: dict[str, str] = {}
+
+    def fake_generate(prompt, system_prompt, **_kwargs):
+        captured["prompt"] = prompt
+        return json.dumps({"scores": {}, "verdict": "PASS", "weakest": [], "reason": "ok"})
+
+    facts = cron_routes._build_judge_recipe_facts({
+        "title": "Spiral Bites",
+        "category": "Sweet",
+        "ingredients": [{"amount": "4 tbsp", "item": "butter", "notes": "very soft"}],
+        "instructions": ["Roll the dough up tightly into a log and cut into 12 slices."],
+    })
+    dialogue = [{"character": "Margaret", "message": "The dough is too loose."}]
+
+    with patch.object(cron_routes, "generate_judge_response", side_effect=fake_generate):
+        cron_routes._judge_dialogue(
+            "Spiral Bites", "tuesday", dialogue, {"episode_id": "2026-W38", "stages": {}},
+            recipe_context="This week's recipe: Spiral Bites (sweet).",
+            recipe_facts=facts,
+        )
+
+    assert "RECIPE GROUND TRUTH" in captured["prompt"]
+    assert "roll the dough up tightly into a log" in captured["prompt"].lower()
+    assert "4 tbsp butter (very soft)" in captured["prompt"]
+
+
+def test_generate_and_judge_passes_facts_not_just_context(monkeypatch):
+    """End to end: _generate_and_judge_dialogue must build AND forward the facts."""
+    seen: dict[str, object] = {}
+
+    def fake_judge(concept, stage, dialogue, episode, recipe_context=None, recipe_facts=None):
+        seen["context"] = recipe_context
+        seen["facts"] = recipe_facts
+        return True, "PASS"
+
+    monkeypatch.setattr(
+        cron_routes, "_generate_dialogue",
+        lambda *a, **k: [{"character": "Margaret", "message": "Fine."}],
+    )
+    monkeypatch.setattr(cron_routes, "_judge_dialogue", fake_judge)
+    monkeypatch.setattr(cron_routes, "_score_dialogue_qa", lambda *a, **k: None)
+
+    recipe = {
+        "title": "Spiral Bites", "category": "Sweet",
+        "description": "Soft dough rolled once.",
+        "ingredients": [{"amount": "1 cup", "item": "flour"}],
+        "instructions": ["Roll into a log."],
+    }
+    cron_routes._generate_and_judge_dialogue(
+        "tuesday", "Spiral Bites", {"episode_id": "2026-W38", "stages": {}, "events": []},
+        recipe_data=recipe,
+    )
+
+    assert seen["context"], "speaker anchor must still be passed"
+    assert seen["facts"], "judge facts must be passed"
+    assert "RECIPE GROUND TRUTH" in str(seen["facts"])
+    assert "Roll into a log." in str(seen["facts"])
+
+
+def test_fit_method_keeps_the_tail_even_when_one_step_is_enormous():
+    """A single oversized step must not starve the other end (Codex)."""
+    out = cron_routes._fit_method(["x" * 8000, "Cool and serve."], 2000)
+    assert "Cool and serve." in out
+    assert "omitted for length" in out
+
+
+def test_fit_method_marker_tells_the_judge_not_to_infer_contradiction():
+    out = cron_routes._fit_method([f"Step {i} " + "y" * 200 for i in range(1, 40)], 1200)
+    assert "NOT" in out and "contradiction" in out
