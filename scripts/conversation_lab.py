@@ -261,6 +261,11 @@ ALLOWED_VARIANT_ATTRS: tuple[str, ...] = (
     # #7158: the history window was a local in generate_turn, so #7160 could not be
     # measured here at all. Shape is {"early"|"late": (opening_turn, later_turns)}.
     "HISTORY_DEPTH",
+    # Output-contract guards. Levers so the sweep can answer "does enforcing the
+    # budget hurt the writing?" rather than us guessing.
+    "SHAPE_WINDOW",
+    "SHAPE_MAX_IN_WINDOW",
+    "WORD_BUDGET_TOLERANCE",
 )
 
 # The 8 dimensions the production judge scores (backend/admin/cron_routes.py
@@ -628,6 +633,19 @@ def _validate_lever_shape(name: str, value: Any) -> None:
     already been generated and paid for, against the $5/experiment cap. Fail at
     patch time, naming the key, instead of mid-run.
     """
+    if name in ("SHAPE_WINDOW", "SHAPE_MAX_IN_WINDOW"):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ConversationLabError(
+                f"{name} must be a positive integer, got {value!r}"
+            )
+        return
+    if name == "WORD_BUDGET_TOLERANCE":
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 1:
+            raise ConversationLabError(
+                f"WORD_BUDGET_TOLERANCE must be a number >= 1 (1.0 enforces the stated "
+                f"maximum exactly; higher allows slack), got {value!r}"
+            )
+        return
     if name != "HISTORY_DEPTH":
         return
     if not isinstance(value, dict):
