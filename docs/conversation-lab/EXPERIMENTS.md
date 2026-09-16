@@ -1,5 +1,30 @@
 # Conversation Lab - Experiment Log
 
+> ## READ THE PRIOR ART BEFORE DESIGNING AN ARM
+>
+> **`prompt-research/TESTING_METHODOLOGY.md`** (546 lines, 2026-03-13/14) is the
+> other half of this project's experimental record. It is **gitignored**, so
+> nothing linked to it, and it has now been missed twice.
+>
+> It holds 261 autonomous experiments **plus four hand-run comparisons that exist
+> only in its prose** - they are not rows in `results.tsv`, so grepping the TSVs
+> finds nothing. Already answered there; do not re-run:
+>
+> | experiment | date | result |
+> |---|---|---|
+> | Compression model swap, Sonnet vs Haiku | 2026-03-14 | **Haiku wins** on quality *and* cost (96.0 vs 95.0; $0.003 vs $0.03). "The bottleneck is not compression quality." |
+> | Progressive (rolling) compression | 2026-03-14 | did not win |
+> | Cross-concept validation | 2026-03-14 | passed - the template is not overfit to one recipe |
+> | XML-structured injection | 2026-03-14 | **plain text wins**; Haiku treats XML tags as formatting overhead at ~60 words/day |
+>
+> Standing model config (its section 11): dialogue **Haiku 4.5**, judge
+> **Sonnet 4.6**, compression **Haiku 4.5**. Note what that means - the
+> *compression* model has been compared, the *generation* model never has (#7203).
+>
+> **Both times prior work was missed here, the search was against the
+> machine-generated TSVs instead of the human-written writeup.** Read the prose.
+
+
 Card #6492. This file is the versioned, in-repo record of the manual
 conversation self-learning loop. It replaces
 `~/.claude/projects/-Users-eriksjaastad-projects-muffinpanrecipes/memory/project_conversation_tuning_log.md`
