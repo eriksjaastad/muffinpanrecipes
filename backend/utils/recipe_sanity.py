@@ -609,7 +609,7 @@ INCOHERENT_IN_SWEET = frozenset({
     "horseradish", "wasabi", "anchovy", "anchovies", "fish sauce",
     "worcestershire", "dijon",
     "capers", "caper",
-    "bouillon", "gravy", "ketchup",
+    "bouillon", "gravy",
 })
 
 # Word-boundary matched, not substring: a bare `m in haystack` would let a future
@@ -622,14 +622,32 @@ _SWEET_CATEGORIES = frozenset({"sweet", "dessert", "desserts"})
 
 
 def _check_category_coherence(recipe: dict[str, Any]) -> str | None:
-    """A Sweet-labelled recipe must not be built on a savory-signature ingredient.
+    """Flag a Sweet-labelled recipe built on a savory-signature ingredient.
 
-    #7154: _enforce_target_category in the picker only rewrites the LABEL, so a
-    savory concept relabelled "Sweet" reaches the baker, and the baker dutifully
-    builds it with sugar and vanilla alongside horseradish. The judge then fails
-    the DIALOGUE on technical_credibility, because characters cannot talk
-    credibly about a dish that does not cohere - which costs a whole week rather
-    than one re-bake. Catch it at the recipe.
+    #7154 was real: the picker's _enforce_target_category only rewrites the
+    LABEL, so a savory concept relabelled "Sweet" reached the baker, which built
+    it with sugar and vanilla alongside horseradish, and the judge then failed
+    the DIALOGUE on technical_credibility.
+
+    ADVISORY ONLY (#7187), and this is the important part. The check tests
+    whether an ingredient NAME occurs. It cannot see quantity, treatment or
+    context, so it cannot distinguish "built around horseradish" from "contains
+    a trace of it" - and an independent audit found the shipped list still
+    rejected a real dessert: Heinz publishes a ketchup cake. Ketchup, kimchi,
+    sauerkraut, mayonnaise, sriracha, pickle, wasabi, fish sauce and anchovy all
+    have published dessert counterexamples. Nine for nine against a list whose
+    stated criterion was "cannot appear in a real dessert".
+
+    So this no longer blocks. A false positive here used to mean an
+    `implausible` verdict, which burns the baker's retries and can cost a
+    publishing week; the one case it ever caught does not justify that risk.
+    It stays as a warning because the signal is still worth surfacing, and
+    because a warning is the honest strength of the evidence.
+
+    Do not promote this back to blocking. If a real category gate is wanted,
+    ask the editorial reviewer whether a person would eat the dish as a dessert
+    - that is the actual question - and calibrate it against a labelled set of
+    plausible unconventional desserts before giving it a veto.
     """
     category = str(recipe.get("category") or "").strip().lower()
     if category not in _SWEET_CATEGORIES:
@@ -643,9 +661,9 @@ def _check_category_coherence(recipe: dict[str, Any]) -> str | None:
     hits = sorted(set(_INCOHERENT_IN_SWEET_RE.findall(haystack)))
     if hits:
         return (
-            f"category_incoherent: recipe is labelled '{category}' but is built on "
-            f"{', '.join(hits)} - relabel the category or change the dish, "
-            f"do not ship a dessert nobody would eat"
+            f"category_incoherent (advisory): recipe is labelled '{category}' and "
+            f"lists {', '.join(hits)}. Worth a human look - this check reads "
+            f"ingredient names only and cannot see quantity or treatment."
         )
     return None
 
@@ -695,9 +713,10 @@ def check_recipe_sanity(recipe: dict[str, Any] | None) -> RecipeVerdict:
     # from instruction prose. Not in this pass.
     warnings.extend(_check_ingredient_use(recipe, instructions))
 
+    # ADVISORY, never blocking (#7187). See _check_category_coherence.
     coherence = _check_category_coherence(recipe)
     if coherence:
-        implausible.append(coherence)
+        warnings.append(coherence)
 
     capacity_issue, total_cups = _check_capacity(recipe)
     details["measured_cups"] = round(total_cups, 2)

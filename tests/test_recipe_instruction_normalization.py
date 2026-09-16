@@ -222,3 +222,54 @@ def test_fix_encoding_main_aborts_when_the_catalog_is_unreachable():
         assert fix_encoding.main() == 1
 
     save_page.assert_not_called()
+
+
+def test_fix_episode_refuses_before_writing_the_w34_repair():
+    """Refusing after a production write is not refusing (Codex audit).
+
+    The W34 instruction repair calls save_episode(). It used to run BEFORE the
+    slug was resolved, so an episode whose slug could not be confirmed got its
+    recipe data mutated in production and then reported SKIP, leaving the
+    episode and its published page out of sync.
+    """
+    episode = _published_episode("2026-W34")
+    with (
+        patch.object(fix_encoding.storage, "load_episode", return_value=episode),
+        patch.object(fix_encoding.storage, "save_episode") as save_episode,
+        patch.object(fix_encoding.storage, "save_page") as save_page,
+        patch.object(fix_encoding, "render_episode_page", return_value="<html></html>"),
+    ):
+        assert fix_encoding.fix_episode("2026-W34", catalog={"recipes": []}) is False
+
+    save_episode.assert_not_called()
+    save_page.assert_not_called()
+
+
+def test_catalog_slug_prefers_episode_id_over_title():
+    """Rows written since 2026-09 carry episode_id; that match is exact."""
+    catalog = {
+        "recipes": [
+            {"title": "Some Other Title", "slug": "the-right-slug", "episode_id": "2026-W37"},
+            {"title": "Tandoori Chicken Naan Cups", "slug": "the-wrong-slug"},
+        ]
+    }
+    got = fix_encoding.catalog_slug_for_title(
+        "Tandoori Chicken Naan Cups", catalog, episode_id="2026-W37"
+    )
+    assert got == "the-right-slug"
+
+
+def test_catalog_slug_refuses_an_ambiguous_title():
+    """Two rows sharing a cleaned title must refuse, not silently take the first."""
+    catalog = {
+        "recipes": [
+            {"title": "Twin Cups", "slug": "twin-cups-a"},
+            {"title": "Twin Cups", "slug": "twin-cups-b"},
+        ]
+    }
+    assert fix_encoding.catalog_slug_for_title("Twin Cups", catalog) is None
+
+
+def test_catalog_slug_still_matches_a_legacy_row_by_title():
+    catalog = {"recipes": [{"title": "Legacy Cups", "slug": "legacy-cups"}]}
+    assert fix_encoding.catalog_slug_for_title("Legacy Cups", catalog) == "legacy-cups"

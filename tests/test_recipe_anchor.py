@@ -35,28 +35,80 @@ def test_build_recipe_context_full_payload():
     assert "maple breakfast sausage" not in summary
 
 
-def test_build_recipe_context_uses_only_the_first_description_sentence():
-    """"Light by design": a multi-sentence description must not become a recitation."""
-    recipe = {
-        "title": "Test Recipe",
-        "category": "Savory",
-        "description": "These are chewy and stretchy. Then a second sentence. And a third.",
-    }
-    summary = cron_routes._build_recipe_context(recipe)
-    assert "chewy and stretchy" in summary
-    assert "second sentence" not in summary
-    assert "third" not in summary
+def test_build_recipe_context_keeps_the_whole_description_not_just_sentence_one():
+    """#7104 second pass: the texture is not reliably in sentence one.
 
-
-def test_build_recipe_context_truncates_a_runaway_first_sentence():
+    W38's sentence one was pure marketing and sentence two held the only texture
+    in the field. Taking sentence one discarded exactly what the anchor exists
+    to deliver.
+    """
     recipe = {
-        "title": "Test",
+        "title": "Cardamom Cinnamon Spiral Bites",
         "category": "Sweet",
-        "description": "word " * 200,
+        "description": (
+            "These spiral bites wrap classic cinnamon-roll comfort around warm cardamom, "
+            "orange, and pistachio for a Middle Eastern-inspired twist. A rich, buttery "
+            "dough is coiled into each muffin cup so it bakes into a round, self-contained "
+            "roll with crisp edges, tender centers, and a glossy orange-rose glaze."
+        ),
     }
     summary = cron_routes._build_recipe_context(recipe)
-    assert len(summary) < 300
+    assert "Middle Eastern-inspired twist" in summary
+    assert "crisp edges, tender centers" in summary, "the texture sentence must survive"
+
+
+def test_build_recipe_context_truncates_a_runaway_description():
+    recipe = {"title": "Test", "category": "Sweet", "description": "word " * 200}
+    summary = cron_routes._build_recipe_context(recipe)
+    assert len(summary) < 500
     assert summary.endswith("...")
+
+
+def test_judge_recipe_facts_carry_the_method_the_speakers_never_saw():
+    """The judge must be able to catch a technique the recipe does not use (#7104).
+
+    W38's accepted Tuesday discussed lamination, butter in sheets and second
+    folds. The recipe rolls a soft yeast dough up once - there are no folds. The
+    judge scored it technical_credibility 4 because its prompt carried the same
+    abbreviated blurb the speakers had, and no instructions at all.
+    """
+    recipe = {
+        "title": "Cardamom Cinnamon Spiral Bites",
+        "category": "Sweet",
+        "cuisine": "Middle Eastern",
+        "description": "Spiral bites with cardamom and orange.",
+        "ingredients": [{"item": "yeast dough"}, {"item": "softened butter"}],
+        "instructions": [
+            "Roll the dough into a rectangle about 12 inches by 9 inches.",
+            "Spread the filling evenly over the dough.",
+            "Roll the dough up tightly into a log and cut into 12 slices.",
+        ],
+    }
+    facts = cron_routes._build_judge_recipe_facts(recipe)
+    assert "RECIPE GROUND TRUTH" in facts
+    assert "Method:" in facts
+    assert "roll the dough up tightly into a log".lower() in facts.lower()
+    assert "yeast dough" in facts
+    assert "technical_credibility" in facts
+    # and it is genuinely more than the speaker-facing anchor
+    assert len(facts) > len(cron_routes._build_recipe_context(recipe))
+
+
+def test_judge_recipe_facts_empty_without_a_recipe():
+    assert cron_routes._build_judge_recipe_facts(None) == ""
+    assert cron_routes._build_judge_recipe_facts({}) == ""
+    assert cron_routes._build_judge_recipe_facts({"category": "Sweet"}) == ""
+
+
+def test_judge_recipe_facts_caps_a_very_long_method():
+    recipe = {
+        "title": "Long",
+        "category": "Sweet",
+        "instructions": [f"Step {i} with a good deal of explanatory text in it." for i in range(200)],
+    }
+    facts = cron_routes._build_judge_recipe_facts(recipe)
+    assert "[...truncated]" in facts
+    assert len(facts) < cron_routes.JUDGE_METHOD_MAX + 600
 
 
 def test_build_recipe_context_survives_a_missing_description():

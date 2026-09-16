@@ -42,19 +42,53 @@ W34_EPISODE_ID = "2026-W34"
 
 
 
-def catalog_slug_for_title(title: str, catalog: dict | None) -> str | None:
-    """Return the slug the live catalog serves `title` under, or None.
+def catalog_slug_for_title(
+    title: str,
+    catalog: dict | None,
+    *,
+    episode_id: str | None = None,
+    recipe_id: str | None = None,
+) -> str | None:
+    """Return the slug the live catalog serves this episode under, or None.
 
-    Matching is on the cleaned title because catalog rows carry no episode id.
-    Returning None is deliberate: a published page whose slug we cannot confirm
-    must be left alone rather than written to a guessed path.
+    Identity first, title second. Catalog rows written since 2026-09 carry
+    `episode_id`/`recipe_id`, and matching on those is exact; the older comment
+    here claimed rows had no episode id, which is no longer true (live W35-W37
+    all have one). Only legacy rows need the title fallback.
+
+    A title match must be UNIQUE. The previous version returned the first row
+    whose title matched, so two rows sharing a cleaned title would have silently
+    picked whichever came first and written a published page to the wrong slug.
+
+    Returning None is deliberate in every ambiguous case: a published page whose
+    slug cannot be confirmed must be left alone, never written to a guessed path.
     """
     if not catalog:
         return None
-    for row in catalog.get("recipes", []):
-        if _clean_title(str(row.get("title", ""))).casefold() == title.casefold():
-            slug = str(row.get("slug", "")).strip()
-            return slug or None
+    rows = catalog.get("recipes", []) or []
+
+    for key, value in (("episode_id", episode_id), ("recipe_id", recipe_id)):
+        if not value:
+            continue
+        hits = [r for r in rows if str(r.get(key, "")).strip() == str(value).strip()]
+        if len(hits) == 1:
+            slug = str(hits[0].get("slug", "")).strip()
+            if slug:
+                return slug
+        elif len(hits) > 1:
+            print(f"  AMBIGUOUS: {len(hits)} catalog rows share {key}={value!r} - refusing")
+            return None
+
+    matches = {
+        str(r.get("slug", "")).strip()
+        for r in rows
+        if _clean_title(str(r.get("title", ""))).casefold() == title.casefold()
+        and str(r.get("slug", "")).strip()
+    }
+    if len(matches) == 1:
+        return matches.pop()
+    if len(matches) > 1:
+        print(f"  AMBIGUOUS: {title!r} matches {sorted(matches)} - refusing")
     return None
 
 
@@ -90,6 +124,25 @@ def fix_episode(
         print(f"  SKIP {episode_id}: no recipe title")
         return False
 
+    # Resolve the serving identity BEFORE anything writes. The W34 instruction
+    # repair below calls storage.save_episode(), and it used to run first - so an
+    # episode whose slug could not be confirmed got its recipe data mutated in
+    # production and THEN reported "SKIP ... refusing", leaving the episode and
+    # its published page out of sync. Refusing after a write is not refusing.
+    #
+    # The slug itself must come from the live catalog, never be re-derived:
+    #   1. Seed recipes are served under a hand-chosen slug that differs from
+    #      the title ("Dark Chocolate Chip Decadence" -> dark-chocolate-chip-muffins).
+    #   2. #7106 changed _slugify, so W37's "Pao" (tilde) now renders
+    #      brazilian-pao-de-queijo-bites while the live URL is the old
+    #      brazilian-p-o-de-queijo-bites. Re-deriving would write a fresh orphan
+    #      page nothing links to and leave the real URL serving stale HTML.
+    # Published slugs are frozen; a re-render must never move one.
+    slug = catalog_slug_for_title(title, catalog, episode_id=episode_id, recipe_id=ep.get("recipe_id"))
+    if slug is None:
+        print(f"  SKIP {episode_id}: no catalog row for {title!r} - refusing to guess a slug")
+        return False
+
     # W34 is the only known stored episode with markdown-shaped instruction
     # entries.  Keep this repair explicitly scoped so a bulk page rebuild can
     # never silently rewrite another week's approved recipe data.
@@ -111,20 +164,6 @@ def fix_episode(
                     f"{len(original_instructions)} instructions -> "
                     f"{len(repaired_instructions)}"
                 )
-
-    # The slug MUST come from the live catalog, never be re-derived from the
-    # title. Two ways re-deriving breaks a published page:
-    #   1. Seed recipes are served under a hand-chosen slug that differs from
-    #      the title ("Dark Chocolate Chip Decadence" -> dark-chocolate-chip-muffins).
-    #   2. #7106 changed _slugify itself, so W37's "Pao" (tilde) now renders
-    #      brazilian-pao-de-queijo-bites while the live URL is the old
-    #      brazilian-p-o-de-queijo-bites. Re-deriving would write a fresh orphan
-    #      page nothing links to and leave the real URL serving stale HTML.
-    # Published slugs are frozen; a re-render must never move one.
-    slug = catalog_slug_for_title(title, catalog)
-    if slug is None:
-        print(f"  SKIP {episode_id}: no catalog row for {title!r} - refusing to guess a slug")
-        return False
 
     if dry_run:
         print(f"  WOULD FIX {episode_id}: /recipes/{slug} ({title})")
@@ -197,5 +236,8 @@ def main():
     print(f"\nDone. {action} {total} recipe page(s).")
 
 
+# Propagate the exit status. main() returns 1 when the catalog is unreachable,
+# and that used to be discarded here - the CLI printed ABORT and exited 0, so a
+# caller or CI step saw success while nothing had been re-rendered.
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

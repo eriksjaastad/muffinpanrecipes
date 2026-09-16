@@ -173,22 +173,37 @@ confirmation — see "What this does not prove" below.
 
 **The judge's verdict, verbatim:** *"Devon sounds too much like Marcus/Steph
 with verbose explanations rather than his characteristic efficiency, and the
-conversation is largely everyone agreeing."* Both halves turned out to be
-mechanical.
+conversation is largely everyone agreeing."*
+
+**These are hypotheses, not established causes.** An earlier draft of this entry
+said "both halves turned out to be mechanical." That overstated the evidence and
+is retracted — see "What this does not prove".
 
 ### #7184 — the shared word limit overrode every per-character budget
 
 `_CHARACTER_VOICE_GUIDES` sets a per-character maximum: Devon 12 words,
 Margaret 15, Julian 20, Ria 20, Steph 25, Marcus 35. `_SHARED_CHARACTER_RULES`
 then opened with `HARD LIMIT: 1-2 sentences max. If you wrote more than 25
-words, rewrite shorter.` — later in the prompt, and labelled harder. A designed
-12-to-35-word spread collapses toward one ~25-word band: Devon pulled **up**,
-Marcus pulled **down**. That is the judge's first clause exactly.
+words, rewrite shorter.` — later in the prompt, and labelled harder.
 
-This is the likeliest explanation for `voice_distinctiveness` sitting at 3
-across three different character pairs on three separate W38 Monday runs (see
-the W38 entry above). That was read at the time as a standing ceiling in the
-personas. It was a prompt contradiction.
+**The "it was the binding ceiling" story is refuted.** Word counts from the
+three rejected W38 Tuesday attempts, gathered independently:
+
+| attempt | Margaret (max 15) | Devon (12) | Marcus (35) | Steph (25) |
+|---|---|---|---|---|
+| rejected 1 | 18 | 11, 11 | 22 | 22 |
+| rejected 2 | 23, 29 | 17 | 26, 37 | 33 |
+| rejected 3 | 18, 26 | 23, 21 | **50** | 27 |
+| accepted (post-batch) | 23, **60** | 26 | 46, 36 | 22 |
+
+Marcus produced **50 words while the 25-word shared cap was still in place**, so
+that cap was not mechanically binding. Devon's 12 and the shared 25 are also
+logically compatible — nothing in the pair requires him to lengthen. Prompt
+salience could still drive convergence, but **source ordering alone cannot
+establish it**, and the counts above are evidence against the simple version.
+
+Note the accepted run is not cleaner than the rejected ones on length: Margaret's
+60 is the worst number in the table. Whatever improved, it was not this.
 
 ### #7160 — the scene's premise fell out of the context window
 
@@ -198,10 +213,19 @@ prompt, so nobody answered it and nobody closed it. Now 16/12 early, 20/16
 late, with the opening floor above the largest `TICKS_RANGE` upper bound by
 construction.
 
-**Measured cost of the wider window** (the thing a dial change must not skip):
-435 stored dialogue lines average 141 chars ≈ 35 tokens. At ~43 turns/week the
-extra 8 lines per mid-stage turn cost **~281 input tokens/turn, ~12,100/week —
-about $0.012/week, $0.63/year** on Haiku 4.5 input. Not a cost concern.
+**Cost of the wider window — CORRECTED 2026-09-16 after an independent audit.**
+The arithmetic was right and the workload assumption was wrong, so the published
+number was wrong. `_generate_dialogue` runs each stage separately and its history
+**starts empty**, so the opening-window expansion adds nothing and Fri–Sun
+already fit inside the old eight-line window. A five-turn Tuesday gains no
+history at all; a six-turn Tuesday gains exactly one prior line, on its last
+turn. Across ordinary weekly turn ranges the change adds roughly **4–20 total
+prior-line presentations per successful week** (~141–705 tokens), not 8 lines on
+every turn; a ten-turn reshoot Wednesday reaches ~16–32 lines. Retries and
+rewrites add more. Still cheap — but the earlier "~12,100 tokens/week, $0.63/yr"
+figure assumed a per-turn cost that production does not incur. Note also that
+chars/4 is a sizing heuristic; `model_router` already records real
+`usage.input_tokens`, and that is what a future measurement should use.
 
 ### #7159 — three measured March winners that never shipped
 
@@ -212,11 +236,33 @@ natural"* and *"never address someone by name"* — were already in production.
 The winners that had shipped were the mechanical/formatting ones; the
 behavioral ones had not.
 
-### What this does not prove
+### What this does not prove — read before citing any of it
 
-None of the above has been through the panel. `#7158` made `HISTORY_DEPTH` a
-module constant and a lab lever precisely so `#7160` is measurable rather than
-asserted. **Next sweep must confirm `voice_distinctiveness` moves off 3.** If
-it does not, the ceiling really is in the voice guides and #7184 was a red
-herring. #7161 (every turn requests the same speech act), #6966 (personality
+**Nothing here is attributed.** The re-fire changed the shared cap, the history
+depth, three behavioral rules and the recipe anchor *simultaneously*, then drew
+one stochastic generation. Accepted voice score 4 against earlier 2/3 is a real
+observation and not an attribution. The rejected attempts also differ
+substantially from one another, so run-to-run variance alone is not ruled out.
+
+A failed future sweep would not prove the remaining cause is the voice guides,
+either. That inference was asserted in an earlier draft and is withdrawn.
+
+**The sweep design that would actually settle it:** compare shared-cap
+present/absent while holding history, behavioral rules, recipe anchor, model,
+memory snapshots and scenarios fixed. Test history independently. Use repeated
+generations, blinded position-swapped judging, per-character length
+distributions and violation rates, malformed-response counts, and recipe-fidelity
+checks. Reuse W38 as a regression scenario alongside the panel. A 2x2 can probe
+cap/history interaction only if the isolated results warrant it.
+
+**Testbed caveat:** the frozen panel still carries the old `Key ingredients:`
+anchors. Version a current-anchor panel before claiming a production result, or
+the sweep is silently testing a different context format than production uses.
+
+**On enforcement:** there is no post-generation word-count check in
+`generate_turn`. The voice guides already say MAXIMUM with a number and the
+replacement shared text already forbids exceeding it, so "add the words HARD
+LIMIT" is another untested hypothesis. A bounded validate-and-rewrite step would
+enforce the stated contract directly — evaluate the quality cost of actually
+holding characters to very short budgets before assuming it is free. #7161 (every turn requests the same speech act), #6966 (personality
 dials) and #7157 (Monday produces the title) remain unshipped and sweep-gated.
