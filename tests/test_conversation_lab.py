@@ -1753,18 +1753,76 @@ def test_apply_variant_round_trips_a_valid_multi_key_variant():
 
 
 def test_a_malformed_variant_costs_nothing(monkeypatch):
-    """The control arm is generated FIRST, so validation has to come before it.
+    """Drive the REAL experiment path, not the validator directly.
 
-    The old validator lived inside _apply_variant, which runs after the control
-    generation for that run index - so a typo in a variant file was paid for.
+    An earlier version of this test called validate_variant() itself, which
+    proved nothing about ordering - it would still have passed if validation
+    moved back behind paid generation, which is the exact bug (Codex). This one
+    calls _generate_and_judge_pairs and asserts the generation function is never
+    reached.
     """
     calls: list[str] = []
 
-    def _boom(*args, **kwargs):
+    def _record(*args, **kwargs):
         calls.append("generated")
         raise AssertionError("no generation may happen for a malformed variant")
 
-    monkeypatch.setattr(cl, "_run_arm_and_count", _boom)
+    monkeypatch.setattr(cl, "_run_arm_and_count", _record)
+
+    pairs: list[dict] = []
     with pytest.raises(cl.ConversationLabError):
-        cl.validate_variant(sdw, {"HISTORY_DEPTH": {"early": (8, 4)}})
-    assert calls == []
+        cl._generate_and_judge_pairs(
+            concept="Test Concept",
+            stage="tuesday",
+            recipe_context=None,
+            runs=2,
+            variant={"HISTORY_DEPTH": {"early": (8, 4)}},   # missing "late"
+            mode="openai",
+            default_model="test-model",
+            judge_model="test-judge",
+            expected_cast=sdw.participants_for_day("tuesday"),
+            budget=cl.CallBudget(max_calls=100),
+            max_cost=5.0,
+            dry_run=False,
+            pairs=pairs,
+        )
+
+    assert calls == [], "a malformed variant reached a generation call"
+    assert pairs == []
+
+
+def test_a_valid_variant_does_reach_generation(monkeypatch):
+    """Counterpart to the test above: prove it is the VALIDITY that gates spend.
+
+    Without this, the test above would also pass if _generate_and_judge_pairs
+    simply never generated anything.
+    """
+    calls: list[str] = []
+
+    def _record(*args, **kwargs):
+        calls.append("generated")
+        raise RuntimeError("stop after the first generation attempt")
+
+    monkeypatch.setattr(cl, "_run_arm_and_count", _record)
+
+    pairs: list[dict] = []
+    with pytest.raises(RuntimeError):
+        cl._generate_and_judge_pairs(
+            concept="Test Concept",
+            stage="tuesday",
+            recipe_context=None,
+            runs=1,
+            variant={"HISTORY_DEPTH": {"early": (10, 6), "late": (14, 10)}},
+            mode="openai",
+            default_model="test-model",
+            judge_model="test-judge",
+            expected_cast=sdw.participants_for_day("tuesday"),
+            budget=cl.CallBudget(max_calls=100),
+            max_cost=5.0,
+            dry_run=False,
+            pairs=pairs,
+        )
+
+    assert calls == ["generated"], "a valid variant should have reached generation"
+    # and the module must not be left patched by the aborted run
+    assert sdw.HISTORY_DEPTH != {"early": (10, 6), "late": (14, 10)}

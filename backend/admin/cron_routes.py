@@ -254,22 +254,31 @@ def _fit_method(steps: list[str], budget: int) -> str:
     tail: list[str] = []
     head_len = tail_len = 0
     lo, hi = 0, len(numbered) - 1
-    # Grow from both ends, leaving room for the omission marker.
-    while lo <= hi:
-        if head_len <= tail_len:
+    took_head = took_tail = True
+    # Grow from both ends. A single step too large to fit must not stop the
+    # other end from being tried - one 8,000-char opening step used to consume
+    # the whole budget check and return nothing but the marker, dropping the
+    # "Cool and serve" tail this function promises to keep.
+    while lo <= hi and (took_head or took_tail):
+        took_head = took_tail = False
+        if head_len <= tail_len and lo <= hi:
             nxt = numbered[lo]
-            if head_len + tail_len + len(nxt) + 80 > budget:
-                break
-            head.append(nxt); head_len += len(nxt) + 1; lo += 1
-        else:
+            if head_len + tail_len + len(nxt) + 80 <= budget:
+                head.append(nxt); head_len += len(nxt) + 1; lo += 1
+                took_head = True
+        if lo <= hi and (not took_head or tail_len < head_len):
             nxt = numbered[hi]
-            if head_len + tail_len + len(nxt) + 80 > budget:
-                break
-            tail.insert(0, nxt); tail_len += len(nxt) + 1; hi -= 1
+            if head_len + tail_len + len(nxt) + 80 <= budget:
+                tail.insert(0, nxt); tail_len += len(nxt) + 1; hi -= 1
+                took_tail = True
 
     if lo > hi:
         return " ".join(head + tail)
-    marker = f"[... steps {lo + 1}-{hi + 1} omitted for length ...]"
+    marker = (
+        f"[... steps {lo + 1}-{hi + 1} omitted for length. Their absence is NOT "
+        f"evidence a technique is missing from the recipe - do not treat it as a "
+        f"contradiction ...]"
+    )
     return " ".join(head + [marker] + tail)
 
 def _build_judge_recipe_facts(recipe_data: dict | None) -> str:
@@ -301,13 +310,28 @@ def _build_judge_recipe_facts(recipe_data: dict | None) -> str:
     if description:
         lines.append(f"Description: {description}")
 
+    # Amount and notes, not just the name. Dropping them made "1 tbsp melted
+    # butter" and "2 cups cold, cubed butter" produce identical judge facts
+    # whenever the method did not repeat the detail - so a ratio or technique
+    # claim ("the butter's breaking through instead of staying in sheets") was
+    # unverifiable for exactly the recipes where it matters most.
     items: list[str] = []
     for ing in (recipe_data.get("ingredients") or []):
-        item = (ing.get("item") or "").strip() if isinstance(ing, dict) else str(ing).strip()
-        if item:
-            items.append(item)
+        if isinstance(ing, dict):
+            part = " ".join(
+                str(ing.get(k) or "").strip()
+                for k in ("amount", "item")
+                if str(ing.get(k) or "").strip()
+            )
+            notes = str(ing.get("notes") or "").strip()
+            if notes:
+                part = f"{part} ({notes})" if part else notes
+        else:
+            part = str(ing).strip()
+        if part:
+            items.append(part)
     if items:
-        lines.append("Ingredients: " + ", ".join(items))
+        lines.append("Ingredients: " + "; ".join(items))
 
     steps = [
         " ".join(str(step).split())
@@ -318,9 +342,13 @@ def _build_judge_recipe_facts(recipe_data: dict | None) -> str:
         lines.append("Method: " + _fit_method(steps, JUDGE_METHOD_MAX))
 
     lines.append(
-        "Judge technique claims against the Method above. If a speaker describes a "
-        "technique, texture or step the recipe does not actually use, that is a "
-        "technical_credibility failure - say which claim and which step contradicts it."
+        "Judge technique claims against the Method above. If a speaker ASSERTS as "
+        "fact that this dish uses a technique, texture or step the recipe does not "
+        "actually use, that is a technical_credibility failure - say which claim and "
+        "which step contradicts it. Do NOT penalise a technique that is raised as a "
+        "proposal, a rejected alternative, a comparison to another dish, or a "
+        "hypothetical ('we could laminate this, but it would fight the filling') - "
+        "debating technique and substitutions is the point of the midweek stages."
     )
     return "\n".join(lines)
 

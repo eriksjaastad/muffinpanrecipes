@@ -67,24 +67,66 @@ def catalog_slug_for_title(
         return None
     rows = catalog.get("recipes", []) or []
 
+    def _slug_of(row: dict) -> str | None:
+        """A slug is only usable if it is a genuinely non-empty string.
+
+        `str(row.get("slug", ""))` turns a JSON null into the literal "None",
+        which is truthy - so a null slug used to be accepted and the caller
+        happily wrote pages/recipes/None/index.html and reported success.
+        """
+        raw = row.get("slug")
+        if not isinstance(raw, str):
+            return None
+        return raw.strip() or None
+
+    def _field(row: dict, key: str) -> str:
+        raw = row.get(key)
+        return raw.strip() if isinstance(raw, str) else ""
+
     for key, value in (("episode_id", episode_id), ("recipe_id", recipe_id)):
         if not value:
             continue
-        hits = [r for r in rows if str(r.get(key, "")).strip() == str(value).strip()]
+        wanted = str(value).strip()
+        hits = [r for r in rows if _field(r, key) == wanted]
         if len(hits) == 1:
-            slug = str(hits[0].get("slug", "")).strip()
+            slug = _slug_of(hits[0])
             if slug:
                 return slug
-        elif len(hits) > 1:
+            print(f"  UNUSABLE: catalog row for {key}={value!r} has no valid slug - refusing")
+            return None
+        if len(hits) > 1:
             print(f"  AMBIGUOUS: {len(hits)} catalog rows share {key}={value!r} - refusing")
             return None
 
-    matches = {
-        str(r.get("slug", "")).strip()
-        for r in rows
-        if _clean_title(str(r.get("title", ""))).casefold() == title.casefold()
-        and str(r.get("slug", "")).strip()
-    }
+    # Title fallback, for legacy rows only. A row that CARRIES an identity and
+    # whose identity differs from ours belongs to another episode - matching it
+    # on title would write this episode's content over that episode's page.
+    # Reproduced: a W37 repair wrote W37 content to W36's catalog path.
+    matches: set[str] = set()
+    for row in rows:
+        if _clean_title(str(row.get("title", ""))).casefold() != title.casefold():
+            continue
+        conflict = False
+        for key, value in (("episode_id", episode_id), ("recipe_id", recipe_id)):
+            row_value = _field(row, key)
+            if row_value and str(value or "").strip() and row_value != str(value).strip():
+                conflict = True
+                break
+            # A row owned by SOME episode, when we do not know ours, is equally
+            # unsafe to claim by title alone.
+            if row_value and not str(value or "").strip():
+                conflict = True
+                break
+        if conflict:
+            print(
+                f"  OWNED: catalog row {row.get('slug')!r} matches {title!r} by title but "
+                f"belongs to another episode - refusing the title fallback"
+            )
+            continue
+        slug = _slug_of(row)
+        if slug:
+            matches.add(slug)
+
     if len(matches) == 1:
         return matches.pop()
     if len(matches) > 1:

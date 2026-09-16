@@ -291,3 +291,53 @@ def test_fix_encoding_main_fails_when_an_explicitly_named_episode_is_not_fixed()
         assert fix_encoding.main() == 1
 
     save_page.assert_not_called()
+
+
+# --- identity safety in catalog_slug_for_title (Codex review of #112) ---------
+
+def test_title_fallback_refuses_a_row_owned_by_another_episode():
+    """Reproduced: a W37 repair wrote W37 content to W36's catalog path.
+
+    When the ids do not match, the title fallback used to accept a row that
+    explicitly belongs to a different episode.
+    """
+    catalog = {
+        "recipes": [
+            {"title": "Shared Title", "slug": "w36-slug", "episode_id": "2026-W36"},
+        ]
+    }
+    assert fix_encoding.catalog_slug_for_title(
+        "Shared Title", catalog, episode_id="2026-W37"
+    ) is None
+
+
+def test_title_fallback_refuses_an_owned_row_when_our_identity_is_unknown():
+    """A row owned by SOME episode is equally unsafe to claim by title alone."""
+    catalog = {"recipes": [{"title": "Shared Title", "slug": "owned", "episode_id": "2026-W36"}]}
+    assert fix_encoding.catalog_slug_for_title("Shared Title", catalog) is None
+
+
+def test_a_null_slug_is_never_accepted():
+    """str(None) is the truthy literal "None"; that used to become the URL.
+
+    The repair reported success and wrote pages/recipes/None/index.html.
+    """
+    for bad in (None, "", "   ", 123):
+        catalog = {"recipes": [{"title": "X Cups", "slug": bad, "episode_id": "2026-W37"}]}
+        got = fix_encoding.catalog_slug_for_title("X Cups", catalog, episode_id="2026-W37")
+        assert got is None, f"slug {bad!r} was accepted as {got!r}"
+
+
+def test_identity_match_still_wins_for_a_well_formed_row():
+    catalog = {"recipes": [{"title": "X Cups", "slug": "x-cups", "episode_id": "2026-W37"}]}
+    assert fix_encoding.catalog_slug_for_title(
+        "X Cups", catalog, episode_id="2026-W37"
+    ) == "x-cups"
+
+
+def test_legacy_row_without_identity_still_matches_by_title():
+    """W14-era rows carry no ids; the fallback must still work for them."""
+    catalog = {"recipes": [{"title": "Legacy Cups", "slug": "legacy-cups"}]}
+    assert fix_encoding.catalog_slug_for_title(
+        "Legacy Cups", catalog, episode_id="2026-W14"
+    ) == "legacy-cups"
