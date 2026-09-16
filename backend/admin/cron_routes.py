@@ -176,9 +176,14 @@ def _load_or_create_episode(episode_id: str, concept: str) -> dict:
 
 
 # Cap for the texture/identity anchor in _build_recipe_context (#7104). Long
-# enough for a real descriptive sentence, short enough that it cannot become the
-# recitation the summary exists to prevent.
-RECIPE_CONTEXT_ANCHOR_MAX = 200
+# enough for the recipe's whole description, short enough that it cannot become
+# the recitation the summary exists to prevent.
+RECIPE_CONTEXT_ANCHOR_MAX = 400
+
+# Cap for the method block the JUDGE receives (#7104 second pass). The judge
+# runs on a frontier model a handful of times a week; a few hundred extra tokens
+# there is cheap next to shipping an episode that discusses the wrong technique.
+JUDGE_METHOD_MAX = 2000
 
 
 def _build_recipe_context(recipe_data: dict | None) -> str:
@@ -207,17 +212,77 @@ def _build_recipe_context(recipe_data: dict | None) -> str:
     if category:
         parts.append(f"({category})")
     summary = " ".join(parts) + "."
-    # First sentence only. The full description runs several sentences and the
-    # docstring's "light by design" rule is what keeps characters conversing
-    # instead of reciting.
+    # The WHOLE description, not its first sentence. Taking sentence one was a
+    # bet that the texture lives at the front, and W38 disproved it: sentence
+    # one was "wrap classic cinnamon-roll comfort around warm cardamom, orange,
+    # and pistachio for a Middle Eastern-inspired twist" (pure marketing) while
+    # the discarded sentence two carried "a rich, buttery dough is coiled into
+    # each muffin cup... crisp edges, tender centers" - the only texture in the
+    # field. Descriptions run two or three sentences; the cap, not a sentence
+    # count, is what keeps this from becoming a recitation.
     description = " ".join((recipe_data.get("description") or "").split())
     if description:
-        first, sep, _ = description.partition(". ")
-        anchor = (first + ".") if sep else description
+        anchor = description
         if len(anchor) > RECIPE_CONTEXT_ANCHOR_MAX:
             anchor = anchor[:RECIPE_CONTEXT_ANCHOR_MAX].rsplit(" ", 1)[0].rstrip(",;:") + "..."
         summary += f" What it is: {anchor}"
     return summary
+
+
+def _build_judge_recipe_facts(recipe_data: dict | None) -> str:
+    """Ground truth about the dish for the JUDGE, independent of what speakers saw.
+
+    #7104 second pass. The judge used to receive exactly the same abbreviated
+    anchor the characters did, and no instructions at all - so it had no way to
+    tell that W38's accepted Tuesday discussed lamination, butter staying in
+    sheets, second folds and refrigerated rests for a recipe that kneads soft
+    butter into yeast dough and rolls it up once. There are no folds in it. A
+    rejected attempt had flagged that same mismatch; the accepted one scored
+    technical_credibility 4 because the evidence needed to catch it was absent
+    from the judge's prompt.
+
+    The speaker-facing context stays deliberately light. This does not.
+    """
+    if not isinstance(recipe_data, dict) or not recipe_data:
+        return ""
+    title = (recipe_data.get("title") or "").strip()
+    if not title:
+        return ""
+
+    lines = [f"RECIPE GROUND TRUTH - {title}"]
+    category = (recipe_data.get("category") or "").strip()
+    cuisine = (recipe_data.get("cuisine") or "").strip()
+    if category:
+        lines.append(f"Category: {category}" + (f" | Cuisine: {cuisine}" if cuisine else ""))
+    description = " ".join((recipe_data.get("description") or "").split())
+    if description:
+        lines.append(f"Description: {description}")
+
+    items: list[str] = []
+    for ing in (recipe_data.get("ingredients") or []):
+        item = (ing.get("item") or "").strip() if isinstance(ing, dict) else str(ing).strip()
+        if item:
+            items.append(item)
+    if items:
+        lines.append("Ingredients: " + ", ".join(items))
+
+    steps = [
+        " ".join(str(step).split())
+        for step in (recipe_data.get("instructions") or [])
+        if str(step).strip()
+    ]
+    if steps:
+        method = " ".join(f"{i}. {t}" for i, t in enumerate(steps, 1))
+        if len(method) > JUDGE_METHOD_MAX:
+            method = method[:JUDGE_METHOD_MAX].rsplit(" ", 1)[0] + " [...truncated]"
+        lines.append("Method: " + method)
+
+    lines.append(
+        "Judge technique claims against the Method above. If a speaker describes a "
+        "technique, texture or step the recipe does not actually use, that is a "
+        "technical_credibility failure - say which claim and which step contradicts it."
+    )
+    return "\n".join(lines)
 
 
 def _generate_dialogue(
@@ -357,6 +422,7 @@ def _judge_dialogue(
     dialogue: list[dict],
     episode: dict,
     recipe_context: str | None = None,
+    recipe_facts: str | None = None,
 ) -> tuple[bool, str]:
     """Judge today's dialogue with growing context from previous days.
 
@@ -397,6 +463,10 @@ def _judge_dialogue(
         context_section = "PREVIOUS DAYS:\n" + "\n\n".join(previous_context) + "\n\n---\n\n"
 
     recipe_section = f"{recipe_context}\n\n" if recipe_context else ""
+    # #7104: ground truth the speakers never saw, so the judge can check a
+    # technique claim against the actual method instead of against the same
+    # abbreviated blurb that produced the claim.
+    facts_section = f"{recipe_facts}\n\n" if recipe_facts else ""
 
     # Expected cast for today, so cast_coverage is judgeable (#6861/#6832).
     # Lazy import mirrors _get_run_simulation()'s pattern above — the judge
@@ -407,6 +477,7 @@ def _judge_dialogue(
     prompt = (
         f"Recipe concept: {concept}\n"
         f"{recipe_section}"
+        f"{facts_section}"
         f"{roster_line}"
         f"{context_section}"
         f"TODAY IS {stage.upper()}:\n"
@@ -576,6 +647,7 @@ def _generate_and_judge_dialogue(
     dialogue: list[dict] = []
     total_attempts = 1 + max_retries
     recipe_context = _build_recipe_context(recipe_data)
+    recipe_facts = _build_judge_recipe_facts(recipe_data)
     # Every attempt the judge rejects, kept so a failure leaves evidence
     # behind (#7100). See the write below for why this is not on the stage.
     rejected: list[dict] = []
@@ -604,6 +676,7 @@ def _generate_and_judge_dialogue(
         passed, verdict = _judge_dialogue(
             concept, stage, dialogue, episode,
             recipe_context=recipe_context or None,
+            recipe_facts=recipe_facts or None,
         )
         if passed:
             # Run QA scoring on the accepted dialogue

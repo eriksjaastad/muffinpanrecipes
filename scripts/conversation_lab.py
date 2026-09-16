@@ -582,24 +582,41 @@ def _apply_variant(module: Any, variant: dict[str, Any]) -> dict[str, Any]:
     replacement, which the simple save/restore contract here cannot safely
     reason about.
     """
+    # Validate EVERY key before mutating ANY of them. Interleaving the two meant
+    # a variant whose second key was malformed raised after the first had already
+    # been installed, and _apply_variant raises before returning its restore map -
+    # so the caller had nothing to restore from and the module stayed patched.
+    validate_variant(module, variant)
+
     original: dict[str, Any] = {}
+    for name, value in variant.items():
+        original[name] = getattr(module, name)
+        setattr(module, name, value)
+    _clear_prompt_cache(module)
+    return original
+
+
+def validate_variant(module: Any, variant: dict[str, Any]) -> None:
+    """Reject a structurally wrong variant. Safe to call before any generation.
+
+    Public because the caller must run it BEFORE spending: the single-experiment
+    path generates its control arm first and a sweep generates shared controls
+    first, so validation that only happened inside _apply_variant ran after real
+    paid calls. The old docstring claimed "before any API call" and that was
+    false.
+    """
     for name, value in variant.items():
         if not hasattr(module, name):
             raise ConversationLabError(
                 f"variant file names unknown attribute {name!r} on {module.__name__} - "
                 f"allowed levers: {', '.join(ALLOWED_VARIANT_ATTRS)}"
             )
-        current = getattr(module, name)
-        if callable(current):
+        if callable(getattr(module, name)):
             raise ConversationLabError(
                 f"refusing to patch {name!r} - it is a function, not a string/dict "
                 "constant this variant mechanism can safely restore"
             )
         _validate_lever_shape(name, value)
-        original[name] = current
-        setattr(module, name, value)
-    _clear_prompt_cache(module)
-    return original
 
 
 def _validate_lever_shape(name: str, value: Any) -> None:
@@ -631,7 +648,7 @@ def _validate_lever_shape(name: str, value: Any) -> None:
             raise ConversationLabError(
                 f"HISTORY_DEPTH['{key}'] must be a 2-item [opening_turn, later_turns], got {pair!r}"
             )
-        if not all(isinstance(n, int) and n > 0 for n in pair):
+        if not all(isinstance(n, int) and not isinstance(n, bool) and n > 0 for n in pair):
             raise ConversationLabError(
                 f"HISTORY_DEPTH['{key}'] entries must be positive integers, got {pair!r}"
             )
@@ -1065,6 +1082,11 @@ def _generate_and_judge_pairs(
     restore_pending: dict[str, Any] | None = None
     last_control_calls = 1
     last_variant_calls = 1
+
+    # Before the control arm costs anything (Codex audit): a malformed variant
+    # used to surface only when _apply_variant ran, which is after the control
+    # generation for this run index.
+    validate_variant(simulate_module, variant)
 
     try:
         for run_index in range(1, runs + 1):
@@ -2085,6 +2107,16 @@ def _cmd_ab_sweep(
         args.max_calls = _derive_max_calls("sweep", scenario_count=len(scenarios), runs=runs, stage=args.stage)
 
     result_path = _ab_result_path(_results_dir(args), "sweep", sweep_dir)
+
+    # Validate EVERY variant before the shared control is generated (Codex audit).
+    # The shared control is generated once, up front, and paid for; a malformed
+    # variant file used to surface only when its arm ran, after that spend.
+    # Naming the offending file here costs nothing and saves the control.
+    for _variant_name, _variant_body in variants.items():
+        try:
+            validate_variant(simulate_module, _variant_body)
+        except ConversationLabError as exc:
+            raise ConversationLabError(f"variant {_variant_name!r}: {exc}") from exc
 
     control_budget = CallBudget(max_calls=args.max_calls)
     control_baseline = _total_cost_or_none() or 0.0
