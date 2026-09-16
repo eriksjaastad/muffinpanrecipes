@@ -222,3 +222,182 @@ def test_fix_encoding_main_aborts_when_the_catalog_is_unreachable():
         assert fix_encoding.main() == 1
 
     save_page.assert_not_called()
+
+
+def test_fix_episode_refuses_before_writing_the_w34_repair():
+    """Refusing after a production write is not refusing (Codex audit).
+
+    The W34 instruction repair calls save_episode(). It used to run BEFORE the
+    slug was resolved, so an episode whose slug could not be confirmed got its
+    recipe data mutated in production and then reported SKIP, leaving the
+    episode and its published page out of sync.
+    """
+    episode = _published_episode("2026-W34")
+    with (
+        patch.object(fix_encoding.storage, "load_episode", return_value=episode),
+        patch.object(fix_encoding.storage, "save_episode") as save_episode,
+        patch.object(fix_encoding.storage, "save_page") as save_page,
+        patch.object(fix_encoding, "render_episode_page", return_value="<html></html>"),
+    ):
+        assert fix_encoding.fix_episode("2026-W34", catalog={"recipes": []}) is False
+
+    save_episode.assert_not_called()
+    save_page.assert_not_called()
+
+
+def test_catalog_slug_prefers_episode_id_over_title():
+    """Rows written since 2026-09 carry episode_id; that match is exact."""
+    catalog = {
+        "recipes": [
+            {"title": "Some Other Title", "slug": "the-right-slug", "episode_id": "2026-W37"},
+            {"title": "Tandoori Chicken Naan Cups", "slug": "the-wrong-slug"},
+        ]
+    }
+    got = fix_encoding.catalog_slug_for_title(
+        "Tandoori Chicken Naan Cups", catalog, episode_id="2026-W37"
+    )
+    assert got == "the-right-slug"
+
+
+def test_catalog_slug_refuses_an_ambiguous_title():
+    """Two rows sharing a cleaned title must refuse, not silently take the first."""
+    catalog = {
+        "recipes": [
+            {"title": "Twin Cups", "slug": "twin-cups-a"},
+            {"title": "Twin Cups", "slug": "twin-cups-b"},
+        ]
+    }
+    assert fix_encoding.catalog_slug_for_title("Twin Cups", catalog) is None
+
+
+def test_catalog_slug_still_matches_a_legacy_row_by_title():
+    catalog = {"recipes": [{"title": "Legacy Cups", "slug": "legacy-cups"}]}
+    assert fix_encoding.catalog_slug_for_title("Legacy Cups", catalog) == "legacy-cups"
+
+
+def test_fix_encoding_main_fails_when_an_explicitly_named_episode_is_not_fixed():
+    """Asking for one episode by name and getting nothing is a failure, not a skip.
+
+    Bulk mode legitimately skips unpublished/test episodes, so it exits 0. A
+    named episode that cannot be repaired must not.
+    """
+    argv = ["fix_encoding.py", "--episode", "2026-W99"]
+    with (
+        patch.object(sys, "argv", argv),
+        patch.object(fix_encoding, "load_published_catalog", return_value={"recipes": []}),
+        patch.object(fix_encoding, "fix_episode", return_value=False),
+        patch.object(fix_encoding.storage, "save_page") as save_page,
+    ):
+        assert fix_encoding.main() == 1
+
+    save_page.assert_not_called()
+
+
+# --- identity safety in catalog_slug_for_title (Codex review of #112) ---------
+
+def test_title_fallback_refuses_a_row_owned_by_another_episode():
+    """Reproduced: a W37 repair wrote W37 content to W36's catalog path.
+
+    When the ids do not match, the title fallback used to accept a row that
+    explicitly belongs to a different episode.
+    """
+    catalog = {
+        "recipes": [
+            {"title": "Shared Title", "slug": "w36-slug", "episode_id": "2026-W36"},
+        ]
+    }
+    assert fix_encoding.catalog_slug_for_title(
+        "Shared Title", catalog, episode_id="2026-W37"
+    ) is None
+
+
+def test_title_fallback_refuses_an_owned_row_when_our_identity_is_unknown():
+    """A row owned by SOME episode is equally unsafe to claim by title alone."""
+    catalog = {"recipes": [{"title": "Shared Title", "slug": "owned", "episode_id": "2026-W36"}]}
+    assert fix_encoding.catalog_slug_for_title("Shared Title", catalog) is None
+
+
+def test_a_null_slug_is_never_accepted():
+    """str(None) is the truthy literal "None"; that used to become the URL.
+
+    The repair reported success and wrote pages/recipes/None/index.html.
+    """
+    for bad in (None, "", "   ", 123):
+        catalog = {"recipes": [{"title": "X Cups", "slug": bad, "episode_id": "2026-W37"}]}
+        got = fix_encoding.catalog_slug_for_title("X Cups", catalog, episode_id="2026-W37")
+        assert got is None, f"slug {bad!r} was accepted as {got!r}"
+
+
+def test_identity_match_still_wins_for_a_well_formed_row():
+    catalog = {"recipes": [{"title": "X Cups", "slug": "x-cups", "episode_id": "2026-W37"}]}
+    assert fix_encoding.catalog_slug_for_title(
+        "X Cups", catalog, episode_id="2026-W37"
+    ) == "x-cups"
+
+
+def test_legacy_row_without_identity_still_matches_by_title():
+    """W14-era rows carry no ids; the fallback must still work for them."""
+    catalog = {"recipes": [{"title": "Legacy Cups", "slug": "legacy-cups"}]}
+    assert fix_encoding.catalog_slug_for_title(
+        "Legacy Cups", catalog, episode_id="2026-W14"
+    ) == "legacy-cups"
+
+
+def test_exact_recipe_id_match_refuses_a_row_owned_by_another_episode():
+    """The conflict check must guard the ID branches too, not just the fallback.
+
+    Reproduced: a W37 repair matched a row by recipe_id that carried
+    episode_id 2026-W36, and wrote W37 content to W36's page.
+    """
+    catalog = {
+        "recipes": [
+            {"title": "Other", "slug": "w36-owned", "recipe_id": "abc123", "episode_id": "2026-W36"},
+        ]
+    }
+    assert fix_encoding.catalog_slug_for_title(
+        "Whatever", catalog, episode_id="2026-W37", recipe_id="abc123"
+    ) is None
+
+
+def test_exact_episode_id_match_refuses_a_conflicting_recipe_id():
+    """The other direction of the same conflict."""
+    catalog = {
+        "recipes": [
+            {"title": "Other", "slug": "w36-owned", "episode_id": "2026-W37", "recipe_id": "zzz"},
+        ]
+    }
+    assert fix_encoding.catalog_slug_for_title(
+        "Whatever", catalog, episode_id="2026-W37", recipe_id="abc123"
+    ) is None
+
+
+def test_a_fully_consistent_identity_still_matches():
+    catalog = {
+        "recipes": [
+            {"title": "X", "slug": "x", "episode_id": "2026-W37", "recipe_id": "abc123"},
+        ]
+    }
+    assert fix_encoding.catalog_slug_for_title(
+        "X", catalog, episode_id="2026-W37", recipe_id="abc123"
+    ) == "x"
+
+
+def test_conflicting_id_match_writes_nothing():
+    """Zero-write regression: refusing must happen before any page is saved."""
+    episode = _published_episode("2026-W33")
+    episode["recipe_id"] = "abc123"
+    catalog = {
+        "recipes": [
+            {"title": "Other", "slug": "w36-owned", "recipe_id": "abc123", "episode_id": "2026-W36"},
+        ]
+    }
+    with (
+        patch.object(fix_encoding.storage, "load_episode", return_value=episode),
+        patch.object(fix_encoding.storage, "save_episode") as save_episode,
+        patch.object(fix_encoding.storage, "save_page") as save_page,
+        patch.object(fix_encoding, "render_episode_page", return_value="<html></html>"),
+    ):
+        assert fix_encoding.fix_episode("2026-W33", catalog=catalog) is False
+
+    save_page.assert_not_called()
+    save_episode.assert_not_called()

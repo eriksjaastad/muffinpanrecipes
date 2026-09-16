@@ -607,14 +607,26 @@ def _sweet(ingredients: list[str]) -> dict:
     }
 
 
-def test_sweet_recipe_built_on_horseradish_is_implausible() -> None:
-    """The W38 re-fire draw: sugar and vanilla alongside beet and horseradish."""
+def test_sweet_recipe_built_on_horseradish_warns_but_does_not_block() -> None:
+    """The W38 re-fire draw, now ADVISORY (#7187).
+
+    It used to return "implausible", which burns the baker's retries and can
+    cost a publishing week. An independent audit found the shipped list still
+    rejected a real dessert (Heinz publishes a ketchup cake), so the check keeps
+    the signal and loses the veto.
+    """
     verdict = check_recipe_sanity(
         _sweet(["granulated sugar", "brown sugar", "vanilla", "beet puree", "prepared horseradish"])
     )
-    assert verdict.status == "implausible"
-    assert "category_incoherent" in verdict.reason
-    assert "horseradish" in verdict.reason
+    assert verdict.status == "clear", "advisory checks must never block"
+    assert any("category_incoherent" in w and "horseradish" in w for w in verdict.warnings)
+
+
+def test_ketchup_cake_is_not_flagged_at_all() -> None:
+    """Heinz publishes a ketchup cake; ketchup left the list entirely."""
+    verdict = check_recipe_sanity(_sweet(["sugar", "cocoa", "flour", "ketchup"]))
+    assert verdict.status == "clear"
+    assert not any("category_incoherent" in w for w in verdict.warnings)
 
 
 def test_sweet_recipe_with_a_crossover_vegetable_still_clears() -> None:
@@ -648,7 +660,7 @@ def test_real_desserts_built_on_savory_staples_are_not_blocked() -> None:
     """
     # sriracha and the pickle family joined this list on the second review pass:
     # chili-chocolate and dill pickle ice cream are the same evidentiary class.
-    for ing in ("mayonnaise", "sauerkraut", "sriracha", "dill pickle", "pickled jalapeno", "kimchi"):
+    for ing in ("mayonnaise", "sauerkraut", "sriracha", "dill pickle", "pickled jalapeno", "kimchi", "ketchup"):
         verdict = check_recipe_sanity(_sweet(["sugar", "cocoa", "flour", ing]))
         assert verdict.status == "clear", f"{ing} was wrongly blocked: {verdict.reason}"
 
