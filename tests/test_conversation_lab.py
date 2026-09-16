@@ -1826,3 +1826,39 @@ def test_a_valid_variant_does_reach_generation(monkeypatch):
     assert calls == ["generated"], "a valid variant should have reached generation"
     # and the module must not be left patched by the aborted run
     assert sdw.HISTORY_DEPTH != {"early": (10, 6), "late": (14, 10)}
+
+
+# --- output-contract guards are sweepable levers -----------------------------
+
+@pytest.mark.parametrize(
+    "variant",
+    [
+        {"SHAPE_WINDOW": 0},
+        {"SHAPE_WINDOW": True},
+        {"SHAPE_WINDOW": "three"},
+        {"SHAPE_MAX_IN_WINDOW": 0},
+        {"WORD_BUDGET_TOLERANCE": 0.5},
+        {"WORD_BUDGET_TOLERANCE": True},
+        {"WORD_BUDGET_TOLERANCE": "loose"},
+    ],
+)
+def test_guard_levers_reject_malformed_values(variant):
+    with pytest.raises(cl.ConversationLabError):
+        cl.validate_variant(sdw, variant)
+
+
+def test_guard_levers_accept_a_strict_enforcement_sweep():
+    """WORD_BUDGET_TOLERANCE 1.0 is the "hold them to the stated max" arm."""
+    cl.validate_variant(
+        sdw, {"WORD_BUDGET_TOLERANCE": 1.0, "SHAPE_WINDOW": 4, "SHAPE_MAX_IN_WINDOW": 1}
+    )
+
+
+def test_guard_levers_round_trip_through_apply_and_restore():
+    before = (sdw.SHAPE_WINDOW, sdw.SHAPE_MAX_IN_WINDOW, sdw.WORD_BUDGET_TOLERANCE)
+    original = cl._apply_variant(
+        sdw, {"SHAPE_WINDOW": 5, "SHAPE_MAX_IN_WINDOW": 1, "WORD_BUDGET_TOLERANCE": 1.0}
+    )
+    assert (sdw.SHAPE_WINDOW, sdw.SHAPE_MAX_IN_WINDOW, sdw.WORD_BUDGET_TOLERANCE) == (5, 1, 1.0)
+    cl._restore_variant(sdw, original)
+    assert (sdw.SHAPE_WINDOW, sdw.SHAPE_MAX_IN_WINDOW, sdw.WORD_BUDGET_TOLERANCE) == before

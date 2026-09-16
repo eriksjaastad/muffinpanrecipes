@@ -270,3 +270,72 @@ LIMIT" is another untested hypothesis. A bounded validate-and-rewrite step would
 enforce the stated contract directly — evaluate the quality cost of actually
 holding characters to very short budgets before assuming it is free. #7161 (every turn requests the same speech act), #6966 (personality
 dials) and #7157 (Monday produces the title) remain unshipped and sweep-gated.
+
+---
+
+## 2026-09-16 — the baseline that explains "it sounds mechanical"
+
+Erik, reading W38 Wednesday: *"it does not sound like natural language."* He is
+right, and it is measurable. Across **all 1,053 stored dialogue lines**:
+
+| sentence shape | lines | share |
+|---|---:|---:|
+| `<claim> - <elaboration>` | 911 | **86.5%** |
+| plain declarative | 123 | 11.7% |
+| terse | 11 | 1.0% |
+| question | 8 | 0.8% |
+
+In W38 specifically it was **21 of 21 lines** — monday, tuesday and wednesday,
+five characters, 100%.
+
+**Every vocabulary guard passed all of it.** `_is_repetitive_candidate` is a
+Jaccard over tokens and `_shared_trigram_with_recent` is word trigrams; both are
+blind to syntax. The words differed every time. The shape never did.
+
+This is the near-miss recorded further up this file finally landing: banning em
+dashes *"moved the model from an em dash to a plain hyphen but did not move any
+of the numbers - the glyph was never the problem."* `sanitize_typographic_tells`
+rewrites em dashes to `" - "`, so house style **converted** the tic instead of
+removing it. (That quoted sentence is itself a dash clause.)
+
+### The per-character table is the interesting part
+
+| character | dash rate | mean words | stated MAXIMUM |
+|---|---:|---:|---:|
+| Marcus | 100.0% | 31.5 | 35 |
+| Julian | 100.0% | 27.9 | 20 |
+| Ria | 98.5% | 27.9 | 20 |
+| Steph | 95.0% | 23.1 | 25 |
+| Margaret | 77.6% | 21.2 | 15 |
+| **Devon** | **40.0%** | **13.2** | **12** |
+
+**Devon is the least broken on both axes and has the shortest budget.** The two
+most over-budget characters, Julian and Ria, are also the two most shape-locked.
+
+That suggests a hypothesis worth testing rather than assuming: **a tight word
+budget may fix the shape problem as a side effect**, because `<claim> -
+<elaboration>` does not fit in twelve words. If true, enforcing budgets is one
+lever that moves two metrics, and no separate shape rule is needed.
+
+### What shipped, and what was deliberately NOT shipped
+
+Shipped: two post-generation guards feeding the existing single bounded rewrite -
+same API cost, more signal. `_shape_is_saturated` is a **rate limit, not a ban**
+(a dash clause is a legitimate way to talk; the defect is everyone using it every
+time). `_over_word_budget` uses `WORD_BUDGET_TOLERANCE = 1.3` rather than a hard
+line, because holding a speaker to exactly twelve words risks the stilted output
+an independent review warned about.
+
+**Deliberately not shipped: a prompt rule about sentence variety.** Adding a rule
+and a guard in the same change would make the result unattributable - which is
+exactly the mistake made on 2026-09-15. If the dash rate drops, it was the guard.
+
+`SHAPE_WINDOW`, `SHAPE_MAX_IN_WINDOW` and `WORD_BUDGET_TOLERANCE` are all lab
+levers, so the sweep can ask "does enforcing the budget hurt the writing?" with
+`WORD_BUDGET_TOLERANCE = 1.0` as the strict arm.
+
+### Numbers to beat
+
+Corpus dash rate **86.5%**. W38 **100%**. Per-character means above. Re-run the
+measurement after a week of generated dialogue and compare; that script is four
+lines against `storage.list_episodes()` and `_sentence_shape`.
