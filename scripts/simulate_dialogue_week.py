@@ -944,11 +944,22 @@ def generate_turn(
         model=model,
     )
     if _is_repetitive_candidate(msg, recent_lines) or _shared_trigram_with_recent(msg, recent_lines):
+        # Build the rewrite ON TOP of the original prompt, never from scratch.
+        # A from-scratch rewrite dropped the day's goal, the phase directive, the
+        # recipe anchor AND the closer directive - so a final turn that tripped
+        # the repetition guard was regenerated with nothing telling it not to ask
+        # a question. W38 Wednesday ended on "can we lock the timing before Julian
+        # shoots again?", the judge scored arc_resolution 3 for an unresolved arc,
+        # and the stage failed three times. The closer rule existed the whole
+        # time; the rewrite just could not see it.
         rewrite_prompt = (
-            f"Recent chat:\n{history}\n\n"
-            f"Your draft is too repetitive:\n{msg}\n\n"
+            f"{prompt}\n\n"
+            f"---\n"
+            f"Your draft was too repetitive:\n{msg}\n\n"
             "Rewrite ONE message with different structure and new specific detail. "
-            "Do not repeat existing phrasing."
+            "Do not repeat existing phrasing. Every instruction above still applies"
+            + (" - including the LAST-MESSAGE rule: confirm what was decided and "
+               "sign off, do not ask a question." if is_last_turn else ".")
         )
         msg = generate_response(
             prompt=rewrite_prompt,
