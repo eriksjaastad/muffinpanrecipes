@@ -35,28 +35,83 @@ def test_build_recipe_context_full_payload():
     assert "maple breakfast sausage" not in summary
 
 
-def test_build_recipe_context_uses_only_the_first_description_sentence():
-    """"Light by design": a multi-sentence description must not become a recitation."""
-    recipe = {
-        "title": "Test Recipe",
-        "category": "Savory",
-        "description": "These are chewy and stretchy. Then a second sentence. And a third.",
-    }
-    summary = cron_routes._build_recipe_context(recipe)
-    assert "chewy and stretchy" in summary
-    assert "second sentence" not in summary
-    assert "third" not in summary
+def test_build_recipe_context_keeps_the_whole_description_not_just_sentence_one():
+    """#7104 second pass: the texture is not reliably in sentence one.
 
-
-def test_build_recipe_context_truncates_a_runaway_first_sentence():
+    W38's sentence one was pure marketing and sentence two held the only texture
+    in the field. Taking sentence one discarded exactly what the anchor exists
+    to deliver.
+    """
     recipe = {
-        "title": "Test",
+        "title": "Cardamom Cinnamon Spiral Bites",
         "category": "Sweet",
-        "description": "word " * 200,
+        "description": (
+            "These spiral bites wrap classic cinnamon-roll comfort around warm cardamom, "
+            "orange, and pistachio for a Middle Eastern-inspired twist. A rich, buttery "
+            "dough is coiled into each muffin cup so it bakes into a round, self-contained "
+            "roll with crisp edges, tender centers, and a glossy orange-rose glaze."
+        ),
     }
     summary = cron_routes._build_recipe_context(recipe)
-    assert len(summary) < 300
+    assert "Middle Eastern-inspired twist" in summary
+    assert "crisp edges, tender centers" in summary, "the texture sentence must survive"
+
+
+def test_build_recipe_context_truncates_a_runaway_description():
+    recipe = {"title": "Test", "category": "Sweet", "description": "word " * 200}
+    summary = cron_routes._build_recipe_context(recipe)
+    assert len(summary) < 500
     assert summary.endswith("...")
+
+
+def test_judge_recipe_facts_carry_the_method_the_speakers_never_saw():
+    """The judge must be able to catch a technique the recipe does not use (#7104).
+
+    W38's accepted Tuesday discussed lamination, butter in sheets and second
+    folds. The recipe rolls a soft yeast dough up once - there are no folds. The
+    judge scored it technical_credibility 4 because its prompt carried the same
+    abbreviated blurb the speakers had, and no instructions at all.
+    """
+    recipe = {
+        "title": "Cardamom Cinnamon Spiral Bites",
+        "category": "Sweet",
+        "cuisine": "Middle Eastern",
+        "description": "Spiral bites with cardamom and orange.",
+        "ingredients": [{"item": "yeast dough"}, {"item": "softened butter"}],
+        "instructions": [
+            "Roll the dough into a rectangle about 12 inches by 9 inches.",
+            "Spread the filling evenly over the dough.",
+            "Roll the dough up tightly into a log and cut into 12 slices.",
+        ],
+    }
+    facts = cron_routes._build_judge_recipe_facts(recipe)
+    assert "RECIPE GROUND TRUTH" in facts
+    assert "Method:" in facts
+    assert "roll the dough up tightly into a log".lower() in facts.lower()
+    assert "yeast dough" in facts
+    assert "technical_credibility" in facts
+    # and it is genuinely more than the speaker-facing anchor
+    assert len(facts) > len(cron_routes._build_recipe_context(recipe))
+
+
+def test_judge_recipe_facts_empty_without_a_recipe():
+    assert cron_routes._build_judge_recipe_facts(None) == ""
+    assert cron_routes._build_judge_recipe_facts({}) == ""
+    assert cron_routes._build_judge_recipe_facts({"category": "Sweet"}) == ""
+
+
+def test_judge_recipe_facts_caps_a_very_long_method():
+    recipe = {
+        "title": "Long",
+        "category": "Sweet",
+        "instructions": [f"Step {i} with a good deal of explanatory text in it." for i in range(200)],
+    }
+    facts = cron_routes._build_judge_recipe_facts(recipe)
+    assert "omitted for length" in facts, "an over-budget method must say so"
+    assert len(facts) < cron_routes.JUDGE_METHOD_MAX + 900
+    # both ends survive: the cut comes out of the middle, not the tail
+    assert "1. Step 0 " in facts
+    assert "200. Step 199 " in facts
 
 
 def test_build_recipe_context_survives_a_missing_description():
@@ -226,3 +281,150 @@ def test_generate_and_judge_raises_after_judge_exceptions():
 
     assert "JUDGE ERROR: RuntimeError: provider down" in str(exc.value)
     notify.assert_called_once()
+
+
+def test_judge_method_budget_fits_the_longest_real_recipe():
+    """Sized against stored recipes, not guessed (Codex audit).
+
+    W35-W38 methods run 2,486-4,956 chars. A 2,000 cap truncated W38 at step 16
+    of 36 and resolved its lamination claim only because "roll the dough up into
+    a log" happened to sit at step 16 - every baking, unmolding and glazing step
+    was cut.
+    """
+    assert cron_routes.JUDGE_METHOD_MAX >= 5000
+
+
+def test_fit_method_drops_the_middle_not_the_tail():
+    """Late steps carry baking/unmolding/finishing - the claims a judge checks."""
+    steps = [f"Step {i} " + ("x" * 120) for i in range(1, 61)]
+    out = cron_routes._fit_method(steps, 2000)
+    assert len(out) <= 2000
+    assert out.startswith("1. Step 1"), "the opening steps must survive"
+    assert "60. Step 60" in out, "the closing steps must survive"
+    assert "omitted for length" in out, "the cut must be stated, not silent"
+
+
+def test_fit_method_returns_everything_when_it_fits():
+    steps = ["Mix the batter.", "Bake for 20 minutes.", "Cool and serve."]
+    out = cron_routes._fit_method(steps, 8000)
+    assert out == "1. Mix the batter. 2. Bake for 20 minutes. 3. Cool and serve."
+    assert "omitted" not in out
+
+
+def test_judge_facts_keep_ingredient_amounts_and_notes():
+    """Names alone made different recipes look identical to the judge (Codex).
+
+    "1 tbsp melted butter" and "2 cups cold, cubed butter" produced the same
+    facts whenever the method did not repeat the detail - so a ratio or
+    technique claim was unverifiable for exactly the recipes where it matters.
+    """
+    melted = {
+        "title": "A", "category": "Sweet", "instructions": ["Bake."],
+        "ingredients": [{"amount": "1 tbsp", "item": "butter", "notes": "melted"}],
+    }
+    cubed = {
+        "title": "A", "category": "Sweet", "instructions": ["Bake."],
+        "ingredients": [{"amount": "2 cups", "item": "butter", "notes": "cold, cubed"}],
+    }
+    a = cron_routes._build_judge_recipe_facts(melted)
+    b = cron_routes._build_judge_recipe_facts(cubed)
+    assert "1 tbsp butter (melted)" in a
+    assert "2 cups butter (cold, cubed)" in b
+    assert a != b, "two different recipes must not produce identical judge facts"
+
+
+def test_judge_facts_handle_plain_string_ingredients():
+    recipe = {"title": "A", "category": "Sweet", "ingredients": ["2 eggs", "flour"], "instructions": ["Bake."]}
+    facts = cron_routes._build_judge_recipe_facts(recipe)
+    assert "2 eggs" in facts and "flour" in facts
+
+
+def test_judge_prompt_actually_receives_the_recipe_facts():
+    """Wiring, not construction (Codex): the facts must reach the real prompt.
+
+    The other judge-facts tests only prove the string is BUILT correctly. They
+    would all stay green if the recipe_facts argument stopped being threaded
+    into _judge_dialogue's prompt, which is the regression that matters.
+    """
+    captured: dict[str, str] = {}
+
+    def fake_generate(prompt, system_prompt, **_kwargs):
+        captured["prompt"] = prompt
+        return json.dumps({"scores": {}, "verdict": "PASS", "weakest": [], "reason": "ok"})
+
+    facts = cron_routes._build_judge_recipe_facts({
+        "title": "Spiral Bites",
+        "category": "Sweet",
+        "ingredients": [{"amount": "4 tbsp", "item": "butter", "notes": "very soft"}],
+        "instructions": ["Roll the dough up tightly into a log and cut into 12 slices."],
+    })
+    dialogue = [{"character": "Margaret", "message": "The dough is too loose."}]
+
+    with patch.object(cron_routes, "generate_judge_response", side_effect=fake_generate):
+        cron_routes._judge_dialogue(
+            "Spiral Bites", "tuesday", dialogue, {"episode_id": "2026-W38", "stages": {}},
+            recipe_context="This week's recipe: Spiral Bites (sweet).",
+            recipe_facts=facts,
+        )
+
+    assert "RECIPE GROUND TRUTH" in captured["prompt"]
+    assert "roll the dough up tightly into a log" in captured["prompt"].lower()
+    assert "4 tbsp butter (very soft)" in captured["prompt"]
+
+
+def test_generate_and_judge_passes_facts_not_just_context(monkeypatch):
+    """End to end: _generate_and_judge_dialogue must build AND forward the facts."""
+    seen: dict[str, object] = {}
+
+    def fake_judge(concept, stage, dialogue, episode, recipe_context=None, recipe_facts=None):
+        seen["context"] = recipe_context
+        seen["facts"] = recipe_facts
+        return True, "PASS"
+
+    monkeypatch.setattr(
+        cron_routes, "_generate_dialogue",
+        lambda *a, **k: [{"character": "Margaret", "message": "Fine."}],
+    )
+    monkeypatch.setattr(cron_routes, "_judge_dialogue", fake_judge)
+    monkeypatch.setattr(cron_routes, "_score_dialogue_qa", lambda *a, **k: None)
+
+    recipe = {
+        "title": "Spiral Bites", "category": "Sweet",
+        "description": "Soft dough rolled once.",
+        "ingredients": [{"amount": "1 cup", "item": "flour"}],
+        "instructions": ["Roll into a log."],
+    }
+    cron_routes._generate_and_judge_dialogue(
+        "tuesday", "Spiral Bites", {"episode_id": "2026-W38", "stages": {}, "events": []},
+        recipe_data=recipe,
+    )
+
+    assert seen["context"], "speaker anchor must still be passed"
+    assert seen["facts"], "judge facts must be passed"
+    assert "RECIPE GROUND TRUTH" in str(seen["facts"])
+    assert "Roll into a log." in str(seen["facts"])
+
+
+def test_fit_method_keeps_the_tail_even_when_one_step_is_enormous():
+    """A single oversized step must not starve the other end (Codex)."""
+    out = cron_routes._fit_method(["x" * 8000, "Cool and serve."], 2000)
+    assert "Cool and serve." in out
+    assert "omitted for length" in out
+
+
+def test_fit_method_marker_tells_the_judge_not_to_infer_contradiction():
+    out = cron_routes._fit_method([f"Step {i} " + "y" * 200 for i in range(1, 40)], 1200)
+    assert "NOT" in out and "contradiction" in out
+
+
+@pytest.mark.parametrize("budget", [600, 1200, 2000, 8000])
+def test_fit_method_never_exceeds_its_budget(budget):
+    """The marker's reserve must track the marker's real length (Codex).
+
+    It reserved a hardcoded 80 chars for a marker that had grown well past
+    that, so an 8,000-char budget produced 8,010.
+    """
+    steps = [f"Step {i} " + "y" * 200 for i in range(1, 80)]
+    out = cron_routes._fit_method(steps, budget)
+    assert len(out) <= budget, f"budget {budget} produced {len(out)}"
+    assert "79. Step 79" in out, "the tail must still survive"
