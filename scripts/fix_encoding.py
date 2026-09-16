@@ -221,6 +221,13 @@ def main():
     if args.episode:
         fixed = fix_episode(args.episode, dry_run=args.dry_run, catalog=catalog)
         total = 1 if fixed else 0
+        if not fixed:
+            # An EXPLICITLY requested episode that could not be repaired is a
+            # failure, not a skip. Bulk mode legitimately skips unpublished and
+            # test episodes; asking for one by name and getting nothing is the
+            # caller being wrong about the world, and must not exit 0.
+            print(f"\nFAILED: {args.episode} was requested explicitly and was not fixed.")
+            return 1
     else:
         strict_lister = getattr(storage, "list_episodes_strict", None)
         lister = strict_lister if callable(strict_lister) else storage.list_episodes

@@ -1687,3 +1687,84 @@ def test_pairs_from_sweep_result_requires_variant_name(tmp_path, monkeypatch):
     cl.main(["pairs", "--from", str(result_file), "--pick", "1:A", "--variant-name", "only"])
     updated = json.loads(result_file.read_text())
     assert updated["variants"]["only"]["human_picks"]["1"] in ("control", "variant")
+
+
+# --- validation must precede any paid generation (Codex audit) -----------------
+
+def test_validate_variant_rejects_a_partial_history_depth():
+    """A missing 'late' key used to KeyError on the first Friday, mid-run."""
+    with pytest.raises(cl.ConversationLabError) as exc:
+        cl.validate_variant(sdw, {"HISTORY_DEPTH": {"early": (8, 4)}})
+    assert "late" in str(exc.value)
+
+
+def test_validate_variant_rejects_booleans_as_depths():
+    """bool is a subclass of int in Python; True is not a history depth."""
+    with pytest.raises(cl.ConversationLabError):
+        cl.validate_variant(sdw, {"HISTORY_DEPTH": {"early": (True, 4), "late": (8, 4)}})
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "not-a-dict",
+        {"early": (8, 4)},
+        {"early": (8, 4), "late": "nope"},
+        {"early": (8, 4), "late": (0, 4)},
+        {"early": (8, 4), "late": (8, 4, 2)},
+    ],
+)
+def test_validate_variant_rejects_malformed_shapes(bad):
+    with pytest.raises(cl.ConversationLabError):
+        cl.validate_variant(sdw, {"HISTORY_DEPTH": bad})
+
+
+def test_validate_variant_accepts_a_well_formed_override():
+    cl.validate_variant(sdw, {"HISTORY_DEPTH": {"early": (10, 6), "late": (14, 10)}})
+
+
+def test_apply_variant_validates_every_key_before_mutating_any():
+    """An invalid second key must not leave the first one installed.
+
+    _apply_variant raises before returning its restore map, so a partially
+    applied variant left the module patched with nothing to restore from.
+    """
+    before = sdw._REACTION_DIRECTIVE
+    with pytest.raises(cl.ConversationLabError):
+        cl._apply_variant(
+            sdw,
+            {"_REACTION_DIRECTIVE": "patched", "HISTORY_DEPTH": {"early": (8, 4)}},
+        )
+    assert sdw._REACTION_DIRECTIVE == before, "module was left partially patched"
+
+
+def test_apply_variant_round_trips_a_valid_multi_key_variant():
+    before_directive = sdw._REACTION_DIRECTIVE
+    before_depth = sdw.HISTORY_DEPTH
+    original = cl._apply_variant(
+        sdw,
+        {"_REACTION_DIRECTIVE": "patched", "HISTORY_DEPTH": {"early": (10, 6), "late": (14, 10)}},
+    )
+    assert sdw._REACTION_DIRECTIVE == "patched"
+    assert sdw.HISTORY_DEPTH == {"early": (10, 6), "late": (14, 10)}
+    cl._restore_variant(sdw, original)
+    assert sdw._REACTION_DIRECTIVE == before_directive
+    assert sdw.HISTORY_DEPTH == before_depth
+
+
+def test_a_malformed_variant_costs_nothing(monkeypatch):
+    """The control arm is generated FIRST, so validation has to come before it.
+
+    The old validator lived inside _apply_variant, which runs after the control
+    generation for that run index - so a typo in a variant file was paid for.
+    """
+    calls: list[str] = []
+
+    def _boom(*args, **kwargs):
+        calls.append("generated")
+        raise AssertionError("no generation may happen for a malformed variant")
+
+    monkeypatch.setattr(cl, "_run_arm_and_count", _boom)
+    with pytest.raises(cl.ConversationLabError):
+        cl.validate_variant(sdw, {"HISTORY_DEPTH": {"early": (8, 4)}})
+    assert calls == []
