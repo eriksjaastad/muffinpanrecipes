@@ -353,8 +353,10 @@ def _build_judge_recipe_facts(recipe_data: dict | None) -> str:
         "actually use, that is a technical_credibility failure - say which claim and "
         "which step contradicts it. Do NOT penalise a technique that is raised as a "
         "proposal, a rejected alternative, a comparison to another dish, or a "
-        "hypothetical ('we could laminate this, but it would fight the filling') - "
-        "debating technique and substitutions is the point of the midweek stages."
+        "hypothetical ('we could deep-fry these, but the pan gets there cleaner') - "
+        "debating technique and substitutions is the point of the midweek stages. "
+        "(The example is deliberately a technique no stored recipe uses: an example "
+        "naming a real regression case would prime you to accept that very claim.)"
     )
     return "\n".join(lines)
 

@@ -744,12 +744,25 @@ SHAPE_MAX_IN_WINDOW = 2   # at most this many of them may share the shape
 WORD_BUDGET_TOLERANCE = 1.3
 
 
+# Must match conversation_metrics.DASH_CLAUSE_RE exactly. Deliberately DUPLICATED
+# rather than imported: this module ships in the Vercel Lambda bundle and
+# conversation_metrics.py does not (see .vercelignore and RUNBOOK Incident 4 - a
+# backend import of an unbundled script fails ONLY in production).
+# test_shape_guard_matches_the_metric_definition pins the two together.
+#
+# The em/en dash arms are the whole point. An earlier version matched " - " only,
+# so an em-dash clause was classified `declarative`, escaped the guard, and was
+# THEN rewritten to " - " by sanitize_typographic_tells on the way out - the guard
+# was blind to the exact mechanism this tic uses.
+_DASH_CLAUSE_RE = re.compile(r" - |\u2014|\u2013")
+
+
 def _sentence_shape(message: str) -> str:
     """Coarse syntactic signature of a message, ignoring its vocabulary."""
     text = " ".join((message or "").split())
     if not text:
         return "empty"
-    if " - " in text:
+    if _DASH_CLAUSE_RE.search(text):
         return "dash_clause"
     if text.rstrip().endswith("?"):
         return "question"
@@ -758,9 +771,17 @@ def _sentence_shape(message: str) -> str:
     return "declarative"
 
 
-def _recent_shapes(recent_lines: list[str], window: int = SHAPE_WINDOW) -> list[str]:
+def _recent_shapes(recent_lines: list[str], window: int | None = None) -> list[str]:
+    """Shapes of the last `window` messages.
+
+    `window` resolves at CALL time, not import time. A default argument of
+    SHAPE_WINDOW binds once when the module loads, so a lab variant overriding
+    the module constant changed nothing - the same no-op bug #7158 fixed for
+    HISTORY_DEPTH, reintroduced here.
+    """
+    size = SHAPE_WINDOW if window is None else window
     shapes = []
-    for line in (recent_lines or [])[-window:]:
+    for line in (recent_lines or [])[-size:]:
         parts = line.split(": ", 1)
         shapes.append(_sentence_shape(parts[1] if len(parts) == 2 else line))
     return shapes
@@ -771,6 +792,9 @@ def _shape_is_saturated(candidate: str, recent_lines: list[str]) -> bool:
 
     A rate limit, not a ban - a dash clause is a legitimate way to talk. The
     defect is every speaker using it every time.
+
+    Both SHAPE_WINDOW and SHAPE_MAX_IN_WINDOW are read at call time so the lab
+    levers actually bite.
     """
     shape = _sentence_shape(candidate)
     if shape in ("empty", "terse"):

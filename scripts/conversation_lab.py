@@ -226,7 +226,7 @@ from typing import Any
 import scripts.conversation_heatmap as conversation_heatmap
 import scripts.conversation_metrics as conversation_metrics
 import scripts.simulate_dialogue_week as simulate_module
-from backend.admin.cron_routes import _build_recipe_context
+from backend.admin.cron_routes import _build_judge_recipe_facts, _build_recipe_context
 from backend.config import config
 from backend.utils import model_router
 from backend.utils.episode_integrity import PLACEHOLDER_CONCEPT, _recipe_title
@@ -771,12 +771,19 @@ def _build_pairwise_prompt(
     expected_cast: list[str],
     first_messages: list[dict[str, Any]],
     second_messages: list[dict[str, Any]],
+    recipe_facts: str | None = None,
 ) -> str:
     recipe_section = f"{recipe_context}\n" if recipe_context else ""
+    # Ground truth the speakers never saw. Without it the lab judge scores
+    # technical_credibility against the same abbreviated anchor that produced the
+    # claim - the blind spot #7104 fixed in production and left here, which made
+    # the W38 lamination scenario decorative.
+    facts_section = f"{recipe_facts}\n" if recipe_facts else ""
     roster_line = f"Expected cast for {stage}: {', '.join(expected_cast)}\n"
     return (
         f"Recipe concept: {concept}\n"
         f"{recipe_section}"
+        f"{facts_section}"
         f"{roster_line}"
         f"TRANSCRIPT A:\n{_format_transcript(first_messages)}\n\n"
         f"TRANSCRIPT B:\n{_format_transcript(second_messages)}\n\n"
@@ -814,9 +821,13 @@ def _judge_orientation(
     first_messages: list[dict[str, Any]],
     second_arm: str,
     second_messages: list[dict[str, Any]],
+    recipe_facts: str | None = None,
 ) -> dict[str, str]:
     """Judge once with A=first_arm, B=second_arm; map the A/B verdict back to arm labels."""
-    prompt = _build_pairwise_prompt(concept, stage, recipe_context, expected_cast, first_messages, second_messages)
+    prompt = _build_pairwise_prompt(
+        concept, stage, recipe_context, expected_cast, first_messages, second_messages,
+        recipe_facts=recipe_facts,
+    )
     raw = model_router.generate_judge_response(
         prompt=prompt,
         system_prompt=PAIRWISE_JUDGE_SYSTEM_PROMPT,
