@@ -364,3 +364,53 @@ levers, so the sweep can ask "does enforcing the budget hurt the writing?" with
 Corpus dash rate **86.5%**. W38 **100%**. Per-character means above. Re-run the
 measurement after a week of generated dialogue and compare; that script is four
 lines against `storage.list_episodes()` and `_sentence_shape`.
+
+---
+
+## 2026-09-17 — Haiku 4.5 vs gpt-6-astra (high) on panel v2
+
+First run on the refreshed current-anchor panel (#7201). **Structure metrics only
+— no judge scoring, no blind human read. This is not a quality verdict.**
+
+4 scenarios x 4 Wednesday turns, plus a Tuesday spread test.
+
+| metric | Haiku 4.5 | gpt-6-astra high | corpus baseline |
+|---|---:|---:|---:|
+| dash-clause rate | 0.81 | **0.00** | 0.86 |
+| within word budget | 0.81 | **1.00** | — |
+| mean words | 15.9 | 17.8 | 24.1 |
+| lines under 8 words | 0.00 | 0.00 | 0.01 |
+
+**Read the Haiku column carefully — it is not the old baseline.** Haiku here is
+running *with* the PR #114 guards, and they work: mean length fell 24.1 → 15.9
+and 81% of lines land in budget. But **dash rate barely moved, 0.86 → 0.81.**
+The guards fixed length and did not fix shape. That is the cleanest evidence yet
+that these are two separate problems, and that the shape tic survives a
+post-generation rate limit.
+
+### The spread test (Tuesday: Devon 12, Margaret 15, Steph 25, Marcus 35)
+
+Wednesday's cast only spans budgets 15–25, so Astra's low length-variance there
+looked like flattening. On the wide cast it is the reverse:
+
+| | Margaret /15 | Steph /25 | Marcus /35 | Devon /12 | stdev |
+|---|---|---|---|---|---:|
+| Haiku | 17 (over) | 13 | 22 | 10 | 4.50 |
+| **Astra** | **15** | **22** | **29** | **10** | **7.18** |
+
+Astra tracks each character's individual budget; Haiku compresses everyone toward
+the middle. Astra's 7.18 is close to the corpus's 8.1 — and the corpus got there
+by being uniformly *long*, whereas this is uniform *differentiation*.
+
+### Cost
+
+$1.04 (Astra) vs $0.054 (Haiku) for 16 turns + retries — roughly 20x, and about
+**$146/yr vs $16–32/yr** at production volume. Erik's 2026-09-16 call was that
+cost is not a factor at this volume.
+
+### What would make this a verdict
+
+Judge scoring on the panel, repeated runs, position-swapped blind judging, and
+Erik's `pairs --show` read. All of that exists already and none of it was run
+here. Attribution is also unavailable by construction: swapping the model changes
+everything at once.
