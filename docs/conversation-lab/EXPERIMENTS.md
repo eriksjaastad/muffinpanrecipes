@@ -1,5 +1,30 @@
 # Conversation Lab - Experiment Log
 
+> ## READ THE PRIOR ART BEFORE DESIGNING AN ARM
+>
+> **`prompt-research/TESTING_METHODOLOGY.md`** (546 lines, 2026-03-13/14) is the
+> other half of this project's experimental record. It is **gitignored**, so
+> nothing linked to it, and it has now been missed twice.
+>
+> It holds 261 autonomous experiments **plus four hand-run comparisons that exist
+> only in its prose** - they are not rows in `results.tsv`, so grepping the TSVs
+> finds nothing. Already answered there; do not re-run:
+>
+> | experiment | date | result |
+> |---|---|---|
+> | Compression model swap, Sonnet vs Haiku | 2026-03-14 | **Haiku wins** on quality *and* cost (96.0 vs 95.0; $0.003 vs $0.03). "The bottleneck is not compression quality." |
+> | Progressive (rolling) compression | 2026-03-14 | did not win |
+> | Cross-concept validation | 2026-03-14 | passed - the template is not overfit to one recipe |
+> | XML-structured injection | 2026-03-14 | **plain text wins**; Haiku treats XML tags as formatting overhead at ~60 words/day |
+>
+> Standing model config (its section 11): dialogue **Haiku 4.5**, judge
+> **Sonnet 4.6**, compression **Haiku 4.5**. Note what that means - the
+> *compression* model has been compared, the *generation* model never has (#7203).
+>
+> **Both times prior work was missed here, the search was against the
+> machine-generated TSVs instead of the human-written writeup.** Read the prose.
+
+
 Card #6492. This file is the versioned, in-repo record of the manual
 conversation self-learning loop. It replaces
 `~/.claude/projects/-Users-eriksjaastad-projects-muffinpanrecipes/memory/project_conversation_tuning_log.md`
@@ -270,3 +295,128 @@ LIMIT" is another untested hypothesis. A bounded validate-and-rewrite step would
 enforce the stated contract directly — evaluate the quality cost of actually
 holding characters to very short budgets before assuming it is free. #7161 (every turn requests the same speech act), #6966 (personality
 dials) and #7157 (Monday produces the title) remain unshipped and sweep-gated.
+
+---
+
+## 2026-09-16 — the baseline that explains "it sounds mechanical"
+
+Erik, reading W38 Wednesday: *"it does not sound like natural language."* He is
+right, and it is measurable. Across **all 1,053 stored dialogue lines**:
+
+| sentence shape | lines | share |
+|---|---:|---:|
+| `<claim> - <elaboration>` | 911 | **86.5%** |
+| plain declarative | 123 | 11.7% |
+| terse | 11 | 1.0% |
+| question | 8 | 0.8% |
+
+In W38 specifically it was **21 of 21 lines** — monday, tuesday and wednesday,
+five characters, 100%.
+
+**Every vocabulary guard passed all of it.** `_is_repetitive_candidate` is a
+Jaccard over tokens and `_shared_trigram_with_recent` is word trigrams; both are
+blind to syntax. The words differed every time. The shape never did.
+
+This is the near-miss recorded further up this file finally landing: banning em
+dashes *"moved the model from an em dash to a plain hyphen but did not move any
+of the numbers - the glyph was never the problem."* `sanitize_typographic_tells`
+rewrites em dashes to `" - "`, so house style **converted** the tic instead of
+removing it. (That quoted sentence is itself a dash clause.)
+
+### The per-character table is the interesting part
+
+| character | dash rate | mean words | stated MAXIMUM |
+|---|---:|---:|---:|
+| Marcus | 100.0% | 31.5 | 35 |
+| Julian | 100.0% | 27.9 | 20 |
+| Ria | 98.5% | 27.9 | 20 |
+| Steph | 95.0% | 23.1 | 25 |
+| Margaret | 77.6% | 21.2 | 15 |
+| **Devon** | **40.0%** | **13.2** | **12** |
+
+**Devon is the least broken on both axes and has the shortest budget.** The two
+most over-budget characters, Julian and Ria, are also the two most shape-locked.
+
+That suggests a hypothesis worth testing rather than assuming: **a tight word
+budget may fix the shape problem as a side effect**, because `<claim> -
+<elaboration>` does not fit in twelve words. If true, enforcing budgets is one
+lever that moves two metrics, and no separate shape rule is needed.
+
+### What shipped, and what was deliberately NOT shipped
+
+Shipped: two post-generation guards feeding the existing single bounded rewrite -
+same API cost, more signal. `_shape_is_saturated` is a **rate limit, not a ban**
+(a dash clause is a legitimate way to talk; the defect is everyone using it every
+time). `_over_word_budget` uses `WORD_BUDGET_TOLERANCE = 1.3` rather than a hard
+line, because holding a speaker to exactly twelve words risks the stilted output
+an independent review warned about.
+
+**Deliberately not shipped: a prompt rule about sentence variety.** Adding a rule
+and a guard in the same change would make the result unattributable - which is
+exactly the mistake made on 2026-09-15. If the dash rate drops, it was the guard.
+
+`SHAPE_WINDOW`, `SHAPE_MAX_IN_WINDOW` and `WORD_BUDGET_TOLERANCE` are all lab
+levers, so the sweep can ask "does enforcing the budget hurt the writing?" with
+`WORD_BUDGET_TOLERANCE = 1.0` as the strict arm.
+
+### Numbers to beat
+
+Corpus dash rate **86.5%**. W38 **100%**. Per-character means above. Re-run the
+measurement after a week of generated dialogue and compare; that script is four
+lines against `storage.list_episodes()` and `_sentence_shape`.
+
+---
+
+## 2026-09-17 — Haiku 4.5 vs gpt-6-astra (high) on panel v2
+
+First run on the refreshed current-anchor panel (#7201). **Structure metrics only
+— no judge scoring, no blind human read. This is not a quality verdict.**
+
+4 scenarios x 4 Wednesday turns, plus a Tuesday spread test.
+
+| metric | Haiku 4.5 | gpt-6-astra high | corpus baseline |
+|---|---:|---:|---:|
+| dash-clause rate | 0.81 | **0.00** | 0.86 |
+| within word budget | 0.81 | **1.00** | — |
+| mean words | 15.9 | 17.8 | 24.1 |
+| lines under 8 words | 0.00 | 0.00 | 0.01 |
+
+**Read the Haiku column carefully — it is not the old baseline.** Haiku here is
+running *with* the PR #114 guards, and they work: mean length fell 24.1 → 15.9
+and 81% of lines land in budget. But **dash rate barely moved, 0.86 → 0.81.**
+The guards fixed length and did not fix shape. That is the cleanest evidence yet
+that these are two separate problems, and that the shape tic survives a
+post-generation rate limit.
+
+**Review correction (2026-09-17):** these measurements predate the fixes for
+dash classification and the shape-window override in PR #117. The observed
+numbers remain historical results, but the claim above that the guards do not
+fix shape is unsupported: the shape guard was not reliably invoked. A fresh
+controlled run with the corrected wiring is required to assess its effect.
+
+### The spread test (Tuesday: Devon 12, Margaret 15, Steph 25, Marcus 35)
+
+Wednesday's cast only spans budgets 15–25, so Astra's low length-variance there
+looked like flattening. On the wide cast it is the reverse:
+
+| | Margaret /15 | Steph /25 | Marcus /35 | Devon /12 | stdev |
+|---|---|---|---|---|---:|
+| Haiku | 17 (over) | 13 | 22 | 10 | 4.50 |
+| **Astra** | **15** | **22** | **29** | **10** | **7.18** |
+
+Astra tracks each character's individual budget; Haiku compresses everyone toward
+the middle. Astra's 7.18 is close to the corpus's 8.1 — and the corpus got there
+by being uniformly *long*, whereas this is uniform *differentiation*.
+
+### Cost
+
+$1.04 (Astra) vs $0.054 (Haiku) for 16 turns + retries — roughly 20x, and about
+**$146/yr vs $16–32/yr** at production volume. Erik's 2026-09-16 call was that
+cost is not a factor at this volume.
+
+### What would make this a verdict
+
+Judge scoring on the panel, repeated runs, position-swapped blind judging, and
+Erik's `pairs --show` read. All of that exists already and none of it was run
+here. Attribution is also unavailable by construction: swapping the model changes
+everything at once.

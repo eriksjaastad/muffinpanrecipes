@@ -73,7 +73,8 @@ def test_rewrite_prompt_carries_the_original_turn_instructions(is_last):
     original, rewrite = prompts
     # The rewrite is built ON TOP of the original, so every directive survives.
     assert original in rewrite, "rewrite discarded the original turn prompt"
-    assert "too repetitive" in rewrite
+    assert "Problems with it:" in rewrite
+    assert "repeats wording" in rewrite
     assert "This week's recipe" in rewrite, "recipe anchor lost in the rewrite"
 
 

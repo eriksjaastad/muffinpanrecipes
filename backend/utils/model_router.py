@@ -29,10 +29,42 @@ logger = get_logger(__name__)
 # OpenAI model policy (fail-closed)
 # OWNER RULE (do not relax without explicit Erik approval):
 # ---------------------------------------------------------------------------
+# Reasoning effort for OpenAI reasoning models (gpt-6-astra and friends).
+# Valid: low | medium | high | xhigh | max. Overridable per deployment so the
+# conversation lab can sweep it without a code change.
+#
+# Why this is a knob and not a constant: OpenAI's own published figures put cost
+# per task at $0.46 at low effort and $1.67 at max - a 3.6x spread - while the
+# intelligence score moves only 57 -> 61. For a character writing one sentence in
+# a group chat, the top of that range is very unlikely to pay for itself. Measure
+# before raising it.
+OPENAI_REASONING_EFFORT = os.getenv("OPENAI_REASONING_EFFORT", "high").strip().lower()
+_VALID_REASONING_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
+
+# Models that take a reasoning.effort parameter and reject `temperature`.
+OPENAI_REASONING_MODELS = {"gpt-6-astra"}
+
+
+def _reasoning_kwargs(model: str) -> dict:
+    """reasoning.effort kwargs for a reasoning model, or {} for a plain one."""
+    if model.lower().strip() not in OPENAI_REASONING_MODELS:
+        return {}
+    effort = OPENAI_REASONING_EFFORT
+    if effort not in _VALID_REASONING_EFFORTS:
+        raise RuntimeError(
+            f"OPENAI_REASONING_EFFORT={effort!r} is not valid. "
+            f"Use one of: {', '.join(sorted(_VALID_REASONING_EFFORTS))}"
+        )
+    return {"reasoning": {"effort": effort}}
+
+
 DEFAULT_OPENAI_ALLOWLIST = {
     "gpt-5-mini",
     "gpt-5-nano",
     "gpt-5.1",
+    # Dialogue-generation candidate (Erik, 2026-09-16). Reasoning model - see
+    # OPENAI_REASONING_EFFORT below and note it rejects `temperature`.
+    "gpt-6-astra",
 }
 
 HARD_BLOCKED_OPENAI_MODELS = {
@@ -101,6 +133,10 @@ _COST_PER_M_TOKENS: dict[str, tuple[float, float]] = {
     "gpt-5-mini": (0.30, 1.20),
     "gpt-5-nano": (0.10, 0.40),
     "gpt-5.1": (1.00, 3.00),
+    # $10 / $50 per M, published rate verified 2026-09-16. Note OpenAI prices
+    # prompts over 272K input tokens at 2x input and 1.5x output for the whole
+    # request; our dialogue prompts are ~3K so that tier never applies here.
+    "gpt-6-astra": (10.00, 50.00),
     # OpenAI — vision (image tokens counted as input)
     "gpt-5-mini:vision": (0.30, 1.20),
     # Anthropic — text
@@ -287,11 +323,17 @@ def _generate_openai(
     input_items.append({"role": "user", "content": [{"type": "input_text", "text": prompt}]})
 
     def _from_responses() -> str:
+        reasoning = _reasoning_kwargs(model)
         try:
-            r = client.responses.create(model=model, input=input_items, temperature=temperature)
+            # Reasoning models reject `temperature`; don't send it and pay for a
+            # round trip to be told so.
+            if reasoning:
+                r = client.responses.create(model=model, input=input_items, **reasoning)
+            else:
+                r = client.responses.create(model=model, input=input_items, temperature=temperature)
         except BadRequestError as e2:
             if "temperature" in str(e2).lower():
-                r = client.responses.create(model=model, input=input_items)
+                r = client.responses.create(model=model, input=input_items, **reasoning)
             else:
                 raise
 
@@ -314,6 +356,11 @@ def _generate_openai(
                 if piece:
                     parts.append(piece)
         return "\n".join(parts).strip()
+
+    # Reasoning models go straight to the Responses API - the chat-completions
+    # first attempt below exists to send `temperature`, which they reject.
+    if _reasoning_kwargs(model):
+        return _from_responses()
 
     # First attempt: chat completions with temperature.
     try:

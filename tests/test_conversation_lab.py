@@ -43,6 +43,18 @@ def _fail_urlopen(*_args, **_kwargs):
     raise AssertionError("urlopen must never be called in a test")
 
 
+def _fail_episode_load(*_args, **_kwargs):
+    raise AssertionError("episode load was unexpected")
+
+
+def _raise_snapshot_unavailable(*_args, **_kwargs):
+    raise RuntimeError("snapshot unavailable")
+
+
+def _fail_generation(*_args, **_kwargs):
+    raise AssertionError("generated before load failure")
+
+
 @pytest.fixture(autouse=True)
 def _block_network(monkeypatch, tmp_path):
     """Every test in this file must be network-free by default, and must
@@ -600,6 +612,162 @@ def test_calibrate_dry_run_makes_zero_judge_calls_and_writes_results(tmp_path, m
     assert set(report["degradations"].keys()) == {"shuffled_order", "rotated_speakers"}
     for info in report["degradations"].values():
         assert info["attempted"] == 2
+
+
+def _snapshot_episode() -> dict:
+    recipe = {
+        "title": "Snapshot Spiral Bites",
+        "category": "sweet",
+        "description": "A tender spiral with crisp edges.",
+        "ingredients": [{"amount": "2 cups", "item": "flour"}],
+        "instructions": ["Roll the dough into a log.", "Bake until golden."],
+    }
+    return {
+        "episode_id": "snapshot-week",
+        "concept": "Weekly Muffin Pan Recipe",
+        "stages": {
+            "monday": {"recipe_data": recipe},
+            "tuesday": {"dialogue": _messages("real")},
+        },
+    }
+
+
+def _judge_stub() -> str:
+    return json.dumps({
+        "winner": "tie",
+        "per_dimension": {d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS},
+        "reason": "stub",
+    })
+
+
+def test_ab_uses_one_episode_snapshot_for_anchor_and_every_judge_orientation(tmp_path, monkeypatch):
+    """The generator and both judge orientations must see one recipe revision."""
+    episode = _snapshot_episode()
+    episode["stages"]["tuesday"]["recipe_data"] = {
+        "title": "Tuesday Override Bites",
+        "category": "savory",
+        "description": "A stage-specific crisp and tender bite.",
+        "ingredients": [{"amount": "1 cup", "item": "cornmeal"}],
+        "instructions": ["Stir the Tuesday batter.", "Bake until crisp."],
+    }
+    load_count = {"n": 0}
+    anchors: list[str | None] = []
+    prompts: list[str] = []
+
+    def load_once(*_args, **_kwargs):
+        load_count["n"] += 1
+        if load_count["n"] > 1:
+            raise AssertionError("episode snapshot was loaded more than once")
+        return episode
+
+    def fake_simulation(**kwargs):
+        anchors.append(kwargs["recipe_context"])
+        return {"messages": _messages("generated", count=1)}
+
+    def fake_judge(*, prompt, **_kwargs):
+        prompts.append(prompt)
+        return _judge_stub()
+
+    monkeypatch.setattr(cl, "_load_episode", load_once)
+    monkeypatch.setattr(sdw, "run_simulation", fake_simulation)
+    monkeypatch.setattr(model_router, "generate_judge_response", fake_judge)
+    monkeypatch.setenv("DIALOGUE_MODEL", "test-dialogue")
+    monkeypatch.setenv("JUDGE_MODEL", "test-judge")
+    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+
+    cl.main([
+        "ab", "--concept", "Snapshot Spiral Bites", "--stage", "tuesday", "--runs", "2",
+        "--variant", str(variant_path), "--from-episode", "snapshot-week", "--local",
+        "--max-calls", "20", "--no-log", "--results-dir", str(tmp_path / "results"),
+    ])
+
+    assert load_count["n"] == 1
+    assert len(anchors) == 4  # control + variant for each of two runs
+    assert len(set(anchors)) == 1
+    assert anchors[0] == "This week's recipe: Tuesday Override Bites (savory). What it is: A stage-specific crisp and tender bite."
+    assert len(prompts) == 4  # both A/B orientations for both runs
+    assert len({p.split("RECIPE GROUND TRUTH", 1)[1].split("Expected cast", 1)[0] for p in prompts}) == 1
+    assert all("Stir the Tuesday batter." in p for p in prompts)
+
+
+def test_calibrate_uses_one_snapshot_and_monday_fallback_for_all_judges(tmp_path, monkeypatch):
+    episode = _snapshot_episode()
+    load_count = {"n": 0}
+    prompts: list[str] = []
+
+    def load_once(*_args, **_kwargs):
+        load_count["n"] += 1
+        if load_count["n"] > 1:
+            raise AssertionError("calibration reloaded the episode")
+        return episode
+
+    monkeypatch.setattr(cl, "_load_episode", load_once)
+    monkeypatch.setattr(model_router, "generate_judge_response", lambda *, prompt, **_kwargs: (prompts.append(prompt) or _judge_stub()))
+    monkeypatch.setenv("JUDGE_MODEL", "test-judge")
+
+    cl.main([
+        "calibrate", "--from-episode", "snapshot-week", "--stage", "tuesday", "--runs", "2",
+        "--max-calls", "20", "--results-dir", str(tmp_path / "results"),
+    ])
+
+    assert load_count["n"] == 1
+    assert len(prompts) == 8  # 2 degradations x 2 runs x 2 orientations
+    assert len({p.split("RECIPE GROUND TRUTH", 1)[1].split("Expected cast", 1)[0] for p in prompts}) == 1
+    assert all("This week's recipe: Snapshot Spiral Bites" in p for p in prompts)
+    assert all("Roll the dough into a log." in p for p in prompts)
+
+
+def test_manual_recipe_context_does_not_load_or_supply_facts(tmp_path, monkeypatch):
+    anchors: list[str | None] = []
+    prompts: list[str] = []
+
+    def fake_simulation(**kwargs):
+        anchors.append(kwargs["recipe_context"])
+        tag = "VARIANT" if sdw._SHARED_CHARACTER_RULES == "VARIANT_RULES" else "CONTROL"
+        return {"messages": [{"character": "Margaret Chen", "message": f"{tag} generated"}]}
+
+    def fake_judge(*, prompt, **_kwargs):
+        prompts.append(prompt)
+        return _judge_stub()
+
+    monkeypatch.setattr(cl, "_load_episode", _fail_episode_load)
+    monkeypatch.setattr(sdw, "run_simulation", fake_simulation)
+    monkeypatch.setattr(model_router, "generate_judge_response", fake_judge)
+    monkeypatch.setenv("DIALOGUE_MODEL", "test-dialogue")
+    monkeypatch.setenv("JUDGE_MODEL", "test-judge")
+    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+
+    cl.main([
+        "ab", "--concept", "Manual Context", "--stage", "monday", "--runs", "1",
+        "--variant", str(variant_path), "--recipe-context", "manual anchor",
+        "--no-log", "--results-dir", str(tmp_path / "results"),
+    ])
+
+    assert len(anchors) == 2  # control + variant
+    assert anchors == ["manual anchor", "manual anchor"]
+    assert len(prompts) == 2  # both judge orientations
+    assert all("RECIPE GROUND TRUTH" not in prompt for prompt in prompts)
+    orientations = []
+    for prompt in prompts:
+        transcript_a = prompt.split("TRANSCRIPT A:\n", 1)[1].split("\n\nTRANSCRIPT B:", 1)[0]
+        transcript_b = prompt.split("TRANSCRIPT B:\n", 1)[1].split("\n\nScore", 1)[0]
+        orientations.append(("CONTROL generated" in transcript_a, "CONTROL generated" in transcript_b))
+    assert orientations == [(True, False), (False, True)]
+
+
+def test_episode_load_failure_propagates_before_generation(tmp_path, monkeypatch):
+    monkeypatch.setenv("DIALOGUE_MODEL", "test-dialogue")
+    monkeypatch.setenv("JUDGE_MODEL", "test-judge")
+    monkeypatch.setattr(cl, "_load_episode", _raise_snapshot_unavailable)
+    monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
+    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+
+    with pytest.raises(RuntimeError, match="snapshot unavailable"):
+        cl.main([
+            "ab", "--concept", "Load Failure", "--stage", "monday", "--runs", "1",
+            "--variant", str(variant_path), "--from-episode", "missing", "--local",
+            "--no-log", "--results-dir", str(tmp_path / "results"),
+        ])
 
 
 # ---------------------------------------------------------------------------
@@ -1218,10 +1386,22 @@ def test_ab_testbed_writes_partial_result_on_exception_in_a_later_scenario(tmp_p
     assert report["scenarios"][1]["completed_pairs"] == 0  # s2 never finished a pair
 
 
-def test_default_testbed_file_has_five_scenarios_with_real_titles():
-    scenarios = cl._load_testbed(cl.DEFAULT_TESTBED_PATH)
+def test_legacy_v1_testbed_still_has_its_five_scenarios():
+    """v1 is kept so pre-2026-09-15 results stay interpretable (#7201)."""
+    scenarios = cl._load_testbed(cl.LEGACY_TESTBED_PATH)
     assert len(scenarios) == 5
     assert {s["id"] for s in scenarios} == {"2026-W36", "2026-W32", "2026-W27", "2026-W33", "2026-W11"}
+    for scenario in scenarios:
+        assert cl.PLACEHOLDER_CONCEPT not in scenario["concept"]
+        assert scenario["recipe_context"]
+
+
+def test_default_testbed_is_v2_with_real_titles():
+    scenarios = cl._load_testbed(cl.DEFAULT_TESTBED_PATH)
+    assert len(scenarios) >= 6
+    # v1's five all survive into v2, plus the accented and long-method additions.
+    assert {"2026-W36", "2026-W32", "2026-W27", "2026-W33", "2026-W11"} <= {s["id"] for s in scenarios}
+    assert {"2026-W37", "2026-W38"} <= {s["id"] for s in scenarios}
     for scenario in scenarios:
         assert cl.PLACEHOLDER_CONCEPT not in scenario["concept"]
         assert scenario["recipe_context"]
@@ -1826,3 +2006,39 @@ def test_a_valid_variant_does_reach_generation(monkeypatch):
     assert calls == ["generated"], "a valid variant should have reached generation"
     # and the module must not be left patched by the aborted run
     assert sdw.HISTORY_DEPTH != {"early": (10, 6), "late": (14, 10)}
+
+
+# --- output-contract guards are sweepable levers -----------------------------
+
+@pytest.mark.parametrize(
+    "variant",
+    [
+        {"SHAPE_WINDOW": 0},
+        {"SHAPE_WINDOW": True},
+        {"SHAPE_WINDOW": "three"},
+        {"SHAPE_MAX_IN_WINDOW": 0},
+        {"WORD_BUDGET_TOLERANCE": 0.5},
+        {"WORD_BUDGET_TOLERANCE": True},
+        {"WORD_BUDGET_TOLERANCE": "loose"},
+    ],
+)
+def test_guard_levers_reject_malformed_values(variant):
+    with pytest.raises(cl.ConversationLabError):
+        cl.validate_variant(sdw, variant)
+
+
+def test_guard_levers_accept_a_strict_enforcement_sweep():
+    """WORD_BUDGET_TOLERANCE 1.0 is the "hold them to the stated max" arm."""
+    cl.validate_variant(
+        sdw, {"WORD_BUDGET_TOLERANCE": 1.0, "SHAPE_WINDOW": 4, "SHAPE_MAX_IN_WINDOW": 1}
+    )
+
+
+def test_guard_levers_round_trip_through_apply_and_restore():
+    before = (sdw.SHAPE_WINDOW, sdw.SHAPE_MAX_IN_WINDOW, sdw.WORD_BUDGET_TOLERANCE)
+    original = cl._apply_variant(
+        sdw, {"SHAPE_WINDOW": 5, "SHAPE_MAX_IN_WINDOW": 1, "WORD_BUDGET_TOLERANCE": 1.0}
+    )
+    assert (sdw.SHAPE_WINDOW, sdw.SHAPE_MAX_IN_WINDOW, sdw.WORD_BUDGET_TOLERANCE) == (5, 1, 1.0)
+    cl._restore_variant(sdw, original)
+    assert (sdw.SHAPE_WINDOW, sdw.SHAPE_MAX_IN_WINDOW, sdw.WORD_BUDGET_TOLERANCE) == before

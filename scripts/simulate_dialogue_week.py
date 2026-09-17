@@ -720,6 +720,108 @@ def _shared_trigram_with_recent(candidate: str, recent_lines: list[str]) -> bool
     return False
 
 
+# --- Output-contract guards -------------------------------------------------
+# The existing repetition guards police VOCABULARY (_is_repetitive_candidate is
+# a Jaccard over tokens, _shared_trigram_with_recent is word trigrams). Neither
+# can see SHAPE. W38 shipped 21 of 21 lines across mon/tue/wed built as
+# "[claim] - [elaboration]" - five characters, three days, one hundred percent -
+# and every vocabulary guard passed it, because the words differed every time.
+#
+# EXPERIMENTS.md already recorded the near-miss: banning em dashes "moved the
+# model from an em dash to a plain hyphen but did not move any of the numbers -
+# the glyph was never the problem". sanitize_typographic_tells rewrites em
+# dashes to " - ", so the house style converted the tic instead of removing it.
+# The fix has to act on the construction, not the character.
+
+SHAPE_WINDOW = 3          # how many prior messages to look back at
+SHAPE_MAX_IN_WINDOW = 2   # at most this many of them may share the shape
+
+# Multiple of a character's stated MAXIMUM that counts as a gross violation.
+# Not 1.0: the budgets are aspirational and holding a speaker to exactly 12 words
+# risks the stilted output an independent review warned about. 1.3 still catches
+# the observed failure (everyone converging on 27-33 words regardless of budget)
+# while leaving natural variance alone. A lab lever so it can be swept.
+WORD_BUDGET_TOLERANCE = 1.3
+
+
+# Must match conversation_metrics.DASH_CLAUSE_RE exactly. Deliberately DUPLICATED
+# rather than imported: this module ships in the Vercel Lambda bundle and
+# conversation_metrics.py does not (see .vercelignore and RUNBOOK Incident 4 - a
+# backend import of an unbundled script fails ONLY in production).
+# test_shape_guard_matches_the_metric_definition pins the two together.
+#
+# The em/en dash arms are the whole point. An earlier version matched " - " only,
+# so an em-dash clause was classified `declarative`, escaped the guard, and was
+# THEN rewritten to " - " by sanitize_typographic_tells on the way out - the guard
+# was blind to the exact mechanism this tic uses.
+_DASH_CLAUSE_RE = re.compile(r" - |\u2014|\u2013")
+
+
+def _sentence_shape(message: str) -> str:
+    """Coarse syntactic signature of a message, ignoring its vocabulary."""
+    text = " ".join((message or "").split())
+    if not text:
+        return "empty"
+    if _DASH_CLAUSE_RE.search(text):
+        return "dash_clause"
+    if text.rstrip().endswith("?"):
+        return "question"
+    if len(text.split()) <= 8:
+        return "terse"
+    return "declarative"
+
+
+def _recent_shapes(recent_lines: list[str], window: int | None = None) -> list[str]:
+    """Shapes of the last `window` messages.
+
+    `window` resolves at CALL time, not import time. A default argument of
+    SHAPE_WINDOW binds once when the module loads, so a lab variant overriding
+    the module constant changed nothing - the same no-op bug #7158 fixed for
+    HISTORY_DEPTH, reintroduced here.
+    """
+    size = SHAPE_WINDOW if window is None else window
+    shapes = []
+    for line in (recent_lines or [])[-size:]:
+        parts = line.split(": ", 1)
+        shapes.append(_sentence_shape(parts[1] if len(parts) == 2 else line))
+    return shapes
+
+
+def _shape_is_saturated(candidate: str, recent_lines: list[str]) -> bool:
+    """Has this construction already dominated the last few turns?
+
+    A rate limit, not a ban - a dash clause is a legitimate way to talk. The
+    defect is every speaker using it every time.
+
+    Both SHAPE_WINDOW and SHAPE_MAX_IN_WINDOW are read at call time so the lab
+    levers actually bite.
+    """
+    shape = _sentence_shape(candidate)
+    if shape in ("empty", "terse"):
+        return False
+    return _recent_shapes(recent_lines).count(shape) >= SHAPE_MAX_IN_WINDOW
+
+
+def _word_budget_for(name: str) -> int | None:
+    """The character's own MAXIMUM, read from _CHARACTER_VOICE_GUIDES.
+
+    Parsed rather than duplicated so the number cannot drift away from the text
+    the model is actually shown. test_word_budgets_match_the_voice_guides pins
+    that every character still has one.
+    """
+    guide = _CHARACTER_VOICE_GUIDES.get(name, "")
+    found = re.search(r"MAXIMUM\s+(\d+)\s+words", guide)
+    return int(found.group(1)) if found else None
+
+
+def _over_word_budget(message: str, name: str) -> bool:
+    budget = _word_budget_for(name)
+    if not budget:
+        return False
+    return len(str(message).split()) > budget * WORD_BUDGET_TOLERANCE
+
+
+
 def generate_turn(
     persona: dict[str, Any],
     concept: str,
@@ -943,7 +1045,38 @@ def generate_turn(
         persona=persona,
         model=model,
     )
+    # One bounded rewrite, as before - but it now names EVERY failing part of the
+    # output contract at once rather than only near-duplicate wording. Same API
+    # cost, more signal.
+    _faults: list[str] = []
     if _is_repetitive_candidate(msg, recent_lines) or _shared_trigram_with_recent(msg, recent_lines):
+        _faults.append(
+            "It repeats wording already used in this conversation. Use different "
+            "phrasing and a new specific detail."
+        )
+    if _shape_is_saturated(msg, recent_lines):
+        _shape = _sentence_shape(msg)
+        if _shape == "dash_clause":
+            _faults.append(
+                "It is built as '<claim> - <elaboration>', and the last few messages "
+                "already were. Everyone has been talking in that one shape. Say this "
+                "as a plain sentence, or two short ones, or a direct reply - anything "
+                "but another hyphenated afterthought."
+            )
+        else:
+            _faults.append(
+                f"Its sentence shape ({_shape}) already dominates the last few "
+                "messages. Vary the construction, not just the words."
+            )
+    _budget = _word_budget_for(persona.get("name", ""))
+    if _budget and _over_word_budget(msg, persona.get("name", "")):
+        _faults.append(
+            f"It is {len(msg.split())} words. Your MAXIMUM is {_budget}. Cut it to "
+            f"{_budget} words or fewer - keep the one thing that matters and drop the "
+            "rest. Do not pad it back out."
+        )
+
+    if _faults:
         # Build the rewrite ON TOP of the original prompt, never from scratch.
         # A from-scratch rewrite dropped the day's goal, the phase directive, the
         # recipe anchor AND the closer directive - so a final turn that tripped
@@ -952,12 +1085,14 @@ def generate_turn(
         # shoots again?", the judge scored arc_resolution 3 for an unresolved arc,
         # and the stage failed three times. The closer rule existed the whole
         # time; the rewrite just could not see it.
+        _fault_list = "\n".join(f"- {f}" for f in _faults)
         rewrite_prompt = (
             f"{prompt}\n\n"
             f"---\n"
-            f"Your draft was too repetitive:\n{msg}\n\n"
-            "Rewrite ONE message with different structure and new specific detail. "
-            "Do not repeat existing phrasing. Every instruction above still applies"
+            f"Your draft:\n{msg}\n\n"
+            f"Problems with it:\n{_fault_list}\n\n"
+            "Rewrite it as ONE message fixing every problem above. "
+            "Every instruction earlier in this prompt still applies"
             + (" - including the LAST-MESSAGE rule: confirm what was decided and "
                "sign off, do not ask a question." if is_last_turn else ".")
         )
