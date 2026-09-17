@@ -72,3 +72,72 @@ def test_loading_the_legacy_panel_warns_loudly(capsys):
     out = capsys.readouterr().out
     assert "STALE-FORMAT SCENARIOS: 5" in out
     assert "do not transfer to production" in out
+
+
+# --- Codex review of 7a0bfba: the lab judge could not see the method ----------
+
+def test_every_scenario_carries_judge_ground_truth():
+    """Without it the lab judge scores technique against the same abbreviated
+    anchor that produced the claim - the #7104 blind spot, fixed in production
+    and left in the lab, which made the W38 regression scenario decorative."""
+    for sc in _panel(cl.DEFAULT_TESTBED_PATH)["scenarios"]:
+        facts = sc.get("judge_recipe_facts") or ""
+        assert "RECIPE GROUND TRUTH" in facts, sc["id"]
+        assert "Method:" in facts, f'{sc["id"]} has no method for the judge to check against'
+
+
+def test_the_lamination_regression_scenario_is_actually_detectable():
+    """W38 is in the panel to catch an affirmative lamination claim.
+
+    The recipe rolls a soft dough once and never laminates, so the word must be
+    absent from its ground truth - otherwise a judge reading the facts would see
+    lamination mentioned and have no reason to flag the claim.
+    """
+    scenarios = {s["id"]: s for s in _panel(cl.DEFAULT_TESTBED_PATH)["scenarios"]}
+    assert "laminat" not in scenarios["2026-W38"]["judge_recipe_facts"].lower()
+
+
+def test_the_panel_has_a_true_positive_for_lamination_too():
+    """W36 is puff pastry, which genuinely IS laminated.
+
+    A panel that only contains the negative case cannot tell a judge that
+    correctly flags lamination from one that flags it always.
+    """
+    scenarios = {s["id"]: s for s in _panel(cl.DEFAULT_TESTBED_PATH)["scenarios"]}
+    assert "laminat" in scenarios["2026-W36"]["judge_recipe_facts"].lower()
+
+
+def test_judge_instruction_does_not_prime_a_regression_technique():
+    """The 'acceptable hypothetical' example must not name a real regression case.
+
+    It used 'we could laminate this...' - which, on the W38 scenario, primed the
+    judge with lamination as an acceptable thing to say.
+    """
+    from backend.admin.cron_routes import _build_judge_recipe_facts
+
+    facts = _build_judge_recipe_facts({
+        "title": "T", "category": "sweet", "instructions": ["Mix.", "Bake."],
+    }).lower()
+    assert "laminat" not in facts
+    assert "deep-fry" in facts
+
+
+def test_lab_judge_prompt_includes_the_ground_truth():
+    prompt = cl._build_pairwise_prompt(
+        "Spiral Bites", "tuesday", "This week's recipe: Spiral Bites (sweet).",
+        ["Margaret Chen"], [{"character": "Margaret Chen", "message": "A."}],
+        [{"character": "Margaret Chen", "message": "B."}],
+        recipe_facts="RECIPE GROUND TRUTH - Spiral Bites\nMethod: 1. Roll into a log.",
+    )
+    assert "RECIPE GROUND TRUTH" in prompt
+    assert "Roll into a log" in prompt
+
+
+def test_lab_judge_prompt_is_unchanged_without_facts():
+    prompt = cl._build_pairwise_prompt(
+        "X", "tuesday", "anchor", ["Margaret Chen"],
+        [{"character": "Margaret Chen", "message": "A."}],
+        [{"character": "Margaret Chen", "message": "B."}],
+    )
+    assert "RECIPE GROUND TRUTH" not in prompt
+    assert "anchor" in prompt

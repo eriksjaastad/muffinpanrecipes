@@ -170,3 +170,80 @@ def test_multiple_faults_are_reported_together_in_one_rewrite():
     assert "claim> - <elaboration" in body
     assert "MAXIMUM is 15" in body
     assert body.count("- ") >= 2
+
+
+# --- Codex review of 7a0bfba: two P2 bugs -------------------------------------
+
+@pytest.mark.parametrize("dash", [" - ", "—", "–"])
+def test_em_and_en_dashes_are_classified_as_dash_clauses(dash):
+    """An em-dash clause used to escape the guard entirely.
+
+    _sentence_shape matched " - " only, so an em-dash line was classified
+    `declarative`, passed the saturation check, and was THEN rewritten to " - "
+    by sanitize_typographic_tells on the way out. The guard was blind to the
+    exact mechanism the tic uses - house style converts em dashes to hyphens.
+    """
+    assert sdw._sentence_shape(f"The steam is the issue{dash}it reads as blur.") == "dash_clause"
+
+
+def test_shape_guard_matches_the_metric_definition():
+    """The guard's regex is duplicated from conversation_metrics, not imported.
+
+    simulate_dialogue_week ships in the Vercel bundle and conversation_metrics
+    does not (RUNBOOK Incident 4), so importing it would fail only in
+    production. Duplication is deliberate - this test is what keeps the two
+    definitions from drifting.
+    """
+    from scripts.conversation_metrics import DASH_CLAUSE_RE
+
+    assert sdw._DASH_CLAUSE_RE.pattern == DASH_CLAUSE_RE.pattern
+
+
+@pytest.mark.parametrize("dash", [" - ", "—", "–"])
+def test_an_em_dash_draft_triggers_the_same_rewrite_as_a_hyphen_one(dash):
+    """Behavioural, not just classification: the rewrite must actually fire."""
+    prior = [
+        "Julian: Uploaded three — macro, overhead, three-quarter.",
+        "Steph: The break feels right – you see the glaze hit.",
+    ]
+    prompts = _run(_persona(), f"The steam is the issue{dash}it reads as blur.", prior)
+    assert len(prompts) == 2, "an em/en-dash saturated draft should have been rewritten"
+    assert "claim> - <elaboration" in prompts[1]
+
+
+def test_shape_window_is_read_at_call_time(monkeypatch):
+    """SHAPE_WINDOW was a default argument, so it bound once at import.
+
+    A lab variant overriding the module constant changed nothing - the same
+    no-op that #7158 fixed for HISTORY_DEPTH, reintroduced here.
+    """
+    prior = ["a: x - y", "b: p - q", "c: m - n"]
+    for window in (1, 2, 3):
+        monkeypatch.setattr(sdw, "SHAPE_WINDOW", window)
+        assert len(sdw._recent_shapes(prior)) == window
+
+
+def test_shape_window_override_changes_saturation_behaviour(monkeypatch):
+    """The lever has to bite, not just be readable."""
+    # One dash clause immediately prior, two plain lines before it.
+    prior = ["a: plain sentence with no join at all", "b: another plain one here", "c: p - q"]
+    candidate = "The steam is the issue - it reads as blur."
+
+    monkeypatch.setattr(sdw, "SHAPE_MAX_IN_WINDOW", 1)
+    monkeypatch.setattr(sdw, "SHAPE_WINDOW", 1)
+    assert sdw._shape_is_saturated(candidate, prior) is True, "window=1 sees the one dash clause"
+
+    monkeypatch.setattr(sdw, "SHAPE_MAX_IN_WINDOW", 2)
+    assert sdw._shape_is_saturated(candidate, prior) is False, "max=2 needs two in the window"
+
+    monkeypatch.setattr(sdw, "SHAPE_WINDOW", 3)
+    assert sdw._shape_is_saturated(candidate, prior) is False, "only one dash clause in three"
+
+
+def test_shape_max_in_window_is_read_at_call_time(monkeypatch):
+    prior = ["a: x - y", "b: p - q"]
+    candidate = "A claim - an elaboration."
+    monkeypatch.setattr(sdw, "SHAPE_MAX_IN_WINDOW", 2)
+    assert sdw._shape_is_saturated(candidate, prior) is True
+    monkeypatch.setattr(sdw, "SHAPE_MAX_IN_WINDOW", 3)
+    assert sdw._shape_is_saturated(candidate, prior) is False
