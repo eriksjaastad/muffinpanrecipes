@@ -141,3 +141,89 @@ def test_lab_judge_prompt_is_unchanged_without_facts():
     )
     assert "RECIPE GROUND TRUTH" not in prompt
     assert "anchor" in prompt
+
+
+# --- Codex re-review: facts must reach the JUDGE, through the real runners ----
+#
+# The previous fix added a recipe_facts parameter and wired nobody to it. These
+# tests capture the prompt the judge is actually handed, through the runner, in
+# both modes. A test of the prompt BUILDER would still have passed with the
+# parameter unsupplied - that is exactly how this shipped broken.
+
+def _capture_judge_prompts(monkeypatch):
+    """Patch generation + judging; return the list of judge prompts actually sent."""
+    prompts: list[str] = []
+
+    def fake_sim(**kw):
+        return {"messages": [{"character": "Margaret Chen", "message": "A line."}]}
+
+    def fake_judge(prompt, system_prompt=None, model=None, temperature=None, **_kw):
+        prompts.append(prompt)
+        return json.dumps({
+            "winner": "A", "scores": {}, "reason": "stub",
+            "dimensions": {"voice_distinctiveness": {"A": 4, "B": 3}},
+        })
+
+    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    monkeypatch.setattr(cl.simulate_module, "run_simulation", fake_sim)
+    monkeypatch.setattr(cl.model_router, "generate_judge_response", fake_judge)
+    return prompts
+
+
+def test_testbed_run_hands_the_judge_the_recipe_method(tmp_path, monkeypatch):
+    """0 of 2 judge prompts carried ground truth before this fix."""
+    prompts = _capture_judge_prompts(monkeypatch)
+    variant = tmp_path / "v.json"
+    variant.write_text(json.dumps({"_SHARED_CHARACTER_RULES": "VARIANT"}))
+
+    cl.main([
+        "ab", "--stage", "tuesday", "--testbed", "--runs", "1",
+        "--variant", str(variant), "--results-dir", str(tmp_path / "r"),
+        "--max-calls", "500",
+    ])
+
+    assert prompts, "no judge prompts were captured"
+    grounded = [p for p in prompts if "RECIPE GROUND TRUTH" in p]
+    assert len(grounded) == len(prompts), (
+        f"only {len(grounded)}/{len(prompts)} judge prompts carried ground truth"
+    )
+    assert any("Method:" in p for p in prompts)
+
+
+def test_sweep_run_hands_the_judge_the_recipe_method(tmp_path, monkeypatch):
+    prompts = _capture_judge_prompts(monkeypatch)
+    sweep = tmp_path / "sweep"
+    sweep.mkdir()
+    (sweep / "a.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "VARIANT_A"}))
+
+    cl.main([
+        "ab", "--stage", "tuesday", "--sweep", str(sweep), "--runs", "1",
+        "--results-dir", str(tmp_path / "r"), "--max-calls", "500",
+    ])
+
+    assert prompts, "no judge prompts were captured"
+    grounded = [p for p in prompts if "RECIPE GROUND TRUTH" in p]
+    assert len(grounded) == len(prompts), (
+        f"only {len(grounded)}/{len(prompts)} sweep judge prompts carried ground truth"
+    )
+
+
+def test_the_w38_method_reaches_the_judge_verbatim(tmp_path, monkeypatch):
+    """The point of the W38 scenario: the judge must see a dough rolled ONCE."""
+    prompts = _capture_judge_prompts(monkeypatch)
+    variant = tmp_path / "v.json"
+    variant.write_text(json.dumps({"_SHARED_CHARACTER_RULES": "VARIANT"}))
+
+    cl.main([
+        "ab", "--stage", "tuesday", "--testbed", "--runs", "1",
+        "--variant", str(variant), "--results-dir", str(tmp_path / "r"),
+        "--max-calls", "500",
+    ])
+
+    w38 = [p for p in prompts if "Cardamom Cinnamon Spiral Bites" in p]
+    assert w38, "W38 never reached the judge"
+    assert any("roll the dough up tightly into a log" in p.lower() for p in w38)
+    assert not any("laminat" in p.lower() for p in w38), (
+        "W38's judge prompt must not mention lamination - that is the error to catch"
+    )

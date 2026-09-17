@@ -1012,6 +1012,27 @@ def _resolve_recipe_context(args: argparse.Namespace) -> str | None:
     return recipe_context
 
 
+def _resolve_recipe_facts(args: argparse.Namespace) -> str | None:
+    """Judge-facing ground truth for a single-concept run, or None.
+
+    The judge needs the actual METHOD to check a technique claim against; the
+    speaker-facing anchor is deliberately light and cannot serve that purpose
+    (#7104). Only --from-episode can supply it - a hand-passed --recipe-context
+    is a string with no recipe behind it, and inventing facts from it would be
+    worse than having none.
+    """
+    if not getattr(args, "from_episode", None):
+        return None
+    try:
+        episode = _load_episode(args.from_episode, local=getattr(args, "local", False))
+    except SystemExit:
+        raise
+    except Exception:
+        return None
+    stage_data = (episode.get("stages") or {}).get(args.stage) or {}
+    return _build_judge_recipe_facts(_stage_recipe_data(episode, stage_data)) or None
+
+
 def _resolve_judge_model() -> str:
     """Read JUDGE_MODEL straight from the environment - never through
     backend.config.config.judge_model, which silently falls back to
@@ -1097,6 +1118,7 @@ def _generate_and_judge_pairs(
     concept: str,
     stage: str,
     recipe_context: str | None,
+    recipe_facts: str | None = None,
     runs: int,
     variant: dict[str, Any],
     mode: str,
@@ -1177,6 +1199,7 @@ def _generate_and_judge_pairs(
                 first = _judge_orientation(
                     judge_model, concept, stage, recipe_context, expected_cast,
                     "control", control_messages, "variant", variant_messages,
+                    recipe_facts=recipe_facts,
                 )
                 budget.record(1)
 
@@ -1186,6 +1209,7 @@ def _generate_and_judge_pairs(
                 second = _judge_orientation(
                     judge_model, concept, stage, recipe_context, expected_cast,
                     "variant", variant_messages, "control", control_messages,
+                    recipe_facts=recipe_facts,
                 )
                 budget.record(1)
                 combined = _combine_orientations(first, second)
@@ -1293,7 +1317,8 @@ def cmd_ab(args: argparse.Namespace) -> None:
     pairs: list[dict[str, Any]] = []
     try:
         aborted = _generate_and_judge_pairs(
-            concept=args.concept, stage=args.stage, recipe_context=recipe_context, runs=args.runs,
+            concept=args.concept, stage=args.stage, recipe_context=recipe_context,
+            recipe_facts=_resolve_recipe_facts(args), runs=args.runs,
             variant=variant, mode=mode, default_model=default_model, judge_model=judge_model,
             expected_cast=expected_cast, budget=budget, max_cost=args.max_cost, dry_run=args.dry_run,
             pairs=pairs,
@@ -1345,6 +1370,7 @@ def _cmd_ab_testbed(
             try:
                 scenario_aborted = _generate_and_judge_pairs(
                     concept=scenario["concept"], stage=args.stage, recipe_context=scenario["recipe_context"],
+                        recipe_facts=scenario.get("judge_recipe_facts"),
                     runs=runs, variant=variant, mode=mode, default_model=default_model, judge_model=judge_model,
                     expected_cast=expected_cast, budget=budget, max_cost=args.max_cost, dry_run=args.dry_run,
                     pairs=scenario_pairs,
@@ -1857,6 +1883,7 @@ def _run_sweep_variant(
                     first = _judge_orientation(
                         judge_model, scenario["concept"], stage, scenario["recipe_context"], expected_cast,
                         "control", control_messages, "variant", variant_messages,
+                        recipe_facts=scenario.get("judge_recipe_facts"),
                     )
                     budget.record(1)
 
@@ -1866,6 +1893,7 @@ def _run_sweep_variant(
                     second = _judge_orientation(
                         judge_model, scenario["concept"], stage, scenario["recipe_context"], expected_cast,
                         "variant", variant_messages, "control", control_messages,
+                        recipe_facts=scenario.get("judge_recipe_facts"),
                     )
                     budget.record(1)
                     combined = _combine_orientations(first, second)
@@ -2348,6 +2376,7 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
                         first = _judge_orientation(
                             judge_model, concept, args.stage, recipe_context, expected_cast,
                             "real", dialogue, "degraded", degraded,
+                            recipe_facts=_resolve_recipe_facts(args),
                         )
                         budget.record(1)
 
@@ -2357,6 +2386,7 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
                         second = _judge_orientation(
                             judge_model, concept, args.stage, recipe_context, expected_cast,
                             "degraded", degraded, "real", dialogue,
+                            recipe_facts=_resolve_recipe_facts(args),
                         )
                         budget.record(1)
                         combined = _combine_orientations(first, second)
