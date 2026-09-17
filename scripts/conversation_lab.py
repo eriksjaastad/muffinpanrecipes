@@ -39,8 +39,8 @@ Four subcommands:
       exercise the plumbing for free.
 
       --testbed replaces a single --concept/--recipe-context run with the
-      frozen five-scenario panel in docs/conversation-lab/testbed.json (or
-      a path you pass), running --runs pairs (default 3 in testbed mode)
+      frozen seven-scenario panel in docs/conversation-lab/testbed-v2.json
+      (or a path you pass), running --runs pairs (default 3 in testbed mode)
       per scenario and reporting both a per-scenario breakdown and an
       aggregate across every scenario's pairs - the fixed panel keeps
       experiments comparable month to month instead of drifting with
@@ -987,18 +987,26 @@ def _stage_recipe_data(episode: dict[str, Any], stage_data: dict[str, Any]) -> d
 
     The baker writes recipe_data once, on Monday
     (backend/admin/cron_routes.py); a later stage's own dict rarely
-    carries a copy. Shared by `_resolve_recipe_context` (ab) and
-    cmd_calibrate so both build the same recipe_context for the same
-    episode/stage instead of drifting.
+    carries a copy. Shared by the episode-backed `ab` and `calibrate` paths so
+    both build the same recipe context and judge facts from one snapshot.
     """
     return stage_data.get("recipe_data") or (episode.get("stages") or {}).get("monday", {}).get("recipe_data")
 
 
-def _resolve_recipe_context(args: argparse.Namespace) -> str | None:
+def _resolve_recipe_context_and_facts(
+    args: argparse.Namespace,
+) -> tuple[str | None, str | None]:
+    """Return the speaker anchor and judge facts from one recipe snapshot.
+
+    An explicit context has no recipe object behind it, so it deliberately
+    returns no judge facts and performs no episode load.  Episode-backed runs
+    load once and derive both strings from the selected stage (falling back to
+    Monday's recipe data when later stages do not carry their own copy).
+    """
     if bool(args.from_episode) == bool(args.recipe_context):
         raise SystemExit("conversation_lab ab: pass exactly one of --from-episode or --recipe-context")
     if args.recipe_context:
-        return args.recipe_context
+        return args.recipe_context, None
 
     episode = _load_episode(args.from_episode, local=args.local)
     stage_data = (episode.get("stages") or {}).get(args.stage) or {}
@@ -1009,28 +1017,14 @@ def _resolve_recipe_context(args: argparse.Namespace) -> str | None:
             f"conversation_lab ab: episode {args.from_episode!r} has no usable recipe_data "
             f"for stage {args.stage!r} - pass --recipe-context instead"
         )
+    recipe_facts = _build_judge_recipe_facts(recipe_data) or None
+    return recipe_context, recipe_facts
+
+
+def _resolve_recipe_context(args: argparse.Namespace) -> str | None:
+    """Compatibility wrapper returning only the light speaker anchor."""
+    recipe_context, _ = _resolve_recipe_context_and_facts(args)
     return recipe_context
-
-
-def _resolve_recipe_facts(args: argparse.Namespace) -> str | None:
-    """Judge-facing ground truth for a single-concept run, or None.
-
-    The judge needs the actual METHOD to check a technique claim against; the
-    speaker-facing anchor is deliberately light and cannot serve that purpose
-    (#7104). Only --from-episode can supply it - a hand-passed --recipe-context
-    is a string with no recipe behind it, and inventing facts from it would be
-    worse than having none.
-    """
-    if not getattr(args, "from_episode", None):
-        return None
-    try:
-        episode = _load_episode(args.from_episode, local=getattr(args, "local", False))
-    except SystemExit:
-        raise
-    except Exception:
-        return None
-    stage_data = (episode.get("stages") or {}).get(args.stage) or {}
-    return _build_judge_recipe_facts(_stage_recipe_data(episode, stage_data)) or None
 
 
 def _resolve_judge_model() -> str:
@@ -1074,7 +1068,7 @@ def _resolve_models(dry_run: bool) -> tuple[str, str, str]:
 
 
 def _load_testbed(path: Path) -> list[dict[str, Any]]:
-    """Load the frozen scenario panel (docs/conversation-lab/testbed.json).
+    """Load the frozen scenario panel (docs/conversation-lab/testbed-v2.json by default).
 
     Committed data, not regenerated at run time - see the module docstring
     and _build_parser's `--testbed` help for how it was produced.
@@ -1310,7 +1304,7 @@ def cmd_ab(args: argparse.Namespace) -> None:
         args.max_calls = _derive_max_calls("single", scenario_count=1, runs=args.runs, stage=args.stage)
     budget = CallBudget(max_calls=args.max_calls)
 
-    recipe_context = _resolve_recipe_context(args)
+    recipe_context, recipe_facts = _resolve_recipe_context_and_facts(args)
     expected_cast = simulate_module.participants_for_day(args.stage)
     result_path = _ab_result_path(_results_dir(args), _slugify(args.concept), variant_path)
 
@@ -1318,7 +1312,7 @@ def cmd_ab(args: argparse.Namespace) -> None:
     try:
         aborted = _generate_and_judge_pairs(
             concept=args.concept, stage=args.stage, recipe_context=recipe_context,
-            recipe_facts=_resolve_recipe_facts(args), runs=args.runs,
+            recipe_facts=recipe_facts, runs=args.runs,
             variant=variant, mode=mode, default_model=default_model, judge_model=judge_model,
             expected_cast=expected_cast, budget=budget, max_cost=args.max_cost, dry_run=args.dry_run,
             pairs=pairs,
@@ -2331,7 +2325,9 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
 
     concept = _episode_concept(episode)
     expected_cast = simulate_module.participants_for_day(args.stage)
-    recipe_context = _build_recipe_context(_stage_recipe_data(episode, stage_data))
+    recipe_data = _stage_recipe_data(episode, stage_data)
+    recipe_context = _build_recipe_context(recipe_data)
+    recipe_facts = _build_judge_recipe_facts(recipe_data) or None
 
     if args.dry_run:
         judge_model = "template"
@@ -2376,7 +2372,7 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
                         first = _judge_orientation(
                             judge_model, concept, args.stage, recipe_context, expected_cast,
                             "real", dialogue, "degraded", degraded,
-                            recipe_facts=_resolve_recipe_facts(args),
+                            recipe_facts=recipe_facts,
                         )
                         budget.record(1)
 
@@ -2386,7 +2382,7 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
                         second = _judge_orientation(
                             judge_model, concept, args.stage, recipe_context, expected_cast,
                             "degraded", degraded, "real", dialogue,
-                            recipe_facts=_resolve_recipe_facts(args),
+                            recipe_facts=recipe_facts,
                         )
                         budget.record(1)
                         combined = _combine_orientations(first, second)
