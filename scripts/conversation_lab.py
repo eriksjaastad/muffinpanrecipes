@@ -235,7 +235,12 @@ from scripts.conversation_metrics import summarize
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LAB_DIR = ROOT / "docs" / "conversation-lab"
 DEFAULT_RESULTS_DIR = DEFAULT_LAB_DIR / "results"
-DEFAULT_TESTBED_PATH = DEFAULT_LAB_DIR / "testbed.json"
+# v2 is the CURRENT-anchor panel (#7201). v1 (testbed.json) is kept, not deleted,
+# so pre-2026-09-15 results stay interpretable - it carries the old
+# "Key ingredients:" context format that production stopped emitting with #7104,
+# and a run against it silently tests a context shape production no longer uses.
+DEFAULT_TESTBED_PATH = DEFAULT_LAB_DIR / "testbed-v2.json"
+LEGACY_TESTBED_PATH = DEFAULT_LAB_DIR / "testbed.json"
 DEFAULT_TESTBED_RUNS = 3
 
 # Erik's standing cost cap for a single conversation-lab invocation, 2026-09-06.
@@ -1057,6 +1062,22 @@ def _load_testbed(path: Path) -> list[dict[str, Any]]:
                 raise SystemExit(
                     f"conversation_lab ab: testbed scenario missing required field {field!r}: {scenario}"
                 )
+
+    # Say which panel ran, every time. A result that does not name its panel
+    # cannot be compared against another result months later, and the whole
+    # point of a frozen panel is month-to-month comparability.
+    version = data.get("panel_version", "v1-legacy") if isinstance(data, dict) else "unknown"
+    stale = sum(1 for sc in scenarios if "Key ingredients:" in (sc.get("recipe_context") or ""))
+    print(
+        f"[testbed] panel={version} file={path.name} scenarios={len(scenarios)}"
+        + (f"  STALE-FORMAT SCENARIOS: {stale}" if stale else "")
+    )
+    if stale:
+        print(
+            "[testbed] WARNING: those scenarios use the pre-#7104 'Key ingredients:' "
+            "anchor. Production emits 'What it is: <description>'. Results from this "
+            "panel do not transfer to production behaviour."
+        )
     return scenarios
 
 
