@@ -388,6 +388,12 @@ The guards fixed length and did not fix shape. That is the cleanest evidence yet
 that these are two separate problems, and that the shape tic survives a
 post-generation rate limit.
 
+**Review correction (2026-09-17):** these measurements predate the fixes for
+dash classification and the shape-window override in PR #117. The observed
+numbers remain historical results, but the claim above that the guards do not
+fix shape is unsupported: the shape guard was not reliably invoked. A fresh
+controlled run with the corrected wiring is required to assess its effect.
+
 ### The spread test (Tuesday: Devon 12, Margaret 15, Steph 25, Marcus 35)
 
 Wednesday's cast only spans budgets 15–25, so Astra's low length-variance there

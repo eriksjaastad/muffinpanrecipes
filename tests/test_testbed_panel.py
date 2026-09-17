@@ -17,6 +17,14 @@ import scripts.conversation_lab as cl
 from backend.admin.cron_routes import _build_recipe_context
 
 
+@pytest.fixture(autouse=True)
+def _redirect_lab_outputs(monkeypatch, tmp_path):
+    """Keep panel tests away from the tracked experiment log by default."""
+    default_results = tmp_path / "_default_results"
+    monkeypatch.setattr(cl, "DEFAULT_RESULTS_DIR", default_results)
+    monkeypatch.setattr(cl, "DEFAULT_EXPERIMENTS_LOG", default_results / "EXPERIMENTS.md")
+
+
 def _panel(path):
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -180,7 +188,7 @@ def test_testbed_run_hands_the_judge_the_recipe_method(tmp_path, monkeypatch):
     cl.main([
         "ab", "--stage", "tuesday", "--testbed", "--runs", "1",
         "--variant", str(variant), "--results-dir", str(tmp_path / "r"),
-        "--max-calls", "500",
+        "--max-calls", "500", "--no-log",
     ])
 
     assert prompts, "no judge prompts were captured"
@@ -199,7 +207,7 @@ def test_sweep_run_hands_the_judge_the_recipe_method(tmp_path, monkeypatch):
 
     cl.main([
         "ab", "--stage", "tuesday", "--sweep", str(sweep), "--runs", "1",
-        "--results-dir", str(tmp_path / "r"), "--max-calls", "500",
+        "--results-dir", str(tmp_path / "r"), "--max-calls", "500", "--no-log",
     ])
 
     assert prompts, "no judge prompts were captured"
@@ -218,7 +226,7 @@ def test_the_w38_method_reaches_the_judge_verbatim(tmp_path, monkeypatch):
     cl.main([
         "ab", "--stage", "tuesday", "--testbed", "--runs", "1",
         "--variant", str(variant), "--results-dir", str(tmp_path / "r"),
-        "--max-calls", "500",
+        "--max-calls", "500", "--no-log",
     ])
 
     w38 = [p for p in prompts if "Cardamom Cinnamon Spiral Bites" in p]
@@ -227,3 +235,14 @@ def test_the_w38_method_reaches_the_judge_verbatim(tmp_path, monkeypatch):
     assert not any("laminat" in p.lower() for p in w38), (
         "W38's judge prompt must not mention lamination - that is the error to catch"
     )
+
+
+def test_testbed_no_log_keeps_the_module_default_log_untouched(tmp_path):
+    variant = tmp_path / "variant.json"
+    variant.write_text(json.dumps({"_SHARED_CHARACTER_RULES": "VARIANT"}))
+    cl.main([
+        "ab", "--stage", "tuesday", "--testbed", "--runs", "1", "--variant",
+        str(variant), "--dry-run", "--no-log", "--max-calls", "4",
+        "--results-dir", str(tmp_path / "results"),
+    ])
+    assert not (tmp_path / "_default_results" / "EXPERIMENTS.md").exists()
