@@ -1,0 +1,79 @@
+{
+  "panel_version": "v2",
+  "description": "Current-anchor panel (#7201). recipe_context is produced by backend.admin.cron_routes._build_recipe_context against the stored episode, never hand-written - v1 drifted because its strings were written by hand and production changed underneath them (#7104, 2026-09-15). Scenarios chosen for contrast: sweet/savory/breakfast/party, one accented international title, and a short vs long method.",
+  "generated_at": "2026-09-17",
+  "builder": "backend.admin.cron_routes._build_recipe_context",
+  "scenarios": [
+    {
+      "id": "2026-W36",
+      "concept": "Caramelized Custard Tart Cups",
+      "category": "sweet",
+      "cuisine": "Portuguese",
+      "recipe_context": "This week's recipe: Caramelized Custard Tart Cups (sweet). What it is: These Portuguese-inspired custard tart cups capture the blistered, caramelized tops and shattering layers of traditional past\u00e9is de nata, reimagined for a standard muffin pan. A quick laminated puff pastry base hugs a silky lemon\u2013cinnamon custard that bakes into golden, freckled rounds that lift cleanly from the tin.",
+      "source_episode": "2026-W36",
+      "method_steps": 12,
+      "title_has_non_ascii": false
+    },
+    {
+      "id": "2026-W32",
+      "concept": "Miso Ginger Donburi Cups",
+      "category": "savory",
+      "cuisine": "",
+      "recipe_context": "This week's recipe: Miso Ginger Donburi Cups (savory). What it is: Tender miso-ginger glazed salmon is tucked into crisp nori\u2013sesame rice bases that bake into sturdy, round cups you can lift straight from the pan. Each molded cup eats like a single-serving salmon donburi, finished with scallions, cucumber, and a touch of Japanese mayo for richness.",
+      "source_episode": "2026-W32",
+      "method_steps": 12,
+      "title_has_non_ascii": false
+    },
+    {
+      "id": "2026-W27",
+      "concept": "Paneer Saag Egg Bites",
+      "category": "breakfast",
+      "cuisine": "Indian",
+      "recipe_context": "This week's recipe: Paneer Saag Egg Bites (breakfast). What it is: These paneer saag egg bites tuck spiced spinach, soft paneer, and a whisper of garam masala into tender, protein-rich cups that pop cleanly out of the pan. They eat like individual Indian-inspired frittatas, perfect with chutney for breakfast or a light lunch.",
+      "source_episode": "2026-W27",
+      "method_steps": 10,
+      "title_has_non_ascii": false
+    },
+    {
+      "id": "2026-W33",
+      "concept": "Kimchi Cheddar Rice Cups",
+      "category": "party",
+      "cuisine": "Korean",
+      "recipe_context": "This week's recipe: Kimchi Cheddar Rice Cups (party). What it is: These Korean-inspired rice cups bake into crisp-edged, cheesy rounds packed with tangy kimchi, scallions, and sesame. Each cup holds together like a little rice cake with molten cheddar inside and a spicy gochujang drizzle on top. They\u2019re equally good warm from the pan or at room temperature for lunches and parties.",
+      "source_episode": "2026-W33",
+      "method_steps": 11,
+      "title_has_non_ascii": false
+    },
+    {
+      "id": "2026-W37",
+      "concept": "Brazilian P\u00e3o de Queijo Bites",
+      "category": "party",
+      "cuisine": "Brazilian",
+      "recipe_context": "This week's recipe: Brazilian P\u00e3o de Queijo Bites (party). What it is: These Brazilian p\u00e3o de queijo bites bake up into round, chewy cheese puffs with crisp, golden edges that perfectly mirror the muffin cup\u2019s flared shape. Made with tapioca flour, sharp Parmesan, and nutty Minas-style cheese, they\u2019re naturally gluten-free and ideal for passing around at a party while still hot and stretchy inside.",
+      "source_episode": "2026-W37",
+      "method_steps": 9,
+      "title_has_non_ascii": true
+    },
+    {
+      "id": "2026-W11",
+      "concept": "Make-Ahead Veggie & Sausage Egg Cups",
+      "category": "breakfast",
+      "cuisine": "",
+      "recipe_context": "This week's recipe: Make-Ahead Veggie & Sausage Egg Cups (breakfast). What it is: These protein-packed egg cups are built for the workweek: hearty turkey sausage, roasted peppers, spinach, and sharp cheddar baked into perfectly portioned frittata-style bites. They reheat beautifully, freeze well, and actually taste like a real breakfast, not a sad \u201cmeal prep\u201d compromise. One pan on Sunday, grab-and-go breakfasts all week.",
+      "source_episode": "2026-W11",
+      "method_steps": 9,
+      "title_has_non_ascii": false
+    },
+    {
+      "id": "2026-W38",
+      "concept": "Cardamom Cinnamon Spiral Bites",
+      "category": "sweet",
+      "cuisine": "Middle Eastern",
+      "recipe_context": "This week's recipe: Cardamom Cinnamon Spiral Bites (sweet). What it is: These spiral bites wrap classic cinnamon-roll comfort around warm cardamom, orange, and pistachio for a Middle Eastern\u2013inspired twist. A rich, buttery dough is coiled into each muffin cup so it bakes into a round, self-contained roll with crisp edges, tender centers, and a glossy orange-rose glaze.",
+      "source_episode": "2026-W38",
+      "method_steps": 36,
+      "title_has_non_ascii": false,
+      "note": "Longest stored method (36 steps). This is the recipe whose accepted Tuesday discussed lamination for a dough that is rolled once - keep it as a technique-fidelity regression scenario."
+    }
+  ]
+}
