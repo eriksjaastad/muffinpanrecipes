@@ -1218,10 +1218,22 @@ def test_ab_testbed_writes_partial_result_on_exception_in_a_later_scenario(tmp_p
     assert report["scenarios"][1]["completed_pairs"] == 0  # s2 never finished a pair
 
 
-def test_default_testbed_file_has_five_scenarios_with_real_titles():
-    scenarios = cl._load_testbed(cl.DEFAULT_TESTBED_PATH)
+def test_legacy_v1_testbed_still_has_its_five_scenarios():
+    """v1 is kept so pre-2026-09-15 results stay interpretable (#7201)."""
+    scenarios = cl._load_testbed(cl.LEGACY_TESTBED_PATH)
     assert len(scenarios) == 5
     assert {s["id"] for s in scenarios} == {"2026-W36", "2026-W32", "2026-W27", "2026-W33", "2026-W11"}
+    for scenario in scenarios:
+        assert cl.PLACEHOLDER_CONCEPT not in scenario["concept"]
+        assert scenario["recipe_context"]
+
+
+def test_default_testbed_is_v2_with_real_titles():
+    scenarios = cl._load_testbed(cl.DEFAULT_TESTBED_PATH)
+    assert len(scenarios) >= 6
+    # v1's five all survive into v2, plus the accented and long-method additions.
+    assert {"2026-W36", "2026-W32", "2026-W27", "2026-W33", "2026-W11"} <= {s["id"] for s in scenarios}
+    assert {"2026-W37", "2026-W38"} <= {s["id"] for s in scenarios}
     for scenario in scenarios:
         assert cl.PLACEHOLDER_CONCEPT not in scenario["concept"]
         assert scenario["recipe_context"]
