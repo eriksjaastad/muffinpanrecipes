@@ -3972,12 +3972,68 @@ def test_scoping_key_only_narrows_genuine_per_day_containers():
     assert cl._scoping_key(["a"], "saturday") == ["a"]
 
 
-def test_generator_code_digest_pins_the_reasoning_effort(monkeypatch):
-    """Codex: OPENAI_REASONING_EFFORT sits at depth 4, past the walk limit,
-    and the report's `models` field records only the model NAME - yet it
-    changes every generation request."""
-    baseline = cl._generator_code_digest("saturday")
+def test_reasoning_effort_is_pinned_only_for_models_that_consume_it(monkeypatch):
+    """Codex round 19: I pinned OPENAI_REASONING_EFFORT unconditionally in
+    round 18 while fixing an unpinned input, and thereby created the EIGHTH
+    way this machinery refuses a valid comparison.
+
+    model_router._reasoning_kwargs returns {} for anything not in
+    OPENAI_REASONING_MODELS, so with an Anthropic dialogue model - the
+    standing config for this project - the setting never touches
+    generation and must not affect the digest.
+    """
+    haiku = cl._generator_code_digest("saturday", "anthropic/claude-haiku-4-5")
+    astra = cl._generator_code_digest("saturday", "openai/gpt-6-astra")
+
     monkeypatch.setattr(cl.model_router, "OPENAI_REASONING_EFFORT", "low")
-    assert cl._generator_code_digest("saturday") != baseline
-    monkeypatch.undo()
-    assert cl._generator_code_digest("saturday") == baseline
+    assert cl._generator_code_digest("saturday", "anthropic/claude-haiku-4-5") == haiku, (
+        "an irrelevant env var must not refuse an Anthropic comparison"
+    )
+    assert cl._generator_code_digest("saturday", "openai/gpt-6-astra") != astra, (
+        "but it MUST be pinned for a model that actually consumes it"
+    )
+def test_bench_row_lands_inside_the_benchmarks_table(tmp_path, monkeypatch):
+    """Codex: an unconditional end-of-file append put the row under
+    whatever section came last, so once any narrative section follows the
+    table a paid run's audit row stops being a valid table entry."""
+    _patch_bench_generation(monkeypatch, sdw)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+    log = tmp_path / "EXPERIMENTS.md"
+
+    cl.cmd_bench(_bench_args(tmp_path, no_log=False, experiments_log=str(log), label="first"))
+    # A later section appears, as it would in a real log.
+    log.write_text(log.read_text().rstrip("\n") + "\n\n## Notes\n\nSome prose.\n")
+    cl.cmd_bench(_bench_args(tmp_path, no_log=False, experiments_log=str(log), label="second"))
+
+    text = log.read_text()
+    assert text.index("| second |") < text.index("## Notes"), (
+        "the row must join the Benchmarks table, not trail the last section"
+    )
+    assert text.rstrip().endswith("Some prose."), "the later section must survive intact"
+
+
+def test_bench_preflights_the_audit_log_destination(tmp_path, monkeypatch):
+    """Codex: an unusable --experiments-log raised only in _append_bench_log,
+    after every call was paid for and the result published - so the
+    required audit row was never written despite the full spend."""
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
+
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0o500)
+    try:
+        with pytest.raises(cl.ConversationLabError, match="not writable|not usable"):
+            cl.cmd_bench(
+                _bench_args(
+                    tmp_path, no_log=False, experiments_log=str(locked / "EXPERIMENTS.md")
+                )
+            )
+    finally:
+        locked.chmod(0o700)
+
+
+def test_insert_in_section_appends_when_the_heading_is_absent():
+    """The just-created-the-section path must still work."""
+    out = cl._insert_in_section("# Log\n\nnothing yet\n", "## Benchmarks", "| row |\n")
+    assert out.rstrip().endswith("| row |")
