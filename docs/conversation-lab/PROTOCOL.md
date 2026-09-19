@@ -376,9 +376,17 @@ whole point of a cap here is to be a *guarantee*, not a hope.
 retries, and the judge can retry once on an unparseable verdict. The lab
 does not hook `model_router`, so nothing intercepts an individual call.
 What `bench` does instead is **reserve the worst case before starting a
-unit and refuse to start one that would not fit**: `2 * max_turns` for a
+unit and refuse to start one that would not fit**: `4 * max_turns` for a
 generation arm, `2` for a judge call. `--max-calls` is therefore a true
-upper bound. What gets *recorded* afterwards is the actual count, so
+upper bound.
+
+Four, not two, and the difference is the whole point of the guard: one
+turn can cost the initial `generate_response`, `_guard_cot_leak`'s retry
+on it, the fault rewrite (repetition / saturated shape / word budget), and
+`_guard_cot_leak`'s retry on *that*. A first attempt at this reserved two
+and called it a worst case, which meant an arm admitted under
+`--max-calls 20` could still spend 40. If you change `generate_turn`'s
+retry structure, change `_MAX_CALLS_PER_TURN` with it. What gets *recorded* afterwards is the actual count, so
 `calls_used` reports spending, not reservations.
 
 `--max-cost` is weaker and honestly so: it is checked between units, so a

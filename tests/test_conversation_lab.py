@@ -2409,13 +2409,16 @@ def test_bench_derives_max_calls_from_runs_when_the_flag_is_omitted(tmp_path, mo
     cl.cmd_bench(_bench_args(tmp_path, runs=3, max_calls=None))
 
     # Pinned to a literal, not to a re-typed copy of the implementation's
-    # own expression: 3 runs x (2 x 10 turns of retry headroom + 2 judge
-    # calls) = 66, where 10 is _MIN_MAX_TURNS_FLOOR (saturday's TICKS_RANGE
-    # upper bound of 6 is below it). Re-stating `runs * (2 * max_turns + 2)`
-    # here would absorb a coordinated change to the formula's shape silently.
+    # own expression: 3 runs x (4 calls/turn x 10 turns + 2 judge calls)
+    # = 126. 10 is _MIN_MAX_TURNS_FLOOR (saturday's TICKS_RANGE upper bound
+    # of 6 is below it); 4 is _MAX_CALLS_PER_TURN, traced through
+    # generate_turn as initial + CoT retry + fault rewrite + CoT retry on
+    # the rewrite. Re-stating `runs * (N * max_turns + 2)` here would
+    # absorb a coordinated change silently - this literal was 66 while the
+    # per-turn factor was wrongly 2, and Codex caught that, not this test.
     # If this fails, re-derive the budget deliberately rather than pasting
     # the new expression in.
-    assert _read_bench(tmp_path)["max_calls"] == 66
+    assert _read_bench(tmp_path)["max_calls"] == 126
 
 
 # ---------------------------------------------------------------------------
@@ -2535,3 +2538,107 @@ def test_bench_refuses_to_compare_a_dry_run_against_a_paid_baseline(tmp_path, mo
 
     with pytest.raises(cl.ConversationLabError, match="dry_run"):
         cl.cmd_bench(_bench_args(tmp_path, runs=2, dry_run=True, compare=baseline))
+
+
+# ---------------------------------------------------------------------------
+# bench: Codex's second review of PR #119 (findings on the first round's fixes)
+# ---------------------------------------------------------------------------
+
+
+def test_bench_reserves_four_calls_per_turn_not_two(tmp_path, monkeypatch):
+    """A turn can cost 4 paid calls, so 2x turns was never a worst case.
+
+    generate_turn: initial response, _guard_cot_leak retry, fault rewrite,
+    _guard_cot_leak retry on the rewrite. With a 10-turn ceiling an arm can
+    spend 40, so `--max-calls 20` must refuse to start it rather than admit
+    it and blow the documented hard bound.
+    """
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+
+    assert cl._MAX_CALLS_PER_TURN == 4
+    cl.cmd_bench(_bench_args(tmp_path, runs=2, max_calls=20))
+
+    report = _read_bench(tmp_path, "saturday-n2")
+    assert report["aborted"] is True
+    assert report["completed_runs"] == 0
+
+
+def test_bench_records_calls_spent_by_a_generation_arm_that_raises(tmp_path, monkeypatch):
+    """Codex: recording only on the success path under-reported real spend.
+
+    run_simulation can raise after paid requests (a CoT leak that survives
+    its retry), and a first-arm failure then reported calls_used: 0.
+    """
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+
+    spent = {"n": 0}
+
+    def exploding_run(**kwargs):
+        spent["n"] += 7  # seven paid turns happened before the guard gave up
+        raise RuntimeError("CoT leak after retry")
+
+    monkeypatch.setattr(sdw, "run_simulation", exploding_run)
+    monkeypatch.setattr(cl, "_calls_now", lambda: spent["n"])
+
+    with pytest.raises(SystemExit, match="CoT leak after retry"):
+        cl.cmd_bench(_bench_args(tmp_path, runs=3))
+
+    report = _read_bench(tmp_path)
+    assert report["completed_runs"] == 0
+    assert report["calls_used"] == 7, "calls spent by the failed arm were not recorded"
+
+
+def test_bench_rejects_a_structurally_broken_baseline_before_spending(tmp_path, monkeypatch):
+    """Codex: command == 'bench' alone let a broken payload through, and the
+    TypeError landed in _bench_delta after everything was paid for."""
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+
+    cases = {
+        "aggregate-is-a-list.json": {"command": "bench", "aggregate": []},
+        "metrics-missing.json": {"command": "bench", "aggregate": {"metrics": "nope"}},
+        "dist-not-an-object.json": {"command": "bench", "aggregate": {"metrics": {"qa_rate": 3}}},
+        "stderr-missing.json": {"command": "bench", "aggregate": {"metrics": {"qa_rate": {"mean": 1.0}}}},
+    }
+    for name, payload in cases.items():
+        bad = tmp_path / name
+        bad.write_text(json.dumps(payload))
+        with pytest.raises(cl.ConversationLabError):
+            cl.cmd_bench(_bench_args(tmp_path, compare=str(bad)))
+
+
+def test_bench_refuses_a_baseline_with_a_different_recipe_or_model(tmp_path, monkeypatch):
+    """Codex: stage + dry_run was too narrow. A different dish or a different
+    dialogue model moves both the metrics and the judge on its own."""
+    _patch_bench_generation(monkeypatch, sdw)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+    cl.cmd_bench(_bench_args(tmp_path, runs=2, label="base"))
+    baseline = str(_bench_path(tmp_path, "base"))
+
+    # Same stage, different dish.
+    with pytest.raises(cl.ConversationLabError, match="concept"):
+        cl.cmd_bench(_bench_args(tmp_path, runs=2, concept="A Different Dish", compare=baseline))
+
+    # Same stage and dish, different dialogue model.
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "other-model", "j"))
+    with pytest.raises(cl.ConversationLabError, match="models"):
+        cl.cmd_bench(_bench_args(tmp_path, runs=2, compare=baseline))
+
+
+def test_bench_claims_its_result_filename_atomically(tmp_path, monkeypatch):
+    """Codex: exists()-then-write is a TOCTOU race. _unique_result_path must
+    claim the name, so a second caller in the same second gets a different one."""
+    results = tmp_path / "results"
+    results.mkdir()
+
+    first = cl._unique_result_path(results, "bench-x-20260919T000000Z")
+    second = cl._unique_result_path(results, "bench-x-20260919T000000Z")
+
+    assert first != second
+    assert first.exists() and second.exists(), "the name must be claimed, not just checked"
+    assert first.name == "bench-x-20260919T000000Z.json"
+    assert second.name == "bench-x-20260919T000000Z-2.json"
