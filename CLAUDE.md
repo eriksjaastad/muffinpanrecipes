@@ -41,11 +41,9 @@ Run `pt memory search "muffinpanrecipes"` before starting work for prior decisio
 <!-- BEGIN scaffold:hygiene -->
 ## Locked Hygiene Contract
 
-This project participates in the portfolio-wide locked hygiene contract
-installed by `scaffold install-hygiene`. The contract is enforced by user-scope
-hooks in `~/.claude/` and by `pt` CLI commands in project-tracker. **Do not edit
-this block by hand** — `scaffold sync` rewrites it. Add project-specific notes
-outside the markers.
+This project participates in the portfolio-wide locked hygiene contract.
+Hygiene guidance now lives in agent-runtime-config; the contract is still enforced by user-scope
+hooks in `~/.claude/` and by `pt` CLI commands in project-tracker. **Treat this block as the portfolio hygiene contract.** Markers are author-owned (not auto-rewritten). Prefer updates guided by agent-runtime-config docs; add project-specific notes outside the markers.
 
 ### What the contract requires
 
@@ -93,5 +91,5 @@ outside the markers.
 | Open a handoff                  | `pt handoff create <card-pk> --branch <b> …`  |
 | List open handoffs              | `pt handoff list`                             |
 | Resolve a handoff               | `pt handoff resolve <id>`                     |
-| Refresh this block portfolio-wide | `scaffold sync --apply` (from project-scaffolding) |
+| Refresh this block portfolio-wide | Manual / agent-runtime-config guidance (scaffold sync CLI retired #6833) |
 <!-- END scaffold:hygiene -->
