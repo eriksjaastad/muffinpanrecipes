@@ -3475,3 +3475,60 @@ def test_bench_compare_shows_a_dimension_the_judge_never_scored(tmp_path, monkey
     assert "voice_distinctiveness" in dims, "the dimension must not vanish"
     assert dims["voice_distinctiveness"]["no_valid_samples"] is True
     assert "NOT SCORED" in out
+
+
+# ---------------------------------------------------------------------------
+# bench: Codex's twelfth review
+# ---------------------------------------------------------------------------
+
+
+def test_all_referenced_names_reaches_into_nested_code_objects():
+    """Codex: co_names covers only the OUTER code object.
+
+    score_quality references PROHIBITED inside a generator expression, so
+    it lives in a nested code object under co_consts and the walk never
+    saw it - meaning an edit to PROHIBITED changed legacy_prohibited_hits
+    while evaluator_digest stayed identical.
+    """
+    outer = set(sdw.score_quality.__code__.co_names)
+    everything = cl._all_referenced_names(sdw.score_quality.__code__)
+
+    assert "PROHIBITED" not in outer, "this is precisely why the shallow walk missed it"
+    assert "PROHIBITED" in everything
+    assert outer < everything
+
+
+def test_evaluator_digest_catches_a_changed_scoring_constant(monkeypatch):
+    """The end-to-end consequence of the fix above."""
+    baseline = cl._evaluator_digest()
+    monkeypatch.setattr(sdw, "PROHIBITED", list(sdw.PROHIBITED) + ["newly-banned-phrase"])
+    assert cl._evaluator_digest() != baseline, "a changed scoring constant must be caught"
+    monkeypatch.undo()
+    assert cl._evaluator_digest() == baseline
+
+
+def test_bench_main_table_does_not_fabricate_a_score_for_an_unscored_dimension(
+    tmp_path, monkeypatch, capsys
+):
+    """Codex: the comparison table honoured no_valid_samples but the
+    PRIMARY table printed mean 0.00 - a number outside the judge's own 1-5
+    scale, for a dimension it never scored."""
+    def judge_missing_one(concept, stage, dialogue, episode, **kwargs):
+        episode.setdefault("judge_scores", {})[stage] = {
+            "turn_taking": 4,
+            "voice_distinctiveness": None,
+        }
+        episode.setdefault("judge_weakest", {})[stage] = []
+        return True, "PASS"
+
+    _patch_bench_generation(monkeypatch, sdw)
+    monkeypatch.setattr(cl, "judge_dialogue", judge_missing_one)
+    capsys.readouterr()
+    cl.cmd_bench(_bench_args(tmp_path, runs=3))
+    out = capsys.readouterr().out
+
+    dim_line = next(l for l in out.splitlines() if l.startswith("voice_distinctiveness"))
+    assert "NOT SCORED" in dim_line
+    assert "0.00" not in dim_line, "a 1-5 dimension must never be reported as 0.00"
+    # The dimension that WAS scored still reports normally.
+    assert "4.00" in next(l for l in out.splitlines() if l.startswith("turn_taking"))
