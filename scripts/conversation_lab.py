@@ -224,7 +224,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from math import sqrt
+from math import isfinite, sqrt
 from statistics import mean, stdev
 from typing import Any
 
@@ -2520,15 +2520,24 @@ def _bench_aggregate(runs: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _bench_delta(current: dict[str, Any], baseline: dict[str, Any]) -> dict[str, Any]:
+def _bench_delta(
+    current: dict[str, Any], baseline: dict[str, Any], section: str = "metrics"
+) -> dict[str, Any]:
     """Per-metric movement between two bench aggregates.
 
     `z` is the difference in means over the standard error of that
     difference. See `_BENCH_MOVED_Z` for what it is and is not.
+
+    `section` selects which distributions to walk. It exists because this
+    only ever read `aggregate.metrics` (Codex): a prompt change that moved
+    a judge dimension - `natural_progression`, or the `voice_
+    distinctiveness` that has sat at 3 for weeks - while the deterministic
+    metrics stayed flat was reported as "nothing moved", which is the tool
+    failing at the exact job it was built for.
     """
     rows: dict[str, Any] = {}
-    for key, cur in (current.get("metrics") or {}).items():
-        base = (baseline.get("metrics") or {}).get(key)
+    for key, cur in (current.get(section) or {}).items():
+        base = (baseline.get(section) or {}).get(key)
         if not base:
             continue
         delta = cur["mean"] - base["mean"]
@@ -2589,6 +2598,13 @@ def _resolve_bench_scenario(
     return concept, recipe_context, recipe_facts, _frozen_prior_stages(episode, args.stage)
 
 
+# Longest slugified --label allowed. The result filename is
+# "bench-<label>-<20-char stamp>[-N].json", and most filesystems cap a single
+# path component at 255 bytes, so this leaves comfortable room for the stamp,
+# the collision suffix and the extension.
+_MAX_LABEL_SLUG_LEN = 180
+
+
 def _validate_bench_args(args: argparse.Namespace) -> None:
     """Pure flag checks, run BEFORE anything that costs or can fail.
 
@@ -2603,6 +2619,16 @@ def _validate_bench_args(args: argparse.Namespace) -> None:
         raise ConversationLabError("pass exactly one of --from-episode or --recipe-context")
     if args.recipe_context and not args.concept:
         raise ConversationLabError("--recipe-context also needs --concept (no episode to read a title from)")
+    # Checked here, not at write time (Codex): a long --label only failed
+    # when _unique_result_path built the filename, which is after the whole
+    # bench has been paid for and after the partial-result recovery has
+    # ended - so ENAMETOOLONG published nothing at all.
+    if args.label and len(_slugify(args.label)) > _MAX_LABEL_SLUG_LEN:
+        raise ConversationLabError(
+            f"--label is too long: {len(_slugify(args.label))} characters after "
+            f"slugification, maximum {_MAX_LABEL_SLUG_LEN}. It becomes part of the "
+            f"result filename."
+        )
 
 
 # The most paid calls ONE dialogue turn can cost, traced through
@@ -2754,6 +2780,20 @@ def _validate_bench_aggregate(baseline: dict[str, Any], source: str) -> None:
                     f"--compare baseline {source!r}: metric {key!r} has a non-numeric "
                     f"{field!r} ({value!r})"
                 )
+            # json.loads accepts NaN and Infinity, and both pass the check
+            # above (Codex). A NaN stderr yields z = NaN, and abs(NaN) >= 2
+            # is False - silently turning an uncomputable measurement into
+            # "did not move", which is the worst possible way to be wrong.
+            if not isfinite(value):
+                raise ConversationLabError(
+                    f"--compare baseline {source!r}: metric {key!r} has a non-finite "
+                    f"{field!r} ({value!r})"
+                )
+        if dist["stderr"] < 0:
+            raise ConversationLabError(
+                f"--compare baseline {source!r}: metric {key!r} has a negative "
+                f"'stderr' ({dist['stderr']!r})"
+            )
 
 
 # Report fields that must match for a delta to mean what it claims. Each is
@@ -3086,6 +3126,9 @@ def cmd_bench(args: argparse.Namespace) -> None:
             "baseline_label": baseline_report.get("label"),
             "baseline_pass_rate": (baseline_report.get("aggregate") or {}).get("pass_rate"),
             "metrics": _bench_delta(aggregate, baseline_report.get("aggregate") or {}),
+            "dimensions": _bench_delta(
+                aggregate, baseline_report.get("aggregate") or {}, section="dimensions"
+            ),
         }
         report["comparison"] = comparison
 
@@ -3247,6 +3290,17 @@ def _print_bench_report(report: dict[str, Any]) -> None:
         base_rate = comparison["baseline_pass_rate"]
         if base_rate is not None and agg["pass_rate"] is not None:
             print(f"pass rate: {base_rate:.0%} -> {agg['pass_rate']:.0%}")
+        dim_rows = comparison.get("dimensions") or {}
+        if dim_rows:
+            print(f"\n{'judge dimension':<34}{'baseline':>10}{'now':>10}{'delta':>10}{'z':>8}")
+            for key, row in sorted(dim_rows.items(), key=lambda kv: -abs(kv[1]["delta"])):
+                z_text = "   n/a" if row["z"] is None else f"{row['z']:>+6.2f}"
+                flag = "  <- moved" if row["moved"] else ""
+                print(
+                    f"{key:<34}{row['baseline_mean']:>10.2f}{row['mean']:>10.2f}"
+                    f"{row['delta']:>+10.2f}  {z_text}{flag}"
+                )
+
         moved = {k: v for k, v in comparison["metrics"].items() if v["moved"]}
         indeterminate = sum(1 for v in comparison["metrics"].values() if v["moved"] is None)
         print(f"{'metric':<34}{'baseline':>10}{'now':>10}{'delta':>10}{'z':>8}")
