@@ -2400,5 +2400,11 @@ def test_bench_derives_max_calls_from_runs_when_the_flag_is_omitted(tmp_path, mo
 
     cl.cmd_bench(_bench_args(tmp_path, runs=3, max_calls=None))
 
-    expected = 3 * (2 * cl._max_turns_for_stage("saturday") + 2)
-    assert _read_bench(tmp_path)["max_calls"] == expected
+    # Pinned to a literal, not to a re-typed copy of the implementation's
+    # own expression: 3 runs x (2 x 10 turns of retry headroom + 2 judge
+    # calls) = 66, where 10 is _MIN_MAX_TURNS_FLOOR (saturday's TICKS_RANGE
+    # upper bound of 6 is below it). Re-stating `runs * (2 * max_turns + 2)`
+    # here would absorb a coordinated change to the formula's shape silently.
+    # If this fails, re-derive the budget deliberately rather than pasting
+    # the new expression in.
+    assert _read_bench(tmp_path)["max_calls"] == 66
