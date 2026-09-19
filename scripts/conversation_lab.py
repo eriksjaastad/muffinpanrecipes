@@ -409,6 +409,16 @@ def _warn_cost_summary_failure_once(exc: Exception) -> None:
     _cost_summary_failure_warned = True
 
 
+def _cost_summary_or_none() -> dict[str, Any] | None:
+    """model_router's running totals, or None if the log cannot be read."""
+    try:
+        summary = model_router.get_cost_summary()
+    except Exception as exc:
+        _warn_cost_summary_failure_once(exc)
+        return None
+    return summary if isinstance(summary, dict) else None
+
+
 def _total_cost_or_none() -> float | None:
     """Current backend.utils.model_router.get_cost_summary()['total_cost'],
     or None on a read failure - after firing the one-time stderr warning
@@ -2366,14 +2376,23 @@ def _frozen_prior_stages(episode: dict[str, Any], stage: str) -> dict[str, Any]:
     return prior
 
 
-def _calls_now() -> int:
+def _calls_now() -> int | None:
+    """Current total_calls, or None when the counter cannot be read.
+
+    None is distinct from 0 on purpose (Codex): a zero delta means "no
+    paid call happened" (template mode, a monkeypatched model), while an
+    unreadable counter means "spending is invisible". Collapsing both to 0
+    made the accounting-failure path charge the small fallback for a unit
+    that can really cost forty calls, so `--max-calls` stopped being an
+    upper bound exactly when the tracking broke.
+    """
     try:
         return model_router.get_cost_summary().get("total_calls", 0)
     except Exception:
-        return 0
+        return None
 
 
-def _spend(budget: CallBudget, fn=None, *, fallback: int = 1):
+def _spend(budget: CallBudget, fn=None, *, fallback: int = 1, reservation: int | None = None):
     """Run `fn` and record what it spent - even if it raises.
 
     The budget CHECK reserves a worst case before a unit starts; this is
@@ -2395,8 +2414,15 @@ def _spend(budget: CallBudget, fn=None, *, fallback: int = 1):
     try:
         return fn()
     finally:
-        delta = _calls_now() - before
-        budget.record(delta if delta > 0 else fallback)
+        after = _calls_now()
+        if before is None or after is None:
+            # Spending is invisible, so assume the worst rather than the
+            # best: charge what was reserved for this unit. Under-recording
+            # here is what let a 60-call cap permit 82 (Codex).
+            budget.record(reservation if reservation is not None else fallback)
+        else:
+            delta = after - before
+            budget.record(delta if delta > 0 else fallback)
 
 
 def _judge_one_transcript(
@@ -2856,12 +2882,26 @@ def _evaluator_digest() -> str:
     """
     from backend.admin.cron_routes import _JUDGE_SYSTEM_PROMPT
 
+    import backend.admin.cron_routes as cron_routes
+
     parts = ["judge_prompt:" + hashlib.sha256(_JUDGE_SYSTEM_PROMPT.encode("utf-8")).hexdigest()]
-    try:
-        metrics_src = Path(conversation_metrics.__file__).read_bytes()
-        parts.append("metrics:" + hashlib.sha256(metrics_src).hexdigest())
-    except (OSError, TypeError):
-        parts.append("metrics:unreadable")
+    # Every module that participates in scoring, not just the two most
+    # obvious artifacts (Codex): cron_routes assembles the judge prompt,
+    # runs its retry and parses the verdict; conversation_metrics.
+    # legacy_quality delegates several reported numbers to
+    # simulate_dialogue_week.score_quality; and simulate_dialogue_week is
+    # also the generator, so a change there is a scenario change anyway.
+    for label, module in (
+        ("metrics", conversation_metrics),
+        ("cron_routes", cron_routes),
+        ("simulator", simulate_module),
+    ):
+        try:
+            parts.append(
+                f"{label}:" + hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest()
+            )
+        except (OSError, TypeError):
+            parts.append(f"{label}:unreadable")
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
@@ -2953,6 +2993,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
                     concept, args.stage, run_index, recipe_context, mode, default_model
                 ),
                 fallback=0 if args.dry_run else _max_turns_for_stage(args.stage),
+                reservation=gen_reserve,
             )
             messages = result.get("messages", [])
 
@@ -2978,6 +3019,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
                 record["judge"] = _spend(
                     budget,
                     fallback=0 if args.dry_run else 1,
+                    reservation=judge_reserve,
                     fn=lambda: _judge_one_transcript(
                         concept=concept,
                         stage=args.stage,
@@ -3030,6 +3072,11 @@ def cmd_bench(args: argparse.Namespace) -> None:
         "recurring_phrases_across_runs": corpus,
         "runs": runs,
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        # PROTOCOL.md says every experiment logs calls AND cost, and `ab`
+        # already snapshots this. The cost log is process-local, so without
+        # it the result retains no dollar figure once the command exits and
+        # nobody can audit how close a run came to --max-cost (Codex).
+        "cost_summary": _cost_summary_or_none(),
     }
 
     comparison = None
