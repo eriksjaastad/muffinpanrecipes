@@ -3097,3 +3097,96 @@ def test_bench_survives_an_unreadable_cost_summary(tmp_path, monkeypatch):
     report = _read_bench(tmp_path, "saturday-n1")
     assert report["cost_summary"] is None
     assert report["completed_runs"] == 1
+
+
+# ---------------------------------------------------------------------------
+# bench: Codex's eighth review
+# ---------------------------------------------------------------------------
+
+
+def test_bench_compare_reports_moved_judge_dimensions(tmp_path, monkeypatch):
+    """Codex: --compare walked only aggregate.metrics.
+
+    A prompt change that moves a judge dimension while the deterministic
+    metrics stay flat was reported as "nothing moved" - the tool failing
+    at the exact job it exists for. voice_distinctiveness sitting at 3 for
+    weeks is precisely the number this has to be able to see move.
+    """
+    scores = {"low": 3, "high": 5}
+
+    def judge_with(level):
+        def fake_judge(concept, stage, dialogue, episode, **kwargs):
+            episode.setdefault("judge_scores", {})[stage] = {
+                "voice_distinctiveness": scores[level],
+                # jitter so the arm has a variance estimate
+                "natural_progression": 3 + (len(dialogue) % 2),
+            }
+            episode.setdefault("judge_weakest", {})[stage] = []
+            return True, "PASS"
+        return fake_judge
+
+    # Identical transcripts in both arms: the ONLY thing that changes is
+    # the judge's score, so a metrics-only delta sees nothing at all.
+    _patch_varying_generation(monkeypatch, sdw, [4, 5, 4, 5])
+    monkeypatch.setattr(cl, "judge_dialogue", judge_with("low"))
+    cl.cmd_bench(_bench_args(tmp_path, runs=4, label="before"))
+
+    _patch_varying_generation(monkeypatch, sdw, [4, 5, 4, 5])
+    monkeypatch.setattr(cl, "judge_dialogue", judge_with("high"))
+    cl.cmd_bench(
+        _bench_args(tmp_path, runs=4, label="after", compare=str(_bench_path(tmp_path, "before")))
+    )
+
+    comparison = _read_bench(tmp_path, "after")["comparison"]
+    assert "dimensions" in comparison, "judge dimensions must be compared"
+    row = comparison["dimensions"]["voice_distinctiveness"]
+    assert row["baseline_mean"] == 3.0
+    assert row["mean"] == 5.0
+    assert row["delta"] == 2.0
+    assert row["moved"] is True
+
+    # And the metrics table really would have shown nothing.
+    assert not any(v["moved"] for v in comparison["metrics"].values())
+
+
+def test_bench_rejects_a_baseline_with_nan_or_infinite_values(tmp_path, monkeypatch):
+    """Codex: json.loads accepts NaN/Infinity and both pass an isinstance
+    check. A NaN stderr makes z NaN, and abs(NaN) >= 2 is False - an
+    uncomputable measurement silently reported as "did not move"."""
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
+
+    for raw in ("NaN", "Infinity", "-Infinity"):
+        bad = tmp_path / f"bad-{raw}.json"
+        bad.write_text(
+            '{"command": "bench", "aggregate": {"metrics": {"qa_rate": '
+            '{"n": 3, "mean": 1.0, "stderr": ' + raw + "}}}}"
+        )
+        # Sanity: the parser really does accept it, which is the whole problem.
+        assert not cl.isfinite(json.loads(bad.read_text())["aggregate"]["metrics"]["qa_rate"]["stderr"])
+        with pytest.raises(cl.ConversationLabError, match="non-finite"):
+            cl.cmd_bench(_bench_args(tmp_path, compare=str(bad)))
+
+
+def test_bench_rejects_a_negative_standard_error(tmp_path, monkeypatch):
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
+    bad = tmp_path / "neg.json"
+    bad.write_text(json.dumps({
+        "command": "bench",
+        "aggregate": {"metrics": {"qa_rate": {"n": 3, "mean": 1.0, "stderr": -0.5}}},
+    }))
+    with pytest.raises(cl.ConversationLabError, match="negative"):
+        cl.cmd_bench(_bench_args(tmp_path, compare=str(bad)))
+
+
+def test_bench_rejects_an_overlong_label_before_spending(tmp_path, monkeypatch):
+    """Codex: ENAMETOOLONG fired at write time, after the whole bench was
+    paid for and after partial-result recovery had ended."""
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
+
+    with pytest.raises(cl.ConversationLabError, match="too long"):
+        cl.cmd_bench(_bench_args(tmp_path, label="x" * 300))
+
+    assert not list((tmp_path / "results").glob("*.json")) if (tmp_path / "results").is_dir() else True

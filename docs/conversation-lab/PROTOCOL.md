@@ -399,8 +399,12 @@ The same last-observed-reservation weakness still exists in `ab`'s
 
 ### Deciding whether an average moved
 
-`--compare` reports, per metric, the difference in means over the standard
-error of that difference (`z`), and flags `|z| >= 2`.
+`--compare` reports, per metric **and per judge dimension**, the difference
+in means over the standard error of that difference (`z`), and flags
+`|z| >= 2`. Both tables matter and they answer different questions: a
+prompt lever can move `voice_distinctiveness` or `natural_progression`
+while every deterministic metric stays flat, and for a long time it
+reported "nothing moved" in exactly that case.
 
 A metric is reported **indeterminate** rather than moved when either arm
 has fewer than two runs: with one observation the standard error is zero
