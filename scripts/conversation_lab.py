@@ -210,6 +210,7 @@ from __future__ import annotations
 import argparse
 import fcntl
 import hashlib
+import inspect
 import json
 import os
 import tempfile
@@ -2502,6 +2503,20 @@ def _distribution(values: list[Any]) -> dict[str, Any] | None:
     }
 
 
+# The judge's own contract: _JUDGE_SYSTEM_PROMPT asks for every dimension
+# on a 1-5 scale. Scores outside it are malformed verdicts, not data.
+_JUDGE_SCORE_RANGE = (1, 5)
+
+
+def _is_valid_judge_score(value: Any) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and isfinite(value)
+        and _JUDGE_SCORE_RANGE[0] <= value <= _JUDGE_SCORE_RANGE[1]
+    )
+
+
 def _bench_aggregate(runs: list[dict[str, Any]]) -> dict[str, Any]:
     """Collapse per-run summaries and verdicts into one distribution each."""
     metric_keys = sorted({k for run in runs for k in _numeric_keys(run.get("summary") or {})})
@@ -2514,7 +2529,19 @@ def _bench_aggregate(runs: list[dict[str, Any]]) -> dict[str, Any]:
     judged = [run for run in runs if run.get("judge")]
     dimensions: dict[str, Any] = {}
     for dim in JUDGE_DIMENSIONS:
-        dist = _distribution([(run["judge"].get("scores") or {}).get(dim) for run in judged])
+        # Clamped to the judge's own contract (Codex). _JUDGE_SYSTEM_PROMPT
+        # defines every dimension as 1-5, but the verdict parser stores
+        # whatever JSON it is handed, so a malformed `50` would sail
+        # through _distribution's numeric-and-finite check and drag a
+        # dimension mean far enough to invent or hide movement. An
+        # out-of-range score is a broken verdict, not a datum.
+        samples = [
+            score
+            for run in judged
+            for score in [(run["judge"].get("scores") or {}).get(dim)]
+            if _is_valid_judge_score(score)
+        ]
+        dist = _distribution(samples)
         if dist:
             dimensions[dim] = dist
 
@@ -2954,23 +2981,41 @@ def _evaluator_digest() -> str:
     import backend.admin.cron_routes as cron_routes
 
     parts = ["judge_prompt:" + hashlib.sha256(_JUDGE_SYSTEM_PROMPT.encode("utf-8")).hexdigest()]
-    # Every module that participates in scoring, not just the two most
-    # obvious artifacts (Codex): cron_routes assembles the judge prompt,
-    # runs its retry and parses the verdict; conversation_metrics.
-    # legacy_quality delegates several reported numbers to
-    # simulate_dialogue_week.score_quality; and simulate_dialogue_week is
-    # also the generator, so a change there is a scenario change anyway.
-    for label, module in (
-        ("metrics", conversation_metrics),
-        ("cron_routes", cron_routes),
-        ("simulator", simulate_module),
+
+    # SCORING code only - deliberately NOT whole modules (Codex).
+    #
+    # The previous version hashed all of simulate_dialogue_week.py, which
+    # broke the entire point of the tool: the documented workflow is bench,
+    # change one prompt lever IN THAT FILE, bench again, compare - and a
+    # whole-file hash refused every such comparison. The only escape,
+    # --allow-mismatched-baseline, switches off the judge-rubric and
+    # judge-context checks too, so the workflow became "disable all the
+    # safety to do the normal thing". Hashing named scoring functions keeps
+    # the guarantee (a changed rubric or metric still refuses a comparison)
+    # without punishing the change you actually came to measure.
+    #
+    # cron_routes gets the same treatment for the same reason: it is mostly
+    # cron handlers, and an unrelated stage edit should not invalidate a
+    # baseline.
+    for label, obj in (
+        ("judge_dialogue", cron_routes._judge_dialogue),
+        ("parse_judge_json", cron_routes._parse_judge_json),
+        ("score_quality", simulate_module.score_quality),
     ):
         try:
-            parts.append(
-                f"{label}:" + hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest()
-            )
+            src = inspect.getsource(obj).encode("utf-8")
+            parts.append(f"{label}:" + hashlib.sha256(src).hexdigest())
         except (OSError, TypeError):
             parts.append(f"{label}:unreadable")
+
+    # conversation_metrics is hashed whole because every function in it is
+    # a reported metric - there is no unrelated surface to spare.
+    try:
+        metrics_src = Path(conversation_metrics.__file__).read_bytes()
+        parts.append("metrics:" + hashlib.sha256(metrics_src).hexdigest())
+    except (OSError, TypeError):
+        parts.append("metrics:unreadable")
+
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
@@ -3324,7 +3369,12 @@ def _print_bench_report(report: dict[str, Any]) -> None:
             print(f"\n{'judge dimension':<34}{'baseline':>10}{'now':>10}{'delta':>10}{'z':>8}")
             for key, row in sorted(dim_rows.items(), key=lambda kv: -abs(kv[1]["delta"])):
                 z_text = "   n/a" if row["z"] is None else f"{row['z']:>+6.2f}"
-                flag = "  <- moved" if row["moved"] else ""
+                if row["moved"] is None:
+                    flag = "  <- indeterminate (n < 2)"
+                elif row["moved"]:
+                    flag = "  <- moved"
+                else:
+                    flag = ""
                 print(
                     f"{key:<34}{row['baseline_mean']:>10.2f}{row['mean']:>10.2f}"
                     f"{row['delta']:>+10.2f}  {z_text}{flag}"
@@ -3332,7 +3382,12 @@ def _print_bench_report(report: dict[str, Any]) -> None:
 
         moved_dims = {k: v for k, v in dim_rows.items() if v["moved"]}
         moved = {k: v for k, v in comparison["metrics"].items() if v["moved"]}
-        indeterminate = sum(1 for v in comparison["metrics"].values() if v["moved"] is None)
+        indeterminate = sum(
+            1
+            for section in ("metrics", "dimensions")
+            for v in (comparison.get(section) or {}).values()
+            if v["moved"] is None
+        )
         print(f"{'metric':<34}{'baseline':>10}{'now':>10}{'delta':>10}{'z':>8}")
         rows = moved or comparison["metrics"]
         # z is None when neither arm varied (see _bench_delta). Those rows
@@ -3355,12 +3410,21 @@ def _print_bench_report(report: dict[str, Any]) -> None:
             # "nothing moved" directly beneath a judge dimension the table
             # had just flagged as moved, which is the one summary an
             # operator might read instead of the tables.
-            scope = "no DETERMINISTIC metric" if moved_dims else "nothing"
-            suffix = (
-                f" - but {len(moved_dims)} judge dimension(s) did; see the table above"
-                if moved_dims
-                else ""
+            indeterminate_dims = sum(1 for v in dim_rows.values() if v["moved"] is None)
+            scope = (
+                "no DETERMINISTIC metric"
+                if (moved_dims or indeterminate_dims)
+                else "nothing"
             )
+            if moved_dims:
+                suffix = f" - but {len(moved_dims)} judge dimension(s) did; see the table above"
+            elif indeterminate_dims:
+                suffix = (
+                    f" - and {indeterminate_dims} judge dimension(s) were INDETERMINATE, "
+                    "not unchanged; see the table above"
+                )
+            else:
+                suffix = ""
             print(f"({scope} moved by |z| >= {_BENCH_MOVED_Z}; showing all metrics{suffix})")
         if indeterminate:
             print(
