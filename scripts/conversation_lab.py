@@ -2541,9 +2541,21 @@ def _bench_aggregate(runs: list[dict[str, Any]]) -> dict[str, Any]:
             for score in [(run["judge"].get("scores") or {}).get(dim)]
             if _is_valid_judge_score(score)
         ]
-        dist = _distribution(samples)
-        if dist:
-            dimensions[dim] = dist
+        # A dimension with no usable samples is recorded as an explicit
+        # n=0 placeholder rather than omitted (Codex). _bench_delta walks
+        # the current aggregate's keys, so dropping the key produced no
+        # row, no indeterminate count, and a summary that said nothing
+        # moved - a TOTAL measurement failure reading as "no change",
+        # which is the exact inversion this tool must never print.
+        dimensions[dim] = _distribution(samples) or {
+            "n": 0,
+            "mean": 0.0,
+            "stdev": 0.0,
+            "stderr": 0.0,
+            "min": 0.0,
+            "max": 0.0,
+            "no_valid_samples": True,
+        }
 
     weakest_counts: Counter[str] = Counter()
     for run in judged:
@@ -2600,6 +2612,9 @@ def _bench_delta(
             z = None
             moved = delta != 0
         rows[key] = {
+            "no_valid_samples": bool(
+                cur.get("no_valid_samples") or base.get("no_valid_samples")
+            ),
             "baseline_mean": base["mean"],
             "mean": cur["mean"],
             "delta": round(delta, 4),
@@ -2958,6 +2973,60 @@ def _assert_writable(directory: Path) -> None:
         ) from exc
 
 
+# How far to follow a scorer's own dependencies. score_quality calls ten
+# helpers, several of which read module-level constants; depth 3 covers
+# that graph with room to spare. It is a bound, not a proof - a scoring
+# change buried deeper than this would not be caught, which is why the
+# metrics module is still hashed whole.
+_SCORER_WALK_DEPTH = 3
+
+
+def _scoring_source_parts(root_names: dict[str, Any]) -> list[str]:
+    """Source digests for scorers AND the module-level names they use.
+
+    Codex: hashing only `inspect.getsource(score_quality)` missed the ten
+    helpers it calls and the constants those read, so editing
+    `_voice_pattern_score` or `PROHIBITED` changed the reported legacy
+    metrics without changing the digest - and `--compare` then credited
+    that movement to the prompt lever.
+
+    Walks each scorer's `co_names` against its own module, following
+    callables to `_SCORER_WALK_DEPTH`. Names in ALLOWED_VARIANT_ATTRS are
+    skipped by design: those are the levers under test and MUST be allowed
+    to differ between two benches, which is the mistake the previous
+    whole-module hash made.
+    """
+    parts: list[str] = []
+    seen: set[str] = set()
+
+    def visit(label: str, obj: Any, depth: int) -> None:
+        key = f"{getattr(obj, '__module__', '?')}.{getattr(obj, '__qualname__', label)}"
+        if key in seen or depth > _SCORER_WALK_DEPTH:
+            return
+        seen.add(key)
+        try:
+            parts.append(f"{label}:" + hashlib.sha256(inspect.getsource(obj).encode()).hexdigest())
+        except (OSError, TypeError):
+            parts.append(f"{label}:unreadable")
+            return
+        module = sys.modules.get(getattr(obj, "__module__", "") or "")
+        code = getattr(obj, "__code__", None)
+        if module is None or code is None:
+            return
+        for name in sorted(set(code.co_names)):
+            if name in ALLOWED_VARIANT_ATTRS:
+                continue  # the lever under test is SUPPOSED to differ
+            referenced = getattr(module, name, None)
+            if inspect.isfunction(referenced):
+                visit(name, referenced, depth + 1)
+            elif isinstance(referenced, (str, int, float, tuple, frozenset, list, dict, set)):
+                parts.append(f"{name}=" + hashlib.sha256(repr(referenced).encode()).hexdigest())
+
+    for label, obj in root_names.items():
+        visit(label, obj, 1)
+    return parts
+
+
 def _evaluator_digest() -> str:
     """Hash of the SCORERS, not just their inputs.
 
@@ -2997,16 +3066,15 @@ def _evaluator_digest() -> str:
     # cron_routes gets the same treatment for the same reason: it is mostly
     # cron handlers, and an unrelated stage edit should not invalidate a
     # baseline.
-    for label, obj in (
-        ("judge_dialogue", cron_routes._judge_dialogue),
-        ("parse_judge_json", cron_routes._parse_judge_json),
-        ("score_quality", simulate_module.score_quality),
-    ):
-        try:
-            src = inspect.getsource(obj).encode("utf-8")
-            parts.append(f"{label}:" + hashlib.sha256(src).hexdigest())
-        except (OSError, TypeError):
-            parts.append(f"{label}:unreadable")
+    parts.extend(
+        _scoring_source_parts(
+            {
+                "judge_dialogue": cron_routes._judge_dialogue,
+                "parse_judge_json": cron_routes._parse_judge_json,
+                "score_quality": simulate_module.score_quality,
+            }
+        )
+    )
 
     # conversation_metrics is hashed whole because every function in it is
     # a reported metric - there is no unrelated surface to spare.
@@ -3368,6 +3436,9 @@ def _print_bench_report(report: dict[str, Any]) -> None:
         if dim_rows:
             print(f"\n{'judge dimension':<34}{'baseline':>10}{'now':>10}{'delta':>10}{'z':>8}")
             for key, row in sorted(dim_rows.items(), key=lambda kv: -abs(kv[1]["delta"])):
+                if row.get("no_valid_samples"):
+                    print(f"{key:<34}{'NOT SCORED - the judge returned no usable value':>44}")
+                    continue
                 z_text = "   n/a" if row["z"] is None else f"{row['z']:>+6.2f}"
                 if row["moved"] is None:
                     flag = "  <- indeterminate (n < 2)"
