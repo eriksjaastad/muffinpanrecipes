@@ -2909,7 +2909,12 @@ def _judge_input_digest(
             for day, stage in sorted(prior_stages.items())
         },
         "recipe_facts": recipe_facts or "",
-        "expected_cast": sorted(expected_cast),
+        # NOT sorted (Codex): run_simulation passes participants_for_day()'s
+        # ORDERED list into _select_next_speaker, whose weighted selection
+        # iterates it, and _judge_dialogue renders the roster in that same
+        # order. Sorting here hid a difference that really does change both
+        # the generated conversation and the judge's input.
+        "expected_cast": list(expected_cast),
     }
     blob = json.dumps(payload, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
@@ -2937,11 +2942,25 @@ def _generator_input_digest(expected_cast: list[str]) -> str:
         _char_dir_slug,
     )
 
-    parts: list[str] = []
+    # Cast order is part of the scenario, so it is recorded verbatim.
+    parts: list[str] = ["cast_order:" + _canonical_repr(list(expected_cast))]
+
+    # Only the personas this bench actually uses, parsed and canonicalized
+    # (Codex). Hashing the raw file meant reformatting the JSON, or editing
+    # Ria for a Saturday bench that only seats Devon and Margaret, refused
+    # a comparison whose effective inputs were identical.
     try:
-        parts.append("personas:" + hashlib.sha256(PERSONAS_PATH.read_bytes()).hexdigest())
-    except OSError:
-        parts.append("personas:missing")
+        personas = simulate_module.load_personas()
+        effective = {
+            name: personas.get(name) for name in expected_cast if name in personas
+        }
+        missing = [name for name in expected_cast if name not in personas]
+        parts.append("personas:" + hashlib.sha256(_canonical_repr(effective).encode()).hexdigest())
+        if missing:
+            parts.append("personas_missing:" + _canonical_repr(sorted(missing)))
+    except Exception:
+        parts.append("personas:unreadable")
+
     for name in sorted(expected_cast):
         base = CHARACTERS_DIR / _char_dir_slug(name)
         for leaf in ("bio.md", "memory.json"):
@@ -3124,9 +3143,18 @@ def _evaluator_digest() -> str:
                 "judge_dialogue": cron_routes._judge_dialogue,
                 "parse_judge_json": cron_routes._parse_judge_json,
                 "score_quality": simulate_module.score_quality,
+                # This module's OWN aggregation layer is an evaluator too
+                # (Codex): the persisted means and standard errors depend on
+                # these, so changing the valid-score predicate changes which
+                # samples reach a mean with nothing else moving.
+                "distribution": _distribution,
+                "is_valid_judge_score": _is_valid_judge_score,
+                "bench_aggregate": _bench_aggregate,
+                "numeric_keys": _numeric_keys,
             }
         )
     )
+    parts.append("judge_dimensions:" + _canonical_repr(list(JUDGE_DIMENSIONS)))
 
     # conversation_metrics is hashed whole because every function in it is
     # a reported metric - there is no unrelated surface to spare.
