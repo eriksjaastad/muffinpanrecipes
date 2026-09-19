@@ -3875,27 +3875,27 @@ def test_generator_code_digest_pins_turn_config_but_not_levers(monkeypatch):
     TICKS_RANGE["saturday"] change would have been compared against one
     taken after, with the difference credited to the lever under test.
     """
-    baseline = cl._generator_code_digest()
+    baseline = cl._generator_code_digest("saturday")
 
     # Non-lever generation config MUST be pinned. This is the real value
     # that changed in production today.
     monkeypatch.setattr(sdw, "TICKS_RANGE", {**sdw.TICKS_RANGE, "saturday": (3, 5)})
-    assert cl._generator_code_digest() != baseline, "the turn count must be pinned"
+    assert cl._generator_code_digest("saturday") != baseline, "the turn count must be pinned"
     monkeypatch.undo()
 
     monkeypatch.setattr(
         sdw, "_DAY_OPENER_CONTEXT", {**sdw._DAY_OPENER_CONTEXT, "saturday": "different"}
     )
-    assert cl._generator_code_digest() != baseline, "the opener context must be pinned"
+    assert cl._generator_code_digest("saturday") != baseline, "the opener context must be pinned"
     monkeypatch.undo()
 
     # Levers MUST NOT be, or this reintroduces the refusal bug.
     for lever in ("_SHARED_CHARACTER_RULES", "_REACTION_DIRECTIVE"):
         monkeypatch.setattr(sdw, lever, "A COMPLETELY DIFFERENT LEVER VALUE\n")
-        assert cl._generator_code_digest() == baseline, f"{lever} must not be pinned"
+        assert cl._generator_code_digest("saturday") == baseline, f"{lever} must not be pinned"
         monkeypatch.undo()
 
-    assert cl._generator_code_digest() == baseline
+    assert cl._generator_code_digest("saturday") == baseline
 
 
 def test_dependency_walk_skips_dunders():
@@ -3928,3 +3928,56 @@ def test_canonical_repr_survives_an_object_whose_repr_raises():
     assert "RuntimeError" in rendered
     # Stable, so it cannot become a source of spurious digest churn.
     assert rendered == cl._canonical_repr({"cfg": Hostile()})
+
+
+# ---------------------------------------------------------------------------
+# bench: Codex's eighteenth review
+# ---------------------------------------------------------------------------
+
+
+def test_generator_code_digest_is_scoped_to_the_benched_stage(monkeypatch):
+    """Codex: per-day containers were hashed whole.
+
+    A change to MONDAY's turn range refused a SATURDAY comparison in which
+    nothing about Saturday's generation moved - the seventh distinct way
+    this machinery has refused a valid comparison.
+    """
+    saturday = cl._generator_code_digest("saturday")
+
+    monkeypatch.setattr(sdw, "TICKS_RANGE", {**sdw.TICKS_RANGE, "monday": (9, 12)})
+    assert cl._generator_code_digest("saturday") == saturday, (
+        "another day's turn range must not refuse a Saturday comparison"
+    )
+    # ...but it MUST move Monday's own digest.
+    assert cl._generator_code_digest("monday") != cl._generator_code_digest("saturday")
+    monkeypatch.undo()
+
+    monkeypatch.setattr(sdw, "TICKS_RANGE", {**sdw.TICKS_RANGE, "saturday": (3, 5)})
+    assert cl._generator_code_digest("saturday") != saturday, "THIS day's range must be pinned"
+
+
+def test_scoping_key_only_narrows_genuine_per_day_containers():
+    """A dict that merely contains a day-like key must be left whole."""
+    per_day = {day: f"value-{day}" for day in sdw.DAY_ORDER}
+    narrowed = cl._scoping_key(per_day, "saturday")
+    assert narrowed == {"saturday": "value-saturday"}
+
+    # Not every key is a day -> untouched.
+    mixed = {"monday": 1, "not_a_day": 2}
+    assert cl._scoping_key(mixed, "saturday") is mixed
+
+    # No stage, empty, or non-dict -> untouched.
+    assert cl._scoping_key(per_day, None) is per_day
+    assert cl._scoping_key({}, "saturday") == {}
+    assert cl._scoping_key(["a"], "saturday") == ["a"]
+
+
+def test_generator_code_digest_pins_the_reasoning_effort(monkeypatch):
+    """Codex: OPENAI_REASONING_EFFORT sits at depth 4, past the walk limit,
+    and the report's `models` field records only the model NAME - yet it
+    changes every generation request."""
+    baseline = cl._generator_code_digest("saturday")
+    monkeypatch.setattr(cl.model_router, "OPENAI_REASONING_EFFORT", "low")
+    assert cl._generator_code_digest("saturday") != baseline
+    monkeypatch.undo()
+    assert cl._generator_code_digest("saturday") == baseline
