@@ -3859,3 +3859,72 @@ def test_which_levers_get_masked_is_derived_not_hardcoded():
     assert masked == {"_SHARED_CHARACTER_RULES"}, (
         f"today only that lever reaches the system prompt; got {masked}"
     )
+
+
+# ---------------------------------------------------------------------------
+# bench: Codex's seventeenth review
+# ---------------------------------------------------------------------------
+
+
+def test_generator_code_digest_pins_turn_config_but_not_levers(monkeypatch):
+    """Codex: nothing covered the turn prompt or the turn COUNT.
+
+    TICKS_RANGE, _DAY_OPENER_CONTEXT, DAY_MEETING_GOAL and
+    _build_dynamic_arc all change what gets generated and none is an
+    allowed lever - so a baseline taken before today's
+    TICKS_RANGE["saturday"] change would have been compared against one
+    taken after, with the difference credited to the lever under test.
+    """
+    baseline = cl._generator_code_digest()
+
+    # Non-lever generation config MUST be pinned. This is the real value
+    # that changed in production today.
+    monkeypatch.setattr(sdw, "TICKS_RANGE", {**sdw.TICKS_RANGE, "saturday": (3, 5)})
+    assert cl._generator_code_digest() != baseline, "the turn count must be pinned"
+    monkeypatch.undo()
+
+    monkeypatch.setattr(
+        sdw, "_DAY_OPENER_CONTEXT", {**sdw._DAY_OPENER_CONTEXT, "saturday": "different"}
+    )
+    assert cl._generator_code_digest() != baseline, "the opener context must be pinned"
+    monkeypatch.undo()
+
+    # Levers MUST NOT be, or this reintroduces the refusal bug.
+    for lever in ("_SHARED_CHARACTER_RULES", "_REACTION_DIRECTIVE"):
+        monkeypatch.setattr(sdw, lever, "A COMPLETELY DIFFERENT LEVER VALUE\n")
+        assert cl._generator_code_digest() == baseline, f"{lever} must not be pinned"
+        monkeypatch.undo()
+
+    assert cl._generator_code_digest() == baseline
+
+
+def test_dependency_walk_skips_dunders():
+    """`__dict__` is every global a module has, INCLUDING the levers.
+
+    Hashing it silently re-admitted exactly what the lever skips exist to
+    exclude - the walk reported a changed digest for a changed lever until
+    dunders were excluded.
+    """
+    parts = cl._scoring_source_parts({"run_simulation": sdw.run_simulation})
+    assert parts, "the walk must actually produce something"
+    assert not any(part.startswith("__") for part in parts), (
+        f"dunder entries leaked into the digest: {[p for p in parts if p.startswith('__')]}"
+    )
+
+
+def test_canonical_repr_survives_an_object_whose_repr_raises():
+    """A digest must never take a bench down - and this one did.
+
+    backend.config's __repr__ reads config.dialogue_model, which raises
+    outright when DIALOGUE_MODEL is unset, so the walk reaching a container
+    holding it killed the whole run.
+    """
+    class Hostile:
+        def __repr__(self):
+            raise RuntimeError("no repr for you")
+
+    rendered = cl._canonical_repr({"cfg": Hostile()})
+    assert "unrepresentable Hostile" in rendered
+    assert "RuntimeError" in rendered
+    # Stable, so it cannot become a source of spurious digest churn.
+    assert rendered == cl._canonical_repr({"cfg": Hostile()})

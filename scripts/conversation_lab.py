@@ -2892,6 +2892,7 @@ _BENCH_SCENARIO_FIELDS = (
     "judged_against_prior_days",
     "judge_input_digest",
     "generator_input_digest",
+    "generator_code_digest",
     "evaluator_digest",
     "models",
 )
@@ -3031,6 +3032,36 @@ def _generator_input_digest(expected_cast: list[str], stage: str) -> str:
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
+def _generator_code_digest() -> str:
+    """Hash of the GENERATION code and its non-lever configuration.
+
+    Codex: `_generator_input_digest` covers the system prompt and the
+    character data behind it, but nothing covered the turn prompt or the
+    turn COUNT. `TICKS_RANGE`, `_DAY_OPENER_CONTEXT`, `DAY_MEETING_GOAL`
+    and `_build_dynamic_arc` all change what gets generated and none of
+    them is an allowed lever - so a baseline taken before today's
+    `TICKS_RANGE["saturday"]` change would have been compared against one
+    taken after, with the difference credited to whatever lever was under
+    test.
+
+    Deliberately reuses `_scoring_source_parts` rather than adding another
+    bespoke fingerprint. That walk already follows a function's
+    module-level references to a bounded depth AND already skips
+    ALLOWED_VARIANT_ATTRS, which is exactly the rule wanted here: the
+    generator's code and fixed configuration are pinned, the levers under
+    test are not. Verified reachable from these two entry points:
+    TICKS_RANGE, DAY_MEETING_GOAL, _DAY_OPENER_CONTEXT, _DAY_CLOSER_CONTEXT,
+    _build_dynamic_arc, participants_for_day, _select_next_speaker.
+    """
+    parts = _scoring_source_parts(
+        {
+            "run_simulation": simulate_module.run_simulation,
+            "generate_turn": simulate_module.generate_turn,
+        }
+    )
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
+
+
 def _assert_writable(directory: Path) -> None:
     """Prove a file can actually be created here, before spending anything.
 
@@ -3071,7 +3102,15 @@ def _canonical_repr(value: Any) -> str:
         ) + "}"
     if isinstance(value, (list, tuple)):
         return "[" + ",".join(_canonical_repr(v) for v in value) + "]"
-    return repr(value)
+    try:
+        return repr(value)
+    except Exception as exc:
+        # repr() is arbitrary user code and can raise: backend.config's
+        # __repr__ reads config.dialogue_model, which raises outright when
+        # DIALOGUE_MODEL is unset. A digest must never take a bench down -
+        # and it took this one down the moment the walk reached a container
+        # holding that object. Fall back to something stable and typed.
+        return f"<unrepresentable {type(value).__name__}: {type(exc).__name__}>"
 
 
 # Module-level names DERIVED from a lever rather than from scoring code.
@@ -3144,6 +3183,13 @@ def _scoring_source_parts(root_names: dict[str, Any]) -> list[str]:
         for name in sorted(_all_referenced_names(code)):
             if name in ALLOWED_VARIANT_ATTRS or name in _LEVER_DERIVED_NAMES:
                 continue  # the lever under test, and anything computed from it
+            if name.startswith("__"):
+                # `__dict__` in particular is every global the module has,
+                # INCLUDING the levers - hashing it silently re-admitted the
+                # thing the two skips above exist to exclude, and made the
+                # digest depend on unrelated module state besides. Dunders
+                # are never scoring or generation configuration.
+                continue
             referenced = getattr(module, name, None)
             if inspect.isfunction(referenced):
                 visit(name, referenced, depth + 1)
@@ -3267,6 +3313,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
         "judged_against_prior_days": sorted(prior_stages.keys()),
         "judge_input_digest": _judge_input_digest(prior_stages, recipe_facts, expected_cast),
         "generator_input_digest": _generator_input_digest(expected_cast, args.stage),
+        "generator_code_digest": _generator_code_digest(),
         "evaluator_digest": _evaluator_digest(),
         "models": {"mode": mode, "dialogue": default_model, "judge": judge_model},
     }
