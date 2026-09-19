@@ -3190,3 +3190,107 @@ def test_bench_rejects_an_overlong_label_before_spending(tmp_path, monkeypatch):
         cl.cmd_bench(_bench_args(tmp_path, label="x" * 300))
 
     assert not list((tmp_path / "results").glob("*.json")) if (tmp_path / "results").is_dir() else True
+
+
+# ---------------------------------------------------------------------------
+# bench: Codex's ninth review — fallout from the dimension-comparison fix
+# ---------------------------------------------------------------------------
+
+
+def test_distribution_drops_non_finite_live_samples():
+    """Codex: only BASELINE values were checked for finiteness.
+
+    The production judge's parser accepts JSON NaN/Infinity and stores the
+    scores unchecked, so a single bad verdict would persist a non-finite
+    aggregate on a one-run bench, or raise ValueError out of stdev on a
+    multi-run one - after every call was paid for and outside the
+    partial-result recovery.
+    """
+    dist = cl._distribution([3.0, float("nan"), 5.0, float("inf")])
+    assert dist["n"] == 2, "n must reflect the samples actually used"
+    assert dist["mean"] == 4.0
+    assert cl.isfinite(dist["stdev"]) and cl.isfinite(dist["stderr"])
+
+    assert cl._distribution([float("nan"), float("-inf")]) is None
+
+
+def test_bench_survives_a_non_finite_judge_score(tmp_path, monkeypatch):
+    """End to end: a poisoned verdict must not take the bench down."""
+    _patch_varying_generation(monkeypatch, sdw, [4, 5, 4])
+
+    def poisoned_judge(concept, stage, dialogue, episode, **kwargs):
+        episode.setdefault("judge_scores", {})[stage] = {
+            "turn_taking": float("nan"),
+            "natural_progression": 3,
+        }
+        episode.setdefault("judge_weakest", {})[stage] = []
+        return True, "PASS"
+
+    monkeypatch.setattr(cl, "judge_dialogue", poisoned_judge)
+    cl.cmd_bench(_bench_args(tmp_path, runs=3))
+
+    report = _read_bench(tmp_path)
+    assert report["completed_runs"] == 3
+    assert report["error"] is None
+    assert "turn_taking" not in report["aggregate"]["dimensions"], "all samples were unusable"
+    assert report["aggregate"]["dimensions"]["natural_progression"]["mean"] == 3.0
+
+
+def test_bench_validates_baseline_dimensions_before_spending(tmp_path, monkeypatch):
+    """Codex: _bench_delta reads dimensions now, but preflight did not."""
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
+    good_metrics = {"qa_rate": {"n": 3, "mean": 1.0, "stderr": 0.1}}
+
+    bad = tmp_path / "bad-dims.json"
+    bad.write_text(json.dumps({
+        "command": "bench",
+        "aggregate": {"metrics": good_metrics, "dimensions": ["not", "a", "dict"]},
+    }))
+    with pytest.raises(cl.ConversationLabError, match="aggregate.dimensions"):
+        cl.cmd_bench(_bench_args(tmp_path, compare=str(bad)))
+
+    worse = tmp_path / "bad-dim-dist.json"
+    worse.write_text(json.dumps({
+        "command": "bench",
+        "aggregate": {
+            "metrics": good_metrics,
+            "dimensions": {"turn_taking": {"n": 3, "mean": 4.0}},  # no stderr
+        },
+    }))
+    with pytest.raises(cl.ConversationLabError, match="turn_taking"):
+        cl.cmd_bench(_bench_args(tmp_path, compare=str(worse)))
+
+
+def test_bench_never_prints_nothing_moved_when_a_dimension_moved(tmp_path, monkeypatch, capsys):
+    """Codex: the summary line contradicted the table directly above it.
+
+    That line is the one an operator might read INSTEAD of the tables, so
+    it saying "nothing moved" under a flagged dimension is the worst place
+    for the contradiction to live.
+    """
+    def judge_scoring(value):
+        def fake_judge(concept, stage, dialogue, episode, **kwargs):
+            episode.setdefault("judge_scores", {})[stage] = {
+                "voice_distinctiveness": value,
+                "turn_taking": 3 + (len(dialogue) % 2),
+            }
+            episode.setdefault("judge_weakest", {})[stage] = []
+            return True, "PASS"
+        return fake_judge
+
+    _patch_varying_generation(monkeypatch, sdw, [4, 5, 4, 5])
+    monkeypatch.setattr(cl, "judge_dialogue", judge_scoring(3))
+    cl.cmd_bench(_bench_args(tmp_path, runs=4, label="lo"))
+
+    _patch_varying_generation(monkeypatch, sdw, [4, 5, 4, 5])
+    monkeypatch.setattr(cl, "judge_dialogue", judge_scoring(5))
+    capsys.readouterr()
+    cl.cmd_bench(
+        _bench_args(tmp_path, runs=4, label="hi", compare=str(_bench_path(tmp_path, "lo")))
+    )
+    out = capsys.readouterr().out
+
+    assert "no DETERMINISTIC metric moved" in out
+    assert "judge dimension(s) did" in out
+    assert "(nothing moved" not in out, "the summary must not contradict the table above it"

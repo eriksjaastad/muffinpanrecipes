@@ -2469,8 +2469,21 @@ def _distribution(values: list[Any]) -> dict[str, Any] | None:
     sample used to estimate where the next run would land, not the whole
     population. `stderr` is what `--compare` actually uses - the spread of
     the MEAN is what decides whether a moved average moved.
+
+    Non-finite samples are dropped rather than aggregated (Codex). The
+    production judge's parser accepts JSON `NaN`/`Infinity` and stores the
+    scores unchecked, so one bad verdict would otherwise persist a
+    non-finite aggregate on a single-run bench, or raise ValueError out of
+    `stdev` on a multi-run one - after every call was paid for and outside
+    the partial-result recovery. `n` reflects the samples actually used,
+    so a dropped score shows up as a smaller n rather than silently
+    skewing the mean.
     """
-    vals = [v for v in values if isinstance(v, (int, float)) and not isinstance(v, bool)]
+    vals = [
+        v
+        for v in values
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and isfinite(v)
+    ]
     if not vals:
         return None
     spread = stdev(vals) if len(vals) > 1 else 0.0
@@ -2741,12 +2754,6 @@ def _validate_bench_aggregate(baseline: dict[str, Any], source: str) -> None:
             f"--compare baseline {source!r} has no usable 'aggregate' object "
             f"(found {type(aggregate).__name__})"
         )
-    metrics = aggregate.get("metrics")
-    if not isinstance(metrics, dict):
-        raise ConversationLabError(
-            f"--compare baseline {source!r} has no usable 'aggregate.metrics' object "
-            f"(found {type(metrics).__name__})"
-        )
     pass_rate = aggregate.get("pass_rate")
     if pass_rate is not None and (
         not isinstance(pass_rate, (int, float))
@@ -2760,24 +2767,46 @@ def _validate_bench_aggregate(baseline: dict[str, Any], source: str) -> None:
             f"'aggregate.pass_rate' ({pass_rate!r})"
         )
 
-    for key, dist in metrics.items():
+    # BOTH sections, because _bench_delta now reads both (Codex). A
+    # dimensions block that is a list, or a distribution missing mean /
+    # stderr / a numeric n, used to survive preflight and then raise in the
+    # delta - after every call was paid for, before the result was written.
+    for section in ("metrics", "dimensions"):
+        _validate_distribution_section(aggregate, section, source)
+
+
+def _validate_distribution_section(
+    aggregate: dict[str, Any], section: str, source: str
+) -> None:
+    """Check every distribution in one section of a baseline aggregate."""
+    distributions = aggregate.get(section)
+    if distributions is None and section == "dimensions":
+        # A --dry-run bench is never judged, so it legitimately has none.
+        return
+    if not isinstance(distributions, dict):
+        raise ConversationLabError(
+            f"--compare baseline {source!r} has no usable 'aggregate.{section}' object "
+            f"(found {type(distributions).__name__})"
+        )
+    for key, dist in distributions.items():
+        label = f"{section[:-1]} {key!r}"
         if not isinstance(dist, dict):
             raise ConversationLabError(
-                f"--compare baseline {source!r}: metric {key!r} is not a distribution object"
+                f"--compare baseline {source!r}: {label} is not a distribution object"
             )
         n = dist.get("n")
         if not isinstance(n, int) or isinstance(n, bool) or n < 0:
             # _bench_delta evaluates `n >= 2`, which raises TypeError on a
             # string - after the whole bench has been paid for (Codex).
             raise ConversationLabError(
-                f"--compare baseline {source!r}: metric {key!r} has a non-integer "
+                f"--compare baseline {source!r}: {label} has a non-integer "
                 f"sample count 'n' ({n!r})"
             )
         for field in ("mean", "stderr"):
             value = dist.get(field)
             if not isinstance(value, (int, float)) or isinstance(value, bool):
                 raise ConversationLabError(
-                    f"--compare baseline {source!r}: metric {key!r} has a non-numeric "
+                    f"--compare baseline {source!r}: {label} has a non-numeric "
                     f"{field!r} ({value!r})"
                 )
             # json.loads accepts NaN and Infinity, and both pass the check
@@ -2786,12 +2815,12 @@ def _validate_bench_aggregate(baseline: dict[str, Any], source: str) -> None:
             # "did not move", which is the worst possible way to be wrong.
             if not isfinite(value):
                 raise ConversationLabError(
-                    f"--compare baseline {source!r}: metric {key!r} has a non-finite "
+                    f"--compare baseline {source!r}: {label} has a non-finite "
                     f"{field!r} ({value!r})"
                 )
         if dist["stderr"] < 0:
             raise ConversationLabError(
-                f"--compare baseline {source!r}: metric {key!r} has a negative "
+                f"--compare baseline {source!r}: {label} has a negative "
                 f"'stderr' ({dist['stderr']!r})"
             )
 
@@ -3301,6 +3330,7 @@ def _print_bench_report(report: dict[str, Any]) -> None:
                     f"{row['delta']:>+10.2f}  {z_text}{flag}"
                 )
 
+        moved_dims = {k: v for k, v in dim_rows.items() if v["moved"]}
         moved = {k: v for k, v in comparison["metrics"].items() if v["moved"]}
         indeterminate = sum(1 for v in comparison["metrics"].values() if v["moved"] is None)
         print(f"{'metric':<34}{'baseline':>10}{'now':>10}{'delta':>10}{'z':>8}")
@@ -3321,7 +3351,17 @@ def _print_bench_report(report: dict[str, Any]) -> None:
                 f"{row['delta']:>+10.3f}  {z_text}"
             )
         if not moved:
-            print(f"(nothing moved by |z| >= {_BENCH_MOVED_Z}; showing all metrics)")
+            # Qualified deliberately (Codex): this line used to read
+            # "nothing moved" directly beneath a judge dimension the table
+            # had just flagged as moved, which is the one summary an
+            # operator might read instead of the tables.
+            scope = "no DETERMINISTIC metric" if moved_dims else "nothing"
+            suffix = (
+                f" - but {len(moved_dims)} judge dimension(s) did; see the table above"
+                if moved_dims
+                else ""
+            )
+            print(f"({scope} moved by |z| >= {_BENCH_MOVED_Z}; showing all metrics{suffix})")
         if indeterminate:
             print(
                 f"({indeterminate} metric(s) indeterminate - fewer than 2 runs in an "
