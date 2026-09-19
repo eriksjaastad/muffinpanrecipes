@@ -30,14 +30,16 @@ conversation rubric (title fidelity, arc resolution, voice
 distinctiveness, technical credibility, natural progression,
 promise/delivery alignment) deterministically where possible. Zero paid
 API calls.
-- **`scripts/conversation_lab.py`** - the experiment runner. Four
+- **`scripts/conversation_lab.py`** - the experiment runner. Five
 subcommands: `baseline` (capture a week's current scores with no
-generation, free), `ab` (offline blind position-swapped pairwise A/B
-between a control and a variant prompt lever, costs Haiku + judge calls),
-`calibrate` (sanity-check the judge itself against known-good and
-known-bad transcripts, costs judge calls), and `pairs` (a free, offline
-blind human read of an already-completed `ab` result - see "Blind human
-read" below). `baseline` calls `scripts.conversation_metrics.summarize()`
+generation, free), `bench` (run ONE setting N times and report mean and
+spread per metric plus a judge pass rate - see "Characterizing a setting"
+below; costs Haiku + judge calls), `ab` (offline blind position-swapped
+pairwise A/B between a control and a variant prompt lever, costs Haiku +
+judge calls), `calibrate` (sanity-check the judge itself against
+known-good and known-bad transcripts, costs judge calls), and `pairs` (a
+free, offline blind human read of an already-completed `ab` result - see
+"Blind human read" below). `baseline` calls `scripts.conversation_metrics.summarize()`
 per day for its deterministic numbers. Run `--help` on the script and on
 each subcommand for the exact flags; they may still be changing.
 - **`scripts/conversation_metrics.py`** - deterministic, non-LLM metrics
@@ -322,17 +324,88 @@ nothing (it reads an already-completed `ab` result; no new API calls) and
 is how "the judge might have gone soft" (see "Open hypothesis" below) gets
 checked without waiting for a live-week PASS streak to look suspicious.
 
+## Characterizing a setting (`bench`, #7314)
+
+`ab` answers *"is B better than A"*. It cannot answer *"what does A
+produce"*, because a pairwise verdict is a direction, not a level - there
+is no absolute number for a later run to move away from. Erik, 2026-09-19:
+*"We need to know what a setting creates, so running it 30 times gives us
+enough numbers to find some sort of average. We make one change and then
+see where that average moves."*
+
+`bench` runs a single arm N times through the same production call shape
+`ab` uses, and reports, per run and aggregated:
+
+- every deterministic metric from `scripts/conversation_metrics.py` as
+mean / sample stdev / standard error / min / max;
+- the **production publish gate**'s verdict - `_judge_dialogue` from
+`backend/admin/cron_routes.py`, the same judge the Sunday cron runs, not
+this module's pairwise judge - as a pass rate, a per-dimension score
+distribution, and a count of which dimension came back weakest most often;
+- any 4-gram a character reused across runs.
+
+Then change one thing, bench again, and pass `--compare <first result>`.
+
+### Judging context
+
+With `--from-episode`, the judge sees that episode's earlier days as its
+PREVIOUS DAYS context, frozen and identical for every run - that is what
+makes runs comparable to each other *and* predictive of the live gate.
+With `--recipe-context` the stage is judged in isolation, which is cheaper
+to set up and fine for a structural question, but its pass rate will not
+match production's.
+
+### Picking N
+
+N is measurable, not guessable, and the first bench is the measurement:
+its per-metric `stderr` says how precisely that metric is known at that N.
+
+As a starting point, a run is roughly 5-10 lines, so N=30 pools to ~200
+lines per arm and resolves about a 10-point move in a line-level rate
+(`agree_opener_rate` going 21% -> 11% is clearly visible; 21% -> 16% is
+not). Lines within a run are correlated, so the effective sample is
+somewhat smaller than the line count suggests.
+
+### Deciding whether an average moved
+
+`--compare` reports, per metric, the difference in means over the standard
+error of that difference (`z`), and flags `|z| >= 2`.
+
+That threshold is a **screening rule for deciding what to look at next,
+not a significance test.** It applies no correction for comparing ~25
+metrics at once, and the runs are not independent draws from a stable
+population. Treat a flagged metric as the thing to investigate, and
+confirm a lever the way the protocol already requires: through `ab`'s
+decision rule, then a live week.
+
 ## Cost budget
 
 `ab --runs` has no default - pick N per experiment. At N=5 pairs (a common
 choice, not a default): roughly 80 Haiku 4.5 turns (dialogue generation for
 5 pairs x 2 variants x ~8 turns/day x however many days are in scope) plus
-10 judge calls (5 pairs x 2 judge orders for the position swap). Cap any
-single experiment run at 120 API calls total; if `conversation_lab.py ab`
-would exceed that, reduce N or scope to fewer days, do not silently let it
-run over.
+10 judge calls (5 pairs x 2 judge orders for the position swap). `ab`'s
+default cap is 120 API calls for a single-concept run; `--testbed`,
+`--sweep` and `bench` derive their own cap from N (see each one's
+`--max-calls` help).
 
-`--dry-run` on `ab` and `calibrate` is free (renders the prompts and call
+**Amended 2026-09-19 (#7314).** The 120 figure was written when N=5 was
+the working size, and it forbade the N=20-40 this protocol now expects for
+`bench`. Erik, that day: *"I don't want to freak out about costs until I
+start freaking out about costs. I'm more concerned with processes that run
+continually for an entire month than I am about burst processes we're
+trying to get a result through testing."* So:
+
+- **A call/cost cap is a runaway guard, not a budget ceiling.** Its job is
+to stop a loop that has gone wrong, not to decide N. Choose N from what
+the question needs, then set `--max-calls` above it deliberately.
+- **Raising a cap is a logged decision, never a silent one.** Say so in
+the `EXPERIMENTS.md` row. "Do not silently let it run over" still stands.
+- **The continuous/burst distinction is the one that matters.** The live
+weekly pipeline (7 dialogue + 7 judge calls a week, plus images) runs
+forever and is what a cost review should examine. A one-off 40-run bench
+is not in the same class and should not be sized as if it were.
+
+`--dry-run` on `ab`, `bench` and `calibrate` is free (renders the prompts and call
 plan without hitting a model). `baseline` has no `--dry-run` flag and needs
 none - it is already free, since it only reads already-generated data and
 never calls a model.
@@ -346,13 +419,17 @@ does this automatically: every completed run (single-concept or
 `--testbed`) appends a row to the Experiments table via `--experiments-log`
 (default `docs/conversation-lab/EXPERIMENTS.md`; pass `--no-log` to skip).
 `calibrate` does not append a row - it reports a GRADER OK / not-OK verdict
-per degradation instead of a lever result.
+per degradation instead of a lever result. `bench` appends to its own
+**Benchmarks** table in the same file rather than the Experiments table,
+whose columns (wins/ties/losses on a target dimension) a single-arm run
+has none of.
 
 ## Budget
 
 Erik's standing cap, set 2026-09-06: **$5 per experiment**, shipped as
-`--max-cost`, defaulting to `5.00` on both `conversation_lab.py ab` and
-`calibrate`, alongside the existing `--max-calls 120` cap above. Every run
+`--max-cost`, defaulting to `5.00` on `conversation_lab.py ab`, `bench`
+and `calibrate`, alongside the `--max-calls` caps above (see the
+2026-09-19 amendment there for what a cap is and is not for). Every run
 logs calls and cost via `model_router.get_cost_summary()`, checked before
 every paid unit; the run aborts with a partial result once the running
 total has reached the cap. See `ab --help` / `calibrate --help` for the
