@@ -3048,22 +3048,54 @@ def test_spend_still_records_the_real_delta_when_the_counter_works(monkeypatch):
     assert budget.used == 7, "a readable counter must charge actual spend, not the reservation"
 
 
-def test_evaluator_digest_covers_every_scoring_module(monkeypatch, tmp_path):
-    """Codex: cron_routes assembles/parses the verdict and
-    conversation_metrics.legacy_quality delegates to
-    simulate_dialogue_week.score_quality, so hashing two artifacts left
-    real scoring code unpinned."""
+def test_evaluator_digest_pins_scoring_code_but_not_the_prompt_levers(monkeypatch, tmp_path):
+    """The digest must catch a changed SCORER without refusing the workflow.
+
+    Hashing all of simulate_dialogue_week.py broke the documented loop -
+    bench, change one prompt lever IN THAT FILE, bench again, compare -
+    because every such change invalidated the baseline, and the only
+    escape also switched off the judge-rubric and judge-context checks
+    (Codex). Both halves are pinned here: scoring changes must be caught,
+    lever changes must not.
+    """
     import backend.admin.cron_routes as cron
 
     baseline = cl._evaluator_digest()
-    for module in (cl.conversation_metrics, cron, cl.simulate_module):
-        fake = tmp_path / f"{id(module)}.py"
-        fake.write_text("# changed\n")
-        monkeypatch.setattr(module, "__file__", str(fake))
-        assert cl._evaluator_digest() != baseline, f"{module.__name__} is not pinned"
-        monkeypatch.undo()
+
+    # A changed prompt LEVER must NOT invalidate the comparison - that is
+    # the thing under test.
+    monkeypatch.setattr(sdw, "_DAY_OPENER_CONTEXT", {"monday": "totally different"})
+    monkeypatch.setattr(sdw, "HISTORY_DEPTH", {"early": (99, 99), "late": (99, 99)})
+    assert cl._evaluator_digest() == baseline, "a prompt lever change must not refuse the compare"
+    monkeypatch.undo()
+
+    # A changed SCORER must.
+    monkeypatch.setattr(cron, "_JUDGE_SYSTEM_PROMPT", cron._JUDGE_SYSTEM_PROMPT + "\nNEW RULE.")
+    assert cl._evaluator_digest() != baseline, "the judge rubric is not pinned"
+    monkeypatch.undo()
+
+    fake = tmp_path / "metrics.py"
+    fake.write_text("# question_rate now counts rhetorical questions\n")
+    monkeypatch.setattr(cl.conversation_metrics, "__file__", str(fake))
+    assert cl._evaluator_digest() != baseline, "the metrics module is not pinned"
+    monkeypatch.undo()
 
     assert cl._evaluator_digest() == baseline
+
+
+def test_evaluator_digest_pins_the_named_scoring_functions():
+    """score_quality feeds legacy_quality's reported numbers, and
+    _judge_dialogue / _parse_judge_json assemble and parse the verdict, so
+    all three are hashed by source rather than by whole module."""
+    import backend.admin.cron_routes as cron
+
+    digest_inputs = {
+        "judge_dialogue": cron._judge_dialogue,
+        "parse_judge_json": cron._parse_judge_json,
+        "score_quality": sdw.score_quality,
+    }
+    for name, obj in digest_inputs.items():
+        assert cl.inspect.getsource(obj), f"{name} source must be readable for the digest"
 
 
 def test_bench_persists_its_cost_summary(tmp_path, monkeypatch):
@@ -3294,3 +3326,79 @@ def test_bench_never_prints_nothing_moved_when_a_dimension_moved(tmp_path, monke
     assert "no DETERMINISTIC metric moved" in out
     assert "judge dimension(s) did" in out
     assert "(nothing moved" not in out, "the summary must not contradict the table above it"
+
+
+# ---------------------------------------------------------------------------
+# bench: Codex's tenth review
+# ---------------------------------------------------------------------------
+
+
+def test_bench_compare_survives_a_changed_prompt_lever(tmp_path, monkeypatch):
+    """The documented workflow, end to end: bench, change a lever, compare.
+
+    Hashing the whole simulator made this exact loop impossible - the
+    comparison was refused because the file changed, which is the ONE
+    thing the operator came to do (Codex).
+    """
+    _patch_varying_generation(monkeypatch, sdw, [4, 5, 4, 5])
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+    cl.cmd_bench(_bench_args(tmp_path, runs=4, label="control"))
+    baseline = str(_bench_path(tmp_path, "control"))
+
+    # The lever under test changes between benches.
+    monkeypatch.setattr(sdw, "_REACTION_DIRECTIVE", "A COMPLETELY DIFFERENT DIRECTIVE\n")
+    _patch_varying_generation(monkeypatch, sdw, [4, 5, 4, 5])
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+    cl.cmd_bench(_bench_args(tmp_path, runs=4, label="variant", compare=baseline))
+
+    assert _read_bench(tmp_path, "variant")["comparison"]["baseline_label"] == "control"
+
+
+def test_bench_drops_judge_scores_outside_the_one_to_five_contract(tmp_path, monkeypatch):
+    """Codex: the verdict parser stores whatever JSON it is handed, so a
+    malformed 50 would drag a dimension mean far enough to invent or hide
+    movement."""
+    scores = iter([5, 50, 5, 0])
+
+    def sloppy_judge(concept, stage, dialogue, episode, **kwargs):
+        episode.setdefault("judge_scores", {})[stage] = {"turn_taking": next(scores)}
+        episode.setdefault("judge_weakest", {})[stage] = []
+        return True, "PASS"
+
+    _patch_bench_generation(monkeypatch, sdw)
+    monkeypatch.setattr(cl, "judge_dialogue", sloppy_judge)
+    cl.cmd_bench(_bench_args(tmp_path, runs=4))
+
+    dist = _read_bench(tmp_path, "saturday-n4")["aggregate"]["dimensions"]["turn_taking"]
+    assert dist["n"] == 2, "only the two in-contract scores are data"
+    assert dist["mean"] == 5.0, "a 50 would have dragged this to 15.0"
+
+
+def test_bench_labels_indeterminate_judge_dimensions(tmp_path, monkeypatch, capsys):
+    """Codex: an unlabeled n/a in the dimension table plus a summary that
+    said nothing moved reads as 'no change' when the truth is 'we could
+    not tell'."""
+    def judge_scoring(value):
+        def fake_judge(concept, stage, dialogue, episode, **kwargs):
+            episode.setdefault("judge_scores", {})[stage] = {"voice_distinctiveness": value}
+            episode.setdefault("judge_weakest", {})[stage] = []
+            return True, "PASS"
+        return fake_judge
+
+    _patch_bench_generation(monkeypatch, sdw)
+    monkeypatch.setattr(cl, "judge_dialogue", judge_scoring(3))
+    cl.cmd_bench(_bench_args(tmp_path, runs=1, label="one-a"))
+
+    _patch_bench_generation(monkeypatch, sdw)
+    monkeypatch.setattr(cl, "judge_dialogue", judge_scoring(5))
+    capsys.readouterr()
+    cl.cmd_bench(
+        _bench_args(tmp_path, runs=1, label="one-b", compare=str(_bench_path(tmp_path, "one-a")))
+    )
+    out = capsys.readouterr().out
+
+    row = _read_bench(tmp_path, "one-b")["comparison"]["dimensions"]["voice_distinctiveness"]
+    assert row["moved"] is None
+    assert "indeterminate (n < 2)" in out
+    assert "INDETERMINATE, not unchanged" in out
+    assert "(nothing moved" not in out
