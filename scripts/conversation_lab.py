@@ -208,6 +208,8 @@ in tests/test_conversation_lab.py.
 from __future__ import annotations
 
 import argparse
+import fcntl
+import hashlib
 import json
 import os
 import random
@@ -217,6 +219,7 @@ import time
 import urllib.error
 import urllib.request
 from collections import Counter
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -2369,7 +2372,7 @@ def _calls_now() -> int:
         return 0
 
 
-def _spend(budget: CallBudget, fn, *, fallback: int = 1):
+def _spend(budget: CallBudget, fn=None, *, fallback: int = 1):
     """Run `fn` and record what it spent - even if it raises.
 
     The budget CHECK reserves a worst case before a unit starts; this is
@@ -2498,14 +2501,21 @@ def _bench_delta(current: dict[str, Any], baseline: dict[str, Any]) -> dict[str,
             continue
         delta = cur["mean"] - base["mean"]
         se = sqrt(cur["stderr"] ** 2 + base["stderr"] ** 2)
+        estimable = cur.get("n", 0) >= 2 and base.get("n", 0) >= 2
         if se:
             z: float | None = delta / se
-            moved = abs(z) >= _BENCH_MOVED_Z
+            moved: bool | None = abs(z) >= _BENCH_MOVED_Z
+        elif not estimable:
+            # Codex: with one observation per arm, stderr is zero because
+            # variance was never ESTIMATED, not because the result is
+            # repeatable. Calling that "moved" turns a coin flip into a
+            # finding. It is indeterminate until N >= 2 on both sides.
+            z = None
+            moved = None
         else:
-            # Neither arm varied at all. No z exists (the denominator is
-            # zero), but a delta with zero spread on both sides is a
-            # perfectly repeatable shift, not an absent one - reporting
-            # z=0.0 here would have filed it under "did not move".
+            # Both arms had samples and neither varied: a genuinely
+            # repeatable shift. No z exists (the denominator is zero), but
+            # reporting z=0.0 would have filed it under "did not move".
             z = None
             moved = delta != 0
         rows[key] = {
@@ -2515,6 +2525,7 @@ def _bench_delta(current: dict[str, Any], baseline: dict[str, Any]) -> dict[str,
             "stderr_diff": round(se, 4),
             "z": None if z is None else round(z, 4),
             "moved": moved,
+            "estimable": estimable,
         }
     return rows
 
@@ -2573,6 +2584,28 @@ def _validate_bench_args(args: argparse.Namespace) -> None:
 # spend 40 when both guards fired. A reservation that is not actually the
 # maximum is not a guard at all.
 _MAX_CALLS_PER_TURN = 4
+
+
+def _publish_json_atomically(path: Path, payload: dict[str, Any]) -> None:
+    """Serialize to a sibling `.partial`, then rename onto `path`.
+
+    `_unique_result_path` claims the name by creating a zero-byte file, so
+    writing straight into it means a serialization error, a full disk or a
+    kill leaves an empty or truncated .json where a later glob or
+    `--compare` will find it and read it as a real result (Codex).
+    `os.replace` is atomic within a directory, so the claimed name only
+    ever holds a complete document.
+
+    A failed write deliberately leaves the `.partial` file behind rather
+    than deleting it: it does not match the `*.json` glob that finds
+    results, `--compare` against it fails loudly with a JSON error, and it
+    is evidence that a write failed. Deleting agent-created files is also
+    hook-blocked in this workspace, and reaching for trash tooling to tidy
+    a temp file would be the wrong trade.
+    """
+    tmp = path.with_name(path.name + ".partial")
+    tmp.write_text(json.dumps(payload, indent=2, default=str))
+    os.replace(tmp, path)
 
 
 def _unique_result_path(directory: Path, stem: str) -> Path:
@@ -2651,6 +2684,19 @@ def _validate_bench_aggregate(baseline: dict[str, Any], source: str) -> None:
             f"--compare baseline {source!r} has no usable 'aggregate.metrics' object "
             f"(found {type(metrics).__name__})"
         )
+    pass_rate = aggregate.get("pass_rate")
+    if pass_rate is not None and (
+        not isinstance(pass_rate, (int, float))
+        or isinstance(pass_rate, bool)
+        or not 0.0 <= pass_rate <= 1.0
+    ):
+        # Codex: _print_bench_report formats this with :.0%, so a string
+        # here crashed AFTER every call was paid for and the report written.
+        raise ConversationLabError(
+            f"--compare baseline {source!r} has a non-numeric or out-of-range "
+            f"'aggregate.pass_rate' ({pass_rate!r})"
+        )
+
     for key, dist in metrics.items():
         if not isinstance(dist, dict):
             raise ConversationLabError(
@@ -2676,8 +2722,38 @@ _BENCH_SCENARIO_FIELDS = (
     "concept",
     "recipe_context",
     "judged_against_prior_days",
+    "judge_input_digest",
     "models",
 )
+
+
+def _judge_input_digest(
+    prior_stages: dict[str, Any],
+    recipe_facts: str | None,
+    expected_cast: list[str],
+) -> str:
+    """Hash of everything the judge sees that the day names do not capture.
+
+    Codex: `judged_against_prior_days` lists only which days had dialogue,
+    so re-running a week's Monday leaves that list identical while
+    `_judge_dialogue` receives different text - and `recipe_facts`, which
+    drives the technical-credibility scoring, was not represented at all.
+    A pass-rate difference could then be attributed to the tested lever
+    when the judge's own context had changed underneath it.
+    """
+    payload = {
+        "prior": {
+            day: [
+                f"{m.get('character')}: {m.get('message')}"
+                for m in (stage.get("dialogue") or [])
+            ]
+            for day, stage in sorted(prior_stages.items())
+        },
+        "recipe_facts": recipe_facts or "",
+        "expected_cast": sorted(expected_cast),
+    }
+    blob = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
 
 
 def _assert_comparable_scenario(baseline: dict[str, Any], report: dict[str, Any]) -> None:
@@ -2719,6 +2795,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
         "concept": concept,
         "recipe_context": recipe_context,
         "judged_against_prior_days": sorted(prior_stages.keys()),
+        "judge_input_digest": _judge_input_digest(prior_stages, recipe_facts, expected_cast),
         "models": {"mode": mode, "dialogue": default_model, "judge": judge_model},
     }
     if baseline_report is not None and not args.allow_mismatched_baseline:
@@ -2730,8 +2807,12 @@ def cmd_bench(args: argparse.Namespace) -> None:
     # the check and then spend a whole day's turns. The cap is a runaway
     # guard and must be a real upper bound, so reserve what an arm can cost
     # at worst and refuse to start one that would not fit.
-    gen_reserve = _MAX_CALLS_PER_TURN * _max_turns_for_stage(args.stage)
-    judge_reserve = 2  # the judge retries once on an unparseable verdict
+    # A --dry-run makes zero API calls (mode="template", no judge), so it
+    # must neither reserve nor record any (Codex): a one-run plumbing check
+    # was reporting `calls_used: 10`, and an explicit low --max-calls could
+    # refuse to start a run that cannot spend anything.
+    gen_reserve = 0 if args.dry_run else _MAX_CALLS_PER_TURN * _max_turns_for_stage(args.stage)
+    judge_reserve = 0 if args.dry_run else 2  # the judge retries once on an unparseable verdict
 
     max_calls = args.max_calls
     if max_calls is None:
@@ -2752,7 +2833,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
                 lambda: _run_arm(
                     concept, args.stage, run_index, recipe_context, mode, default_model
                 ),
-                fallback=_max_turns_for_stage(args.stage),
+                fallback=0 if args.dry_run else _max_turns_for_stage(args.stage),
             )
             messages = result.get("messages", [])
 
@@ -2776,7 +2857,8 @@ def cmd_bench(args: argparse.Namespace) -> None:
                     break
                 record["judge"] = _spend(
                     budget,
-                    lambda: _judge_one_transcript(
+                    fallback=0 if args.dry_run else 1,
+                    fn=lambda: _judge_one_transcript(
                         concept=concept,
                         stage=args.stage,
                         messages=messages,
@@ -2840,7 +2922,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
     # --compare to trip over. Nothing sits between these two lines.
     result_path = _unique_result_path(results_dir, f"bench-{_slugify(label)}-{stamp}")
     report["results_file"] = str(result_path)
-    _write_json_result(result_path, report)
+    _publish_json_atomically(result_path, report)
     if not args.no_log and not args.dry_run:
         _append_bench_log(_experiments_log_path(args), report)
     _print_bench_report(report)
@@ -2888,6 +2970,28 @@ def _append_bench_log(path: Path, report: dict[str, Any]) -> None:
         f"| {Path(report['results_file']).name} |\n"
     )
 
+    # Locked (Codex): the append is a read-modify-write, so two benches
+    # finishing together could each read the same snapshot and the second
+    # writer would silently drop the first's row - leaving a paid result
+    # file with no required log trace.
+    with _file_lock(path):
+        _append_bench_row_locked(path, report, row)
+
+
+@contextmanager
+def _file_lock(path: Path):
+    """Exclusive lock on a sibling .lock file, released on the way out."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_name(path.name + ".lock")
+    with open(lock_path, "w") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def _append_bench_row_locked(path: Path, report: dict[str, Any], row: str) -> None:
     existing = path.read_text() if path.exists() else _EXPERIMENTS_HEADER
     if _BENCH_SECTION_HEADING not in existing:
         existing = existing.rstrip("\n") + (
@@ -2897,7 +3001,6 @@ def _append_bench_log(path: Path, report: dict[str, Any]) -> None:
             + _BENCH_TABLE_HEADER_LINE
             + _BENCH_TABLE_SEPARATOR_LINE
         )
-    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(existing.rstrip("\n") + "\n" + row)
 
 
@@ -2946,6 +3049,7 @@ def _print_bench_report(report: dict[str, Any]) -> None:
         if base_rate is not None and agg["pass_rate"] is not None:
             print(f"pass rate: {base_rate:.0%} -> {agg['pass_rate']:.0%}")
         moved = {k: v for k, v in comparison["metrics"].items() if v["moved"]}
+        indeterminate = sum(1 for v in comparison["metrics"].values() if v["moved"] is None)
         print(f"{'metric':<34}{'baseline':>10}{'now':>10}{'delta':>10}{'z':>8}")
         rows = moved or comparison["metrics"]
         # z is None when neither arm varied (see _bench_delta). Those rows
@@ -2965,6 +3069,11 @@ def _print_bench_report(report: dict[str, Any]) -> None:
             )
         if not moved:
             print(f"(nothing moved by |z| >= {_BENCH_MOVED_Z}; showing all metrics)")
+        if indeterminate:
+            print(
+                f"({indeterminate} metric(s) indeterminate - fewer than 2 runs in an "
+                "arm, so the spread was never estimated and no movement can be claimed)"
+            )
 
     print(f"\nresults written to: {report['results_file']}")
 
@@ -3397,9 +3506,13 @@ def _build_parser() -> argparse.ArgumentParser:
     bench.add_argument(
         "--max-calls", type=int, default=None,
         help=(
-            "Defaults to `runs * (2 * max_turns + 2)` when omitted, where max_turns is the "
-            "upper bound of scripts.simulate_dialogue_week.TICKS_RANGE for --stage (floored "
-            f"at {_MIN_MAX_TURNS_FLOOR}). Pass an explicit value to override."
+            f"Defaults to `runs * ({_MAX_CALLS_PER_TURN} * max_turns + 2)` when omitted, "
+            "where max_turns is the upper bound of "
+            "scripts.simulate_dialogue_week.TICKS_RANGE for --stage (floored at "
+            f"{_MIN_MAX_TURNS_FLOOR}) and {_MAX_CALLS_PER_TURN} is the most paid calls one "
+            "turn can cost (initial response, CoT-leak retry, fault rewrite, CoT-leak retry "
+            "on the rewrite). Pass an explicit value to override. Ignored under --dry-run, "
+            "which cannot spend anything."
         ),
     )
     bench.add_argument(

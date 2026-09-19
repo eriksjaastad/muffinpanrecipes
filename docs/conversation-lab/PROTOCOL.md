@@ -402,6 +402,12 @@ The same last-observed-reservation weakness still exists in `ab`'s
 `--compare` reports, per metric, the difference in means over the standard
 error of that difference (`z`), and flags `|z| >= 2`.
 
+A metric is reported **indeterminate** rather than moved when either arm
+has fewer than two runs: with one observation the standard error is zero
+because the spread was never estimated, not because the result repeats,
+and treating that as movement turns a coin flip into a finding. This is
+the concrete reason N=1 is not a bench.
+
 That threshold is a **screening rule for deciding what to look at next,
 not a significance test.** It applies no correction for comparing ~25
 metrics at once, and the runs are not independent draws from a stable

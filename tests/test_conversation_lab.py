@@ -2642,3 +2642,110 @@ def test_bench_claims_its_result_filename_atomically(tmp_path, monkeypatch):
     assert first.exists() and second.exists(), "the name must be claimed, not just checked"
     assert first.name == "bench-x-20260919T000000Z.json"
     assert second.name == "bench-x-20260919T000000Z-2.json"
+
+
+# ---------------------------------------------------------------------------
+# bench: Codex's third review of PR #119 (seven P2s, no P1s)
+# ---------------------------------------------------------------------------
+
+
+def test_bench_compare_calls_a_one_sample_shift_indeterminate(tmp_path, monkeypatch):
+    """Codex: at --runs 1 the stderr is zero because variance was never
+    ESTIMATED, not because the result repeats. Calling that 'moved' turns a
+    coin flip into a finding."""
+    _patch_bench_generation(monkeypatch, sdw, turns=4)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+    cl.cmd_bench(_bench_args(tmp_path, runs=1, label="n1-a"))
+
+    _patch_bench_generation(monkeypatch, sdw, turns=9)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+    cl.cmd_bench(
+        _bench_args(tmp_path, runs=1, label="n1-b", compare=str(_bench_path(tmp_path, "n1-a")))
+    )
+
+    row = _read_bench(tmp_path, "n1-b")["comparison"]["metrics"]["message_count"]
+    assert row["delta"] == 5.0
+    assert row["estimable"] is False
+    assert row["moved"] is None, "a single sample per arm cannot establish movement"
+
+
+def test_bench_dry_run_spends_and_reserves_nothing(tmp_path, monkeypatch):
+    """Codex: a template run makes zero API calls, so a plumbing check must
+    not report calls_used, nor be refused by a low --max-calls."""
+    _patch_bench_generation(monkeypatch, sdw)
+
+    def _fail_judge(*_a, **_k):
+        raise AssertionError("--dry-run must never judge")
+
+    monkeypatch.setattr(cl, "judge_dialogue", _fail_judge)
+    cl.cmd_bench(_bench_args(tmp_path, runs=2, dry_run=True, max_calls=1))
+
+    report = _read_bench(tmp_path, "saturday-n2")
+    assert report["calls_used"] == 0
+    assert report["aborted"] is False
+    assert report["completed_runs"] == 2, "a dry run cannot spend, so a low cap must not stop it"
+
+
+def test_bench_result_is_published_atomically(tmp_path, monkeypatch):
+    """Codex: writing into the claimed zero-byte file leaves a truncated
+    .json behind when serialization fails. The claimed name must only ever
+    hold a complete document."""
+    results = tmp_path / "results"
+    results.mkdir()
+    target = cl._unique_result_path(results, "bench-atomic")
+    assert target.stat().st_size == 0
+
+    class Unserializable:
+        def __repr__(self):
+            raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError):
+        cl._publish_json_atomically(target, {"bad": Unserializable()})
+    assert target.stat().st_size == 0, "a failed write must not truncate or fill the claimed name"
+
+    cl._publish_json_atomically(target, {"command": "bench"})
+    assert json.loads(target.read_text()) == {"command": "bench"}
+
+
+def test_bench_log_append_preserves_both_rows_under_a_lock(tmp_path, monkeypatch):
+    """Codex: the audit append is a read-modify-write; a lost row means a
+    paid result file with no required log trace."""
+    _patch_bench_generation(monkeypatch, sdw)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+    log = tmp_path / "EXPERIMENTS.md"
+
+    cl.cmd_bench(_bench_args(tmp_path, no_log=False, experiments_log=str(log), label="row-a"))
+    cl.cmd_bench(_bench_args(tmp_path, no_log=False, experiments_log=str(log), label="row-b"))
+
+    text = log.read_text()
+    assert "| row-a |" in text and "| row-b |" in text
+    assert text.count(cl._BENCH_SECTION_HEADING) == 1
+
+
+def test_bench_rejects_a_baseline_with_a_non_numeric_pass_rate(tmp_path, monkeypatch):
+    """Codex: _print_bench_report formats pass_rate with :.0%, so a string
+    crashed after everything was paid for and written."""
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
+    bad = tmp_path / "bad-rate.json"
+    bad.write_text(json.dumps({
+        "command": "bench",
+        "aggregate": {"metrics": {"qa_rate": {"mean": 1.0, "stderr": 0.0}}, "pass_rate": "unknown"},
+    }))
+    with pytest.raises(cl.ConversationLabError, match="pass_rate"):
+        cl.cmd_bench(_bench_args(tmp_path, compare=str(bad)))
+
+
+def test_bench_scenario_digest_notices_changed_prior_day_dialogue():
+    """Codex: the day NAMES stay identical when an episode's earlier
+    dialogue is regenerated, but the judge sees different text."""
+    cast = ["Devon Park", "Margaret Chen"]
+    before = {"monday": {"dialogue": [{"character": "Margaret Chen", "message": "original"}]}}
+    after = {"monday": {"dialogue": [{"character": "Margaret Chen", "message": "regenerated"}]}}
+
+    assert sorted(before) == sorted(after), "the day-name check cannot tell these apart"
+    assert cl._judge_input_digest(before, "facts", cast) != cl._judge_input_digest(after, "facts", cast)
+    # recipe_facts drives technical_credibility and was not represented at all.
+    assert cl._judge_input_digest(before, "facts", cast) != cl._judge_input_digest(before, "other", cast)
+    # Same inputs must still agree, or every comparison would be refused.
+    assert cl._judge_input_digest(before, "facts", cast) == cl._judge_input_digest(before, "facts", cast)
