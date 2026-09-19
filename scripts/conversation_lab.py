@@ -2362,6 +2362,29 @@ def _frozen_prior_stages(episode: dict[str, Any], stage: str) -> dict[str, Any]:
     return prior
 
 
+def _count_calls(fn):
+    """Run `fn` and report how many paid calls it actually made.
+
+    Mirrors `_run_arm_and_count`: prefers the real delta in
+    model_router's `total_calls`, falling back to 1 when the cost log did
+    not move (a monkeypatched judge in tests, or a template run). The
+    budget CHECK reserves a worst case before the call; this is what gets
+    RECORDED after it, so `calls_used` reports what was spent rather than
+    what was set aside.
+    """
+    try:
+        before = model_router.get_cost_summary().get("total_calls", 0)
+    except Exception:
+        before = 0
+    result = fn()
+    try:
+        after = model_router.get_cost_summary().get("total_calls", 0)
+    except Exception:
+        after = 0
+    delta = after - before
+    return result, (delta if delta > 0 else 1)
+
+
 def _judge_one_transcript(
     *,
     concept: str,
@@ -2390,7 +2413,7 @@ def _judge_one_transcript(
         recipe_context=recipe_context,
         recipe_facts=recipe_facts,
     )
-    return {
+    return {  # noqa: DOC201 - the caller measures calls separately
         "passed": bool(passed),
         "verdict": verdict,
         "scores": (episode.get("judge_scores") or {}).get(stage) or {},
@@ -2529,36 +2552,109 @@ def _validate_bench_args(args: argparse.Namespace) -> None:
         raise ConversationLabError("--recipe-context also needs --concept (no episode to read a title from)")
 
 
+def _unique_result_path(directory: Path, stem: str) -> Path:
+    """A path that does not already exist, so no paid result is overwritten.
+
+    A UTC timestamp alone is not enough: it has second granularity, and two
+    benches can finish inside the same second (a dry run, a short N, a
+    test). Codex's finding allowed either a unique identifier or an outright
+    refusal to overwrite; this does both, falling back to a counter suffix
+    when the stamped name is taken.
+    """
+    candidate = directory / f"{stem}.json"
+    if not candidate.exists():
+        return candidate
+    for n in range(2, 1000):
+        candidate = directory / f"{stem}-{n}.json"
+        if not candidate.exists():
+            return candidate
+    raise ConversationLabError(
+        f"cannot find an unused result filename for {stem!r} in {directory}"
+    )
+
+
+def _load_bench_baseline(args: argparse.Namespace) -> dict[str, Any]:
+    """Read and validate a --compare baseline before any paid work starts.
+
+    Two Codex findings live here. Validating late meant a typo spent the
+    whole budget and then raised before the results were written; and
+    checking only `command == "bench"` let a Monday baseline be compared
+    against a Saturday run, producing movement rows that look valid while
+    the cast, turn range, rubric and prior-day context all differ - which
+    destroys the one thing a delta is for, attributing movement to the
+    setting that changed.
+    """
+    path = Path(args.compare)
+    try:
+        baseline = json.loads(path.read_text())
+    except FileNotFoundError:
+        raise ConversationLabError(f"--compare file not found: {args.compare}") from None
+    except json.JSONDecodeError as exc:
+        raise ConversationLabError(f"--compare file is not valid JSON: {args.compare} ({exc})") from None
+    if not isinstance(baseline, dict) or baseline.get("command") != "bench":
+        kind = baseline.get("command", "unknown") if isinstance(baseline, dict) else type(baseline).__name__
+        raise ConversationLabError(
+            f"--compare expects a bench result JSON; {args.compare!r} is a {kind!r} result"
+        )
+
+    if args.allow_mismatched_baseline:
+        return baseline
+
+    mismatches = []
+    if baseline.get("stage") != args.stage:
+        mismatches.append(f"stage {baseline.get('stage')!r} vs {args.stage!r}")
+    if baseline.get("dry_run") != bool(args.dry_run):
+        mismatches.append(f"dry_run {baseline.get('dry_run')!r} vs {bool(args.dry_run)!r}")
+    if mismatches:
+        raise ConversationLabError(
+            "--compare baseline is not comparable to this bench: "
+            + "; ".join(mismatches)
+            + ". A delta is only meaningful between runs of the same scenario. "
+            "Pass --allow-mismatched-baseline if the difference is deliberate."
+        )
+    return baseline
+
+
 def cmd_bench(args: argparse.Namespace) -> None:
     _validate_bench_args(args)
     mode, default_model, judge_model = _resolve_models(args.dry_run)
     concept, recipe_context, recipe_facts, prior_stages = _resolve_bench_scenario(args)
     expected_cast = simulate_module.participants_for_day(args.stage)
 
+    # Load and validate --compare FIRST (Codex P2). A typo'd path, missing
+    # file, malformed JSON or wrong result type used to surface only after
+    # every generation and judge call had already been paid for, and then
+    # raised before _write_json_result - losing the whole run. Validation is
+    # free; do it before anything costs money.
+    baseline_report = _load_bench_baseline(args) if args.compare else None
+
+    # Worst-case reservation, not last-observed (Codex P1). run_simulation
+    # makes one paid call PER TURN plus possible rewrite retries, so
+    # reserving the previous arm's count let `--max-calls 1` sail through
+    # the check and then spend a whole day's turns. The cap is a runaway
+    # guard and must be a real upper bound, so reserve what an arm can cost
+    # at worst and refuse to start one that would not fit.
+    gen_reserve = 2 * _max_turns_for_stage(args.stage)
+    judge_reserve = 2  # the judge retries once on an unparseable verdict
+
     max_calls = args.max_calls
     if max_calls is None:
-        # One generation arm can spend up to max_turns calls plus retry
-        # headroom for the CoT-leak/repetition rewrites (2x, same reasoning
-        # as _derive_max_calls), and one judge call - which itself can cost
-        # a second call on an unparseable verdict.
-        max_calls = args.runs * (2 * _max_turns_for_stage(args.stage) + 2)
+        max_calls = args.runs * (gen_reserve + judge_reserve)
     budget = CallBudget(max_calls=max_calls)
 
     runs: list[dict[str, Any]] = []
     aborted = False
     error: str | None = None
-    last_gen_calls = 1
 
     try:
         for run_index in range(1, args.runs + 1):
-            if budget.would_exceed(last_gen_calls) or _would_exceed_cost(args.max_cost):
+            if budget.would_exceed(gen_reserve) or _would_exceed_cost(args.max_cost):
                 aborted = True
                 break
             result, gen_calls = _run_arm_and_count(
                 concept, args.stage, run_index, recipe_context, mode, default_model
             )
             budget.record(gen_calls)
-            last_gen_calls = gen_calls
             messages = result.get("messages", [])
 
             record: dict[str, Any] = {
@@ -2567,25 +2663,29 @@ def cmd_bench(args: argparse.Namespace) -> None:
                 "summary": summarize(messages, expected_cast, concept=concept, day=args.stage),
                 "transcript": messages,
             }
+            # Appended BEFORE judging (Codex P2): this transcript is already
+            # paid for, and if the judge raises, the exception handler below
+            # must still find it. `judge` stays absent on such a record,
+            # which _bench_aggregate already treats as unjudged.
+            runs.append(record)
 
             # --dry-run renders the call plan with mode="template" and never
             # judges: there is nothing to judge that a model wrote.
             if not args.dry_run:
-                if budget.would_exceed(2) or _would_exceed_cost(args.max_cost):
-                    runs.append(record)
+                if budget.would_exceed(judge_reserve) or _would_exceed_cost(args.max_cost):
                     aborted = True
                     break
-                record["judge"] = _judge_one_transcript(
-                    concept=concept,
-                    stage=args.stage,
-                    messages=messages,
-                    prior_stages=prior_stages,
-                    recipe_context=recipe_context,
-                    recipe_facts=recipe_facts,
+                record["judge"], judge_calls = _count_calls(
+                    lambda: _judge_one_transcript(
+                        concept=concept,
+                        stage=args.stage,
+                        messages=messages,
+                        prior_stages=prior_stages,
+                        recipe_context=recipe_context,
+                        recipe_facts=recipe_facts,
+                    )
                 )
-                budget.record(1)
-
-            runs.append(record)
+                budget.record(judge_calls)
     except Exception as exc:  # noqa: BLE001 - partial results are paid work
         # Same contract as _generate_and_judge_pairs: runs that already
         # finished are paid for and must reach disk, so record the failure
@@ -2598,7 +2698,16 @@ def cmd_bench(args: argparse.Namespace) -> None:
     )
 
     label = args.label or f"{args.stage}-n{args.runs}"
-    result_path = _results_dir(args) / f"bench-{_slugify(label)}.json"
+    # Timestamped (Codex P1). The filename used to be deterministic from the
+    # label, so running the documented baseline -> change -> bench-again
+    # cycle twice at the same stage and N silently overwrote the first paid
+    # result; both Benchmarks rows then pointed at the same file, and
+    # --compare against that path read the current report as its own
+    # baseline. Every bench now writes its own file.
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    results_dir = _results_dir(args)
+    results_dir.mkdir(parents=True, exist_ok=True)
+    result_path = _unique_result_path(results_dir, f"bench-{_slugify(label)}-{stamp}")
     report: dict[str, Any] = {
         "command": "bench",
         "label": label,
@@ -2624,13 +2733,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
     }
 
     comparison = None
-    if args.compare:
-        baseline_report = json.loads(Path(args.compare).read_text())
-        if baseline_report.get("command") != "bench":
-            raise ConversationLabError(
-                f"--compare expects a bench result JSON; {args.compare!r} is a "
-                f"{baseline_report.get('command', 'unknown')!r} result"
-            )
+    if baseline_report is not None:
         comparison = {
             "baseline_file": str(args.compare),
             "baseline_label": baseline_report.get("label"),
@@ -3184,7 +3287,15 @@ def _build_parser() -> argparse.ArgumentParser:
     bench.add_argument("--recipe-context", default=None, help="One-line recipe anchor, verbatim; the judge then sees no previous days (mutually exclusive with --from-episode)")
     bench.add_argument("--local", action="store_true", help="With --from-episode, skip the CDN; read the local mirror")
     bench.add_argument("--label", default=None, help="Name for this bench, used for the result filename and the log row (default: <stage>-n<runs>)")
-    bench.add_argument("--compare", default=None, help="Path to an earlier bench result JSON; prints the per-metric delta and which averages moved")
+    bench.add_argument("--compare", default=None, help="Path to an earlier bench result JSON; prints the per-metric delta and which averages moved. Loaded and validated BEFORE any paid run, and refused when its scenario does not match this one")
+    bench.add_argument(
+        "--allow-mismatched-baseline", action="store_true",
+        help=(
+            "Compare against a baseline from a different stage or dry-run mode. Off by default: "
+            "a delta is meant to attribute movement to one changed setting, and comparing across "
+            "stages silently varies the cast, turn range, rubric and prior-day context too."
+        ),
+    )
     bench.add_argument(
         "--max-calls", type=int, default=None,
         help=(

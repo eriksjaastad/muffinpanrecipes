@@ -366,6 +366,29 @@ lines per arm and resolves about a 10-point move in a line-level rate
 not). Lines within a run are correlated, so the effective sample is
 somewhat smaller than the line count suggests.
 
+### What the caps actually guarantee
+
+Codex's review of PR #119 was right that "checked before every paid unit"
+overstates it, and the correction is worth stating precisely because the
+whole point of a cap here is to be a *guarantee*, not a hope.
+
+`run_simulation` makes one paid call per turn, plus possible rewrite
+retries, and the judge can retry once on an unparseable verdict. The lab
+does not hook `model_router`, so nothing intercepts an individual call.
+What `bench` does instead is **reserve the worst case before starting a
+unit and refuse to start one that would not fit**: `2 * max_turns` for a
+generation arm, `2` for a judge call. `--max-calls` is therefore a true
+upper bound. What gets *recorded* afterwards is the actual count, so
+`calls_used` reports spending, not reservations.
+
+`--max-cost` is weaker and honestly so: it is checked between units, so a
+single arm can carry the total past the cap before the next check sees it.
+The overshoot is bounded by one arm. Treat `--max-calls` as the hard guard
+and `--max-cost` as the soft one.
+
+The same last-observed-reservation weakness still exists in `ab`'s
+`_generate_and_judge_pairs` and is tracked separately.
+
 ### Deciding whether an average moved
 
 `--compare` reports, per metric, the difference in means over the standard
