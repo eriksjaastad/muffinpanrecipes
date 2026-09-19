@@ -2322,3 +2322,83 @@ def test_distribution_ignores_non_numeric_and_empty_input():
     assert cl._distribution([None, "x", True]) is None
     single = cl._distribution([3])
     assert single["n"] == 1 and single["stdev"] == 0.0 and single["stderr"] == 0.0
+
+
+def test_bench_from_episode_uses_the_episode_recipe_concept_and_prior_days(tmp_path, monkeypatch):
+    """The --from-episode path end to end.
+
+    PROTOCOL.md calls this bench's primary mode - it is what makes runs
+    comparable to each other AND predictive of the live gate - but every
+    other cmd_bench test drives --recipe-context, so this branch
+    (episode load -> _stage_recipe_data -> _build_recipe_context /
+    _build_judge_recipe_facts -> _episode_concept fallback ->
+    _frozen_prior_stages) was never exercised through cmd_bench.
+    """
+    episode = _snapshot_episode()
+    episode["stages"]["monday"]["dialogue"] = _messages("mon", count=2)
+    episode["stages"]["wednesday"] = {"dialogue": _messages("wed", count=2)}
+    episode["stages"]["sunday"] = {"dialogue": _messages("sun", count=2)}
+
+    anchors: list[str | None] = []
+    judged_prior: list[list[str]] = []
+
+    def fake_simulation(**kwargs):
+        anchors.append(kwargs["recipe_context"])
+        return {"messages": _messages("generated", count=5)}
+
+    def fake_judge(concept, stage, dialogue, ep, **kwargs):
+        judged_prior.append(sorted((ep.get("stages") or {}).keys()))
+        assert kwargs.get("recipe_facts"), "judge facts were not derived from the episode"
+        return True, "PASS"
+
+    monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: episode)
+    monkeypatch.setattr(sdw, "run_simulation", fake_simulation)
+    monkeypatch.setattr(cl, "judge_dialogue", fake_judge)
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+
+    cl.cmd_bench(_bench_args(tmp_path, runs=2, concept=None, recipe_context=None, from_episode="snapshot-week"))
+
+    report = _read_bench(tmp_path, "saturday-n2")
+    # concept fell back to the real recipe title, not the placeholder.
+    assert report["concept"] == "Snapshot Spiral Bites"
+    assert "Snapshot Spiral Bites" in (report["recipe_context"] or "")
+    assert anchors and all(a == report["recipe_context"] for a in anchors)
+    # Sunday comes AFTER saturday and must not leak into the judge's context.
+    assert report["judged_against_prior_days"] == ["monday", "tuesday", "wednesday"]
+    assert judged_prior == [["monday", "tuesday", "wednesday"]] * 2
+
+
+def test_bench_from_episode_fails_loud_when_the_recipe_data_is_unusable(tmp_path, monkeypatch):
+    monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: {"episode_id": "empty", "stages": {}})
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
+
+    with pytest.raises(cl.ConversationLabError, match="no usable recipe_data"):
+        cl.cmd_bench(_bench_args(tmp_path, concept=None, recipe_context=None, from_episode="empty"))
+
+
+def test_bench_appends_to_an_already_populated_benchmarks_table(tmp_path, monkeypatch):
+    """Two benches must produce two rows under ONE Benchmarks heading."""
+    _patch_bench_generation(monkeypatch, sdw)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+    log = tmp_path / "EXPERIMENTS.md"
+
+    cl.cmd_bench(_bench_args(tmp_path, no_log=False, experiments_log=str(log), label="first"))
+    cl.cmd_bench(_bench_args(tmp_path, no_log=False, experiments_log=str(log), label="second"))
+
+    text = log.read_text()
+    assert text.count(cl._BENCH_SECTION_HEADING) == 1
+    assert text.count(cl._BENCH_TABLE_HEADER_LINE) == 1
+    assert "| first | saturday |" in text
+    assert "| second | saturday |" in text
+    assert text.index("| first |") < text.index("| second |")
+
+
+def test_bench_derives_max_calls_from_runs_when_the_flag_is_omitted(tmp_path, monkeypatch):
+    _patch_bench_generation(monkeypatch, sdw)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+
+    cl.cmd_bench(_bench_args(tmp_path, runs=3, max_calls=None))
+
+    expected = 3 * (2 * cl._max_turns_for_stage("saturday") + 2)
+    assert _read_bench(tmp_path)["max_calls"] == expected
