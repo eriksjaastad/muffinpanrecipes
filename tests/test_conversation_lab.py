@@ -2059,6 +2059,7 @@ def _bench_args(tmp_path, **overrides):
         "local": False,
         "label": None,
         "compare": None,
+        "allow_mismatched_baseline": False,
         "max_calls": None,
         "max_cost": 5.0,
         "dry_run": False,
@@ -2078,8 +2079,15 @@ def _patch_bench_generation(monkeypatch, sdw_module, *, turns=4):
     monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "dialogue-model", "judge-model"))
 
 
+def _bench_path(tmp_path, label="saturday-n3"):
+    """Resolve a bench result by label prefix - filenames carry a UTC stamp."""
+    matches = sorted((tmp_path / "results").glob(f"bench-{label}-*.json"))
+    assert matches, f"no bench result written for label {label!r}"
+    return matches[-1]
+
+
 def _read_bench(tmp_path, label="saturday-n3"):
-    return json.loads((tmp_path / "results" / f"bench-{label}.json").read_text())
+    return json.loads(_bench_path(tmp_path, label).read_text())
 
 
 def test_bench_runs_n_times_and_aggregates(tmp_path, monkeypatch):
@@ -2175,7 +2183,7 @@ def test_bench_compare_reports_a_moved_average(tmp_path, monkeypatch):
     cl.cmd_bench(
         _bench_args(
             tmp_path, runs=4, label="longer",
-            compare=str(tmp_path / "results" / "bench-control.json"),
+            compare=str(_bench_path(tmp_path, "control")),
         )
     )
 
@@ -2206,7 +2214,7 @@ def test_bench_compare_flags_a_shift_that_has_no_variance_to_divide_by(tmp_path,
     cl.cmd_bench(
         _bench_args(
             tmp_path, runs=3, label="flat-longer",
-            compare=str(tmp_path / "results" / "bench-flat-control.json"),
+            compare=str(_bench_path(tmp_path, "flat-control")),
         )
     )
 
@@ -2408,3 +2416,122 @@ def test_bench_derives_max_calls_from_runs_when_the_flag_is_omitted(tmp_path, mo
     # If this fails, re-derive the budget deliberately rather than pasting
     # the new expression in.
     assert _read_bench(tmp_path)["max_calls"] == 66
+
+
+# ---------------------------------------------------------------------------
+# bench: the five findings from Codex's review of PR #119
+# ---------------------------------------------------------------------------
+
+
+def test_bench_refuses_to_start_an_arm_that_cannot_fit_the_call_budget(tmp_path, monkeypatch):
+    """Codex P1: the cap must be a real upper bound, not a last-observed guess.
+
+    `run_simulation` makes one paid call PER TURN plus rewrite retries. The
+    old check reserved the PREVIOUS arm's count, seeded at 1, so
+    `--max-calls 1` passed the check and then spent a whole day of turns.
+    """
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+
+    cl.cmd_bench(_bench_args(tmp_path, runs=5, max_calls=1))
+
+    report = _read_bench(tmp_path, "saturday-n5")
+    assert report["aborted"] is True
+    assert report["completed_runs"] == 0
+    assert report["calls_used"] == 0
+
+
+def test_bench_never_overwrites_an_earlier_paid_result(tmp_path, monkeypatch):
+    """Codex P1: two benches at the same stage/N must not collide.
+
+    The documented cycle is bench -> change one thing -> bench -> compare.
+    A filename derived only from the label meant the second run destroyed
+    the baseline the third step needs.
+    """
+    _patch_bench_generation(monkeypatch, sdw)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+
+    cl.cmd_bench(_bench_args(tmp_path, runs=2, label="same-label"))
+    first = sorted((tmp_path / "results").glob("bench-same-label-*.json"))
+    cl.cmd_bench(_bench_args(tmp_path, runs=2, label="same-label"))
+    both = sorted((tmp_path / "results").glob("bench-same-label-*.json"))
+
+    assert len(first) == 1
+    assert len(both) == 2, "the second bench overwrote the first paid result"
+    assert json.loads(both[0].read_text())["results_file"] != json.loads(both[1].read_text())["results_file"]
+
+
+def test_bench_validates_compare_before_spending_anything(tmp_path, monkeypatch):
+    """Codex P2: a typo'd --compare used to cost a full bench first."""
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+
+    with pytest.raises(cl.ConversationLabError, match="not found"):
+        cl.cmd_bench(_bench_args(tmp_path, compare=str(tmp_path / "typo.json")))
+
+    bad_json = tmp_path / "bad.json"
+    bad_json.write_text("{not json")
+    with pytest.raises(cl.ConversationLabError, match="not valid JSON"):
+        cl.cmd_bench(_bench_args(tmp_path, compare=str(bad_json)))
+
+
+def test_bench_keeps_a_paid_transcript_when_the_judge_raises(tmp_path, monkeypatch):
+    """Codex P2: the record is appended before judging, so a judge failure
+    cannot discard a transcript that has already been generated and paid for."""
+    _patch_bench_generation(monkeypatch, sdw, turns=4)
+
+    calls = {"n": 0}
+
+    def flaky_judge(*_args, **_kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("judge provider blew up")
+        return True, "PASS"
+
+    monkeypatch.setattr(cl, "judge_dialogue", flaky_judge)
+
+    with pytest.raises(SystemExit, match="judge provider blew up"):
+        cl.cmd_bench(_bench_args(tmp_path, runs=4))
+
+    report = _read_bench(tmp_path, "saturday-n4")
+    # Two generations happened; the second one's judge died. Both transcripts
+    # must survive, with the unjudged one simply carrying no judge result.
+    assert report["completed_runs"] == 2
+    assert [len(r["transcript"]) for r in report["runs"]] == [4, 4]
+    assert "judge" in report["runs"][0]
+    assert "judge" not in report["runs"][1]
+    assert report["aggregate"]["judged_runs"] == 1
+    assert report["aggregate"]["metrics"]["message_count"]["n"] == 2
+
+
+def test_bench_refuses_a_baseline_from_a_different_stage(tmp_path, monkeypatch):
+    """Codex P2: a cross-stage delta varies cast, turn range and rubric too."""
+    _patch_bench_generation(monkeypatch, sdw)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+    cl.cmd_bench(_bench_args(tmp_path, stage="monday", runs=2, label="monday-base"))
+    baseline = str(_bench_path(tmp_path, "monday-base"))
+
+    with pytest.raises(cl.ConversationLabError, match="not comparable"):
+        cl.cmd_bench(_bench_args(tmp_path, stage="saturday", runs=2, compare=baseline))
+
+    # The override exists for a deliberate cross-scenario read.
+    cl.cmd_bench(
+        _bench_args(
+            tmp_path, stage="saturday", runs=2, label="override",
+            compare=baseline, allow_mismatched_baseline=True,
+        )
+    )
+    assert _read_bench(tmp_path, "override")["comparison"]["baseline_label"] == "monday-base"
+
+
+def test_bench_refuses_to_compare_a_dry_run_against_a_paid_baseline(tmp_path, monkeypatch):
+    """Template dialogue is not a control for real dialogue."""
+    _patch_bench_generation(monkeypatch, sdw)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+    cl.cmd_bench(_bench_args(tmp_path, runs=2, label="paid-base"))
+    baseline = str(_bench_path(tmp_path, "paid-base"))
+
+    with pytest.raises(cl.ConversationLabError, match="dry_run"):
+        cl.cmd_bench(_bench_args(tmp_path, runs=2, dry_run=True, compare=baseline))
