@@ -2806,7 +2806,6 @@ def cmd_bench(args: argparse.Namespace) -> None:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     results_dir = _results_dir(args)
     results_dir.mkdir(parents=True, exist_ok=True)
-    result_path = _unique_result_path(results_dir, f"bench-{_slugify(label)}-{stamp}")
     report: dict[str, Any] = {
         "command": "bench",
         "label": label,
@@ -2823,7 +2822,6 @@ def cmd_bench(args: argparse.Namespace) -> None:
         "recurring_phrases_across_runs": corpus,
         "runs": runs,
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "results_file": str(result_path),
     }
 
     comparison = None
@@ -2836,6 +2834,12 @@ def cmd_bench(args: argparse.Namespace) -> None:
         }
         report["comparison"] = comparison
 
+    # Claim the filename LAST. _unique_result_path creates the file to win
+    # the race, so anything that could raise between the claim and the write
+    # would strand an empty .json in the results dir for a later glob or
+    # --compare to trip over. Nothing sits between these two lines.
+    result_path = _unique_result_path(results_dir, f"bench-{_slugify(label)}-{stamp}")
+    report["results_file"] = str(result_path)
     _write_json_result(result_path, report)
     if not args.no_log and not args.dry_run:
         _append_bench_log(_experiments_log_path(args), report)
