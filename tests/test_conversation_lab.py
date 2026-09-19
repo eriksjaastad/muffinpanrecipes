@@ -2878,3 +2878,99 @@ def test_bench_creates_the_results_directory_before_spending(tmp_path, monkeypat
     cl.cmd_bench(_bench_args(tmp_path, runs=2))
 
     assert seen and all(seen), "the results dir must exist before the first paid call"
+
+
+# ---------------------------------------------------------------------------
+# bench: Codex's fifth review
+# ---------------------------------------------------------------------------
+
+
+def test_bench_lock_never_lands_in_the_worktree(tmp_path, monkeypatch):
+    """Codex: a sibling EXPERIMENTS.md.lock is untracked, un-ignored repo
+    noise, and the locked hygiene contract's session-end gate refuses to
+    close on a dirty tree - so the lab would have blocked the end of every
+    session that used it."""
+    _patch_bench_generation(monkeypatch, sdw)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+    log_dir = tmp_path / "docs-like"
+    log_dir.mkdir()
+    log = log_dir / "EXPERIMENTS.md"
+
+    cl.cmd_bench(_bench_args(tmp_path, no_log=False, experiments_log=str(log)))
+
+    assert log.exists()
+    assert not list(log_dir.glob("*.lock")), "the lock must not live next to the log"
+    assert not list(log_dir.glob("*.partial")), "no temp artifact may survive a clean run"
+
+
+def test_bench_log_is_replaced_atomically(tmp_path, monkeypatch):
+    """Codex: a truncated write_text destroys prior audit rows. The lock
+    prevents concurrent writers; it does not make a partial write safe."""
+    _patch_bench_generation(monkeypatch, sdw)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+    log = tmp_path / "EXPERIMENTS.md"
+    cl.cmd_bench(_bench_args(tmp_path, no_log=False, experiments_log=str(log), label="first"))
+    before = log.read_text()
+
+    real_replace = cl.os.replace
+
+    def fail_on_log_replace(src, dst):
+        if str(dst).endswith("EXPERIMENTS.md"):
+            raise OSError("disk full")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(cl.os, "replace", fail_on_log_replace)
+    with pytest.raises(OSError):
+        cl.cmd_bench(_bench_args(tmp_path, no_log=False, experiments_log=str(log), label="second"))
+
+    assert log.read_text() == before, "a failed append must not truncate the audit trail"
+
+
+def test_bench_rejects_a_baseline_with_a_non_integer_sample_count(tmp_path, monkeypatch):
+    """Codex: _bench_delta evaluates `n >= 2`, which raises on a string -
+    after the whole bench has been paid for."""
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
+    bad = tmp_path / "bad-n.json"
+    bad.write_text(json.dumps({
+        "command": "bench",
+        "aggregate": {"metrics": {"qa_rate": {"n": "2", "mean": 1.0, "stderr": 0.0}}},
+    }))
+    with pytest.raises(cl.ConversationLabError, match="sample count"):
+        cl.cmd_bench(_bench_args(tmp_path, compare=str(bad)))
+
+
+def test_bench_refuses_an_unwritable_results_directory_before_spending(tmp_path, monkeypatch):
+    """Codex: mkdir(exist_ok=True) succeeds on an existing read-only dir,
+    so the whole bench ran and only the claim failed."""
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
+    results = tmp_path / "results"
+    results.mkdir()
+    results.chmod(0o500)  # r-x: exists, but nothing can be created in it
+    try:
+        with pytest.raises(cl.ConversationLabError, match="not writable"):
+            cl.cmd_bench(_bench_args(tmp_path))
+    finally:
+        results.chmod(0o700)
+
+
+def test_generator_input_digest_notices_rewritten_character_memory(tmp_path, monkeypatch):
+    """Codex: the Sunday stage rewrites memory.json every published week,
+    so two benches a week apart ran different system prompts while every
+    scenario field matched."""
+    import scripts.simulate_dialogue_week as sdw_mod
+
+    chars = tmp_path / "characters"
+    (chars / "margaret-chen").mkdir(parents=True)
+    (chars / "margaret-chen" / "bio.md").write_text("Blunt. Short sentences.")
+    mem = chars / "margaret-chen" / "memory.json"
+    mem.write_text(json.dumps({"episodes": [{"concept": "W1", "summary": "a"}]}))
+    monkeypatch.setattr(sdw_mod, "CHARACTERS_DIR", chars)
+
+    before = cl._generator_input_digest(["Margaret Chen"])
+    mem.write_text(json.dumps({"episodes": [{"concept": "W2", "summary": "b"}]}))
+    after = cl._generator_input_digest(["Margaret Chen"])
+
+    assert before != after, "a rewritten memory must break the comparison"
+    assert cl._generator_input_digest(["Margaret Chen"]) == after, "and be stable otherwise"

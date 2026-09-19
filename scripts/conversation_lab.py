@@ -212,6 +212,7 @@ import fcntl
 import hashlib
 import json
 import os
+import tempfile
 import random
 import re
 import sys
@@ -2712,6 +2713,14 @@ def _validate_bench_aggregate(baseline: dict[str, Any], source: str) -> None:
             raise ConversationLabError(
                 f"--compare baseline {source!r}: metric {key!r} is not a distribution object"
             )
+        n = dist.get("n")
+        if not isinstance(n, int) or isinstance(n, bool) or n < 0:
+            # _bench_delta evaluates `n >= 2`, which raises TypeError on a
+            # string - after the whole bench has been paid for (Codex).
+            raise ConversationLabError(
+                f"--compare baseline {source!r}: metric {key!r} has a non-integer "
+                f"sample count 'n' ({n!r})"
+            )
         for field in ("mean", "stderr"):
             value = dist.get(field)
             if not isinstance(value, (int, float)) or isinstance(value, bool):
@@ -2733,6 +2742,7 @@ _BENCH_SCENARIO_FIELDS = (
     "recipe_context",
     "judged_against_prior_days",
     "judge_input_digest",
+    "generator_input_digest",
     "models",
 )
 
@@ -2764,6 +2774,65 @@ def _judge_input_digest(
     }
     blob = json.dumps(payload, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+
+def _generator_input_digest(expected_cast: list[str]) -> str:
+    """Hash of the per-character prompt inputs the scenario does not name.
+
+    Codex: `build_system_prompt` folds in each character's `bio.md` and the
+    last two entries of their `memory.json`
+    (scripts/simulate_dialogue_week.py), and the Sunday stage rewrites
+    those memories every published week. Two benches taken a week apart
+    therefore ran DIFFERENT system prompts while every field in the
+    scenario matched, so a metric shift could be credited to the tested
+    lever when the characters' own history had moved underneath it.
+
+    Hashing the files rather than recording them keeps the report small and
+    still refuses the comparison when they change. A missing file is
+    recorded as such, so "Ria had no memory yet" and "Ria's memory was
+    rewritten" are different digests.
+    """
+    from scripts.simulate_dialogue_week import (  # local: keeps module import light
+        CHARACTERS_DIR,
+        PERSONAS_PATH,
+        _char_dir_slug,
+    )
+
+    parts: list[str] = []
+    try:
+        parts.append("personas:" + hashlib.sha256(PERSONAS_PATH.read_bytes()).hexdigest())
+    except OSError:
+        parts.append("personas:missing")
+    for name in sorted(expected_cast):
+        base = CHARACTERS_DIR / _char_dir_slug(name)
+        for leaf in ("bio.md", "memory.json"):
+            try:
+                digest = hashlib.sha256((base / leaf).read_bytes()).hexdigest()
+            except OSError:
+                digest = "missing"
+            parts.append(f"{name}/{leaf}:{digest}")
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
+
+
+def _assert_writable(directory: Path) -> None:
+    """Prove a file can actually be created here, before spending anything.
+
+    Codex: `mkdir(exist_ok=True)` succeeds on a directory that already
+    exists but is not writable, so every generation and judge call would
+    run and only the sidecar claim would fail - with no report written and
+    the whole paid bench lost.
+
+    `tempfile.TemporaryFile` is deliberate: it proves write capability and
+    the OS reclaims the file on close, so nothing is left behind and
+    nothing has to be deleted.
+    """
+    try:
+        with tempfile.TemporaryFile(dir=directory):
+            pass
+    except OSError as exc:
+        raise ConversationLabError(
+            f"results directory {directory} is not writable: {exc}"
+        ) from exc
 
 
 def _assert_comparable_scenario(baseline: dict[str, Any], report: dict[str, Any]) -> None:
@@ -2806,6 +2875,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
         "recipe_context": recipe_context,
         "judged_against_prior_days": sorted(prior_stages.keys()),
         "judge_input_digest": _judge_input_digest(prior_stages, recipe_facts, expected_cast),
+        "generator_input_digest": _generator_input_digest(expected_cast),
         "models": {"mode": mode, "dialogue": default_model, "judge": judge_model},
     }
     if baseline_report is not None and not args.allow_mismatched_baseline:
@@ -2826,6 +2896,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
     # written into a directory that exists.
     results_dir = _results_dir(args)
     results_dir.mkdir(parents=True, exist_ok=True)
+    _assert_writable(results_dir)
 
     gen_reserve = 0 if args.dry_run else _MAX_CALLS_PER_TURN * _max_turns_for_stage(args.stage)
     judge_reserve = 0 if args.dry_run else 2  # the judge retries once on an unparseable verdict
@@ -3013,9 +3084,19 @@ def _append_bench_log(path: Path, report: dict[str, Any]) -> None:
 
 @contextmanager
 def _file_lock(path: Path):
-    """Exclusive lock on a sibling .lock file, released on the way out."""
+    """Exclusive lock for `path`, held on a file OUTSIDE the worktree.
+
+    Codex: a sibling `EXPERIMENTS.md.lock` is untracked, un-ignored
+    repository noise that every operator run would leave behind - and the
+    locked hygiene contract's session-end gate refuses to close on a dirty
+    tree, so the lab would have blocked the end of every session that used
+    it. The lock lives in the system temp dir instead, keyed by a hash of
+    the absolute log path so two processes locking the same log still
+    collide and two different logs do not.
+    """
+    key = hashlib.sha256(str(path.resolve()).encode("utf-8")).hexdigest()[:16]
+    lock_path = Path(tempfile.gettempdir()) / f"conversation-lab-{key}.lock"
     path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = path.with_name(path.name + ".lock")
     with open(lock_path, "w") as handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
         try:
@@ -3034,7 +3115,14 @@ def _append_bench_row_locked(path: Path, report: dict[str, Any], row: str) -> No
             + _BENCH_TABLE_HEADER_LINE
             + _BENCH_TABLE_SEPARATOR_LINE
         )
-    path.write_text(existing.rstrip("\n") + "\n" + row)
+    # Atomic (Codex): a full-file write_text interrupted partway - a disk
+    # filling up while a paid bench appends its row - would truncate
+    # EXPERIMENTS.md and destroy every prior audit row. The lock stops
+    # concurrent writers; it does not make a partial write safe.
+    updated = existing.rstrip("\n") + "\n" + row
+    tmp = path.with_name(path.name + ".partial")
+    tmp.write_text(updated)
+    os.replace(tmp, path)
 
 
 def _print_bench_report(report: dict[str, Any]) -> None:
