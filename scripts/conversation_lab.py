@@ -3032,7 +3032,7 @@ def _generator_input_digest(expected_cast: list[str], stage: str) -> str:
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
-def _generator_code_digest() -> str:
+def _generator_code_digest(stage: str) -> str:
     """Hash of the GENERATION code and its non-lever configuration.
 
     Codex: `_generator_input_digest` covers the system prompt and the
@@ -3057,8 +3057,16 @@ def _generator_code_digest() -> str:
         {
             "run_simulation": simulate_module.run_simulation,
             "generate_turn": simulate_module.generate_turn,
-        }
+        },
+        stage=stage,
     )
+    # The effective reasoning effort sits at depth 4 - inside
+    # model_router._reasoning_kwargs - which _SCORER_WALK_DEPTH discards,
+    # and the report's `models` field records only the model NAME. Changing
+    # OPENAI_REASONING_EFFORT changes every generation request, so it is
+    # recorded directly rather than by deepening the walk for everything
+    # (Codex).
+    parts.append(f"reasoning_effort:{getattr(model_router, 'OPENAI_REASONING_EFFORT', '?')}")
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
@@ -3148,7 +3156,26 @@ def _all_referenced_names(code: Any) -> set[str]:
 _SCORER_WALK_DEPTH = 3
 
 
-def _scoring_source_parts(root_names: dict[str, Any]) -> list[str]:
+def _scoping_key(value: Any, stage: str | None) -> Any:
+    """Narrow a per-day container to the day actually being benched.
+
+    Codex: `TICKS_RANGE`, `DAY_MEETING_GOAL`, `_DAY_OPENER_CONTEXT` and
+    friends are keyed by weekday, and hashing them whole meant a change to
+    MONDAY's turn range refused a SATURDAY comparison in which nothing
+    about Saturday's generation moved. The seventh distinct way this
+    machinery has refused a valid comparison.
+
+    Only containers whose keys are exactly day names are narrowed, so an
+    unrelated dict that happens to contain a day-like key is left alone.
+    """
+    if stage is None or not isinstance(value, dict) or not value:
+        return value
+    if not set(value).issubset(set(simulate_module.DAY_ORDER)):
+        return value
+    return {stage: value.get(stage)}
+
+
+def _scoring_source_parts(root_names: dict[str, Any], stage: str | None = None) -> list[str]:
     """Source digests for scorers AND the module-level names they use.
 
     Codex: hashing only `inspect.getsource(score_quality)` missed the ten
@@ -3194,8 +3221,11 @@ def _scoring_source_parts(root_names: dict[str, Any]) -> list[str]:
             if inspect.isfunction(referenced):
                 visit(name, referenced, depth + 1)
             elif isinstance(referenced, (str, int, float, tuple, frozenset, list, dict, set)):
+                scoped = _scoping_key(referenced, stage)
+                suffix = f"@{stage}" if scoped is not referenced else ""
                 parts.append(
-                    f"{name}=" + hashlib.sha256(_canonical_repr(referenced).encode()).hexdigest()
+                    f"{name}{suffix}="
+                    + hashlib.sha256(_canonical_repr(scoped).encode()).hexdigest()
                 )
 
     for label, obj in root_names.items():
@@ -3313,7 +3343,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
         "judged_against_prior_days": sorted(prior_stages.keys()),
         "judge_input_digest": _judge_input_digest(prior_stages, recipe_facts, expected_cast),
         "generator_input_digest": _generator_input_digest(expected_cast, args.stage),
-        "generator_code_digest": _generator_code_digest(),
+        "generator_code_digest": _generator_code_digest(args.stage),
         "evaluator_digest": _evaluator_digest(),
         "models": {"mode": mode, "dialogue": default_model, "judge": judge_model},
     }
