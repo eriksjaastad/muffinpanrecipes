@@ -2815,17 +2815,28 @@ def _validate_bench_aggregate(baseline: dict[str, Any], source: str) -> None:
     # stderr / a numeric n, used to survive preflight and then raise in the
     # delta - after every call was paid for, before the result was written.
     for section in ("metrics", "dimensions"):
-        _validate_distribution_section(aggregate, section, source)
+        _validate_distribution_section(
+            aggregate, section, source, dry_run=bool(baseline.get("dry_run"))
+        )
 
 
 def _validate_distribution_section(
-    aggregate: dict[str, Any], section: str, source: str
+    aggregate: dict[str, Any], section: str, source: str, dry_run: bool = False
 ) -> None:
     """Check every distribution in one section of a baseline aggregate."""
     distributions = aggregate.get(section)
     if distributions is None and section == "dimensions":
-        # A --dry-run bench is never judged, so it legitimately has none.
-        return
+        # Only a genuine dry run may omit them (Codex). Waving through any
+        # baseline without dimensions meant _bench_delta produced no
+        # dimension rows at all, and with stable deterministic metrics the
+        # report could say nothing moved while every judge comparison was
+        # simply missing.
+        if dry_run:
+            return
+        raise ConversationLabError(
+            f"--compare baseline {source!r} has no 'aggregate.dimensions' block and is "
+            f"not a dry run - every judge-dimension comparison would be silently absent"
+        )
     if not isinstance(distributions, dict):
         raise ConversationLabError(
             f"--compare baseline {source!r} has no usable 'aggregate.{section}' object "
@@ -2901,9 +2912,14 @@ def _judge_input_digest(
     when the judge's own context had changed underneath it.
     """
     payload = {
+        # Rendered exactly as _judge_dialogue renders it (Codex): first
+        # token of the name, whitespace collapsed. Hashing the raw values
+        # meant collapsing a double space refused a comparison whose judge
+        # context was byte-for-byte identical.
         "prior": {
             day: [
-                f"{m.get('character')}: {m.get('message')}"
+                f"{str(m.get('character') or '?').split()[0] if str(m.get('character') or '?').split() else '?'}: "
+                + " ".join(str(m.get("message") or "").split())
                 for m in (stage.get("dialogue") or [])
             ]
             for day, stage in sorted(prior_stages.items())
@@ -2921,54 +2937,64 @@ def _judge_input_digest(
 
 
 def _generator_input_digest(expected_cast: list[str]) -> str:
-    """Hash of the per-character prompt inputs the scenario does not name.
+    """Hash of what the generator's prompts ACTUALLY contain.
 
-    Codex: `build_system_prompt` folds in each character's `bio.md` and the
-    last two entries of their `memory.json`
-    (scripts/simulate_dialogue_week.py), and the Sunday stage rewrites
-    those memories every published week. Two benches taken a week apart
-    therefore ran DIFFERENT system prompts while every field in the
-    scenario matched, so a metric shift could be credited to the tested
-    lever when the characters' own history had moved underneath it.
+    Rewritten after Codex's fifteenth round, which found three separate
+    bugs that were all the same mistake: hashing raw inputs and trying to
+    predict which parts the prompt uses. `build_system_prompt` ignores
+    `age`, `core_traits` and `behavioural_quirks`, ignores `backstory`
+    whenever a bio exists, and reads only the last two memories' `concept`
+    and `summary` - so hashing whole persona records, whole bio files and
+    whole memory files refused comparisons over edits the model never saw,
+    while any drift in my mirror of that logic would silently miss edits
+    it did see.
 
-    Hashing the files rather than recording them keeps the report small and
-    still refuses the comparison when they change. A missing file is
-    recorded as such, so "Ria had no memory yet" and "Ria's memory was
-    rewritten" are different digests.
+    Hashing the RENDERED prompt removes the guesswork: it is the exact
+    string the model receives, so an edit matters exactly when it changes
+    what the character is told. The cache is cleared first because
+    `build_system_prompt` memoises per name.
+
+    `first_episode` is recorded separately because `run_simulation`
+    computes it across EVERY persona, not just the seated cast
+    (simulate_dialogue_week.py:2119), and it selects Monday's opener - so
+    adding off-cast Devon's memory changes a Monday prompt even when the
+    cast has none of its own.
     """
-    from scripts.simulate_dialogue_week import (  # local: keeps module import light
-        CHARACTERS_DIR,
-        PERSONAS_PATH,
-        _char_dir_slug,
-    )
-
-    # Cast order is part of the scenario, so it is recorded verbatim.
     parts: list[str] = ["cast_order:" + _canonical_repr(list(expected_cast))]
 
-    # Only the personas this bench actually uses, parsed and canonicalized
-    # (Codex). Hashing the raw file meant reformatting the JSON, or editing
-    # Ria for a Saturday bench that only seats Devon and Margaret, refused
-    # a comparison whose effective inputs were identical.
     try:
+        _clear_prompt_cache(simulate_module)
         personas = simulate_module.load_personas()
-        effective = {
-            name: personas.get(name) for name in expected_cast if name in personas
-        }
-        missing = [name for name in expected_cast if name not in personas]
-        parts.append("personas:" + hashlib.sha256(_canonical_repr(effective).encode()).hexdigest())
-        if missing:
-            parts.append("personas_missing:" + _canonical_repr(sorted(missing)))
-    except Exception:
-        parts.append("personas:unreadable")
+        for name in expected_cast:
+            persona = personas.get(name)
+            if persona is None:
+                parts.append(f"{name}:absent")
+                continue
+            rendered = simulate_module.build_system_prompt(persona)
+            parts.append(f"{name}:" + hashlib.sha256(rendered.encode("utf-8")).hexdigest())
 
-    for name in sorted(expected_cast):
-        base = CHARACTERS_DIR / _char_dir_slug(name)
-        for leaf in ("bio.md", "memory.json"):
-            try:
-                digest = hashlib.sha256((base / leaf).read_bytes()).hexdigest()
-            except OSError:
-                digest = "missing"
-            parts.append(f"{name}/{leaf}:{digest}")
+        # The whole-roster flag, not just the seated cast's memories.
+        first_episode = all(
+            not simulate_module._load_memories(n) for n in personas
+        )
+        parts.append(f"first_episode:{first_episode}")
+
+        # The memory block is rendered per turn rather than into the system
+        # prompt, so hash the fields generation actually reads.
+        for name in expected_cast:
+            memories = simulate_module._load_memories(name)
+            rendered_memories = [
+                (m.get("concept", "unknown"), m.get("summary", "")) for m in memories
+            ]
+            parts.append(
+                f"{name}/memories:"
+                + hashlib.sha256(_canonical_repr(rendered_memories).encode()).hexdigest()
+            )
+    except Exception as exc:  # noqa: BLE001 - a digest must never take a bench down
+        parts.append(f"unreadable:{type(exc).__name__}")
+    finally:
+        _clear_prompt_cache(simulate_module)
+
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
 

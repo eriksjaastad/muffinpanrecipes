@@ -3624,23 +3624,115 @@ def test_judge_input_digest_preserves_cast_ORDER():
     assert cl._generator_input_digest(a) != cl._generator_input_digest(b)
 
 
-def test_generator_digest_ignores_personas_outside_the_cast(monkeypatch):
-    """Codex: hashing the raw personas file meant editing Ria refused a
-    Saturday comparison that only seats Devon and Margaret."""
+def test_generator_digest_tracks_the_RENDERED_prompt_not_raw_fields(monkeypatch):
+    """Codex round 15: hashing raw persona records refused comparisons over
+    edits the model never saw.
+
+    build_system_prompt ignores `backstory` whenever a bio exists, and
+    ignores `age` and `core_traits` entirely. Verified against the real
+    persona: only communication_style of these reaches the prompt. The
+    digest tracks the rendered string, so it matters exactly when the
+    character is actually told something different.
+    """
     real = sdw.load_personas()
     cast = ["Devon Park", "Margaret Chen"]
     baseline = cl._generator_input_digest(cast)
 
-    off_cast = dict(real)
-    victim = next(n for n in off_cast if n not in cast)
-    off_cast[victim] = {**off_cast[victim], "backstory": "completely rewritten"}
-    monkeypatch.setattr(sdw, "load_personas", lambda: off_cast)
+    # Off-cast persona: never rendered for this bench.
+    off = dict(real)
+    victim = next(n for n in off if n not in cast)
+    off[victim] = {
+        **off[victim],
+        "communication_style": {
+            **off[victim]["communication_style"],
+            "signature_phrases": ["utterly different"],
+        },
+    }
+    monkeypatch.setattr(sdw, "load_personas", lambda: off)
     assert cl._generator_input_digest(cast) == baseline, "an off-cast persona must not matter"
+    monkeypatch.undo()
 
-    on_cast = dict(real)
-    on_cast["Devon Park"] = {**on_cast["Devon Park"], "backstory": "completely rewritten"}
-    monkeypatch.setattr(sdw, "load_personas", lambda: on_cast)
-    assert cl._generator_input_digest(cast) != baseline, "an ON-cast persona must matter"
+    # On-cast but PROMPT-INVISIBLE: backstory is ignored when a bio exists.
+    ignored = dict(real)
+    ignored["Devon Park"] = {**ignored["Devon Park"], "backstory": "completely rewritten"}
+    monkeypatch.setattr(sdw, "load_personas", lambda: ignored)
+    assert cl._generator_input_digest(cast) == baseline, (
+        "backstory never reaches the prompt when a bio exists - refusing on it "
+        "was the bug"
+    )
+    monkeypatch.undo()
+
+    # On-cast AND prompt-visible. Of communication_style's five keys, only
+    # signature_phrases is rendered - formality, verbosity, directness and
+    # emotional_expressiveness reach the prompt not at all, which is card
+    # #6966 ("make the numeric dials bind") confirmed empirically.
+    visible = dict(real)
+    visible["Devon Park"] = {
+        **visible["Devon Park"],
+        "communication_style": {
+            **visible["Devon Park"]["communication_style"],
+            "signature_phrases": ["a brand new catchphrase"],
+        },
+    }
+    monkeypatch.setattr(sdw, "load_personas", lambda: visible)
+    assert cl._generator_input_digest(cast) != baseline, "a rendered change MUST be caught"
+
+
+def test_generator_digest_tracks_off_cast_first_episode_state(monkeypatch):
+    """Codex: run_simulation computes first_episode across EVERY persona and
+    uses it to pick Monday's opener, so off-cast Devon's memory changes a
+    Monday prompt even when the seated cast has none of its own."""
+    cast = ["Margaret Chen"]
+    monkeypatch.setattr(sdw, "_load_memories", lambda name: [])
+    none_at_all = cl._generator_input_digest(cast)
+
+    # Only an OFF-cast character gains a memory.
+    monkeypatch.setattr(
+        sdw, "_load_memories",
+        lambda name: [{"concept": "W1", "summary": "s"}] if name == "Devon Park" else [],
+    )
+    assert cl._generator_input_digest(cast) != none_at_all, (
+        "an off-cast memory flips first_episode and changes Monday's opener"
+    )
+
+
+def test_judge_input_digest_normalises_whitespace_like_the_judge(monkeypatch):
+    """Codex: _judge_dialogue renders ' '.join(msg.split()) and the first
+    token of the name, so collapsing a double space refused a comparison
+    whose judge context was byte-for-byte identical."""
+    tidy = {"monday": {"dialogue": [{"character": "Margaret Chen", "message": "The ratio is off."}]}}
+    messy = {"monday": {"dialogue": [{"character": "Margaret Chen", "message": "The   ratio\n is off."}]}}
+    cast = ["Margaret Chen"]
+
+    assert cl._judge_input_digest(tidy, "f", cast) == cl._judge_input_digest(messy, "f", cast)
+
+    # A real content change must still be caught.
+    different = {"monday": {"dialogue": [{"character": "Margaret Chen", "message": "The ratio is fine."}]}}
+    assert cl._judge_input_digest(tidy, "f", cast) != cl._judge_input_digest(different, "f", cast)
+
+
+def test_bench_refuses_a_non_dry_baseline_missing_its_dimensions(tmp_path, monkeypatch):
+    """Codex: waving through a missing dimensions block meant every judge
+    comparison was silently absent while the report said nothing moved."""
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
+    metrics = {"qa_rate": {"n": 3, "mean": 1.0, "stderr": 0.1}}
+
+    bad = tmp_path / "no-dims.json"
+    bad.write_text(json.dumps({
+        "command": "bench", "dry_run": False, "aggregate": {"metrics": metrics},
+    }))
+    with pytest.raises(cl.ConversationLabError, match="silently absent"):
+        cl.cmd_bench(_bench_args(tmp_path, compare=str(bad)))
+
+    # A genuine dry-run baseline legitimately has none.
+    ok = tmp_path / "dry.json"
+    ok.write_text(json.dumps({
+        "command": "bench", "dry_run": True, "aggregate": {"metrics": metrics},
+    }))
+    cl._load_bench_baseline(cl.argparse.Namespace(
+        compare=str(ok), allow_mismatched_baseline=True, stage="saturday", dry_run=True,
+    ))
 
 
 def test_evaluator_digest_covers_this_modules_own_aggregation_layer(monkeypatch):
