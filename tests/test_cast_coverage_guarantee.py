@@ -23,6 +23,7 @@ import pytest
 import scripts.simulate_dialogue_week as sim
 from scripts.conversation_metrics import cast_coverage
 from scripts.simulate_dialogue_week import (
+    ABSOLUTE_TURN_FLOOR,
     DAY_ORDER,
     TICKS_RANGE,
     _select_next_speaker,
@@ -69,10 +70,13 @@ def test_ticks_range_seats_full_cast(day: str) -> None:
     """
     low, _high = TICKS_RANGE[day]
     cast_size = len(participants_for_day(day))
-    assert low >= cast_size, (
+    required = max(cast_size + 1, ABSOLUTE_TURN_FLOOR)
+    assert low >= required, (
         f"{day} budgets a minimum of {low} turn(s) for a {cast_size}-person "
-        f"cast; at least {cast_size} are needed for cast_coverage to be "
-        f"achievable at all"
+        f"cast; it needs at least {required} - one more than the cast so "
+        f"somebody can reply and somebody can close (#7082/#7105), and never "
+        f"fewer than ABSOLUTE_TURN_FLOOR={ABSOLUTE_TURN_FLOOR}, because the "
+        f"judge grades an arc regardless of how small the cast is (#7292)"
     )
 
 
@@ -304,3 +308,35 @@ def test_forced_tick_count_below_cast_size_still_spreads(stub_turns) -> None:
         assert len(messages) == 3
         assert len(set(speakers)) == 3, f"a character repeated while others waited: {speakers}"
         assert not cast_coverage(expected, messages)["unexpected"]
+
+
+def test_turn_floor_rule_rejects_the_old_saturday_range() -> None:
+    """The strengthened rule must fail the config that lost W38's Saturday.
+
+    Saturday was `(3, 5)` against a 2-person cast. The pre-#7292 rule
+    (`low >= cast_size`) passed that, and so did cast_size + 1, because
+    2 + 1 == 3 - which is why `test_ticks_range_seats_full_cast` above was
+    green the whole time the stage was failing live. Asserting the real
+    days satisfy the new rule cannot show that, since none of them carry
+    the broken value any more; this checks the rule itself.
+    """
+    old_saturday_low, old_cast_size = 3, 2
+    assert old_saturday_low >= old_cast_size + 1, "the old rule really did pass"
+    assert old_saturday_low < max(old_cast_size + 1, ABSOLUTE_TURN_FLOOR), (
+        "the amended rule must reject a 3-turn floor for a 2-person cast"
+    )
+
+
+def test_absolute_turn_floor_is_not_above_any_day_it_guards() -> None:
+    """A floor nobody can satisfy would make every day unschedulable.
+
+    Guards the obvious own-goal: raising ABSOLUTE_TURN_FLOOR past some
+    day's TICKS_RANGE upper bound would leave that day with an empty
+    sampling range (`random.randint(low, high)` with low > high raises).
+    """
+    for day in DAY_ORDER:
+        _low, high = TICKS_RANGE[day]
+        assert ABSOLUTE_TURN_FLOOR <= high, (
+            f"ABSOLUTE_TURN_FLOOR={ABSOLUTE_TURN_FLOOR} exceeds {day}'s upper "
+            f"bound of {high}; that day could never sample a turn count"
+        )
