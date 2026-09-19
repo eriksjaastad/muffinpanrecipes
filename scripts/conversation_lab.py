@@ -3032,7 +3032,7 @@ def _generator_input_digest(expected_cast: list[str], stage: str) -> str:
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
-def _generator_code_digest(stage: str) -> str:
+def _generator_code_digest(stage: str, dialogue_model: str | None = None) -> str:
     """Hash of the GENERATION code and its non-lever configuration.
 
     Codex: `_generator_input_digest` covers the system prompt and the
@@ -3062,11 +3062,22 @@ def _generator_code_digest(stage: str) -> str:
     )
     # The effective reasoning effort sits at depth 4 - inside
     # model_router._reasoning_kwargs - which _SCORER_WALK_DEPTH discards,
-    # and the report's `models` field records only the model NAME. Changing
-    # OPENAI_REASONING_EFFORT changes every generation request, so it is
-    # recorded directly rather than by deepening the walk for everything
-    # (Codex).
-    parts.append(f"reasoning_effort:{getattr(model_router, 'OPENAI_REASONING_EFFORT', '?')}")
+    # and the report's `models` field records only the model NAME.
+    #
+    # Included ONLY when the selected model actually consumes it (Codex).
+    # `_reasoning_kwargs` returns {} for anything not in
+    # OPENAI_REASONING_MODELS, so with an Anthropic dialogue model - the
+    # standing config - this setting never touches generation, and pinning
+    # it unconditionally refused comparisons over an irrelevant env var.
+    # That was the eighth way this machinery has refused a valid
+    # comparison, and I introduced it one round ago while fixing an
+    # unpinned input. Hence the mirror of the router's own condition rather
+    # than a guess about when it matters.
+    bare_model = (dialogue_model or "").split("/")[-1].lower().strip()
+    if bare_model in getattr(model_router, "OPENAI_REASONING_MODELS", set()):
+        parts.append(
+            f"reasoning_effort:{getattr(model_router, 'OPENAI_REASONING_EFFORT', '?')}"
+        )
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
@@ -3343,7 +3354,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
         "judged_against_prior_days": sorted(prior_stages.keys()),
         "judge_input_digest": _judge_input_digest(prior_stages, recipe_facts, expected_cast),
         "generator_input_digest": _generator_input_digest(expected_cast, args.stage),
-        "generator_code_digest": _generator_code_digest(args.stage),
+        "generator_code_digest": _generator_code_digest(args.stage, default_model),
         "evaluator_digest": _evaluator_digest(),
         "models": {"mode": mode, "dialogue": default_model, "judge": judge_model},
     }
@@ -3366,6 +3377,20 @@ def cmd_bench(args: argparse.Namespace) -> None:
     results_dir = _results_dir(args)
     results_dir.mkdir(parents=True, exist_ok=True)
     _assert_writable(results_dir)
+    if not args.no_log and not args.dry_run:
+        # Preflighted alongside results_dir (Codex): a custom
+        # --experiments-log with a non-creatable parent, or a read-only
+        # destination, previously raised inside _append_bench_log - after
+        # every call was paid for and the result published - so the
+        # required audit row was simply never written.
+        log_path = _experiments_log_path(args)
+        try:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise ConversationLabError(
+                f"experiments log directory {log_path.parent} is not usable: {exc}"
+            ) from exc
+        _assert_writable(log_path.parent)
 
     gen_reserve = 0 if args.dry_run else _MAX_CALLS_PER_TURN * _max_turns_for_stage(args.stage)
     judge_reserve = 0 if args.dry_run else 2  # the judge retries once on an unparseable verdict
@@ -3529,6 +3554,38 @@ _BENCH_TABLE_HEADER_LINE = (
 _BENCH_TABLE_SEPARATOR_LINE = "|------|-------|-------|---|-----------|-----------------------|-------------|\n"
 
 
+def _insert_in_section(text: str, heading: str, row: str) -> str:
+    """Append `row` to the last table row under `heading`.
+
+    Falls back to an end-of-file append when the heading is absent, which
+    is the caller's own just-created-the-section path.
+    """
+    lines = text.rstrip("\n").split("\n")
+    try:
+        start = next(i for i, line in enumerate(lines) if line.strip() == heading.strip())
+    except StopIteration:
+        return text.rstrip("\n") + "\n" + row
+
+    # The section ends at the next heading of the same or higher level.
+    end = len(lines)
+    for i in range(start + 1, len(lines)):
+        stripped = lines[i].lstrip()
+        if stripped.startswith("#") and not stripped.startswith("###"):
+            end = i
+            break
+
+    # Insert after the last table row in the section, so the row joins the
+    # table rather than trailing any prose beneath it.
+    insert_at = end
+    for i in range(end - 1, start, -1):
+        if lines[i].lstrip().startswith("|"):
+            insert_at = i + 1
+            break
+
+    lines.insert(insert_at, row.rstrip("\n"))
+    return "\n".join(lines) + "\n"
+
+
 def _md_cell(value: Any) -> str:
     """One Markdown table cell, safe against delimiters in the value.
 
@@ -3606,11 +3663,18 @@ def _append_bench_row_locked(path: Path, report: dict[str, Any], row: str) -> No
             + _BENCH_TABLE_HEADER_LINE
             + _BENCH_TABLE_SEPARATOR_LINE
         )
+    # Inserted at the END OF THE BENCHMARKS TABLE, not the end of the file
+    # (Codex). An unconditional append put the row under whatever section
+    # happened to come last - so once any narrative section follows the
+    # table, a paid run's audit row lands outside the table it belongs to
+    # and stops being a valid entry. The Experiments table already does
+    # section-aware insertion for exactly this reason.
+    updated = _insert_in_section(existing, _BENCH_SECTION_HEADING, row)
+
     # Atomic (Codex): a full-file write_text interrupted partway - a disk
     # filling up while a paid bench appends its row - would truncate
     # EXPERIMENTS.md and destroy every prior audit row. The lock stops
     # concurrent writers; it does not make a partial write safe.
-    updated = existing.rstrip("\n") + "\n" + row
     tmp = path.with_name(path.name + ".partial")
     tmp.write_text(updated)
     os.replace(tmp, path)
