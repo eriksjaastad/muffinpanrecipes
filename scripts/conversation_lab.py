@@ -2974,6 +2974,37 @@ def _assert_writable(directory: Path) -> None:
         ) from exc
 
 
+def _canonical_repr(value: Any) -> str:
+    """A stable text form for hashing, independent of hash-seed ordering.
+
+    P1 (Codex): `repr()` on a set emits elements in hash order, and Python
+    randomizes the string hash seed PER PROCESS. The baseline bench and the
+    follow-up bench are separate processes, so hashing `repr(a_set)` gave
+    a different evaluator_digest for identical code and refused a valid
+    comparison at random. Measured: three runs of the same unchanged module
+    produced three different digests.
+    """
+    if isinstance(value, (set, frozenset)):
+        return "{" + ",".join(sorted(_canonical_repr(v) for v in value)) + "}"
+    if isinstance(value, dict):
+        return "{" + ",".join(
+            f"{_canonical_repr(k)}:{_canonical_repr(v)}"
+            for k, v in sorted(value.items(), key=lambda kv: repr(kv[0]))
+        ) + "}"
+    if isinstance(value, (list, tuple)):
+        return "[" + ",".join(_canonical_repr(v) for v in value) + "]"
+    return repr(value)
+
+
+# Module-level names DERIVED from a lever rather than from scoring code.
+# _SHARED_RULES_SHINGLES is literally `_word_shingles(_SHARED_CHARACTER_RULES)`
+# (simulate_dialogue_week.py:1204), so a fresh import under a changed
+# _SHARED_CHARACTER_RULES recomputes it - and hashing it made the digest
+# move for the very lever the experiment is allowed to change (Codex).
+# Skipping the lever alone is not enough; its derivatives must go too.
+_LEVER_DERIVED_NAMES = frozenset({"_SHARED_RULES_SHINGLES", "_system_prompt_cache"})
+
+
 def _all_referenced_names(code: Any) -> set[str]:
     """Every global name a function body references, nested scopes included.
 
@@ -3033,13 +3064,15 @@ def _scoring_source_parts(root_names: dict[str, Any]) -> list[str]:
         if module is None or code is None:
             return
         for name in sorted(_all_referenced_names(code)):
-            if name in ALLOWED_VARIANT_ATTRS:
-                continue  # the lever under test is SUPPOSED to differ
+            if name in ALLOWED_VARIANT_ATTRS or name in _LEVER_DERIVED_NAMES:
+                continue  # the lever under test, and anything computed from it
             referenced = getattr(module, name, None)
             if inspect.isfunction(referenced):
                 visit(name, referenced, depth + 1)
             elif isinstance(referenced, (str, int, float, tuple, frozenset, list, dict, set)):
-                parts.append(f"{name}=" + hashlib.sha256(repr(referenced).encode()).hexdigest())
+                parts.append(
+                    f"{name}=" + hashlib.sha256(_canonical_repr(referenced).encode()).hexdigest()
+                )
 
     for label, obj in root_names.items():
         visit(label, obj, 1)
@@ -3332,6 +3365,18 @@ _BENCH_TABLE_HEADER_LINE = (
 _BENCH_TABLE_SEPARATOR_LINE = "|------|-------|-------|---|-----------|-----------------------|-------------|\n"
 
 
+def _md_cell(value: Any) -> str:
+    """One Markdown table cell, safe against delimiters in the value.
+
+    A pipe or newline in --label, or in the judge's unvalidated `weakest`
+    text, split the audit row into extra columns or rows - leaving a paid
+    run's required log entry malformed even though its result published
+    fine (Codex).
+    """
+    text = " ".join(str(value).split())
+    return text.replace("\\", "\\\\").replace("|", "\\|") or "-"
+
+
 def _append_bench_log(path: Path, report: dict[str, Any]) -> None:
     """Append one row to EXPERIMENTS.md's Benchmarks table.
 
@@ -3348,12 +3393,12 @@ def _append_bench_log(path: Path, report: dict[str, Any]) -> None:
     pass_rate = aggregate.get("pass_rate")
     row = (
         f"| {datetime.now(timezone.utc).date().isoformat()} "
-        f"| {report['label']} "
-        f"| {report['stage']} "
+        f"| {_md_cell(report['label'])} "
+        f"| {_md_cell(report['stage'])} "
         f"| {report['completed_runs']} "
         f"| {'n/a' if pass_rate is None else f'{pass_rate:.0%}'} "
-        f"| {top_weakest} "
-        f"| {Path(report['results_file']).name} |\n"
+        f"| {_md_cell(top_weakest)} "
+        f"| {_md_cell(Path(report['results_file']).name)} |\n"
     )
 
     # Locked (Codex): the append is a read-modify-write, so two benches
