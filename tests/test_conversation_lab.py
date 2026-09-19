@@ -2974,3 +2974,44 @@ def test_generator_input_digest_notices_rewritten_character_memory(tmp_path, mon
 
     assert before != after, "a rewritten memory must break the comparison"
     assert cl._generator_input_digest(["Margaret Chen"]) == after, "and be stable otherwise"
+
+
+def test_evaluator_digest_notices_a_changed_judge_rubric(monkeypatch):
+    """Codex: the inputs were fingerprinted but the SCORERS were not.
+
+    A rubric edit between two benches means _bench_delta subtracts
+    aggregates computed under different definitions, and the pass-rate
+    movement can come from the rewritten rubric rather than the lever.
+    """
+    import backend.admin.cron_routes as cron
+
+    before = cl._evaluator_digest()
+    monkeypatch.setattr(cron, "_JUDGE_SYSTEM_PROMPT", cron._JUDGE_SYSTEM_PROMPT + "\nNEW RULE.")
+    after = cl._evaluator_digest()
+
+    assert before != after, "a rewritten rubric must break the comparison"
+    monkeypatch.undo()
+    assert cl._evaluator_digest() == before, "and be stable when nothing changed"
+
+
+def test_evaluator_digest_notices_a_changed_metric_definition(monkeypatch, tmp_path):
+    """The deterministic metrics are the other half of the scorer."""
+    fake = tmp_path / "conversation_metrics.py"
+    fake.write_text("# v1\n")
+    monkeypatch.setattr(cl.conversation_metrics, "__file__", str(fake))
+    before = cl._evaluator_digest()
+
+    fake.write_text("# v2 - question_rate now counts rhetorical questions\n")
+    assert cl._evaluator_digest() != before
+
+
+def test_bench_refuses_a_baseline_scored_by_a_different_evaluator(tmp_path, monkeypatch):
+    """End to end: the digest has to actually gate the comparison."""
+    _patch_bench_generation(monkeypatch, sdw)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+    cl.cmd_bench(_bench_args(tmp_path, runs=2, label="old-rubric"))
+    baseline = str(_bench_path(tmp_path, "old-rubric"))
+
+    monkeypatch.setattr(cl, "_evaluator_digest", lambda: "different0000000")
+    with pytest.raises(cl.ConversationLabError, match="evaluator_digest"):
+        cl.cmd_bench(_bench_args(tmp_path, runs=2, compare=baseline))
