@@ -3011,17 +3011,14 @@ def _generator_input_digest(expected_cast: list[str], stage: str) -> str:
             )
             parts.append(f"first_episode:{first_episode}")
 
-        # The memory block is rendered per turn rather than into the system
-        # prompt, so hash the fields generation actually reads.
-        for name in expected_cast:
-            memories = simulate_module._load_memories(name)
-            rendered_memories = [
-                (m.get("concept", "unknown"), m.get("summary", "")) for m in memories
-            ]
-            parts.append(
-                f"{name}/memories:"
-                + hashlib.sha256(_canonical_repr(rendered_memories).encode()).hexdigest()
-            )
+        # NO separate memory hash (Codex). That comment was wrong:
+        # build_system_prompt DOES render the last two memories, so the
+        # rendered-prompt hash above already covers them. The extra raw
+        # hash was redundant and type-sensitive - a concept stored as the
+        # JSON number 2026 versus the string "2026" renders identically as
+        # `2026` but hashed differently, refusing a comparison whose
+        # generated text was byte-for-byte the same. Belt-and-braces became
+        # a liability the moment the braces were type-aware.
     except Exception as exc:  # noqa: BLE001 - a digest must never take a bench down
         parts.append(f"unreadable:{type(exc).__name__}")
     finally:
@@ -3030,6 +3027,22 @@ def _generator_input_digest(expected_cast: list[str], stage: str) -> str:
         _clear_prompt_cache(simulate_module)
 
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
+
+
+def _provider_of(dialogue_model: str | None) -> str | None:
+    """Which provider a dialogue model routes to, or None if unknown.
+
+    Deliberately reuses the router's own resolution rather than guessing
+    from the prefix, so this cannot drift from where generation actually
+    goes.
+    """
+    if not dialogue_model:
+        return None
+    try:
+        return model_router.route_model(dialogue_model).provider
+    except Exception:
+        prefix = dialogue_model.split("/")[0].lower().strip()
+        return prefix if prefix in {"openai", "anthropic", "google"} else None
 
 
 def _generator_code_digest(stage: str, dialogue_model: str | None = None) -> str:
@@ -3053,13 +3066,26 @@ def _generator_code_digest(stage: str, dialogue_model: str | None = None) -> str
     TICKS_RANGE, DAY_MEETING_GOAL, _DAY_OPENER_CONTEXT, _DAY_CLOSER_CONTEXT,
     _build_dynamic_arc, participants_for_day, _select_next_speaker.
     """
+    # Skip the provider implementations that this bench will never call
+    # (Codex). generate_response fans out to _generate_openai,
+    # _generate_anthropic and _generate_google, so walking it unscoped
+    # meant an edit confined to the unused Google path refused an
+    # Anthropic comparison - too strict, in the direction I keep erring.
+    provider = _provider_of(dialogue_model)
+    inactive = {
+        f"_generate_{name}"
+        for name in ("openai", "anthropic", "google")
+        if provider is not None and name != provider
+    }
     parts = _scoring_source_parts(
         {
             "run_simulation": simulate_module.run_simulation,
             "generate_turn": simulate_module.generate_turn,
         },
         stage=stage,
+        skip_names=inactive,
     )
+    parts.append(f"provider:{provider or 'unknown'}")
     # The effective reasoning effort sits at depth 4 - inside
     # model_router._reasoning_kwargs - which _SCORER_WALK_DEPTH discards,
     # and the report's `models` field records only the model NAME.
@@ -3186,41 +3212,67 @@ def _scoping_key(value: Any, stage: str | None) -> Any:
     return {stage: value.get(stage)}
 
 
-def _scoring_source_parts(root_names: dict[str, Any], stage: str | None = None) -> list[str]:
+def _scoring_source_parts(
+    root_names: dict[str, Any],
+    stage: str | None = None,
+    skip_names: set[str] | None = None,
+) -> list[str]:
     """Source digests for scorers AND the module-level names they use.
 
     Codex: hashing only `inspect.getsource(score_quality)` missed the ten
     helpers it calls and the constants those read, so editing
     `_voice_pattern_score` or `PROHIBITED` changed the reported legacy
-    metrics without changing the digest - and `--compare` then credited
-    that movement to the prompt lever.
+    metrics without changing the digest.
 
-    Walks each scorer's `co_names` against its own module, following
-    callables to `_SCORER_WALK_DEPTH`. Names in ALLOWED_VARIANT_ATTRS are
-    skipped by design: those are the levers under test and MUST be allowed
-    to differ between two benches, which is the mistake the previous
-    whole-module hash made.
+    **Breadth-first, deliberately.** The first version recursed
+    depth-first with a `seen` set, which made coverage depend on the
+    iteration order of `root_names`: `generate_response` was first reached
+    at depth 3 via `run_simulation`, marked seen, and its children pruned -
+    so the shallower path through `generate_turn` never ran and the
+    provider implementations were never hashed at all. Visiting in
+    increasing depth guarantees every node is reached at its minimum
+    depth, so the traversal no longer depends on dict ordering.
+
+    Names in ALLOWED_VARIANT_ATTRS and their derivatives are skipped by
+    design: those are the levers under test and MUST be free to differ.
+    `skip_names` additionally drops paths this bench will never execute,
+    such as the provider implementations for models it is not using.
     """
     parts: list[str] = []
     seen: set[str] = set()
+    queue: list[tuple[str, Any, int]] = [
+        (label, obj, 1) for label, obj in root_names.items()
+    ]
+    cursor = 0
 
-    def visit(label: str, obj: Any, depth: int) -> None:
+    while cursor < len(queue):
+        label, obj, depth = queue[cursor]
+        cursor += 1
+        if depth > _SCORER_WALK_DEPTH:
+            continue
         key = f"{getattr(obj, '__module__', '?')}.{getattr(obj, '__qualname__', label)}"
-        if key in seen or depth > _SCORER_WALK_DEPTH:
-            return
+        if key in seen:
+            continue
         seen.add(key)
+
         try:
-            parts.append(f"{label}:" + hashlib.sha256(inspect.getsource(obj).encode()).hexdigest())
+            parts.append(
+                f"{label}:" + hashlib.sha256(inspect.getsource(obj).encode()).hexdigest()
+            )
         except (OSError, TypeError):
             parts.append(f"{label}:unreadable")
-            return
+            continue
+
         module = sys.modules.get(getattr(obj, "__module__", "") or "")
         code = getattr(obj, "__code__", None)
         if module is None or code is None:
-            return
+            continue
+
         for name in sorted(_all_referenced_names(code)):
             if name in ALLOWED_VARIANT_ATTRS or name in _LEVER_DERIVED_NAMES:
                 continue  # the lever under test, and anything computed from it
+            if skip_names and name in skip_names:
+                continue  # a provider path this bench will never call
             if name.startswith("__"):
                 # `__dict__` in particular is every global the module has,
                 # INCLUDING the levers - hashing it silently re-admitted the
@@ -3230,7 +3282,7 @@ def _scoring_source_parts(root_names: dict[str, Any], stage: str | None = None) 
                 continue
             referenced = getattr(module, name, None)
             if inspect.isfunction(referenced):
-                visit(name, referenced, depth + 1)
+                queue.append((name, referenced, depth + 1))
             elif isinstance(referenced, (str, int, float, tuple, frozenset, list, dict, set)):
                 scoped = _scoping_key(referenced, stage)
                 suffix = f"@{stage}" if scoped is not referenced else ""
@@ -3239,9 +3291,7 @@ def _scoring_source_parts(root_names: dict[str, Any], stage: str | None = None) 
                     + hashlib.sha256(_canonical_repr(scoped).encode()).hexdigest()
                 )
 
-    for label, obj in root_names.items():
-        visit(label, obj, 1)
-    return parts
+    return sorted(set(parts))
 
 
 def _evaluator_digest() -> str:
@@ -3391,6 +3441,14 @@ def cmd_bench(args: argparse.Namespace) -> None:
                 f"experiments log directory {log_path.parent} is not usable: {exc}"
             ) from exc
         _assert_writable(log_path.parent)
+        if log_path.exists() and not log_path.is_file():
+            # An existing DIRECTORY at that path has a perfectly writable
+            # parent, so the check above passes, every call gets paid for,
+            # and _append_bench_row_locked then dies on read_text() with
+            # IsADirectoryError - published result, no audit row (Codex).
+            raise ConversationLabError(
+                f"--experiments-log {log_path} exists and is not a regular file"
+            )
 
     gen_reserve = 0 if args.dry_run else _MAX_CALLS_PER_TURN * _max_turns_for_stage(args.stage)
     judge_reserve = 0 if args.dry_run else 2  # the judge retries once on an unparseable verdict

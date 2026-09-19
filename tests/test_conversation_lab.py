@@ -4037,3 +4037,91 @@ def test_insert_in_section_appends_when_the_heading_is_absent():
     """The just-created-the-section path must still work."""
     out = cl._insert_in_section("# Log\n\nnothing yet\n", "## Benchmarks", "| row |\n")
     assert out.rstrip().endswith("| row |")
+
+
+# ---------------------------------------------------------------------------
+# bench: Codex's twentieth review — the "too strict" pass I asked for
+# ---------------------------------------------------------------------------
+
+
+def test_walk_is_breadth_first_so_coverage_does_not_depend_on_root_order():
+    """A bug of my own, found while fixing Codex's provider finding.
+
+    The walk recursed depth-first with a `seen` set, so coverage depended
+    on the iteration order of root_names: generate_response was first
+    reached at depth 3 via run_simulation, marked seen, and its children
+    pruned - meaning the shallower path through generate_turn never ran
+    and the provider implementations were never hashed AT ALL. Breadth
+    first, every node is reached at its minimum depth.
+    """
+    forward = cl._scoring_source_parts(
+        {"run_simulation": sdw.run_simulation, "generate_turn": sdw.generate_turn}
+    )
+    reversed_roots = cl._scoring_source_parts(
+        {"generate_turn": sdw.generate_turn, "run_simulation": sdw.run_simulation}
+    )
+    assert forward == reversed_roots, "root ordering must not change what gets hashed"
+
+    labels = {part.split(":")[0].split("=")[0] for part in forward}
+    assert "_generate_anthropic" in labels, (
+        "the provider implementation must be reachable at all - it was not before"
+    )
+
+
+def test_generator_code_digest_walks_only_the_active_provider():
+    """Codex: an edit confined to the unused Google path refused an
+    Anthropic comparison. Too strict, in the direction I keep erring."""
+    roots = {"run_simulation": sdw.run_simulation, "generate_turn": sdw.generate_turn}
+    for provider in ("anthropic", "openai", "google"):
+        inactive = {f"_generate_{n}" for n in ("openai", "anthropic", "google") if n != provider}
+        labels = {
+            part.split(":")[0].split("=")[0]
+            for part in cl._scoring_source_parts(roots, skip_names=inactive)
+        }
+        walked = {n for n in ("_generate_openai", "_generate_anthropic", "_generate_google") if n in labels}
+        assert walked == {f"_generate_{provider}"}, f"{provider}: walked {walked}"
+
+
+def test_provider_of_uses_the_routers_own_resolution():
+    assert cl._provider_of("anthropic/claude-haiku-4-5") == "anthropic"
+    assert cl._provider_of("openai/gpt-6-astra") == "openai"
+    assert cl._provider_of(None) is None
+
+
+def test_generator_digest_no_longer_double_hashes_memories(monkeypatch):
+    """Codex: build_system_prompt ALREADY renders the last two memories, so
+    the extra raw hash was redundant and type-sensitive - a concept stored
+    as the JSON number 2026 versus the string "2026" renders identically
+    as `2026` but hashed differently, refusing a comparison whose
+    generated text was byte-for-byte the same."""
+    assert "_load_memories" in sdw.build_system_prompt.__code__.co_names, (
+        "the premise: memories really are rendered into the system prompt"
+    )
+    cast = ["Margaret Chen"]
+
+    monkeypatch.setattr(
+        sdw, "_load_memories",
+        lambda name: [{"concept": 2026, "summary": "s"}] if name == "Margaret Chen" else [],
+    )
+    as_number = cl._generator_input_digest(cast, "saturday")
+
+    monkeypatch.setattr(
+        sdw, "_load_memories",
+        lambda name: [{"concept": "2026", "summary": "s"}] if name == "Margaret Chen" else [],
+    )
+    as_string = cl._generator_input_digest(cast, "saturday")
+
+    assert as_number == as_string, "both render as `2026`; only the raw hash saw a difference"
+
+
+def test_bench_rejects_an_experiments_log_that_is_a_directory(tmp_path, monkeypatch):
+    """Codex: a directory at that path has a writable PARENT, so the
+    preflight passed, every call got paid for, and _append_bench_row_locked
+    then died on read_text() - published result, no audit row."""
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
+    as_dir = tmp_path / "EXPERIMENTS.md"
+    as_dir.mkdir()
+
+    with pytest.raises(cl.ConversationLabError, match="not a regular file"):
+        cl.cmd_bench(_bench_args(tmp_path, no_log=False, experiments_log=str(as_dir)))
