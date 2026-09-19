@@ -2936,7 +2936,13 @@ def _judge_input_digest(
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
 
 
-def _generator_input_digest(expected_cast: list[str]) -> str:
+# Placeholder substituted for a prompt lever before rendering, so the
+# generator digest tracks persona/bio/memory drift without tracking the
+# thing the experiment is deliberately changing.
+_LEVER_MASK = "<LEVER MASKED FOR DIGEST>"
+
+
+def _generator_input_digest(expected_cast: list[str], stage: str) -> str:
     """Hash of what the generator's prompts ACTUALLY contain.
 
     Rewritten after Codex's fifteenth round, which found three separate
@@ -2961,8 +2967,29 @@ def _generator_input_digest(expected_cast: list[str]) -> str:
     cast has none of its own.
     """
     parts: list[str] = ["cast_order:" + _canonical_repr(list(expected_cast))]
+    saved: dict[str, Any] = {}
 
     try:
+        # Render with the LEVERS NEUTRALISED (Codex). The rendered prompt
+        # necessarily contains _SHARED_CHARACTER_RULES, so hashing it as-is
+        # meant changing that lever refused the documented workflow - the
+        # sixth time this digest has done that, and the direct cost of
+        # switching to rendered prompts without re-checking the levers.
+        #
+        # Which levers to mask is derived, not judged: whichever ones
+        # build_system_prompt actually references. Today that is
+        # _SHARED_CHARACTER_RULES alone; if a future lever lands in the
+        # system prompt this picks it up with no edit here.
+        masked = {
+            lever: _LEVER_MASK
+            for lever in _all_referenced_names(simulate_module.build_system_prompt.__code__)
+            if lever in ALLOWED_VARIANT_ATTRS
+        }
+        saved = {lever: getattr(simulate_module, lever) for lever in masked}
+        for lever, value in masked.items():
+            setattr(simulate_module, lever, value)
+        parts.append("masked_levers:" + _canonical_repr(sorted(masked)))
+
         _clear_prompt_cache(simulate_module)
         personas = simulate_module.load_personas()
         for name in expected_cast:
@@ -2973,11 +3000,15 @@ def _generator_input_digest(expected_cast: list[str]) -> str:
             rendered = simulate_module.build_system_prompt(persona)
             parts.append(f"{name}:" + hashlib.sha256(rendered.encode("utf-8")).hexdigest())
 
-        # The whole-roster flag, not just the seated cast's memories.
-        first_episode = all(
-            not simulate_module._load_memories(n) for n in personas
-        )
-        parts.append(f"first_episode:{first_episode}")
+        # Monday only (Codex): generate_turn consults is_first_episode
+        # under `day == "monday"`, so hashing it for a Tuesday-Sunday bench
+        # let an off-cast character's first memory refuse a comparison in
+        # which no generated prompt changed at all.
+        if stage == "monday":
+            first_episode = all(
+                not simulate_module._load_memories(n) for n in personas
+            )
+            parts.append(f"first_episode:{first_episode}")
 
         # The memory block is rendered per turn rather than into the system
         # prompt, so hash the fields generation actually reads.
@@ -2993,6 +3024,8 @@ def _generator_input_digest(expected_cast: list[str]) -> str:
     except Exception as exc:  # noqa: BLE001 - a digest must never take a bench down
         parts.append(f"unreadable:{type(exc).__name__}")
     finally:
+        for lever, value in saved.items():
+            setattr(simulate_module, lever, value)
         _clear_prompt_cache(simulate_module)
 
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
@@ -3233,7 +3266,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
         "recipe_context": recipe_context,
         "judged_against_prior_days": sorted(prior_stages.keys()),
         "judge_input_digest": _judge_input_digest(prior_stages, recipe_facts, expected_cast),
-        "generator_input_digest": _generator_input_digest(expected_cast),
+        "generator_input_digest": _generator_input_digest(expected_cast, args.stage),
         "evaluator_digest": _evaluator_digest(),
         "models": {"mode": mode, "dialogue": default_model, "judge": judge_model},
     }

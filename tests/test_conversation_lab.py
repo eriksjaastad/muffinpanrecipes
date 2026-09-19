@@ -2970,12 +2970,12 @@ def test_generator_input_digest_notices_rewritten_character_memory(tmp_path, mon
     mem.write_text(json.dumps({"episodes": [{"concept": "W1", "summary": "a"}]}))
     monkeypatch.setattr(sdw_mod, "CHARACTERS_DIR", chars)
 
-    before = cl._generator_input_digest(["Margaret Chen"])
+    before = cl._generator_input_digest(["Margaret Chen"], "monday")
     mem.write_text(json.dumps({"episodes": [{"concept": "W2", "summary": "b"}]}))
-    after = cl._generator_input_digest(["Margaret Chen"])
+    after = cl._generator_input_digest(["Margaret Chen"], "monday")
 
     assert before != after, "a rewritten memory must break the comparison"
-    assert cl._generator_input_digest(["Margaret Chen"]) == after, "and be stable otherwise"
+    assert cl._generator_input_digest(["Margaret Chen"], "monday") == after, "and be stable otherwise"
 
 
 def test_evaluator_digest_notices_a_changed_judge_rubric(monkeypatch):
@@ -3621,7 +3621,7 @@ def test_judge_input_digest_preserves_cast_ORDER():
     b = ["Margaret Chen", "Devon Park"]
     assert sorted(a) == sorted(b), "same people - only the order differs"
     assert cl._judge_input_digest({}, "facts", a) != cl._judge_input_digest({}, "facts", b)
-    assert cl._generator_input_digest(a) != cl._generator_input_digest(b)
+    assert cl._generator_input_digest(a, "saturday") != cl._generator_input_digest(b, "saturday")
 
 
 def test_generator_digest_tracks_the_RENDERED_prompt_not_raw_fields(monkeypatch):
@@ -3636,7 +3636,7 @@ def test_generator_digest_tracks_the_RENDERED_prompt_not_raw_fields(monkeypatch)
     """
     real = sdw.load_personas()
     cast = ["Devon Park", "Margaret Chen"]
-    baseline = cl._generator_input_digest(cast)
+    baseline = cl._generator_input_digest(cast, "saturday")
 
     # Off-cast persona: never rendered for this bench.
     off = dict(real)
@@ -3649,14 +3649,14 @@ def test_generator_digest_tracks_the_RENDERED_prompt_not_raw_fields(monkeypatch)
         },
     }
     monkeypatch.setattr(sdw, "load_personas", lambda: off)
-    assert cl._generator_input_digest(cast) == baseline, "an off-cast persona must not matter"
+    assert cl._generator_input_digest(cast, "saturday") == baseline, "an off-cast persona must not matter"
     monkeypatch.undo()
 
     # On-cast but PROMPT-INVISIBLE: backstory is ignored when a bio exists.
     ignored = dict(real)
     ignored["Devon Park"] = {**ignored["Devon Park"], "backstory": "completely rewritten"}
     monkeypatch.setattr(sdw, "load_personas", lambda: ignored)
-    assert cl._generator_input_digest(cast) == baseline, (
+    assert cl._generator_input_digest(cast, "saturday") == baseline, (
         "backstory never reaches the prompt when a bio exists - refusing on it "
         "was the bug"
     )
@@ -3675,7 +3675,7 @@ def test_generator_digest_tracks_the_RENDERED_prompt_not_raw_fields(monkeypatch)
         },
     }
     monkeypatch.setattr(sdw, "load_personas", lambda: visible)
-    assert cl._generator_input_digest(cast) != baseline, "a rendered change MUST be caught"
+    assert cl._generator_input_digest(cast, "saturday") != baseline, "a rendered change MUST be caught"
 
 
 def test_generator_digest_tracks_off_cast_first_episode_state(monkeypatch):
@@ -3684,16 +3684,25 @@ def test_generator_digest_tracks_off_cast_first_episode_state(monkeypatch):
     Monday prompt even when the seated cast has none of its own."""
     cast = ["Margaret Chen"]
     monkeypatch.setattr(sdw, "_load_memories", lambda name: [])
-    none_at_all = cl._generator_input_digest(cast)
+    none_at_all = cl._generator_input_digest(cast, "monday")
 
     # Only an OFF-cast character gains a memory.
     monkeypatch.setattr(
         sdw, "_load_memories",
         lambda name: [{"concept": "W1", "summary": "s"}] if name == "Devon Park" else [],
     )
-    assert cl._generator_input_digest(cast) != none_at_all, (
+    assert cl._generator_input_digest(cast, "monday") != none_at_all, (
         "an off-cast memory flips first_episode and changes Monday's opener"
     )
+    # ...and must NOT matter on any other day, where generate_turn never
+    # consults the flag.
+    monkeypatch.setattr(sdw, "_load_memories", lambda name: [])
+    saturday_none = cl._generator_input_digest(cast, "saturday")
+    monkeypatch.setattr(
+        sdw, "_load_memories",
+        lambda name: [{"concept": "W1", "summary": "s"}] if name == "Devon Park" else [],
+    )
+    assert cl._generator_input_digest(cast, "saturday") == saturday_none
 
 
 def test_judge_input_digest_normalises_whitespace_like_the_judge(monkeypatch):
@@ -3769,7 +3778,7 @@ def test_all_digests_are_stable_across_processes():
     script = (
         "import scripts.conversation_lab as cl;"
         "print(cl._evaluator_digest(),"
-        "cl._generator_input_digest(['Devon Park','Margaret Chen']),"
+        "cl._generator_input_digest(['Devon Park','Margaret Chen'],'saturday'),"
         "cl._judge_input_digest({}, 'facts', ['Devon Park','Margaret Chen']))"
     )
     outs = {
@@ -3781,3 +3790,72 @@ def test_all_digests_are_stable_across_processes():
         for seed in (0, 1, 12345)
     }
     assert len(outs) == 1, f"digests differ across hash seeds: {outs}"
+
+
+# ---------------------------------------------------------------------------
+# bench: Codex's sixteenth review
+# ---------------------------------------------------------------------------
+
+
+def test_generator_digest_masks_the_lever_it_renders(monkeypatch):
+    """Codex: the rendered prompt CONTAINS _SHARED_CHARACTER_RULES.
+
+    Switching to rendered prompts fixed three bugs and introduced this
+    one - the sixth time this digest has refused the documented workflow.
+    The lever must be masked before rendering, while everything else in
+    the prompt still counts.
+    """
+    cast = ["Devon Park", "Margaret Chen"]
+    baseline = cl._generator_input_digest(cast, "saturday")
+
+    monkeypatch.setattr(sdw, "_SHARED_CHARACTER_RULES", "COMPLETELY DIFFERENT SHARED RULES\n")
+    assert cl._generator_input_digest(cast, "saturday") == baseline, (
+        "the lever under test must not refuse the comparison"
+    )
+    monkeypatch.undo()
+
+    # Non-lever prompt content still counts.
+    real = sdw.load_personas()
+    changed = dict(real)
+    changed["Devon Park"] = {
+        **changed["Devon Park"],
+        "communication_style": {
+            **changed["Devon Park"]["communication_style"],
+            "signature_phrases": ["something new"],
+        },
+    }
+    monkeypatch.setattr(sdw, "load_personas", lambda: changed)
+    assert cl._generator_input_digest(cast, "saturday") != baseline
+
+
+def test_generator_digest_restores_every_lever_it_masked():
+    """The mask mutates module globals, so a leak would silently change
+    what the NEXT bench generates."""
+    before = {lever: getattr(sdw, lever) for lever in cl.ALLOWED_VARIANT_ATTRS}
+    cl._generator_input_digest(["Devon Park", "Margaret Chen"], "saturday")
+    after = {lever: getattr(sdw, lever) for lever in cl.ALLOWED_VARIANT_ATTRS}
+    assert before == after
+    assert cl._LEVER_MASK not in sdw._SHARED_CHARACTER_RULES
+
+
+def test_generator_digest_restores_levers_even_when_rendering_raises(monkeypatch):
+    """A masked lever left in place would be a silent, lasting corruption
+    of the generator - worse than any digest error."""
+    original = sdw._SHARED_CHARACTER_RULES
+
+    def boom(_persona):
+        raise RuntimeError("render exploded")
+
+    monkeypatch.setattr(sdw, "build_system_prompt", boom)
+    cl._generator_input_digest(["Devon Park"], "saturday")  # must not raise
+    assert sdw._SHARED_CHARACTER_RULES == original, "the lever must be restored on the error path"
+
+
+def test_which_levers_get_masked_is_derived_not_hardcoded():
+    """Masking is computed from what build_system_prompt references, so a
+    future lever landing in the system prompt is picked up with no edit."""
+    referenced = cl._all_referenced_names(sdw.build_system_prompt.__code__)
+    masked = referenced & set(cl.ALLOWED_VARIANT_ATTRS)
+    assert masked == {"_SHARED_CHARACTER_RULES"}, (
+        f"today only that lever reaches the system prompt; got {masked}"
+    )
