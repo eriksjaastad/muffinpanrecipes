@@ -2743,6 +2743,7 @@ _BENCH_SCENARIO_FIELDS = (
     "judged_against_prior_days",
     "judge_input_digest",
     "generator_input_digest",
+    "evaluator_digest",
     "models",
 )
 
@@ -2835,6 +2836,35 @@ def _assert_writable(directory: Path) -> None:
         ) from exc
 
 
+def _evaluator_digest() -> str:
+    """Hash of the SCORERS, not just their inputs.
+
+    The last gap in this family (Codex). `judge_input_digest` and
+    `generator_input_digest` pin what goes in; this pins what measures it.
+    If `_JUDGE_SYSTEM_PROMPT`'s rubric is edited, or a metric definition in
+    scripts/conversation_metrics.py changes, `_bench_delta` would subtract
+    aggregates computed under different definitions and the pass-rate
+    movement could come from a rewritten rubric rather than the lever under
+    test - which is precisely the attribution error the comparison exists
+    to prevent.
+
+    The whole metrics module is hashed, so a comment-only edit also
+    invalidates old baselines. That is deliberate: deciding a source change
+    was behaviour-free requires reading it, and refusing a comparison is
+    cheap next to silently publishing a wrong one.
+    `--allow-mismatched-baseline` remains the deliberate override.
+    """
+    from backend.admin.cron_routes import _JUDGE_SYSTEM_PROMPT
+
+    parts = ["judge_prompt:" + hashlib.sha256(_JUDGE_SYSTEM_PROMPT.encode("utf-8")).hexdigest()]
+    try:
+        metrics_src = Path(conversation_metrics.__file__).read_bytes()
+        parts.append("metrics:" + hashlib.sha256(metrics_src).hexdigest())
+    except (OSError, TypeError):
+        parts.append("metrics:unreadable")
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
+
+
 def _assert_comparable_scenario(baseline: dict[str, Any], report: dict[str, Any]) -> None:
     """Refuse a baseline whose scenario differs from this bench's."""
     mismatches = []
@@ -2876,6 +2906,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
         "judged_against_prior_days": sorted(prior_stages.keys()),
         "judge_input_digest": _judge_input_digest(prior_stages, recipe_facts, expected_cast),
         "generator_input_digest": _generator_input_digest(expected_cast),
+        "evaluator_digest": _evaluator_digest(),
         "models": {"mode": mode, "dialogue": default_model, "judge": judge_model},
     }
     if baseline_report is not None and not args.allow_mismatched_baseline:
