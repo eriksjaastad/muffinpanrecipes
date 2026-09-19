@@ -3015,3 +3015,85 @@ def test_bench_refuses_a_baseline_scored_by_a_different_evaluator(tmp_path, monk
     monkeypatch.setattr(cl, "_evaluator_digest", lambda: "different0000000")
     with pytest.raises(cl.ConversationLabError, match="evaluator_digest"):
         cl.cmd_bench(_bench_args(tmp_path, runs=2, compare=baseline))
+
+
+# ---------------------------------------------------------------------------
+# bench: Codex's seventh review
+# ---------------------------------------------------------------------------
+
+
+def test_spend_charges_the_reservation_when_the_counter_is_unreadable(monkeypatch):
+    """Codex: an unreadable cost log made --max-calls stop being a cap.
+
+    _calls_now() used to return 0 on failure, indistinguishable from "no
+    call happened", so a generation that can really cost 40 was recorded
+    as 10 and the budget let another full arm through.
+    """
+    monkeypatch.setattr(cl, "_calls_now", lambda: None)
+    budget = cl.CallBudget(max_calls=60)
+
+    cl._spend(budget, lambda: "ok", fallback=10, reservation=40)
+
+    assert budget.used == 40, "an invisible spend must be charged at the reservation"
+    assert budget.would_exceed(40), "and a second worst-case arm must no longer fit"
+
+
+def test_spend_still_records_the_real_delta_when_the_counter_works(monkeypatch):
+    counts = iter([5, 12])
+    monkeypatch.setattr(cl, "_calls_now", lambda: next(counts))
+    budget = cl.CallBudget(max_calls=100)
+
+    cl._spend(budget, lambda: "ok", fallback=1, reservation=40)
+
+    assert budget.used == 7, "a readable counter must charge actual spend, not the reservation"
+
+
+def test_evaluator_digest_covers_every_scoring_module(monkeypatch, tmp_path):
+    """Codex: cron_routes assembles/parses the verdict and
+    conversation_metrics.legacy_quality delegates to
+    simulate_dialogue_week.score_quality, so hashing two artifacts left
+    real scoring code unpinned."""
+    import backend.admin.cron_routes as cron
+
+    baseline = cl._evaluator_digest()
+    for module in (cl.conversation_metrics, cron, cl.simulate_module):
+        fake = tmp_path / f"{id(module)}.py"
+        fake.write_text("# changed\n")
+        monkeypatch.setattr(module, "__file__", str(fake))
+        assert cl._evaluator_digest() != baseline, f"{module.__name__} is not pinned"
+        monkeypatch.undo()
+
+    assert cl._evaluator_digest() == baseline
+
+
+def test_bench_persists_its_cost_summary(tmp_path, monkeypatch):
+    """Codex: the cost log is process-local, so without this the result
+    retains no dollar spend once the command exits."""
+    _patch_bench_generation(monkeypatch, sdw)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+    monkeypatch.setattr(
+        cl.model_router, "get_cost_summary",
+        lambda: {"total_cost": 1.23, "total_calls": 42},
+    )
+
+    cl.cmd_bench(_bench_args(tmp_path, runs=2))
+
+    report = _read_bench(tmp_path, "saturday-n2")
+    assert report["cost_summary"]["total_cost"] == 1.23
+    assert report["cost_summary"]["total_calls"] == 42
+
+
+def test_bench_survives_an_unreadable_cost_summary(tmp_path, monkeypatch):
+    """A broken cost log must not take the whole report down with it."""
+    _patch_bench_generation(monkeypatch, sdw)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+
+    def boom():
+        raise RuntimeError("cost log unavailable")
+
+    monkeypatch.setattr(cl.model_router, "get_cost_summary", boom)
+    cl.cmd_bench(_bench_args(tmp_path, runs=1))
+
+    report = _read_bench(tmp_path, "saturday-n1")
+    assert report["cost_summary"] is None
+    assert report["completed_runs"] == 1
