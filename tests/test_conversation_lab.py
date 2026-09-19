@@ -11,6 +11,7 @@ docs/conversation-lab/.
 from __future__ import annotations
 
 import json
+import os
 import re
 import urllib.error
 
@@ -3601,3 +3602,90 @@ def test_bench_log_row_survives_pipes_and_newlines(tmp_path, monkeypatch):
     assert len(cells) == 7, f"expected 7 columns, got {len(cells)}: {cells}"
     assert "\\|" in rows[0], "the delimiter in the value is escaped, not dropped"
     assert "a\\|b c" in rows[0], "the label survives, flattened and escaped"
+
+
+# ---------------------------------------------------------------------------
+# bench: Codex's fourteenth review — the targeted digest pass I asked for
+# ---------------------------------------------------------------------------
+
+
+def test_judge_input_digest_preserves_cast_ORDER():
+    """Codex: I was sorting expected_cast and hiding a real difference.
+
+    run_simulation passes participants_for_day()'s ORDERED list into
+    _select_next_speaker, whose weighted selection iterates it, and
+    _judge_dialogue renders the roster in that order. Two orderings really
+    do produce different conversations and different judge input.
+    """
+    a = ["Devon Park", "Margaret Chen"]
+    b = ["Margaret Chen", "Devon Park"]
+    assert sorted(a) == sorted(b), "same people - only the order differs"
+    assert cl._judge_input_digest({}, "facts", a) != cl._judge_input_digest({}, "facts", b)
+    assert cl._generator_input_digest(a) != cl._generator_input_digest(b)
+
+
+def test_generator_digest_ignores_personas_outside_the_cast(monkeypatch):
+    """Codex: hashing the raw personas file meant editing Ria refused a
+    Saturday comparison that only seats Devon and Margaret."""
+    real = sdw.load_personas()
+    cast = ["Devon Park", "Margaret Chen"]
+    baseline = cl._generator_input_digest(cast)
+
+    off_cast = dict(real)
+    victim = next(n for n in off_cast if n not in cast)
+    off_cast[victim] = {**off_cast[victim], "backstory": "completely rewritten"}
+    monkeypatch.setattr(sdw, "load_personas", lambda: off_cast)
+    assert cl._generator_input_digest(cast) == baseline, "an off-cast persona must not matter"
+
+    on_cast = dict(real)
+    on_cast["Devon Park"] = {**on_cast["Devon Park"], "backstory": "completely rewritten"}
+    monkeypatch.setattr(sdw, "load_personas", lambda: on_cast)
+    assert cl._generator_input_digest(cast) != baseline, "an ON-cast persona must matter"
+
+
+def test_evaluator_digest_covers_this_modules_own_aggregation_layer(monkeypatch):
+    """Codex: the persisted means depend on OUR filtering and aggregation,
+    not only on the upstream scorers. Changing the valid-score predicate
+    changes which samples reach a mean with nothing else moving."""
+    baseline = cl._evaluator_digest()
+    real = cl._is_valid_judge_score
+
+    def wider_predicate(value):
+        """A deliberately different valid-score rule."""
+        return real(value)
+
+    monkeypatch.setattr(cl, "_is_valid_judge_score", wider_predicate)
+    assert cl._evaluator_digest() != baseline, "our own score filter must be pinned"
+    monkeypatch.undo()
+
+    monkeypatch.setattr(cl, "JUDGE_DIMENSIONS", cl.JUDGE_DIMENSIONS + ("new_dimension",))
+    assert cl._evaluator_digest() != baseline, "the dimension list must be pinned"
+    monkeypatch.undo()
+
+    assert cl._evaluator_digest() == baseline
+
+
+def test_all_digests_are_stable_across_processes():
+    """The P1 guard, as a property rather than a one-off measurement.
+
+    Every digest must be reproducible under a randomized hash seed, since
+    a baseline bench and its follow-up are always separate processes.
+    """
+    import subprocess
+    import sys as _sys
+
+    script = (
+        "import scripts.conversation_lab as cl;"
+        "print(cl._evaluator_digest(),"
+        "cl._generator_input_digest(['Devon Park','Margaret Chen']),"
+        "cl._judge_input_digest({}, 'facts', ['Devon Park','Margaret Chen']))"
+    )
+    outs = {
+        subprocess.run(
+            [_sys.executable, "-c", script],
+            capture_output=True, text=True, check=True,
+            env={**os.environ, "PYTHONHASHSEED": str(seed)},
+        ).stdout.strip()
+        for seed in (0, 1, 12345)
+    }
+    assert len(outs) == 1, f"digests differ across hash seeds: {outs}"
