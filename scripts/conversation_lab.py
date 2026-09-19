@@ -214,6 +214,7 @@ import inspect
 import json
 import os
 import tempfile
+import types
 import random
 import re
 import sys
@@ -2973,6 +2974,24 @@ def _assert_writable(directory: Path) -> None:
         ) from exc
 
 
+def _all_referenced_names(code: Any) -> set[str]:
+    """Every global name a function body references, nested scopes included.
+
+    `code.co_names` covers only the OUTER code object (Codex). A name used
+    inside a generator expression, comprehension or lambda lives in its own
+    nested code object under `co_consts`, so `score_quality`'s reference to
+    `PROHIBITED` - which drives `legacy_prohibited_hits` and the legacy
+    score - was invisible to the walk, and editing it left
+    `evaluator_digest` unchanged. Verified: `PROHIBITED` and
+    `is_prompt_echo` were both missed before this.
+    """
+    names = set(code.co_names)
+    for const in code.co_consts:
+        if isinstance(const, types.CodeType):
+            names |= _all_referenced_names(const)
+    return names
+
+
 # How far to follow a scorer's own dependencies. score_quality calls ten
 # helpers, several of which read module-level constants; depth 3 covers
 # that graph with room to spare. It is a bound, not a proof - a scoring
@@ -3013,7 +3032,7 @@ def _scoring_source_parts(root_names: dict[str, Any]) -> list[str]:
         code = getattr(obj, "__code__", None)
         if module is None or code is None:
             return
-        for name in sorted(set(code.co_names)):
+        for name in sorted(_all_referenced_names(code)):
             if name in ALLOWED_VARIANT_ATTRS:
                 continue  # the lever under test is SUPPOSED to differ
             referenced = getattr(module, name, None)
@@ -3407,6 +3426,13 @@ def _print_bench_report(report: dict[str, Any]) -> None:
         print(f"\njudge: {agg['pass_count']}/{agg['judged_runs']} PASS ({agg['pass_rate']:.0%})")
         print(f"{'dimension':<24}{'mean':>8}{'sd':>7}{'min':>6}{'max':>6}")
         for dim, dist in agg["dimensions"].items():
+            if dist.get("no_valid_samples"):
+                # The comparison table already honoured this; the primary
+                # table did not, so a standalone bench printed mean 0.00 for
+                # a dimension scored 1-5 - an out-of-range number the judge
+                # never produced (Codex).
+                print(f"{dim:<24}{'NOT SCORED':>27}")
+                continue
             print(f"{dim:<24}{dist['mean']:>8.2f}{dist['stdev']:>7.2f}{dist['min']:>6.0f}{dist['max']:>6.0f}")
         if agg["weakest_counts"]:
             counts = ", ".join(f"{k} x{v}" for k, v in agg["weakest_counts"].items())
