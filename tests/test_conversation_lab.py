@@ -11,6 +11,7 @@ docs/conversation-lab/.
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 
 import pytest
@@ -3532,3 +3533,71 @@ def test_bench_main_table_does_not_fabricate_a_score_for_an_unscored_dimension(
     assert "0.00" not in dim_line, "a 1-5 dimension must never be reported as 0.00"
     # The dimension that WAS scored still reports normally.
     assert "4.00" in next(l for l in out.splitlines() if l.startswith("turn_taking"))
+
+
+# ---------------------------------------------------------------------------
+# bench: Codex's thirteenth review (a P1 - the first since round two)
+# ---------------------------------------------------------------------------
+
+
+def test_canonical_repr_is_stable_for_unordered_containers():
+    """P1 (Codex): repr() on a set is hash-seed dependent, and Python
+    randomizes that seed PER PROCESS.
+
+    The baseline bench and the follow-up bench are separate processes, so
+    hashing repr(a_set) produced a different evaluator_digest for
+    IDENTICAL code and refused a valid comparison at random. Measured
+    before the fix: three runs of the same module, three different digests.
+    """
+    a = {"gamma", "alpha", "beta", "delta"}
+    b = {"delta", "beta", "alpha", "gamma"}
+    assert cl._canonical_repr(a) == cl._canonical_repr(b)
+
+    # Nested, and dicts too - iteration order must not leak anywhere.
+    assert cl._canonical_repr({"x": {3, 1, 2}, "y": 1}) == cl._canonical_repr({"y": 1, "x": {2, 3, 1}})
+    assert cl._canonical_repr(frozenset({"b", "a"})) == cl._canonical_repr(frozenset({"a", "b"}))
+
+    # Ordered containers must NOT be reordered - order is meaningful there.
+    assert cl._canonical_repr([1, 2]) != cl._canonical_repr([2, 1])
+
+
+def test_evaluator_digest_ignores_globals_derived_from_a_lever(monkeypatch):
+    """Codex: _SHARED_RULES_SHINGLES is _word_shingles(_SHARED_CHARACTER_RULES).
+
+    A fresh import under a changed lever recomputes it, so hashing it made
+    the digest move for the very lever an experiment is allowed to change.
+    The earlier test missed this because monkeypatching the lever leaves
+    the derived cache stale - so this one changes the DERIVED value
+    directly, which is what a real re-import would do.
+    """
+    baseline = cl._evaluator_digest()
+    monkeypatch.setattr(sdw, "_SHARED_RULES_SHINGLES", {"completely", "different", "shingles"})
+    assert cl._evaluator_digest() == baseline, "a lever-derived cache must not move the digest"
+
+
+def test_bench_log_row_survives_pipes_and_newlines(tmp_path, monkeypatch):
+    """Codex: a pipe in --label, or in the judge's unvalidated `weakest`
+    text, split the audit row into extra columns or rows - leaving a paid
+    run's required log entry malformed."""
+    def judge_with_nasty_weakest(concept, stage, dialogue, episode, **kwargs):
+        episode.setdefault("judge_scores", {})[stage] = {"turn_taking": 3}
+        episode.setdefault("judge_weakest", {})[stage] = ["turn|taking\nand more"]
+        return False, "FAIL"
+
+    _patch_bench_generation(monkeypatch, sdw)
+    monkeypatch.setattr(cl, "judge_dialogue", judge_with_nasty_weakest)
+    log = tmp_path / "EXPERIMENTS.md"
+
+    cl.cmd_bench(
+        _bench_args(tmp_path, runs=2, label="a|b\nc", no_log=False, experiments_log=str(log))
+    )
+
+    rows = [l for l in log.read_text().splitlines() if l.startswith("| 2")]
+    assert len(rows) == 1, "the row must not split into several"
+    # Count only UNESCAPED delimiters - an escaped `\|` still contains a
+    # pipe character, so a raw count would include the very thing the
+    # escaping added.
+    cells = [c for c in re.split(r"(?<!\\)\|", rows[0]) if c.strip()]
+    assert len(cells) == 7, f"expected 7 columns, got {len(cells)}: {cells}"
+    assert "\\|" in rows[0], "the delimiter in the value is escaped, not dropped"
+    assert "a\\|b c" in rows[0], "the label survives, flattened and escaped"
