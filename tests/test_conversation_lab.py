@@ -3264,7 +3264,12 @@ def test_bench_survives_a_non_finite_judge_score(tmp_path, monkeypatch):
     report = _read_bench(tmp_path)
     assert report["completed_runs"] == 3
     assert report["error"] is None
-    assert "turn_taking" not in report["aggregate"]["dimensions"], "all samples were unusable"
+    # Present as an explicit placeholder, NOT absent: a dropped key
+    # produced no comparison row and a summary saying nothing moved, which
+    # inverts a total measurement failure into "no change".
+    unusable = report["aggregate"]["dimensions"]["turn_taking"]
+    assert unusable["n"] == 0
+    assert unusable["no_valid_samples"] is True
     assert report["aggregate"]["dimensions"]["natural_progression"]["mean"] == 3.0
 
 
@@ -3402,3 +3407,71 @@ def test_bench_labels_indeterminate_judge_dimensions(tmp_path, monkeypatch, caps
     assert "indeterminate (n < 2)" in out
     assert "INDETERMINATE, not unchanged" in out
     assert "(nothing moved" not in out
+
+
+# ---------------------------------------------------------------------------
+# bench: Codex's eleventh review
+# ---------------------------------------------------------------------------
+
+
+def test_evaluator_digest_follows_scorers_into_their_helpers(monkeypatch):
+    """Codex: hashing only score_quality's body missed the ten helpers it
+    calls and the constants those read, so editing _voice_pattern_score
+    changed the reported legacy metrics without changing the digest."""
+    baseline = cl._evaluator_digest()
+
+    real = sdw._voice_pattern_score
+
+    def altered_helper(*args, **kwargs):
+        """A different implementation entirely."""
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(sdw, "_voice_pattern_score", altered_helper)
+    assert cl._evaluator_digest() != baseline, "a changed scoring helper must be caught"
+    monkeypatch.undo()
+    assert cl._evaluator_digest() == baseline
+
+
+def test_evaluator_digest_still_ignores_the_levers_under_test(monkeypatch):
+    """The walk must skip ALLOWED_VARIANT_ATTRS, or it reintroduces the
+    whole-module problem one level down."""
+    baseline = cl._evaluator_digest()
+    for lever in cl.ALLOWED_VARIANT_ATTRS:
+        current = getattr(sdw, lever)
+        replacement = (
+            current + "\nDIFFERENT\n" if isinstance(current, str) else {"changed": True}
+        )
+        monkeypatch.setattr(sdw, lever, replacement)
+        assert cl._evaluator_digest() == baseline, f"{lever} must not affect the digest"
+        monkeypatch.undo()
+
+
+def test_bench_compare_shows_a_dimension_the_judge_never_scored(tmp_path, monkeypatch, capsys):
+    """Codex: an all-invalid dimension used to vanish from the aggregate,
+    so the comparison had no row, no indeterminate count, and a summary
+    saying nothing moved - a total measurement failure reported as no
+    change."""
+    def judge_missing_one(concept, stage, dialogue, episode, **kwargs):
+        episode.setdefault("judge_scores", {})[stage] = {
+            "turn_taking": 4,
+            "voice_distinctiveness": None,  # never scored, every run
+        }
+        episode.setdefault("judge_weakest", {})[stage] = []
+        return True, "PASS"
+
+    _patch_bench_generation(monkeypatch, sdw)
+    monkeypatch.setattr(cl, "judge_dialogue", judge_missing_one)
+    cl.cmd_bench(_bench_args(tmp_path, runs=3, label="base"))
+
+    _patch_bench_generation(monkeypatch, sdw)
+    monkeypatch.setattr(cl, "judge_dialogue", judge_missing_one)
+    capsys.readouterr()
+    cl.cmd_bench(
+        _bench_args(tmp_path, runs=3, label="next", compare=str(_bench_path(tmp_path, "base")))
+    )
+    out = capsys.readouterr().out
+
+    dims = _read_bench(tmp_path, "next")["comparison"]["dimensions"]
+    assert "voice_distinctiveness" in dims, "the dimension must not vanish"
+    assert dims["voice_distinctiveness"]["no_valid_samples"] is True
+    assert "NOT SCORED" in out
