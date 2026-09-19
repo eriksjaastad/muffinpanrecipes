@@ -221,9 +221,10 @@ PROHIBITED = [
 
 # Variable message counts by day (min, max). Sampled fresh each run.
 #
-# INVARIANT (#7079, tightened by #7082/#7105): the low end of every range must
-# be STRICTLY GREATER than the number of people participants_for_day() returns
-# for that day.
+# INVARIANT (#7079, tightened by #7082/#7105, again by #7292): the low end of
+# every range must be STRICTLY GREATER than the number of people
+# participants_for_day() returns for that day, AND never below
+# ABSOLUTE_TURN_FLOOR.
 #
 # At or below the cast size the day cannot seat its own cast, and the judge's
 # cast_coverage dimension fails the stage. At exactly the cast size it seats
@@ -236,6 +237,23 @@ PROHIBITED = [
 # One spare turn is what buys a reply and a closer. `test_ticks_range_
 # seats_full_cast` enforces it - if you shrink a range or add a character to a
 # roster, that test is what stops you.
+#
+# #7292: cast-size+1 is necessary and NOT sufficient. Saturday has a 2-person
+# cast, so the old rule was satisfied by a floor of 3 - and W38's Saturday drew
+# 3, 3 and 4 turns, failed the judge all three times ("only three lines total
+# with almost no substantive content", natural_progression 2) and lost the
+# stage. The judge grades an arc, which is an absolute standard: a scene needs
+# a problem raised and resolved no matter how few people are in the room. So
+# the floor is now max(cast + 1, ABSOLUTE_TURN_FLOOR). W37, the only earlier
+# week the structured judge ever scored, passed Saturday at 4 turns with
+# natural_progression, arc_resolution and turn_taking all 3 - no margin either.
+
+# The fewest turns any day may budget, whatever its cast size. Five is where
+# the other five-and-six-turn days already sit; it is a floor under the
+# cast-relative rule above, not a replacement for it.
+ABSOLUTE_TURN_FLOOR = 5
+
+
 # History window, in prior lines, shown to a speaker. (opening_turn, later_turns).
 # "early" = mon-thu, "late" = fri-sun. #7160: at 4 lines a mid-stage speaker could not
 # see the question that opened the scene, so nobody ever answered it and nobody closed
@@ -253,7 +271,7 @@ TICKS_RANGE: dict[str, tuple[int, int]] = {
     "wednesday": (5, 6),   # photography + image refs - floor was 4 (#7105)
     "thursday":  (5, 6),   # copywriting - was (3, 5), (4, 6), (5, 7) (#7079, #7105)
     "friday":    (6, 8),   # approval discussion - floor was 5 (#7105)
-    "saturday":  (3, 5),   # enough for Devon's snag scene
+    "saturday":  (5, 6),   # was (3, 5) - a 2-person cast still needs an arc (#7292)
     "sunday":    (5, 6),   # publish + warmth - was (3, 4), then (4, 6) (#7079, #7082)
 }
 
