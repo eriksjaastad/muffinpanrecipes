@@ -208,8 +208,13 @@ in tests/test_conversation_lab.py.
 from __future__ import annotations
 
 import argparse
+import fcntl
+import hashlib
+import inspect
 import json
 import os
+import tempfile
+import types
 import random
 import re
 import sys
@@ -217,16 +222,22 @@ import time
 import urllib.error
 import urllib.request
 from collections import Counter
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from statistics import mean
+from math import isfinite, sqrt
+from statistics import mean, stdev
 from typing import Any
 
 import scripts.conversation_heatmap as conversation_heatmap
 import scripts.conversation_metrics as conversation_metrics
 import scripts.simulate_dialogue_week as simulate_module
-from backend.admin.cron_routes import _build_judge_recipe_facts, _build_recipe_context
+from backend.admin.cron_routes import (
+    _build_judge_recipe_facts,
+    _build_recipe_context,
+    _judge_dialogue as judge_dialogue,
+)
 from backend.config import config
 from backend.utils import model_router
 from backend.utils.episode_integrity import PLACEHOLDER_CONCEPT, _recipe_title
@@ -398,6 +409,16 @@ def _warn_cost_summary_failure_once(exc: Exception) -> None:
         file=sys.stderr,
     )
     _cost_summary_failure_warned = True
+
+
+def _cost_summary_or_none() -> dict[str, Any] | None:
+    """model_router's running totals, or None if the log cannot be read."""
+    try:
+        summary = model_router.get_cost_summary()
+    except Exception as exc:
+        _warn_cost_summary_failure_once(exc)
+        return None
+    return summary if isinstance(summary, dict) else None
 
 
 def _total_cost_or_none() -> float | None:
@@ -2313,6 +2334,1303 @@ def _build_calibrate_report(
     return report
 
 
+# ---------------------------------------------------------------------------
+# bench (#7314) - characterize ONE setting over N runs
+#
+# `ab` answers "is variant B better than control A". It cannot answer "what
+# does setting A actually produce", because it only ever emits pairwise
+# win/tie/loss verdicts - there is no absolute number for a later run to be
+# compared against. Erik, 2026-09-19: "We need to know what a setting
+# creates, so running it 30 times gives us enough numbers to find some sort
+# of average. We make one change and then see where that average moves."
+#
+# So bench runs ONE arm N times, scores every run with the free deterministic
+# metrics AND with the production publish gate, and reports mean/spread per
+# metric plus a judge pass rate. `--compare` diffs two such runs.
+# ---------------------------------------------------------------------------
+
+# |z| at or above this is reported as a moved average rather than noise.
+# Two standard errors of the difference is the usual two-sigma convention;
+# it is a screening threshold for deciding what to look at next, NOT a
+# significance test - the runs are not independent samples of a stable
+# population and no multiple-comparison correction is applied across the
+# ~25 metrics compared at once.
+_BENCH_MOVED_Z = 2.0
+
+
+def _frozen_prior_stages(episode: dict[str, Any], stage: str) -> dict[str, Any]:
+    """The days BEFORE `stage`, as the production judge would see them.
+
+    backend/admin/cron_routes.py's `_judge_dialogue` walks DAY_ORDER and
+    feeds every earlier day's dialogue to the judge as PREVIOUS DAYS
+    context, so judging a Saturday transcript with no week behind it is
+    not the gate that actually runs in production. Freezing one real
+    episode's earlier days keeps every run in a bench judged against
+    identical context, which is what makes the runs comparable.
+    """
+    prior: dict[str, Any] = {}
+    for day in simulate_module.DAY_ORDER:
+        if day == stage:
+            break
+        dialogue = ((episode.get("stages") or {}).get(day) or {}).get("dialogue") or []
+        if dialogue:
+            prior[day] = {"dialogue": dialogue}
+    return prior
+
+
+def _calls_now() -> int | None:
+    """Current total_calls, or None when the counter cannot be read.
+
+    None is distinct from 0 on purpose (Codex): a zero delta means "no
+    paid call happened" (template mode, a monkeypatched model), while an
+    unreadable counter means "spending is invisible". Collapsing both to 0
+    made the accounting-failure path charge the small fallback for a unit
+    that can really cost forty calls, so `--max-calls` stopped being an
+    upper bound exactly when the tracking broke.
+    """
+    try:
+        return model_router.get_cost_summary().get("total_calls", 0)
+    except Exception:
+        return None
+
+
+def _spend(budget: CallBudget, fn=None, *, fallback: int = 1, reservation: int | None = None):
+    """Run `fn` and record what it spent - even if it raises.
+
+    The budget CHECK reserves a worst case before a unit starts; this is
+    what gets RECORDED after it, so `calls_used` reports real spending
+    rather than reservations.
+
+    The `finally` is the point (Codex): `run_simulation` can raise after
+    making paid requests - a turn whose second CoT-leak retry still leaks
+    raises RuntimeError - and recording only on the success path left
+    those calls out of the report entirely, so a first-arm failure
+    reported `calls_used: 0` while real money had been spent. An audit
+    trail that under-reports on exactly the paths worth auditing is worse
+    than none.
+
+    `fallback` is used only when the cost log did not move, which means no
+    real call happened: a template run, or a monkeypatched model in tests.
+    """
+    before = _calls_now()
+    try:
+        return fn()
+    finally:
+        after = _calls_now()
+        if before is None or after is None:
+            # Spending is invisible, so assume the worst rather than the
+            # best: charge what was reserved for this unit. Under-recording
+            # here is what let a 60-call cap permit 82 (Codex).
+            budget.record(reservation if reservation is not None else fallback)
+        else:
+            delta = after - before
+            budget.record(delta if delta > 0 else fallback)
+
+
+def _judge_one_transcript(
+    *,
+    concept: str,
+    stage: str,
+    messages: list[dict[str, Any]],
+    prior_stages: dict[str, Any],
+    recipe_context: str | None,
+    recipe_facts: str | None,
+) -> dict[str, Any]:
+    """Score one transcript with the PRODUCTION publish gate, not the lab's
+    pairwise judge.
+
+    That is deliberate: a bench number is only useful if it predicts what
+    the Sunday cron will do, so this calls the same `_judge_dialogue` the
+    cron calls. It writes its structured scores onto the episode dict it
+    is handed (see that function's docstring), so each run gets a FRESH
+    outer dict - `prior_stages` is shared read-only, the judge_* keys are
+    not, and reusing one dict would let run N read run N-1's scores.
+    """
+    episode: dict[str, Any] = {"stages": prior_stages}
+    passed, verdict = judge_dialogue(
+        concept,
+        stage,
+        messages,
+        episode,
+        recipe_context=recipe_context,
+        recipe_facts=recipe_facts,
+    )
+    return {  # noqa: DOC201 - the caller measures calls separately
+        "passed": bool(passed),
+        "verdict": verdict,
+        "scores": (episode.get("judge_scores") or {}).get(stage) or {},
+        "weakest": (episode.get("judge_weakest") or {}).get(stage) or [],
+        "reason": (episode.get("judge_reason") or {}).get(stage) or "",
+    }
+
+
+def _distribution(values: list[Any]) -> dict[str, Any] | None:
+    """mean / spread / range for one metric across a bench's runs.
+
+    `stdev` is the SAMPLE standard deviation (n-1): these runs are a
+    sample used to estimate where the next run would land, not the whole
+    population. `stderr` is what `--compare` actually uses - the spread of
+    the MEAN is what decides whether a moved average moved.
+
+    Non-finite samples are dropped rather than aggregated (Codex). The
+    production judge's parser accepts JSON `NaN`/`Infinity` and stores the
+    scores unchecked, so one bad verdict would otherwise persist a
+    non-finite aggregate on a single-run bench, or raise ValueError out of
+    `stdev` on a multi-run one - after every call was paid for and outside
+    the partial-result recovery. `n` reflects the samples actually used,
+    so a dropped score shows up as a smaller n rather than silently
+    skewing the mean.
+    """
+    vals = [
+        v
+        for v in values
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and isfinite(v)
+    ]
+    if not vals:
+        return None
+    spread = stdev(vals) if len(vals) > 1 else 0.0
+    # NOT rounded (Codex): _bench_delta divides by stderr, and two genuinely
+    # nonzero errors can both round to 0.0 at 4dp - which the zero-variance
+    # branch then reads as "perfectly repeatable" for a delta whose real |z|
+    # is well under 2. Full precision here; rounding happens where numbers
+    # are printed.
+    return {
+        "n": len(vals),
+        "mean": mean(vals),
+        "stdev": spread,
+        "stderr": (spread / sqrt(len(vals))) if len(vals) > 1 else 0.0,
+        "min": min(vals),
+        "max": max(vals),
+    }
+
+
+# The judge's own contract: _JUDGE_SYSTEM_PROMPT asks for every dimension
+# on a 1-5 scale. Scores outside it are malformed verdicts, not data.
+_JUDGE_SCORE_RANGE = (1, 5)
+
+
+def _is_valid_judge_score(value: Any) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and isfinite(value)
+        and _JUDGE_SCORE_RANGE[0] <= value <= _JUDGE_SCORE_RANGE[1]
+    )
+
+
+def _bench_aggregate(runs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Collapse per-run summaries and verdicts into one distribution each."""
+    metric_keys = sorted({k for run in runs for k in _numeric_keys(run.get("summary") or {})})
+    metrics: dict[str, Any] = {}
+    for key in metric_keys:
+        dist = _distribution([(run.get("summary") or {}).get(key) for run in runs])
+        if dist:
+            metrics[key] = dist
+
+    judged = [run for run in runs if run.get("judge")]
+    dimensions: dict[str, Any] = {}
+    for dim in JUDGE_DIMENSIONS:
+        # Clamped to the judge's own contract (Codex). _JUDGE_SYSTEM_PROMPT
+        # defines every dimension as 1-5, but the verdict parser stores
+        # whatever JSON it is handed, so a malformed `50` would sail
+        # through _distribution's numeric-and-finite check and drag a
+        # dimension mean far enough to invent or hide movement. An
+        # out-of-range score is a broken verdict, not a datum.
+        samples = [
+            score
+            for run in judged
+            for score in [(run["judge"].get("scores") or {}).get(dim)]
+            if _is_valid_judge_score(score)
+        ]
+        # A dimension with no usable samples is recorded as an explicit
+        # n=0 placeholder rather than omitted (Codex). _bench_delta walks
+        # the current aggregate's keys, so dropping the key produced no
+        # row, no indeterminate count, and a summary that said nothing
+        # moved - a TOTAL measurement failure reading as "no change",
+        # which is the exact inversion this tool must never print.
+        dimensions[dim] = _distribution(samples) or {
+            "n": 0,
+            "mean": 0.0,
+            "stdev": 0.0,
+            "stderr": 0.0,
+            "min": 0.0,
+            "max": 0.0,
+            "no_valid_samples": True,
+        }
+
+    weakest_counts: Counter[str] = Counter()
+    for run in judged:
+        weakest_counts.update(str(w) for w in (run["judge"].get("weakest") or []))
+
+    pass_count = sum(1 for run in judged if run["judge"]["passed"])
+    return {
+        "metrics": metrics,
+        "dimensions": dimensions,
+        "judged_runs": len(judged),
+        "pass_count": pass_count,
+        "pass_rate": round(pass_count / len(judged), 4) if judged else None,
+        "weakest_counts": dict(weakest_counts.most_common()),
+    }
+
+
+def _bench_delta(
+    current: dict[str, Any], baseline: dict[str, Any], section: str = "metrics"
+) -> dict[str, Any]:
+    """Per-metric movement between two bench aggregates.
+
+    `z` is the difference in means over the standard error of that
+    difference. See `_BENCH_MOVED_Z` for what it is and is not.
+
+    `section` selects which distributions to walk. It exists because this
+    only ever read `aggregate.metrics` (Codex): a prompt change that moved
+    a judge dimension - `natural_progression`, or the `voice_
+    distinctiveness` that has sat at 3 for weeks - while the deterministic
+    metrics stayed flat was reported as "nothing moved", which is the tool
+    failing at the exact job it was built for.
+    """
+    rows: dict[str, Any] = {}
+    for key, cur in (current.get(section) or {}).items():
+        base = (baseline.get(section) or {}).get(key)
+        if not base:
+            continue
+        delta = cur["mean"] - base["mean"]
+        se = sqrt(cur["stderr"] ** 2 + base["stderr"] ** 2)
+        estimable = cur.get("n", 0) >= 2 and base.get("n", 0) >= 2
+        if not estimable:
+            # Checked FIRST (Codex). One arm at n=1 contributes a zero
+            # standard error, so if the OTHER arm varies, `se` is nonzero
+            # and a large delta was still being called `moved` even though
+            # half the comparison had no variance estimate at all.
+            z: float | None = None
+            moved: bool | None = None
+        elif se:
+            z = delta / se
+            moved = abs(z) >= _BENCH_MOVED_Z
+        else:
+            # Both arms had >= 2 samples and neither varied: a genuinely
+            # repeatable shift. No z exists (the denominator is zero), but
+            # reporting z=0.0 would have filed it under "did not move".
+            z = None
+            moved = delta != 0
+        rows[key] = {
+            "no_valid_samples": bool(
+                cur.get("no_valid_samples") or base.get("no_valid_samples")
+            ),
+            "baseline_mean": base["mean"],
+            "mean": cur["mean"],
+            "delta": round(delta, 4),
+            "stderr_diff": round(se, 4),
+            "z": None if z is None else round(z, 4),
+            "moved": moved,
+            "estimable": estimable,
+        }
+    return rows
+
+
+def _resolve_bench_scenario(
+    args: argparse.Namespace,
+) -> tuple[str, str | None, str | None, dict[str, Any]]:
+    """(concept, recipe_context, recipe_facts, prior_stages) for a bench.
+
+    Deliberately does NOT reuse `_resolve_recipe_context_and_facts`: that
+    helper loads the episode and throws it away, and bench needs the same
+    episode for both the judge's PREVIOUS DAYS context and the real recipe
+    title, so loading it once here avoids a second CDN fetch.
+    """
+    if args.recipe_context:
+        return args.concept, args.recipe_context, None, {}
+
+    episode = _load_episode(args.from_episode, local=args.local)
+    stage_data = (episode.get("stages") or {}).get(args.stage) or {}
+    recipe_data = _stage_recipe_data(episode, stage_data)
+    recipe_context = _build_recipe_context(recipe_data)
+    if not recipe_context:
+        raise ConversationLabError(
+            f"episode {args.from_episode!r} has no usable recipe_data for stage "
+            f"{args.stage!r} - pass --recipe-context and --concept instead"
+        )
+    concept = args.concept or _episode_concept(episode)
+    recipe_facts = _build_judge_recipe_facts(recipe_data) or None
+    return concept, recipe_context, recipe_facts, _frozen_prior_stages(episode, args.stage)
+
+
+# Longest slugified --label allowed. The result filename is
+# "bench-<label>-<20-char stamp>[-N].json", and most filesystems cap a single
+# path component at 255 bytes, so this leaves comfortable room for the stamp,
+# the collision suffix and the extension.
+_MAX_LABEL_SLUG_LEN = 180
+
+
+def _validate_bench_args(args: argparse.Namespace) -> None:
+    """Pure flag checks, run BEFORE anything that costs or can fail.
+
+    Ordering is the point: `_resolve_models` raises when DIALOGUE_MODEL is
+    unset and `_resolve_bench_scenario` fetches an episode, so doing either
+    first meant a simple flag typo surfaced as "DIALOGUE_MODEL is not set"
+    instead of naming the flag the caller actually got wrong.
+    """
+    if args.runs < 1:
+        raise ConversationLabError("--runs must be at least 1")
+    if bool(args.from_episode) == bool(args.recipe_context):
+        raise ConversationLabError("pass exactly one of --from-episode or --recipe-context")
+    if args.recipe_context and not args.concept:
+        raise ConversationLabError("--recipe-context also needs --concept (no episode to read a title from)")
+    # Checked here, not at write time (Codex): a long --label only failed
+    # when _unique_result_path built the filename, which is after the whole
+    # bench has been paid for and after the partial-result recovery has
+    # ended - so ENAMETOOLONG published nothing at all.
+    if args.label and len(_slugify(args.label)) > _MAX_LABEL_SLUG_LEN:
+        raise ConversationLabError(
+            f"--label is too long: {len(_slugify(args.label))} characters after "
+            f"slugification, maximum {_MAX_LABEL_SLUG_LEN}. It becomes part of the "
+            f"result filename."
+        )
+
+
+# The most paid calls ONE dialogue turn can cost, traced through
+# scripts/simulate_dialogue_week.py's generate_turn:
+#   1. the initial generate_response
+#   2. _guard_cot_leak's retry on that response
+#   3. the fault rewrite (repetition / saturated shape / word budget)
+#   4. _guard_cot_leak's retry on the rewrite
+# Codex caught this on PR #119: the first fix reserved 2x turns and called
+# it a worst case, so an arm admitted under `--max-calls 20` could still
+# spend 40 when both guards fired. A reservation that is not actually the
+# maximum is not a guard at all.
+_MAX_CALLS_PER_TURN = 4
+
+
+def _publish_json_atomically(path: Path, payload: dict[str, Any]) -> None:
+    """Serialize to a sibling `.partial`, then rename onto `path`.
+
+    `_unique_result_path` claims the name by creating a zero-byte file, so
+    writing straight into it means a serialization error, a full disk or a
+    kill leaves an empty or truncated .json where a later glob or
+    `--compare` will find it and read it as a real result (Codex).
+    `os.replace` is atomic within a directory, so the claimed name only
+    ever holds a complete document.
+
+    A failed write deliberately leaves the `.partial` file behind rather
+    than deleting it: it does not match the `*.json` glob that finds
+    results, `--compare` against it fails loudly with a JSON error, and it
+    is evidence that a write failed. Deleting agent-created files is also
+    hook-blocked in this workspace, and reaching for trash tooling to tidy
+    a temp file would be the wrong trade.
+    """
+    tmp = path.with_name(path.name + ".partial")
+    tmp.write_text(json.dumps(payload, indent=2, default=str))
+    os.replace(tmp, path)
+
+
+def _unique_result_path(directory: Path, stem: str) -> Path:
+    """A path that does not already exist, so no paid result is overwritten.
+
+    A UTC timestamp alone is not enough: it has second granularity, and two
+    benches can finish inside the same second (a dry run, a short N, a
+    test). Codex's finding allowed either a unique identifier or an outright
+    refusal to overwrite; this does both, falling back to a counter suffix
+    when the stamped name is taken.
+    """
+    for n in range(1, 1000):
+        candidate = directory / (f"{stem}.json" if n == 1 else f"{stem}-{n}.json")
+        if candidate.exists():
+            continue
+        try:
+            # The claim is staked on the SIDECAR, never on the .json itself
+            # (Codex): claiming the result name directly left a visible
+            # zero-byte .json if publishing then failed, which a later glob
+            # or --compare would read as a result. Creating the sidecar with
+            # exist_ok=False is still atomic, so two benches finishing in
+            # the same UTC second get different names, and the .json only
+            # ever appears via the os.replace in _publish_json_atomically -
+            # complete, or not at all.
+            candidate.with_name(candidate.name + ".partial").touch(exist_ok=False)
+        except FileExistsError:
+            continue
+        return candidate
+    raise ConversationLabError(
+        f"cannot find an unused result filename for {stem!r} in {directory}"
+    )
+
+
+def _load_bench_baseline(args: argparse.Namespace) -> dict[str, Any]:
+    """Read and validate a --compare baseline before any paid work starts.
+
+    Two Codex findings live here. Validating late meant a typo spent the
+    whole budget and then raised before the results were written; and
+    checking only `command == "bench"` let a Monday baseline be compared
+    against a Saturday run, producing movement rows that look valid while
+    the cast, turn range, rubric and prior-day context all differ - which
+    destroys the one thing a delta is for, attributing movement to the
+    setting that changed.
+    """
+    path = Path(args.compare)
+    try:
+        baseline = json.loads(path.read_text())
+    except FileNotFoundError:
+        raise ConversationLabError(f"--compare file not found: {args.compare}") from None
+    except json.JSONDecodeError as exc:
+        raise ConversationLabError(f"--compare file is not valid JSON: {args.compare} ({exc})") from None
+    if not isinstance(baseline, dict) or baseline.get("command") != "bench":
+        kind = baseline.get("command", "unknown") if isinstance(baseline, dict) else type(baseline).__name__
+        raise ConversationLabError(
+            f"--compare expects a bench result JSON; {args.compare!r} is a {kind!r} result"
+        )
+
+    _validate_bench_aggregate(baseline, args.compare)
+    return baseline
+
+
+def _validate_bench_aggregate(baseline: dict[str, Any], source: str) -> None:
+    """Check the parts `_bench_delta` will actually read.
+
+    Codex: `command == "bench"` alone still let a structurally broken file
+    through - an `aggregate` that is a list, or a metric distribution
+    missing `mean`/`stderr` - and the resulting TypeError landed in
+    `_bench_delta` AFTER every generation and judge call had been paid for
+    and BEFORE `_write_json_result` ran, destroying the new result. Every
+    field read downstream is checked here, while checking is still free.
+    """
+    aggregate = baseline.get("aggregate")
+    if not isinstance(aggregate, dict):
+        raise ConversationLabError(
+            f"--compare baseline {source!r} has no usable 'aggregate' object "
+            f"(found {type(aggregate).__name__})"
+        )
+    pass_rate = aggregate.get("pass_rate")
+    if pass_rate is not None and (
+        not isinstance(pass_rate, (int, float))
+        or isinstance(pass_rate, bool)
+        or not 0.0 <= pass_rate <= 1.0
+    ):
+        # Codex: _print_bench_report formats this with :.0%, so a string
+        # here crashed AFTER every call was paid for and the report written.
+        raise ConversationLabError(
+            f"--compare baseline {source!r} has a non-numeric or out-of-range "
+            f"'aggregate.pass_rate' ({pass_rate!r})"
+        )
+
+    # BOTH sections, because _bench_delta now reads both (Codex). A
+    # dimensions block that is a list, or a distribution missing mean /
+    # stderr / a numeric n, used to survive preflight and then raise in the
+    # delta - after every call was paid for, before the result was written.
+    for section in ("metrics", "dimensions"):
+        _validate_distribution_section(
+            aggregate, section, source, dry_run=bool(baseline.get("dry_run"))
+        )
+
+
+def _validate_distribution_section(
+    aggregate: dict[str, Any], section: str, source: str, dry_run: bool = False
+) -> None:
+    """Check every distribution in one section of a baseline aggregate."""
+    distributions = aggregate.get(section)
+    if distributions is None and section == "dimensions":
+        # Only a genuine dry run may omit them (Codex). Waving through any
+        # baseline without dimensions meant _bench_delta produced no
+        # dimension rows at all, and with stable deterministic metrics the
+        # report could say nothing moved while every judge comparison was
+        # simply missing.
+        if dry_run:
+            return
+        raise ConversationLabError(
+            f"--compare baseline {source!r} has no 'aggregate.dimensions' block and is "
+            f"not a dry run - every judge-dimension comparison would be silently absent"
+        )
+    if not isinstance(distributions, dict):
+        raise ConversationLabError(
+            f"--compare baseline {source!r} has no usable 'aggregate.{section}' object "
+            f"(found {type(distributions).__name__})"
+        )
+    for key, dist in distributions.items():
+        label = f"{section[:-1]} {key!r}"
+        if not isinstance(dist, dict):
+            raise ConversationLabError(
+                f"--compare baseline {source!r}: {label} is not a distribution object"
+            )
+        n = dist.get("n")
+        if not isinstance(n, int) or isinstance(n, bool) or n < 0:
+            # _bench_delta evaluates `n >= 2`, which raises TypeError on a
+            # string - after the whole bench has been paid for (Codex).
+            raise ConversationLabError(
+                f"--compare baseline {source!r}: {label} has a non-integer "
+                f"sample count 'n' ({n!r})"
+            )
+        for field in ("mean", "stderr"):
+            value = dist.get(field)
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                raise ConversationLabError(
+                    f"--compare baseline {source!r}: {label} has a non-numeric "
+                    f"{field!r} ({value!r})"
+                )
+            # json.loads accepts NaN and Infinity, and both pass the check
+            # above (Codex). A NaN stderr yields z = NaN, and abs(NaN) >= 2
+            # is False - silently turning an uncomputable measurement into
+            # "did not move", which is the worst possible way to be wrong.
+            if not isfinite(value):
+                raise ConversationLabError(
+                    f"--compare baseline {source!r}: {label} has a non-finite "
+                    f"{field!r} ({value!r})"
+                )
+        if dist["stderr"] < 0:
+            raise ConversationLabError(
+                f"--compare baseline {source!r}: {label} has a negative "
+                f"'stderr' ({dist['stderr']!r})"
+            )
+
+
+# Report fields that must match for a delta to mean what it claims. Each is
+# an input that moves metrics or the judge on its own, so letting one differ
+# silently turns "this lever moved the average" into an unattributable
+# difference (Codex, PR #119). `judged_against_prior_days` is included
+# because the judge sees those days as context.
+_BENCH_SCENARIO_FIELDS = (
+    "stage",
+    "dry_run",
+    "concept",
+    "recipe_context",
+    "judged_against_prior_days",
+    "judge_input_digest",
+    "generator_input_digest",
+    "evaluator_digest",
+    "models",
+)
+
+
+def _judge_input_digest(
+    prior_stages: dict[str, Any],
+    recipe_facts: str | None,
+    expected_cast: list[str],
+) -> str:
+    """Hash of everything the judge sees that the day names do not capture.
+
+    Codex: `judged_against_prior_days` lists only which days had dialogue,
+    so re-running a week's Monday leaves that list identical while
+    `_judge_dialogue` receives different text - and `recipe_facts`, which
+    drives the technical-credibility scoring, was not represented at all.
+    A pass-rate difference could then be attributed to the tested lever
+    when the judge's own context had changed underneath it.
+    """
+    payload = {
+        # Rendered exactly as _judge_dialogue renders it (Codex): first
+        # token of the name, whitespace collapsed. Hashing the raw values
+        # meant collapsing a double space refused a comparison whose judge
+        # context was byte-for-byte identical.
+        "prior": {
+            day: [
+                f"{str(m.get('character') or '?').split()[0] if str(m.get('character') or '?').split() else '?'}: "
+                + " ".join(str(m.get("message") or "").split())
+                for m in (stage.get("dialogue") or [])
+            ]
+            for day, stage in sorted(prior_stages.items())
+        },
+        "recipe_facts": recipe_facts or "",
+        # NOT sorted (Codex): run_simulation passes participants_for_day()'s
+        # ORDERED list into _select_next_speaker, whose weighted selection
+        # iterates it, and _judge_dialogue renders the roster in that same
+        # order. Sorting here hid a difference that really does change both
+        # the generated conversation and the judge's input.
+        "expected_cast": list(expected_cast),
+    }
+    blob = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+
+def _generator_input_digest(expected_cast: list[str]) -> str:
+    """Hash of what the generator's prompts ACTUALLY contain.
+
+    Rewritten after Codex's fifteenth round, which found three separate
+    bugs that were all the same mistake: hashing raw inputs and trying to
+    predict which parts the prompt uses. `build_system_prompt` ignores
+    `age`, `core_traits` and `behavioural_quirks`, ignores `backstory`
+    whenever a bio exists, and reads only the last two memories' `concept`
+    and `summary` - so hashing whole persona records, whole bio files and
+    whole memory files refused comparisons over edits the model never saw,
+    while any drift in my mirror of that logic would silently miss edits
+    it did see.
+
+    Hashing the RENDERED prompt removes the guesswork: it is the exact
+    string the model receives, so an edit matters exactly when it changes
+    what the character is told. The cache is cleared first because
+    `build_system_prompt` memoises per name.
+
+    `first_episode` is recorded separately because `run_simulation`
+    computes it across EVERY persona, not just the seated cast
+    (simulate_dialogue_week.py:2119), and it selects Monday's opener - so
+    adding off-cast Devon's memory changes a Monday prompt even when the
+    cast has none of its own.
+    """
+    parts: list[str] = ["cast_order:" + _canonical_repr(list(expected_cast))]
+
+    try:
+        _clear_prompt_cache(simulate_module)
+        personas = simulate_module.load_personas()
+        for name in expected_cast:
+            persona = personas.get(name)
+            if persona is None:
+                parts.append(f"{name}:absent")
+                continue
+            rendered = simulate_module.build_system_prompt(persona)
+            parts.append(f"{name}:" + hashlib.sha256(rendered.encode("utf-8")).hexdigest())
+
+        # The whole-roster flag, not just the seated cast's memories.
+        first_episode = all(
+            not simulate_module._load_memories(n) for n in personas
+        )
+        parts.append(f"first_episode:{first_episode}")
+
+        # The memory block is rendered per turn rather than into the system
+        # prompt, so hash the fields generation actually reads.
+        for name in expected_cast:
+            memories = simulate_module._load_memories(name)
+            rendered_memories = [
+                (m.get("concept", "unknown"), m.get("summary", "")) for m in memories
+            ]
+            parts.append(
+                f"{name}/memories:"
+                + hashlib.sha256(_canonical_repr(rendered_memories).encode()).hexdigest()
+            )
+    except Exception as exc:  # noqa: BLE001 - a digest must never take a bench down
+        parts.append(f"unreadable:{type(exc).__name__}")
+    finally:
+        _clear_prompt_cache(simulate_module)
+
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
+
+
+def _assert_writable(directory: Path) -> None:
+    """Prove a file can actually be created here, before spending anything.
+
+    Codex: `mkdir(exist_ok=True)` succeeds on a directory that already
+    exists but is not writable, so every generation and judge call would
+    run and only the sidecar claim would fail - with no report written and
+    the whole paid bench lost.
+
+    `tempfile.TemporaryFile` is deliberate: it proves write capability and
+    the OS reclaims the file on close, so nothing is left behind and
+    nothing has to be deleted.
+    """
+    try:
+        with tempfile.TemporaryFile(dir=directory):
+            pass
+    except OSError as exc:
+        raise ConversationLabError(
+            f"results directory {directory} is not writable: {exc}"
+        ) from exc
+
+
+def _canonical_repr(value: Any) -> str:
+    """A stable text form for hashing, independent of hash-seed ordering.
+
+    P1 (Codex): `repr()` on a set emits elements in hash order, and Python
+    randomizes the string hash seed PER PROCESS. The baseline bench and the
+    follow-up bench are separate processes, so hashing `repr(a_set)` gave
+    a different evaluator_digest for identical code and refused a valid
+    comparison at random. Measured: three runs of the same unchanged module
+    produced three different digests.
+    """
+    if isinstance(value, (set, frozenset)):
+        return "{" + ",".join(sorted(_canonical_repr(v) for v in value)) + "}"
+    if isinstance(value, dict):
+        return "{" + ",".join(
+            f"{_canonical_repr(k)}:{_canonical_repr(v)}"
+            for k, v in sorted(value.items(), key=lambda kv: repr(kv[0]))
+        ) + "}"
+    if isinstance(value, (list, tuple)):
+        return "[" + ",".join(_canonical_repr(v) for v in value) + "]"
+    return repr(value)
+
+
+# Module-level names DERIVED from a lever rather than from scoring code.
+# _SHARED_RULES_SHINGLES is literally `_word_shingles(_SHARED_CHARACTER_RULES)`
+# (simulate_dialogue_week.py:1204), so a fresh import under a changed
+# _SHARED_CHARACTER_RULES recomputes it - and hashing it made the digest
+# move for the very lever the experiment is allowed to change (Codex).
+# Skipping the lever alone is not enough; its derivatives must go too.
+_LEVER_DERIVED_NAMES = frozenset({"_SHARED_RULES_SHINGLES", "_system_prompt_cache"})
+
+
+def _all_referenced_names(code: Any) -> set[str]:
+    """Every global name a function body references, nested scopes included.
+
+    `code.co_names` covers only the OUTER code object (Codex). A name used
+    inside a generator expression, comprehension or lambda lives in its own
+    nested code object under `co_consts`, so `score_quality`'s reference to
+    `PROHIBITED` - which drives `legacy_prohibited_hits` and the legacy
+    score - was invisible to the walk, and editing it left
+    `evaluator_digest` unchanged. Verified: `PROHIBITED` and
+    `is_prompt_echo` were both missed before this.
+    """
+    names = set(code.co_names)
+    for const in code.co_consts:
+        if isinstance(const, types.CodeType):
+            names |= _all_referenced_names(const)
+    return names
+
+
+# How far to follow a scorer's own dependencies. score_quality calls ten
+# helpers, several of which read module-level constants; depth 3 covers
+# that graph with room to spare. It is a bound, not a proof - a scoring
+# change buried deeper than this would not be caught, which is why the
+# metrics module is still hashed whole.
+_SCORER_WALK_DEPTH = 3
+
+
+def _scoring_source_parts(root_names: dict[str, Any]) -> list[str]:
+    """Source digests for scorers AND the module-level names they use.
+
+    Codex: hashing only `inspect.getsource(score_quality)` missed the ten
+    helpers it calls and the constants those read, so editing
+    `_voice_pattern_score` or `PROHIBITED` changed the reported legacy
+    metrics without changing the digest - and `--compare` then credited
+    that movement to the prompt lever.
+
+    Walks each scorer's `co_names` against its own module, following
+    callables to `_SCORER_WALK_DEPTH`. Names in ALLOWED_VARIANT_ATTRS are
+    skipped by design: those are the levers under test and MUST be allowed
+    to differ between two benches, which is the mistake the previous
+    whole-module hash made.
+    """
+    parts: list[str] = []
+    seen: set[str] = set()
+
+    def visit(label: str, obj: Any, depth: int) -> None:
+        key = f"{getattr(obj, '__module__', '?')}.{getattr(obj, '__qualname__', label)}"
+        if key in seen or depth > _SCORER_WALK_DEPTH:
+            return
+        seen.add(key)
+        try:
+            parts.append(f"{label}:" + hashlib.sha256(inspect.getsource(obj).encode()).hexdigest())
+        except (OSError, TypeError):
+            parts.append(f"{label}:unreadable")
+            return
+        module = sys.modules.get(getattr(obj, "__module__", "") or "")
+        code = getattr(obj, "__code__", None)
+        if module is None or code is None:
+            return
+        for name in sorted(_all_referenced_names(code)):
+            if name in ALLOWED_VARIANT_ATTRS or name in _LEVER_DERIVED_NAMES:
+                continue  # the lever under test, and anything computed from it
+            referenced = getattr(module, name, None)
+            if inspect.isfunction(referenced):
+                visit(name, referenced, depth + 1)
+            elif isinstance(referenced, (str, int, float, tuple, frozenset, list, dict, set)):
+                parts.append(
+                    f"{name}=" + hashlib.sha256(_canonical_repr(referenced).encode()).hexdigest()
+                )
+
+    for label, obj in root_names.items():
+        visit(label, obj, 1)
+    return parts
+
+
+def _evaluator_digest() -> str:
+    """Hash of the SCORERS, not just their inputs.
+
+    The last gap in this family (Codex). `judge_input_digest` and
+    `generator_input_digest` pin what goes in; this pins what measures it.
+    If `_JUDGE_SYSTEM_PROMPT`'s rubric is edited, or a metric definition in
+    scripts/conversation_metrics.py changes, `_bench_delta` would subtract
+    aggregates computed under different definitions and the pass-rate
+    movement could come from a rewritten rubric rather than the lever under
+    test - which is precisely the attribution error the comparison exists
+    to prevent.
+
+    The whole metrics module is hashed, so a comment-only edit also
+    invalidates old baselines. That is deliberate: deciding a source change
+    was behaviour-free requires reading it, and refusing a comparison is
+    cheap next to silently publishing a wrong one.
+    `--allow-mismatched-baseline` remains the deliberate override.
+    """
+    from backend.admin.cron_routes import _JUDGE_SYSTEM_PROMPT
+
+    import backend.admin.cron_routes as cron_routes
+
+    parts = ["judge_prompt:" + hashlib.sha256(_JUDGE_SYSTEM_PROMPT.encode("utf-8")).hexdigest()]
+
+    # SCORING code only - deliberately NOT whole modules (Codex).
+    #
+    # The previous version hashed all of simulate_dialogue_week.py, which
+    # broke the entire point of the tool: the documented workflow is bench,
+    # change one prompt lever IN THAT FILE, bench again, compare - and a
+    # whole-file hash refused every such comparison. The only escape,
+    # --allow-mismatched-baseline, switches off the judge-rubric and
+    # judge-context checks too, so the workflow became "disable all the
+    # safety to do the normal thing". Hashing named scoring functions keeps
+    # the guarantee (a changed rubric or metric still refuses a comparison)
+    # without punishing the change you actually came to measure.
+    #
+    # cron_routes gets the same treatment for the same reason: it is mostly
+    # cron handlers, and an unrelated stage edit should not invalidate a
+    # baseline.
+    parts.extend(
+        _scoring_source_parts(
+            {
+                "judge_dialogue": cron_routes._judge_dialogue,
+                "parse_judge_json": cron_routes._parse_judge_json,
+                "score_quality": simulate_module.score_quality,
+                # This module's OWN aggregation layer is an evaluator too
+                # (Codex): the persisted means and standard errors depend on
+                # these, so changing the valid-score predicate changes which
+                # samples reach a mean with nothing else moving.
+                "distribution": _distribution,
+                "is_valid_judge_score": _is_valid_judge_score,
+                "bench_aggregate": _bench_aggregate,
+                "numeric_keys": _numeric_keys,
+            }
+        )
+    )
+    parts.append("judge_dimensions:" + _canonical_repr(list(JUDGE_DIMENSIONS)))
+
+    # conversation_metrics is hashed whole because every function in it is
+    # a reported metric - there is no unrelated surface to spare.
+    try:
+        metrics_src = Path(conversation_metrics.__file__).read_bytes()
+        parts.append("metrics:" + hashlib.sha256(metrics_src).hexdigest())
+    except (OSError, TypeError):
+        parts.append("metrics:unreadable")
+
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
+
+
+def _assert_comparable_scenario(baseline: dict[str, Any], report: dict[str, Any]) -> None:
+    """Refuse a baseline whose scenario differs from this bench's."""
+    mismatches = []
+    for field in _BENCH_SCENARIO_FIELDS:
+        theirs, ours = baseline.get(field), report.get(field)
+        if theirs != ours:
+            mismatches.append(f"{field}: {theirs!r} vs {ours!r}")
+    if mismatches:
+        raise ConversationLabError(
+            "--compare baseline is not comparable to this bench:\n  "
+            + "\n  ".join(mismatches)
+            + "\nA delta is only meaningful between runs that differ in the one "
+            "setting under test. Pass --allow-mismatched-baseline if the "
+            "difference is deliberate."
+        )
+
+
+def cmd_bench(args: argparse.Namespace) -> None:
+    _validate_bench_args(args)
+    mode, default_model, judge_model = _resolve_models(args.dry_run)
+    concept, recipe_context, recipe_facts, prior_stages = _resolve_bench_scenario(args)
+    expected_cast = simulate_module.participants_for_day(args.stage)
+
+    # Load and validate --compare FIRST (Codex P2). A typo'd path, missing
+    # file, malformed JSON or wrong result type used to surface only after
+    # every generation and judge call had already been paid for, and then
+    # raised before _write_json_result - losing the whole run. Validation is
+    # free; do it before anything costs money.
+    baseline_report = _load_bench_baseline(args) if args.compare else None
+
+    # Everything that makes two benches comparable is known before the first
+    # call, so the scenario check belongs here too - not after the money is
+    # spent (Codex).
+    scenario: dict[str, Any] = {
+        "stage": args.stage,
+        "dry_run": bool(args.dry_run),
+        "concept": concept,
+        "recipe_context": recipe_context,
+        "judged_against_prior_days": sorted(prior_stages.keys()),
+        "judge_input_digest": _judge_input_digest(prior_stages, recipe_facts, expected_cast),
+        "generator_input_digest": _generator_input_digest(expected_cast),
+        "evaluator_digest": _evaluator_digest(),
+        "models": {"mode": mode, "dialogue": default_model, "judge": judge_model},
+    }
+    if baseline_report is not None and not args.allow_mismatched_baseline:
+        _assert_comparable_scenario(baseline_report, scenario)
+
+    # Worst-case reservation, not last-observed (Codex P1). run_simulation
+    # makes one paid call PER TURN plus possible rewrite retries, so
+    # reserving the previous arm's count let `--max-calls 1` sail through
+    # the check and then spend a whole day's turns. The cap is a runaway
+    # guard and must be a real upper bound, so reserve what an arm can cost
+    # at worst and refuse to start one that would not fit.
+    # A --dry-run makes zero API calls (mode="template", no judge), so it
+    # must neither reserve nor record any (Codex): a one-run plumbing check
+    # was reporting `calls_used: 10`, and an explicit low --max-calls could
+    # refuse to start a run that cannot spend anything.
+    # Before any paid call (Codex): a permission or path error here after a
+    # 30-run bench would lose every transcript, since the report can only be
+    # written into a directory that exists.
+    results_dir = _results_dir(args)
+    results_dir.mkdir(parents=True, exist_ok=True)
+    _assert_writable(results_dir)
+
+    gen_reserve = 0 if args.dry_run else _MAX_CALLS_PER_TURN * _max_turns_for_stage(args.stage)
+    judge_reserve = 0 if args.dry_run else 2  # the judge retries once on an unparseable verdict
+
+    max_calls = args.max_calls
+    if max_calls is None:
+        max_calls = args.runs * (gen_reserve + judge_reserve)
+    budget = CallBudget(max_calls=max_calls)
+
+    runs: list[dict[str, Any]] = []
+    aborted = False
+    error: str | None = None
+    interrupted = False
+
+    try:
+        for run_index in range(1, args.runs + 1):
+            if budget.would_exceed(gen_reserve) or _would_exceed_cost(args.max_cost):
+                aborted = True
+                break
+            result = _spend(
+                budget,
+                lambda: _run_arm(
+                    concept, args.stage, run_index, recipe_context, mode, default_model
+                ),
+                fallback=0 if args.dry_run else _max_turns_for_stage(args.stage),
+                reservation=gen_reserve,
+            )
+            messages = result.get("messages", [])
+
+            # Appended before the summary is computed and before judging
+            # (Codex): this transcript is already paid for, so neither a
+            # summarize() failure nor a judge failure may discard it. Both
+            # `summary` and `judge` stay absent on such a record, which
+            # _bench_aggregate already tolerates as unsummarized/unjudged.
+            record: dict[str, Any] = {
+                "run_index": run_index,
+                "message_count": len(messages),
+                "transcript": messages,
+            }
+            runs.append(record)
+            record["summary"] = summarize(messages, expected_cast, concept=concept, day=args.stage)
+
+            # --dry-run renders the call plan with mode="template" and never
+            # judges: there is nothing to judge that a model wrote.
+            if not args.dry_run:
+                if budget.would_exceed(judge_reserve) or _would_exceed_cost(args.max_cost):
+                    aborted = True
+                    break
+                record["judge"] = _spend(
+                    budget,
+                    fallback=0 if args.dry_run else 1,
+                    reservation=judge_reserve,
+                    fn=lambda: _judge_one_transcript(
+                        concept=concept,
+                        stage=args.stage,
+                        messages=messages,
+                        prior_stages=prior_stages,
+                        recipe_context=recipe_context,
+                        recipe_facts=recipe_facts,
+                    ),
+                )
+    except (Exception, KeyboardInterrupt) as exc:  # noqa: BLE001
+        # Same contract as _generate_and_judge_pairs: runs that already
+        # finished are paid for and must reach disk, so record the failure
+        # and fall through to writing the report instead of propagating.
+        #
+        # KeyboardInterrupt is included deliberately (Codex): it inherits
+        # from BaseException, so Ctrl-C on a long bench skipped this handler
+        # entirely and threw away every completed paid run along with the
+        # spend accounting _spend's finally had just recorded. Interrupting
+        # a run you are watching go wrong is a NORMAL thing to do, and it
+        # must not be the one path that loses the evidence.
+        error = f"{type(exc).__name__}: {exc}"
+        interrupted = isinstance(exc, KeyboardInterrupt)
+
+    aggregate = _bench_aggregate(runs)
+    corpus = conversation_metrics.recurring_phrases_across(
+        [run["transcript"] for run in runs], n=4, min_transcripts=2
+    )
+
+    label = args.label or f"{args.stage}-n{args.runs}"
+    # Timestamped (Codex P1). The filename used to be deterministic from the
+    # label, so running the documented baseline -> change -> bench-again
+    # cycle twice at the same stage and N silently overwrote the first paid
+    # result; both Benchmarks rows then pointed at the same file, and
+    # --compare against that path read the current report as its own
+    # baseline. Every bench now writes its own file.
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    report: dict[str, Any] = {
+        "command": "bench",
+        "label": label,
+        **scenario,
+        "requested_runs": args.runs,
+        "completed_runs": len(runs),
+        "expected_cast": expected_cast,
+        "max_calls": max_calls,
+        "calls_used": budget.used,
+        "max_cost": args.max_cost,
+        "aborted": aborted,
+        "error": error,
+        "aggregate": aggregate,
+        "recurring_phrases_across_runs": corpus,
+        "runs": runs,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        # PROTOCOL.md says every experiment logs calls AND cost, and `ab`
+        # already snapshots this. The cost log is process-local, so without
+        # it the result retains no dollar figure once the command exits and
+        # nobody can audit how close a run came to --max-cost (Codex).
+        "cost_summary": _cost_summary_or_none(),
+    }
+
+    comparison = None
+    if baseline_report is not None:
+        comparison = {
+            "baseline_file": str(args.compare),
+            "baseline_label": baseline_report.get("label"),
+            "baseline_pass_rate": (baseline_report.get("aggregate") or {}).get("pass_rate"),
+            "metrics": _bench_delta(aggregate, baseline_report.get("aggregate") or {}),
+            "dimensions": _bench_delta(
+                aggregate, baseline_report.get("aggregate") or {}, section="dimensions"
+            ),
+        }
+        report["comparison"] = comparison
+
+    # Claim the filename LAST. _unique_result_path creates the file to win
+    # the race, so anything that could raise between the claim and the write
+    # would strand an empty .json in the results dir for a later glob or
+    # --compare to trip over. Nothing sits between these two lines.
+    result_path = _unique_result_path(results_dir, f"bench-{_slugify(label)}-{stamp}")
+    report["results_file"] = str(result_path)
+    _publish_json_atomically(result_path, report)
+    if not args.no_log and not args.dry_run:
+        _append_bench_log(_experiments_log_path(args), report)
+    _print_bench_report(report)
+
+    # Truthful exit code. The partial report above is deliberately written and
+    # printed first - those runs are paid work - but a bench that died partway
+    # through must not look like a clean one to a caller or a shell script.
+    # `aborted` is NOT an error: hitting --max-calls/--max-cost is the guard
+    # doing its job, and the results up to that point are valid.
+    if interrupted:
+        # Re-raised, not converted: Ctrl-C should still read as Ctrl-C to
+        # whatever is running this. The partial report is already on disk.
+        print(
+            f"\ninterrupted after {len(runs)} of {args.runs} run(s) - "
+            f"partial result: {result_path}",
+            file=sys.stderr,
+        )
+        raise KeyboardInterrupt
+    if error:
+        raise SystemExit(
+            f"conversation_lab bench: stopped after {len(runs)} of "
+            f"{args.runs} run(s): {error} (partial result: {result_path})"
+        )
+
+
+_BENCH_SECTION_HEADING = "## Benchmarks"
+_BENCH_TABLE_HEADER_LINE = (
+    "| Date | Label | Stage | N | Pass rate | Most frequent weakest | Result file |\n"
+)
+_BENCH_TABLE_SEPARATOR_LINE = "|------|-------|-------|---|-----------|-----------------------|-------------|\n"
+
+
+def _md_cell(value: Any) -> str:
+    """One Markdown table cell, safe against delimiters in the value.
+
+    A pipe or newline in --label, or in the judge's unvalidated `weakest`
+    text, split the audit row into extra columns or rows - leaving a paid
+    run's required log entry malformed even though its result published
+    fine (Codex).
+    """
+    text = " ".join(str(value).split())
+    return text.replace("\\", "\\\\").replace("|", "\\|") or "-"
+
+
+def _append_bench_log(path: Path, report: dict[str, Any]) -> None:
+    """Append one row to EXPERIMENTS.md's Benchmarks table.
+
+    A bench is a paid run, and PROTOCOL.md's cost budget requires every
+    paid run to leave a logged, reviewable trace. It gets its OWN table
+    rather than a row in the Experiments table above it: that table's
+    columns are Wins/Ties/Losses on a target dimension, which a
+    single-arm run has none of, and forcing one in would make the A/B
+    audit trail unreadable.
+    """
+    aggregate = report.get("aggregate") or {}
+    weakest = aggregate.get("weakest_counts") or {}
+    top_weakest = next(iter(weakest), "-")
+    pass_rate = aggregate.get("pass_rate")
+    row = (
+        f"| {datetime.now(timezone.utc).date().isoformat()} "
+        f"| {_md_cell(report['label'])} "
+        f"| {_md_cell(report['stage'])} "
+        f"| {report['completed_runs']} "
+        f"| {'n/a' if pass_rate is None else f'{pass_rate:.0%}'} "
+        f"| {_md_cell(top_weakest)} "
+        f"| {_md_cell(Path(report['results_file']).name)} |\n"
+    )
+
+    # Locked (Codex): the append is a read-modify-write, so two benches
+    # finishing together could each read the same snapshot and the second
+    # writer would silently drop the first's row - leaving a paid result
+    # file with no required log trace.
+    with _file_lock(path):
+        _append_bench_row_locked(path, report, row)
+
+
+@contextmanager
+def _file_lock(path: Path):
+    """Exclusive lock for `path`, held on a file OUTSIDE the worktree.
+
+    Codex: a sibling `EXPERIMENTS.md.lock` is untracked, un-ignored
+    repository noise that every operator run would leave behind - and the
+    locked hygiene contract's session-end gate refuses to close on a dirty
+    tree, so the lab would have blocked the end of every session that used
+    it. The lock lives in the system temp dir instead, keyed by a hash of
+    the absolute log path so two processes locking the same log still
+    collide and two different logs do not.
+    """
+    key = hashlib.sha256(str(path.resolve()).encode("utf-8")).hexdigest()[:16]
+    lock_path = Path(tempfile.gettempdir()) / f"conversation-lab-{key}.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "w") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def _append_bench_row_locked(path: Path, report: dict[str, Any], row: str) -> None:
+    existing = path.read_text() if path.exists() else _EXPERIMENTS_HEADER
+    if _BENCH_SECTION_HEADING not in existing:
+        existing = existing.rstrip("\n") + (
+            f"\n\n{_BENCH_SECTION_HEADING}\n\n"
+            "Single-arm characterization runs (`conversation_lab.py bench`). "
+            "A row here is a baseline another run gets compared against, not a decision.\n\n"
+            + _BENCH_TABLE_HEADER_LINE
+            + _BENCH_TABLE_SEPARATOR_LINE
+        )
+    # Atomic (Codex): a full-file write_text interrupted partway - a disk
+    # filling up while a paid bench appends its row - would truncate
+    # EXPERIMENTS.md and destroy every prior audit row. The lock stops
+    # concurrent writers; it does not make a partial write safe.
+    updated = existing.rstrip("\n") + "\n" + row
+    tmp = path.with_name(path.name + ".partial")
+    tmp.write_text(updated)
+    os.replace(tmp, path)
+
+
+def _print_bench_report(report: dict[str, Any]) -> None:
+    agg = report["aggregate"]
+    print(f"\n=== conversation_lab bench: {report['label']} ===")
+    print(f"stage: {report['stage']}   concept: {report['concept']}")
+    print(f"runs: {report['completed_runs']}/{report['requested_runs']}   calls: {report['calls_used']}/{report['max_calls']}")
+    print(f"models: dialogue={report['models']['dialogue']}  judge={report['models']['judge']}")
+    prior = report["judged_against_prior_days"]
+    print(f"judged against prior days: {', '.join(prior) if prior else '(none - isolated stage)'}")
+    if report["dry_run"]:
+        print("DRY RUN - template dialogue, no judge, numbers are plumbing only")
+    if report["aborted"]:
+        print("ABORTED - hit --max-calls or --max-cost; results below are partial")
+    if report["error"]:
+        print(f"ERROR after {report['completed_runs']} run(s): {report['error']}")
+
+    if agg["judged_runs"]:
+        print(f"\njudge: {agg['pass_count']}/{agg['judged_runs']} PASS ({agg['pass_rate']:.0%})")
+        print(f"{'dimension':<24}{'mean':>8}{'sd':>7}{'min':>6}{'max':>6}")
+        for dim, dist in agg["dimensions"].items():
+            if dist.get("no_valid_samples"):
+                # The comparison table already honoured this; the primary
+                # table did not, so a standalone bench printed mean 0.00 for
+                # a dimension scored 1-5 - an out-of-range number the judge
+                # never produced (Codex).
+                print(f"{dim:<24}{'NOT SCORED':>27}")
+                continue
+            print(f"{dim:<24}{dist['mean']:>8.2f}{dist['stdev']:>7.2f}{dist['min']:>6.0f}{dist['max']:>6.0f}")
+        if agg["weakest_counts"]:
+            counts = ", ".join(f"{k} x{v}" for k, v in agg["weakest_counts"].items())
+            print(f"weakest most often: {counts}")
+
+    print(f"\n{'metric':<34}{'mean':>9}{'sd':>8}{'stderr':>9}{'min':>8}{'max':>8}")
+    for key, dist in agg["metrics"].items():
+        print(
+            f"{key:<34}{dist['mean']:>9.3f}{dist['stdev']:>8.3f}"
+            f"{dist['stderr']:>9.3f}{dist['min']:>8.3f}{dist['max']:>8.3f}"
+        )
+
+    phrases = (report.get("recurring_phrases_across_runs") or {}).get("per_character_catchphrases") or {}
+    if phrases:
+        print("\nphrases a character reused across runs (4-grams, >= 2 runs):")
+        for char, hits in phrases.items():
+            top = ", ".join(f"{p!r} x{c}" for p, c in hits[:3])
+            print(f"  {char:<12}{top}")
+
+    comparison = report.get("comparison")
+    if comparison:
+        print(f"\n=== vs {comparison['baseline_label']} ({comparison['baseline_file']}) ===")
+        base_rate = comparison["baseline_pass_rate"]
+        if base_rate is not None and agg["pass_rate"] is not None:
+            print(f"pass rate: {base_rate:.0%} -> {agg['pass_rate']:.0%}")
+        dim_rows = comparison.get("dimensions") or {}
+        if dim_rows:
+            print(f"\n{'judge dimension':<34}{'baseline':>10}{'now':>10}{'delta':>10}{'z':>8}")
+            for key, row in sorted(dim_rows.items(), key=lambda kv: -abs(kv[1]["delta"])):
+                if row.get("no_valid_samples"):
+                    print(f"{key:<34}{'NOT SCORED - the judge returned no usable value':>44}")
+                    continue
+                z_text = "   n/a" if row["z"] is None else f"{row['z']:>+6.2f}"
+                if row["moved"] is None:
+                    flag = "  <- indeterminate (n < 2)"
+                elif row["moved"]:
+                    flag = "  <- moved"
+                else:
+                    flag = ""
+                print(
+                    f"{key:<34}{row['baseline_mean']:>10.2f}{row['mean']:>10.2f}"
+                    f"{row['delta']:>+10.2f}  {z_text}{flag}"
+                )
+
+        moved_dims = {k: v for k, v in dim_rows.items() if v["moved"]}
+        moved = {k: v for k, v in comparison["metrics"].items() if v["moved"]}
+        indeterminate = sum(
+            1
+            for section in ("metrics", "dimensions")
+            for v in (comparison.get(section) or {}).values()
+            if v["moved"] is None
+        )
+        print(f"{'metric':<34}{'baseline':>10}{'now':>10}{'delta':>10}{'z':>8}")
+        rows = moved or comparison["metrics"]
+        # z is None when neither arm varied (see _bench_delta). Those rows
+        # sort first when they moved - a repeatable shift is the most
+        # interesting thing on the table, not an unsortable edge case.
+        def _sort_key(item: tuple[str, dict[str, Any]]) -> tuple[int, float]:
+            row = item[1]
+            if row["z"] is None:
+                return (0 if row["moved"] else 2, 0.0)
+            return (1, -abs(row["z"]))
+
+        for key, row in sorted(rows.items(), key=_sort_key):
+            z_text = "   n/a" if row["z"] is None else f"{row['z']:>+6.2f}"
+            print(
+                f"{key:<34}{row['baseline_mean']:>10.3f}{row['mean']:>10.3f}"
+                f"{row['delta']:>+10.3f}  {z_text}"
+            )
+        if not moved:
+            # Qualified deliberately (Codex): this line used to read
+            # "nothing moved" directly beneath a judge dimension the table
+            # had just flagged as moved, which is the one summary an
+            # operator might read instead of the tables.
+            indeterminate_dims = sum(1 for v in dim_rows.values() if v["moved"] is None)
+            scope = (
+                "no DETERMINISTIC metric"
+                if (moved_dims or indeterminate_dims)
+                else "nothing"
+            )
+            if moved_dims:
+                suffix = f" - but {len(moved_dims)} judge dimension(s) did; see the table above"
+            elif indeterminate_dims:
+                suffix = (
+                    f" - and {indeterminate_dims} judge dimension(s) were INDETERMINATE, "
+                    "not unchanged; see the table above"
+                )
+            else:
+                suffix = ""
+            print(f"({scope} moved by |z| >= {_BENCH_MOVED_Z}; showing all metrics{suffix})")
+        if indeterminate:
+            print(
+                f"({indeterminate} metric(s) indeterminate - fewer than 2 runs in an "
+                "arm, so the spread was never estimated and no movement can be claimed)"
+            )
+
+    print(f"\nresults written to: {report['results_file']}")
+
+
 def cmd_calibrate(args: argparse.Namespace) -> None:
     episode = _load_episode(args.from_episode, local=args.local)
     stage_data = (episode.get("stages") or {}).get(args.stage) or {}
@@ -2704,6 +4022,61 @@ def _build_parser() -> argparse.ArgumentParser:
     ab.add_argument("--experiments-log", default=None, help=f"Override the EXPERIMENTS.md path (default: {DEFAULT_EXPERIMENTS_LOG})")
     ab.add_argument("--results-dir", default=None)
 
+    bench = sub.add_parser(
+        "bench",
+        help="Characterize ONE setting over N runs: mean and spread per metric, plus a judge pass rate.",
+        description=(
+            "Run a single arm --runs times through the production call shape "
+            "(mode='openai', prompt_style='scene', ticks_per_day=0, plus a recipe "
+            "anchor), score every run with the deterministic metrics in "
+            "scripts/conversation_metrics.py AND with the production publish gate "
+            "(backend/admin/cron_routes.py's _judge_dialogue, the same judge the "
+            "Sunday cron runs), and report mean/stdev/stderr per metric, the judge "
+            "pass rate, per-dimension score distributions, which dimension came back "
+            "weakest most often, and any 4-gram a character reused across runs. "
+            "This is the baseline `ab` cannot produce: `ab` only emits pairwise "
+            "win/tie/loss, so it has no absolute number for a later run to move away "
+            "from. Change one thing, bench again, and pass --compare with the first "
+            "result file to see which averages moved."
+        ),
+    )
+    bench.add_argument("--stage", required=True, choices=simulate_module.DAY_ORDER)
+    bench.add_argument("--runs", type=int, required=True, help="How many times to run the setting (no default - choose N per bench)")
+    bench.add_argument("--concept", default=None, help="Dish name; required with --recipe-context, optional with --from-episode (defaults to that episode's recipe title)")
+    bench.add_argument("--from-episode", default=None, help="Take the recipe anchor, concept and the judge's PREVIOUS DAYS context from this episode")
+    bench.add_argument("--recipe-context", default=None, help="One-line recipe anchor, verbatim; the judge then sees no previous days (mutually exclusive with --from-episode)")
+    bench.add_argument("--local", action="store_true", help="With --from-episode, skip the CDN; read the local mirror")
+    bench.add_argument("--label", default=None, help="Name for this bench, used for the result filename and the log row (default: <stage>-n<runs>)")
+    bench.add_argument("--compare", default=None, help="Path to an earlier bench result JSON; prints the per-metric delta and which averages moved. Loaded and validated BEFORE any paid run, and refused when its scenario does not match this one")
+    bench.add_argument(
+        "--allow-mismatched-baseline", action="store_true",
+        help=(
+            "Compare against a baseline from a different stage or dry-run mode. Off by default: "
+            "a delta is meant to attribute movement to one changed setting, and comparing across "
+            "stages silently varies the cast, turn range, rubric and prior-day context too."
+        ),
+    )
+    bench.add_argument(
+        "--max-calls", type=int, default=None,
+        help=(
+            f"Defaults to `runs * ({_MAX_CALLS_PER_TURN} * max_turns + 2)` when omitted, "
+            "where max_turns is the upper bound of "
+            "scripts.simulate_dialogue_week.TICKS_RANGE for --stage (floored at "
+            f"{_MIN_MAX_TURNS_FLOOR}) and {_MAX_CALLS_PER_TURN} is the most paid calls one "
+            "turn can cost (initial response, CoT-leak retry, fault rewrite, CoT-leak retry "
+            "on the rewrite). Pass an explicit value to override. Ignored under --dry-run, "
+            "which cannot spend anything."
+        ),
+    )
+    bench.add_argument(
+        "--max-cost", type=float, default=DEFAULT_MAX_COST_USD,
+        help=f"USD cap on total_cost for this invocation (default ${DEFAULT_MAX_COST_USD:.2f}); see `ab --help`.",
+    )
+    bench.add_argument("--dry-run", action="store_true", help="mode='template', zero API calls, no judge - a plumbing check")
+    bench.add_argument("--no-log", action="store_true", help="Do not append a row to the experiments log")
+    bench.add_argument("--experiments-log", default=None, help=f"Override the EXPERIMENTS.md path (default: {DEFAULT_EXPERIMENTS_LOG})")
+    bench.add_argument("--results-dir", default=None)
+
     calibrate = sub.add_parser(
         "calibrate",
         help="Sanity-check the judge itself against known-degraded transcripts.",
@@ -2776,6 +4149,8 @@ def main(argv: list[str] | None = None) -> None:
             cmd_baseline(args)
         elif args.command == "ab":
             cmd_ab(args)
+        elif args.command == "bench":
+            cmd_bench(args)
         elif args.command == "calibrate":
             cmd_calibrate(args)
         elif args.command == "pairs":
