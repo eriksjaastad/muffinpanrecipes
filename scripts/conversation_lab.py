@@ -2362,27 +2362,37 @@ def _frozen_prior_stages(episode: dict[str, Any], stage: str) -> dict[str, Any]:
     return prior
 
 
-def _count_calls(fn):
-    """Run `fn` and report how many paid calls it actually made.
+def _calls_now() -> int:
+    try:
+        return model_router.get_cost_summary().get("total_calls", 0)
+    except Exception:
+        return 0
 
-    Mirrors `_run_arm_and_count`: prefers the real delta in
-    model_router's `total_calls`, falling back to 1 when the cost log did
-    not move (a monkeypatched judge in tests, or a template run). The
-    budget CHECK reserves a worst case before the call; this is what gets
-    RECORDED after it, so `calls_used` reports what was spent rather than
-    what was set aside.
+
+def _spend(budget: CallBudget, fn, *, fallback: int = 1):
+    """Run `fn` and record what it spent - even if it raises.
+
+    The budget CHECK reserves a worst case before a unit starts; this is
+    what gets RECORDED after it, so `calls_used` reports real spending
+    rather than reservations.
+
+    The `finally` is the point (Codex): `run_simulation` can raise after
+    making paid requests - a turn whose second CoT-leak retry still leaks
+    raises RuntimeError - and recording only on the success path left
+    those calls out of the report entirely, so a first-arm failure
+    reported `calls_used: 0` while real money had been spent. An audit
+    trail that under-reports on exactly the paths worth auditing is worse
+    than none.
+
+    `fallback` is used only when the cost log did not move, which means no
+    real call happened: a template run, or a monkeypatched model in tests.
     """
+    before = _calls_now()
     try:
-        before = model_router.get_cost_summary().get("total_calls", 0)
-    except Exception:
-        before = 0
-    result = fn()
-    try:
-        after = model_router.get_cost_summary().get("total_calls", 0)
-    except Exception:
-        after = 0
-    delta = after - before
-    return result, (delta if delta > 0 else 1)
+        return fn()
+    finally:
+        delta = _calls_now() - before
+        budget.record(delta if delta > 0 else fallback)
 
 
 def _judge_one_transcript(
@@ -2552,6 +2562,19 @@ def _validate_bench_args(args: argparse.Namespace) -> None:
         raise ConversationLabError("--recipe-context also needs --concept (no episode to read a title from)")
 
 
+# The most paid calls ONE dialogue turn can cost, traced through
+# scripts/simulate_dialogue_week.py's generate_turn:
+#   1. the initial generate_response
+#   2. _guard_cot_leak's retry on that response
+#   3. the fault rewrite (repetition / saturated shape / word budget)
+#   4. _guard_cot_leak's retry on the rewrite
+# Codex caught this on PR #119: the first fix reserved 2x turns and called
+# it a worst case, so an arm admitted under `--max-calls 20` could still
+# spend 40 when both guards fired. A reservation that is not actually the
+# maximum is not a guard at all.
+_MAX_CALLS_PER_TURN = 4
+
+
 def _unique_result_path(directory: Path, stem: str) -> Path:
     """A path that does not already exist, so no paid result is overwritten.
 
@@ -2561,13 +2584,18 @@ def _unique_result_path(directory: Path, stem: str) -> Path:
     refusal to overwrite; this does both, falling back to a counter suffix
     when the stamped name is taken.
     """
-    candidate = directory / f"{stem}.json"
-    if not candidate.exists():
+    for n in range(1, 1000):
+        candidate = directory / (f"{stem}.json" if n == 1 else f"{stem}-{n}.json")
+        try:
+            # O_CREAT|O_EXCL: claim the name atomically. An exists() check
+            # followed by a later write is a TOCTOU race (Codex), and two
+            # benches finishing in the same UTC second could both see the
+            # same candidate as free and one would overwrite the other's
+            # paid result.
+            candidate.touch(exist_ok=False)
+        except FileExistsError:
+            continue
         return candidate
-    for n in range(2, 1000):
-        candidate = directory / f"{stem}-{n}.json"
-        if not candidate.exists():
-            return candidate
     raise ConversationLabError(
         f"cannot find an unused result filename for {stem!r} in {directory}"
     )
@@ -2597,22 +2625,76 @@ def _load_bench_baseline(args: argparse.Namespace) -> dict[str, Any]:
             f"--compare expects a bench result JSON; {args.compare!r} is a {kind!r} result"
         )
 
-    if args.allow_mismatched_baseline:
-        return baseline
+    _validate_bench_aggregate(baseline, args.compare)
+    return baseline
 
+
+def _validate_bench_aggregate(baseline: dict[str, Any], source: str) -> None:
+    """Check the parts `_bench_delta` will actually read.
+
+    Codex: `command == "bench"` alone still let a structurally broken file
+    through - an `aggregate` that is a list, or a metric distribution
+    missing `mean`/`stderr` - and the resulting TypeError landed in
+    `_bench_delta` AFTER every generation and judge call had been paid for
+    and BEFORE `_write_json_result` ran, destroying the new result. Every
+    field read downstream is checked here, while checking is still free.
+    """
+    aggregate = baseline.get("aggregate")
+    if not isinstance(aggregate, dict):
+        raise ConversationLabError(
+            f"--compare baseline {source!r} has no usable 'aggregate' object "
+            f"(found {type(aggregate).__name__})"
+        )
+    metrics = aggregate.get("metrics")
+    if not isinstance(metrics, dict):
+        raise ConversationLabError(
+            f"--compare baseline {source!r} has no usable 'aggregate.metrics' object "
+            f"(found {type(metrics).__name__})"
+        )
+    for key, dist in metrics.items():
+        if not isinstance(dist, dict):
+            raise ConversationLabError(
+                f"--compare baseline {source!r}: metric {key!r} is not a distribution object"
+            )
+        for field in ("mean", "stderr"):
+            value = dist.get(field)
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                raise ConversationLabError(
+                    f"--compare baseline {source!r}: metric {key!r} has a non-numeric "
+                    f"{field!r} ({value!r})"
+                )
+
+
+# Report fields that must match for a delta to mean what it claims. Each is
+# an input that moves metrics or the judge on its own, so letting one differ
+# silently turns "this lever moved the average" into an unattributable
+# difference (Codex, PR #119). `judged_against_prior_days` is included
+# because the judge sees those days as context.
+_BENCH_SCENARIO_FIELDS = (
+    "stage",
+    "dry_run",
+    "concept",
+    "recipe_context",
+    "judged_against_prior_days",
+    "models",
+)
+
+
+def _assert_comparable_scenario(baseline: dict[str, Any], report: dict[str, Any]) -> None:
+    """Refuse a baseline whose scenario differs from this bench's."""
     mismatches = []
-    if baseline.get("stage") != args.stage:
-        mismatches.append(f"stage {baseline.get('stage')!r} vs {args.stage!r}")
-    if baseline.get("dry_run") != bool(args.dry_run):
-        mismatches.append(f"dry_run {baseline.get('dry_run')!r} vs {bool(args.dry_run)!r}")
+    for field in _BENCH_SCENARIO_FIELDS:
+        theirs, ours = baseline.get(field), report.get(field)
+        if theirs != ours:
+            mismatches.append(f"{field}: {theirs!r} vs {ours!r}")
     if mismatches:
         raise ConversationLabError(
-            "--compare baseline is not comparable to this bench: "
-            + "; ".join(mismatches)
-            + ". A delta is only meaningful between runs of the same scenario. "
-            "Pass --allow-mismatched-baseline if the difference is deliberate."
+            "--compare baseline is not comparable to this bench:\n  "
+            + "\n  ".join(mismatches)
+            + "\nA delta is only meaningful between runs that differ in the one "
+            "setting under test. Pass --allow-mismatched-baseline if the "
+            "difference is deliberate."
         )
-    return baseline
 
 
 def cmd_bench(args: argparse.Namespace) -> None:
@@ -2628,13 +2710,27 @@ def cmd_bench(args: argparse.Namespace) -> None:
     # free; do it before anything costs money.
     baseline_report = _load_bench_baseline(args) if args.compare else None
 
+    # Everything that makes two benches comparable is known before the first
+    # call, so the scenario check belongs here too - not after the money is
+    # spent (Codex).
+    scenario: dict[str, Any] = {
+        "stage": args.stage,
+        "dry_run": bool(args.dry_run),
+        "concept": concept,
+        "recipe_context": recipe_context,
+        "judged_against_prior_days": sorted(prior_stages.keys()),
+        "models": {"mode": mode, "dialogue": default_model, "judge": judge_model},
+    }
+    if baseline_report is not None and not args.allow_mismatched_baseline:
+        _assert_comparable_scenario(baseline_report, scenario)
+
     # Worst-case reservation, not last-observed (Codex P1). run_simulation
     # makes one paid call PER TURN plus possible rewrite retries, so
     # reserving the previous arm's count let `--max-calls 1` sail through
     # the check and then spend a whole day's turns. The cap is a runaway
     # guard and must be a real upper bound, so reserve what an arm can cost
     # at worst and refuse to start one that would not fit.
-    gen_reserve = 2 * _max_turns_for_stage(args.stage)
+    gen_reserve = _MAX_CALLS_PER_TURN * _max_turns_for_stage(args.stage)
     judge_reserve = 2  # the judge retries once on an unparseable verdict
 
     max_calls = args.max_calls
@@ -2651,10 +2747,13 @@ def cmd_bench(args: argparse.Namespace) -> None:
             if budget.would_exceed(gen_reserve) or _would_exceed_cost(args.max_cost):
                 aborted = True
                 break
-            result, gen_calls = _run_arm_and_count(
-                concept, args.stage, run_index, recipe_context, mode, default_model
+            result = _spend(
+                budget,
+                lambda: _run_arm(
+                    concept, args.stage, run_index, recipe_context, mode, default_model
+                ),
+                fallback=_max_turns_for_stage(args.stage),
             )
-            budget.record(gen_calls)
             messages = result.get("messages", [])
 
             record: dict[str, Any] = {
@@ -2675,7 +2774,8 @@ def cmd_bench(args: argparse.Namespace) -> None:
                 if budget.would_exceed(judge_reserve) or _would_exceed_cost(args.max_cost):
                     aborted = True
                     break
-                record["judge"], judge_calls = _count_calls(
+                record["judge"] = _spend(
+                    budget,
                     lambda: _judge_one_transcript(
                         concept=concept,
                         stage=args.stage,
@@ -2683,9 +2783,8 @@ def cmd_bench(args: argparse.Namespace) -> None:
                         prior_stages=prior_stages,
                         recipe_context=recipe_context,
                         recipe_facts=recipe_facts,
-                    )
+                    ),
                 )
-                budget.record(judge_calls)
     except Exception as exc:  # noqa: BLE001 - partial results are paid work
         # Same contract as _generate_and_judge_pairs: runs that already
         # finished are paid for and must reach disk, so record the failure
@@ -2711,15 +2810,10 @@ def cmd_bench(args: argparse.Namespace) -> None:
     report: dict[str, Any] = {
         "command": "bench",
         "label": label,
-        "stage": args.stage,
-        "concept": concept,
+        **scenario,
         "requested_runs": args.runs,
         "completed_runs": len(runs),
         "expected_cast": expected_cast,
-        "recipe_context": recipe_context,
-        "judged_against_prior_days": sorted(prior_stages.keys()),
-        "models": {"mode": mode, "dialogue": default_model, "judge": judge_model},
-        "dry_run": bool(args.dry_run),
         "max_calls": max_calls,
         "calls_used": budget.used,
         "max_cost": args.max_cost,
