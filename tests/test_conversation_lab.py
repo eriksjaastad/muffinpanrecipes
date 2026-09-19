@@ -2319,10 +2319,15 @@ def test_distribution_uses_sample_stdev_and_standard_error():
     dist = cl._distribution([2, 4, 4, 4, 5, 5, 7, 9])
     assert dist["n"] == 8
     assert dist["mean"] == 5.0
-    # sample stdev (n-1) of this classic set is 2.1381; the population
-    # stdev would be 2.0, so this asserts which one bench reports.
-    assert dist["stdev"] == 2.1381
-    assert dist["stderr"] == round(2.1381 / (8 ** 0.5), 4)
+    # sample stdev (n-1) of this classic set is 2.13809...; the population
+    # stdev would be exactly 2.0, so this asserts which one bench reports.
+    # Deliberately approx, not equality: these are stored UNROUNDED because
+    # _bench_delta divides by stderr, and rounding both arms' errors to 4dp
+    # could turn two genuinely nonzero errors into 0.0 and misreport a
+    # delta as a perfectly repeatable shift.
+    assert dist["stdev"] == pytest.approx(2.13809, rel=1e-4)
+    assert dist["stderr"] == pytest.approx(2.13809 / (8 ** 0.5), rel=1e-4)
+    assert dist["stdev"] != 2.0, "population stdev would be exactly 2.0"
 
 
 def test_distribution_ignores_non_numeric_and_empty_input():
@@ -2639,9 +2644,14 @@ def test_bench_claims_its_result_filename_atomically(tmp_path, monkeypatch):
     second = cl._unique_result_path(results, "bench-x-20260919T000000Z")
 
     assert first != second
-    assert first.exists() and second.exists(), "the name must be claimed, not just checked"
     assert first.name == "bench-x-20260919T000000Z.json"
     assert second.name == "bench-x-20260919T000000Z-2.json"
+    # The claim is staked on a sidecar, so the name is reserved against a
+    # concurrent caller WITHOUT a zero-byte .json ever becoming visible - a
+    # later glob or --compare would have read that as a real result.
+    assert first.with_name(first.name + ".partial").exists()
+    assert not first.exists(), "no empty .json may be visible before the write"
+    assert not second.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -2693,7 +2703,7 @@ def test_bench_result_is_published_atomically(tmp_path, monkeypatch):
     results = tmp_path / "results"
     results.mkdir()
     target = cl._unique_result_path(results, "bench-atomic")
-    assert target.stat().st_size == 0
+    assert not target.exists()
 
     class Unserializable:
         def __repr__(self):
@@ -2701,7 +2711,7 @@ def test_bench_result_is_published_atomically(tmp_path, monkeypatch):
 
     with pytest.raises(RuntimeError):
         cl._publish_json_atomically(target, {"bad": Unserializable()})
-    assert target.stat().st_size == 0, "a failed write must not truncate or fill the claimed name"
+    assert not target.exists(), "a failed write must leave NO .json behind at all"
 
     cl._publish_json_atomically(target, {"command": "bench"})
     assert json.loads(target.read_text()) == {"command": "bench"}
@@ -2749,3 +2759,122 @@ def test_bench_scenario_digest_notices_changed_prior_day_dialogue():
     assert cl._judge_input_digest(before, "facts", cast) != cl._judge_input_digest(before, "other", cast)
     # Same inputs must still agree, or every comparison would be refused.
     assert cl._judge_input_digest(before, "facts", cast) == cl._judge_input_digest(before, "facts", cast)
+
+
+# ---------------------------------------------------------------------------
+# bench: Codex's fourth review — bugs in the third round's own fixes
+# ---------------------------------------------------------------------------
+
+
+def test_bench_delta_is_indeterminate_when_only_one_arm_has_samples(tmp_path, monkeypatch):
+    """Codex: `estimable` was consulted only AFTER `if se`.
+
+    A one-run arm contributes stderr 0, so if the other arm varies, `se` is
+    nonzero and a big delta was still reported as moved - with half the
+    comparison having no variance estimate at all.
+    """
+    single = {"n": 1, "mean": 4.0, "stdev": 0.0, "stderr": 0.0, "min": 4.0, "max": 4.0}
+    varied = {"n": 4, "mean": 9.0, "stdev": 1.0, "stderr": 0.5, "min": 8.0, "max": 10.0}
+
+    row = cl._bench_delta({"metrics": {"m": varied}}, {"metrics": {"m": single}})["m"]
+    assert row["stderr_diff"] > 0, "the varied arm really does supply a nonzero error"
+    assert row["delta"] == 5.0
+    assert row["estimable"] is False
+    assert row["moved"] is None, "one arm never had its variance estimated"
+
+
+def test_bench_delta_uses_unrounded_standard_errors(tmp_path):
+    """Codex: stderr was rounded to 4dp before being used as a denominator.
+
+    Two genuinely nonzero errors can both round to 0.0, and the
+    zero-variance branch then calls a tiny delta a perfectly repeatable
+    shift. These errors round to 0.0000 but must still produce a z.
+    """
+    tiny_a = {"n": 5, "mean": 1.00000, "stdev": 0.0001, "stderr": 0.00002, "min": 1.0, "max": 1.0}
+    tiny_b = {"n": 5, "mean": 1.00003, "stdev": 0.0001, "stderr": 0.00002, "min": 1.0, "max": 1.0}
+
+    assert round(tiny_a["stderr"], 4) == 0.0, "these are exactly the values that used to break it"
+    row = cl._bench_delta({"metrics": {"m": tiny_b}}, {"metrics": {"m": tiny_a}})["m"]
+    # Unrounded, a z exists and comes out near 1.06 - under the threshold.
+    # Rounded, both errors became 0.0, no z could be formed, and the
+    # zero-variance branch declared this tiny delta a perfectly repeatable
+    # shift. The fix turns a false positive into an honest "did not move".
+    assert row["z"] is not None, "a z must still be computable from unrounded errors"
+    assert row["z"] == pytest.approx(1.06, abs=0.05)
+    assert row["moved"] is False
+
+
+def test_distribution_keeps_full_precision():
+    """The stored values feed a division, so they are not rounded."""
+    dist = cl._distribution([1.00001, 1.00002, 1.00003])
+    assert dist["stderr"] > 0
+    assert round(dist["stderr"], 4) == 0.0, "rounding would have destroyed this"
+
+
+def test_bench_keeps_the_transcript_when_summarize_raises(tmp_path, monkeypatch):
+    """Codex: the summary was computed while building the record, so a
+    summarize() failure discarded a transcript already paid for."""
+    _patch_bench_generation(monkeypatch, sdw, turns=4)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+
+    calls = {"n": 0}
+    real_summarize = cl.summarize
+
+    def flaky_summarize(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise ValueError("metric blew up")
+        return real_summarize(*args, **kwargs)
+
+    monkeypatch.setattr(cl, "summarize", flaky_summarize)
+
+    with pytest.raises(SystemExit, match="metric blew up"):
+        cl.cmd_bench(_bench_args(tmp_path, runs=4))
+
+    report = _read_bench(tmp_path, "saturday-n4")
+    assert report["completed_runs"] == 2
+    assert [len(r["transcript"]) for r in report["runs"]] == [4, 4]
+    assert "summary" in report["runs"][0]
+    assert "summary" not in report["runs"][1], "unsummarized, but NOT discarded"
+
+
+def test_bench_preserves_partial_results_on_ctrl_c(tmp_path, monkeypatch):
+    """Codex: KeyboardInterrupt is a BaseException, so `except Exception`
+    skipped the handler and threw away every completed paid run."""
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+
+    def interrupt_on_third(*, run_index, **kwargs):
+        if run_index == 3:
+            raise KeyboardInterrupt
+        return {"messages": _messages(f"run{run_index}", count=4)}
+
+    monkeypatch.setattr(sdw, "run_simulation", interrupt_on_third)
+
+    # Re-raised as KeyboardInterrupt, not converted to SystemExit: Ctrl-C
+    # should still read as Ctrl-C to whatever is running this.
+    with pytest.raises(KeyboardInterrupt):
+        cl.cmd_bench(_bench_args(tmp_path, runs=6))
+
+    report = _read_bench(tmp_path, "saturday-n6")
+    assert report["completed_runs"] == 2
+    assert "KeyboardInterrupt" in report["error"]
+    assert report["aggregate"]["metrics"]["message_count"]["n"] == 2
+
+
+def test_bench_creates_the_results_directory_before_spending(tmp_path, monkeypatch):
+    """Codex: mkdir ran after the loop, so a path error lost every run."""
+    _patch_bench_generation(monkeypatch, sdw)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+    seen: list[bool] = []
+
+    real_run = sdw.run_simulation
+
+    def record_dir_state(**kwargs):
+        seen.append((tmp_path / "results").is_dir())
+        return real_run(**kwargs)
+
+    monkeypatch.setattr(sdw, "run_simulation", record_dir_state)
+    cl.cmd_bench(_bench_args(tmp_path, runs=2))
+
+    assert seen and all(seen), "the results dir must exist before the first paid call"

@@ -2447,13 +2447,18 @@ def _distribution(values: list[Any]) -> dict[str, Any] | None:
     if not vals:
         return None
     spread = stdev(vals) if len(vals) > 1 else 0.0
+    # NOT rounded (Codex): _bench_delta divides by stderr, and two genuinely
+    # nonzero errors can both round to 0.0 at 4dp - which the zero-variance
+    # branch then reads as "perfectly repeatable" for a delta whose real |z|
+    # is well under 2. Full precision here; rounding happens where numbers
+    # are printed.
     return {
         "n": len(vals),
-        "mean": round(mean(vals), 4),
-        "stdev": round(spread, 4),
-        "stderr": round(spread / sqrt(len(vals)), 4) if len(vals) > 1 else 0.0,
-        "min": round(min(vals), 4),
-        "max": round(max(vals), 4),
+        "mean": mean(vals),
+        "stdev": spread,
+        "stderr": (spread / sqrt(len(vals))) if len(vals) > 1 else 0.0,
+        "min": min(vals),
+        "max": max(vals),
     }
 
 
@@ -2502,18 +2507,18 @@ def _bench_delta(current: dict[str, Any], baseline: dict[str, Any]) -> dict[str,
         delta = cur["mean"] - base["mean"]
         se = sqrt(cur["stderr"] ** 2 + base["stderr"] ** 2)
         estimable = cur.get("n", 0) >= 2 and base.get("n", 0) >= 2
-        if se:
-            z: float | None = delta / se
-            moved: bool | None = abs(z) >= _BENCH_MOVED_Z
-        elif not estimable:
-            # Codex: with one observation per arm, stderr is zero because
-            # variance was never ESTIMATED, not because the result is
-            # repeatable. Calling that "moved" turns a coin flip into a
-            # finding. It is indeterminate until N >= 2 on both sides.
-            z = None
-            moved = None
+        if not estimable:
+            # Checked FIRST (Codex). One arm at n=1 contributes a zero
+            # standard error, so if the OTHER arm varies, `se` is nonzero
+            # and a large delta was still being called `moved` even though
+            # half the comparison had no variance estimate at all.
+            z: float | None = None
+            moved: bool | None = None
+        elif se:
+            z = delta / se
+            moved = abs(z) >= _BENCH_MOVED_Z
         else:
-            # Both arms had samples and neither varied: a genuinely
+            # Both arms had >= 2 samples and neither varied: a genuinely
             # repeatable shift. No z exists (the denominator is zero), but
             # reporting z=0.0 would have filed it under "did not move".
             z = None
@@ -2619,13 +2624,18 @@ def _unique_result_path(directory: Path, stem: str) -> Path:
     """
     for n in range(1, 1000):
         candidate = directory / (f"{stem}.json" if n == 1 else f"{stem}-{n}.json")
+        if candidate.exists():
+            continue
         try:
-            # O_CREAT|O_EXCL: claim the name atomically. An exists() check
-            # followed by a later write is a TOCTOU race (Codex), and two
-            # benches finishing in the same UTC second could both see the
-            # same candidate as free and one would overwrite the other's
-            # paid result.
-            candidate.touch(exist_ok=False)
+            # The claim is staked on the SIDECAR, never on the .json itself
+            # (Codex): claiming the result name directly left a visible
+            # zero-byte .json if publishing then failed, which a later glob
+            # or --compare would read as a result. Creating the sidecar with
+            # exist_ok=False is still atomic, so two benches finishing in
+            # the same UTC second get different names, and the .json only
+            # ever appears via the os.replace in _publish_json_atomically -
+            # complete, or not at all.
+            candidate.with_name(candidate.name + ".partial").touch(exist_ok=False)
         except FileExistsError:
             continue
         return candidate
@@ -2811,6 +2821,12 @@ def cmd_bench(args: argparse.Namespace) -> None:
     # must neither reserve nor record any (Codex): a one-run plumbing check
     # was reporting `calls_used: 10`, and an explicit low --max-calls could
     # refuse to start a run that cannot spend anything.
+    # Before any paid call (Codex): a permission or path error here after a
+    # 30-run bench would lose every transcript, since the report can only be
+    # written into a directory that exists.
+    results_dir = _results_dir(args)
+    results_dir.mkdir(parents=True, exist_ok=True)
+
     gen_reserve = 0 if args.dry_run else _MAX_CALLS_PER_TURN * _max_turns_for_stage(args.stage)
     judge_reserve = 0 if args.dry_run else 2  # the judge retries once on an unparseable verdict
 
@@ -2822,6 +2838,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
     runs: list[dict[str, Any]] = []
     aborted = False
     error: str | None = None
+    interrupted = False
 
     try:
         for run_index in range(1, args.runs + 1):
@@ -2837,17 +2854,18 @@ def cmd_bench(args: argparse.Namespace) -> None:
             )
             messages = result.get("messages", [])
 
+            # Appended before the summary is computed and before judging
+            # (Codex): this transcript is already paid for, so neither a
+            # summarize() failure nor a judge failure may discard it. Both
+            # `summary` and `judge` stay absent on such a record, which
+            # _bench_aggregate already tolerates as unsummarized/unjudged.
             record: dict[str, Any] = {
                 "run_index": run_index,
                 "message_count": len(messages),
-                "summary": summarize(messages, expected_cast, concept=concept, day=args.stage),
                 "transcript": messages,
             }
-            # Appended BEFORE judging (Codex P2): this transcript is already
-            # paid for, and if the judge raises, the exception handler below
-            # must still find it. `judge` stays absent on such a record,
-            # which _bench_aggregate already treats as unjudged.
             runs.append(record)
+            record["summary"] = summarize(messages, expected_cast, concept=concept, day=args.stage)
 
             # --dry-run renders the call plan with mode="template" and never
             # judges: there is nothing to judge that a model wrote.
@@ -2867,11 +2885,19 @@ def cmd_bench(args: argparse.Namespace) -> None:
                         recipe_facts=recipe_facts,
                     ),
                 )
-    except Exception as exc:  # noqa: BLE001 - partial results are paid work
+    except (Exception, KeyboardInterrupt) as exc:  # noqa: BLE001
         # Same contract as _generate_and_judge_pairs: runs that already
         # finished are paid for and must reach disk, so record the failure
         # and fall through to writing the report instead of propagating.
+        #
+        # KeyboardInterrupt is included deliberately (Codex): it inherits
+        # from BaseException, so Ctrl-C on a long bench skipped this handler
+        # entirely and threw away every completed paid run along with the
+        # spend accounting _spend's finally had just recorded. Interrupting
+        # a run you are watching go wrong is a NORMAL thing to do, and it
+        # must not be the one path that loses the evidence.
         error = f"{type(exc).__name__}: {exc}"
+        interrupted = isinstance(exc, KeyboardInterrupt)
 
     aggregate = _bench_aggregate(runs)
     corpus = conversation_metrics.recurring_phrases_across(
@@ -2886,8 +2912,6 @@ def cmd_bench(args: argparse.Namespace) -> None:
     # --compare against that path read the current report as its own
     # baseline. Every bench now writes its own file.
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    results_dir = _results_dir(args)
-    results_dir.mkdir(parents=True, exist_ok=True)
     report: dict[str, Any] = {
         "command": "bench",
         "label": label,
@@ -2932,6 +2956,15 @@ def cmd_bench(args: argparse.Namespace) -> None:
     # through must not look like a clean one to a caller or a shell script.
     # `aborted` is NOT an error: hitting --max-calls/--max-cost is the guard
     # doing its job, and the results up to that point are valid.
+    if interrupted:
+        # Re-raised, not converted: Ctrl-C should still read as Ctrl-C to
+        # whatever is running this. The partial report is already on disk.
+        print(
+            f"\ninterrupted after {len(runs)} of {args.runs} run(s) - "
+            f"partial result: {result_path}",
+            file=sys.stderr,
+        )
+        raise KeyboardInterrupt
     if error:
         raise SystemExit(
             f"conversation_lab bench: stopped after {len(runs)} of "
