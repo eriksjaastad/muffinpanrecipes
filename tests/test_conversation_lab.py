@@ -2042,3 +2042,283 @@ def test_guard_levers_round_trip_through_apply_and_restore():
     assert (sdw.SHAPE_WINDOW, sdw.SHAPE_MAX_IN_WINDOW, sdw.WORD_BUDGET_TOLERANCE) == (5, 1, 1.0)
     cl._restore_variant(sdw, original)
     assert (sdw.SHAPE_WINDOW, sdw.SHAPE_MAX_IN_WINDOW, sdw.WORD_BUDGET_TOLERANCE) == before
+
+
+# ---------------------------------------------------------------------------
+# bench (#7314): single-arm characterization
+# ---------------------------------------------------------------------------
+
+
+def _bench_args(tmp_path, **overrides):
+    args = {
+        "stage": "saturday",
+        "runs": 3,
+        "concept": "Spiral Bites",
+        "from_episode": None,
+        "recipe_context": "Spiral Bites - yeasted dough in a muffin pan",
+        "local": False,
+        "label": None,
+        "compare": None,
+        "max_calls": None,
+        "max_cost": 5.0,
+        "dry_run": False,
+        "no_log": True,
+        "experiments_log": None,
+        "results_dir": str(tmp_path / "results"),
+    }
+    args.update(overrides)
+    return cl.argparse.Namespace(**args)
+
+
+def _patch_bench_generation(monkeypatch, sdw_module, *, turns=4):
+    def fake_run_simulation(*, concept, default_model, run_index, stage_only, mode, recipe_context, **kwargs):
+        return {"messages": _messages(f"run{run_index}", count=turns)}
+
+    monkeypatch.setattr(sdw_module, "run_simulation", fake_run_simulation)
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "dialogue-model", "judge-model"))
+
+
+def _read_bench(tmp_path, label="saturday-n3"):
+    return json.loads((tmp_path / "results" / f"bench-{label}.json").read_text())
+
+
+def test_bench_runs_n_times_and_aggregates(tmp_path, monkeypatch):
+    _patch_bench_generation(monkeypatch, sdw)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+
+    cl.cmd_bench(_bench_args(tmp_path, runs=5))
+
+    report = _read_bench(tmp_path, "saturday-n5")
+    assert report["completed_runs"] == 5
+    assert len(report["runs"]) == 5
+    assert report["aggregate"]["metrics"]["message_count"]["n"] == 5
+    assert report["aggregate"]["metrics"]["message_count"]["mean"] == 4.0
+
+
+def test_bench_dry_run_never_calls_the_judge(tmp_path, monkeypatch):
+    _patch_bench_generation(monkeypatch, sdw)
+
+    def _fail_judge(*_args, **_kwargs):
+        raise AssertionError("--dry-run must never judge")
+
+    monkeypatch.setattr(cl, "judge_dialogue", _fail_judge)
+    cl.cmd_bench(_bench_args(tmp_path, dry_run=True))
+
+    report = _read_bench(tmp_path)
+    assert report["dry_run"] is True
+    assert report["aggregate"]["pass_rate"] is None
+    assert all("judge" not in run for run in report["runs"])
+
+
+def test_bench_gives_the_judge_a_fresh_episode_each_run(tmp_path, monkeypatch):
+    """Regression guard: _judge_dialogue WRITES its scores onto the episode
+    dict it is handed, so a reused dict would let run N read run N-1's
+    verdict and every run after the first would look identical."""
+    _patch_bench_generation(monkeypatch, sdw)
+    seen_ids: list[int] = []
+
+    def fake_judge(concept, stage, dialogue, episode, **kwargs):
+        assert "judge_scores" not in episode, "episode arrived carrying a previous run's scores"
+        seen_ids.append(id(episode))
+        episode.setdefault("judge_scores", {})[stage] = {"turn_taking": len(seen_ids)}
+        episode.setdefault("judge_weakest", {})[stage] = ["turn_taking"]
+        return True, "PASS"
+
+    monkeypatch.setattr(cl, "judge_dialogue", fake_judge)
+    cl.cmd_bench(_bench_args(tmp_path, runs=3))
+
+    report = _read_bench(tmp_path)
+    assert len(set(seen_ids)) == 3
+    assert [run["judge"]["scores"]["turn_taking"] for run in report["runs"]] == [1, 2, 3]
+
+
+def test_bench_pass_rate_comes_from_the_production_judge(tmp_path, monkeypatch):
+    _patch_bench_generation(monkeypatch, sdw)
+    verdicts = iter([True, False, False, True])
+
+    def fake_judge(concept, stage, dialogue, episode, **kwargs):
+        passed = next(verdicts)
+        episode.setdefault("judge_scores", {})[stage] = {"natural_progression": 4 if passed else 2}
+        episode.setdefault("judge_weakest", {})[stage] = [] if passed else ["natural_progression"]
+        return passed, "PASS" if passed else "FAIL - thin"
+
+    monkeypatch.setattr(cl, "judge_dialogue", fake_judge)
+    cl.cmd_bench(_bench_args(tmp_path, runs=4))
+
+    agg = _read_bench(tmp_path, "saturday-n4")["aggregate"]
+    assert agg["judged_runs"] == 4
+    assert agg["pass_count"] == 2
+    assert agg["pass_rate"] == 0.5
+    assert agg["weakest_counts"] == {"natural_progression": 2}
+    assert agg["dimensions"]["natural_progression"]["mean"] == 3.0
+
+
+def _patch_varying_generation(monkeypatch, sdw_module, turn_counts):
+    counts = list(turn_counts)
+
+    def fake_run_simulation(*, run_index, **kwargs):
+        return {"messages": _messages(f"run{run_index}", count=counts[(run_index - 1) % len(counts)])}
+
+    monkeypatch.setattr(sdw_module, "run_simulation", fake_run_simulation)
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+
+
+def test_bench_compare_reports_a_moved_average(tmp_path, monkeypatch):
+    # Real spread in both arms, so a z can actually be formed - a metric
+    # that never varies is the separate zero-variance case below.
+    _patch_varying_generation(monkeypatch, sdw, [3, 4, 5, 4])
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+    cl.cmd_bench(_bench_args(tmp_path, runs=4, label="control"))
+
+    _patch_varying_generation(monkeypatch, sdw, [7, 8, 9, 8])
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+    cl.cmd_bench(
+        _bench_args(
+            tmp_path, runs=4, label="longer",
+            compare=str(tmp_path / "results" / "bench-control.json"),
+        )
+    )
+
+    comparison = _read_bench(tmp_path, "longer")["comparison"]
+    assert comparison["baseline_label"] == "control"
+    row = comparison["metrics"]["message_count"]
+    assert row["baseline_mean"] == 4.0
+    assert row["mean"] == 8.0
+    assert row["delta"] == 4.0
+    assert row["stderr_diff"] > 0
+    assert abs(row["z"]) >= cl._BENCH_MOVED_Z
+    assert row["moved"] is True
+
+
+def test_bench_compare_flags_a_shift_that_has_no_variance_to_divide_by(tmp_path, monkeypatch):
+    """A perfectly repeatable shift still moved, even though z is undefined.
+
+    Both arms are constant, so the standard error of the difference is 0
+    and delta/se does not exist. Reporting z=0.0 here would file a clean,
+    reproducible change under 'did not move'.
+    """
+    _patch_bench_generation(monkeypatch, sdw, turns=4)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+    cl.cmd_bench(_bench_args(tmp_path, runs=3, label="flat-control"))
+
+    _patch_bench_generation(monkeypatch, sdw, turns=9)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+    cl.cmd_bench(
+        _bench_args(
+            tmp_path, runs=3, label="flat-longer",
+            compare=str(tmp_path / "results" / "bench-flat-control.json"),
+        )
+    )
+
+    row = _read_bench(tmp_path, "flat-longer")["comparison"]["metrics"]["message_count"]
+    assert row["stderr_diff"] == 0.0
+    assert row["z"] is None
+    assert row["moved"] is True
+
+
+def test_bench_compare_rejects_a_result_that_is_not_a_bench(tmp_path, monkeypatch):
+    _patch_bench_generation(monkeypatch, sdw)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+    not_a_bench = tmp_path / "ab-result.json"
+    not_a_bench.write_text(json.dumps({"command": "ab", "aggregate": {}}))
+
+    with pytest.raises(cl.ConversationLabError, match="expects a bench result"):
+        cl.cmd_bench(_bench_args(tmp_path, compare=str(not_a_bench)))
+
+
+def test_bench_keeps_completed_runs_when_a_later_run_raises(tmp_path, monkeypatch):
+    """Finished runs are paid work and must reach disk even if run N+1 dies."""
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    calls = {"n": 0}
+
+    def flaky_run_simulation(*, run_index, **kwargs):
+        calls["n"] += 1
+        if run_index == 3:
+            raise RuntimeError("provider blew up")
+        return {"messages": _messages(f"run{run_index}", count=4)}
+
+    monkeypatch.setattr(sdw, "run_simulation", flaky_run_simulation)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+
+    # The partial report is still written and the failure is still recorded,
+    # but the process must not exit 0 as though the bench completed.
+    with pytest.raises(SystemExit, match="provider blew up"):
+        cl.cmd_bench(_bench_args(tmp_path, runs=5))
+
+    report = _read_bench(tmp_path, "saturday-n5")
+    assert report["completed_runs"] == 2
+    assert "provider blew up" in report["error"]
+    assert report["aggregate"]["metrics"]["message_count"]["n"] == 2
+
+
+def test_bench_aborts_on_max_calls_and_still_writes_a_report(tmp_path, monkeypatch):
+    _patch_bench_generation(monkeypatch, sdw, turns=4)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+
+    cl.cmd_bench(_bench_args(tmp_path, runs=10, max_calls=6))
+
+    report = _read_bench(tmp_path, "saturday-n10")
+    assert report["aborted"] is True
+    assert report["completed_runs"] < 10
+    assert report["calls_used"] <= 6
+
+
+def test_bench_requires_concept_with_an_explicit_recipe_context(tmp_path):
+    with pytest.raises(cl.ConversationLabError, match="needs --concept"):
+        cl.cmd_bench(_bench_args(tmp_path, concept=None))
+
+
+def test_bench_requires_exactly_one_scenario_source(tmp_path):
+    with pytest.raises(cl.ConversationLabError, match="exactly one"):
+        cl.cmd_bench(_bench_args(tmp_path, from_episode="2026-W38"))
+
+
+def test_bench_logs_to_the_benchmarks_table_not_the_experiments_table(tmp_path, monkeypatch):
+    _patch_bench_generation(monkeypatch, sdw)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+    log = tmp_path / "EXPERIMENTS.md"
+
+    cl.cmd_bench(_bench_args(tmp_path, no_log=False, experiments_log=str(log)))
+
+    text = log.read_text()
+    assert cl._BENCH_SECTION_HEADING in text
+    # The A/B table's own header must be left untouched above it.
+    assert text.index(cl._EXPERIMENTS_TABLE_HEADER_LINE) < text.index(cl._BENCH_SECTION_HEADING)
+    assert "| saturday-n3 | saturday | 3 | 100% |" in text
+
+
+# ---------------------------------------------------------------------------
+# bench helpers
+# ---------------------------------------------------------------------------
+
+
+def test_frozen_prior_stages_stops_at_the_stage_and_skips_empty_days():
+    episode = {
+        "stages": {
+            "monday": {"dialogue": [{"character": "Margaret Chen", "message": "a"}]},
+            "tuesday": {"dialogue": []},
+            "wednesday": {"dialogue": [{"character": "Julian Torres", "message": "b"}]},
+            "friday": {"dialogue": [{"character": "Devon Park", "message": "c"}]},
+            "saturday": {"dialogue": [{"character": "Devon Park", "message": "today"}]},
+            "sunday": {"dialogue": [{"character": "Margaret Chen", "message": "later"}]},
+        }
+    }
+    prior = cl._frozen_prior_stages(episode, "saturday")
+    assert sorted(prior) == ["friday", "monday", "wednesday"]
+
+
+def test_distribution_uses_sample_stdev_and_standard_error():
+    dist = cl._distribution([2, 4, 4, 4, 5, 5, 7, 9])
+    assert dist["n"] == 8
+    assert dist["mean"] == 5.0
+    # sample stdev (n-1) of this classic set is 2.1381; the population
+    # stdev would be 2.0, so this asserts which one bench reports.
+    assert dist["stdev"] == 2.1381
+    assert dist["stderr"] == round(2.1381 / (8 ** 0.5), 4)
+
+
+def test_distribution_ignores_non_numeric_and_empty_input():
+    assert cl._distribution([]) is None
+    assert cl._distribution([None, "x", True]) is None
+    single = cl._distribution([3])
+    assert single["n"] == 1 and single["stdev"] == 0.0 and single["stderr"] == 0.0
