@@ -124,6 +124,47 @@ def notify_judge_failure(
     )
 
 
+def notify_judge_advisory(
+    concept: str,
+    stage: str,
+    verdict: str,
+    episode_id: str,
+    attempts: int,
+    scores: dict | None = None,
+    weakest: list[str] | None = None,
+) -> bool:
+    """Alert when a day's dialogue failed the judge but shipped anyway.
+
+    The counterpart to notify_judge_failure: on the publish stage the judge is
+    advisory, so an exhausted retry loop ships the best-scoring attempt rather
+    than withholding the recipe from readers (#7394). The week is NOT paused,
+    so this alert exists to make sure a weak conversation is still seen and
+    tuned instead of passing silently.
+    """
+    score_line = (
+        ", ".join(f"{k}: {v}" for k, v in sorted(scores.items()))
+        if scores
+        else "no structured scores recorded"
+    )
+    return send_alert(
+        subject="Judge Failed — Published Anyway",
+        body=(
+            f"**{concept}** — {stage.title()} dialogue failed quality review "
+            f"and was published regardless. The recipe is live; the "
+            f"conversation is below the bar."
+        ),
+        severity="warning",
+        fields=[
+            ("Episode", episode_id, True),
+            ("Day", stage.title(), True),
+            ("Attempts", str(attempts), True),
+            ("Weakest", ", ".join(weakest) if weakest else "unknown", False),
+            ("Scores", score_line, False),
+            ("Last Verdict", verdict[:900], False),
+        ],
+    )
+
+
 def notify_batch_complete(
     recipe_count: int,
     recipe_titles: list[str],
