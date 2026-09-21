@@ -649,6 +649,28 @@ def _judge_meta_fields(episode: dict, stage: str) -> dict:
     }
 
 
+def _announce_advisory_publication(episode: dict, stage: str, concept: str) -> None:
+    """Send the advisory alert once the page it describes actually exists.
+
+    _generate_and_judge_dialogue records that it SELECTED a below-bar
+    dialogue; only the publish path knows whether the recipe went live. The
+    record is flipped and persisted by the caller before this fires, so a
+    delivery failure cannot leave the episode claiming an unsent alert.
+    """
+    record = episode.get("judge_advisory", {}).get(stage)
+    if not record or not record.get("published"):
+        return
+    notify_judge_advisory(
+        concept=concept,
+        stage=stage,
+        verdict=record.get("verdict", ""),
+        episode_id=episode.get("episode_id", "unknown"),
+        attempts=record.get("attempts", 0),
+        scores=record.get("scores") or {},
+        weakest=record.get("weakest") or [],
+    )
+
+
 class JudgeFailedError(Exception):
     """Raised when dialogue fails judge review after all retries."""
 
@@ -852,10 +874,17 @@ def _generate_and_judge_dialogue(
         episode.setdefault("judge_scores", {})[stage] = scores
         episode.setdefault("judge_weakest", {})[stage] = weakest
         episode.setdefault("judge_reason", {})[stage] = chosen.get("reason", "")
+        # SELECTED, not published. Sunday still has to clear editorial QA and
+        # the publish itself, and this helper cannot know whether either
+        # succeeds. Claiming publication here would write
+        # published_below_bar=True onto an episode whose QA then rejected the
+        # recipe, and email Erik that a page is live when it is not. The
+        # handler flips `published` and sends the alert once the page exists.
         episode.setdefault("judge_advisory", {})[stage] = {
-            "published_below_bar": True,
+            "selected_below_bar": True,
+            "published": False,
             "attempts": total_attempts,
-            "attempt_published": chosen.get("attempt"),
+            "attempt_selected": chosen.get("attempt"),
             "verdict": chosen.get("verdict") or verdict,
             "scores": scores,
             "weakest": weakest,
@@ -863,23 +892,14 @@ def _generate_and_judge_dialogue(
         }
         episode.setdefault("events", []).append(
             f"{stage}: judge FAILED all {total_attempts} attempts — "
-            f"published the best attempt anyway (advisory gate)"
+            f"selected the best attempt anyway (advisory gate)"
         )
         qa_scores = _score_dialogue_qa(dialogue, stage, concept)
         if qa_scores:
             episode.setdefault("qa_scores", {})[stage] = qa_scores
-        notify_judge_advisory(
-            concept=concept,
-            stage=stage,
-            verdict=chosen.get("verdict") or verdict,
-            episode_id=episode_id,
-            attempts=total_attempts,
-            scores=scores,
-            weakest=weakest,
-        )
         logger.error(
             f"Judge failed all {total_attempts} attempts for {stage}; advisory "
-            f"gate — publishing attempt {chosen.get('attempt')} anyway."
+            f"gate — selected attempt {chosen.get('attempt')} for publication."
         )
         return dialogue, chosen.get("verdict") or verdict
 
@@ -2725,11 +2745,18 @@ async def cron_sunday(request: Request):
             logger.error(f"Memory generation failed (non-fatal): {type(e).__name__}: {e}")
             ep["events"].append(f"sunday: memory generation failed ({type(e).__name__})")
 
+        # The page exists now, so the advisory record can claim it (#7394).
+        advisory = ep.get("judge_advisory", {}).get("sunday")
+        if advisory and not advisory.get("published"):
+            advisory["published"] = True
+            advisory["published_at"] = ep["published_at"]
+
         # Persist the published episode before writing the catalog so a crash
         # between authoritative writes and the manual deployment handoff is
         # retryable.
         _set_static_deploy_state(ep, "pending")
         storage.save_episode(episode_id, ep)
+        _announce_advisory_publication(ep, "sunday", concept)
         _complete_static_source_handoff(episode_id, ep)
 
     return _stage_response("sunday", episode_id, concept, {
