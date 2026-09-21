@@ -420,3 +420,108 @@ def test_the_handler_claims_publication_only_after_the_episode_is_saved():
     assert record["published_at"] == episode["published_at"]
     # Saved carrying published=True, and announced only afterwards.
     assert order[-2:] == ["save:published=True", "announce"]
+
+
+def _stale_record() -> dict:
+    """What a judge-failed, then QA-failed, Sunday leaves behind."""
+    return {
+        "selected_below_bar": True,
+        "published": False,
+        "attempts": 3,
+        "attempt_selected": 2,
+        "verdict": "FAIL - attempt 2 (from the abandoned run)",
+        "scores": {"natural_progression": 2},
+        "weakest": ["natural_progression"],
+        "recorded_at": "2026-09-21T00:00:00+00:00",
+    }
+
+
+def test_a_clean_retry_clears_the_previous_run_s_advisory_record():
+    """Sunday can fail the judge, fail QA, get fixed, and be re-fired.
+
+    The second run's dialogue passes on attempt 1. If the abandoned run's
+    record survives, the publish flips it to published=True and emails its
+    verdict and scores for a week that was never judge-rejected.
+    """
+    episode = _episode()
+    episode["judge_advisory"] = {"sunday": _stale_record()}
+
+    with patch.object(cron_routes, "_generate_dialogue",
+                      lambda stage, concept, **kw: _dialogue("clean")), \
+         patch.object(cron_routes, "_judge_dialogue", lambda *a, **kw: (True, "PASS")), \
+         patch.object(cron_routes, "_score_dialogue_qa", lambda *a, **kw: {}):
+        dialogue, verdict = cron_routes._generate_and_judge_dialogue(
+            "sunday", "Cardamom Cinnamon Spiral Bites", episode, advisory=True,
+        )
+
+    assert verdict == "PASS"
+    assert dialogue[0]["message"] == "attempt clean"
+    assert "sunday" not in episode.get("judge_advisory", {})
+
+    with patch.object(cron_routes, "notify_judge_advisory") as alert:
+        cron_routes._announce_advisory_publication(
+            episode, "sunday", "Cardamom Cinnamon Spiral Bites",
+        )
+    alert.assert_not_called()
+
+
+def test_a_clean_retry_leaves_another_stage_s_record_alone():
+    """Clearing is per stage, not a wipe."""
+    episode = _episode()
+    episode["judge_advisory"] = {"sunday": _stale_record(), "friday": _stale_record()}
+
+    with patch.object(cron_routes, "_generate_dialogue",
+                      lambda stage, concept, **kw: _dialogue("clean")), \
+         patch.object(cron_routes, "_judge_dialogue", lambda *a, **kw: (True, "PASS")), \
+         patch.object(cron_routes, "_score_dialogue_qa", lambda *a, **kw: {}):
+        cron_routes._generate_and_judge_dialogue(
+            "sunday", "Cardamom Cinnamon Spiral Bites", episode, advisory=True,
+        )
+
+    assert "sunday" not in episode["judge_advisory"]
+    assert episode["judge_advisory"]["friday"]["selected_below_bar"] is True
+
+
+def test_a_clean_retry_clears_the_record_on_the_gated_stages_too():
+    """Nothing about this is Sunday-specific; a re-fired Friday is the same."""
+    episode = _episode()
+    episode["judge_advisory"] = {"friday": _stale_record()}
+
+    with patch.object(cron_routes, "_generate_dialogue",
+                      lambda stage, concept, **kw: _dialogue("clean")), \
+         patch.object(cron_routes, "_judge_dialogue", lambda *a, **kw: (True, "PASS")), \
+         patch.object(cron_routes, "_score_dialogue_qa", lambda *a, **kw: {}):
+        cron_routes._generate_and_judge_dialogue(
+            "friday", "Cardamom Cinnamon Spiral Bites", episode,
+        )
+
+    assert "friday" not in episode["judge_advisory"]
+
+
+def test_the_sunday_route_sends_no_alert_when_the_retry_passes():
+    """End to end: the stale record must not survive into the publish."""
+    episode = _sunday_episode()
+    episode["judge_advisory"] = {"sunday": _stale_record()}
+    body = cron_routes.StageRequest(episode_id="2026-W99", force=True)
+
+    def _judged(stage, concept, ep, **kwargs):
+        ep.get("judge_advisory", {}).pop(stage, None)
+        return [{"character": "Devon Park", "message": "live"}], "PASS"
+
+    with patch.object(cron_routes, "_verify_cron_secret"), \
+         patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=body)), \
+         patch.object(cron_routes, "_verify_day_of_week"), \
+         patch.object(cron_routes.storage, "load_episode", return_value=episode), \
+         patch.object(cron_routes.storage, "save_episode"), \
+         patch.object(cron_routes, "_generate_and_judge_dialogue", side_effect=_judged), \
+         patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "clean")), \
+         patch.object(cron_routes, "_hero_image_url", return_value="https://x/hero.png"), \
+         patch.object(cron_routes, "_generate_episode_memories"), \
+         patch.object(cron_routes, "_set_static_deploy_state"), \
+         patch.object(cron_routes, "_complete_static_source_handoff"), \
+         patch.object(cron_routes, "notify_judge_advisory") as alert:
+        result = asyncio.run(cron_routes.cron_sunday(_sunday_request()))
+
+    assert result["published"] is True
+    alert.assert_not_called()
+    assert "sunday" not in episode.get("judge_advisory", {})
