@@ -408,7 +408,8 @@ def test_the_handler_claims_publication_only_after_the_episode_is_saved():
          patch.object(cron_routes, "_hero_image_url", return_value="https://x/hero.png"), \
          patch.object(cron_routes, "_generate_episode_memories"), \
          patch.object(cron_routes, "_set_static_deploy_state"), \
-         patch.object(cron_routes, "_complete_static_source_handoff"), \
+         patch.object(cron_routes, "_complete_static_source_handoff",
+                      side_effect=lambda *a, **kw: order.append("handoff")), \
          patch.object(cron_routes, "regenerate_and_upload", create=True), \
          patch.object(cron_routes, "_announce_advisory_publication",
                       side_effect=lambda *a, **kw: order.append("announce")):
@@ -418,8 +419,38 @@ def test_the_handler_claims_publication_only_after_the_episode_is_saved():
     record = episode["judge_advisory"]["sunday"]
     assert record["published"] is True
     assert record["published_at"] == episode["published_at"]
-    # Saved carrying published=True, and announced only afterwards.
-    assert order[-2:] == ["save:published=True", "announce"]
+    # Saved carrying published=True, then the reader-facing pages written,
+    # and only then announced. The handoff raises on failure with its own
+    # "pages were NOT written" alert, so announcing before it could
+    # contradict that in the same inbox.
+    assert order[-3:] == ["save:published=True", "handoff", "announce"]
+
+
+def test_no_advisory_alert_when_the_reader_pages_fail_to_write():
+    """A source-write failure must not be followed by "the recipe is live"."""
+    episode = _sunday_episode()
+    episode["judge_advisory"] = {"sunday": _stale_record()}
+    body = cron_routes.StageRequest(episode_id="2026-W99", force=True)
+
+    with patch.object(cron_routes, "_verify_cron_secret"), \
+         patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=body)), \
+         patch.object(cron_routes, "_verify_day_of_week"), \
+         patch.object(cron_routes.storage, "load_episode", return_value=episode), \
+         patch.object(cron_routes.storage, "save_episode"), \
+         patch.object(cron_routes, "_generate_and_judge_dialogue",
+                      return_value=([{"character": "Devon Park", "message": "live"}], "FAIL")), \
+         patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "clean")), \
+         patch.object(cron_routes, "_hero_image_url", return_value="https://x/hero.png"), \
+         patch.object(cron_routes, "_generate_episode_memories"), \
+         patch.object(cron_routes, "_set_static_deploy_state"), \
+         patch.object(cron_routes, "notify_pipeline_failure"), \
+         patch.object(cron_routes, "_complete_static_source_handoff",
+                      side_effect=HTTPException(status_code=500, detail="source write failed")), \
+         patch.object(cron_routes, "notify_judge_advisory") as alert:
+        with pytest.raises(HTTPException, match="source write failed"):
+            asyncio.run(cron_routes.cron_sunday(_sunday_request()))
+
+    alert.assert_not_called()
 
 
 def _stale_record() -> dict:
