@@ -789,6 +789,16 @@ def _generate_and_judge_dialogue(
             recipe_facts=recipe_facts or None,
         )
         if passed:
+            # This stage cleared the judge, so any advisory record from an
+            # earlier abandoned run is now a lie. A Sunday that failed the
+            # judge and then failed editorial QA persists
+            # judge_advisory["sunday"] with published=False; the re-fire
+            # after the recipe is fixed would otherwise inherit it, flip it
+            # to published=True and email the discarded run's verdict and
+            # scores for a week that actually passed. Unlike
+            # rejected_dialogues, which is inert evidence, this record is
+            # read to make a claim — so it has to be cleared, not kept.
+            episode.get("judge_advisory", {}).pop(stage, None)
             # Run QA scoring on the accepted dialogue
             qa_scores = _score_dialogue_qa(dialogue, stage, concept)
             if qa_scores:
