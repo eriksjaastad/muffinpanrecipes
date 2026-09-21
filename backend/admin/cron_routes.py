@@ -584,6 +584,12 @@ def _judge_dialogue(
         # provider outage therefore pauses the episode instead of waving
         # unjudged dialogue through (the PR #45 contract).
         logger.error(f"Judge errored for {stage} (treated as FAIL): {type(e).__name__}: {e}")
+        # Record EMPTY meta, do not leave the previous attempt's (or the
+        # previous run's) numbers standing (#7394). Whatever is on the
+        # episode describes a dialogue that is not this one, and callers
+        # read these keys to rank attempts and to fill the published stage
+        # record. Empty is the honest answer for an attempt nobody judged.
+        _record_judge_meta({}, [], f"judge error: {type(e).__name__}")
         return False, f"JUDGE ERROR: {type(e).__name__}: {e}"
 
     parsed = _parse_judge_json(raw)
@@ -605,6 +611,7 @@ def _judge_dialogue(
             ).strip()
         except Exception as e:
             logger.error(f"Judge errored on retry for {stage} (treated as FAIL): {type(e).__name__}: {e}")
+            _record_judge_meta({}, [], f"judge error: {type(e).__name__}")
             return False, f"JUDGE ERROR: {type(e).__name__}: {e}"
         parsed = _parse_judge_json(raw)
 
@@ -838,8 +845,14 @@ def _generate_and_judge_dialogue(
     # sentence of verdict, which is not enough to tune a prompt against.
     best = None
     if rejected:
+        # Only attempts the judge actually scored can win. An attempt whose
+        # judge call errored or came back unparseable carries {} — it was
+        # never assessed, so it must not out-rank a judged one on a sum of
+        # nothing, and under the advisory gate it must not be publishable
+        # at all (see below).
+        scored = [i for i, r in enumerate(rejected) if r.get("scores")]
         best = max(
-            range(len(rejected)),
+            scored or range(len(rejected)),
             key=lambda i: sum(
                 v for v in (rejected[i].get("scores") or {}).values()
                 if isinstance(v, (int, float))
@@ -855,8 +868,17 @@ def _generate_and_judge_dialogue(
         # the loop never ran, which max_retries >= 0 makes impossible — but a
         # publish path must not depend on that, so fall back to the dialogue
         # in hand and say so.
+        # "The judge said it is weak" and "the judge never spoke" are
+        # different states, and only the first one may publish. The comment
+        # on the judge's own error path states the contract from PR #45: a
+        # provider outage pauses the episode rather than waving unjudged
+        # dialogue through. Advisory relaxes the verdict, never the
+        # requirement that there BE one — otherwise an Anthropic outage
+        # publishes a conversation nobody ever looked at.
         chosen = rejected[best] if best is not None else {}
-        dialogue = chosen.get("dialogue") or dialogue
+        if not chosen.get("scores"):
+            chosen = {}
+        dialogue = chosen.get("dialogue") or []
         if not dialogue:
             # Nothing to publish is a different failure from something weak,
             # so this one still fails closed. Alert BEFORE raising:
@@ -871,6 +893,11 @@ def _generate_and_judge_dialogue(
                 verdict=verdict or "no dialogue survived the judge loop",
                 episode_id=episode_id,
                 attempts=total_attempts,
+            )
+            logger.error(
+                f"Advisory gate cannot publish {stage}: no attempt was "
+                f"actually judged (all {total_attempts} errored or were "
+                f"unparseable). Failing closed."
             )
             raise JudgeFailedError(stage=stage, verdict=verdict, attempts=total_attempts)
         scores = chosen.get("scores") or {}

@@ -10,6 +10,7 @@ re-fire is a cron call rather than a hand-written script.
 from __future__ import annotations
 
 import asyncio
+import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -181,9 +182,12 @@ def test_advisory_records_qa_scores_for_the_published_attempt():
         calls["n"] += 1
         return _dialogue(str(calls["n"]))
 
+    def _judge(concept, stage, dialogue, episode_, **kw):
+        episode_.setdefault("judge_scores", {})[stage] = {"x": 2}
+        return False, "FAIL"
+
     with patch.object(cron_routes, "_generate_dialogue", _gen), \
-         patch.object(cron_routes, "_judge_dialogue",
-                      lambda *a, **kw: (False, "FAIL")), \
+         patch.object(cron_routes, "_judge_dialogue", _judge), \
          patch.object(cron_routes, "_score_dialogue_qa",
                       lambda *a, **kw: {"score": 61}), \
          patch.object(cron_routes, "notify_judge_advisory", lambda **kw: True):
@@ -236,13 +240,13 @@ def test_the_advisory_fallback_alerts_before_it_raises():
     assert cron_routes.JudgeFailedError.already_notified is True
 
 
-def test_a_published_attempt_without_scores_does_not_inherit_another_ones():
-    """The restore must overwrite, not skip on empty.
+def test_an_unscored_attempt_is_never_the_one_that_publishes():
+    """An unscored attempt is one the judge never assessed.
 
-    _judge_dialogue can fail to parse structured output for one attempt. If
-    that attempt wins, skipping the restore would leave the LAST attempt's
-    numbers on the episode, and _judge_meta_fields would spread them into
-    the published stage record — the exact mismatch the restore prevents.
+    It cannot win the ranking, and the attempt that does publish carries
+    its own numbers — the loop leaves the LAST attempt's on the episode,
+    and _judge_meta_fields spreads whatever is there into the published
+    stage record.
     """
     episode = _episode()
     calls = {"n": 0}
@@ -252,12 +256,16 @@ def test_a_published_attempt_without_scores_does_not_inherit_another_ones():
         return _dialogue(str(calls["n"]))
 
     def _judge(concept, stage, dialogue, episode_, **kw):
-        # Attempt 1 wins the max-sum tie with no parsed scores at all;
-        # attempts 2 and 3 leave real numbers behind on the episode.
-        if calls["n"] > 1:
-            episode_.setdefault("judge_scores", {})[stage] = {"x": -1}
-            episode_.setdefault("judge_weakest", {})[stage] = ["stale"]
-            episode_.setdefault("judge_reason", {})[stage] = "stale reason"
+        # Attempt 2 is the only one the judge scored. Attempts 1 and 3
+        # errored, so they record empty meta for themselves.
+        if calls["n"] == 2:
+            episode_.setdefault("judge_scores", {})[stage] = {"x": 4}
+            episode_.setdefault("judge_weakest", {})[stage] = ["turn_taking"]
+            episode_.setdefault("judge_reason", {})[stage] = "thin close"
+        else:
+            episode_.setdefault("judge_scores", {})[stage] = {}
+            episode_.setdefault("judge_weakest", {})[stage] = []
+            episode_.setdefault("judge_reason", {})[stage] = "judge error: RuntimeError"
         return False, f"FAIL - attempt {calls['n']}"
 
     with patch.object(cron_routes, "_generate_dialogue", _gen), \
@@ -268,12 +276,11 @@ def test_a_published_attempt_without_scores_does_not_inherit_another_ones():
             "sunday", "Cardamom Cinnamon Spiral Bites", episode, advisory=True,
         )
 
-    assert dialogue[0]["message"] == "attempt 1"
-    assert episode["judge_scores"]["sunday"] == {}
-    assert episode["judge_weakest"]["sunday"] == []
-    assert episode["judge_reason"]["sunday"] == ""
+    assert dialogue[0]["message"] == "attempt 2"
     assert cron_routes._judge_meta_fields(episode, "sunday") == {
-        "judge_scores": {}, "judge_weakest": [], "judge_reason": "",
+        "judge_scores": {"x": 4},
+        "judge_weakest": ["turn_taking"],
+        "judge_reason": "thin close",
     }
 
 
@@ -556,3 +563,115 @@ def test_the_sunday_route_sends_no_alert_when_the_retry_passes():
     assert result["published"] is True
     alert.assert_not_called()
     assert "sunday" not in episode.get("judge_advisory", {})
+
+
+# ---------------------------------------------------------------------------
+# "The judge said it is weak" vs "the judge never spoke" (#7394)
+# ---------------------------------------------------------------------------
+
+
+def _judge_erroring_run(episode: dict, outcomes: list[dict | None], advisory: bool = True):
+    """Each entry: a scores dict the judge recorded, or None for an error.
+
+    None models the real error path — _judge_dialogue returns early and
+    records EMPTY meta for that attempt.
+    """
+    calls = {"n": 0}
+
+    def _gen(stage, concept, **kw):
+        calls["n"] += 1
+        return _dialogue(str(calls["n"]))
+
+    def _judge(concept, stage, dialogue, episode_, **kw):
+        outcome = outcomes[calls["n"] - 1]
+        if outcome is None:
+            episode_.setdefault("judge_scores", {})[stage] = {}
+            episode_.setdefault("judge_weakest", {})[stage] = []
+            episode_.setdefault("judge_reason", {})[stage] = "judge error: RuntimeError"
+            return False, "JUDGE ERROR: RuntimeError: provider down"
+        episode_.setdefault("judge_scores", {})[stage] = outcome
+        episode_.setdefault("judge_weakest", {})[stage] = ["voice_distinctiveness"]
+        episode_.setdefault("judge_reason", {})[stage] = f"reason {calls['n']}"
+        return False, f"FAIL - attempt {calls['n']}"
+
+    with patch.object(cron_routes, "_generate_dialogue", _gen), \
+         patch.object(cron_routes, "_judge_dialogue", _judge), \
+         patch.object(cron_routes, "_score_dialogue_qa", lambda *a, **kw: {}), \
+         patch.object(cron_routes, "notify_judge_advisory") as soft, \
+         patch.object(cron_routes, "notify_judge_failure") as hard:
+        try:
+            result = cron_routes._generate_and_judge_dialogue(
+                "sunday", "Cardamom Cinnamon Spiral Bites", episode, advisory=advisory,
+            )
+        except cron_routes.JudgeFailedError as exc:
+            return None, exc, soft, hard
+    return result, None, soft, hard
+
+
+def test_a_judge_outage_does_not_publish_unjudged_dialogue():
+    """PR #45's contract: an outage pauses the week, it does not ship blind.
+
+    Advisory relaxes the verdict, never the requirement that there be one.
+    """
+    episode = _episode()
+    result, exc, soft, hard = _judge_erroring_run(episode, [None, None, None])
+
+    assert result is None
+    assert isinstance(exc, cron_routes.JudgeFailedError)
+    soft.assert_not_called()
+    hard.assert_called_once()
+    assert "sunday" not in episode.get("judge_advisory", {})
+
+
+def test_an_unjudged_attempt_cannot_outrank_a_judged_one():
+    """An errored attempt carries {}; it must not win on a sum of nothing."""
+    episode = _episode()
+    (dialogue, _), exc, soft, _ = _judge_erroring_run(episode, [{"x": 3}, None, {"x": 1}])
+
+    assert exc is None
+    assert dialogue[0]["message"] == "attempt 1"
+    assert episode["judge_scores"]["sunday"] == {"x": 3}
+    assert soft.call_count == 0  # the handler alerts, not the helper
+    kept = episode["rejected_dialogues"]["sunday"]
+    assert [r.get("best_of_run", False) for r in kept] == [True, False, False]
+
+
+def test_an_unjudged_attempt_does_not_inherit_the_previous_one_s_scores():
+    """The bug Codex named: judge_scores[stage] survives a failed call."""
+    episode = _episode()
+    _judge_erroring_run(episode, [{"x": 9}, None, None])
+
+    kept = episode["rejected_dialogues"]["sunday"]
+    assert kept[0]["scores"] == {"x": 9}
+    assert kept[1]["scores"] == {}
+    assert kept[2]["scores"] == {}
+
+
+def test_the_gated_stages_still_fail_closed_on_a_judge_outage():
+    episode = _episode()
+    result, exc, _, hard = _judge_erroring_run(episode, [None, None, None], advisory=False)
+
+    assert result is None
+    assert isinstance(exc, cron_routes.JudgeFailedError)
+    hard.assert_called_once()
+
+
+def test_the_judge_records_empty_meta_when_its_provider_errors():
+    """At the source: a failed judge call must not leave stale numbers."""
+    episode = _episode()
+    episode["judge_scores"] = {"sunday": {"natural_progression": 5}}
+    episode["judge_weakest"] = {"sunday": ["nothing"]}
+    episode["judge_reason"] = {"sunday": "from the run before"}
+
+    with patch.dict(os.environ, {"JUDGE_MODEL": "anthropic/claude-opus-4-6"}), \
+         patch.object(cron_routes, "generate_judge_response",
+                      side_effect=RuntimeError("provider down")):
+        passed, verdict = cron_routes._judge_dialogue(
+            "Cardamom Cinnamon Spiral Bites", "sunday", _dialogue("x"), episode,
+        )
+
+    assert passed is False
+    assert "JUDGE ERROR" in verdict
+    assert episode["judge_scores"]["sunday"] == {}
+    assert episode["judge_weakest"]["sunday"] == []
+    assert "judge error" in episode["judge_reason"]["sunday"]
