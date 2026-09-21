@@ -2766,8 +2766,15 @@ async def cron_sunday(request: Request):
         # retryable.
         _set_static_deploy_state(ep, "pending")
         storage.save_episode(episode_id, ep)
-        _announce_advisory_publication(ep, "sunday", concept)
         _complete_static_source_handoff(episode_id, ep)
+        # Last, because the handoff is what writes the reader-facing pages
+        # and catalog. It raises on failure with its own alert saying the
+        # episode is marked published but the pages were NOT written
+        # (_complete_static_source_handoff), so announcing before it could
+        # put "the recipe is live" and "the pages were not written" in the
+        # same inbox. Skipping the advisory alert on that path loses it —
+        # carded — which is the lesser harm of the two.
+        _announce_advisory_publication(ep, "sunday", concept)
 
     return _stage_response("sunday", episode_id, concept, {
         "published": True,
