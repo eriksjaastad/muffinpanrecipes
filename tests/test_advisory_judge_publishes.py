@@ -57,6 +57,9 @@ def _run_advisory(episode: dict, scores_per_attempt: list[dict], **kwargs):
             advisory=True, **kwargs,
         )
     hard_alert.assert_not_called()
+    # Selecting a dialogue is not publishing one: the helper must stay quiet
+    # until the handler confirms the page exists.
+    assert alerts == []
     return dialogue, verdict, alerts
 
 
@@ -83,29 +86,82 @@ def test_the_published_attempt_carries_its_own_scores():
     assert episode["judge_reason"]["sunday"] == "reason 2"
 
 
-def test_advisory_publication_is_recorded_on_the_episode():
+def test_advisory_selection_is_recorded_on_the_episode():
     episode = _episode()
     _run_advisory(episode, [{"x": 3}, {"x": 9}, {"x": 1}])
 
     record = episode["judge_advisory"]["sunday"]
-    assert record["published_below_bar"] is True
+    assert record["selected_below_bar"] is True
+    assert record["published"] is False
     assert record["attempts"] == 3
-    assert record["attempt_published"] == 2
+    assert record["attempt_selected"] == 2
     assert record["scores"] == {"x": 9}
     assert record["recorded_at"]
     assert any("advisory gate" in e for e in episode["events"])
 
 
-def test_advisory_publication_still_alerts():
+def test_a_selected_dialogue_that_never_publishes_never_claims_it_did():
+    """Editorial QA can still reject the recipe after the judge gave up.
+
+    If the helper announced publication, that run would persist
+    published=True and email Erik that a page is live which does not exist.
+    """
+    episode = _episode()
+    _run_advisory(episode, [{"x": 3}, {"x": 9}, {"x": 1}])
+
+    record = episode["judge_advisory"]["sunday"]
+    assert record["published"] is False
+    assert "published_at" not in record
+
+    with patch.object(cron_routes, "notify_judge_advisory") as alert:
+        cron_routes._announce_advisory_publication(
+            episode, "sunday", "Cardamom Cinnamon Spiral Bites",
+        )
+    alert.assert_not_called()
+
+
+def test_the_alert_fires_once_the_page_exists():
     """Not gating is not the same as not telling Erik."""
     episode = _episode()
-    _, _, alerts = _run_advisory(episode, [{"x": 3}, {"x": 9}, {"x": 1}])
+    _run_advisory(episode, [{"x": 3}, {"x": 9}, {"x": 1}])
+    episode["judge_advisory"]["sunday"]["published"] = True
 
-    assert len(alerts) == 1
-    assert alerts[0]["stage"] == "sunday"
-    assert alerts[0]["attempts"] == 3
-    assert alerts[0]["scores"] == {"x": 9}
-    assert alerts[0]["weakest"] == ["weak 2"]
+    with patch.object(cron_routes, "notify_judge_advisory") as alert:
+        cron_routes._announce_advisory_publication(
+            episode, "sunday", "Cardamom Cinnamon Spiral Bites",
+        )
+
+    kwargs = alert.call_args.kwargs
+    assert kwargs["stage"] == "sunday"
+    assert kwargs["attempts"] == 3
+    assert kwargs["scores"] == {"x": 9}
+    assert kwargs["weakest"] == ["weak 2"]
+
+
+def test_a_non_string_weakest_entry_cannot_break_the_alert():
+    """The judge's JSON is model output; only the list-ness is checked.
+
+    cron_routes.py:621-622 keeps whatever entries the model returned, and
+    the verdict builder beside it already coerces. An alert that raises
+    while formatting would escape into _run_stage and fail the publish —
+    the exact failure this gate exists to prevent.
+    """
+    from backend.utils import discord
+
+    with patch.object(discord, "send_alert", return_value=True) as sent:
+        discord.notify_judge_advisory(
+            concept="Cardamom Cinnamon Spiral Bites",
+            stage="sunday",
+            verdict="FAIL",
+            episode_id="2026-W99",
+            attempts=3,
+            scores={"natural_progression": 2, 7: "odd"},
+            weakest=[1, None, "turn_taking"],
+        )
+
+    fields = dict((name, value) for name, value, _inline in sent.call_args.kwargs["fields"])
+    assert fields["Weakest"] == "1, None, turn_taking"
+    assert "natural_progression: 2" in fields["Scores"]
 
 
 def test_advisory_keeps_the_forensics_of_every_attempt():
@@ -313,3 +369,54 @@ def test_every_stage_threads_the_body_event():
         handler = inspect.getsource(getattr(cron_routes, f"cron_{day}"))
         assert "injected_event=body.injected_event" in handler, day
     assert source.count("injected_event=body.injected_event") == len(cron_routes.DAY_ORDER)
+
+
+def test_the_handler_claims_publication_only_after_the_episode_is_saved():
+    """The record is flipped, persisted, and only then announced.
+
+    Announcing before the save could email Erik about a page whose episode
+    write then failed; flipping after the save would persist published=False
+    on a week that did publish.
+    """
+    episode = _sunday_episode()
+    episode["judge_advisory"] = {
+        "sunday": {
+            "selected_below_bar": True,
+            "published": False,
+            "attempts": 3,
+            "attempt_selected": 2,
+            "verdict": "FAIL - attempt 2",
+            "scores": {"natural_progression": 2},
+            "weakest": ["natural_progression"],
+            "recorded_at": "2026-09-21T00:00:00+00:00",
+        }
+    }
+    body = cron_routes.StageRequest(episode_id="2026-W99", force=True)
+    order: list[str] = []
+
+    def _save(_episode_id, ep):
+        order.append(f"save:published={ep['judge_advisory']['sunday']['published']}")
+
+    with patch.object(cron_routes, "_verify_cron_secret"), \
+         patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=body)), \
+         patch.object(cron_routes, "_verify_day_of_week"), \
+         patch.object(cron_routes.storage, "load_episode", return_value=episode), \
+         patch.object(cron_routes.storage, "save_episode", side_effect=_save), \
+         patch.object(cron_routes, "_generate_and_judge_dialogue",
+                      return_value=([{"character": "Devon Park", "message": "live"}], "FAIL")), \
+         patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "clean")), \
+         patch.object(cron_routes, "_hero_image_url", return_value="https://x/hero.png"), \
+         patch.object(cron_routes, "_generate_episode_memories"), \
+         patch.object(cron_routes, "_set_static_deploy_state"), \
+         patch.object(cron_routes, "_complete_static_source_handoff"), \
+         patch.object(cron_routes, "regenerate_and_upload", create=True), \
+         patch.object(cron_routes, "_announce_advisory_publication",
+                      side_effect=lambda *a, **kw: order.append("announce")):
+        result = asyncio.run(cron_routes.cron_sunday(_sunday_request()))
+
+    assert result["published"] is True
+    record = episode["judge_advisory"]["sunday"]
+    assert record["published"] is True
+    assert record["published_at"] == episode["published_at"]
+    # Saved carrying published=True, and announced only afterwards.
+    assert order[-2:] == ["save:published=True", "announce"]

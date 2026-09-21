@@ -141,24 +141,32 @@ def notify_judge_advisory(
     so this alert exists to make sure a weak conversation is still seen and
     tuned instead of passing silently.
     """
+    # The judge's JSON is model output: `weakest` is only checked to be a
+    # list, never that its entries are strings (cron_routes.py:621-622), and
+    # the verdict builder two lines later already coerces for exactly this
+    # reason. An alert that raises while formatting would escape into
+    # _run_stage and fail the publish — the failure this whole gate exists
+    # to prevent.
     score_line = (
-        ", ".join(f"{k}: {v}" for k, v in sorted(scores.items()))
+        ", ".join(f"{k}: {v}" for k, v in sorted(scores.items(), key=lambda kv: str(kv[0])))
         if scores
         else "no structured scores recorded"
     )
+    weakest_line = ", ".join(str(w) for w in weakest) if weakest else "unknown"
     return send_alert(
         subject="Judge Failed — Published Anyway",
         body=(
             f"**{concept}** — {stage.title()} dialogue failed quality review "
             f"and was published regardless. The recipe is live; the "
-            f"conversation is below the bar."
+            f"conversation is below the bar. Fired only after the publish "
+            f"succeeded, so this never claims a page that does not exist."
         ),
         severity="warning",
         fields=[
             ("Episode", episode_id, True),
             ("Day", stage.title(), True),
             ("Attempts", str(attempts), True),
-            ("Weakest", ", ".join(weakest) if weakest else "unknown", False),
+            ("Weakest", weakest_line, False),
             ("Scores", score_line, False),
             ("Last Verdict", verdict[:900], False),
         ],
