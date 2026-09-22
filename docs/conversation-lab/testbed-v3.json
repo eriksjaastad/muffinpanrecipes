@@ -1,0 +1,896 @@
+{
+  "panel_version": "v3",
+  "description": "Ingredient-aware panel v3 (#7441). recipe_context now includes ingredient boundaries that speakers see in production. Scenarios preserve v2's judge_recipe_facts and exact identities; recipe_context rebuilt from actual episode recipe_data via production builder to match what dialogue generation receives. Full recipe_data stored for reproducibility and future audits.",
+  "generated_at": "2026-09-22",
+  "builder": "backend.admin.cron_routes._build_recipe_context",
+  "scenarios": [
+    {
+      "id": "2026-W36",
+      "concept": "Caramelized Custard Tart Cups",
+      "category": "sweet",
+      "cuisine": "Portuguese",
+      "recipe_context": "This week's recipe: Caramelized Custard Tart Cups (sweet). What it is: These Portuguese-inspired custard tart cups capture the blistered, caramelized tops and shattering layers of traditional past\u00e9is de nata, reimagined for a standard muffin pan. A quick laminated puff pastry base hugs a silky lemon\u2013cinnamon custard that bakes into golden, freckled rounds that lift cleanly from the tin. The recipe uses exactly these and nothing else, so do not name an ingredient that is not here: Frozen puff pastry sheet, Granulated sugar, Water, Cinnamon stick, Lemon peel strip, Whole milk, All-purpose flour, Kosher salt, Large egg yolks, Pure vanilla extract, Ground cinnamon, Nonstick cooking spray or unsalted butter.",
+      "source_episode": "2026-W36",
+      "method_steps": 12,
+      "title_has_non_ascii": false,
+      "judge_recipe_facts": "RECIPE GROUND TRUTH - Caramelized Custard Tart Cups\nCategory: sweet | Cuisine: Portuguese\nDescription: These Portuguese-inspired custard tart cups capture the blistered, caramelized tops and shattering layers of traditional past\u00e9is de nata, reimagined for a standard muffin pan. A quick laminated puff pastry base hugs a silky lemon\u2013cinnamon custard that bakes into golden, freckled rounds that lift cleanly from the tin.\nIngredients: 1 sheet (8\u20139 oz) Frozen puff pastry sheet, thawed; 1 cup Granulated sugar; 1/3 cup Water; 1 stick (about 3 inches) Cinnamon stick; 1 strip (about 3 inches) Lemon peel strip (Yellow part only, avoid white pith if possible); 1 cup Whole milk; 3 tbsp All-purpose flour; 1/8 tsp Kosher salt; 4 Large egg yolks; 1 tsp Pure vanilla extract; 1/8 tsp Ground cinnamon (Optional, for dusting after baking); 1 tbsp Nonstick cooking spray or unsalted butter (Softened, for greasing muffin pan)\nMethod: 1. Preheat the oven to 500\u00b0F with a rack in the upper third. Lightly grease a standard 12-cup muffin pan with nonstick cooking spray or softened unsalted butter, making sure to coat the bottoms and sides of each well. 2. Make the sugar syrup: In a small saucepan, combine the granulated sugar, water, cinnamon stick, and lemon peel strip. Set over medium heat and cook, swirling occasionally, until the sugar dissolves and the mixture comes to a gentle boil. Continue boiling without stirring for 2\u20133 minutes, just until slightly thickened but still clear. Remove from the heat and let the syrup cool while you prepare the custard base. Leave the cinnamon stick and lemon peel in the syrup to infuse. 3. Make the milk-flour base: In a separate medium saucepan off the heat, whisk together the all-purpose flour and kosher salt. Gradually whisk in the whole milk, a little at a time, until completely smooth with no lumps. 4. Cook the milk mixture: Place the saucepan with the milk mixture over medium heat. Cook, whisking constantly, until it thickens to a smooth, pudding-like consistency that lightly coats the back of a spoon, 3\u20135 minutes. Remove from the heat and let cool for 5 minutes, whisking occasionally to keep it smooth. 5. Prepare the egg mixture: In a medium bowl, whisk the large egg yolks until smooth. Slowly drizzle the slightly cooled milk mixture into the yolks, whisking constantly, to temper them and prevent scrambling. 6. Finish the custard: Strain the cooled sugar syrup through a fine-mesh sieve directly into the egg-milk mixture, discarding the cinnamon stick and lemon peel. Whisk until fully combined, then whisk in the pure vanilla extract. The custard will be fairly thin and pourable. Set aside while you shape the pastry cups. 7. Shape the puff pastry: Unfold the thawed puff pastry sheet on a lightly floured surface, smoothing out any creases. Starting from one short end, roll the pastry up tightly into a log, creating a spiral. Using a sharp knife, cut the log crosswise into 12 equal rounds. 8. Form the tart cups: Working with one round at a time, place a pastry round cut-side up in a muffin cup. With your thumbs, press and stretch the dough outward and up the sides of the well, keeping the spiral pattern on the bottom and forming an even shell that reaches just to the rim. Repeat with the remaining pastry rounds to line all 12 muffin cups. 9. Fill with custard: Give the custard a quick whisk, then pour it into each pastry-lined muffin cup, filling each about 3/4 full. Divide the custard evenly among all 12 cups; you should use all of it. 10. Bake the tart cups: Place the muffin pan on the upper oven rack. Bake at 500\u00b0F for 15\u201320 minutes, rotating the pan halfway through, until the pastry is deeply golden, the custard is puffed with dark caramelized spots on top, and the centers still wobble slightly when the pan is gently shaken. 11. Optional broil for extra blistering: If the tops are not as freckled as you like but the pastry edges look done, switch the oven to broil and broil the tart cups for 1\u20132 minutes, watching closely, until the custard tops develop additional dark spots. Do not walk away; they can go from perfect to burnt quickly. 12. Cool and finish: Transfer the muffin pan to a wire rack and let the tart cups cool in the pan for 10\u201315 minutes; the custard will set as they cool. Run a thin knife around the edges if needed, then gently lift each tart cup out of the pan. Dust lightly with the optional ground cinnamon just before serving, if desired. Serve warm or at room temperature.\nJudge technique claims against the Method above. If a speaker ASSERTS as fact that this dish uses a technique, texture or step the recipe does not actually use, that is a technical_credibility failure - say which claim and which step contradicts it. Do NOT penalise a technique that is raised as a proposal, a rejected alternative, a comparison to another dish, or a hypothetical ('we could deep-fry these, but the pan gets there cleaner') - debating technique and substitutions is the point of the midweek stages. (The example is deliberately a technique no stored recipe uses: an example naming a real regression case would prime you to accept that very claim.)",
+      "recipe_data": {
+        "title": "Caramelized Custard Tart Cups",
+        "category": "sweet",
+        "cuisine": "Portuguese",
+        "description": "These Portuguese-inspired custard tart cups capture the blistered, caramelized tops and shattering layers of traditional past\u00e9is de nata, reimagined for a standard muffin pan. A quick laminated puff pastry base hugs a silky lemon\u2013cinnamon custard that bakes into golden, freckled rounds that lift cleanly from the tin.",
+        "ingredients": [
+          {
+            "item": "Frozen puff pastry sheet, thawed",
+            "amount": "1 sheet (8\u20139 oz)",
+            "notes": ""
+          },
+          {
+            "item": "Granulated sugar",
+            "amount": "1 cup",
+            "notes": ""
+          },
+          {
+            "item": "Water",
+            "amount": "1/3 cup",
+            "notes": ""
+          },
+          {
+            "item": "Cinnamon stick",
+            "amount": "1 stick (about 3 inches)",
+            "notes": ""
+          },
+          {
+            "item": "Lemon peel strip",
+            "amount": "1 strip (about 3 inches)",
+            "notes": "Yellow part only, avoid white pith if possible"
+          },
+          {
+            "item": "Whole milk",
+            "amount": "1 cup",
+            "notes": ""
+          },
+          {
+            "item": "All-purpose flour",
+            "amount": "3 tbsp",
+            "notes": ""
+          },
+          {
+            "item": "Kosher salt",
+            "amount": "1/8 tsp",
+            "notes": ""
+          },
+          {
+            "item": "Large egg yolks",
+            "amount": "4",
+            "notes": ""
+          },
+          {
+            "item": "Pure vanilla extract",
+            "amount": "1 tsp",
+            "notes": ""
+          },
+          {
+            "item": "Ground cinnamon",
+            "amount": "1/8 tsp",
+            "notes": "Optional, for dusting after baking"
+          },
+          {
+            "item": "Nonstick cooking spray or unsalted butter",
+            "amount": "1 tbsp",
+            "notes": "Softened, for greasing muffin pan"
+          }
+        ],
+        "instructions": [
+          "Preheat the oven to 500\u00b0F with a rack in the upper third. Lightly grease a standard 12-cup muffin pan with nonstick cooking spray or softened unsalted butter, making sure to coat the bottoms and sides of each well.",
+          "Make the sugar syrup: In a small saucepan, combine the granulated sugar, water, cinnamon stick, and lemon peel strip. Set over medium heat and cook, swirling occasionally, until the sugar dissolves and the mixture comes to a gentle boil. Continue boiling without stirring for 2\u20133 minutes, just until slightly thickened but still clear. Remove from the heat and let the syrup cool while you prepare the custard base. Leave the cinnamon stick and lemon peel in the syrup to infuse.",
+          "Make the milk-flour base: In a separate medium saucepan off the heat, whisk together the all-purpose flour and kosher salt. Gradually whisk in the whole milk, a little at a time, until completely smooth with no lumps.",
+          "Cook the milk mixture: Place the saucepan with the milk mixture over medium heat. Cook, whisking constantly, until it thickens to a smooth, pudding-like consistency that lightly coats the back of a spoon, 3\u20135 minutes. Remove from the heat and let cool for 5 minutes, whisking occasionally to keep it smooth.",
+          "Prepare the egg mixture: In a medium bowl, whisk the large egg yolks until smooth. Slowly drizzle the slightly cooled milk mixture into the yolks, whisking constantly, to temper them and prevent scrambling.",
+          "Finish the custard: Strain the cooled sugar syrup through a fine-mesh sieve directly into the egg-milk mixture, discarding the cinnamon stick and lemon peel. Whisk until fully combined, then whisk in the pure vanilla extract. The custard will be fairly thin and pourable. Set aside while you shape the pastry cups.",
+          "Shape the puff pastry: Unfold the thawed puff pastry sheet on a lightly floured surface, smoothing out any creases. Starting from one short end, roll the pastry up tightly into a log, creating a spiral. Using a sharp knife, cut the log crosswise into 12 equal rounds.",
+          "Form the tart cups: Working with one round at a time, place a pastry round cut-side up in a muffin cup. With your thumbs, press and stretch the dough outward and up the sides of the well, keeping the spiral pattern on the bottom and forming an even shell that reaches just to the rim. Repeat with the remaining pastry rounds to line all 12 muffin cups.",
+          "Fill with custard: Give the custard a quick whisk, then pour it into each pastry-lined muffin cup, filling each about 3/4 full. Divide the custard evenly among all 12 cups; you should use all of it.",
+          "Bake the tart cups: Place the muffin pan on the upper oven rack. Bake at 500\u00b0F for 15\u201320 minutes, rotating the pan halfway through, until the pastry is deeply golden, the custard is puffed with dark caramelized spots on top, and the centers still wobble slightly when the pan is gently shaken.",
+          "Optional broil for extra blistering: If the tops are not as freckled as you like but the pastry edges look done, switch the oven to broil and broil the tart cups for 1\u20132 minutes, watching closely, until the custard tops develop additional dark spots. Do not walk away; they can go from perfect to burnt quickly.",
+          "Cool and finish: Transfer the muffin pan to a wire rack and let the tart cups cool in the pan for 10\u201315 minutes; the custard will set as they cool. Run a thin knife around the edges if needed, then gently lift each tart cup out of the pan. Dust lightly with the optional ground cinnamon just before serving, if desired. Serve warm or at room temperature."
+        ],
+        "servings": 12,
+        "prep_time": 15,
+        "cook_time": 20
+      }
+    },
+    {
+      "id": "2026-W32",
+      "concept": "Miso Ginger Donburi Cups",
+      "category": "savory",
+      "cuisine": "",
+      "recipe_context": "This week's recipe: Miso Ginger Donburi Cups (savory). What it is: Tender miso-ginger glazed salmon is tucked into crisp nori\u2013sesame rice bases that bake into sturdy, round cups you can lift straight from the pan. Each molded cup eats like a single-serving salmon donburi, finished with scallions, cucumber, and a touch of Japanese mayo for richness. The recipe uses exactly these and nothing else, so do not name an ingredient that is not here: short-grain sushi rice, water, kosher salt, unseasoned rice vinegar, granulated sugar, toasted sesame oil, nori, toasted sesame seeds, skinless salmon fillet, white miso paste (shiro miso), low-sodium soy sauce, mirin, honey, fresh ginger, garlic clove, neutral oil, Kewpie mayonnaise (Japanese), fresh lime juice, scallions, Persian cucumber.",
+      "source_episode": "2026-W32",
+      "method_steps": 12,
+      "title_has_non_ascii": false,
+      "judge_recipe_facts": "RECIPE GROUND TRUTH - Miso Ginger Donburi Cups\nCategory: savory\nDescription: Tender miso-ginger glazed salmon is tucked into crisp nori\u2013sesame rice bases that bake into sturdy, round cups you can lift straight from the pan. Each molded cup eats like a single-serving salmon donburi, finished with scallions, cucumber, and a touch of Japanese mayo for richness.\nIngredients: 1 cup short-grain sushi rice, uncooked (rinsed until water runs mostly clear); 1 1/4 cups water; 1/2 tsp kosher salt (for rice); 1 tbsp unseasoned rice vinegar; 1 tsp granulated sugar; 1 tsp toasted sesame oil; 2 full sheets nori (roasted seaweed, finely shredded); 3 tsp toasted sesame seeds (2 tsp for rice, 1 tsp for garnish); 1 lb skinless salmon fillet (center-cut, pin bones removed); 2 tbsp white miso paste (shiro miso); 1 tbsp plus 1 tsp low-sodium soy sauce (divided); 1 tbsp mirin; 1 tbsp honey; 1 tbsp fresh ginger (very finely grated); 1 small garlic clove (very finely grated); 1 tsp plus more neutral oil (canola or grapeseed, plus more for greasing pan); 2 tbsp Kewpie mayonnaise (Japanese); 1 tsp fresh lime juice (or rice vinegar); 2 scallions (thinly sliced, greens and whites separated); 1 small Persian cucumber (very thinly sliced)\nMethod: 1. Cook the rice: In a small saucepan, combine the rinsed sushi rice, 1 1/4 cups water, and 1/2 tsp kosher salt. Bring to a boil over medium-high heat, stir once, cover, reduce heat to low, and cook for 15 minutes. Turn off the heat and let stand, covered, for 10 minutes. 2. Shred the nori: While the rice cooks, stack the 2 full nori sheets and use kitchen scissors to finely shred them into thin strips or confetti-sized pieces. Set aside. 3. Season the rice: In a small bowl, stir together the unseasoned rice vinegar, granulated sugar, and toasted sesame oil until the sugar dissolves. Fluff the hot rice into a wide bowl, drizzle with the vinegar mixture, add the shredded nori and 2 tsp of the toasted sesame seeds, and gently fold until evenly combined. Let cool until just warm, about 10 minutes. 4. Prep the pan and oven: Preheat the oven to 400\u00b0F. Lightly grease a standard 12-cup muffin tin with a little neutral oil or nonstick spray, making sure to coat the sides and bottoms of each well. 5. Form the rice bases: Divide the seasoned rice evenly among the 12 wells (about 2 tbsp per cup). With damp fingers, press the rice firmly into the bottom and slightly up the sides of each well, forming a compact, shallow rice cup. Pack it tightly so it will hold together after baking. Set aside. 6. Mix the miso glaze: In a medium bowl, whisk together the white miso paste, 1 tbsp of the low-sodium soy sauce, mirin, honey, grated fresh ginger, and grated garlic until smooth. 7. Prepare the salmon: Pat the salmon dry with paper towels and cut into 12 equal cubes, about 1 1/4 to 1 1/2 inches each (trim thinner edges as needed so pieces are fairly uniform). Add the salmon cubes to the miso mixture and gently toss to coat all sides. Let sit for 10 minutes while the oven finishes heating. 8. Assemble cups: Place one glazed salmon cube, glaze side up, on top of the rice in each well, pressing it down slightly so it nests into the rice but still sits proudly in the center. Spoon any remaining miso glaze evenly over the salmon pieces. Drizzle the 1 tsp neutral oil over the tops to encourage browning. 9. Bake: Place the muffin tin on the middle rack and bake at 400\u00b0F for 14\u201316 minutes, until the salmon is just opaque in the center and flakes easily with a fork and the rice edges look slightly golden and set. 10. Make the drizzle: While the cups bake, stir together the Kewpie mayonnaise, the remaining 1 tsp low-sodium soy sauce, and fresh lime juice in a small bowl. Thin with a few drops of water if needed so it\u2019s drizzleable. 11. Cool and release: Let the cups rest in the pan for 5 minutes to firm. Run a thin knife around each cup to loosen the rice from the sides, then gently lift each portion out with a small offset spatula or fork, keeping the round, molded rice base intact under the salmon. 12. Finish and serve: Transfer the cups to a platter. Drizzle lightly with the soy-lime mayo, sprinkle with the remaining 1 tsp toasted sesame seeds, and top with scallion greens and a few Persian cucumber slices. Scatter the sliced scallion whites over the platter for extra bite and color. Serve warm or at room temperature.\nJudge technique claims against the Method above. If a speaker ASSERTS as fact that this dish uses a technique, texture or step the recipe does not actually use, that is a technical_credibility failure - say which claim and which step contradicts it. Do NOT penalise a technique that is raised as a proposal, a rejected alternative, a comparison to another dish, or a hypothetical ('we could deep-fry these, but the pan gets there cleaner') - debating technique and substitutions is the point of the midweek stages. (The example is deliberately a technique no stored recipe uses: an example naming a real regression case would prime you to accept that very claim.)",
+      "recipe_data": {
+        "title": "Miso Ginger Donburi Cups",
+        "category": "savory",
+        "cuisine": "",
+        "description": "Tender miso-ginger glazed salmon is tucked into crisp nori\u2013sesame rice bases that bake into sturdy, round cups you can lift straight from the pan. Each molded cup eats like a single-serving salmon donburi, finished with scallions, cucumber, and a touch of Japanese mayo for richness.",
+        "ingredients": [
+          {
+            "item": "short-grain sushi rice, uncooked",
+            "amount": "1 cup",
+            "notes": "rinsed until water runs mostly clear"
+          },
+          {
+            "item": "water",
+            "amount": "1 1/4 cups",
+            "notes": ""
+          },
+          {
+            "item": "kosher salt",
+            "amount": "1/2 tsp",
+            "notes": "for rice"
+          },
+          {
+            "item": "unseasoned rice vinegar",
+            "amount": "1 tbsp",
+            "notes": ""
+          },
+          {
+            "item": "granulated sugar",
+            "amount": "1 tsp",
+            "notes": ""
+          },
+          {
+            "item": "toasted sesame oil",
+            "amount": "1 tsp",
+            "notes": ""
+          },
+          {
+            "item": "nori",
+            "amount": "2 full sheets",
+            "notes": "roasted seaweed, finely shredded"
+          },
+          {
+            "item": "toasted sesame seeds",
+            "amount": "3 tsp",
+            "notes": "2 tsp for rice, 1 tsp for garnish"
+          },
+          {
+            "item": "skinless salmon fillet",
+            "amount": "1 lb",
+            "notes": "center-cut, pin bones removed"
+          },
+          {
+            "item": "white miso paste (shiro miso)",
+            "amount": "2 tbsp",
+            "notes": ""
+          },
+          {
+            "item": "low-sodium soy sauce",
+            "amount": "1 tbsp plus 1 tsp",
+            "notes": "divided"
+          },
+          {
+            "item": "mirin",
+            "amount": "1 tbsp",
+            "notes": ""
+          },
+          {
+            "item": "honey",
+            "amount": "1 tbsp",
+            "notes": ""
+          },
+          {
+            "item": "fresh ginger",
+            "amount": "1 tbsp",
+            "notes": "very finely grated"
+          },
+          {
+            "item": "garlic clove",
+            "amount": "1 small",
+            "notes": "very finely grated"
+          },
+          {
+            "item": "neutral oil",
+            "amount": "1 tsp plus more",
+            "notes": "canola or grapeseed, plus more for greasing pan"
+          },
+          {
+            "item": "Kewpie mayonnaise (Japanese)",
+            "amount": "2 tbsp",
+            "notes": ""
+          },
+          {
+            "item": "fresh lime juice",
+            "amount": "1 tsp",
+            "notes": "or rice vinegar"
+          },
+          {
+            "item": "scallions",
+            "amount": "2",
+            "notes": "thinly sliced, greens and whites separated"
+          },
+          {
+            "item": "Persian cucumber",
+            "amount": "1 small",
+            "notes": "very thinly sliced"
+          }
+        ],
+        "instructions": [
+          "Cook the rice: In a small saucepan, combine the rinsed sushi rice, 1 1/4 cups water, and 1/2 tsp kosher salt. Bring to a boil over medium-high heat, stir once, cover, reduce heat to low, and cook for 15 minutes. Turn off the heat and let stand, covered, for 10 minutes.",
+          "Shred the nori: While the rice cooks, stack the 2 full nori sheets and use kitchen scissors to finely shred them into thin strips or confetti-sized pieces. Set aside.",
+          "Season the rice: In a small bowl, stir together the unseasoned rice vinegar, granulated sugar, and toasted sesame oil until the sugar dissolves. Fluff the hot rice into a wide bowl, drizzle with the vinegar mixture, add the shredded nori and 2 tsp of the toasted sesame seeds, and gently fold until evenly combined. Let cool until just warm, about 10 minutes.",
+          "Prep the pan and oven: Preheat the oven to 400\u00b0F. Lightly grease a standard 12-cup muffin tin with a little neutral oil or nonstick spray, making sure to coat the sides and bottoms of each well.",
+          "Form the rice bases: Divide the seasoned rice evenly among the 12 wells (about 2 tbsp per cup). With damp fingers, press the rice firmly into the bottom and slightly up the sides of each well, forming a compact, shallow rice cup. Pack it tightly so it will hold together after baking. Set aside.",
+          "Mix the miso glaze: In a medium bowl, whisk together the white miso paste, 1 tbsp of the low-sodium soy sauce, mirin, honey, grated fresh ginger, and grated garlic until smooth.",
+          "Prepare the salmon: Pat the salmon dry with paper towels and cut into 12 equal cubes, about 1 1/4 to 1 1/2 inches each (trim thinner edges as needed so pieces are fairly uniform). Add the salmon cubes to the miso mixture and gently toss to coat all sides. Let sit for 10 minutes while the oven finishes heating.",
+          "Assemble cups: Place one glazed salmon cube, glaze side up, on top of the rice in each well, pressing it down slightly so it nests into the rice but still sits proudly in the center. Spoon any remaining miso glaze evenly over the salmon pieces. Drizzle the 1 tsp neutral oil over the tops to encourage browning.",
+          "Bake: Place the muffin tin on the middle rack and bake at 400\u00b0F for 14\u201316 minutes, until the salmon is just opaque in the center and flakes easily with a fork and the rice edges look slightly golden and set.",
+          "Make the drizzle: While the cups bake, stir together the Kewpie mayonnaise, the remaining 1 tsp low-sodium soy sauce, and fresh lime juice in a small bowl. Thin with a few drops of water if needed so it\u2019s drizzleable.",
+          "Cool and release: Let the cups rest in the pan for 5 minutes to firm. Run a thin knife around each cup to loosen the rice from the sides, then gently lift each portion out with a small offset spatula or fork, keeping the round, molded rice base intact under the salmon.",
+          "Finish and serve: Transfer the cups to a platter. Drizzle lightly with the soy-lime mayo, sprinkle with the remaining 1 tsp toasted sesame seeds, and top with scallion greens and a few Persian cucumber slices. Scatter the sliced scallion whites over the platter for extra bite and color. Serve warm or at room temperature."
+        ],
+        "servings": 12,
+        "prep_time": 15,
+        "cook_time": 20
+      }
+    },
+    {
+      "id": "2026-W27",
+      "concept": "Paneer Saag Egg Bites",
+      "category": "breakfast",
+      "cuisine": "Indian",
+      "recipe_context": "This week's recipe: Paneer Saag Egg Bites (breakfast). What it is: These paneer saag egg bites tuck spiced spinach, soft paneer, and a whisper of garam masala into tender, protein-rich cups that pop cleanly out of the pan. They eat like individual Indian-inspired frittatas, perfect with chutney for breakfast or a light lunch. The recipe uses exactly these and nothing else, so do not name an ingredient that is not here: ghee, neutral oil, finely diced yellow onion, serrano chile, finely grated fresh ginger, finely grated garlic, lightly packed baby spinach, kosher salt, ground turmeric, garam masala, ground cumin, freshly ground black pepper, paneer, eggs, whole milk plain yogurt, whole milk, finely chopped fresh cilantro, finely chopped fresh mint, finely grated Parmesan cheese, or neutral oil.",
+      "source_episode": "2026-W27",
+      "method_steps": 10,
+      "title_has_non_ascii": false,
+      "judge_recipe_facts": "RECIPE GROUND TRUTH - Paneer Saag Egg Bites\nCategory: breakfast | Cuisine: Indian\nDescription: These paneer saag egg bites tuck spiced spinach, soft paneer, and a whisper of garam masala into tender, protein-rich cups that pop cleanly out of the pan. They eat like individual Indian-inspired frittatas, perfect with chutney for breakfast or a light lunch.\nIngredients: 1 tbsp ghee (or unsalted butter); 1 tbsp neutral oil (such as canola or avocado); 1/2 cup finely diced yellow onion; 1 small serrano chile, seeded and finely minced (optional, for heat); 2 tsp finely grated fresh ginger; 1 tsp finely grated garlic; 6 cups lightly packed baby spinach (roughly chopped); 1/2 tsp kosher salt (for spinach mixture); 1/4 tsp ground turmeric; 1/2 tsp garam masala; 1/4 tsp ground cumin; 1/4 tsp freshly ground black pepper; 4 oz paneer, cut into very small 1/4-inch cubes; 10 large eggs; 1/2 cup whole milk plain yogurt (not Greek); 1/4 cup whole milk; 1/2 tsp kosher salt (for egg mixture); 2 tbsp finely chopped fresh cilantro (plus extra for garnish, optional); 2 tbsp finely chopped fresh mint (optional but recommended); 2 tbsp finely grated Parmesan cheese (for a subtle savory boost); Ghee or neutral oil, for greasing the muffin tin\nMethod: 1. Preheat the oven to 350\u00b0F. Position a rack in the center. Generously grease all 12 wells of a standard muffin tin with ghee or neutral oil, making sure to coat the sides and bottoms thoroughly so the bites release cleanly. 2. In a large skillet, heat 1 tbsp ghee and 1 tbsp neutral oil over medium heat. Add the diced onion and cook, stirring often, until soft and translucent, 4\u20135 minutes. Add the minced serrano (if using), ginger, and garlic; cook 1\u20132 minutes until fragrant but not browned. 3. Add the chopped spinach to the skillet in batches, stirring as it wilts. Sprinkle with 1/2 tsp kosher salt, turmeric, garam masala, cumin, and black pepper. Cook, stirring, until the spinach is fully wilted and most of the moisture has evaporated, 3\u20134 minutes. You want a relatively dry mixture so the bites set firmly. Remove from heat and let cool 5\u201310 minutes. 4. While the spinach mixture cools, place the paneer cubes in a small bowl. If they feel very firm or dry, sprinkle with 1 tbsp warm water and toss to soften slightly; drain off any excess water. 5. In a large mixing bowl, whisk the eggs until the whites and yolks are fully combined and slightly frothy, about 30 seconds. Add the yogurt and whole milk and whisk until smooth with no visible lumps of yogurt. Whisk in 1/2 tsp kosher salt, cilantro, mint (if using), and Parmesan until evenly incorporated. 6. Stir the cooled spinach mixture into the egg mixture, breaking up any clumps so it\u2019s evenly distributed. Fold in the paneer cubes gently so they stay fairly whole; you want some visible pieces in each bite. 7. Divide the mixture evenly among the 12 prepared muffin wells. Stir the bowl gently between scoops so the paneer and spinach don\u2019t settle; each cup should get a good balance of egg, greens, and cheese. Fill each well nearly to the top, leaving about 1/8 inch space. 8. Bake at 350\u00b0F for 16\u201320 minutes, until the bites are puffed, the centers are just set, and a toothpick inserted in the center of one comes out mostly clean with only a few moist bits (no liquid egg). The tops may dome slightly; that\u2019s good. Do not overbake or they\u2019ll turn rubbery. 9. Remove the pan to a wire rack and let the bites cool in the tin for 5\u20137 minutes to firm up. Run a thin knife around the edges of each well to loosen, then gently lift each round egg bite out by the side, not the top, so they keep their molded shape. 10. Serve warm, garnished with extra cilantro if desired, with a side of cilantro-mint chutney or mango chutney for dipping.\nJudge technique claims against the Method above. If a speaker ASSERTS as fact that this dish uses a technique, texture or step the recipe does not actually use, that is a technical_credibility failure - say which claim and which step contradicts it. Do NOT penalise a technique that is raised as a proposal, a rejected alternative, a comparison to another dish, or a hypothetical ('we could deep-fry these, but the pan gets there cleaner') - debating technique and substitutions is the point of the midweek stages. (The example is deliberately a technique no stored recipe uses: an example naming a real regression case would prime you to accept that very claim.)",
+      "recipe_data": {
+        "title": "Paneer Saag Egg Bites",
+        "category": "breakfast",
+        "cuisine": "Indian",
+        "description": "These paneer saag egg bites tuck spiced spinach, soft paneer, and a whisper of garam masala into tender, protein-rich cups that pop cleanly out of the pan. They eat like individual Indian-inspired frittatas, perfect with chutney for breakfast or a light lunch.",
+        "ingredients": [
+          {
+            "item": "ghee",
+            "amount": "1 tbsp",
+            "notes": "or unsalted butter"
+          },
+          {
+            "item": "neutral oil",
+            "amount": "1 tbsp",
+            "notes": "such as canola or avocado"
+          },
+          {
+            "item": "finely diced yellow onion",
+            "amount": "1/2 cup",
+            "notes": ""
+          },
+          {
+            "item": "serrano chile, seeded and finely minced",
+            "amount": "1 small",
+            "notes": "optional, for heat"
+          },
+          {
+            "item": "finely grated fresh ginger",
+            "amount": "2 tsp",
+            "notes": ""
+          },
+          {
+            "item": "finely grated garlic",
+            "amount": "1 tsp",
+            "notes": ""
+          },
+          {
+            "item": "lightly packed baby spinach",
+            "amount": "6 cups",
+            "notes": "roughly chopped"
+          },
+          {
+            "item": "kosher salt",
+            "amount": "1/2 tsp",
+            "notes": "for spinach mixture"
+          },
+          {
+            "item": "ground turmeric",
+            "amount": "1/4 tsp",
+            "notes": ""
+          },
+          {
+            "item": "garam masala",
+            "amount": "1/2 tsp",
+            "notes": ""
+          },
+          {
+            "item": "ground cumin",
+            "amount": "1/4 tsp",
+            "notes": ""
+          },
+          {
+            "item": "freshly ground black pepper",
+            "amount": "1/4 tsp",
+            "notes": ""
+          },
+          {
+            "item": "paneer, cut into very small 1/4-inch cubes",
+            "amount": "4 oz",
+            "notes": ""
+          },
+          {
+            "item": "eggs",
+            "amount": "10 large",
+            "notes": ""
+          },
+          {
+            "item": "whole milk plain yogurt",
+            "amount": "1/2 cup",
+            "notes": "not Greek"
+          },
+          {
+            "item": "whole milk",
+            "amount": "1/4 cup",
+            "notes": ""
+          },
+          {
+            "item": "kosher salt",
+            "amount": "1/2 tsp",
+            "notes": "for egg mixture"
+          },
+          {
+            "item": "finely chopped fresh cilantro",
+            "amount": "2 tbsp",
+            "notes": "plus extra for garnish, optional"
+          },
+          {
+            "item": "finely chopped fresh mint",
+            "amount": "2 tbsp",
+            "notes": "optional but recommended"
+          },
+          {
+            "item": "finely grated Parmesan cheese",
+            "amount": "2 tbsp",
+            "notes": "for a subtle savory boost"
+          },
+          {
+            "item": "or neutral oil, for greasing the muffin tin",
+            "amount": "Ghee",
+            "notes": ""
+          }
+        ],
+        "instructions": [
+          "Preheat the oven to 350\u00b0F. Position a rack in the center. Generously grease all 12 wells of a standard muffin tin with ghee or neutral oil, making sure to coat the sides and bottoms thoroughly so the bites release cleanly.",
+          "In a large skillet, heat 1 tbsp ghee and 1 tbsp neutral oil over medium heat. Add the diced onion and cook, stirring often, until soft and translucent, 4\u20135 minutes. Add the minced serrano (if using), ginger, and garlic; cook 1\u20132 minutes until fragrant but not browned.",
+          "Add the chopped spinach to the skillet in batches, stirring as it wilts. Sprinkle with 1/2 tsp kosher salt, turmeric, garam masala, cumin, and black pepper. Cook, stirring, until the spinach is fully wilted and most of the moisture has evaporated, 3\u20134 minutes. You want a relatively dry mixture so the bites set firmly. Remove from heat and let cool 5\u201310 minutes.",
+          "While the spinach mixture cools, place the paneer cubes in a small bowl. If they feel very firm or dry, sprinkle with 1 tbsp warm water and toss to soften slightly; drain off any excess water.",
+          "In a large mixing bowl, whisk the eggs until the whites and yolks are fully combined and slightly frothy, about 30 seconds. Add the yogurt and whole milk and whisk until smooth with no visible lumps of yogurt. Whisk in 1/2 tsp kosher salt, cilantro, mint (if using), and Parmesan until evenly incorporated.",
+          "Stir the cooled spinach mixture into the egg mixture, breaking up any clumps so it\u2019s evenly distributed. Fold in the paneer cubes gently so they stay fairly whole; you want some visible pieces in each bite.",
+          "Divide the mixture evenly among the 12 prepared muffin wells. Stir the bowl gently between scoops so the paneer and spinach don\u2019t settle; each cup should get a good balance of egg, greens, and cheese. Fill each well nearly to the top, leaving about 1/8 inch space.",
+          "Bake at 350\u00b0F for 16\u201320 minutes, until the bites are puffed, the centers are just set, and a toothpick inserted in the center of one comes out mostly clean with only a few moist bits (no liquid egg). The tops may dome slightly; that\u2019s good. Do not overbake or they\u2019ll turn rubbery.",
+          "Remove the pan to a wire rack and let the bites cool in the tin for 5\u20137 minutes to firm up. Run a thin knife around the edges of each well to loosen, then gently lift each round egg bite out by the side, not the top, so they keep their molded shape.",
+          "Serve warm, garnished with extra cilantro if desired, with a side of cilantro-mint chutney or mango chutney for dipping."
+        ],
+        "servings": 12,
+        "prep_time": 25,
+        "cook_time": 18
+      }
+    },
+    {
+      "id": "2026-W33",
+      "concept": "Kimchi Cheddar Rice Cups",
+      "category": "party",
+      "cuisine": "Korean",
+      "recipe_context": "This week's recipe: Kimchi Cheddar Rice Cups (party). What it is: These Korean-inspired rice cups bake into crisp-edged, cheesy rounds packed with tangy kimchi, scallions, and sesame. Each cup holds together like a little rice cake with molten cheddar inside and a spicy gochujang drizzle on top. They\u2019re equally good warm from the pan or at room temperature for lunches and parties. The recipe uses exactly these and nothing else, so do not name an ingredient that is not here: cooked short-grain white rice, finely chopped napa kimchi, shredded sharp cheddar cheese, eggs, kimchi juice, mayonnaise, soy sauce, toasted sesame oil, sugar, kosher salt, ground black pepper, finely sliced scallions, toasted sesame seeds, neutral oil, gochujang, honey, rice vinegar, water.",
+      "source_episode": "2026-W33",
+      "method_steps": 11,
+      "title_has_non_ascii": false,
+      "judge_recipe_facts": "RECIPE GROUND TRUTH - Kimchi Cheddar Rice Cups\nCategory: party | Cuisine: Korean\nDescription: These Korean-inspired rice cups bake into crisp-edged, cheesy rounds packed with tangy kimchi, scallions, and sesame. Each cup holds together like a little rice cake with molten cheddar inside and a spicy gochujang drizzle on top. They\u2019re equally good warm from the pan or at room temperature for lunches and parties.\nIngredients: 2 cups cooked short-grain white rice (cooled; sushi rice or Calrose style); 1 cup finely chopped napa kimchi (well-drained, packed); 1/2 cup shredded sharp cheddar cheese (plus 1/2 cup for topping); 2 large eggs; 2 tbsp kimchi juice (from the kimchi jar); 2 tbsp mayonnaise; 1 tbsp soy sauce (or tamari); 1 tbsp toasted sesame oil; 1 tsp sugar; 1/2 tsp kosher salt (or to taste, depending on kimchi saltiness); 1/4 tsp ground black pepper; 3 tbsp finely sliced scallions (green parts, plus more for garnish); 1 tbsp toasted sesame seeds (plus more for garnish); 2 tsp neutral oil (for greasing pan; canola or vegetable); 2 tbsp gochujang (Korean red chili paste); 1 tbsp honey; 1 tbsp rice vinegar; 1 tbsp water (plus more as needed to thin); 1 tsp soy sauce\nMethod: 1. Preheat the oven to 400\u00b0F. Position a rack in the center. Lightly grease all 12 wells of a standard muffin tin with the neutral oil, using a pastry brush or paper towel to coat the bottoms and sides thoroughly. 2. In a large bowl, break up the cooled cooked rice with your hands or a fork so there are no large clumps. The grains should be separated but still slightly sticky. 3. Add the chopped, well-drained kimchi, 1/2 cup shredded cheddar, eggs, kimchi juice, mayonnaise, soy sauce, toasted sesame oil, sugar, salt, and black pepper to the rice. 4. Sprinkle in the sliced scallions and 1 tbsp toasted sesame seeds. Using a spatula or your hands, mix until everything is evenly combined and the rice is thoroughly coated in the egg mixture. The mixture should hold together when pressed; if it feels dry or crumbly, add 1\u20132 tsp more kimchi juice or water and mix again. 5. Divide the mixture evenly among the 12 muffin wells (about 1/4 cup firmly packed mixture per well). Press the rice mixture down firmly into each well, making sure it fills the bottom and reaches up the sides slightly so it forms a cohesive molded cup shape as it bakes. Pack it tightly; this is what helps the cups hold together after baking. 6. Top each portion with a generous pinch of the remaining 1/2 cup shredded cheddar, mounding it slightly in the center of each cup. The cheese will melt and fuse into the rice, helping to bind the tops and create crisp, browned edges. 7. Bake for 18\u201322 minutes, until the cups are set, the edges are deeply golden and crisp, and the cheese on top is bubbling and browned in spots. Rotate the pan once halfway through for even browning. 8. While the cups bake, prepare the gochujang drizzle. In a small bowl, whisk together the gochujang, honey, rice vinegar, water, and soy sauce until smooth and pourable. If it seems too thick, whisk in a few more drops of water until it reaches a thick-but-drizzling consistency. Set aside. 9. Remove the muffin tin from the oven and place it on a wire rack. Let the cups cool in the pan for 8\u201310 minutes; this rest allows the starches and cheese to firm up so the rounds release cleanly and hold their molded shape. 10. Run a thin knife or offset spatula around the edges of each cup to loosen. Gently lift each one out and transfer to a serving plate. You should see round, slightly flared rice cakes with crisp, cheesy sides that clearly mirror the muffin cup shape. 11. Drizzle each rice cup lightly with the gochujang sauce, then sprinkle with extra scallions and toasted sesame seeds. Serve warm or at room temperature.\nJudge technique claims against the Method above. If a speaker ASSERTS as fact that this dish uses a technique, texture or step the recipe does not actually use, that is a technical_credibility failure - say which claim and which step contradicts it. Do NOT penalise a technique that is raised as a proposal, a rejected alternative, a comparison to another dish, or a hypothetical ('we could deep-fry these, but the pan gets there cleaner') - debating technique and substitutions is the point of the midweek stages. (The example is deliberately a technique no stored recipe uses: an example naming a real regression case would prime you to accept that very claim.)",
+      "recipe_data": {
+        "title": "Kimchi Cheddar Rice Cups",
+        "category": "party",
+        "cuisine": "Korean",
+        "description": "These Korean-inspired rice cups bake into crisp-edged, cheesy rounds packed with tangy kimchi, scallions, and sesame. Each cup holds together like a little rice cake with molten cheddar inside and a spicy gochujang drizzle on top. They\u2019re equally good warm from the pan or at room temperature for lunches and parties.",
+        "ingredients": [
+          {
+            "item": "cooked short-grain white rice",
+            "amount": "2 cups",
+            "notes": "cooled; sushi rice or Calrose style"
+          },
+          {
+            "item": "finely chopped napa kimchi",
+            "amount": "1 cup",
+            "notes": "well-drained, packed"
+          },
+          {
+            "item": "shredded sharp cheddar cheese",
+            "amount": "1/2 cup",
+            "notes": "plus 1/2 cup for topping"
+          },
+          {
+            "item": "eggs",
+            "amount": "2 large",
+            "notes": ""
+          },
+          {
+            "item": "kimchi juice",
+            "amount": "2 tbsp",
+            "notes": "from the kimchi jar"
+          },
+          {
+            "item": "mayonnaise",
+            "amount": "2 tbsp",
+            "notes": ""
+          },
+          {
+            "item": "soy sauce",
+            "amount": "1 tbsp",
+            "notes": "or tamari"
+          },
+          {
+            "item": "toasted sesame oil",
+            "amount": "1 tbsp",
+            "notes": ""
+          },
+          {
+            "item": "sugar",
+            "amount": "1 tsp",
+            "notes": ""
+          },
+          {
+            "item": "kosher salt",
+            "amount": "1/2 tsp",
+            "notes": "or to taste, depending on kimchi saltiness"
+          },
+          {
+            "item": "ground black pepper",
+            "amount": "1/4 tsp",
+            "notes": ""
+          },
+          {
+            "item": "finely sliced scallions",
+            "amount": "3 tbsp",
+            "notes": "green parts, plus more for garnish"
+          },
+          {
+            "item": "toasted sesame seeds",
+            "amount": "1 tbsp",
+            "notes": "plus more for garnish"
+          },
+          {
+            "item": "neutral oil",
+            "amount": "2 tsp",
+            "notes": "for greasing pan; canola or vegetable"
+          },
+          {
+            "item": "gochujang",
+            "amount": "2 tbsp",
+            "notes": "Korean red chili paste"
+          },
+          {
+            "item": "honey",
+            "amount": "1 tbsp",
+            "notes": ""
+          },
+          {
+            "item": "rice vinegar",
+            "amount": "1 tbsp",
+            "notes": ""
+          },
+          {
+            "item": "water",
+            "amount": "1 tbsp",
+            "notes": "plus more as needed to thin"
+          },
+          {
+            "item": "soy sauce",
+            "amount": "1 tsp",
+            "notes": ""
+          }
+        ],
+        "instructions": [
+          "Preheat the oven to 400\u00b0F. Position a rack in the center. Lightly grease all 12 wells of a standard muffin tin with the neutral oil, using a pastry brush or paper towel to coat the bottoms and sides thoroughly.",
+          "In a large bowl, break up the cooled cooked rice with your hands or a fork so there are no large clumps. The grains should be separated but still slightly sticky.",
+          "Add the chopped, well-drained kimchi, 1/2 cup shredded cheddar, eggs, kimchi juice, mayonnaise, soy sauce, toasted sesame oil, sugar, salt, and black pepper to the rice.",
+          "Sprinkle in the sliced scallions and 1 tbsp toasted sesame seeds. Using a spatula or your hands, mix until everything is evenly combined and the rice is thoroughly coated in the egg mixture. The mixture should hold together when pressed; if it feels dry or crumbly, add 1\u20132 tsp more kimchi juice or water and mix again.",
+          "Divide the mixture evenly among the 12 muffin wells (about 1/4 cup firmly packed mixture per well). Press the rice mixture down firmly into each well, making sure it fills the bottom and reaches up the sides slightly so it forms a cohesive molded cup shape as it bakes. Pack it tightly; this is what helps the cups hold together after baking.",
+          "Top each portion with a generous pinch of the remaining 1/2 cup shredded cheddar, mounding it slightly in the center of each cup. The cheese will melt and fuse into the rice, helping to bind the tops and create crisp, browned edges.",
+          "Bake for 18\u201322 minutes, until the cups are set, the edges are deeply golden and crisp, and the cheese on top is bubbling and browned in spots. Rotate the pan once halfway through for even browning.",
+          "While the cups bake, prepare the gochujang drizzle. In a small bowl, whisk together the gochujang, honey, rice vinegar, water, and soy sauce until smooth and pourable. If it seems too thick, whisk in a few more drops of water until it reaches a thick-but-drizzling consistency. Set aside.",
+          "Remove the muffin tin from the oven and place it on a wire rack. Let the cups cool in the pan for 8\u201310 minutes; this rest allows the starches and cheese to firm up so the rounds release cleanly and hold their molded shape.",
+          "Run a thin knife or offset spatula around the edges of each cup to loosen. Gently lift each one out and transfer to a serving plate. You should see round, slightly flared rice cakes with crisp, cheesy sides that clearly mirror the muffin cup shape.",
+          "Drizzle each rice cup lightly with the gochujang sauce, then sprinkle with extra scallions and toasted sesame seeds. Serve warm or at room temperature."
+        ],
+        "servings": 12,
+        "prep_time": 25,
+        "cook_time": 25
+      }
+    },
+    {
+      "id": "2026-W37",
+      "concept": "Brazilian P\u00e3o de Queijo Bites",
+      "category": "party",
+      "cuisine": "Brazilian",
+      "recipe_context": "This week's recipe: Brazilian P\u00e3o de Queijo Bites (party). What it is: These Brazilian p\u00e3o de queijo bites bake up into round, chewy cheese puffs with crisp, golden edges that perfectly mirror the muffin cup\u2019s flared shape. Made with tapioca flour, sharp Parmesan, and nutty Minas-style cheese, they\u2019re naturally gluten-free and ideal for passing around at a party while still hot and stretchy inside. The recipe uses exactly these and nothing else, so do not name an ingredient that is not here: whole milk, neutral oil, kosher salt, tapioca flour, eggs, finely grated Parmesan cheese, finely shredded queijo Minas padr\u00e3o or low-moisture whole-milk mozzarella, finely grated Parmesan, melted unsalted butter.",
+      "source_episode": "2026-W37",
+      "method_steps": 9,
+      "title_has_non_ascii": true,
+      "judge_recipe_facts": "RECIPE GROUND TRUTH - Brazilian P\u00e3o de Queijo Bites\nCategory: party | Cuisine: Brazilian\nDescription: These Brazilian p\u00e3o de queijo bites bake up into round, chewy cheese puffs with crisp, golden edges that perfectly mirror the muffin cup\u2019s flared shape. Made with tapioca flour, sharp Parmesan, and nutty Minas-style cheese, they\u2019re naturally gluten-free and ideal for passing around at a party while still hot and stretchy inside.\nIngredients: 1 cup whole milk; 1/3 cup neutral oil (such as canola or grapeseed); 1 tsp kosher salt; 2 cups tapioca flour (also labeled tapioca starch); 2 large eggs (room temperature); 1 cup finely grated Parmesan cheese (Parmigiano Reggiano preferred, lightly packed); 1 cup finely shredded queijo Minas padr\u00e3o or low-moisture whole-milk mozzarella (lightly packed); 2 tbsp finely grated Parmesan (for topping, optional); 1 tbsp melted unsalted butter (for greasing, plus more if needed)\nMethod: 1. Adjust an oven rack to the center position and preheat the oven to 400\u00b0F. Place a 12-cup muffin tin on a sheet pan (for easier handling) and lightly brush each well with melted butter, coating the bottom and sides thoroughly. 2. In a small saucepan, combine the milk, neutral oil, and salt. Heat over medium until the mixture just comes to a bare simmer with small bubbles at the edges, 3\u20135 minutes. Do not let it boil vigorously. Remove from heat. 3. Place the tapioca flour in a medium mixing bowl. While whisking or stirring with a sturdy wooden spoon, slowly pour the hot milk mixture over the tapioca flour, stirring until it forms a thick, sticky dough and no dry pockets remain. It will look gummy and clumpy; that\u2019s correct. Let cool 5\u20137 minutes so it\u2019s warm but not hot to the touch. 4. In a small bowl, lightly beat the eggs. Add the eggs to the warm tapioca mixture in 2 additions, stirring vigorously after each addition until fully incorporated. The dough will look separated at first, then smooth out into a glossy, stretchy batter. 5. Add the 1 cup grated Parmesan and 1 cup shredded Minas cheese (or mozzarella) to the bowl. Stir until the cheeses are evenly distributed and the batter is thick but scoopable and slightly elastic. If it seems extremely runny, let it sit 5 minutes; tapioca will thicken as it hydrates. 6. Using a tablespoon measure or small cookie scoop, portion about 2 level tbsp of batter into each muffin well. The batter should come to about halfway up the sides of each cup; you\u2019ll get 24 bites, so plan on baking in 2 batches or using a second pan if you have one. If desired, sprinkle a pinch of the extra 2 tbsp Parmesan over the top of each portion. 7. Bake at 400\u00b0F for 18\u201320 minutes, until the bites are puffed, rounded, and deeply golden on the ridged sides and lightly browned on top. They should pull slightly away from the edges of the wells and feel set but still a bit springy when gently pressed. 8. Remove the pan from the oven and let the bites rest in the muffin tin for 3\u20134 minutes to firm up and finish steaming inside. Run a thin knife or offset spatula around the edge of each well, then gently lift out each p\u00e3o de queijo bite. The sides should show the distinct flared, molded shape from the muffin cups. 9. Repeat filling and baking with the remaining batter, greasing the muffin wells lightly again if needed. Serve the bites warm on a platter, or keep them loosely tented with foil at room temperature for up to 1 hour.\nJudge technique claims against the Method above. If a speaker ASSERTS as fact that this dish uses a technique, texture or step the recipe does not actually use, that is a technical_credibility failure - say which claim and which step contradicts it. Do NOT penalise a technique that is raised as a proposal, a rejected alternative, a comparison to another dish, or a hypothetical ('we could deep-fry these, but the pan gets there cleaner') - debating technique and substitutions is the point of the midweek stages. (The example is deliberately a technique no stored recipe uses: an example naming a real regression case would prime you to accept that very claim.)",
+      "recipe_data": {
+        "title": "Brazilian P\u00e3o de Queijo Bites",
+        "category": "party",
+        "cuisine": "Brazilian",
+        "description": "These Brazilian p\u00e3o de queijo bites bake up into round, chewy cheese puffs with crisp, golden edges that perfectly mirror the muffin cup\u2019s flared shape. Made with tapioca flour, sharp Parmesan, and nutty Minas-style cheese, they\u2019re naturally gluten-free and ideal for passing around at a party while still hot and stretchy inside.",
+        "ingredients": [
+          {
+            "item": "whole milk",
+            "amount": "1 cup",
+            "notes": ""
+          },
+          {
+            "item": "neutral oil",
+            "amount": "1/3 cup",
+            "notes": "such as canola or grapeseed"
+          },
+          {
+            "item": "kosher salt",
+            "amount": "1 tsp",
+            "notes": ""
+          },
+          {
+            "item": "tapioca flour",
+            "amount": "2 cups",
+            "notes": "also labeled tapioca starch"
+          },
+          {
+            "item": "eggs",
+            "amount": "2 large",
+            "notes": "room temperature"
+          },
+          {
+            "item": "finely grated Parmesan cheese",
+            "amount": "1 cup",
+            "notes": "Parmigiano Reggiano preferred, lightly packed"
+          },
+          {
+            "item": "finely shredded queijo Minas padr\u00e3o or low-moisture whole-milk mozzarella",
+            "amount": "1 cup",
+            "notes": "lightly packed"
+          },
+          {
+            "item": "finely grated Parmesan",
+            "amount": "2 tbsp",
+            "notes": "for topping, optional"
+          },
+          {
+            "item": "melted unsalted butter",
+            "amount": "1 tbsp",
+            "notes": "for greasing, plus more if needed"
+          }
+        ],
+        "instructions": [
+          "Adjust an oven rack to the center position and preheat the oven to 400\u00b0F. Place a 12-cup muffin tin on a sheet pan (for easier handling) and lightly brush each well with melted butter, coating the bottom and sides thoroughly.",
+          "In a small saucepan, combine the milk, neutral oil, and salt. Heat over medium until the mixture just comes to a bare simmer with small bubbles at the edges, 3\u20135 minutes. Do not let it boil vigorously. Remove from heat.",
+          "Place the tapioca flour in a medium mixing bowl. While whisking or stirring with a sturdy wooden spoon, slowly pour the hot milk mixture over the tapioca flour, stirring until it forms a thick, sticky dough and no dry pockets remain. It will look gummy and clumpy; that\u2019s correct. Let cool 5\u20137 minutes so it\u2019s warm but not hot to the touch.",
+          "In a small bowl, lightly beat the eggs. Add the eggs to the warm tapioca mixture in 2 additions, stirring vigorously after each addition until fully incorporated. The dough will look separated at first, then smooth out into a glossy, stretchy batter.",
+          "Add the 1 cup grated Parmesan and 1 cup shredded Minas cheese (or mozzarella) to the bowl. Stir until the cheeses are evenly distributed and the batter is thick but scoopable and slightly elastic. If it seems extremely runny, let it sit 5 minutes; tapioca will thicken as it hydrates.",
+          "Using a tablespoon measure or small cookie scoop, portion about 2 level tbsp of batter into each muffin well. The batter should come to about halfway up the sides of each cup; you\u2019ll get 24 bites, so plan on baking in 2 batches or using a second pan if you have one. If desired, sprinkle a pinch of the extra 2 tbsp Parmesan over the top of each portion.",
+          "Bake at 400\u00b0F for 18\u201320 minutes, until the bites are puffed, rounded, and deeply golden on the ridged sides and lightly browned on top. They should pull slightly away from the edges of the wells and feel set but still a bit springy when gently pressed.",
+          "Remove the pan from the oven and let the bites rest in the muffin tin for 3\u20134 minutes to firm up and finish steaming inside. Run a thin knife or offset spatula around the edge of each well, then gently lift out each p\u00e3o de queijo bite. The sides should show the distinct flared, molded shape from the muffin cups.",
+          "Repeat filling and baking with the remaining batter, greasing the muffin wells lightly again if needed. Serve the bites warm on a platter, or keep them loosely tented with foil at room temperature for up to 1 hour."
+        ],
+        "servings": 24,
+        "prep_time": 20,
+        "cook_time": 20
+      }
+    },
+    {
+      "id": "2026-W11",
+      "concept": "Make-Ahead Veggie & Sausage Egg Cups",
+      "category": "breakfast",
+      "cuisine": "",
+      "recipe_context": "This week's recipe: Make-Ahead Veggie & Sausage Egg Cups (breakfast). What it is: These protein-packed egg cups are built for the workweek: hearty turkey sausage, roasted peppers, spinach, and sharp cheddar baked into perfectly portioned frittata-style bites. They reheat beautifully, freeze well, and actually taste like a real breakfast, not a sad \u201cmeal prep\u201d compromise. One pan on Sunday, grab-and-go breakfasts all week. The recipe uses exactly these and nothing else, so do not name an ingredient that is not here: spray, eggs, liquid egg whites, whole milk, kosher salt, black pepper, garlic powder, onion powder, smoked paprika, crushed red pepper flakes, turkey breakfast sausage, finely diced yellow onion, finely diced red bell pepper, finely diced green bell pepper, packed fresh baby spinach, shredded sharp cheddar cheese, grated Parmesan cheese, chopped fresh parsley, olive oil.",
+      "source_episode": "2026-W11",
+      "method_steps": 9,
+      "title_has_non_ascii": false,
+      "judge_recipe_facts": "RECIPE GROUND TRUTH - Make-Ahead Veggie & Sausage Egg Cups\nCategory: breakfast\nDescription: These protein-packed egg cups are built for the workweek: hearty turkey sausage, roasted peppers, spinach, and sharp cheddar baked into perfectly portioned frittata-style bites. They reheat beautifully, freeze well, and actually taste like a real breakfast, not a sad \u201cmeal prep\u201d compromise. One pan on Sunday, grab-and-go breakfasts all week.\nIngredients: Cooking spray (or 1 tbsp neutral oil for greasing pan); 8 large eggs; 1 cup liquid egg whites (or about 6 large egg whites); 1/3 cup whole milk (or 2% milk); 1/2 tsp kosher salt; 1/4 tsp black pepper; 1/4 tsp garlic powder; 1/4 tsp onion powder; 1/4 tsp smoked paprika; 1/8 tsp crushed red pepper flakes (optional, for mild heat); 6 oz turkey breakfast sausage (casings removed if linked; I like Jennie-O or similar); 1/2 cup finely diced yellow onion; 1/2 cup finely diced red bell pepper; 1/2 cup finely diced green bell pepper; 1 cup packed fresh baby spinach (finely chopped); 3/4 cup shredded sharp cheddar cheese (about 3 oz); 1/4 cup grated Parmesan cheese; 1 tbsp chopped fresh parsley (optional, for brightness); 1 tbsp olive oil (only if sausage is very lean and sticks)\nMethod: 1. Preheat the oven to 350\u00b0F. Place an oven thermometer inside if you have one and let the oven fully preheat. Lightly grease a standard 12-cup muffin tin with cooking spray, making sure to coat the sides and rims of each cup to prevent sticking. 2. Cook the sausage: In a medium skillet over medium heat, add the turkey sausage (and 1 tbsp olive oil if the sausage is very lean). Cook, breaking it into small crumbles with a spatula, until browned and cooked through, 5\u20137 minutes. If there\u2019s more than 1 tsp of rendered fat, drain off the excess. Remove sausage to a plate to cool slightly. 3. Saut\u00e9 the vegetables: In the same skillet (no need to wash), add the diced onion and both bell peppers. Cook over medium heat, stirring occasionally, until softened and just starting to get some golden edges, 4\u20135 minutes. Add the chopped spinach and cook until wilted and most moisture has evaporated, 1\u20132 minutes. Remove from heat and let cool for 3\u20135 minutes so they don\u2019t scramble the eggs on contact. 4. Make the egg base: In a large mixing bowl, whisk together the 8 whole eggs and 1 cup liquid egg whites until well combined and slightly frothy. Add the milk, kosher salt, black pepper, garlic powder, onion powder, smoked paprika, and crushed red pepper (if using). Whisk again until the seasonings are evenly distributed. Don\u2019t shortcut this; uneven seasoning shows up in tiny portions. 5. Add cheese and herbs: Stir in the shredded sharp cheddar, grated Parmesan, and chopped parsley. Mix until the cheese is evenly coated in the egg mixture so it doesn\u2019t clump in one or two cups. 6. Assemble in the muffin tin: Divide the cooked sausage evenly among the 12 muffin cups (about 1 heaping tablespoon per cup). Do the same with the saut\u00e9ed vegetable mixture, gently spreading it so each cup has a roughly equal amount. Give the egg mixture a quick whisk, then pour it over the sausage and vegetables, filling each cup to about 3/4 full. If you have a little extra, top off the skimpiest cups\u2014don\u2019t overfill past the rim or they\u2019ll mushroom and stick. 7. Bake: Place the muffin tin on the middle oven rack. Bake at 350\u00b0F for 18\u201322 minutes, until the egg cups are puffed, set around the edges, and the centers no longer look wet. A toothpick inserted in the center of one should come out mostly clean, with just a bit of moisture but no liquid egg. If your oven runs cool, they may take up to 24\u201326 minutes. 8. Cool and release: Remove the pan from the oven and let the egg cups cool in the tin for 5\u20137 minutes. Run a thin offset spatula or butter knife around the edges of each cup to loosen, then gently lift them out. If any resist, let them sit another couple minutes; the steam will help them release. 9. Store for the week: Let the egg cups cool to room temperature before storing. For the refrigerator, place them in an airtight container in a single layer (or separated with parchment) and refrigerate up to 4 days. For the freezer, wrap each cup individually in plastic wrap, then place in a zip-top freezer bag and freeze up to 2 months.\nJudge technique claims against the Method above. If a speaker ASSERTS as fact that this dish uses a technique, texture or step the recipe does not actually use, that is a technical_credibility failure - say which claim and which step contradicts it. Do NOT penalise a technique that is raised as a proposal, a rejected alternative, a comparison to another dish, or a hypothetical ('we could deep-fry these, but the pan gets there cleaner') - debating technique and substitutions is the point of the midweek stages. (The example is deliberately a technique no stored recipe uses: an example naming a real regression case would prime you to accept that very claim.)",
+      "recipe_data": {
+        "title": "Make-Ahead Veggie & Sausage Egg Cups",
+        "category": "breakfast",
+        "cuisine": "",
+        "description": "These protein-packed egg cups are built for the workweek: hearty turkey sausage, roasted peppers, spinach, and sharp cheddar baked into perfectly portioned frittata-style bites. They reheat beautifully, freeze well, and actually taste like a real breakfast, not a sad \u201cmeal prep\u201d compromise. One pan on Sunday, grab-and-go breakfasts all week.",
+        "ingredients": [
+          {
+            "item": "spray",
+            "amount": "Cooking",
+            "notes": "or 1 tbsp neutral oil for greasing pan"
+          },
+          {
+            "item": "eggs",
+            "amount": "8 large",
+            "notes": ""
+          },
+          {
+            "item": "liquid egg whites",
+            "amount": "1 cup",
+            "notes": "or about 6 large egg whites"
+          },
+          {
+            "item": "whole milk",
+            "amount": "1/3 cup",
+            "notes": "or 2% milk"
+          },
+          {
+            "item": "kosher salt",
+            "amount": "1/2 tsp",
+            "notes": ""
+          },
+          {
+            "item": "black pepper",
+            "amount": "1/4 tsp",
+            "notes": ""
+          },
+          {
+            "item": "garlic powder",
+            "amount": "1/4 tsp",
+            "notes": ""
+          },
+          {
+            "item": "onion powder",
+            "amount": "1/4 tsp",
+            "notes": ""
+          },
+          {
+            "item": "smoked paprika",
+            "amount": "1/4 tsp",
+            "notes": ""
+          },
+          {
+            "item": "crushed red pepper flakes",
+            "amount": "1/8 tsp",
+            "notes": "optional, for mild heat"
+          },
+          {
+            "item": "turkey breakfast sausage",
+            "amount": "6 oz",
+            "notes": "casings removed if linked; I like Jennie-O or similar"
+          },
+          {
+            "item": "finely diced yellow onion",
+            "amount": "1/2 cup",
+            "notes": ""
+          },
+          {
+            "item": "finely diced red bell pepper",
+            "amount": "1/2 cup",
+            "notes": ""
+          },
+          {
+            "item": "finely diced green bell pepper",
+            "amount": "1/2 cup",
+            "notes": ""
+          },
+          {
+            "item": "packed fresh baby spinach",
+            "amount": "1 cup",
+            "notes": "finely chopped"
+          },
+          {
+            "item": "shredded sharp cheddar cheese",
+            "amount": "3/4 cup",
+            "notes": "about 3 oz"
+          },
+          {
+            "item": "grated Parmesan cheese",
+            "amount": "1/4 cup",
+            "notes": ""
+          },
+          {
+            "item": "chopped fresh parsley",
+            "amount": "1 tbsp",
+            "notes": "optional, for brightness"
+          },
+          {
+            "item": "olive oil",
+            "amount": "1 tbsp",
+            "notes": "only if sausage is very lean and sticks"
+          }
+        ],
+        "instructions": [
+          "Preheat the oven to 350\u00b0F. Place an oven thermometer inside if you have one and let the oven fully preheat. Lightly grease a standard 12-cup muffin tin with cooking spray, making sure to coat the sides and rims of each cup to prevent sticking.",
+          "Cook the sausage: In a medium skillet over medium heat, add the turkey sausage (and 1 tbsp olive oil if the sausage is very lean). Cook, breaking it into small crumbles with a spatula, until browned and cooked through, 5\u20137 minutes. If there\u2019s more than 1 tsp of rendered fat, drain off the excess. Remove sausage to a plate to cool slightly.",
+          "Saut\u00e9 the vegetables: In the same skillet (no need to wash), add the diced onion and both bell peppers. Cook over medium heat, stirring occasionally, until softened and just starting to get some golden edges, 4\u20135 minutes. Add the chopped spinach and cook until wilted and most moisture has evaporated, 1\u20132 minutes. Remove from heat and let cool for 3\u20135 minutes so they don\u2019t scramble the eggs on contact.",
+          "Make the egg base: In a large mixing bowl, whisk together the 8 whole eggs and 1 cup liquid egg whites until well combined and slightly frothy. Add the milk, kosher salt, black pepper, garlic powder, onion powder, smoked paprika, and crushed red pepper (if using). Whisk again until the seasonings are evenly distributed. Don\u2019t shortcut this; uneven seasoning shows up in tiny portions.",
+          "Add cheese and herbs: Stir in the shredded sharp cheddar, grated Parmesan, and chopped parsley. Mix until the cheese is evenly coated in the egg mixture so it doesn\u2019t clump in one or two cups.",
+          "Assemble in the muffin tin: Divide the cooked sausage evenly among the 12 muffin cups (about 1 heaping tablespoon per cup). Do the same with the saut\u00e9ed vegetable mixture, gently spreading it so each cup has a roughly equal amount. Give the egg mixture a quick whisk, then pour it over the sausage and vegetables, filling each cup to about 3/4 full. If you have a little extra, top off the skimpiest cups\u2014don\u2019t overfill past the rim or they\u2019ll mushroom and stick.",
+          "Bake: Place the muffin tin on the middle oven rack. Bake at 350\u00b0F for 18\u201322 minutes, until the egg cups are puffed, set around the edges, and the centers no longer look wet. A toothpick inserted in the center of one should come out mostly clean, with just a bit of moisture but no liquid egg. If your oven runs cool, they may take up to 24\u201326 minutes.",
+          "Cool and release: Remove the pan from the oven and let the egg cups cool in the tin for 5\u20137 minutes. Run a thin offset spatula or butter knife around the edges of each cup to loosen, then gently lift them out. If any resist, let them sit another couple minutes; the steam will help them release.",
+          "Store for the week: Let the egg cups cool to room temperature before storing. For the refrigerator, place them in an airtight container in a single layer (or separated with parchment) and refrigerate up to 4 days. For the freezer, wrap each cup individually in plastic wrap, then place in a zip-top freezer bag and freeze up to 2 months."
+        ],
+        "servings": 12,
+        "prep_time": 20,
+        "cook_time": 22
+      }
+    },
+    {
+      "id": "2026-W38",
+      "concept": "Cardamom Cinnamon Spiral Bites",
+      "category": "sweet",
+      "cuisine": "Middle Eastern",
+      "recipe_context": "This week's recipe: Cardamom Cinnamon Spiral Bites (sweet). What it is: These spiral bites wrap classic cinnamon-roll comfort around warm cardamom, orange, and pistachio for a Middle Eastern\u2013inspired twist. A rich, buttery dough is coiled into each muffin cup so it bakes into a round, self-contained roll with crisp edges, tender centers, and a glossy orange-rose glaze. The recipe uses exactly these and nothing else, so do not name an ingredient that is not here: whole milk, active dry yeast, granulated sugar, all-purpose flour, fine sea salt, ground cardamom, egg, unsalted butter, light brown sugar, ground cinnamon, finely chopped pistachios, powdered sugar, fresh orange juice, finely grated orange zest, rose water, orange zest.",
+      "source_episode": "2026-W38",
+      "method_steps": 36,
+      "title_has_non_ascii": false,
+      "judge_recipe_facts": "RECIPE GROUND TRUTH - Cardamom Cinnamon Spiral Bites\nCategory: sweet | Cuisine: Middle Eastern\nDescription: These spiral bites wrap classic cinnamon-roll comfort around warm cardamom, orange, and pistachio for a Middle Eastern\u2013inspired twist. A rich, buttery dough is coiled into each muffin cup so it bakes into a round, self-contained roll with crisp edges, tender centers, and a glossy orange-rose glaze.\nIngredients: 3/4 cup whole milk (warm, about 110\u00b0F); 2 tsp active dry yeast; 1/4 cup granulated sugar; 2 1/4 cups all-purpose flour (plus 2\u20134 tbsp extra as needed); 1/2 tsp fine sea salt; 1 tsp ground cardamom; 1 large egg (room temperature); 4 tbsp unsalted butter (softened); 4 tbsp unsalted butter (very soft); 1/2 cup light brown sugar (packed); 1 1/2 tbsp ground cinnamon; 1/2 tsp ground cardamom; 1/4 tsp fine sea salt; 1/3 cup finely chopped pistachios (unsalted, shelled); 2 tbsp unsalted butter (melted, for greasing); 2 tbsp granulated sugar (for dusting cups); 1 cup powdered sugar (sifted); 2 tbsp fresh orange juice (plus 1\u20132 tsp more as needed); 1 tsp finely grated orange zest; 1/2 tsp rose water (or to taste; start small); 1 tsp unsalted butter (melted); Pinch fine sea salt; 2 tbsp finely chopped pistachios; Extra orange zest\nMethod: 1. Prepare the dough 2. Warm the milk to about 110\u00b0F \u2014 warm to the touch, not hot. In a small bowl, stir together warm milk, yeast, and 1 tbsp of the granulated sugar. Let sit 5\u201310 minutes until foamy on top. 3. In a large mixing bowl, whisk together 2 1/4 cups flour, remaining granulated sugar, salt, and ground cardamom. 4. Add the foamy yeast mixture and the egg to the dry ingredients. Stir with a wooden spoon until a shaggy dough forms. 5. Add the softened 4 tbsp butter and work it into the dough. Turn the dough out onto a lightly floured surface and knead 7\u20139 minutes, adding 1\u20133 tbsp additional flour only as needed, until the dough is smooth, elastic, and just slightly tacky but not sticky. 6. Shape into a ball, place in a lightly greased bowl, cover tightly, and let rise in a warm spot until doubled, about 1 hour. 7. Prepare the muffin pan 8. While the dough rises, thoroughly brush all 12 wells of a standard muffin tin with the 2 tbsp melted butter, making sure to coat the sides and bottom of each cup. 9. Sprinkle about 1/2 tsp granulated sugar into each greased well, rotating and tapping so the sugar lightly coats the bottom and lower sides. This sugared butter layer helps the spirals caramelize and set into a firm, molded shape that releases cleanly. 10. Make the filling 11. In a small bowl, mix the very soft 4 tbsp butter, brown sugar, cinnamon, cardamom, and salt until it forms a smooth, spreadable paste. 12. Stir in the finely chopped pistachios. Set aside at room temperature (you want it soft, not chilled). 13. Shape the spiral bites 14. Punch down the risen dough gently to deflate. Turn it out onto a lightly floured surface and roll into a rectangle about 12 inches by 9 inches, with the long side facing you. Try to keep the thickness even, about 1/4 inch. 15. Spread the filling evenly over the dough, leaving a 1/2-inch border along the long top edge bare. 16. Starting from the long edge closest to you, roll the dough up tightly into a log, pinching the seam along the bare edge to seal well. 17. Trim off the uneven ends if needed. Using a sharp knife or unflavored dental floss, cut the log into 12 equal slices, each about 1 inch thick. 18. Take each slice and, with your fingers, gently tuck any loose tail of dough underneath so you have a compact, round spiral. Place each slice cut-side up into a prepared muffin cup, centering it so it touches the bottom and has a little space around the sides. As they rise and bake, they\u2019ll expand to fill the round, flared shape of the wells. 19. Second rise in the pan 20. Cover the filled muffin tin loosely with lightly greased plastic wrap or a clean towel. 21. Let rise in a warm place until the spirals are puffed and nearly fill the cups, about 25\u201335 minutes. During this rise they\u2019ll settle into the round muffin shape that will hold once baked. 22. Bake 23. Preheat the oven to 350\u00b0F. If you have an oven thermometer, check that it actually reads 350\u00b0F; adjust as needed. 24. When the spirals are puffed and the dough springs back slowly when gently pressed, place the muffin tin on the center rack. 25. Bake 16\u201318 minutes, rotating the pan halfway through, until the spiral bites are golden brown on top and the edges where dough meets pan are a deeper golden caramel. The sugar at the bottom will bubble and set, helping the bites hold together. 26. Remove from the oven and set the pan on a wire rack. Let the bites cool in the pan for exactly 5\u20137 minutes \u2014 this allows the caramelized sugar base to firm so each portion unmolds as a cohesive, molded round. 27. Release from the pan 28. After the brief rest, run a thin, offset spatula or butter knife around the inside edge of each cup to loosen the sides, keeping the blade tight against the metal so you don\u2019t tear the roll. 29. Place a baking sheet or large plate over the muffin tin and, holding both together with oven mitts, invert quickly. Lift the muffin tin off; the spiral bites should drop out, each with a lightly caramelized, flat base and rounded, molded sides. 30. If any resist, lift the pan back off, loosen that cup a bit more with the knife, and invert again. Turn each spiral bite right-side up so the spiral faces up on the cooling rack or serving platter. 31. Make the orange-rose glaze 32. In a small bowl, whisk together powdered sugar, 2 tbsp orange juice, orange zest, rose water, melted butter, and a pinch of salt until smooth and pourable. 33. If too thick, whisk in 1/2 tsp more orange juice at a time until it ribbons off the whisk and slowly disappears back into the bowl. If too thin, add 1\u20132 tbsp more powdered sugar. 34. Glaze and garnish 35. While the spiral bites are still slightly warm but not hot (about 10\u201315 minutes after unmolding), spoon or drizzle the glaze over the tops, letting it run into the spirals and down the molded sides. 36. Sprinkle with additional chopped pistachios and a touch of extra orange zest, if using. Serve warm or at room temperature.\nJudge technique claims against the Method above. If a speaker ASSERTS as fact that this dish uses a technique, texture or step the recipe does not actually use, that is a technical_credibility failure - say which claim and which step contradicts it. Do NOT penalise a technique that is raised as a proposal, a rejected alternative, a comparison to another dish, or a hypothetical ('we could deep-fry these, but the pan gets there cleaner') - debating technique and substitutions is the point of the midweek stages. (The example is deliberately a technique no stored recipe uses: an example naming a real regression case would prime you to accept that very claim.)",
+      "recipe_data": {
+        "title": "Cardamom Cinnamon Spiral Bites",
+        "category": "sweet",
+        "cuisine": "Middle Eastern",
+        "description": "These spiral bites wrap classic cinnamon-roll comfort around warm cardamom, orange, and pistachio for a Middle Eastern\u2013inspired twist. A rich, buttery dough is coiled into each muffin cup so it bakes into a round, self-contained roll with crisp edges, tender centers, and a glossy orange-rose glaze.",
+        "ingredients": [
+          {
+            "item": "whole milk",
+            "amount": "3/4 cup",
+            "notes": "warm, about 110\u00b0F"
+          },
+          {
+            "item": "active dry yeast",
+            "amount": "2 tsp",
+            "notes": ""
+          },
+          {
+            "item": "granulated sugar",
+            "amount": "1/4 cup",
+            "notes": ""
+          },
+          {
+            "item": "all-purpose flour",
+            "amount": "2 1/4 cups",
+            "notes": "plus 2\u20134 tbsp extra as needed"
+          },
+          {
+            "item": "fine sea salt",
+            "amount": "1/2 tsp",
+            "notes": ""
+          },
+          {
+            "item": "ground cardamom",
+            "amount": "1 tsp",
+            "notes": ""
+          },
+          {
+            "item": "egg",
+            "amount": "1 large",
+            "notes": "room temperature"
+          },
+          {
+            "item": "unsalted butter",
+            "amount": "4 tbsp",
+            "notes": "softened"
+          },
+          {
+            "item": "unsalted butter",
+            "amount": "4 tbsp",
+            "notes": "very soft"
+          },
+          {
+            "item": "light brown sugar",
+            "amount": "1/2 cup",
+            "notes": "packed"
+          },
+          {
+            "item": "ground cinnamon",
+            "amount": "1 1/2 tbsp",
+            "notes": ""
+          },
+          {
+            "item": "ground cardamom",
+            "amount": "1/2 tsp",
+            "notes": ""
+          },
+          {
+            "item": "fine sea salt",
+            "amount": "1/4 tsp",
+            "notes": ""
+          },
+          {
+            "item": "finely chopped pistachios",
+            "amount": "1/3 cup",
+            "notes": "unsalted, shelled"
+          },
+          {
+            "item": "unsalted butter",
+            "amount": "2 tbsp",
+            "notes": "melted, for greasing"
+          },
+          {
+            "item": "granulated sugar",
+            "amount": "2 tbsp",
+            "notes": "for dusting cups"
+          },
+          {
+            "item": "powdered sugar",
+            "amount": "1 cup",
+            "notes": "sifted"
+          },
+          {
+            "item": "fresh orange juice",
+            "amount": "2 tbsp",
+            "notes": "plus 1\u20132 tsp more as needed"
+          },
+          {
+            "item": "finely grated orange zest",
+            "amount": "1 tsp",
+            "notes": ""
+          },
+          {
+            "item": "rose water",
+            "amount": "1/2 tsp",
+            "notes": "or to taste; start small"
+          },
+          {
+            "item": "unsalted butter",
+            "amount": "1 tsp",
+            "notes": "melted"
+          },
+          {
+            "item": "fine sea salt",
+            "amount": "Pinch",
+            "notes": ""
+          },
+          {
+            "item": "finely chopped pistachios",
+            "amount": "2 tbsp",
+            "notes": ""
+          },
+          {
+            "item": "orange zest",
+            "amount": "Extra",
+            "notes": ""
+          }
+        ],
+        "instructions": [
+          "Prepare the dough",
+          "Warm the milk to about 110\u00b0F \u2014 warm to the touch, not hot. In a small bowl, stir together warm milk, yeast, and 1 tbsp of the granulated sugar. Let sit 5\u201310 minutes until foamy on top.",
+          "In a large mixing bowl, whisk together 2 1/4 cups flour, remaining granulated sugar, salt, and ground cardamom.",
+          "Add the foamy yeast mixture and the egg to the dry ingredients. Stir with a wooden spoon until a shaggy dough forms.",
+          "Add the softened 4 tbsp butter and work it into the dough. Turn the dough out onto a lightly floured surface and knead 7\u20139 minutes, adding 1\u20133 tbsp additional flour only as needed, until the dough is smooth, elastic, and just slightly tacky but not sticky.",
+          "Shape into a ball, place in a lightly greased bowl, cover tightly, and let rise in a warm spot until doubled, about 1 hour.",
+          "Prepare the muffin pan",
+          "While the dough rises, thoroughly brush all 12 wells of a standard muffin tin with the 2 tbsp melted butter, making sure to coat the sides and bottom of each cup.",
+          "Sprinkle about 1/2 tsp granulated sugar into each greased well, rotating and tapping so the sugar lightly coats the bottom and lower sides. This sugared butter layer helps the spirals caramelize and set into a firm, molded shape that releases cleanly.",
+          "Make the filling",
+          "In a small bowl, mix the very soft 4 tbsp butter, brown sugar, cinnamon, cardamom, and salt until it forms a smooth, spreadable paste.",
+          "Stir in the finely chopped pistachios. Set aside at room temperature (you want it soft, not chilled).",
+          "Shape the spiral bites",
+          "Punch down the risen dough gently to deflate. Turn it out onto a lightly floured surface and roll into a rectangle about 12 inches by 9 inches, with the long side facing you. Try to keep the thickness even, about 1/4 inch.",
+          "Spread the filling evenly over the dough, leaving a 1/2-inch border along the long top edge bare.",
+          "Starting from the long edge closest to you, roll the dough up tightly into a log, pinching the seam along the bare edge to seal well.",
+          "Trim off the uneven ends if needed. Using a sharp knife or unflavored dental floss, cut the log into 12 equal slices, each about 1 inch thick.",
+          "Take each slice and, with your fingers, gently tuck any loose tail of dough underneath so you have a compact, round spiral. Place each slice cut-side up into a prepared muffin cup, centering it so it touches the bottom and has a little space around the sides. As they rise and bake, they\u2019ll expand to fill the round, flared shape of the wells.",
+          "Second rise in the pan",
+          "Cover the filled muffin tin loosely with lightly greased plastic wrap or a clean towel.",
+          "Let rise in a warm place until the spirals are puffed and nearly fill the cups, about 25\u201335 minutes. During this rise they\u2019ll settle into the round muffin shape that will hold once baked.",
+          "Bake",
+          "Preheat the oven to 350\u00b0F. If you have an oven thermometer, check that it actually reads 350\u00b0F; adjust as needed.",
+          "When the spirals are puffed and the dough springs back slowly when gently pressed, place the muffin tin on the center rack.",
+          "Bake 16\u201318 minutes, rotating the pan halfway through, until the spiral bites are golden brown on top and the edges where dough meets pan are a deeper golden caramel. The sugar at the bottom will bubble and set, helping the bites hold together.",
+          "Remove from the oven and set the pan on a wire rack. Let the bites cool in the pan for exactly 5\u20137 minutes \u2014 this allows the caramelized sugar base to firm so each portion unmolds as a cohesive, molded round.",
+          "Release from the pan",
+          "After the brief rest, run a thin, offset spatula or butter knife around the inside edge of each cup to loosen the sides, keeping the blade tight against the metal so you don\u2019t tear the roll.",
+          "Place a baking sheet or large plate over the muffin tin and, holding both together with oven mitts, invert quickly. Lift the muffin tin off; the spiral bites should drop out, each with a lightly caramelized, flat base and rounded, molded sides.",
+          "If any resist, lift the pan back off, loosen that cup a bit more with the knife, and invert again. Turn each spiral bite right-side up so the spiral faces up on the cooling rack or serving platter.",
+          "Make the orange-rose glaze",
+          "In a small bowl, whisk together powdered sugar, 2 tbsp orange juice, orange zest, rose water, melted butter, and a pinch of salt until smooth and pourable.",
+          "If too thick, whisk in 1/2 tsp more orange juice at a time until it ribbons off the whisk and slowly disappears back into the bowl. If too thin, add 1\u20132 tbsp more powdered sugar.",
+          "Glaze and garnish",
+          "While the spiral bites are still slightly warm but not hot (about 10\u201315 minutes after unmolding), spoon or drizzle the glaze over the tops, letting it run into the spirals and down the molded sides.",
+          "Sprinkle with additional chopped pistachios and a touch of extra orange zest, if using. Serve warm or at room temperature."
+        ],
+        "servings": 12,
+        "prep_time": 40,
+        "cook_time": 18
+      },
+      "note": "Longest stored method (36 steps). This is the recipe whose accepted Tuesday discussed lamination for a dough that is rolled once - keep it as a technique-fidelity regression scenario."
+    }
+  ]
+}
