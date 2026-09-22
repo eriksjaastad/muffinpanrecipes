@@ -22,21 +22,21 @@ against the 917-line corpus.
 It already answers the question you are probably about to ask. Section 2(c),
 "Backstory is pasted in; nothing per character binds," records that the four numeric
 traits in `agent_personalities.json` — `verbosity`, `directness`, `formality`,
-`emotional_expressiveness` — are read by nothing. That is verified and still true:
+`emotional_expressiveness` — do not bind. Nothing acts on them:
 `build_system_prompt` touches `communication_style` only to pull `signature_phrases`.
 Section 4 is the per-character fix, already specified. That work is card #6966 and has
 never been started.
 
 **Do not conclude from that the characters are thinly drawn.** `build_system_prompt`
-(scripts/simulate_dialogue_week.py:536) pastes eight character-specific blocks: bio,
-internal contradictions, relationships, a per-character voice guide, few-shot example
-messages, episode memories, signature phrases and triggers. The voices blur despite
-all of it, which is why "add more character material" is a hypothesis and not an
-obvious fix — few-shot depth was already swept and ruled out as the cause (#7206).
+(scripts/simulate_dialogue_week.py:536) pastes considerably more per character than
+2(c)'s "bio.md and the relationship text" — among it a per-character voice guide and
+few-shot example messages. Read the function, not the document's summary of it. The
+voices blur anyway, which is why "add more character material" is a hypothesis rather
+than an obvious fix; few-shot depth has already been swept and ruled out (#7206).
 
-Read DIALS.md's measurements in DIALS.md; do not restate them here, and do not trust
-its "1.5-2.5x" ratio without re-deriving it — it has no stated denominator and
-undercounts what actually reaches the prompt (#95919635236388864).
+Read DIALS.md's measurements in DIALS.md and do not restate them here. Its "1.5-2.5x"
+ratio in particular has no stated denominator and undercounts what reaches the prompt,
+so re-derive it before relying on it; correcting 2(c) is carded.
 
 **Do not propose a lever DIALS.md has already evaluated, and do not write a fresh
 analysis of a question it answers.** On 2026-09-22 a session spent an afternoon
