@@ -1,10 +1,16 @@
-"""The lab must say which scenario panel it ran (#7201).
+"""The lab must say which scenario panel it ran (#7201, #7441).
 
 v1 (`testbed.json`) was hand-written and drifted: production stopped emitting the
 "Key ingredients:" anchor on 2026-09-15 (#7104) and the panel kept it, so any
 sweep run against v1 silently tested a context shape production no longer uses.
-An external audit flagged it and it stayed open for two days because nothing in
-the output said which panel was in play.
+
+v2 (`testbed-v2.json`) was frozen 2026-09-17 but predates the ingredient boundary
+added by #7441. Experiments using v2 would omit that boundary, so v2 measurements
+do not transfer to production behaviour.
+
+v3 (`testbed-v3.json`) rebuilds recipe_context from #7441-aware _build_recipe_context,
+so it includes ingredient boundaries. Experiments against v3 measure what production
+speakers actually receive. This fix has not deployed yet and the experiment log is empty.
 """
 
 from __future__ import annotations
@@ -14,7 +20,7 @@ import json
 import pytest
 
 import scripts.conversation_lab as cl
-from backend.admin.cron_routes import _build_recipe_context
+from backend.admin.cron_routes import _build_recipe_context, _build_judge_recipe_facts
 
 
 @pytest.fixture(autouse=True)
@@ -29,33 +35,44 @@ def _panel(path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def test_the_default_panel_is_v2():
-    assert cl.DEFAULT_TESTBED_PATH.name == "testbed-v2.json"
+def test_the_default_panel_is_v3():
+    assert cl.DEFAULT_TESTBED_PATH.name == "testbed-v3.json"
 
 
-def test_v2_carries_no_stale_anchors():
+def test_v3_carries_no_v1_stale_anchors():
+    """v3 recipe_context uses the modern 'What it is:' format, not old 'Key ingredients:'."""
     for sc in _panel(cl.DEFAULT_TESTBED_PATH)["scenarios"]:
         assert "Key ingredients:" not in sc["recipe_context"], sc["id"]
         assert "What it is:" in sc["recipe_context"], sc["id"]
 
 
-def test_v2_contexts_match_what_the_real_builder_produces():
-    """Hand-written contexts are how v1 drifted. These must be reproducible."""
+def test_v3_contexts_are_reproducible_from_stored_recipe_data():
+    """v3 recipe_context is built mechanically from recipe_data, not hand-written.
+
+    This ensures reproducibility and prevents drift like v1/v2 had. Speakers
+    and judges use the same ground-truth recipe facts built from recipe_data.
+    """
     panel = _panel(cl.DEFAULT_TESTBED_PATH)
     assert panel["builder"] == "backend.admin.cron_routes._build_recipe_context"
     for sc in panel["scenarios"]:
-        rebuilt = _build_recipe_context({
-            "title": sc["concept"],
-            "category": sc["category"],
-            "description": sc["recipe_context"].split("What it is: ", 1)[1],
-        })
-        assert rebuilt == sc["recipe_context"], f"{sc['id']} is not reproducible from the builder"
+        recipe_data = sc.get("recipe_data")
+        assert recipe_data, f"{sc['id']} has no recipe_data for reproducibility check"
+        rebuilt = _build_recipe_context(recipe_data)
+        assert rebuilt == sc["recipe_context"], (
+            f"{sc['id']} is not reproducible from recipe_data. "
+            f"Built: {rebuilt[:100]}... vs stored: {sc['recipe_context'][:100]}..."
+        )
+        rebuilt_facts = _build_judge_recipe_facts(recipe_data)
+        assert rebuilt_facts == sc.get("judge_recipe_facts"), (
+            f"{sc['id']}: judge_recipe_facts mismatch. "
+            f"Built: {rebuilt_facts[:100]}... vs stored: {sc.get('judge_recipe_facts', '')[:100]}..."
+        )
 
 
-def test_v2_spans_real_contrast():
-    """A panel of five similar weeks measures one thing five times."""
+def test_v3_provides_varied_scenarios():
+    """The panel spans categories, method complexity, and character sets."""
     scenarios = _panel(cl.DEFAULT_TESTBED_PATH)["scenarios"]
-    assert len(scenarios) >= 6
+    assert len(scenarios) == 7
     assert len({s["category"] for s in scenarios}) >= 3, "categories are not varied"
     assert any(s["title_has_non_ascii"] for s in scenarios), "no accented title in the panel"
     steps = [s["method_steps"] for s in scenarios]
@@ -68,17 +85,19 @@ def test_the_legacy_panel_is_kept_not_deleted():
     assert cl.LEGACY_TESTBED_PATH.exists()
 
 
-def test_loading_a_panel_announces_its_version(capsys):
-    cl._load_testbed(cl.DEFAULT_TESTBED_PATH)
-    out = capsys.readouterr().out
-    assert "panel=v2" in out
-    assert "STALE-FORMAT" not in out
-
-
 def test_loading_the_legacy_panel_warns_loudly(capsys):
     cl._load_testbed(cl.LEGACY_TESTBED_PATH)
     out = capsys.readouterr().out
     assert "STALE-FORMAT SCENARIOS: 5" in out
+    assert "do not transfer to production" in out
+
+
+def test_loading_v2_warns_loudly(capsys):
+    """v2 predates the #7441 ingredient boundary and warns when loaded."""
+    cl._load_testbed(cl.LEGACY_TESTBED_V2_PATH)
+    out = capsys.readouterr().out
+    assert "panel=v2" in out
+    assert "predates the #7441 ingredient boundary" in out
     assert "do not transfer to production" in out
 
 
@@ -149,6 +168,66 @@ def test_lab_judge_prompt_is_unchanged_without_facts():
     )
     assert "RECIPE GROUND TRUTH" not in prompt
     assert "anchor" in prompt
+
+
+# --- v3 tests: ingredient-aware panel (#7441) -----
+
+
+def test_v3_carries_ingredient_boundaries():
+    """v3 recipe_context includes ingredient boundaries that speakers can see.
+
+    This is the #7441 fix: W39 Tuesday failed because speakers could not see
+    the ingredient list and invented ingredients the recipe does not use.
+    """
+    for sc in _panel(cl.DEFAULT_TESTBED_PATH)["scenarios"]:
+        ctx = sc["recipe_context"]
+        has_boundary = (
+            "recipe uses exactly these and nothing else" in ctx or
+            "Some of the ingredients, for accuracy" in ctx
+        )
+        assert has_boundary, f"{sc['id']} has no ingredient boundary in recipe_context"
+
+
+
+
+def test_v3_preserves_v2_judge_recipe_facts():
+    """v3 judge_recipe_facts match v2 exactly (no regeneration).
+
+    The judge facts are authority for the true recipe; only recipe_context
+    changed (added ingredients). Preserving judge facts ensures technique
+    claims are still checked against the canonical method.
+    """
+    v2_panel = _panel(cl.LEGACY_TESTBED_V2_PATH)
+    v3_panel = _panel(cl.DEFAULT_TESTBED_PATH)
+
+    v2_by_id = {s["id"]: s for s in v2_panel["scenarios"]}
+    v3_by_id = {s["id"]: s for s in v3_panel["scenarios"]}
+
+    assert set(v2_by_id.keys()) == set(v3_by_id.keys()), "scenario set changed"
+    for sc_id in v2_by_id:
+        assert (
+            v3_by_id[sc_id]["judge_recipe_facts"] == v2_by_id[sc_id]["judge_recipe_facts"]
+        ), f"{sc_id}: judge_recipe_facts changed"
+
+
+def test_loading_v3_announces_its_version(capsys):
+    """Every panel load announces which version ran."""
+    cl._load_testbed(cl.DEFAULT_TESTBED_PATH)
+    out = capsys.readouterr().out
+    assert "panel=v3" in out
+    assert "STALE-FORMAT" not in out
+
+
+def test_v3_legacy_panel_paths_remain_available():
+    """v2 and v1 stay at their original paths for historical comparison."""
+    assert cl.LEGACY_TESTBED_V2_PATH.exists(), f"v2 path {cl.LEGACY_TESTBED_V2_PATH} missing"
+    assert cl.LEGACY_TESTBED_PATH.exists(), f"v1 path {cl.LEGACY_TESTBED_PATH} missing"
+
+    # Verify they have different versions
+    v2_panel = _panel(cl.LEGACY_TESTBED_V2_PATH)
+    v1_panel = _panel(cl.LEGACY_TESTBED_PATH)
+    assert v2_panel.get("panel_version") == "v2"
+    assert v1_panel.get("panel_version") == "v1" or "Key ingredients:" in str(v1_panel)
 
 
 # --- Codex re-review: facts must reach the JUDGE, through the real runners ----
