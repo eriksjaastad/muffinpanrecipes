@@ -20,17 +20,23 @@ design record: what was intended, what actually binds in code, and what was meas
 against the 917-line corpus.
 
 It already answers the question you are probably about to ask. Section 2(c),
-"Backstory is pasted in; nothing per character binds," records that the numeric traits
-in `agent_personalities.json` are read by nothing — `build_system_prompt` ignores
-`verbosity`, `directness`, `formality` and `emotional_expressiveness`. Only `bio.md`,
-the relationship text and `signature_phrases` reach the prompt, and the shared rules
-block is about as long as all of that put together (2,846 characters against
-2,358-3,020 per character, measured 2026-09-22). Nothing numeric distinguishes one
-character from another. Section 4 is the per-character fix, already specified. That
-work is card #6966 and has never been started.
+"Backstory is pasted in; nothing per character binds," records that the four numeric
+traits in `agent_personalities.json` — `verbosity`, `directness`, `formality`,
+`emotional_expressiveness` — are read by nothing. That is verified and still true:
+`build_system_prompt` touches `communication_style` only to pull `signature_phrases`.
+Section 4 is the per-character fix, already specified. That work is card #6966 and has
+never been started.
 
-Treat DIALS.md's measurements as the source and cite them from there rather than
-restating them here, so this file cannot drift away from the record it points at.
+**Do not conclude from that the characters are thinly drawn.** `build_system_prompt`
+(scripts/simulate_dialogue_week.py:536) pastes eight character-specific blocks: bio,
+internal contradictions, relationships, a per-character voice guide, few-shot example
+messages, episode memories, signature phrases and triggers. The voices blur despite
+all of it, which is why "add more character material" is a hypothesis and not an
+obvious fix — few-shot depth was already swept and ruled out as the cause (#7206).
+
+Read DIALS.md's measurements in DIALS.md; do not restate them here, and do not trust
+its "1.5-2.5x" ratio without re-deriving it — it has no stated denominator and
+undercounts what actually reaches the prompt (#95919635236388864).
 
 **Do not propose a lever DIALS.md has already evaluated, and do not write a fresh
 analysis of a question it answers.** On 2026-09-22 a session spent an afternoon
