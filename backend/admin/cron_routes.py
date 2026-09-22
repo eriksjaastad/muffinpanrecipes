@@ -301,19 +301,23 @@ def _build_recipe_context(recipe_data: dict | None) -> str:
                 used += cost
             joined = ", ".join(kept)
             complete = False
+        # A first name larger than the cap leaves no truthful list to show.
+        # Keep the title/description anchor intact instead of appending an
+        # empty "Some listed" boundary.
+        if not joined:
+            return summary
         if complete:
             summary += (
-                f" The recipe uses exactly these and nothing else, so do not "
-                f"name an ingredient that is not here: {joined}."
+                f" Listed ingredient names (amounts, optionality and substitution notes omitted): {joined}. "
+                f"Ground factual ingredient claims in these names without assuming every item is required. "
+                f"Other ingredients may be discussed as proposals, but do not assert they are in this recipe."
             )
         else:
-            # Never claim completeness for a list we cut. Without this the
-            # speakers would be told a partial list is exhaustive, which is a
-            # worse failure than the one this whole line exists to fix.
             summary += (
-                f" Some of the ingredients, for accuracy — the recipe uses "
-                f"more than these, so avoid claiming what it does not "
-                f"contain: {joined}."
+                f" Some listed ingredient names (amounts, optionality and substitution notes omitted): {joined}. "
+                f"This list is incomplete; do not infer that an unlisted ingredient is absent. "
+                f"Ground factual ingredient claims in these names without assuming every item is required. "
+                f"Other ingredients may be discussed as proposals, but do not assert they are in this recipe."
             )
     return summary
 

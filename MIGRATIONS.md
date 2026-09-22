@@ -22,3 +22,18 @@ Append-only log of `pt migration` sessions. Each section records the paths touch
 
 ---
 
+## 7441-zero-name-framing-correction — 2026-09-22T23:34:03Z
+
+- started_at:  `2026-09-22T23:32:27Z`
+- finished_at: `2026-09-22T23:34:03Z`
+- baseline_head: `8de2013be05974c66cbe4a2faaca66373a5146dd`
+- action: `manifest-only`
+
+### New paths (introduced during session)
+- _(none)_
+
+### Modified paths (status changed during session)
+- _(none)_
+
+---
+
