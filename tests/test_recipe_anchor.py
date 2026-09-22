@@ -626,3 +626,91 @@ def test_plain_string_ingredients_still_work():
         "ingredients": ["caster sugar", "unsalted butter, softened"],
     }
     assert cron_routes._ingredient_names(recipe) == ["caster sugar", "unsalted butter"]
+
+
+@pytest.mark.parametrize(
+    ("amount", "item", "expected"),
+    [
+        ("Cooking", "spray", "Cooking spray"),
+        ("Ghee", "or neutral oil, for greasing the muffin tin", "Ghee or neutral oil"),
+        ("Nonstick", "cooking spray", "Nonstick cooking spray"),
+        ("Lime", "wedges", "Lime wedges"),
+        ("Sriracha,", "to taste", "Sriracha"),
+        ("Pinch", "fine sea salt", "fine sea salt"),
+        ("Pinch", "of salt", "salt"),
+        ("Extra", "orange zest", "orange zest"),
+        ("as needed", "nonstick cooking spray", "nonstick cooking spray"),
+        ("to taste", "hot sauce or salsa", "hot sauce or salsa"),
+        ("Optional:", "pinch of crushed red pepper flakes", "crushed red pepper flakes"),
+        ("1–2", "Tbsp flour", "flour"),
+        ("1 tbsp", "of salt", "salt"),
+        ("2", "whole milk", "whole milk"),
+        ("2", "ground cloves", "ground cloves"),
+        ("2", "cloves", "cloves"),
+        ("1 tbsp", "or neutral oil", "neutral oil"),
+        ("", "or neutral oil", "neutral oil"),
+        ("Whole", "milk", "Whole milk"),
+        ("", "ground cloves", "ground cloves"),
+        ("", "cloves", "cloves"),
+        ("", "2% milk", "2% milk"),
+        ("", "5-spice powder", "5-spice powder"),
+        ("", "cooking spray or butter", "cooking spray or butter"),
+    ],
+)
+def test_ingredient_name_normalization_table(amount, item, expected):
+    assert cron_routes._ingredient_names({
+        "ingredients": [{"amount": amount, "item": item, "notes": "notes must not leak"}],
+    }) == [expected]
+
+
+@pytest.mark.parametrize(
+    ("amount", "item", "expected"),
+    [
+        ("1 tbsp plus extra", "flour", "flour"),
+        ("1 tbsp plus 1 tsp", "flour", "flour"),
+        ("1 tsp plus more", "flour", "flour"),
+        ("12 thin slices (about 6 oz)", "fresh ginger", "fresh ginger"),
+        ("1 sheet (8–9 oz)", "puff pastry", "puff pastry"),
+        ("1 stick (about 3 inches)", "cinnamon", "cinnamon"),
+        ("1 strip (about 3 inches)", "lemon peel", "lemon peel"),
+        ("1 bunch", "parsley", "parsley"),
+        ("1 heaping cup", "flour", "flour"),
+        ("2 full sheets", "nori", "nori"),
+    ],
+)
+def test_supported_composite_amounts_are_removed_as_a_whole(amount, item, expected):
+    assert cron_routes._ingredient_names({
+        "ingredients": [{"amount": amount, "item": item}],
+    }) == [expected]
+
+
+@pytest.mark.parametrize(
+    ("plain_ingredient", "expected"),
+    [
+        ("whole milk", "whole milk"),
+        ("ground cloves", "ground cloves"),
+        ("cloves", "cloves"),
+        ("2% milk", "2% milk"),
+        ("5-spice powder", "5-spice powder"),
+        ("cooking spray or butter", "cooking spray or butter"),
+        ("1–2 Tbsp flour", "flour"),
+        ("1/3 cup sugar", "sugar"),
+        ("½ cup sugar", "sugar"),
+        ("1 heaping cup flour", "flour"),
+    ],
+)
+def test_plain_string_names_and_supported_quantities(plain_ingredient, expected):
+    assert cron_routes._ingredient_names({"ingredients": [plain_ingredient]}) == [expected]
+
+
+@pytest.mark.parametrize("amount", ["1 cup", "1/2 tsp", "½ cup", "1–2 tbsp", "1 1/2 cups"])
+def test_supported_numeric_amounts_and_notes_do_not_appear_in_context(amount):
+    recipe = {
+        "title": "Quantity Cups",
+        "ingredients": [{"amount": amount, "item": "fine flour", "notes": "optional for garnish"}],
+    }
+    summary = cron_routes._build_recipe_context(recipe)
+
+    assert "fine flour" in summary
+    assert amount not in summary
+    assert "optional for garnish" not in summary

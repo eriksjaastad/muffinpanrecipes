@@ -37,3 +37,20 @@ Append-only log of `pt migration` sessions. Each section records the paths touch
 
 ---
 
+## 7441-ingredient-name-reconstruction — 2026-09-22T23:55:39Z
+
+- started_at:  `2026-09-22T23:50:01Z`
+- finished_at: `2026-09-22T23:55:39Z`
+- baseline_head: `44ba1224c0a7976637c75656ea256239427a2f6b`
+- action: `manifest-only`
+
+### New paths (introduced during session)
+- `[dirty]` `backend/admin/cron_routes.py`
+- `[dirty]` `docs/conversation-lab/testbed-v3.json`
+- `[dirty]` `tests/test_recipe_anchor.py`
+
+### Modified paths (status changed during session)
+- _(none)_
+
+---
+
