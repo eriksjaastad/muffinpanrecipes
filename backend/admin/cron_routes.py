@@ -183,6 +183,11 @@ def _load_or_create_episode(episode_id: str, concept: str) -> dict:
 # enough for the recipe's whole description, short enough that it cannot become
 # the recitation the summary exists to prevent.
 RECIPE_CONTEXT_ANCHOR_MAX = 400
+# Names-only ingredient list handed to the SPEAKERS (#7441). Generous enough
+# that a normal recipe fits whole — W39's 22 ingredients render to ~250 chars —
+# because a truncated list cannot honestly be called complete, and the whole
+# point of this line is that it IS complete.
+RECIPE_CONTEXT_INGREDIENTS_MAX = 600
 
 # Cap for the method block the JUDGE receives (#7104 second pass). Sized against
 # real stored recipes, not guessed: W35-W38 methods run 2,486-4,956 chars, the
@@ -196,6 +201,35 @@ RECIPE_CONTEXT_ANCHOR_MAX = 400
 # frontier model a handful of times a week, so ~2k tokens there is cheap next to
 # shipping an episode that discusses a technique the recipe does not use.
 JUDGE_METHOD_MAX = 8000
+
+
+def _ingredient_names(recipe_data: dict | None) -> list[str]:
+    """Bare ingredient names, deduped, in recipe order.
+
+    Names only — no amounts, no notes. Those stay judge-side in
+    _build_judge_recipe_facts, because a quantity is what a character would
+    recite and a name is what stops them inventing one.
+
+    The `item` field often carries its own prep clause ("olive oil, divided,
+    plus more for greasing"; "yellow onion, finely diced"), so everything after
+    the first comma is dropped. That also collapses W39's "yellow onion" and
+    "yellow onion, finely diced" into one entry instead of two.
+    """
+    if not isinstance(recipe_data, dict):
+        return []
+    names: list[str] = []
+    seen: set[str] = set()
+    for ing in (recipe_data.get("ingredients") or []):
+        raw = ing.get("item") if isinstance(ing, dict) else ing
+        name = " ".join(str(raw or "").split()).split(",")[0].strip()
+        if not name:
+            continue
+        key = name.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        names.append(name)
+    return names
 
 
 def _build_recipe_context(recipe_data: dict | None) -> str:
@@ -238,6 +272,49 @@ def _build_recipe_context(recipe_data: dict | None) -> str:
         if len(anchor) > RECIPE_CONTEXT_ANCHOR_MAX:
             anchor = anchor[:RECIPE_CONTEXT_ANCHOR_MAX].rsplit(" ", 1)[0].rstrip(",;:") + "..."
         summary += f" What it is: {anchor}"
+
+    # The speakers' ingredient boundary (#7441). W39 Tuesday failed the judge
+    # three times on technical_credibility: attempt 2 asserted butter for a
+    # recipe that uses only olive oil, attempt 3 asserted egg white for a shell
+    # of bulgur, beef, onion, herbs and spices. Neither speaker had ever seen
+    # the ingredient list — the judge had, with amounts and notes. Tuesday is
+    # the recipe-development day, so that asymmetry made technical_credibility
+    # unsatisfiable by construction on the one day it matters most (#7079 is
+    # the same defect class).
+    #
+    # This is not a revert of #7104. That change dropped a truncated
+    # first-five-ingredients list because it said what was IN the dish and
+    # nothing about what the finished thing was LIKE; the description above
+    # still carries the texture. Names are back for factual grounding only.
+    names = _ingredient_names(recipe_data)
+    if names:
+        joined = ", ".join(names)
+        complete = True
+        if len(joined) > RECIPE_CONTEXT_INGREDIENTS_MAX:
+            kept: list[str] = []
+            used = 0
+            for name in names:
+                cost = len(name) + (2 if kept else 0)
+                if used + cost > RECIPE_CONTEXT_INGREDIENTS_MAX:
+                    break
+                kept.append(name)
+                used += cost
+            joined = ", ".join(kept)
+            complete = False
+        if complete:
+            summary += (
+                f" The recipe uses exactly these and nothing else, so do not "
+                f"name an ingredient that is not here: {joined}."
+            )
+        else:
+            # Never claim completeness for a list we cut. Without this the
+            # speakers would be told a partial list is exhaustive, which is a
+            # worse failure than the one this whole line exists to fix.
+            summary += (
+                f" Some of the ingredients, for accuracy — the recipe uses "
+                f"more than these, so avoid claiming what it does not "
+                f"contain: {joined}."
+            )
     return summary
 
 
