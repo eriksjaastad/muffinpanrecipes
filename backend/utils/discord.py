@@ -158,8 +158,7 @@ def notify_judge_advisory(
         body=(
             f"**{concept}** — {stage.title()} dialogue failed quality review "
             f"and was published regardless. The recipe is live; the "
-            f"conversation is below the bar. Fired only after the publish "
-            f"succeeded, so this never claims a page that does not exist."
+            f"conversation is below the bar."
         ),
         severity="warning",
         fields=[
