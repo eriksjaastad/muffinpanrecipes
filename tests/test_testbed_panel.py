@@ -182,8 +182,8 @@ def test_v3_carries_ingredient_boundaries():
     for sc in _panel(cl.DEFAULT_TESTBED_PATH)["scenarios"]:
         ctx = sc["recipe_context"]
         has_boundary = (
-            "recipe uses exactly these and nothing else" in ctx or
-            "Some of the ingredients, for accuracy" in ctx
+            "Listed ingredient names (amounts, optionality" in ctx or
+            "Some listed ingredient names (amounts, optionality" in ctx
         )
         assert has_boundary, f"{sc['id']} has no ingredient boundary in recipe_context"
 

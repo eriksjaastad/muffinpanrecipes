@@ -129,7 +129,8 @@ def test_build_recipe_context_survives_a_missing_description():
     # (#7441) ride along; "What it is:" is what is absent here.
     assert summary.startswith("This week's recipe: No Description Cups (sweet).")
     assert "What it is:" not in summary
-    assert summary.endswith("is not here: sugar.")
+    assert "ingredient names" in summary
+    assert "sugar" in summary
 
 
 def test_build_recipe_context_empty_inputs():
@@ -506,7 +507,8 @@ def test_a_complete_list_says_so_and_a_cut_one_does_not():
     bug this line fixes — they would then 'correct' real ingredients away."""
     short = _kibbeh()
     summary = cron_routes._build_recipe_context(short)
-    assert "exactly these and nothing else" in summary
+    assert "Listed ingredient names (amounts, optionality" in summary
+    assert "This list is incomplete" not in summary
 
     long = _kibbeh()
     long["ingredients"] = [
@@ -514,8 +516,8 @@ def test_a_complete_list_says_so_and_a_cut_one_does_not():
         for i in range(40)
     ]
     summary = cron_routes._build_recipe_context(long)
-    assert "exactly these and nothing else" not in summary
-    assert "uses more than these" in summary
+    assert "Some listed ingredient names (amounts, optionality" in summary
+    assert "This list is incomplete" in summary
 
 
 def test_the_cut_list_never_splits_a_name():
@@ -523,10 +525,84 @@ def test_the_cut_list_never_splits_a_name():
     long["ingredients"] = [{"item": f"ingredient {i:02d} padded out"} for i in range(60)]
     summary = cron_routes._build_recipe_context(long)
 
-    listed = summary.rsplit(": ", 1)[1].rstrip(".")
+    # Extract the ingredient list from the summary. The list appears after
+    # "Some listed ingredient names (amounts, optionality and substitution notes omitted):"
+    # and before the next sentence starting with "This list is incomplete"
+    start = summary.find("notes omitted): ") + len("notes omitted): ")
+    end = summary.find(". This list is incomplete", start)
+    listed = summary[start:end]
     for name in listed.split(", "):
         assert name.startswith("ingredient "), name
         assert name.endswith("padded out"), name
+
+
+def test_optional_and_substitute_notes_are_omitted_without_requiring_every_name():
+    recipe = {
+        "title": "Mint Cups",
+        "category": "savory",
+        "description": "A crisp cup.",
+        "ingredients": [
+            {"item": "fresh mint", "amount": "2 tbsp", "notes": "optional"},
+            {"item": "ghee", "amount": "1 tbsp", "notes": "or olive oil"},
+        ],
+    }
+    summary = cron_routes._build_recipe_context(recipe)
+
+    assert "fresh mint" in summary
+    assert "ghee" in summary
+    assert "fresh mint is optional" not in summary
+    assert "olive oil" not in summary
+    assert "2 tbsp" not in summary
+    assert "1 tbsp" not in summary
+    assert "without assuming every item is required" in summary
+    assert "may be discussed as proposals" in summary
+    assert "do not assert they are in this recipe" in summary
+    assert "exactly these and nothing else" not in summary
+
+
+def test_inline_item_alternative_is_retained_as_one_name():
+    recipe = {
+        "title": "Pan Cups",
+        "ingredients": [{"item": "cooking spray or butter", "notes": "for greasing"}],
+    }
+    summary = cron_routes._build_recipe_context(recipe)
+
+    assert "cooking spray or butter" in summary
+    assert "for greasing" not in summary
+
+
+@pytest.mark.parametrize("name_length", [599, 600])
+def test_ingredient_list_cap_accepts_names_at_599_and_600(name_length):
+    name = "x" * name_length
+    summary = cron_routes._build_recipe_context({"title": "Boundary", "ingredients": [{"item": name}]})
+
+    assert name in summary
+    assert "Listed ingredient names" in summary
+    assert "This list is incomplete" not in summary
+
+
+def test_first_ingredient_over_cap_preserves_original_anchor():
+    recipe = {
+        "title": "Boundary",
+        "category": "sweet",
+        "description": "A crisp cup.",
+        "ingredients": [{"item": "x" * 601}],
+    }
+    base_anchor = cron_routes._build_recipe_context({**recipe, "ingredients": []})
+
+    assert cron_routes._build_recipe_context(recipe) == base_anchor
+
+
+def test_all_blank_ingredient_names_preserve_original_anchor():
+    recipe = {
+        "title": "Blank Cups",
+        "category": "sweet",
+        "description": "A crisp cup.",
+        "ingredients": [{"item": " "}, {"item": "\t"}, {}],
+    }
+    base_anchor = cron_routes._build_recipe_context({**recipe, "ingredients": []})
+
+    assert cron_routes._build_recipe_context(recipe) == base_anchor
 
 
 def test_no_ingredients_leaves_the_anchor_untouched():
