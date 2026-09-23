@@ -69,3 +69,22 @@ Append-only log of `pt migration` sessions. Each section records the paths touch
 
 ---
 
+## 7323-anthropic-budget-guard — 2026-09-23T00:40:27Z
+
+- started_at:  `2026-09-23T00:25:01Z`
+- finished_at: `2026-09-23T00:40:27Z`
+- baseline_head: `edee0764fca2eb8640754c9deadccf9588d9233b`
+- action: `manifest-only`
+- WARNING: HEAD drifted from baseline edee0764fca2 to f0e97e8ade67; revert will restore against current HEAD
+
+### New paths (introduced during session)
+- `[dirty]` `scripts/conversation_lab.py`
+- `[untracked]` `docs/conversation-lab/BUDGET.md`
+- `[untracked]` `scripts/conversation_budget.py`
+- `[untracked]` `tests/test_conversation_budget.py`
+
+### Modified paths (status changed during session)
+- _(none)_
+
+---
+
