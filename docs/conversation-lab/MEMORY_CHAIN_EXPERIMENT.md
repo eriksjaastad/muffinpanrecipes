@@ -33,7 +33,9 @@ retain their source IDs. The helper sends both temporary roots to the operating
 system trash after the fake chain finishes and returns no paths to those moved
 roots. The returned artifact retains the complete generated turns and each
 memory record's ID, text or no-evidence status, source IDs, and prior-memory
-IDs, so provenance remains inspectable after cleanup.
+IDs, so provenance remains inspectable after cleanup. A memory may cite only
+the unique source-ID subset that supports it; the full observed-ID set is
+retained separately, and a citation outside that set fails validation.
 
 The callback helper's `kind="fake"` marker is a test convention, not a security
 boundary. It reports provider calls as unverified because arbitrary Python

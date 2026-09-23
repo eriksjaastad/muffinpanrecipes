@@ -57,12 +57,15 @@ def _fake_adapters(*, fail_week=None, observed=None):
         path.parent.mkdir(parents=True, exist_ok=True)
         prior = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
         normalized = "".join(character.lower() for character in speaker if character.isalnum())
+        cited_ids = payload["source_ids"]
+        if speaker == "Margaret Chen" and payload["status"] == "observed":
+            cited_ids = cited_ids[:1]
         record = {
             "memory_id": f"mem_{payload['week']}_{normalized}",
             "week": payload["week"],
             "status": payload["status"],
             "text": "Synthetic fake memory, not dialogue content." if payload["status"] == "observed" else None,
-            "source_ids": payload["source_ids"],
+            "source_ids": cited_ids,
             "prior_memory_ids": payload["prior_memory_ids"],
         }
         prior.append(record)
@@ -167,8 +170,12 @@ def test_fake_chain_keeps_arms_isolated_and_links_week_memories(tmp_path, monkey
     margaret_record = next(record for record in treatment_weeks[0]["memory_records"] if record["character"] == "Margaret Chen")
     assert margaret_record["text"] == "Synthetic fake memory, not dialogue content."
     assert margaret_record["source_ids"] == [
+        treatment_weeks[0]["turns"][0]["source_id"]
+    ]
+    assert margaret_record["observed_source_ids"] == [
         turn["source_id"] for turn in treatment_weeks[0]["turns"]
     ]
+    assert set(margaret_record["source_ids"]).issubset(margaret_record["observed_source_ids"])
     for arm in ARMS:
         for week in result["arms"][arm]["weeks"]:
             assert all(turn["week"] == week["week"] for turn in week["turns"])
@@ -246,6 +253,25 @@ def test_execution_rejects_speakers_outside_fixed_character_roster(tmp_path, mon
 
     with pytest.raises(ValueError, match="speakers outside the fixed roster"):
         execute_fake_chain(build_plan(), adapters, STATE)
+
+
+def test_execution_rejects_memory_citations_outside_observed_source_set(tmp_path, monkeypatch):
+    global STATE
+    STATE = FakeSimulatorState(tmp_path / "production-characters")
+    adapters, _ = _fake_adapters()
+    trash_root = tmp_path / "trash"
+    trash_root.mkdir()
+    monkeypatch.setattr("scripts.memory_chain_experiment._send_to_trash", lambda path: path.rename(trash_root / path.name))
+
+    def invalid_writer(speaker, payload, root):
+        record = adapters.write_memory(speaker, payload, root)
+        if speaker == "Margaret Chen" and payload["status"] == "observed":
+            record["source_ids"] = ["turn_not_in_observed_week"]
+        return record
+
+    invalid_adapters = FakeAdapters("fake", False, adapters.simulate_week, invalid_writer)
+    with pytest.raises(ValueError, match="non-empty subset"):
+        execute_fake_chain(build_plan(), invalid_adapters, STATE)
 
 
 def test_stable_source_ids_include_arm_and_week():
