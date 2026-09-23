@@ -10,7 +10,7 @@ from backend.admin import cron_routes
 
 
 def _request() -> SimpleNamespace:
-    return SimpleNamespace(url=SimpleNamespace(path="/api/cron/sunday"))
+    return SimpleNamespace(method="POST", url=SimpleNamespace(path="/api/cron/sunday"))
 
 
 def _body(episode_id: str = "2026-W20") -> cron_routes.StageRequest:
