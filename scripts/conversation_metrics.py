@@ -312,8 +312,10 @@ def speaker_attribution(messages: list[dict[str, Any]]) -> dict[str, Any]:
     pooled probabilities are rebuilt from each fold's training lines only;
     held-out-only words are ignored and lines with no remaining known words
     are excluded. Likelihood smoothing is (class_count + pooled_probability) /
-    (class_total + 1). This measures word-choice separability, not personality
-    quality.
+    (class_total + 1). Aggregate accuracy and chance are available only when
+    at least two messages were scored and every candidate speaker has a scored
+    message; coverage and per-character recall remain diagnostic otherwise.
+    This measures word-choice separability, not personality quality.
     """
     samples: list[tuple[str, Counter[str]]] = []
     for message in messages:
@@ -407,9 +409,9 @@ def speaker_attribution(messages: list[dict[str, Any]]) -> dict[str, Any]:
     enough_data = len(candidates) >= 2 and scored >= 2 and all(scored_by_character[c] for c in candidates)
     return {
         "accuracy": round(sum(correct_by_character.values()) / scored, 4)
-        if scored and len(candidates) >= 2 else None,
+        if enough_data else None,
         "chance": round(1 / len(candidates), 4)
-        if scored and len(candidates) >= 2 else None,
+        if enough_data else None,
         "per_character_recall": per_character_recall,
         "character_count": len(observed_characters),
         "candidate_characters": candidates,

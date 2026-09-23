@@ -67,6 +67,12 @@ def _usd_to_micro(value: Decimal | int | str) -> int:
     return result
 
 
+def _format_budget_usd(budget_microusd: int) -> str:
+    """Format the configured ceiling exactly to its supported microdollar precision."""
+    amount = f"${Decimal(budget_microusd) / MICRO_USD_PER_USD:,.6f}"
+    return amount.rstrip("0").rstrip(".")
+
+
 def _new_totals() -> dict[str, int]:
     return {
         "count_token_requests": 0,
@@ -427,7 +433,10 @@ class AnthropicBudgetGuard:
                 ledger["status"] = "stopped"
                 ledger["stop_reason"] = "budget_exhausted"
                 self._local_stop = "budget_exhausted"
-                raise BudgetExceeded("request denied before generation: combined budget reservation exceeds $5")
+                raise BudgetExceeded(
+                    "request denied before generation: combined budget reservation "
+                    f"exceeds configured ceiling {_format_budget_usd(self.budget_microusd)}"
+                )
             totals["generation_attempts"] += 1
             totals["reserved_microusd"] += reserve
             phase_totals = ledger["phases"][phase]

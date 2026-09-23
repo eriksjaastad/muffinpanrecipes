@@ -340,6 +340,31 @@ def test_speaker_attribution_empty_and_no_content_are_unavailable():
     assert no_content["coverage"] == 0.0
 
 
+def test_speaker_attribution_with_unscorable_candidate_has_no_aggregate_score():
+    messages = [
+        _msg("Margaret Chen", "crust crust"),
+        _msg("Margaret Chen", "crust crust"),
+        _msg("Marcus Reid", "the and"),
+        _msg("Marcus Reid", "the and"),
+    ]
+    result = cm.speaker_attribution(messages)
+    assert result["candidate_characters"] == ["Marcus", "Margaret"]
+    assert result["scored_count"] == 2
+    assert result["coverage"] == 0.5
+    assert result["per_character_recall"] == {"Margaret": 0.5, "Marcus": None}
+    assert result["sufficient_data"] is False
+    assert result["accuracy"] is None
+    assert result["chance"] is None
+
+    summary = cm.summarize(messages, ["Margaret Chen", "Marcus Reid"])
+    assert summary["speaker_attribution_accuracy"] is None
+    assert summary["speaker_attribution_chance"] is None
+    detail = summary["speaker_attribution_detail"]
+    assert detail["scored_count"] == 2
+    assert detail["candidate_characters"] == ["Marcus", "Margaret"]
+    assert detail["per_character_recall"]["Marcus"] is None
+
+
 def test_speaker_attribution_singleton_only_is_insufficient():
     result = cm.speaker_attribution([_msg("Margaret Chen", "Butter ratio tender dough.")])
     assert result["accuracy"] is None
