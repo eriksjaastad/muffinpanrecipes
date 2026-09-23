@@ -1,14 +1,15 @@
 import json
-from pathlib import Path
 
 import pytest
 
 from scripts.memory_chain_experiment import (
     ARMS,
+    CHARACTER_ROSTER,
     WEEK_PLAN,
     FakeAdapters,
     build_plan,
     execute_fake_chain,
+    main,
     stable_source_id,
     write_plan,
 )
@@ -41,20 +42,29 @@ def _fake_adapters(*, fail_week=None, observed=None):
             raise RuntimeError("synthetic simulation failure")
         if arm == ARMS[1]:
             prior = sorted(memory_root.glob("*/memory.json"))
-            assert len(prior) == 2 if week["week"] != "2026-W40" else not prior
+            assert len(prior) == len(CHARACTER_ROSTER) if week["week"] != "2026-W40" else not prior
             observed[-1]["prior_memory_files"] = [path.parent.name for path in prior]
-        return {"turns": [
-            {"day": "monday", "speaker": "Margaret", "text": f"Week {week['week']} note."},
-            {"day": "monday", "speaker": "Ria", "text": "I see the framing differently."},
-        ]}
+        turns = [
+            {"day": "monday", "speaker": "Margaret Chen", "text": f"Week {week['week']} note."},
+            {"day": "monday", "speaker": "Ria Castillo", "text": "I see the framing differently."},
+        ]
+        if week["week"] == "2026-W41":
+            turns = turns[:1]
+        return {"turns": turns}
 
     def write_memory(speaker, payload, root):
         path = root / speaker / "memory.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         prior = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
-        prior.append({"week": payload["week"], "source_ids": payload["source_ids"]})
+        prior.append({
+            "week": payload["week"],
+            "status": payload["status"],
+            "source_ids": payload["source_ids"],
+            "prior_memory_ids": payload["prior_memory_ids"],
+        })
         path.write_text(json.dumps(prior), encoding="utf-8")
-        return f"mem_{payload['week']}_{speaker.lower()}"
+        normalized = "".join(character.lower() for character in speaker if character.isalnum())
+        return f"mem_{payload['week']}_{normalized}"
 
     return FakeAdapters("fake", False, simulate_week, write_memory), observed
 
@@ -64,6 +74,8 @@ def test_plan_has_fixed_three_week_control_and_memory_arms():
 
     assert [row["week"] for row in plan["weeks"]] == [row["week"] for row in WEEK_PLAN]
     assert [row["seed"] for row in plan["weeks"]] == [40140, 40141, 40142]
+    assert plan["character_roster"] == list(CHARACTER_ROSTER)
+    assert plan["weekly_memory_slots_per_arm"] == 18
     assert all([arm["name"] for arm in row["arms"]] == list(ARMS) for row in plan["weeks"])
     assert plan["execution_performed"] is False
     assert plan["provider_calls"] == 0
@@ -100,7 +112,16 @@ def test_write_plan_is_an_artifact_only(tmp_path):
     assert plan["execution_performed"] is False
 
 
-def test_fake_chain_keeps_arms_isolated_and_links_week_memories(tmp_path):
+def test_cli_writes_default_plan_successfully(tmp_path):
+    output = tmp_path / "plan.json"
+
+    assert main(["--output", str(output)]) == 0
+    plan = json.loads(output.read_text(encoding="utf-8"))
+    assert plan["assumptions"]["isolation"] == "each arm uses a temporary character-memory root that is sent to OS trash after the run"
+    assert plan["provider_calls"] == 0
+
+
+def test_fake_chain_keeps_arms_isolated_and_links_week_memories(tmp_path, monkeypatch):
     global STATE
     production_root = tmp_path / "production-characters"
     production_root.mkdir()
@@ -110,10 +131,21 @@ def test_fake_chain_keeps_arms_isolated_and_links_week_memories(tmp_path):
     original_cache = dict(STATE._system_prompt_cache)
     original_directions = dict(STATE.DAY_STAGE_DIRECTIONS)
     adapters, observed = _fake_adapters()
+    trash_root = tmp_path / "trash"
+    trash_root.mkdir()
+    trashed = []
+
+    def preserve_in_test_trash(path):
+        destination = trash_root / path.name
+        path.rename(destination)
+        trashed.append(destination)
+
+    monkeypatch.setattr("scripts.memory_chain_experiment._send_to_trash", preserve_in_test_trash)
 
     result = execute_fake_chain(build_plan(), adapters, STATE)
 
-    assert result["provider_calls"] == 0
+    assert result["provider_calls"] == "unverified_in_injected_callbacks"
+    assert result["provider_calls_verified"] is False
     assert set(result["arms"]) == set(ARMS)
     assert [row["week"] for row in result["arms"][ARMS[0]]["weeks"]] == [row["week"] for row in WEEK_PLAN]
     assert [row["week"] for row in result["arms"][ARMS[1]]["weeks"]] == [row["week"] for row in WEEK_PLAN]
@@ -121,10 +153,12 @@ def test_fake_chain_keeps_arms_isolated_and_links_week_memories(tmp_path):
     treatment_weeks = result["arms"][ARMS[1]]["weeks"]
     assert treatment_weeks[0]["prior_memory_ids"] == {}
     assert treatment_weeks[1]["prior_memory_ids"] == {
-        "Margaret": ["mem_2026-W40_margaret"], "Ria": ["mem_2026-W40_ria"]
+        character: [f"mem_2026-W40_{''.join(c.lower() for c in character if c.isalnum())}"]
+        for character in CHARACTER_ROSTER
     }
     assert treatment_weeks[2]["prior_memory_ids"] == {
-        "Margaret": ["mem_2026-W41_margaret"], "Ria": ["mem_2026-W41_ria"]
+        character: [f"mem_2026-W41_{''.join(c.lower() for c in character if c.isalnum())}"]
+        for character in CHARACTER_ROSTER
     }
     for arm in ARMS:
         for week in result["arms"][arm]["weeks"]:
@@ -137,21 +171,36 @@ def test_fake_chain_keeps_arms_isolated_and_links_week_memories(tmp_path):
     assert sorted(path.name for path in production_root.iterdir()) == ["sentinel.json"]
     assert STATE._system_prompt_cache == original_cache
     assert STATE.DAY_STAGE_DIRECTIONS == original_directions
-    assert not Path(result["arms"][ARMS[0]]["memory_root"]).exists()
-    assert not Path(result["arms"][ARMS[1]]["memory_root"]).exists()
+    assert all("memory_root" not in arm for arm in result["arms"].values())
+    assert len(trashed) == 2
+    assert len(list(trash_root.iterdir())) == 2
+    treatment_trash = next(path for path in trashed if path.name.startswith("mpr-memory-treatment-"))
+    assert len(list(treatment_trash.glob("*/memory.json"))) == len(CHARACTER_ROSTER)
+    assert all(path.exists() for path in trashed)
     treatment_roots = {str(row["root"]) for row in observed if row["arm"] == ARMS[1]}
     control_roots = {str(row["root"]) for row in observed if row["arm"] == ARMS[0]}
     assert len(treatment_roots) == len(control_roots) == 1
     assert treatment_roots.isdisjoint(control_roots)
+    for character in CHARACTER_ROSTER:
+        records = json.loads((treatment_trash / character / "memory.json").read_text(encoding="utf-8"))
+        assert len(records) == 3
+    ria_records = json.loads((treatment_trash / "Ria Castillo" / "memory.json").read_text(encoding="utf-8"))
+    assert ria_records[1]["status"] == "no_new_evidence"
+    assert ria_records[1]["source_ids"] == []
+    assert ria_records[1]["prior_memory_ids"] == ["mem_2026-W40_riacastillo"]
+    assert treatment_weeks[2]["prior_memory_ids"]["Ria Castillo"] == ["mem_2026-W41_riacastillo"]
 
 
-def test_globals_restore_after_fake_simulation_exception(tmp_path):
+def test_globals_restore_after_fake_simulation_exception(tmp_path, monkeypatch):
     global STATE
     STATE = FakeSimulatorState(tmp_path / "production-characters")
     original_dir = STATE.CHARACTERS_DIR
     original_cache = dict(STATE._system_prompt_cache)
     original_directions = dict(STATE.DAY_STAGE_DIRECTIONS)
     adapters, _ = _fake_adapters(fail_week="2026-W41")
+    trash_root = tmp_path / "trash"
+    trash_root.mkdir()
+    monkeypatch.setattr("scripts.memory_chain_experiment._send_to_trash", lambda path: path.rename(trash_root / path.name))
 
     with pytest.raises(RuntimeError, match="synthetic simulation failure"):
         execute_fake_chain(build_plan(), adapters, STATE)
@@ -159,6 +208,7 @@ def test_globals_restore_after_fake_simulation_exception(tmp_path):
     assert STATE.CHARACTERS_DIR == original_dir
     assert STATE._system_prompt_cache == original_cache
     assert STATE.DAY_STAGE_DIRECTIONS == original_directions
+    assert len(list(trash_root.iterdir())) == 2
 
 
 def test_execution_refuses_non_fake_or_provider_enabled_adapters(tmp_path):
@@ -169,6 +219,21 @@ def test_execution_refuses_non_fake_or_provider_enabled_adapters(tmp_path):
 
     with pytest.raises(ValueError, match="only explicitly marked zero-provider fake"):
         execute_fake_chain(build_plan(), paid_adapter, STATE)
+
+
+def test_execution_rejects_speakers_outside_fixed_character_roster(tmp_path, monkeypatch):
+    global STATE
+    STATE = FakeSimulatorState(tmp_path / "production-characters")
+    adapters, _ = _fake_adapters()
+
+    def unknown_speaker(week, arm, root):
+        return {"turns": [{"day": "monday", "speaker": "Unknown Guest", "text": "Hello."}]}
+
+    monkeypatch.setattr("scripts.memory_chain_experiment._send_to_trash", lambda path: path.rename(tmp_path / path.name))
+    adapters = FakeAdapters("fake", False, unknown_speaker, adapters.write_memory)
+
+    with pytest.raises(ValueError, match="speakers outside the fixed roster"):
+        execute_fake_chain(build_plan(), adapters, STATE)
 
 
 def test_stable_source_ids_include_arm_and_week():
