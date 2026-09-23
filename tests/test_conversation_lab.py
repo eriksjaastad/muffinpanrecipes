@@ -170,6 +170,8 @@ def test_ab_dry_run_never_calls_the_judge(tmp_path, monkeypatch):
     [result_file] = list(results_dir.glob("*-ab-*.json"))
     report = json.loads(result_file.read_text())
     assert report["dry_run"] is True
+    assert report["evaluator_prompt_version"] == cl.PAIRWISE_JUDGE_PROMPT_VERSION
+    assert report["evaluator_prompt_sha256"] == cl._pairwise_evaluator_metadata()["evaluator_prompt_sha256"]
     assert report["completed_pairs"] == 2
     for pair in report["pairs"]:
         assert pair["judge"]["overall"] == "tie"
@@ -578,6 +580,8 @@ def test_calibrate_dry_run_makes_zero_judge_calls_and_writes_results(tmp_path, m
     [result_file] = list(results_dir.glob("*-calibrate-*.json"))
     report = json.loads(result_file.read_text())
     assert report["dry_run"] is True
+    assert report["evaluator_prompt_version"] == cl.PAIRWISE_JUDGE_PROMPT_VERSION
+    assert report["evaluator_prompt_sha256"] == cl._pairwise_evaluator_metadata()["evaluator_prompt_sha256"]
     assert set(report["degradations"].keys()) == {"shuffled_order", "rotated_speakers"}
     for info in report["degradations"].values():
         assert info["attempted"] == 2
