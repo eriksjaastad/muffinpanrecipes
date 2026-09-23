@@ -347,7 +347,14 @@ mean / sample stdev / standard error / min / max;
 - the **production publish gate**'s verdict - `_judge_dialogue` from
 `backend/admin/cron_routes.py`, the same judge the Sunday cron runs, not
 this module's pairwise judge - as a pass rate, a per-dimension score
-distribution, and a count of which dimension came back weakest most often;
+distribution, and a count of which dimension came back weakest most often.
+Pass rate uses only complete, valid scorecards whose normalized verdict and
+`passed` flag agree. Provider errors, unparseable output, and incomplete or
+invalid scorecards count as unjudged, not quality failures. Reports include
+scored/unjudged coverage; valid partial dimension scores remain visible. A
+baseline's pass rate is re-derived from its per-run judge records. If those
+records are absent or contain no usable verdicts, the baseline rate is
+unavailable rather than inferred from a legacy aggregate.
 - any 4-gram a character reused across runs.
 
 Then change one thing, bench again, and pass `--compare <first result>`. Automatic
@@ -369,14 +376,19 @@ For Wednesday, the generation call also receives that episode stage's
 `photography_data` when it is a dict and `image_paths` when it is a list, as
 the Wednesday cron does. Friday receives Wednesday's `photography_data`
 when it is a dict and no image paths, as the Friday cron does. The bench
-freezes these inputs before run one, gives each run fresh copies, and records
-the effective values and input states in the scenario. `--compare` rejects a
-changed photo baseline before generation; absent and present-but-empty values
-remain comparable when they produce the same empty simulator input, while an
-invalid nonempty source remains distinguishable from missing data. Older
-results without photo fields remain usable only when the current effective
-photo inputs are empty. Manual `--recipe-context` benches continue to run
-without photo context.
+freezes these raw inputs before run one, gives each run fresh copies, and
+retains them and their provenance in the report for audit. The recorded
+effective photo payload is descriptive output, not an evaluator or generator
+fingerprint: comparison re-renders both raw snapshots through the current
+`_build_dynamic_arc` and `_build_photography_scene_direction` helpers and
+compares those prompt strings plus Wednesday's effective turn floor. Image
+paths are attachment-only and are not part of textual comparison. Thus unused
+metadata and path changes remain comparable when rendered prompts and turn
+floor are unchanged; changes that affect those actual inputs are rejected
+before generation. Absent and present-but-empty values remain comparable when
+they render identically. Older results without photo fields remain usable
+when the current effective photo inputs are empty. Manual `--recipe-context`
+benches continue to run without photo context.
 
 With `--recipe-context` the stage is judged in isolation, which is cheaper
 to set up and fine for a structural question, but its pass rate will not
