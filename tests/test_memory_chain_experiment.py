@@ -56,15 +56,18 @@ def _fake_adapters(*, fail_week=None, observed=None):
         path = root / speaker / "memory.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         prior = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
-        prior.append({
+        normalized = "".join(character.lower() for character in speaker if character.isalnum())
+        record = {
+            "memory_id": f"mem_{payload['week']}_{normalized}",
             "week": payload["week"],
             "status": payload["status"],
+            "text": "Synthetic fake memory, not dialogue content." if payload["status"] == "observed" else None,
             "source_ids": payload["source_ids"],
             "prior_memory_ids": payload["prior_memory_ids"],
-        })
+        }
+        prior.append(record)
         path.write_text(json.dumps(prior), encoding="utf-8")
-        normalized = "".join(character.lower() for character in speaker if character.isalnum())
-        return f"mem_{payload['week']}_{normalized}"
+        return record
 
     return FakeAdapters("fake", False, simulate_week, write_memory), observed
 
@@ -160,6 +163,12 @@ def test_fake_chain_keeps_arms_isolated_and_links_week_memories(tmp_path, monkey
         character: [f"mem_2026-W41_{''.join(c.lower() for c in character if c.isalnum())}"]
         for character in CHARACTER_ROSTER
     }
+    assert len(treatment_weeks[0]["memory_records"]) == len(CHARACTER_ROSTER)
+    margaret_record = next(record for record in treatment_weeks[0]["memory_records"] if record["character"] == "Margaret Chen")
+    assert margaret_record["text"] == "Synthetic fake memory, not dialogue content."
+    assert margaret_record["source_ids"] == [
+        turn["source_id"] for turn in treatment_weeks[0]["turns"]
+    ]
     for arm in ARMS:
         for week in result["arms"][arm]["weeks"]:
             assert all(turn["week"] == week["week"] for turn in week["turns"])
@@ -189,6 +198,9 @@ def test_fake_chain_keeps_arms_isolated_and_links_week_memories(tmp_path, monkey
     assert ria_records[1]["source_ids"] == []
     assert ria_records[1]["prior_memory_ids"] == ["mem_2026-W40_riacastillo"]
     assert treatment_weeks[2]["prior_memory_ids"]["Ria Castillo"] == ["mem_2026-W41_riacastillo"]
+    retained_ria_slot = next(record for record in treatment_weeks[1]["memory_records"] if record["character"] == "Ria Castillo")
+    assert retained_ria_slot["text"] is None
+    assert retained_ria_slot["status"] == "no_new_evidence"
 
 
 def test_globals_restore_after_fake_simulation_exception(tmp_path, monkeypatch):

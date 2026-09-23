@@ -129,7 +129,7 @@ class FakeAdapters:
     kind: str
     provider_calls_allowed: bool
     simulate_week: Callable[[dict[str, Any], str, Path], dict[str, Any]]
-    write_memory: Callable[[str, dict[str, Any], Path], str]
+    write_memory: Callable[[str, dict[str, Any], Path], dict[str, Any]]
 
 
 def execute_fake_chain(
@@ -195,23 +195,47 @@ def execute_fake_chain(
             if len(source_ids) != len(set(source_ids)):
                 raise ValueError(f"{week['week']}: duplicate source IDs")
             new_memory_ids: dict[str, list[str]] = {}
+            memory_records = []
             if arm == ARMS[1]:
                 for speaker in CHARACTER_ROSTER:
                     attended_days = {turn["day"] for turn in normalized_turns if turn["speaker"] == speaker}
                     observations = [turn for turn in normalized_turns if turn["day"] in attended_days]
                     observed_source_ids = [turn["source_id"] for turn in observations]
                     slot_status = "observed" if observations else "no_new_evidence"
-                    memory_id = adapters.write_memory(speaker, {
+                    expected_prior_ids = list(previous_memory_ids.get(speaker, []))
+                    record = adapters.write_memory(speaker, {
                         "week": week["week"],
                         "status": slot_status,
                         "source_ids": observed_source_ids,
                         "turns": observations,
-                        "prior_memory_ids": list(previous_memory_ids.get(speaker, [])),
+                        "prior_memory_ids": expected_prior_ids,
                     }, root)
+                    if not isinstance(record, dict):
+                        raise ValueError(f"{week['week']}: memory writer must return a structured memory record")
+                    memory_id = record.get("memory_id")
                     if not isinstance(memory_id, str) or not memory_id:
-                        raise ValueError(f"{week['week']}: memory writer must return a stable memory ID")
+                        raise ValueError(f"{week['week']}: memory record requires a stable memory_id")
+                    if record.get("status") != slot_status:
+                        raise ValueError(f"{week['week']}: memory status must be {slot_status!r} for {speaker}")
+                    if record.get("source_ids") != observed_source_ids:
+                        raise ValueError(f"{week['week']}: memory source IDs do not match the character's observed turns")
+                    if record.get("prior_memory_ids") != expected_prior_ids:
+                        raise ValueError(f"{week['week']}: memory record must retain the expected prior memory IDs")
+                    memory_text = record.get("text")
+                    if slot_status == "observed" and (not isinstance(memory_text, str) or not memory_text.strip()):
+                        raise ValueError(f"{week['week']}: observed memory requires non-empty text")
+                    if slot_status == "no_new_evidence" and memory_text is not None:
+                        raise ValueError(f"{week['week']}: no-evidence memory text must be null")
+                    memory_record = {**record, "character": speaker, "week": week["week"]}
+                    memory_records.append(memory_record)
                     new_memory_ids[speaker] = [memory_id]
-            rows.append({"week": week["week"], "source_ids": source_ids, "turns": normalized_turns, "prior_memory_ids": dict(previous_memory_ids)})
+            rows.append({
+                "week": week["week"],
+                "source_ids": source_ids,
+                "turns": normalized_turns,
+                "prior_memory_ids": dict(previous_memory_ids),
+                "memory_records": memory_records,
+            })
             previous_memory_ids = new_memory_ids
         return {"weeks": rows}
 
