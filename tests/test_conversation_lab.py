@@ -256,10 +256,9 @@ def _make_fake_run_simulation():
 # ab: --max-calls abort writes a partial, aborted result
 # ---------------------------------------------------------------------------
 
-def test_ab_aborts_before_exceeding_max_calls(tmp_path, monkeypatch):
-    # Each arm returns a 2-message transcript -> 2 calls; a pair costs 4.
-    # max_calls=4 means pair 1 completes exactly at budget, and pair 2's
-    # control call is refused before it happens.
+def test_ab_dry_run_ignores_paid_call_cap_and_reports_zero_calls(tmp_path, monkeypatch):
+    # Template arms make no paid requests. --max-calls controls provider work,
+    # so it must not truncate a free plumbing run or count template messages.
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
     results_dir = tmp_path / "results"
@@ -272,10 +271,10 @@ def test_ab_aborts_before_exceeding_max_calls(tmp_path, monkeypatch):
 
     [result_file] = list(results_dir.glob("*-ab-*.json"))
     report = json.loads(result_file.read_text())
-    assert report["aborted"] is True
-    assert report["completed_pairs"] == 1
+    assert report["aborted"] is False
+    assert report["completed_pairs"] == 2
     assert report["requested_runs"] == 2
-    assert report["calls_used"] == 4
+    assert report["calls_used"] == 0
 
 # ---------------------------------------------------------------------------
 # ab: results file schema
@@ -575,6 +574,8 @@ def test_calibrate_dry_run_makes_zero_judge_calls_and_writes_results(tmp_path, m
     assert set(report["degradations"].keys()) == {"shuffled_order", "rotated_speakers"}
     for info in report["degradations"].values():
         assert info["attempted"] == 2
+        assert info["real_preference_rate"] is None
+        assert info["scored_pairs"] == 0
 
 def _snapshot_episode() -> dict:
     recipe = {
@@ -593,6 +594,97 @@ def _snapshot_episode() -> dict:
         },
     }
 
+
+def test_calibrate_complete_runs_keep_grader_threshold_and_scored_pair_rate(tmp_path, monkeypatch):
+    monkeypatch.setattr(cl, "_load_episode", lambda *_args, **_kwargs: _snapshot_episode())
+    monkeypatch.setenv("JUDGE_MODEL", "test-judge")
+
+    for winners, expected_rate, expected_verdict in (
+        (["A", "B", "A", "B"], 1.0, "GRADER OK"),
+        (["B", "A", "B", "A"], 0.0, "GRADER SUSPECT"),
+    ):
+        answers = iter(winners)
+        monkeypatch.setattr(
+            model_router,
+            "generate_judge_response",
+            lambda **_kwargs: json.dumps({
+                "winner": next(answers),
+                "per_dimension": {dim: "tie" for dim in cl.ALL_JUDGE_DIMENSIONS},
+                "reason": "fixture",
+            }),
+        )
+        results = tmp_path / f"results-{expected_verdict.lower().replace(' ', '-')}"
+        cl.main([
+            "calibrate", "--from-episode", "snapshot-week", "--stage", "tuesday",
+            "--runs", "1", "--results-dir", str(results),
+        ])
+        [path] = results.glob("*-calibrate-*.json")
+        report = json.loads(path.read_text())
+        for info in report["degradations"].values():
+            assert info["attempted"] == 1
+            assert info["requested_runs"] == 1
+            assert info["completed_pairs"] == info["scored_pairs"] == 1
+            assert info["real_preference_rate"] == expected_rate
+            assert info["verdict"] == expected_verdict
+
+
+def test_calibrate_zero_completed_pairs_has_unavailable_rate_and_incomplete_verdict(
+    tmp_path, monkeypatch, capsys,
+):
+    monkeypatch.setattr(cl, "_load_episode", lambda *_args, **_kwargs: _snapshot_episode())
+    monkeypatch.setenv("JUDGE_MODEL", "test-judge")
+    monkeypatch.setattr(model_router, "generate_judge_response", lambda **_kwargs: _judge_stub())
+
+    cl.main([
+        "calibrate", "--from-episode", "snapshot-week", "--stage", "tuesday",
+        "--runs", "2", "--max-calls", "1", "--results-dir", str(tmp_path / "results"),
+    ])
+
+    [path] = (tmp_path / "results").glob("*-calibrate-*.json")
+    report = json.loads(path.read_text())
+    info = report["degradations"]["shuffled_order"]
+    assert report["aborted"] is True
+    assert info["attempted"] == 1
+    assert info["completed_pairs"] == info["scored_pairs"] == 0
+    assert info["real_preference_rate"] is None
+    assert info["verdict"] == "INCOMPLETE - grader readiness unavailable"
+    assert len(info["partial_pairs"]) == 1
+    output = capsys.readouterr().out
+    assert "real_preference_rate=unavailable" in output
+    assert "INCOMPLETE - grader readiness unavailable" in output
+
+
+def test_calibrate_completed_plus_partial_rate_uses_only_complete_pairs(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cl, "_load_episode", lambda *_args, **_kwargs: _snapshot_episode())
+    monkeypatch.setenv("JUDGE_MODEL", "test-judge")
+    winners = iter(["A", "B", "A"])
+    monkeypatch.setattr(
+        model_router,
+        "generate_judge_response",
+        lambda **_kwargs: json.dumps({
+            "winner": next(winners),
+            "per_dimension": {dim: "tie" for dim in cl.ALL_JUDGE_DIMENSIONS},
+            "reason": "fixture",
+        }),
+    )
+
+    cl.main([
+        "calibrate", "--from-episode", "snapshot-week", "--stage", "tuesday",
+        "--runs", "2", "--max-calls", "3", "--results-dir", str(tmp_path / "results"),
+    ])
+
+    [path] = (tmp_path / "results").glob("*-calibrate-*.json")
+    report = json.loads(path.read_text())
+    info = report["degradations"]["shuffled_order"]
+    assert info["attempted"] == 2
+    assert info["requested_runs"] == 2
+    assert info["completed_pairs"] == info["scored_pairs"] == 1
+    assert info["real_preference_rate"] == 1.0
+    assert info["verdict"] == "INCOMPLETE - grader readiness unavailable"
+    assert len(info["partial_pairs"]) == 1
+    output = capsys.readouterr().out
+    assert "completed=1/2 scored=1 real_preference_rate=100.00%" in output
+    assert "INCOMPLETE - grader readiness unavailable" in output
 def _judge_stub() -> str:
     return json.dumps({
         "winner": "tie",
@@ -638,7 +730,7 @@ def test_ab_uses_one_episode_snapshot_for_anchor_and_every_judge_orientation(tmp
     cl.main([
         "ab", "--concept", "Snapshot Spiral Bites", "--stage", "tuesday", "--runs", "2",
         "--variant", str(variant_path), "--from-episode", "snapshot-week", "--local",
-        "--max-calls", "20", "--no-log", "--results-dir", str(tmp_path / "results"),
+        "--max-calls", "200", "--no-log", "--results-dir", str(tmp_path / "results"),
     ])
 
     assert load_count["n"] == 1
@@ -939,35 +1031,38 @@ def test_calibrate_writes_partial_result_on_exception_mid_run(tmp_path, monkeypa
     # shuffled_order's one successful pair (run 1) must have survived the
     # crash in its second run - "attempted" counts the started run (2),
     # but only 1 pair actually finished and was recorded.
-    assert len(report["degradations"]["shuffled_order"]["pairs"]) == 1
+    degradation = report["degradations"]["shuffled_order"]
+    assert len(degradation["pairs"]) == 1
+    assert degradation["attempted"] == 2
+    assert degradation["completed_pairs"] == degradation["scored_pairs"] == 1
+    assert degradation["real_preference_rate"] == 0.0
+    assert degradation["verdict"] == "INCOMPLETE - grader readiness unavailable"
+    assert len(degradation["partial_pairs"]) == 1
 
 # ---------------------------------------------------------------------------
-# --max-calls estimates the next generation's cost from the last observed
-# control/variant call count, not a flat 1 - finding (f)
+# --max-calls reserves the full structural generation-arm bound
 # ---------------------------------------------------------------------------
 
-def test_ab_max_calls_estimate_prevents_a_second_pair_from_starting(tmp_path, monkeypatch):
-    """Each arm returns a 5-message transcript (5 calls via the message-
-    count fallback in --dry-run). With max_calls=11, pair 1 costs 10
-    (unavoidable - there is no observation yet before it runs). The fix
-    under test is what happens next: pair 2's control-arm check must use
-    the *observed* 5-call cost from pair 1, not a flat 1, so it refuses to
-    start pair 2 at all instead of overshooting into it."""
-    monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X", count=5)})
+def test_ab_max_calls_denies_before_generation_when_arm_reservation_cannot_fit(tmp_path, monkeypatch):
+    generated = []
+    monkeypatch.setattr(sdw, "run_simulation", lambda **kw: generated.append(kw))
+    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-opus-4-6")
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
     results_dir = tmp_path / "results"
 
     cl.main([
         "ab", "--concept", "Test Muffins", "--stage", "monday", "--runs", "3",
         "--variant", str(variant_path), "--recipe-context", "anchor",
-        "--dry-run", "--max-calls", "11", "--results-dir", str(results_dir),
+        "--max-calls", "11", "--results-dir", str(results_dir),
     ])
 
     [result_file] = list(results_dir.glob("*-ab-*.json"))
     report = json.loads(result_file.read_text())
     assert report["aborted"] is True
-    assert report["completed_pairs"] == 1
-    assert report["calls_used"] == 10  # no overshoot into pair 2 at all
+    assert report["completed_pairs"] == 0
+    assert report["calls_used"] == 0
+    assert generated == [], "an arm with a 40-call worst case cannot fit into 11 calls"
 
 # ---------------------------------------------------------------------------
 # --max-cost aborts once total_cost has already reached the cap - finding
@@ -1089,9 +1184,9 @@ def test_ab_testbed_default_max_calls_is_derived_from_panel_size_and_runs(tmp_pa
 
     [result_file] = list(results_dir.glob("*-ab-testbed-*.json"))
     report = json.loads(result_file.read_text())
-    # monday's max_turns is 10 -> 2 scenarios * 2 runs * (3*10 + 2) = 128
-    # (3x, not 2x, so live-mode retries do not abort a normal variant).
-    assert report["max_calls"] == 128
+    # monday's max_turns is 10 -> 2 scenarios * 2 runs * (2*4*10 + 2) = 328
+    # (control + variant, four request attempts per turn, plus two judges).
+    assert report["max_calls"] == 328
     assert report["max_calls_derived"] is True
     assert report["panel_size"] == 2
 
