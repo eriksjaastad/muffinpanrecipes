@@ -140,7 +140,11 @@ def _extract_prose(
             return None, "evidence map must contain exactly two sentence entries", None
         sentence_ids: dict[str, list[str]] = {}
         for expected_number, line in enumerate(entries, start=1):
-            match = re.fullmatch(r"(?:[-*]\s*)?Sentence\s+([12])\s*:\s*(.+)", line, re.IGNORECASE)
+            match = re.fullmatch(
+                r"(?:[-*]\s*)?(?:(?:Sentence\s*)|S)?([12])\s*:\s*(.+)",
+                line,
+                re.IGNORECASE,
+            )
             if not match or match.group(1) != str(expected_number):
                 return None, "evidence map sentence entries are missing, duplicated, or misordered", None
             ids = SOURCE_ID_RE.findall(match.group(2))
