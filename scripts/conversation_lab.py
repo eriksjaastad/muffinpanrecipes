@@ -209,6 +209,7 @@ in tests/test_conversation_lab.py.
 from __future__ import annotations
 
 import argparse
+import copy
 import fcntl
 import hashlib
 import json
@@ -690,6 +691,8 @@ def _run_arm(
     recipe_context: str | None,
     mode: str,
     default_model: str,
+    photography_context: dict[str, Any] | None = None,
+    image_paths: list[Any] | None = None,
 ) -> dict[str, Any]:
     """Call run_simulation with the exact production call shape.
 
@@ -708,8 +711,8 @@ def _run_arm(
         mode=mode,
         prompt_style="scene",
         character_models=None,
-        image_paths=[],
-        photography_context=None,
+        image_paths=copy.deepcopy(image_paths) if image_paths is not None else [],
+        photography_context=copy.deepcopy(photography_context),
         recipe_context=recipe_context,
         initial_recent_lines=None,
     )
@@ -970,6 +973,62 @@ def _stage_recipe_data(episode: dict[str, Any], stage_data: dict[str, Any]) -> d
     both build the same recipe context and judge facts from one snapshot.
     """
     return stage_data.get("recipe_data") or (episode.get("stages") or {}).get("monday", {}).get("recipe_data")
+
+
+def _bench_photography_inputs(episode: dict[str, Any], stage: str) -> dict[str, Any]:
+    """Freeze the photo inputs production passes for a Wednesday or Friday run."""
+    stages = episode.get("stages") or {}
+    if stage == "wednesday":
+        source_stage = stages.get("wednesday")
+        photo_stage = source_stage if isinstance(source_stage, dict) else {}
+        path_stage = photo_stage
+        paths_applicable = True
+    elif stage == "friday":
+        source_stage = stages.get("wednesday")
+        photo_stage = source_stage if isinstance(source_stage, dict) else {}
+        path_stage = {}
+        paths_applicable = False
+    else:
+        return {
+            "photography_context": None,
+            "image_paths": [],
+            "sources": {"photography_context": "not_applicable", "image_paths": "not_applicable"},
+        }
+
+    missing = object()
+    raw_context = photo_stage.get("photography_data", missing)
+    if isinstance(raw_context, dict):
+        photography_context = copy.deepcopy(raw_context)
+        context_source = "present"
+    elif raw_context is missing or raw_context is None:
+        photography_context = None
+        context_source = "missing"
+    else:
+        # Match cron's isinstance(dict) guard while retaining malformed-vs-
+        # absent provenance in the comparison scenario.
+        photography_context = None
+        context_source = f"invalid:{type(raw_context).__name__}"
+
+    if not paths_applicable:
+        image_paths: list[Any] = []
+        paths_source = "not_applicable"
+    else:
+        raw_paths = path_stage.get("image_paths", missing)
+        if isinstance(raw_paths, list):
+            image_paths = copy.deepcopy(raw_paths)
+            paths_source = "present"
+        elif raw_paths is missing or raw_paths is None:
+            image_paths = []
+            paths_source = "missing"
+        else:
+            image_paths = []
+            paths_source = f"invalid:{type(raw_paths).__name__}"
+
+    return {
+        "photography_context": photography_context,
+        "image_paths": image_paths,
+        "sources": {"photography_context": context_source, "image_paths": paths_source},
+    }
 
 def _resolve_recipe_context_and_facts(
     args: argparse.Namespace,
@@ -2546,8 +2605,8 @@ def _bench_delta(
 
 def _resolve_bench_scenario(
     args: argparse.Namespace,
-) -> tuple[str, str | None, str | None, dict[str, Any]]:
-    """(concept, recipe_context, recipe_facts, prior_stages) for a bench.
+) -> tuple[str, str | None, str | None, dict[str, Any], dict[str, Any]]:
+    """Return concept, recipe anchor/facts, prior stages, and frozen photo inputs.
 
     Deliberately does NOT reuse `_resolve_recipe_context_and_facts`: that
     helper loads the episode and throws it away, and bench needs the same
@@ -2555,7 +2614,7 @@ def _resolve_bench_scenario(
     title, so loading it once here avoids a second CDN fetch.
     """
     if args.recipe_context:
-        return args.concept, args.recipe_context, None, {}
+        return args.concept, args.recipe_context, None, {}, _bench_photography_inputs({}, args.stage)
 
     episode = _load_episode(args.from_episode, local=args.local)
     stage_data = (episode.get("stages") or {}).get(args.stage) or {}
@@ -2568,7 +2627,8 @@ def _resolve_bench_scenario(
         )
     concept = args.concept or _episode_concept(episode)
     recipe_facts = _build_judge_recipe_facts(recipe_data) or None
-    return concept, recipe_context, recipe_facts, _frozen_prior_stages(episode, args.stage)
+    photo_inputs = _bench_photography_inputs(episode, args.stage)
+    return concept, recipe_context, recipe_facts, _frozen_prior_stages(episode, args.stage), photo_inputs
 
 # Longest slugified --label allowed. The result filename is
 # "bench-<label>-<20-char stamp>[-N].json", and most filesystems cap a single
@@ -2803,8 +2863,9 @@ def _validate_distribution_section(
             )
 
 # Recorded scenario fields checked before a comparison. They cover the frozen
-# judge inputs, but do not fingerprint source code or other generator inputs;
-# operators must establish those are unchanged (see PROTOCOL.md).
+# judge inputs and stage-specific photo inputs, but do not fingerprint source
+# code or other generator inputs; operators must establish those are unchanged
+# (see PROTOCOL.md).
 _BENCH_SCENARIO_FIELDS = (
     "stage",
     "dry_run",
@@ -2812,6 +2873,9 @@ _BENCH_SCENARIO_FIELDS = (
     "recipe_context",
     "judged_against_prior_days",
     "judge_input_digest",
+    "photography_context",
+    "image_paths",
+    "photography_input_sources",
     "models",
 )
 
@@ -2876,8 +2940,38 @@ def _assert_writable(directory: Path) -> None:
 def _assert_comparable_scenario(baseline: dict[str, Any], report: dict[str, Any]) -> None:
     """Refuse a baseline whose scenario differs from this bench's."""
     mismatches = []
+    photo_fields = {"photography_context", "image_paths", "photography_input_sources"}
+    baseline_sources = baseline.get("photography_input_sources")
+    report_sources = report.get("photography_input_sources")
+    baseline_sources = baseline_sources if isinstance(baseline_sources, dict) else {}
+    report_sources = report_sources if isinstance(report_sources, dict) else {}
+    malformed_photo_source = any(
+        isinstance(source, str) and source.startswith("invalid")
+        for sources in (baseline_sources, report_sources)
+        for source in sources.values()
+    )
     for field in _BENCH_SCENARIO_FIELDS:
-        theirs, ours = baseline.get(field), report.get(field)
+        if field == "photography_input_sources":
+            # Source metadata is recorded for audit, but absent vs present-
+            # empty is not a changed prompt input. Invalid nonempty sources
+            # must remain distinguishable from missing data.
+            if not malformed_photo_source:
+                continue
+            theirs, ours = baseline_sources, report_sources
+        elif field == "photography_context":
+            theirs = baseline.get(field)
+            ours = report.get(field)
+            # The simulator's photography helpers treat {} as no context.
+            if theirs == {}:
+                theirs = None
+            if ours == {}:
+                ours = None
+        elif field == "image_paths":
+            # Old baseline files had no photo fields. Their effective image
+            # input was empty, preserving manual and no-photo comparisons.
+            theirs, ours = baseline.get(field, []), report.get(field, [])
+        else:
+            theirs, ours = baseline.get(field), report.get(field)
         if theirs != ours:
             mismatches.append(f"{field}: {theirs!r} vs {ours!r}")
     if mismatches:
@@ -2892,7 +2986,7 @@ def _assert_comparable_scenario(baseline: dict[str, Any], report: dict[str, Any]
 def cmd_bench(args: argparse.Namespace) -> None:
     _validate_bench_args(args)
     mode, default_model, judge_model = _resolve_models(args.dry_run)
-    concept, recipe_context, recipe_facts, prior_stages = _resolve_bench_scenario(args)
+    concept, recipe_context, recipe_facts, prior_stages, photo_inputs = _resolve_bench_scenario(args)
     expected_cast = simulate_module.participants_for_day(args.stage)
 
     # Load and validate --compare FIRST (Codex P2). A typo'd path, missing
@@ -2912,6 +3006,9 @@ def cmd_bench(args: argparse.Namespace) -> None:
         "recipe_context": recipe_context,
         "judged_against_prior_days": sorted(prior_stages.keys()),
         "judge_input_digest": _judge_input_digest(prior_stages, recipe_facts, expected_cast),
+        "photography_context": photo_inputs["photography_context"],
+        "image_paths": photo_inputs["image_paths"],
+        "photography_input_sources": photo_inputs["sources"],
         "models": {"mode": mode, "dialogue": default_model, "judge": judge_model},
     }
     if baseline_report is not None and not args.allow_mismatched_baseline:
@@ -2977,7 +3074,14 @@ def cmd_bench(args: argparse.Namespace) -> None:
             result = _spend(
                 budget,
                 lambda: _run_arm(
-                    concept, args.stage, run_index, recipe_context, mode, default_model
+                    concept,
+                    args.stage,
+                    run_index,
+                    recipe_context,
+                    mode,
+                    default_model,
+                    photography_context=photo_inputs["photography_context"],
+                    image_paths=photo_inputs["image_paths"],
                 ),
                 fallback=0 if args.dry_run else _max_turns_for_stage(args.stage),
                 reservation=gen_reserve,

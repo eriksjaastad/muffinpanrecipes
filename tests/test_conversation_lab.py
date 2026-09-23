@@ -10,6 +10,7 @@ docs/conversation-lab/.
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
@@ -1048,6 +1049,8 @@ def test_max_turns_for_stage_floors_at_ten():
     assert cl._max_turns_for_stage("monday") == 10
     # thursday's upper bound is 5 - floored up to 10.
     assert cl._max_turns_for_stage("thursday") == 10
+    # Wednesday can expand to 7 turns normally or 10 after a reshoot.
+    assert cl._max_turns_for_stage("wednesday") >= 10
     # An unknown stage falls back to (4, 6) - still floored to 10.
     assert cl._max_turns_for_stage("not-a-real-day") == 10
 
@@ -2237,6 +2240,215 @@ def test_bench_from_episode_uses_the_episode_recipe_concept_and_prior_days(tmp_p
     # Sunday comes AFTER saturday and must not leak into the judge's context.
     assert report["judged_against_prior_days"] == ["monday", "tuesday", "wednesday"]
     assert judged_prior == [["monday", "tuesday", "wednesday"]] * 2
+
+
+@pytest.mark.parametrize("reshoot_happened", [False, True])
+def test_bench_wednesday_passes_frozen_photo_inputs_to_every_run(tmp_path, monkeypatch, reshoot_happened):
+    episode = _snapshot_episode()
+    photo_data = {
+        "reshoot_happened": reshoot_happened,
+        "winner": {"variant": "hero_threequarter", "round": 2 if reshoot_happened else 1},
+        "rounds": [{"variants": [{"variant": "macro_closeup"}]}],
+        "selected_shots": ["legacy-selected-shot"],
+    }
+    image_paths = ["hero.png", "overhead.png", "detail.png"]
+    episode["stages"]["wednesday"] = {
+        "photography_data": photo_data,
+        "image_paths": image_paths,
+        "dialogue": _messages("wed", count=2),
+    }
+    received_contexts = []
+    context_refs = []
+    received_paths = []
+    path_refs = []
+
+    def fake_simulation(**kwargs):
+        context_refs.append(kwargs["photography_context"])
+        path_refs.append(kwargs["image_paths"])
+        received_contexts.append(copy.deepcopy(kwargs["photography_context"]))
+        received_paths.append(copy.deepcopy(kwargs["image_paths"]))
+        # Mutation in one arm must not affect the frozen scenario or the next arm.
+        kwargs["photography_context"]["rounds"][0]["variants"][0]["variant"] = "mutated"
+        kwargs["image_paths"].append("mutated.png")
+        return {"messages": _messages("generated", count=5)}
+
+    monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: episode)
+    monkeypatch.setattr(sdw, "run_simulation", fake_simulation)
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+
+    cl.cmd_bench(_bench_args(
+        tmp_path,
+        stage="wednesday",
+        concept=None,
+        recipe_context=None,
+        from_episode="snapshot-week",
+        runs=2,
+    ))
+
+    report = _read_bench(tmp_path, "wednesday-n2")
+    assert len(received_contexts) == len(received_paths) == 2
+    assert context_refs[0] is not context_refs[1]
+    assert path_refs[0] is not path_refs[1]
+    for context, paths in zip(received_contexts, received_paths):
+        assert context["reshoot_happened"] is reshoot_happened
+        assert context["winner"]["round"] == photo_data["winner"]["round"]
+        assert context["rounds"][0]["variants"][0]["variant"] == "macro_closeup"
+        assert paths == image_paths
+    assert episode["stages"]["wednesday"]["photography_data"] == photo_data
+    assert episode["stages"]["wednesday"]["image_paths"] == image_paths
+    assert report["photography_context"] == photo_data
+    assert report["image_paths"] == image_paths
+    assert report["photography_input_sources"] == {
+        "photography_context": "present", "image_paths": "present"
+    }
+
+
+def test_bench_friday_reuses_wednesday_photo_context_without_image_paths(tmp_path, monkeypatch):
+    episode = _snapshot_episode()
+    photo_data = {
+        "reshoot_happened": True,
+        "winner": {"variant": "overhead_flatlay"},
+        "rounds": [{"variants": [{"variant": "overhead_flatlay"}]}],
+    }
+    episode["stages"]["wednesday"] = {
+        "photography_data": photo_data,
+        "image_paths": ["hero.png", "alternate.png"],
+    }
+    contexts = []
+    context_refs = []
+    images = []
+
+    def fake_simulation(**kwargs):
+        context_refs.append(kwargs["photography_context"])
+        contexts.append(copy.deepcopy(kwargs["photography_context"]))
+        images.append(copy.deepcopy(kwargs["image_paths"]))
+        kwargs["photography_context"]["winner"]["variant"] = "mutated"
+        return {"messages": _messages("generated", count=5)}
+
+    monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: episode)
+    monkeypatch.setattr(sdw, "run_simulation", fake_simulation)
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+
+    cl.cmd_bench(_bench_args(
+        tmp_path,
+        stage="friday",
+        concept=None,
+        recipe_context=None,
+        from_episode="snapshot-week",
+        runs=2,
+    ))
+
+    report = _read_bench(tmp_path, "friday-n2")
+    assert len(contexts) == 2 and context_refs[0] is not context_refs[1]
+    assert [context["winner"]["variant"] for context in contexts] == [
+        "overhead_flatlay", "overhead_flatlay"
+    ]
+    assert images == [[], []]
+    assert report["photography_context"] == photo_data
+    assert report["image_paths"] == []
+    assert report["photography_input_sources"]["image_paths"] == "not_applicable"
+
+
+def test_bench_photo_input_type_guards_match_production_without_hiding_invalid_sources():
+    malformed = {
+        "stages": {
+            "wednesday": {"photography_data": "not-a-dict", "image_paths": "not-a-list"}
+        }
+    }
+    inputs = cl._bench_photography_inputs(malformed, "wednesday")
+    assert inputs["photography_context"] is None
+    assert inputs["image_paths"] == []
+    assert inputs["sources"] == {
+        "photography_context": "invalid:str", "image_paths": "invalid:str"
+    }
+
+    missing = cl._bench_photography_inputs({"stages": {}}, "wednesday")
+    assert missing["photography_context"] is None
+    assert missing["image_paths"] == []
+    assert missing["sources"] == {
+        "photography_context": "missing", "image_paths": "missing"
+    }
+
+
+def test_bench_photo_baseline_mismatch_is_rejected_before_generation(tmp_path, monkeypatch):
+    episode = _snapshot_episode()
+    episode["stages"]["wednesday"] = {
+        "photography_data": {"winner": {"variant": "macro_closeup"}},
+        "image_paths": ["hero.png"],
+    }
+    monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: episode)
+    monkeypatch.setattr(sdw, "run_simulation", lambda **kwargs: {"messages": _messages("dry", 2)})
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("template", "d", "j"))
+    cl.cmd_bench(_bench_args(
+        tmp_path,
+        stage="wednesday",
+        concept=None,
+        recipe_context=None,
+        from_episode="snapshot-week",
+        dry_run=True,
+        runs=1,
+        label="photo-base",
+    ))
+    baseline = _bench_path(tmp_path, "photo-base")
+
+    episode["stages"]["wednesday"]["photography_data"]["winner"]["variant"] = "hero_threequarter"
+    generated = []
+
+    def sentinel_generation(**kwargs):
+        generated.append(kwargs)
+        raise AssertionError("photo baseline mismatch reached generation")
+
+    monkeypatch.setattr(sdw, "run_simulation", sentinel_generation)
+    with pytest.raises(cl.ConversationLabError, match="photography_context"):
+        cl.cmd_bench(_bench_args(
+            tmp_path,
+            stage="wednesday",
+            concept=None,
+            recipe_context=None,
+            from_episode="snapshot-week",
+            compare=str(baseline),
+            runs=1,
+            label="photo-changed",
+        ))
+    assert generated == []
+
+
+def test_legacy_no_photo_baseline_remains_comparable_for_manual_scenario():
+    baseline = {"stage": "monday", "concept": "Spiral Bites"}
+    current = {
+        "stage": "monday",
+        "concept": "Spiral Bites",
+        "photography_context": None,
+        "image_paths": [],
+        "photography_input_sources": {
+            "photography_context": "not_applicable", "image_paths": "not_applicable"
+        },
+    }
+    cl._assert_comparable_scenario(baseline, current)
+
+    # An old Wednesday bench did not record photo inputs. Present-but-empty
+    # values have the same simulator effect as absent values and stay usable.
+    empty_wednesday = {
+        "stage": "wednesday",
+        "photography_context": {},
+        "image_paths": [],
+        "photography_input_sources": {
+            "photography_context": "present", "image_paths": "present"
+        },
+    }
+    cl._assert_comparable_scenario({"stage": "wednesday"}, empty_wednesday)
+
+    malformed_wednesday = {
+        **empty_wednesday,
+        "photography_context": None,
+        "photography_input_sources": {
+            "photography_context": "invalid:str", "image_paths": "present"
+        },
+    }
+    with pytest.raises(cl.ConversationLabError, match="photography_input_sources"):
+        cl._assert_comparable_scenario({"stage": "wednesday"}, malformed_wednesday)
 
 def test_bench_from_episode_fails_loud_when_the_recipe_data_is_unusable(tmp_path, monkeypatch):
     monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: {"episode_id": "empty", "stages": {}})
