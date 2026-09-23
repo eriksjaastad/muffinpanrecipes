@@ -11,11 +11,13 @@ docs/conversation-lab/.
 from __future__ import annotations
 
 import json
+import math
 import urllib.error
 
 import pytest
 
 import scripts.conversation_lab as cl
+import scripts.conversation_metrics as cm
 import scripts.simulate_dialogue_week as sdw
 from backend.utils import model_router
 
@@ -318,7 +320,7 @@ def test_ab_results_file_has_expected_schema(tmp_path, monkeypatch):
         "command", "concept", "stage", "variant_file", "variant_name", "variant_keys",
         "requested_runs", "completed_pairs", "aborted", "max_calls", "calls_used",
         "dry_run", "target_dimension", "overall_counts", "per_dimension_counts",
-        "target_win_rate", "worst_other_dimension_loss_rate", "metric_deltas",
+        "target_win_rate", "worst_other_dimension_loss_rate", "metric_deltas", "metric_coverage",
         "cost_summary", "decision_rule", "pairs", "results_file", "generated_at",
     ):
         assert key in report, f"missing results key: {key}"
@@ -1641,6 +1643,98 @@ def test_metric_deltas_are_generic_over_every_numeric_summary_key(tmp_path, monk
     expected_keys = cl._numeric_keys(pair["control_summary"])
     assert expected_keys  # summarize() returns at least one numeric key
     assert set(report["metric_deltas"].keys()) == set(expected_keys)
+
+
+def _attribution_messages(rich: bool) -> list[dict]:
+    messages = [
+        {"character": "Margaret Chen", "message": "apples apples orchard", "day": "monday"},
+        {"character": "Margaret Chen", "message": "orchard apples pie", "day": "monday"},
+        {"character": "Julian Torres", "message": "pepper pepper skillet", "day": "monday"},
+        {"character": "Julian Torres", "message": "skillet pepper roast", "day": "monday"},
+    ]
+    return messages if rich else messages[:-1]
+
+
+def _attribution_pair(control_messages: list[dict], variant_messages: list[dict]) -> dict:
+    judge = {"overall": "tie", **{dimension: "tie" for dimension in cl.ALL_JUDGE_DIMENSIONS}}
+    return {
+        "control_summary": cm.summarize(control_messages, ["Margaret Chen", "Julian Torres"]),
+        "variant_summary": cm.summarize(variant_messages, ["Margaret Chen", "Julian Torres"]),
+        "control_messages": control_messages,
+        "variant_messages": variant_messages,
+        "judge": judge,
+    }
+
+
+def test_nullable_speaker_attribution_is_paired_only_when_both_arms_are_scored():
+    rich = _attribution_messages(True)
+    sparse = _attribution_messages(False)
+    rich_summary = cm.summarize(rich, ["Margaret Chen", "Julian Torres"])
+    sparse_summary = cm.summarize(sparse, ["Margaret Chen", "Julian Torres"])
+    assert rich_summary["speaker_attribution_accuracy"] is not None
+    assert sparse_summary["speaker_attribution_accuracy"] is None
+
+    for control_messages, variant_messages in ((rich, sparse), (sparse, rich), (sparse, sparse)):
+        result = cl._aggregate_pairs([_attribution_pair(control_messages, variant_messages)], "overall", False)
+        assert "speaker_attribution_accuracy" not in result["metric_deltas"]
+        assert result["metric_coverage"]["speaker_attribution_accuracy"] == {
+            "paired_samples": 0, "eligible_pairs": 1, "coverage": 0.0,
+        }
+
+
+def test_nullable_metric_union_keeps_later_valid_observation_and_coverage():
+    rich = _attribution_messages(True)
+    sparse = _attribution_messages(False)
+    pairs = [_attribution_pair(sparse, sparse), _attribution_pair(rich, rich)]
+
+    result = cl._aggregate_pairs(pairs, "overall", False)
+
+    assert result["metric_deltas"]["speaker_attribution_accuracy"] == 0.0
+    assert result["metric_coverage"]["speaker_attribution_accuracy"] == {
+        "paired_samples": 1, "eligible_pairs": 2, "coverage": 0.5,
+    }
+
+
+def test_nullable_metric_report_writer_preserves_pair_evidence(tmp_path):
+    pair = _attribution_pair(_attribution_messages(True), _attribution_messages(False))
+    args = type("Args", (), {
+        "concept": "Sparse attribution", "stage": "monday", "runs": 1,
+        "dry_run": False, "target": "overall", "max_calls": 4, "max_cost": 1.0,
+    })()
+    path = tmp_path / "result.json"
+    report = cl._build_ab_report(
+        args, tmp_path / "variant.json", {"_SHARED_CHARACTER_RULES": "test"},
+        [pair], False, type("Budget", (), {"used": 2})(), path,
+    )
+    cl._write_json_result(path, report)
+
+    saved = json.loads(path.read_text())
+    assert saved["completed_pairs"] == 1
+    assert saved["pairs"][0]["control_messages"] == pair["control_messages"]
+    assert "speaker_attribution_accuracy" not in saved["metric_deltas"]
+    assert saved["metric_coverage"]["speaker_attribution_accuracy"]["paired_samples"] == 0
+    cl._print_metric_deltas(saved["metric_deltas"], saved["metric_coverage"])
+
+
+def test_metric_deltas_filter_nonfinite_and_boolean_values():
+    pair = _attribution_pair(_attribution_messages(True), _attribution_messages(True))
+    pair["control_summary"].update({"probe": 1.0, "bad": math.nan, "flag": True})
+    pair["variant_summary"].update({"probe": 3.0, "bad": math.inf, "flag": False})
+
+    result = cl._aggregate_pairs([pair], "overall", False)
+
+    assert result["metric_deltas"]["probe"] == 2.0
+    assert result["metric_coverage"]["probe"]["paired_samples"] == 1
+    assert "bad" not in result["metric_deltas"]
+    assert result["metric_coverage"]["bad"]["paired_samples"] == 0
+    assert "flag" not in result["metric_deltas"]
+
+    ranking = cl._rank_sweep_variants({"variant": {
+        "metric_deltas": result["metric_deltas"],
+        "metric_coverage": result["metric_coverage"],
+        "overall_counts": {}, "per_dimension_counts": {},
+    }}, "overall")
+    assert ranking[0]["metric_coverage"]["speaker_attribution_accuracy"]["paired_samples"] == 1
 
 
 # ---------------------------------------------------------------------------
