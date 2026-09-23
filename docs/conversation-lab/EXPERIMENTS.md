@@ -167,7 +167,11 @@ The snapshot records the source episode SHA-256
 `555401c9ecfb2e2a5641eef9ffcfcf55f9bbe8a0bbb9b2abbb450e4e0e0cb1d6` and
 original tool-result SHA-256
 `17f5b68c7271f7763d9dd4f073ac9d725c481b694e54c066754b9d547f087195`, along
-with the source transcript and seed 1–3 degraded variants.
+with the source transcript, seed 1–3 degraded variants, expected cast,
+recipe context/facts, judge system prompt and model ID, and the 12 rendered
+orientation prompts. Those judge inputs were reconstructed offline after the
+run from the matching episode hash and frozen source commit; they are not
+captured API request logs and contain no raw API answers.
 
 Interpret this narrowly. The combined records preserve only the combined
 verdicts; raw answers from the two judge orientations were not recorded, so
@@ -181,7 +185,10 @@ changes turn labels by one position and is identical for seeds 1–3; that
 construction does not establish that the resulting dialogue has poor voice
 distinctness. Therefore **GRADER SUSPECT is the tool's flag for this known-
 degradation test, not proof that the judge is wrong or that the characters
-are indistinct**. The protocol's known-bad calibration guidance still calls
+are indistinct**. Separately, the parser can default omitted overall or
+per-dimension judge fields to ties before combining orientations. That is a
+possible interpretation caveat for this output, not a claim that any fields
+were omitted here. The protocol's known-bad calibration guidance still calls
 for diagnosing judge prompts when ties appear; this record does not claim
 that diagnosis is complete.
 
