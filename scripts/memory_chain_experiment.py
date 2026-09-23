@@ -8,6 +8,7 @@ writes a plan; it never invokes the dialogue simulator or a provider.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import sys
@@ -236,9 +237,11 @@ def execute_fake_chain(
                 for character, records in prior_memory_records.items()
                 if records
             }
+            prior_memory_records_snapshot = copy.deepcopy(prior_memory_records)
+            prior_memory_records_for_callback = copy.deepcopy(prior_memory_records)
             week_directions = dict(simulator_state.DAY_STAGE_DIRECTIONS)
             try:
-                result = adapters.simulate_week(week, arm, root, prior_memory_records)
+                result = adapters.simulate_week(week, arm, root, prior_memory_records_for_callback)
             finally:
                 simulator_state.DAY_STAGE_DIRECTIONS.clear()
                 simulator_state.DAY_STAGE_DIRECTIONS.update(week_directions)
@@ -323,7 +326,7 @@ def execute_fake_chain(
                 "source_ids": source_ids,
                 "turns": normalized_turns,
                 "prior_memory_ids": prior_memory_ids,
-                "prior_memory_records_provided_to_callback": prior_memory_records,
+                "prior_memory_records_provided_to_callback": prior_memory_records_snapshot,
                 "memory_records": memory_records,
             })
         return {"weeks": rows}

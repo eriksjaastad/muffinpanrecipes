@@ -40,6 +40,8 @@ def _fake_adapters(*, fail_week=None, observed=None):
             assert margaret_prior[0]["week"] == "2026-W40"
             assert margaret_prior[0]["text"] == "Synthetic fake memory, not dialogue content."
             assert margaret_prior[0]["memory_id"] == "mem_2026-W40_margaretchen"
+            margaret_prior[0]["text"] = "Mutated by callback after delivery."
+            margaret_prior[0]["memory_id"] = "mutated-memory-id"
         elif week["week"] == "2026-W42":
             assert list(memory_root.iterdir()) == []
             assert all(len(prior_memories[character]) == 2 for character in CHARACTER_ROSTER)
@@ -48,6 +50,9 @@ def _fake_adapters(*, fail_week=None, observed=None):
             assert ria_prior[0]["text"] == "Synthetic fake memory, not dialogue content."
             assert ria_prior[1]["status"] == "no_new_evidence"
             assert ria_prior[1]["text"] is None
+            margaret_prior = prior_memories["Margaret Chen"]
+            assert margaret_prior[0]["memory_id"] == "mem_2026-W40_margaretchen"
+            assert margaret_prior[0]["text"] == "Synthetic fake memory, not dialogue content."
         observed.append({
             "week": week["week"],
             "seed": week["seed"],
@@ -185,6 +190,8 @@ def test_fake_chain_keeps_arms_isolated_and_links_week_memories(tmp_path, monkey
         if record["character"] == "Margaret Chen"
     )
     assert treatment_weeks[1]["prior_memory_records_provided_to_callback"]["Margaret Chen"] == [w40_margaret_record]
+    assert treatment_weeks[1]["prior_memory_records_provided_to_callback"]["Margaret Chen"][0]["memory_id"] == "mem_2026-W40_margaretchen"
+    assert treatment_weeks[1]["prior_memory_records_provided_to_callback"]["Margaret Chen"][0]["text"] == "Synthetic fake memory, not dialogue content."
     assert treatment_weeks[1]["prior_memory_ids"] == {
         character: [f"mem_2026-W40_{''.join(c.lower() for c in character if c.isalnum())}"]
         for character in CHARACTER_ROSTER
