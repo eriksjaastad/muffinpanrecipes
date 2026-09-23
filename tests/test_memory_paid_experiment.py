@@ -228,11 +228,22 @@ def test_a_evidence_map_requires_one_ordered_allowed_entry_per_sentence():
         "sentence_1": [first_id], "sentence_2": [second_id],
     }
 
+    for label_1, label_2 in (("1", "2"), ("S1", "S2"), ("Sentence 1", "Sentence 2")):
+        variant = (
+            "Devon shared the schedule. Marcus raised a concern.\n"
+            f"Evidence map:\n{label_1}: [{first_id}]\n{label_2}: [{second_id}]"
+        )
+        variant_prose, variant_error, variant_structure = paid._extract_prose("A", variant, allowed)
+        assert variant_error is None
+        assert variant_prose == prose
+        assert variant_structure["evidence_map"] == structure["evidence_map"]
+
     malformed_maps = [
         # The old parser accepted both IDs despite lacking sentence 2 mapping.
         f"Evidence map:\nSentence 1: [{first_id}] [{second_id}]",
         f"Evidence map:\nSentence 1: [{first_id}]\nSentence 1: [{second_id}]",
         f"Evidence map:\nSentence 2: [{first_id}]\nSentence 1: [{second_id}]",
+        f"Evidence map:\nSentence 1: [{first_id}]\nSentence 3: [{second_id}]",
         f"Evidence map:\nSentence 1: [{first_id}]\nSentence 2: [{second_id}]\nExtra: [{first_id}]",
         "Evidence map:\nSentence 1: [msg_aaaaaaaaaaaaaaaaaaaa]\nSentence 2: [" + second_id + "]",
         f"Evidence map:\nSentence 1: [{first_id}] unsupported prose\nSentence 2: [{second_id}]",
