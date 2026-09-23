@@ -569,6 +569,9 @@ def test_calibrate_second_orientation_denial_keeps_first_unscored(tmp_path, monk
     report = json.loads(result_path.read_text(encoding="utf-8"))
     degradation = report["degradations"][cl._DEGRADATIONS[0][0]]
     assert degradation["pairs"] == []
+    assert degradation["completed_pairs"] == degradation["scored_pairs"] == 0
+    assert degradation["real_preference_rate"] is None
+    assert degradation["verdict"] == "INCOMPLETE - grader readiness unavailable"
     [partial] = degradation["partial_pairs"]
     assert partial["run_index"] == 1
     assert partial["status"] == "awaiting_judges"
