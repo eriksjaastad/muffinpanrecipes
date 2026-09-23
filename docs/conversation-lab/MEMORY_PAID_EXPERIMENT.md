@@ -46,6 +46,10 @@ The result/checkpoint JSON fields are:
   `normalized_text_lengths` (`method`, `response_text_tokens`,
   `memory_prose_tokens`). B-arm prose length excludes field labels and citation
   IDs; citation references are checked against that character's source IDs.
+  A-arm prose is scored only when the evidence map has exactly one ordered
+  `Sentence 1` and `Sentence 2` entry, each containing one or more allowed
+  source IDs and no other text. Missing, duplicate, misordered, or out-of-scope
+  entries remain preserved in `raw_response_text` and are marked unscored.
   On complete runs, `guard_summary` records the guard's aggregate accounting.
 
 ## Predeclared pilot scoring

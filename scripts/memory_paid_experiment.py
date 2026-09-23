@@ -133,10 +133,27 @@ def _extract_prose(
         sentences = re.split(r"(?<=[.!?])\s+", prose)
         if len(sentences) != 2 or not all(sentence.strip() for sentence in sentences):
             return None, "recap is not exactly two sentences", None
-        evidence = raw[marker.end():]
-        if len(SOURCE_ID_RE.findall(evidence)) < 2:
-            return None, "evidence map lacks source IDs", None
-        return SOURCE_ID_RE.sub("", prose).strip(), None, {"format": "two_sentence_recap"}
+        if SOURCE_ID_RE.search(prose):
+            return None, "recap prose contains source IDs outside the evidence map", None
+        entries = [line.strip() for line in raw[marker.end():].splitlines() if line.strip()]
+        if len(entries) != 2:
+            return None, "evidence map must contain exactly two sentence entries", None
+        sentence_ids: dict[str, list[str]] = {}
+        for expected_number, line in enumerate(entries, start=1):
+            match = re.fullmatch(r"(?:[-*]\s*)?Sentence\s+([12])\s*:\s*(.+)", line, re.IGNORECASE)
+            if not match or match.group(1) != str(expected_number):
+                return None, "evidence map sentence entries are missing, duplicated, or misordered", None
+            ids = SOURCE_ID_RE.findall(match.group(2))
+            residue = SOURCE_ID_RE.sub("", match.group(2))
+            residue = re.sub(r"[\s\[\](),;]+", "", residue)
+            if not ids or residue:
+                return None, f"Sentence {expected_number} evidence entry must contain only source IDs", None
+            if not set(ids) <= allowed_source_ids:
+                return None, f"Sentence {expected_number} cites IDs outside this character's evidence", None
+            sentence_ids[f"sentence_{expected_number}"] = list(dict.fromkeys(ids))
+        return SOURCE_ID_RE.sub("", prose).strip(), None, {
+            "format": "two_sentence_recap", "evidence_map": sentence_ids,
+        }
     labels = ("Observed", "Inference", "Stance", "Open thread")
     matches: list[tuple[int, int, str]] = []
     for label in labels:

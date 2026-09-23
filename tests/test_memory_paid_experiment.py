@@ -213,6 +213,58 @@ def test_b_prose_length_excludes_field_labels_and_citation_wrappers():
     assert structure_a["fields"] == structure_b["fields"]
 
 
+def test_a_evidence_map_requires_one_ordered_allowed_entry_per_sentence():
+    first_id = "msg_0123456789abcdefabcd"
+    second_id = "msg_abcdef0123456789abcd"
+    allowed = {first_id, second_id}
+    valid = (
+        "Devon shared the schedule. Marcus raised a concern.\n"
+        "Evidence map:\nSentence 1: [" + first_id + "]\nSentence 2: [" + second_id + "]"
+    )
+    prose, error, structure = paid._extract_prose("A", valid, allowed)
+    assert error is None
+    assert prose == "Devon shared the schedule. Marcus raised a concern."
+    assert structure["evidence_map"] == {
+        "sentence_1": [first_id], "sentence_2": [second_id],
+    }
+
+    malformed_maps = [
+        # The old parser accepted both IDs despite lacking sentence 2 mapping.
+        f"Evidence map:\nSentence 1: [{first_id}] [{second_id}]",
+        f"Evidence map:\nSentence 1: [{first_id}]\nSentence 1: [{second_id}]",
+        f"Evidence map:\nSentence 2: [{first_id}]\nSentence 1: [{second_id}]",
+        f"Evidence map:\nSentence 1: [{first_id}]\nSentence 2: [{second_id}]\nExtra: [{first_id}]",
+        "Evidence map:\nSentence 1: [msg_aaaaaaaaaaaaaaaaaaaa]\nSentence 2: [" + second_id + "]",
+        f"Evidence map:\nSentence 1: [{first_id}] unsupported prose\nSentence 2: [{second_id}]",
+    ]
+    for evidence in malformed_maps:
+        raw = "Devon shared the schedule. Marcus raised a concern.\n" + evidence
+        prose, error, structure = paid._extract_prose("A", raw, allowed)
+        assert prose is None
+        assert error
+        assert structure is None
+
+
+def test_malformed_a_map_keeps_raw_response_and_marks_unscored(tmp_path, monkeypatch):
+    _fake_sdk(monkeypatch)
+    original = Messages.create
+    malformed = (
+        "The room agreed to pause the launch. Marcus noticed the concern remained unresolved.\n"
+        "Evidence map:\nSentence 1: msg_0123456789abcdefabcd msg_0123456789abcdefabcd"
+    )
+    def malformed_a_only(self, **kwargs):
+        response = original(self, **kwargs)
+        if "Policy A — recap bundle" in kwargs["system"]:
+            response.content = [SimpleNamespace(type="text", text=malformed)]
+        return response
+    monkeypatch.setattr(Messages, "create", malformed_a_only)
+    state = paid.execute(_artifact(), "8" * 64, tmp_path / "ledger.json", tmp_path / "result.json")
+    a_records = [item for item in state["responses"] if item["arm"] == "A"]
+    assert all(item["raw_response_text"] == malformed for item in a_records)
+    assert all(item["prose_parse_status"] == "unscored" for item in a_records)
+    assert all("two sentence entries" in item["prose_parse_error"] for item in a_records)
+
+
 def test_fabricated_citation_is_preserved_but_unscored(tmp_path, monkeypatch):
     _fake_sdk(monkeypatch)
     # The fake response uses a syntactically valid ID absent from this record.
