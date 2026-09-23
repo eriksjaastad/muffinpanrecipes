@@ -23,9 +23,12 @@ Names use `_first_name` normalization. A speaker needs at least two messages in
 the week's transcript to enter the fixed candidate set, so one message can be
 held out while another remains for training. The chance baseline is `1 / N`
 for that week's candidate count. A speaker who appears only once is excluded
-from candidates, and that line does not count toward coverage. The report also
-stores per-character recall; a recall is `null` when no lines for that speaker
-were scored.
+from candidates, and that line does not count toward coverage. Aggregate
+accuracy and chance are available only when at least two lines were scored and
+every candidate speaker has at least one scored line; otherwise both are
+`null`, so experiment comparisons omit an incomplete metric. Coverage,
+exclusions, candidate names, and per-character recall remain diagnostic; a
+recall is `null` when no lines for that speaker were scored.
 
 ## Corpus and results
 

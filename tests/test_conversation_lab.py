@@ -1690,6 +1690,28 @@ def test_nullable_metric_union_keeps_later_valid_observation_and_coverage():
     }
 
 
+def test_insufficient_attribution_is_omitted_from_ab_and_bench_summaries():
+    partial = [
+        {"character": "Margaret Chen", "message": "crust crust", "day": "monday"},
+        {"character": "Margaret Chen", "message": "crust crust", "day": "monday"},
+        {"character": "Marcus Reid", "message": "the and", "day": "monday"},
+        {"character": "Marcus Reid", "message": "the and", "day": "monday"},
+    ]
+    summary = cm.summarize(partial, ["Margaret Chen", "Marcus Reid"])
+    assert summary["speaker_attribution_accuracy"] is None
+    assert summary["speaker_attribution_chance"] is None
+
+    pair = _attribution_pair(partial, partial)
+    ab = cl._aggregate_pairs([pair], "overall", False)
+    for key in ("speaker_attribution_accuracy", "speaker_attribution_chance"):
+        assert key not in ab["metric_deltas"]
+        assert ab["metric_coverage"][key]["paired_samples"] == 0
+
+    bench = cl._bench_aggregate([{"summary": summary}])
+    assert "speaker_attribution_accuracy" not in bench["metrics"]
+    assert "speaker_attribution_chance" not in bench["metrics"]
+
+
 def test_nullable_metric_report_writer_preserves_pair_evidence(tmp_path):
     pair = _attribution_pair(_attribution_messages(True), _attribution_messages(False))
     args = type("Args", (), {
