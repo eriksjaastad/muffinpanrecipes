@@ -197,6 +197,7 @@ def test_swallowed_production_judge_budget_error_saves_aborted_bench_and_stops_c
 def test_corrupt_ledger_after_a_paid_generation_still_publishes_transcript_evidence(tmp_path, monkeypatch, fake_sdk):
     ledger = tmp_path / "ledger.json"
     calls = {"runs": 0}
+    judge_calls = []
 
     def corrupt_after_first_paid_generation(**kwargs):
         _generate()
@@ -205,6 +206,7 @@ def test_corrupt_ledger_after_a_paid_generation_still_publishes_transcript_evide
         return {"messages": _messages("paid transcript")}
 
     monkeypatch.setattr(sdw, "run_simulation", corrupt_after_first_paid_generation)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *args, **kwargs: judge_calls.append(1))
     results = tmp_path / "results"
 
     with pytest.raises(SystemExit):
@@ -223,6 +225,7 @@ def test_corrupt_ledger_after_a_paid_generation_still_publishes_transcript_evide
     assert unavailable["summary"] is None
     assert unavailable["status"] == "unavailable"
     assert "BudgetLedgerError" in unavailable["summary_error"]
+    assert judge_calls == [], "a stopped ledger must be checked before production judging"
     assert len(fake_sdk["create"]) == 1
     assert calls["runs"] == 1
 
