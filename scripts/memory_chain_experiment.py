@@ -269,15 +269,16 @@ def execute_fake_chain(
                 for speaker in CHARACTER_ROSTER:
                     attended_days = {turn["day"] for turn in normalized_turns if turn["speaker"] == speaker}
                     observations = [turn for turn in normalized_turns if turn["day"] in attended_days]
-                    observed_source_ids = [turn["source_id"] for turn in observations]
+                    observed_turns_snapshot = copy.deepcopy(observations)
+                    observed_source_ids_snapshot = tuple(turn["source_id"] for turn in observed_turns_snapshot)
                     slot_status = "observed" if observations else "no_new_evidence"
                     expected_prior_ids = list(prior_memory_ids.get(speaker, []))
                     record = adapters.write_memory(speaker, {
                         "week": week["week"],
                         "status": slot_status,
-                        "source_ids": observed_source_ids,
-                        "turns": observations,
-                        "prior_memory_ids": expected_prior_ids,
+                        "source_ids": list(observed_source_ids_snapshot),
+                        "turns": copy.deepcopy(observed_turns_snapshot),
+                        "prior_memory_ids": copy.deepcopy(expected_prior_ids),
                     })
                     if not isinstance(record, dict):
                         raise ValueError(f"{week['week']}: memory writer must return a structured memory record")
@@ -289,13 +290,14 @@ def execute_fake_chain(
                     seen_memory_ids.add(memory_id)
                     if record.get("status") != slot_status:
                         raise ValueError(f"{week['week']}: memory status must be {slot_status!r} for {speaker}")
-                    cited_source_ids = record.get("source_ids")
-                    if not isinstance(cited_source_ids, list) or any(not isinstance(source_id, str) for source_id in cited_source_ids):
+                    raw_cited_source_ids = record.get("source_ids")
+                    if not isinstance(raw_cited_source_ids, list) or any(not isinstance(source_id, str) for source_id in raw_cited_source_ids):
                         raise ValueError(f"{week['week']}: memory source_ids must be a list of strings")
+                    cited_source_ids = copy.deepcopy(raw_cited_source_ids)
                     if len(cited_source_ids) != len(set(cited_source_ids)):
                         raise ValueError(f"{week['week']}: memory source_ids must not contain duplicates")
                     if slot_status == "observed" and (
-                        not cited_source_ids or not set(cited_source_ids).issubset(observed_source_ids)
+                        not cited_source_ids or not set(cited_source_ids).issubset(observed_source_ids_snapshot)
                     ):
                         raise ValueError(f"{week['week']}: observed memory source IDs must be a non-empty subset of the character's observed turns")
                     if slot_status == "no_new_evidence" and cited_source_ids:
@@ -315,7 +317,7 @@ def execute_fake_chain(
                         "prior_memory_ids": expected_prior_ids,
                         "character": speaker,
                         "week": week["week"],
-                        "observed_source_ids": observed_source_ids,
+                        "observed_source_ids": list(observed_source_ids_snapshot),
                     }
                     if memory_store_root is None:
                         raise ValueError("treatment memory store is required to persist generated records")
