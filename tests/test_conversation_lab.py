@@ -192,7 +192,7 @@ def test_ab_pairwise_judge_agreement_counts_as_win(tmp_path, monkeypatch):
         winner = "A" if "VARIANT_TAG" in a_block else "B"
         return json.dumps({
             "winner": winner,
-            "per_dimension": {d: winner for d in cl.JUDGE_DIMENSIONS},
+            "per_dimension": {d: winner for d in cl.ALL_JUDGE_DIMENSIONS},
             "reason": "variant transcript is more grounded",
         })
 
@@ -214,6 +214,10 @@ def test_ab_pairwise_judge_agreement_counts_as_win(tmp_path, monkeypatch):
     assert report["overall_counts"] == {"variant": 1}
     assert report["per_dimension_counts"]["turn_taking"] == {"variant": 1}
     assert report["target_win_rate"] == 1.0
+    [pair] = report["pairs"]
+    assert [item["orientation"] for item in pair["judge_orientations"]] == ["control_first", "variant_first"]
+    assert all(item["evidence"]["raw_response"] for item in pair["judge_orientations"])
+    assert pair["judge_diagnostics"]["turn_taking"]["status"] == "agreement"
 
 def test_ab_pairwise_judge_disagreement_results_in_tie(tmp_path, monkeypatch):
     """A positionally-biased judge that always picks "A" regardless of
@@ -224,7 +228,7 @@ def test_ab_pairwise_judge_disagreement_results_in_tie(tmp_path, monkeypatch):
     def positionally_biased_judge(*, prompt, system_prompt, model, temperature):
         return json.dumps({
             "winner": "A",
-            "per_dimension": {d: "A" for d in cl.JUDGE_DIMENSIONS},
+            "per_dimension": {d: "A" for d in cl.ALL_JUDGE_DIMENSIONS},
             "reason": "always A",
         })
 
@@ -245,6 +249,9 @@ def test_ab_pairwise_judge_disagreement_results_in_tie(tmp_path, monkeypatch):
     report = json.loads(result_file.read_text())
     assert report["overall_counts"] == {"tie": 1}
     assert all(counts == {"tie": 1} for counts in report["per_dimension_counts"].values())
+    [pair] = report["pairs"]
+    assert pair["judge_diagnostics"]["overall"]["status"] == "orientation_disagreement"
+    assert pair["judge"]["overall"] == "tie"
 
 def _make_fake_run_simulation():
     def fake_run_simulation(*, concept, default_model, run_index, stage_only, mode, recipe_context, **kwargs):
@@ -626,6 +633,11 @@ def test_calibrate_complete_runs_keep_grader_threshold_and_scored_pair_rate(tmp_
             assert info["completed_pairs"] == info["scored_pairs"] == 1
             assert info["real_preference_rate"] == expected_rate
             assert info["verdict"] == expected_verdict
+            [pair] = info["pairs"]
+            assert [item["orientation"] for item in pair["judge_orientations"]] == ["real_first", "degraded_first"]
+            assert all(item["evidence"]["raw_response"] for item in pair["judge_orientations"])
+            assert pair["judge_diagnostics"]["overall"]["status"] == "agreement"
+            assert pair["judge_diagnostics"]["turn_taking"]["status"] == "unanimous_tie"
 
 
 def test_calibrate_zero_completed_pairs_has_unavailable_rate_and_incomplete_verdict(
@@ -950,6 +962,83 @@ def test_normalize_verdict_value_raises_on_garbage():
     with pytest.raises(cl.ConversationLabError, match=r"invalid per_dimension\.turn_taking verdict"):
         cl._normalize_verdict_value("unsure", field="per_dimension.turn_taking")
 
+@pytest.mark.parametrize("payload", [
+    {"per_dimension": {d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS}},
+    {"winner": None, "per_dimension": {d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS}},
+    {"winner": "A", "per_dimension": None},
+    {"winner": "A", "per_dimension": []},
+    {"winner": "A", "per_dimension": {d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS if d != "turn_taking"}},
+    {"winner": "A", "per_dimension": {**{d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS}, "turn_taking": None}},
+])
+def test_judge_orientation_rejects_incomplete_or_mistyped_scorecards(monkeypatch, payload):
+    monkeypatch.setattr(model_router, "generate_judge_response", lambda **kwargs: json.dumps(payload))
+    with pytest.raises(cl.ConversationLabError):
+        cl._judge_orientation(
+            "judge", "muffins", "monday", None, [], "control", [], "variant", [],
+        )
+
+def test_judge_orientation_keeps_normalized_strings_and_optional_reason(monkeypatch):
+    payload = {
+        "winner": " a ",
+        "per_dimension": {d: " TIE " for d in cl.ALL_JUDGE_DIMENSIONS},
+    }
+    monkeypatch.setattr(model_router, "generate_judge_response", lambda **kwargs: "```json\n" + json.dumps(payload) + "\n```")
+    judged = cl._judge_orientation(
+        "judge", "muffins", "monday", None, [], "control", [], "variant", [],
+    )
+    assert judged["overall"] == "control"
+    assert all(judged[d] == "tie" for d in cl.ALL_JUDGE_DIMENSIONS)
+    assert judged["reason"] == ""
+
+def test_failed_orientation_retains_raw_and_rendered_inputs_and_counts_call(monkeypatch):
+    raw = json.dumps({"winner": "A", "per_dimension": {}})
+    monkeypatch.setattr(model_router, "generate_judge_response", lambda **kwargs: raw)
+    pending = {"judge_orientations": []}
+    budget = cl.CallBudget(max_calls=2)
+    with pytest.raises(cl.ConversationLabError, match="missing per_dimension"):
+        cl._run_judge_orientation(
+            orientation="control_first", pending_pair=pending, budget=budget,
+            judge_model="judge", concept="muffins", stage="monday", recipe_context="anchor",
+            expected_cast=["Margaret"], first_arm="control", first_messages=[],
+            second_arm="variant", second_messages=[], recipe_facts="facts",
+        )
+    assert budget.used == 1
+    [record] = pending["judge_orientations"]
+    assert record["evidence"]["raw_response"] == raw
+    assert record["evidence"]["model"] == "judge"
+    assert record["evidence"]["mapping"] == {"A": "control", "B": "variant", "tie": "tie"}
+    assert "TRANSCRIPT A:" in record["evidence"]["prompt"]
+    assert record["evidence"]["system_prompt"] == cl.PAIRWISE_JUDGE_SYSTEM_PROMPT
+    assert "missing per_dimension" in record["error"]
+
+def test_interrupted_orientation_retains_evidence_before_propagating(monkeypatch):
+    def interrupt(**_kwargs):
+        raise KeyboardInterrupt("synthetic interruption")
+
+    monkeypatch.setattr(model_router, "generate_judge_response", interrupt)
+    pending = {"judge_orientations": []}
+    budget = cl.CallBudget(max_calls=1)
+    with pytest.raises(KeyboardInterrupt, match="synthetic interruption"):
+        cl._run_judge_orientation(
+            orientation="control_first", pending_pair=pending, budget=budget,
+            judge_model="judge", concept="muffins", stage="monday", recipe_context="anchor",
+            expected_cast=[], first_arm="control", first_messages=[],
+            second_arm="variant", second_messages=[],
+        )
+    assert budget.used == 1
+    [record] = pending["judge_orientations"]
+    assert record["evidence"]["prompt"]
+    assert record["error"] == "KeyboardInterrupt: synthetic interruption"
+
+def test_orientation_diagnostics_separate_disagreement_from_unanimous_tie():
+    first = {"overall": "tie", **{d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS}}
+    second = {**first, "overall": "variant", "turn_taking": "control"}
+    diagnostics = cl._orientation_diagnostics(first, second)
+    assert diagnostics["overall"]["status"] == "orientation_disagreement"
+    assert diagnostics["turn_taking"]["status"] == "orientation_disagreement"
+    assert diagnostics["cast_coverage"]["status"] == "unanimous_tie"
+    assert cl._combine_orientations(first, second)["overall"] == "tie"
+
 # ---------------------------------------------------------------------------
 # Any exception mid-run writes a partial, error-flagged result before
 # re-raising - finding (d). Also exercises finding (e): an invalid judge
@@ -996,6 +1085,118 @@ def test_ab_writes_partial_result_on_exception_mid_run(tmp_path, monkeypatch):
     assert "error" in report
     assert "invalid winner verdict" in report["error"]
     assert report["completed_pairs"] == 1  # pair 1 survives; pair 2 never finished
+
+@pytest.mark.parametrize("command", ["ab", "sweep", "calibrate"])
+@pytest.mark.parametrize("failure", ["malformed", "provider_error"])
+def test_second_orientation_failure_persists_both_attempts(
+    tmp_path, monkeypatch, command, failure,
+):
+    """A failed second judge orientation stays beside the first paid result."""
+    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    monkeypatch.setattr(sdw, "run_simulation", lambda **_kwargs: {"messages": _messages("fixture")})
+    monkeypatch.setattr(cl, "_load_episode", lambda *_args, **_kwargs: _snapshot_episode())
+
+    valid = json.dumps({
+        "winner": "tie",
+        "per_dimension": {dimension: "tie" for dimension in cl.ALL_JUDGE_DIMENSIONS},
+    })
+    malformed = json.dumps({"winner": "A", "per_dimension": {}})
+    calls = []
+
+    def fail_second_orientation(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return valid
+        if failure == "provider_error":
+            raise RuntimeError("synthetic provider failure")
+        return malformed
+
+    monkeypatch.setattr(model_router, "generate_judge_response", fail_second_orientation)
+    results_dir = tmp_path / "results"
+    if command == "ab":
+        variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT"})
+        cli_args = [
+            "ab", "--concept", "Fixture", "--stage", "monday", "--runs", "1",
+            "--variant", str(variant_path), "--recipe-context", "anchor",
+            "--results-dir", str(results_dir),
+        ]
+        result_pattern = "*-ab-*.json"
+    elif command == "sweep":
+        testbed_path = _write_testbed(tmp_path, [
+            {"id": "scenario", "concept": "Fixture", "recipe_context": "anchor"},
+        ])
+        sweep_dir = tmp_path / "sweep"
+        sweep_dir.mkdir()
+        (sweep_dir / "variant.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "VARIANT"}))
+        cli_args = [
+            "ab", "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
+            "--stage", "monday", "--runs", "1", "--results-dir", str(results_dir),
+        ]
+        result_pattern = "*-ab-sweep-*.json"
+    else:
+        cli_args = [
+            "calibrate", "--from-episode", "snapshot-week", "--stage", "tuesday",
+            "--runs", "1", "--results-dir", str(results_dir),
+        ]
+        result_pattern = "*-calibrate-*.json"
+
+    if failure == "provider_error":
+        with pytest.raises(RuntimeError, match="synthetic provider failure"):
+            cl.main(cli_args)
+    else:
+        with pytest.raises(SystemExit):
+            cl.main(cli_args)
+
+    [result_path] = results_dir.glob(result_pattern)
+    report = json.loads(result_path.read_text())
+    assert len(calls) == 2
+    if command == "ab":
+        assert report["completed_pairs"] == 0
+        assert report["pairs"] == []
+        [partial] = report["partial_pairs"]
+        assert report["calls_used"] == 6  # two transcript arms plus both judges
+    elif command == "sweep":
+        variant_report = report["variants"]["variant"]
+        assert variant_report["completed_pairs"] == 0
+        assert variant_report["pairs"] == []
+        [partial] = variant_report["partial_pairs"]
+        assert variant_report["calls_used"] == 4  # variant arm plus both judges
+    else:
+        degradation = report["degradations"]["shuffled_order"]
+        assert degradation["completed_pairs"] == 0
+        assert degradation["pairs"] == []
+        [partial] = degradation["partial_pairs"]
+        assert report["calls_used"] == 2
+
+    orientations = partial["judge_orientations"]
+    assert [entry["orientation"] for entry in orientations] == [
+        "control_first" if command != "calibrate" else "real_first",
+        "variant_first" if command != "calibrate" else "degraded_first",
+    ]
+    first, second = orientations
+    assert first["result"]["overall"] == "tie"
+    assert first["evidence"]["raw_response"] == valid
+    assert first["evidence"]["model"] == "anthropic/claude-sonnet-4-6"
+    assert first["evidence"]["mapping"] == (
+        {"A": "real", "B": "degraded", "tie": "tie"}
+        if command == "calibrate"
+        else {"A": "control", "B": "variant", "tie": "tie"}
+    )
+    assert second["evidence"]["prompt"] == calls[1]["prompt"]
+    assert second["evidence"]["system_prompt"] == calls[1]["system_prompt"]
+    assert second["evidence"]["model"] == calls[1]["model"]
+    assert second["evidence"]["mapping"] == (
+        {"A": "degraded", "B": "real", "tie": "tie"}
+        if command == "calibrate"
+        else {"A": "variant", "B": "control", "tie": "tie"}
+    )
+    if failure == "malformed":
+        assert second["evidence"]["raw_response"] == malformed
+        assert "missing per_dimension" in second["error"]
+    else:
+        assert "raw_response" not in second["evidence"]
+        assert second["error"] == "RuntimeError: synthetic provider failure"
 
 def test_calibrate_writes_partial_result_on_exception_mid_run(tmp_path, monkeypatch):
     monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
@@ -1737,6 +1938,9 @@ def test_ab_sweep_ranks_three_variants_and_result_schema(tmp_path, monkeypatch):
         assert variant_report["completed_pairs"] == 1
         assert variant_report["pairs"][0]["control_messages"]
         assert variant_report["pairs"][0]["variant_messages"]
+        [pair] = variant_report["pairs"]
+        assert [item["orientation"] for item in pair["judge_orientations"]] == ["control_first", "variant_first"]
+        assert all(item["evidence"]["raw_response"] for item in pair["judge_orientations"])
 
 def test_ab_sweep_per_variant_cost_cap_abort_writes_partial(tmp_path, monkeypatch):
     """Erik's --max-cost cap is PER VARIANT: a variant's own spend is

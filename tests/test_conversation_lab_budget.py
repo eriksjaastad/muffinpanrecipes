@@ -37,9 +37,15 @@ def fake_sdk(monkeypatch):
             "service_tier": "standard",
             "inference_geo": "global" if kwargs["model"] == "claude-opus-4-6" else "not_available",
         }
+        text = '{"winner":"tie","per_dimension":{}}'
+        if kwargs["model"] == "claude-opus-4-6":
+            text = json.dumps({
+                "winner": "tie",
+                "per_dimension": {dimension: "tie" for dimension in cl.ALL_JUDGE_DIMENSIONS},
+            })
         return SimpleNamespace(
             usage=SimpleNamespace(model_dump=lambda exclude_none=True: usage),
-            content=[SimpleNamespace(text='{"winner":"tie","per_dimension":{}}')],
+            content=[SimpleNamespace(text=text)],
         )
 
     def make_client(*, api_key=None, max_retries=2, **kwargs):

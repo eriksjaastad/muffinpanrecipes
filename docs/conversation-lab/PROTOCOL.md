@@ -291,6 +291,23 @@ saved reports include the testbed path. See `ab --help` for the exact flags.
 
 ## Lab judge dimensions
 
+### Orientation evidence records
+
+Every invoked pairwise judge orientation records its rendered prompt, system
+prompt, model, A/B-to-arm mapping, raw response when returned, and either its
+validated result or error. Completed pairs retain both orientation records;
+partial pairs retain any attempted orientation, including malformed output.
+Each scorecard must include a string `winner` and a string verdict for every
+lab dimension. Missing or malformed fields fail the pair and remain unscored.
+Per-dimension diagnostics label matching preferences, unanimous ties, and
+orientation disagreement separately. The existing combined result remains a
+tie whenever orientations disagree, and this evidence does not alter the
+rubric, thresholds, or decision rule.
+`calls_used` counts judge invocations after the lab's cap checks; a shared
+budget guard rejection before provider generation is excluded. Invocation
+counts do not establish billable requests; use the budget ledger as the spend
+record.
+
 Shipped: the lab's pairwise judge - shared by `ab` and `calibrate`, both of
 which judge two transcripts head to head - scores the production eight
 (`title_fidelity`, `arc_resolution`, `voice_distinctiveness`,
