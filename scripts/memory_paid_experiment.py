@@ -24,10 +24,26 @@ EXPERIMENT = "memory_write_policy_bundle_ab_dry_run"
 HARD_MAX_TOKENS = 220
 BUDGET_USD = 5
 SOURCE_ID_RE = re.compile(r"msg_[0-9a-f]{20}")
+CITATION_GROUP_RE = re.compile(
+    r"\[\s*msg_[0-9a-f]{20}(?:[\s,;]+msg_[0-9a-f]{20})*\s*\]"
+)
+MATCHED_PROSE_TOKEN_MIN = 80
+MATCHED_PROSE_TOKEN_MAX = 120
+MATCHED_PROSE_TOKEN_DELTA_MAX = 15
 
 
 class ExperimentError(ValueError):
     pass
+
+
+def matched_prose_lengths(first: Any, second: Any) -> bool:
+    """Whether two normalized prose lengths qualify for pairwise scoring."""
+    counts = (first, second)
+    if any(isinstance(value, bool) or not isinstance(value, int) for value in counts):
+        return False
+    return all(MATCHED_PROSE_TOKEN_MIN <= value <= MATCHED_PROSE_TOKEN_MAX for value in counts) and (
+        abs(first - second) <= MATCHED_PROSE_TOKEN_DELTA_MAX
+    )
 
 
 def _read_artifact(path: Path, expected_sha256: str) -> tuple[dict[str, Any], str]:
@@ -177,17 +193,15 @@ def _extract_prose(
     if inference not in {"none supported", "none supported."} and not SOURCE_ID_RE.search(contents["Inference"]):
         return None, "Inference field lacks a source ID", None
     stance = contents["Stance"].lower()
-    if not stance.startswith("no change evidenced") and not SOURCE_ID_RE.search(contents["Stance"]):
+    no_change_fallback = re.sub(r"[.!?]+\s*$", "", stance.strip()).strip() == "no change evidenced"
+    if not no_change_fallback and not SOURCE_ID_RE.search(contents["Stance"]):
         return None, "changed Stance field lacks a source ID", None
     thread = contents["Open thread"].lower()
     if thread not in {"none", "none."} and not SOURCE_ID_RE.search(contents["Open thread"]):
         return None, "Open thread lacks a source ID", None
     # Keep only field value prose. Structure and citations remain separately
     # recoverable from the preserved raw response and explicit structure field.
-    normalized = {
-        label: re.sub(r"\s*\[\s*msg_[0-9a-f]{20}\s*\]", "", contents[label]).strip()
-        for label in labels
-    }
+    normalized = {label: CITATION_GROUP_RE.sub("", contents[label]).strip() for label in labels}
     normalized = {label: SOURCE_ID_RE.sub("", value).strip() for label, value in normalized.items()}
     prose = "\n".join(normalized[label] for label in labels)
     return prose.strip(), None, {"format": "perspective_card", "fields": normalized}

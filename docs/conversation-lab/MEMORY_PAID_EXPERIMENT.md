@@ -68,8 +68,9 @@ unsupported factual claims or citations that do not support their claims. Then
 score whether interpretation is grounded and character-specific, and whether
 the memory could help future dialogue without forcing a callback. A lack of a
 supported stance change or open thread is acceptable. Compare pairwise
-preference only when actual memory-prose lengths are matched; unmatched lengths
-and parse failures are unscored. Advance one bundle to a separate length test
+preference only when both normalized prose lengths are 80–120 tokens and their
+absolute difference is at most 15 tokens. Unmatched lengths and parse failures
+are unscored. Advance one bundle to a separate length test
 only if there are no source-grounding hard defects and at least 5 of 6
 scorable, matched-length character pairs prefer it for perspective/usefulness.
 With fewer than 5 scorable pairs, any grounding defect, or no bundle meeting
@@ -90,7 +91,7 @@ An authorized future execution would additionally need fresh unique paths and
 the explicit flag:
 
 ```sh
-uv run python scripts/memory_paid_experiment.py \
+doppler run -- uv run python scripts/memory_paid_experiment.py \
   .scratch/w35-memory-prompts.json \
   --artifact-sha256 <sha256-from-frozen-artifact> \
   --execute --ledger .scratch/w35-memory-ledger.json \
