@@ -1,9 +1,9 @@
 # Memory writing format experiment: W35 prompt dry run
 
-This card #7545 continuation renders six pairs of memory-writing prompts from
-a frozen W35 slot in a `scripts/memory_lab.py` manifest. It is an offline
-design artifact: no model client is imported by the runner, no memory text is
-generated, and no live character file or Blob is written.
+This card #7545 continuation renders six A/B memory-writing prompt pairs from
+the frozen W35 slots in a `scripts/memory_lab.py` manifest. The runner is
+offline: it imports no model SDK, generates no memory prose, and writes no
+live character data or Blob.
 
 ```sh
 uv run python scripts/memory_lab.py \
@@ -15,44 +15,58 @@ uv run python scripts/memory_write_experiment.py \
   --output .scratch/w35-memory-prompts.json
 ```
 
-The output has exactly six character records, each with A and B prompts. Both
-arms receive identical W35 attended-scene evidence, retain all supporting
-message source IDs in the output record, plan the same Haiku 4.5 model
-(`claude-haiku-4-5-20251001`), and set the same 160-token output target. The
-model and target are design fields only; the runner never calls the provider.
-The W35 episode hash and a canonical hash of the source manifest freeze the
-prompt source. The builder rejects evidence rows whose episode ID differs
-from W35, so W36/W37 dialogue cannot enter these prompts.
+The W35 source evidence is held constant between arms. The runner also loads
+`backend/data/agent_personalities.json` by default (`--profiles` can name a
+frozen copy) and gives both arms the same bounded persona context per
+character: role, one authored internal-contradiction statement, and up to two
+relationship excerpts for people who spoke in scenes the character
+observed. Personality excerpts are clipped to 180 characters, relationship
+excerpts to 100 characters, and the rendered profile context is capped at
+1,200 characters. This context is explicitly
+marked as identity framing, not evidence about W35 events. Each excerpt has a
+profile pointer; the source JSON SHA-256 is recorded in the result and in each
+character context. This uses authored profile prose, not numeric personality
+dials that have not been shown to bind behavior.
 
-Arm A preserves the existing two-sentence, third-person, past-tense weekly
-recap shape. Arm B uses labeled `Observed`, `Inference`, `Stance`, and `Open
-thread` fields. It requires interpretations to be marked as inference,
-stance changes to be supported by evidence, and unresolved threads to be
-real and cited; unsupported inference or open threads must be reported as
-none. Both arms share the same no-invention rule and exact source block.
+Both arms use the same planned Haiku 4.5 model
+(`claude-haiku-4-5-20251001`), an 80–120 provider-output-token target band,
+and a 160-token hard maximum. Those are prompt-design fields; the dry run
+cannot measure or guarantee generated output length. When generation is
+authorized, record exact provider-reported output tokens for the *complete*
+response, including A's evidence map and B's citations. Compare arms within
+the same band and report token length separately from memory quality. Never
+pad an unsupported memory to hit the band.
+
+Arm A is a **recap-style control**, not a claim to reproduce the production
+writer exactly: it asks for a two-sentence third-person recap and a separate
+evidence map linking each sentence to only its supporting dialogue IDs. Arm B
+uses `Observed`, `Inference`, `Stance`, and `Open thread` fields, with IDs on
+each supported claim. Both receive the same per-message ID-tagged evidence
+block, persona block, source, planned model, and output band. They share the
+same no-invention rule.
 
 The in-repository [`BUDGET.md`](BUDGET.md) requires exact provider
-`count_tokens` before each paid generation, a shared `AnthropicBudgetGuard`
+`count_tokens` before every paid generation, a shared `AnthropicBudgetGuard`
 ledger with a $5 ceiling, and preservation of partial results when stopped.
-Paid execution is intentionally unimplemented here: this module exposes no
-paid flag or model request path. The bounded gap is a reviewed execution
-runner that loads the approved shared ledger, calls the guard's patched
-Anthropic client with the fixed model and 160 output tokens, stops after at
-most 12 generation requests (six characters times two arms), and writes
-validated responses plus partial results after guard failures. Until that
-runner is implemented and separately authorized, this artifact cannot spend
-API budget.
+Paid execution remains unimplemented: this module exposes no paid flag or
+model request path. The bounded gap is a reviewed runner that uses the shared
+ledger and patched Anthropic client, counts exact request tokens before each
+request, sends at most 12 generation calls (six characters times two arms)
+with a 160-token maximum, and preserves validated and partial outputs after
+guard failures. Until that runner is implemented and separately authorized,
+this artifact cannot spend API budget.
 
 The methodology file `prompt-research/TESTING_METHODOLOGY.md` referenced by
 `EXPERIMENTS.md` is gitignored and was not present in the available checkout.
-The in-repo conversation experiment log records that full raw-history input
-lost to curated highlights and forced callbacks sounded unnatural. This
-experiment therefore supplies compact, character-scoped evidence and does
-not instruct a future writer to force a callback.
+The in-repo experiment log records that full raw-history input lost to
+curated highlights and forced callbacks sounded unnatural. This experiment
+therefore supplies character-scoped observed scenes without requiring a
+callback.
 
 ## Validation
 
-Synthetic tests verify W35 source scoping, identical input/model/target across
-arms, the difference between formats, no future-week leakage, six prompt
-pairs, and a CLI dry run that rejects attempts to import model SDKs. Tests
-need no episode corpus or API credentials.
+Synthetic tests verify W35 source scoping, profile context in both arms,
+profile provenance and size bounds, equal model/output band, the different
+formats and claim-level source linking, no future-week leakage, six prompt
+pairs, and a CLI dry run that rejects model SDK imports. Tests need no episode
+corpus or API credentials.
