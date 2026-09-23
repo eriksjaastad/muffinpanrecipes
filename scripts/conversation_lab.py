@@ -247,7 +247,7 @@ from backend.config import config
 from backend.utils import model_router
 from backend.utils.episode_integrity import PLACEHOLDER_CONCEPT, _recipe_title
 from scripts.conversation_metrics import summarize
-from scripts.conversation_budget import AnthropicBudgetGuard, BudgetExceeded, BudgetGuardError
+from scripts.conversation_budget import AnthropicBudgetGuard, BudgetGuardError
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LAB_DIR = ROOT / "docs" / "conversation-lab"
@@ -551,6 +551,16 @@ def _budget_checkpoint() -> None:
     guard = _ACTIVE_BUDGET_GUARD.get()
     if guard is not None:
         guard.raise_if_stopped()
+
+def _budget_generation_attempts() -> int | None:
+    """Read the shared ledger's provider-generation counter when guarded."""
+    guard = _ACTIVE_BUDGET_GUARD.get()
+    if guard is None:
+        return None
+    total = guard.summary().get("totals", {}).get("generation_attempts")
+    if isinstance(total, bool) or not isinstance(total, int) or total < 0:
+        raise BudgetGuardError("budget ledger has invalid generation_attempts")
+    return total
 
 
 def _budget_guard_stopped() -> bool:
@@ -891,14 +901,38 @@ def _judge_orientation(
             "first_arm": first_arm,
             "second_arm": second_arm,
         })
-    raw = model_router.generate_judge_response(
-        prompt=prompt,
-        system_prompt=PAIRWISE_JUDGE_SYSTEM_PROMPT,
-        model=judge_model,
-        temperature=0.2,
-    )
+    before_attempts = _budget_generation_attempts()
+    if evidence is not None:
+        evidence["guard_generation_attempts_before"] = before_attempts
+        evidence["model_router_invoked"] = True
+    try:
+        raw = model_router.generate_judge_response(
+            prompt=prompt,
+            system_prompt=PAIRWISE_JUDGE_SYSTEM_PROMPT,
+            model=judge_model,
+            temperature=0.2,
+        )
+    except BaseException as original_error:
+        if evidence is not None:
+            try:
+                evidence["guard_generation_attempts_after"] = _budget_generation_attempts()
+            except BaseException as snapshot_error:
+                evidence["generation_attempt_snapshot_error"] = (
+                    f"{type(snapshot_error).__name__}: {snapshot_error}"
+                )
+        raise
     if evidence is not None:
         evidence["raw_response"] = raw
+    try:
+        after_attempts = _budget_generation_attempts()
+    except BaseException as snapshot_error:
+        if evidence is not None:
+            evidence["generation_attempt_snapshot_error"] = (
+                f"{type(snapshot_error).__name__}: {snapshot_error}"
+            )
+        raise
+    if evidence is not None:
+        evidence["guard_generation_attempts_after"] = after_attempts
     parsed = _parse_judge_json(raw)
     if parsed is None:
         raise ConversationLabError(f"pairwise judge returned unparseable output: {raw[:200]!r}")
@@ -967,27 +1001,73 @@ def _run_judge_orientation(
     """Record evidence even when generation/parsing fails; count each invocation."""
     evidence: dict[str, Any] = {}
     result = None
-    error = None
-    budget_denied = False
+    original_error: BaseException | None = None
+    original_traceback = None
     try:
         result = _judge_orientation(**kwargs, evidence=evidence)
-        return result
     except BaseException as exc:
-        error = f"{type(exc).__name__}: {exc}"
-        budget_denied = isinstance(exc, BudgetExceeded)
-        raise
-    finally:
-        # The shared guard can reject before a provider request is made; such
-        # budget denials are not judge calls and retain the historical count.
-        if not budget_denied:
+        original_error = exc
+        original_traceback = exc.__traceback__
+
+    guard_active = _ACTIVE_BUDGET_GUARD.get() is not None
+    if not guard_active:
+        # Without a guard, the orientation function directly invoked the
+        # router; there is no provider-side counter to disambiguate preflight.
+        attempted: bool | None = True
+    elif not evidence.get("model_router_invoked"):
+        attempted = False
+    else:
+        before = evidence.get("guard_generation_attempts_before")
+        after = evidence.get("guard_generation_attempts_after")
+        if evidence.get("generation_attempt_snapshot_error") or not isinstance(before, int) or not isinstance(after, int):
+            attempted = None
+        else:
+            delta = after - before
+            attempted = delta == 1
+            if delta < 0 or delta > 1:
+                evidence["generation_attempt_accounting_error"] = f"unexpected guarded attempt delta: {delta}"
+                attempted = None
+
+    # Guard preflight failures (token count, route, reservation, or cap) have
+    # no generation attempt. Preserve the failure in the outer partial report
+    # and keep the established contract that they consume no judge call.
+    entry = None
+    if attempted is not False:
+        if attempted is True:
             budget.record(1)
-            entry: dict[str, Any] = {"orientation": orientation, "evidence": evidence}
-            if result is not None:
-                entry["result"] = result
-            if error is not None:
-                entry["error"] = error
-            pending_pair["judge_orientations"].append(entry)
-            _budget_checkpoint()
+        entry = {
+            "orientation": orientation,
+            "status": "invoked" if attempted else "accounting_unknown",
+            "evidence": evidence,
+        }
+        if result is not None:
+            entry["result"] = result
+        if original_error is not None:
+            entry["error"] = f"{type(original_error).__name__}: {original_error}"
+        elif attempted is None:
+            entry["error"] = "guarded generation attempt count could not be determined"
+        pending_pair["judge_orientations"].append(entry)
+
+    checkpoint_error = None
+    try:
+        _budget_checkpoint()
+    except BaseException as exc:
+        checkpoint_error = exc
+        if entry is not None:
+            entry["checkpoint_error"] = f"{type(exc).__name__}: {exc}"
+
+    if original_error is not None:
+        if checkpoint_error is not None and entry is None:
+            # The checkpoint must not hide the original preflight/provider error.
+            raise original_error.with_traceback(original_traceback) from checkpoint_error
+        raise original_error.with_traceback(original_traceback)
+    if checkpoint_error is not None:
+        raise checkpoint_error
+    if attempted is False:
+        raise ConversationLabError("guard reported no generation attempt for a returned judge response")
+    if attempted is None:
+        raise ConversationLabError("could not determine whether the guarded judge request reached generation")
+    return result
 
 def _dry_run_combined() -> dict[str, str]:
     return {"overall": "tie", **{dim: "tie" for dim in ALL_JUDGE_DIMENSIONS}}

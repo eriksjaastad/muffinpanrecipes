@@ -436,6 +436,132 @@ def test_ab_second_judge_denial_preserves_first_orientation_separately(tmp_path,
     assert _ledger(ledger)["status"] == "stopped"
 
 
+@pytest.mark.parametrize("failure", [
+    "success", "malformed", "count_tokens_error", "invalid_token_count",
+    "budget_denial", "generation_error", "usage_error",
+])
+def test_guarded_judge_call_accounting_uses_generation_attempt_delta(
+    tmp_path, monkeypatch, fake_sdk, failure,
+):
+    ledger = tmp_path / f"{failure}.json"
+    pending = {"judge_orientations": []}
+    budget = cl.CallBudget(max_calls=3)
+    if failure == "count_tokens_error":
+        def count_tokens_error(*_args, **_kwargs):
+            raise RuntimeError("synthetic count_tokens failure")
+        monkeypatch.setattr(Messages, "count_tokens", count_tokens_error)
+    elif failure == "invalid_token_count":
+        monkeypatch.setattr(
+            Messages, "count_tokens",
+            lambda *_args, **_kwargs: SimpleNamespace(input_tokens="invalid"),
+        )
+    elif failure == "generation_error":
+        def generation_error(*_args, **_kwargs):
+            raise RuntimeError("synthetic provider failure after reservation")
+        monkeypatch.setattr(Messages, "create", generation_error)
+    elif failure == "usage_error":
+        monkeypatch.setattr(Messages, "create", lambda *_args, **_kwargs: SimpleNamespace(
+            usage=SimpleNamespace(model_dump=lambda exclude_none=True: {"unexpected": 1}),
+            content=[SimpleNamespace(text="response unavailable to caller")],
+        ))
+    elif failure == "malformed":
+        monkeypatch.setattr(Messages, "create", lambda *_args, **_kwargs: SimpleNamespace(
+            usage=SimpleNamespace(model_dump=lambda exclude_none=True: {
+                "input_tokens": 80, "output_tokens": 4,
+                "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0,
+                "cache_creation": {"ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": 0},
+                "server_tool_use": {"web_search_requests": 0, "web_fetch_requests": 0},
+                "service_tier": "standard", "inference_geo": "global",
+            }),
+            content=[SimpleNamespace(text='{"winner":"A","per_dimension":{}}')],
+        ))
+
+    guard_budget = 0.000001 if failure == "budget_denial" else 1
+    with cl.AnthropicBudgetGuard(ledger, budget_usd=guard_budget, create=True) as guard:
+        token = cl._ACTIVE_BUDGET_GUARD.set(guard)
+        try:
+            with guard.phase("ab"):
+                if failure == "success":
+                    result = cl._run_judge_orientation(
+                        orientation="control_first", pending_pair=pending, budget=budget,
+                        judge_model="anthropic/claude-opus-4-6", concept="Fixture", stage="monday",
+                        recipe_context="anchor", expected_cast=[], first_arm="control", first_messages=[],
+                        second_arm="variant", second_messages=[],
+                    )
+                    assert result["overall"] == "tie"
+                else:
+                    expected_error = (
+                        RuntimeError if failure in {"count_tokens_error", "generation_error"}
+                        else cl.ConversationLabError if failure == "malformed"
+                        else cl.BudgetGuardError
+                    )
+                    with pytest.raises(expected_error):
+                        cl._run_judge_orientation(
+                            orientation="control_first", pending_pair=pending, budget=budget,
+                            judge_model="anthropic/claude-opus-4-6", concept="Fixture", stage="monday",
+                            recipe_context="anchor", expected_cast=[], first_arm="control", first_messages=[],
+                            second_arm="variant", second_messages=[],
+                        )
+        finally:
+            cl._ACTIVE_BUDGET_GUARD.reset(token)
+
+    summary = _ledger(ledger)["totals"]
+    attempted = failure in {"success", "malformed", "generation_error", "usage_error"}
+    assert summary["generation_attempts"] == int(attempted)
+    assert budget.used == int(attempted)
+    if attempted:
+        [entry] = pending["judge_orientations"]
+        assert entry["status"] == "invoked"
+        assert entry["evidence"]["guard_generation_attempts_after"] - entry["evidence"]["guard_generation_attempts_before"] == 1
+        if failure == "malformed":
+            assert entry["evidence"]["raw_response"] == '{"winner":"A","per_dimension":{}}'
+            assert "missing per_dimension" in entry["error"]
+        elif failure == "generation_error":
+            assert entry["error"] == "RuntimeError: synthetic provider failure after reservation"
+        elif failure == "usage_error":
+            assert "BudgetGuardError" in entry["error"]
+    else:
+        assert pending["judge_orientations"] == []
+
+
+def test_post_generation_snapshot_failure_is_explicitly_accounting_unknown(
+    tmp_path, monkeypatch, fake_sdk,
+):
+    ledger = tmp_path / "snapshot-error.json"
+    pending = {"judge_orientations": []}
+    budget = cl.CallBudget(max_calls=3)
+    with cl.AnthropicBudgetGuard(ledger, budget_usd=1, create=True) as guard:
+        original_summary = guard.summary
+        summaries = {"count": 0}
+
+        def fail_post_call_snapshot():
+            summaries["count"] += 1
+            if summaries["count"] == 2:
+                raise RuntimeError("synthetic post-call snapshot failure")
+            return original_summary()
+
+        monkeypatch.setattr(guard, "summary", fail_post_call_snapshot)
+        token = cl._ACTIVE_BUDGET_GUARD.set(guard)
+        try:
+            with guard.phase("ab"), pytest.raises(RuntimeError, match="post-call snapshot failure"):
+                cl._run_judge_orientation(
+                    orientation="control_first", pending_pair=pending, budget=budget,
+                    judge_model="anthropic/claude-opus-4-6", concept="Fixture", stage="monday",
+                    recipe_context="anchor", expected_cast=[], first_arm="control", first_messages=[],
+                    second_arm="variant", second_messages=[],
+                )
+        finally:
+            cl._ACTIVE_BUDGET_GUARD.reset(token)
+
+    [entry] = pending["judge_orientations"]
+    assert entry["status"] == "accounting_unknown"
+    assert entry["evidence"]["raw_response"]
+    assert "synthetic post-call snapshot failure" in entry["evidence"]["generation_attempt_snapshot_error"]
+    assert entry["error"] == "RuntimeError: synthetic post-call snapshot failure"
+    assert budget.used == 0  # the missing snapshot is never treated as a zero delta or a guessed one
+    assert _ledger(ledger)["totals"]["generation_attempts"] == 1
+
+
 def test_testbed_partial_pair_keeps_scenario_provenance_without_aggregating(tmp_path, monkeypatch, fake_sdk):
     scenario = {
         "id": "scenario-1", "concept": "Fixture", "recipe_context": "Fixture anchor",
