@@ -199,6 +199,56 @@ def test_guarded_calibrate_preflights_judge_role_before_dispatch(tmp_path, monke
     assert fake_sdk["count"] == []
 
 
+def test_guarded_reference_panel_denies_second_orientation_and_keeps_first_evidence(
+    tmp_path, fake_sdk,
+):
+    panel_path = Path(cl.__file__).resolve().parents[1] / "docs/conversation-lab/reference/voice-reference-panel-v0.json"
+    panel = cl._load_reference_panel(panel_path)
+    first_pair = cl._reference_pairs(panel)[0]
+    cast = sorted({turn["character"] for turn in [*first_pair["left_messages"], *first_pair["right_messages"]]})
+    prompt = cl._build_pairwise_prompt(
+        first_pair["concept"], "reference scene", first_pair["recipe_context"], cast,
+        first_pair["left_messages"], first_pair["right_messages"],
+    )
+    conservative_input = max(
+        len(prompt.encode("utf-8")) + len(cl.PAIRWISE_JUDGE_SYSTEM_PROMPT.encode("utf-8")) + 4096,
+        1250,
+    )
+    first_reservation_microusd = conservative_input * 5 + 4096 * 25
+    budget_usd = first_reservation_microusd / 1_000_000
+    ledger = tmp_path / "reference-ledger.json"
+    results = tmp_path / "results"
+
+    with pytest.raises(SystemExit, match="budget exhausted|combined budget reservation"):
+        cl.main([
+            "calibrate", "--reference-panel", str(panel_path), "--runs", "1",
+            "--max-cost", f"{budget_usd:.6f}", "--budget-ledger", str(ledger),
+            "--create-budget-ledger", "--results-dir", str(results),
+        ])
+
+    assert len(fake_sdk["create"]) == 1
+    state = _ledger(ledger)
+    assert state["totals"]["generation_attempts"] == 1
+    assert state["phases"]["calibration"]["generation_attempts"] == 1
+    [result_path] = results.glob("*-calibrate-reference-panel-v0.json")
+    report = json.loads(result_path.read_text())
+    assert report["aborted"] is True
+    assert report["calls_used"] == 1
+    info = report["cases"]["identical-pair"]
+    assert info["completed_pairs"] == []
+    [partial] = info["partial_pairs"]
+    assert [item["orientation"] for item in partial["judge_orientations"]] == ["left_first"]
+    expected_raw = json.dumps({
+        "winner": "tie",
+        "per_dimension": {dimension: "tie" for dimension in cl.ALL_JUDGE_DIMENSIONS},
+    })
+    assert partial["judge_orientations"][0]["evidence"]["raw_response"] == expected_raw
+    assert not any(
+        orientation["orientation"] == "right_first"
+        for orientation in partial["judge_orientations"]
+    )  # The ledger denied that request before a raw response could exist.
+
+
 def test_guarded_bench_prevents_real_production_judge_from_swallowing_bad_route(
     tmp_path, monkeypatch, fake_sdk,
 ):
@@ -420,7 +470,20 @@ def test_ab_first_judge_denial_preserves_both_paid_arms_as_unscored_partial(tmp_
 
 
 def test_ab_second_judge_denial_preserves_first_orientation_separately(tmp_path, monkeypatch, fake_sdk):
-    report, generated, ledger = _run_guarded_ab_until_judge_stops(tmp_path, monkeypatch, 0.1375)
+    control = _messages("generation-1")
+    variant = _messages("generation-2")
+    judge_prompt = cl._build_pairwise_prompt(
+        "Fixture", "monday", "Fixture anchor", sdw.participants_for_day("monday"), control, variant,
+    )
+    conservative_input = max(
+        len(judge_prompt.encode("utf-8")) + len(cl.PAIRWISE_JUDGE_SYSTEM_PROMPT.encode("utf-8")) + 4096,
+        1250,
+    )
+    # Match the exact first judge reservation after both synthetic Haiku arms
+    # have settled at 100 microdollars each. The next orientation must be denied.
+    first_judge_reservation = conservative_input * 5 + 4096 * 25
+    cap = (200 + first_judge_reservation) / 1_000_000
+    report, generated, ledger = _run_guarded_ab_until_judge_stops(tmp_path, monkeypatch, cap)
 
     assert len(generated) == 2
     assert report["completed_pairs"] == 0
