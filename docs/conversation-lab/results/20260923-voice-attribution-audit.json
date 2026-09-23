@@ -1,0 +1,465 @@
+{
+  "purpose": "offline diagnostic probes of measurement limits; not human-quality labels or efficacy claims",
+  "source_hashes": {
+    "speaker_attribution_source_commit": "e8af4ae928bb95b884ef2ef84b6e78e6717f1428",
+    "conversation_metrics_py_sha256": "cc611d9fb0143ae77d804c6c00b3075ef380f79c897ac0c3450fef3ee7576c78",
+    "conversation_lab_py_sha256": "1ca809d59407fbb8fb880fbc56e7568cde03c5638f39af206e03187ff76ded2f",
+    "w25_preserved_input_sha256": "6f7c92072d485ffecd4d6c2357765202c7a697810d0f435146113b5b4c997b83"
+  },
+  "scenarios": {
+    "synthetic_distinct_voices": {
+      "fixture_kind": "synthetic, explicitly constructed word-choice-separated classes",
+      "messages": [
+        {
+          "character": "Margaret",
+          "message": "Butter ratio crumb tender dough."
+        },
+        {
+          "character": "Margaret",
+          "message": "Ratio butter tender crust."
+        },
+        {
+          "character": "Margaret",
+          "message": "Dough butter ratio soft."
+        },
+        {
+          "character": "Margaret",
+          "message": "Crumb tender butter ratio."
+        },
+        {
+          "character": "Marcus",
+          "message": "Metaphor cadence sonnet luminous prose."
+        },
+        {
+          "character": "Marcus",
+          "message": "Sonnet prose lyrical cadence."
+        },
+        {
+          "character": "Marcus",
+          "message": "Metaphor luminous verse."
+        },
+        {
+          "character": "Marcus",
+          "message": "Cadence prose sonnet lyrical."
+        },
+        {
+          "character": "Julian",
+          "message": "Negative space chiaroscuro composition."
+        },
+        {
+          "character": "Julian",
+          "message": "Composition light shadow framing."
+        },
+        {
+          "character": "Julian",
+          "message": "Chiaroscuro negative space."
+        },
+        {
+          "character": "Julian",
+          "message": "Framing shadow composition light."
+        }
+      ],
+      "result": {
+        "accuracy": 1.0,
+        "chance": 0.3333,
+        "per_character_recall": {
+          "Julian": 1.0,
+          "Marcus": 1.0,
+          "Margaret": 1.0
+        },
+        "character_count": 3,
+        "candidate_characters": [
+          "Julian",
+          "Marcus",
+          "Margaret"
+        ],
+        "sample_count": 12,
+        "eligible_count": 12,
+        "scored_count": 12,
+        "coverage": 1.0,
+        "excluded_no_content": 0,
+        "excluded_no_training": 0,
+        "excluded_no_known_words": 0,
+        "sufficient_data": true
+      }
+    },
+    "synthetic_bijective_relabel": {
+      "fixture_kind": "same synthetic messages with a one-to-one anonymizing label permutation",
+      "label_map": {
+        "Margaret": "VoiceA",
+        "Marcus": "VoiceB",
+        "Julian": "VoiceC"
+      },
+      "messages": [
+        {
+          "character": "VoiceA",
+          "message": "Butter ratio crumb tender dough."
+        },
+        {
+          "character": "VoiceA",
+          "message": "Ratio butter tender crust."
+        },
+        {
+          "character": "VoiceA",
+          "message": "Dough butter ratio soft."
+        },
+        {
+          "character": "VoiceA",
+          "message": "Crumb tender butter ratio."
+        },
+        {
+          "character": "VoiceB",
+          "message": "Metaphor cadence sonnet luminous prose."
+        },
+        {
+          "character": "VoiceB",
+          "message": "Sonnet prose lyrical cadence."
+        },
+        {
+          "character": "VoiceB",
+          "message": "Metaphor luminous verse."
+        },
+        {
+          "character": "VoiceB",
+          "message": "Cadence prose sonnet lyrical."
+        },
+        {
+          "character": "VoiceC",
+          "message": "Negative space chiaroscuro composition."
+        },
+        {
+          "character": "VoiceC",
+          "message": "Composition light shadow framing."
+        },
+        {
+          "character": "VoiceC",
+          "message": "Chiaroscuro negative space."
+        },
+        {
+          "character": "VoiceC",
+          "message": "Framing shadow composition light."
+        }
+      ],
+      "result": {
+        "accuracy": 1.0,
+        "chance": 0.3333,
+        "per_character_recall": {
+          "VoiceA": 1.0,
+          "VoiceB": 1.0,
+          "VoiceC": 1.0
+        },
+        "character_count": 3,
+        "candidate_characters": [
+          "VoiceA",
+          "VoiceB",
+          "VoiceC"
+        ],
+        "sample_count": 12,
+        "eligible_count": 12,
+        "scored_count": 12,
+        "coverage": 1.0,
+        "excluded_no_content": 0,
+        "excluded_no_training": 0,
+        "excluded_no_known_words": 0,
+        "sufficient_data": true
+      },
+      "matches_original_accuracy": true
+    },
+    "synthetic_topic_confounded": {
+      "fixture_kind": "synthetic identical sentence template; recurring topic/job nouns are the only class cues",
+      "messages": [
+        {
+          "character": "Baker",
+          "message": "Today I measured butter; the butter changed the result."
+        },
+        {
+          "character": "Baker",
+          "message": "Today I measured butter; the butter changed the result."
+        },
+        {
+          "character": "Baker",
+          "message": "Today I measured butter; the butter changed the result."
+        },
+        {
+          "character": "Baker",
+          "message": "Today I measured butter; the butter changed the result."
+        },
+        {
+          "character": "Copywriter",
+          "message": "Today I measured metaphor; the metaphor changed the result."
+        },
+        {
+          "character": "Copywriter",
+          "message": "Today I measured metaphor; the metaphor changed the result."
+        },
+        {
+          "character": "Copywriter",
+          "message": "Today I measured metaphor; the metaphor changed the result."
+        },
+        {
+          "character": "Copywriter",
+          "message": "Today I measured metaphor; the metaphor changed the result."
+        }
+      ],
+      "result": {
+        "accuracy": 1.0,
+        "chance": 0.5,
+        "per_character_recall": {
+          "Baker": 1.0,
+          "Copywriter": 1.0
+        },
+        "character_count": 2,
+        "candidate_characters": [
+          "Baker",
+          "Copywriter"
+        ],
+        "sample_count": 8,
+        "eligible_count": 8,
+        "scored_count": 8,
+        "coverage": 1.0,
+        "excluded_no_content": 0,
+        "excluded_no_training": 0,
+        "excluded_no_known_words": 0,
+        "sufficient_data": true
+      },
+      "interpretation": "High classification can reflect topic vocabulary rather than distinctive grammatical voice."
+    },
+    "synthetic_same_content_different_order": {
+      "fixture_kind": "synthetic identical content-word bags rearranged into different constructions",
+      "messages": [
+        {
+          "character": "Baker",
+          "message": "Butter ratio tender crust. Butter crust, tender ratio."
+        },
+        {
+          "character": "Baker",
+          "message": "Tender butter crust ratio. Ratio: crust, butter, tender."
+        },
+        {
+          "character": "Copywriter",
+          "message": "Tender crust: ratio, butter. Crust tender? Butter, ratio."
+        },
+        {
+          "character": "Copywriter",
+          "message": "Ratio tender butter crust. Butter? Tender crust, ratio."
+        }
+      ],
+      "result": {
+        "accuracy": 0.5,
+        "chance": 0.5,
+        "per_character_recall": {
+          "Baker": 0.5,
+          "Copywriter": 0.5
+        },
+        "character_count": 2,
+        "candidate_characters": [
+          "Baker",
+          "Copywriter"
+        ],
+        "sample_count": 4,
+        "eligible_count": 4,
+        "scored_count": 4,
+        "coverage": 1.0,
+        "excluded_no_content": 0,
+        "excluded_no_training": 0,
+        "excluded_no_known_words": 0,
+        "sufficient_data": true
+      },
+      "interpretation": "A unigram bag model cannot use word order or syntax to separate these styles."
+    },
+    "w25_thursday_one_conversation": {
+      "fixture_kind": "preserved real transcript; diagnostic only, no human voice-quality label",
+      "episode_id": "2026-W25",
+      "stage": "thursday",
+      "concept": "Harissa Chickpea Feta Cups",
+      "source_record_commit": "c08a73950ee7a976f3b4885ec7e0f4348b62ed11",
+      "source_episode_sha256": "555401c9ecfb2e2a5641eef9ffcfcf55f9bbe8a0bbb9b2abbb450e4e0e0cb1d6",
+      "source_turns": [
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Marcus Reid",
+          "message": "Morning, all. Got the harissa chickpea situation drafted and I'm thinking the title should be \"Five-Minute Breakfast in a Muffin Pan\" - something that promises speed but doesn't lie about the actual work involved, which I think matters here.",
+          "timestamp": "2026-06-18T09:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Ria Castillo",
+          "message": "Five minutes is a lie though - the dicing alone takes longer, and people hate that. What about \"Crispy Chickpea Cups, Five Ingredients\"? That's honest and it stops the scroll.",
+          "timestamp": "2026-06-18T10:36:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Marcus Reid",
+          "message": "You're right about the dicing - I was leaning into the promise rather than the reality, which is exactly the trap you called out. What if we went \"Harissa Chickpea Feta Cups\" and let the copy do the work of showing it's actually doable, not pretending it's faster than it is?",
+          "timestamp": "2026-06-18T12:12:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Margaret Chen",
+          "message": "Marcus got it right - title stays simple, copy carries the work. That's how it should be.",
+          "timestamp": "2026-06-18T13:48:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "thursday",
+          "stage": "copywriting",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Love that Margaret and Ria pushed back - the simpler title actually gives Marcus more room to show the real process instead of overselling it.",
+          "timestamp": "2026-06-18T15:24:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        }
+      ],
+      "result": {
+        "accuracy": null,
+        "chance": null,
+        "per_character_recall": {
+          "Marcus": 1.0,
+          "Margaret": null,
+          "Ria": null,
+          "Stephanie": null
+        },
+        "character_count": 4,
+        "candidate_characters": [
+          "Marcus"
+        ],
+        "sample_count": 5,
+        "eligible_count": 2,
+        "scored_count": 2,
+        "coverage": 0.4,
+        "excluded_no_content": 0,
+        "excluded_no_training": 3,
+        "excluded_no_known_words": 0,
+        "sufficient_data": false
+      },
+      "summarize_output": {
+        "speaker_attribution_accuracy": null,
+        "speaker_attribution_chance": null,
+        "detail_scored_count": 2,
+        "detail_coverage": 0.4,
+        "detail_sufficient_data": false
+      }
+    }
+  },
+  "rotation_probe": {
+    "source_function": "scripts/conversation_lab.py::_rotate_speakers",
+    "source_commit": "e8af4ae928bb95b884ef2ef84b6e78e6717f1428",
+    "function_sha256": "a24a8b106a2e07ccfa86288cfb6f60e005b987270d817a5883498cd69c61a996",
+    "documented_behavior": "seed is discarded; labels shift to the next turn, wrapping at end",
+    "seeds": [
+      1,
+      2,
+      3
+    ],
+    "original_label_sequence": [
+      "Marcus Reid",
+      "Ria Castillo",
+      "Marcus Reid",
+      "Margaret Chen",
+      "Stephanie 'Steph' Whitmore"
+    ],
+    "rotated_label_sequences": [
+      [
+        "Ria Castillo",
+        "Marcus Reid",
+        "Margaret Chen",
+        "Stephanie 'Steph' Whitmore",
+        "Marcus Reid"
+      ],
+      [
+        "Ria Castillo",
+        "Marcus Reid",
+        "Margaret Chen",
+        "Stephanie 'Steph' Whitmore",
+        "Marcus Reid"
+      ],
+      [
+        "Ria Castillo",
+        "Marcus Reid",
+        "Margaret Chen",
+        "Stephanie 'Steph' Whitmore",
+        "Marcus Reid"
+      ]
+    ],
+    "all_seeds_identical": true,
+    "source_result_per_seed": [
+      {
+        "accuracy": null,
+        "chance": null,
+        "per_character_recall": {
+          "Marcus": null,
+          "Margaret": null,
+          "Ria": null,
+          "Stephanie": null
+        },
+        "character_count": 4,
+        "candidate_characters": [
+          "Marcus"
+        ],
+        "sample_count": 5,
+        "eligible_count": 0,
+        "scored_count": 0,
+        "coverage": 0.0,
+        "excluded_no_content": 0,
+        "excluded_no_training": 3,
+        "excluded_no_known_words": 2,
+        "sufficient_data": false
+      },
+      {
+        "accuracy": null,
+        "chance": null,
+        "per_character_recall": {
+          "Marcus": null,
+          "Margaret": null,
+          "Ria": null,
+          "Stephanie": null
+        },
+        "character_count": 4,
+        "candidate_characters": [
+          "Marcus"
+        ],
+        "sample_count": 5,
+        "eligible_count": 0,
+        "scored_count": 0,
+        "coverage": 0.0,
+        "excluded_no_content": 0,
+        "excluded_no_training": 3,
+        "excluded_no_known_words": 2,
+        "sufficient_data": false
+      },
+      {
+        "accuracy": null,
+        "chance": null,
+        "per_character_recall": {
+          "Marcus": null,
+          "Margaret": null,
+          "Ria": null,
+          "Stephanie": null
+        },
+        "character_count": 4,
+        "candidate_characters": [
+          "Marcus"
+        ],
+        "sample_count": 5,
+        "eligible_count": 0,
+        "scored_count": 0,
+        "coverage": 0.0,
+        "excluded_no_content": 0,
+        "excluded_no_training": 3,
+        "excluded_no_known_words": 2,
+        "sufficient_data": false
+      }
+    ]
+  }
+}
