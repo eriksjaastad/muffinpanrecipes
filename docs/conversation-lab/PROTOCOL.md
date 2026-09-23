@@ -350,7 +350,15 @@ this module's pairwise judge - as a pass rate, a per-dimension score
 distribution, and a count of which dimension came back weakest most often;
 - any 4-gram a character reused across runs.
 
-Then change one thing, bench again, and pass `--compare <first result>`.
+Then change one thing, bench again, and pass `--compare <first result>`. Automatic
+checks validate the recorded stage, run mode, recipe context, frozen judge inputs,
+models, and aggregate schema. They do not fingerprint source files. Before treating
+a delta as causal, manually confirm that `scripts/conversation_metrics.py`, its
+aggregation behavior, the production judge rubric and implementation, other
+generator code/configuration, and prompt-visible character and memory inputs are
+unchanged between runs. Record both source revisions and the inspected difference
+in the experiment notes. Older result files may contain unused fingerprint fields;
+they are ignored.
 
 ### Judging context
 

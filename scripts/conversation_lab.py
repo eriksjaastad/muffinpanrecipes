@@ -211,11 +211,9 @@ from __future__ import annotations
 import argparse
 import fcntl
 import hashlib
-import inspect
 import json
 import os
 import tempfile
-import types
 import random
 import re
 import sys
@@ -374,10 +372,8 @@ DECISION_RULE_TEXT = (
     "dimension by > 50%; N is small, treat as signal"
 )
 
-
 class ConversationLabError(RuntimeError):
     """Raised for lab-specific failures that main() turns into a clean exit."""
-
 
 @dataclass
 class CallBudget:
@@ -392,13 +388,11 @@ class CallBudget:
     def record(self, amount: int) -> None:
         self.used += amount
 
-
 # Set once, the first time backend.utils.model_router.get_cost_summary()
 # raises - see _warn_cost_summary_failure_once - so a broken cost log warns
 # exactly once per process instead of once per checked call (ab/calibrate
 # check it before every single generation and judge call).
 _cost_summary_failure_warned = False
-
 
 def _warn_cost_summary_failure_once(exc: Exception) -> None:
     global _cost_summary_failure_warned
@@ -413,7 +407,6 @@ def _warn_cost_summary_failure_once(exc: Exception) -> None:
     )
     _cost_summary_failure_warned = True
 
-
 def _cost_summary_or_none() -> dict[str, Any] | None:
     """model_router's running totals, or None if the log cannot be read."""
     try:
@@ -422,7 +415,6 @@ def _cost_summary_or_none() -> dict[str, Any] | None:
         _warn_cost_summary_failure_once(exc)
         return None
     return summary if isinstance(summary, dict) else None
-
 
 def _total_cost_or_none() -> float | None:
     """Current backend.utils.model_router.get_cost_summary()['total_cost'],
@@ -434,7 +426,6 @@ def _total_cost_or_none() -> float | None:
     except Exception as exc:
         _warn_cost_summary_failure_once(exc)
         return None
-
 
 def _would_exceed_cost(max_cost: float, baseline: float = 0.0) -> bool:
     """True once (running total - `baseline`) has already reached
@@ -462,7 +453,6 @@ def _would_exceed_cost(max_cost: float, baseline: float = 0.0) -> bool:
         return False
     return (total_cost - baseline) >= max_cost
 
-
 # ---------------------------------------------------------------------------
 # Episode loading (baseline, calibrate, ab --from-episode)
 #
@@ -470,7 +460,6 @@ def _would_exceed_cost(max_cost: float, baseline: float = 0.0) -> bool:
 # import scripts/review_episode.py (owned by another implementer working the
 # same card).
 # ---------------------------------------------------------------------------
-
 
 def _load_episode(episode_id: str, local: bool) -> dict[str, Any]:
     """Load an episode by id: CDN by default, local mirror on request or fallback."""
@@ -487,7 +476,6 @@ def _load_episode(episode_id: str, local: bool) -> dict[str, Any]:
         )
         return _load_episode_local(episode_id)
 
-
 def _load_episode_cdn(episode_id: str) -> dict[str, Any]:
     cache_buster = int(time.time() * 1000)
     url = f"{_CDN_BASE}/{episode_id}.json?cb={cache_buster}"
@@ -499,7 +487,6 @@ def _load_episode_cdn(episode_id: str) -> dict[str, Any]:
     data["_lab_source"] = "cdn"
     return data
 
-
 def _load_episode_local(episode_id: str) -> dict[str, Any]:
     path = ROOT / "data" / "episodes" / f"{episode_id}.json"
     if not path.exists():
@@ -509,7 +496,6 @@ def _load_episode_local(episode_id: str) -> dict[str, Any]:
     data = json.loads(path.read_text(encoding="utf-8"))
     data["_lab_source"] = "local"
     return data
-
 
 def _judge_info_for_stage(episode: dict[str, Any], stage_data: dict[str, Any], stage: str) -> dict[str, Any]:
     """Read persisted judge output for one stage.
@@ -540,19 +526,15 @@ def _judge_info_for_stage(episode: dict[str, Any], stage_data: dict[str, Any], s
         "legacy_verdict": stage_data.get("judge_verdict"),
     }
 
-
 # ---------------------------------------------------------------------------
 # Results / experiment-log paths
 # ---------------------------------------------------------------------------
-
 
 def _results_dir(args: argparse.Namespace) -> Path:
     raw = getattr(args, "results_dir", None)
     return Path(raw) if raw else DEFAULT_RESULTS_DIR
 
-
 DEFAULT_EXPERIMENTS_LOG = DEFAULT_LAB_DIR / "EXPERIMENTS.md"
-
 
 def _experiments_log_path(args: argparse.Namespace) -> Path:
     """Where `ab` appends its experiment row.
@@ -566,22 +548,18 @@ def _experiments_log_path(args: argparse.Namespace) -> Path:
     raw = getattr(args, "experiments_log", None)
     return Path(raw) if raw else DEFAULT_EXPERIMENTS_LOG
 
-
 def _write_json_result(path: Path, payload: dict[str, Any]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     return path
 
-
 def _slugify(text: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
     return slug or "untitled"
 
-
 # ---------------------------------------------------------------------------
 # Variant mechanism
 # ---------------------------------------------------------------------------
-
 
 def _load_variant_file(path: Path) -> dict[str, Any]:
     if not path.exists():
@@ -594,7 +572,6 @@ def _load_variant_file(path: Path) -> dict[str, Any]:
         raise SystemExit(f"conversation_lab: variant file must be a non-empty JSON object: {path}")
     return data
 
-
 def _clear_prompt_cache(module: Any) -> None:
     """build_system_prompt caches per-character prompts by name only
     (scripts/simulate_dialogue_week.py's `_system_prompt_cache`, keyed
@@ -605,7 +582,6 @@ def _clear_prompt_cache(module: Any) -> None:
     cache = getattr(module, "_system_prompt_cache", None)
     if isinstance(cache, dict):
         cache.clear()
-
 
 def _apply_variant(module: Any, variant: dict[str, Any]) -> dict[str, Any]:
     """setattr the variant values onto `module`; return originals for restore.
@@ -629,7 +605,6 @@ def _apply_variant(module: Any, variant: dict[str, Any]) -> dict[str, Any]:
     _clear_prompt_cache(module)
     return original
 
-
 def validate_variant(module: Any, variant: dict[str, Any]) -> None:
     """Reject a structurally wrong variant. Safe to call before any generation.
 
@@ -651,7 +626,6 @@ def validate_variant(module: Any, variant: dict[str, Any]) -> None:
                 "constant this variant mechanism can safely restore"
             )
         _validate_lever_shape(name, value)
-
 
 def _validate_lever_shape(name: str, value: Any) -> None:
     """Reject a structurally wrong lever BEFORE any API call is made.
@@ -700,17 +674,14 @@ def _validate_lever_shape(name: str, value: Any) -> None:
                 f"HISTORY_DEPTH['{key}'] entries must be positive integers, got {pair!r}"
             )
 
-
 def _restore_variant(module: Any, original: dict[str, Any]) -> None:
     for name, value in original.items():
         setattr(module, name, value)
     _clear_prompt_cache(module)
 
-
 # ---------------------------------------------------------------------------
 # Generation (production call shape)
 # ---------------------------------------------------------------------------
-
 
 def _run_arm(
     concept: str,
@@ -743,7 +714,6 @@ def _run_arm(
         initial_recent_lines=None,
     )
 
-
 def _run_arm_and_count(
     concept: str,
     stage: str,
@@ -774,11 +744,9 @@ def _run_arm_and_count(
     calls = delta if delta > 0 else message_count
     return result, calls
 
-
 # ---------------------------------------------------------------------------
 # Pairwise judge
 # ---------------------------------------------------------------------------
-
 
 def _format_transcript(messages: list[dict[str, Any]]) -> str:
     lines = []
@@ -786,7 +754,6 @@ def _format_transcript(messages: list[dict[str, Any]]) -> str:
         name = (m.get("character") or "?").split()[0]
         lines.append(f"{name}: {' '.join((m.get('message') or '').split())}")
     return "\n".join(lines)
-
 
 def _build_pairwise_prompt(
     concept: str,
@@ -814,7 +781,6 @@ def _build_pairwise_prompt(
         "Score this pair and return the JSON verdict described in your instructions."
     )
 
-
 def _parse_judge_json(raw: str) -> dict[str, Any] | None:
     """Tolerant slice-and-parse: first '{' to last '}'.
 
@@ -833,7 +799,6 @@ def _parse_judge_json(raw: str) -> dict[str, Any] | None:
     except json.JSONDecodeError:
         return None
     return parsed if isinstance(parsed, dict) else None
-
 
 def _judge_orientation(
     judge_model: str,
@@ -872,7 +837,6 @@ def _judge_orientation(
     result["reason"] = str(parsed.get("reason", ""))
     return result
 
-
 def _normalize_verdict_value(raw: Any, *, field: str) -> str:
     """Normalise a judge verdict value's case and whitespace, and validate
     it is really one of A/B/tie.
@@ -893,7 +857,6 @@ def _normalize_verdict_value(raw: Any, *, field: str) -> str:
         f"pairwise judge returned an invalid {field} verdict: {raw!r} (expected A, B, or tie)"
     )
 
-
 def _combine_orientations(first: dict[str, str], second: dict[str, str]) -> dict[str, str]:
     """A dimension (or overall) wins only when both position-swapped
     orderings pick the same arm; otherwise it is a tie."""
@@ -903,15 +866,12 @@ def _combine_orientations(first: dict[str, str], second: dict[str, str]) -> dict
         combined[key] = v1 if v1 == v2 else "tie"
     return combined
 
-
 def _dry_run_combined() -> dict[str, str]:
     return {"overall": "tie", **{dim: "tie" for dim in ALL_JUDGE_DIMENSIONS}}
-
 
 # ---------------------------------------------------------------------------
 # baseline
 # ---------------------------------------------------------------------------
-
 
 def _episode_concept(episode: dict[str, Any]) -> str:
     """Prefer the real recipe title over the top-level `concept` field.
@@ -940,7 +900,6 @@ def _episode_concept(episode: dict[str, Any]) -> str:
             file=sys.stderr,
         )
     return concept
-
 
 def cmd_baseline(args: argparse.Namespace) -> None:
     episode = _load_episode(args.episode_id, local=args.local)
@@ -976,7 +935,6 @@ def cmd_baseline(args: argparse.Namespace) -> None:
     _write_json_result(result_path, report)
     _print_baseline_table(report)
 
-
 def _print_baseline_table(report: dict[str, Any]) -> None:
     print(f"\n=== conversation_lab baseline: {report['episode_id']} ({report['source']}) ===")
     print(f"concept: {report['concept']}")
@@ -996,15 +954,12 @@ def _print_baseline_table(report: dict[str, Any]) -> None:
             )
     print(f"\nresults written to: {report['results_file']}")
 
-
 # ---------------------------------------------------------------------------
 # ab
 # ---------------------------------------------------------------------------
 
-
 def _numeric_keys(d: dict[str, Any]) -> list[str]:
     return [k for k, v in d.items() if isinstance(v, (int, float)) and not isinstance(v, bool)]
-
 
 def _stage_recipe_data(episode: dict[str, Any], stage_data: dict[str, Any]) -> dict[str, Any] | None:
     """recipe_data for one stage, falling back to Monday's.
@@ -1015,7 +970,6 @@ def _stage_recipe_data(episode: dict[str, Any], stage_data: dict[str, Any]) -> d
     both build the same recipe context and judge facts from one snapshot.
     """
     return stage_data.get("recipe_data") or (episode.get("stages") or {}).get("monday", {}).get("recipe_data")
-
 
 def _resolve_recipe_context_and_facts(
     args: argparse.Namespace,
@@ -1044,12 +998,10 @@ def _resolve_recipe_context_and_facts(
     recipe_facts = _build_judge_recipe_facts(recipe_data) or None
     return recipe_context, recipe_facts
 
-
 def _resolve_recipe_context(args: argparse.Namespace) -> str | None:
     """Compatibility wrapper returning only the light speaker anchor."""
     recipe_context, _ = _resolve_recipe_context_and_facts(args)
     return recipe_context
-
 
 def _resolve_judge_model() -> str:
     """Read JUDGE_MODEL straight from the environment - never through
@@ -1067,7 +1019,6 @@ def _resolve_judge_model() -> str:
             "--dry-run for a zero-cost plumbing check."
         )
     return judge_model
-
 
 def _resolve_models(dry_run: bool) -> tuple[str, str, str]:
     """Return (mode, default_model, judge_model) for `ab`.
@@ -1089,7 +1040,6 @@ def _resolve_models(dry_run: bool) -> tuple[str, str, str]:
             "resolve, or pass --dry-run for a zero-cost plumbing check."
         ) from exc
     return "openai", default_model, _resolve_judge_model()
-
 
 def _load_testbed(path: Path) -> list[dict[str, Any]]:
     """Load the frozen scenario panel (docs/conversation-lab/testbed-v3.json by default).
@@ -1140,7 +1090,6 @@ def _load_testbed(path: Path) -> list[dict[str, Any]]:
             "behaviour."
         )
     return scenarios
-
 
 def _generate_and_judge_pairs(
     *,
@@ -1257,12 +1206,10 @@ def _generate_and_judge_pairs(
             _restore_variant(simulate_module, restore_pending)
     return aborted
 
-
 def _ab_result_path(results_dir: Path, slug: str, variant_path: Path) -> Path:
     return results_dir / (
         f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-ab-{slug}-{variant_path.stem}.json"
     )
-
 
 # Flat --max-calls default for a single --concept run, unchanged from the
 # original slice's hardcoded argparse default - a single concept/recipe
@@ -1280,11 +1227,9 @@ _SINGLE_CONCEPT_MAX_CALLS = 120
 # Wednesday.
 _MIN_MAX_TURNS_FLOOR = 10
 
-
 def _max_turns_for_stage(stage: str) -> int:
     upper = simulate_module.TICKS_RANGE.get(stage, (4, 6))[1]
     return max(upper, _MIN_MAX_TURNS_FLOOR)
-
 
 def _derive_max_calls(mode: str, *, scenario_count: int, runs: int, stage: str) -> int:
     """The --max-calls default when the flag itself is omitted (None).
@@ -1309,7 +1254,6 @@ def _derive_max_calls(mode: str, *, scenario_count: int, runs: int, stage: str) 
         return _SINGLE_CONCEPT_MAX_CALLS
     max_turns = _max_turns_for_stage(stage)
     return scenario_count * runs * (3 * max_turns + 2)
-
 
 def cmd_ab(args: argparse.Namespace) -> None:
     if args.sweep and args.variant:
@@ -1365,7 +1309,6 @@ def cmd_ab(args: argparse.Namespace) -> None:
     if not args.no_log:
         _append_experiments_row(args, report, variant, result_path)
     _print_ab_report(report)
-
 
 def _cmd_ab_testbed(
     args: argparse.Namespace,
@@ -1435,7 +1378,6 @@ def _cmd_ab_testbed(
         _append_experiments_row(args, report, variant, result_path)
     _print_testbed_ab_report(report)
 
-
 def _aggregate_pairs(pairs: list[dict[str, Any]], target: str, dry_run: bool) -> dict[str, Any]:
     """Wins/ties/losses per dimension, target win rate, worst-other-loss
     rate, and mean metric deltas for one set of judged pairs.
@@ -1488,7 +1430,6 @@ def _aggregate_pairs(pairs: list[dict[str, Any]], target: str, dry_run: bool) ->
         "metric_deltas": metric_deltas,
     }
 
-
 def _build_ab_report(
     args: argparse.Namespace,
     variant_path: Path,
@@ -1529,7 +1470,6 @@ def _build_ab_report(
     if error is not None:
         report["error"] = error
     return report
-
 
 def _build_testbed_ab_report(
     args: argparse.Namespace,
@@ -1580,19 +1520,16 @@ def _build_testbed_ab_report(
         report["error"] = error
     return report
 
-
 def _print_dimension_table(per_dimension_counts: dict[str, dict[str, int]]) -> None:
     print(f"{'dimension':<24}{'variant':>8}{'tie':>8}{'control':>8}")
     for dim in ALL_JUDGE_DIMENSIONS:
         counts = per_dimension_counts.get(dim, {})
         print(f"{dim:<24}{counts.get('variant', 0):>8}{counts.get('tie', 0):>8}{counts.get('control', 0):>8}")
 
-
 def _print_metric_deltas(metric_deltas: dict[str, float]) -> None:
     print("\nmean metric deltas (variant - control):")
     for key, value in sorted(metric_deltas.items()):
         print(f"  {key:<32}{value:+.4f}")
-
 
 def _print_ab_report(report: dict[str, Any]) -> None:
     print(f"\n=== conversation_lab ab: {report['concept']} / {report['stage']} ===")
@@ -1612,7 +1549,6 @@ def _print_ab_report(report: dict[str, Any]) -> None:
     print(f"\nDECISION RULE (informational, not enforced): {report['decision_rule']}")
     print(f"cost summary: {report['cost_summary']}")
     print(f"\nresults written to: {report['results_file']}")
-
 
 def _print_testbed_ab_report(report: dict[str, Any]) -> None:
     print(f"\n=== conversation_lab ab --testbed: {report['scenario_count']} scenarios / {report['stage']} ===")
@@ -1646,7 +1582,6 @@ def _print_testbed_ab_report(report: dict[str, Any]) -> None:
     print(f"cost summary: {report['cost_summary']}")
     print(f"\nresults written to: {report['results_file']}")
 
-
 _EXPERIMENTS_SECTION_HEADING = "## Experiments"
 _EXPERIMENTS_TABLE_HEADER_LINE = (
     "| Date | Experiment ID | Lever (one) | Target dimension(s) | N | "
@@ -1660,12 +1595,10 @@ _EXPERIMENTS_TABLE_SEPARATOR_LINE = (
 )
 _EXPERIMENTS_HEADER = "# Conversation Lab Experiments\n\n" + _EXPERIMENTS_TABLE_HEADER_LINE + _EXPERIMENTS_TABLE_SEPARATOR_LINE
 
-
 def _target_win_tie_loss(report: dict[str, Any]) -> tuple[int, int, int]:
     target = report["target_dimension"]
     counts = report["overall_counts"] if target == "overall" else report["per_dimension_counts"].get(target, {})
     return counts.get("variant", 0), counts.get("tie", 0), counts.get("control", 0)
-
 
 def _insert_experiments_row(text: str, row: str) -> str:
     """Insert `row` (one newline-terminated markdown table line) as the
@@ -1726,7 +1659,6 @@ def _insert_experiments_row(text: str, row: str) -> str:
         table_end += 1
     return "".join(lines[:table_end]) + row + "".join(lines[table_end:])
 
-
 def _experiment_decision_text(
     *, dry_run: bool, completed_pairs: int, meets_decision_rule: bool, target_win_rate: float, target_dimension: str
 ) -> str:
@@ -1736,7 +1668,6 @@ def _experiment_decision_text(
         return "no pairs completed"
     verb = "SHIP" if meets_decision_rule else "HOLD"
     return f"signal: {verb} ({target_win_rate:.0%} on {target_dimension})"
-
 
 def _write_experiments_row(log_path: Path, row: str) -> None:
     """Insert `row` into EXPERIMENTS.md's Experiments table (see
@@ -1751,7 +1682,6 @@ def _write_experiments_row(log_path: Path, row: str) -> None:
         return
     existing_text = log_path.read_text(encoding="utf-8")
     log_path.write_text(_insert_experiments_row(existing_text, row), encoding="utf-8")
-
 
 def _append_experiments_row(
     args: argparse.Namespace,
@@ -1778,11 +1708,9 @@ def _append_experiments_row(
 
     _write_experiments_row(_experiments_log_path(args), row)
 
-
 # ---------------------------------------------------------------------------
 # ab --sweep: one shared control, many variants ranked against it
 # ---------------------------------------------------------------------------
-
 
 def _load_sweep_variants(sweep_dir: Path) -> dict[str, dict[str, Any]]:
     """Every *.json file directly under `sweep_dir` is one variant - same
@@ -1796,7 +1724,6 @@ def _load_sweep_variants(sweep_dir: Path) -> dict[str, dict[str, Any]]:
     if not variant_files:
         raise SystemExit(f"conversation_lab ab: --sweep directory has no *.json variant files: {sweep_dir}")
     return {vf.stem: _load_variant_file(vf) for vf in variant_files}
-
 
 def _generate_sweep_control(
     *,
@@ -1831,7 +1758,6 @@ def _generate_sweep_control(
             last_calls = calls
             transcripts[(scenario["id"], run_index)] = result
     return False
-
 
 def _run_sweep_variant(
     *,
@@ -1947,7 +1873,6 @@ def _run_sweep_variant(
     cost_spent = round(cost_after - baseline_cost, 6) if cost_after is not None else None
     return aborted, budget.used, cost_spent
 
-
 def _build_sweep_variant_report(
     variant_name: str,
     variant: dict[str, Any],
@@ -1968,7 +1893,6 @@ def _build_sweep_variant_report(
         **_aggregate_pairs(pairs, target, dry_run),
     }
 
-
 def _arm_top_phrases(transcripts_by_key: dict[str, list[dict[str, Any]]]) -> list[str] | None:
     """Top 10 phrases recurring across an arm's OWN transcripts (present in
     2+ distinct (scenario, run) transcripts), via
@@ -1985,7 +1909,6 @@ def _arm_top_phrases(transcripts_by_key: dict[str, list[dict[str, Any]]]) -> lis
         return None
     heat = fn(transcripts_by_key, min_groups=2, top=10)
     return [p["phrase"] for p in heat.get("phrases", [])]
-
 
 def _rank_sweep_variants(
     variant_reports: dict[str, Any],
@@ -2043,7 +1966,6 @@ def _rank_sweep_variants(
 
     ranking.sort(key=lambda e: (-e["target_wins"], -e["target_win_rate"], e["variant_name"]))
     return ranking
-
 
 def _build_sweep_report(
     args: argparse.Namespace,
@@ -2104,7 +2026,6 @@ def _build_sweep_report(
         report["error"] = error
     return report
 
-
 def _print_sweep_report(report: dict[str, Any]) -> None:
     print(f"\n=== conversation_lab ab --sweep: {len(report['variant_names'])} variants / {report['stage']} ===")
     print(f"sweep dir: {report['sweep_dir']}  testbed: {report['testbed_path']}")
@@ -2153,7 +2074,6 @@ def _print_sweep_report(report: dict[str, Any]) -> None:
         print(f"\nERROR: {report['error']}")
     print(f"\nresults written to: {report['results_file']}")
 
-
 def _append_sweep_experiments_row(
     args: argparse.Namespace,
     report: dict[str, Any],
@@ -2188,7 +2108,6 @@ def _append_sweep_experiments_row(
     )
 
     _write_experiments_row(_experiments_log_path(args), row)
-
 
 def _cmd_ab_sweep(
     args: argparse.Namespace,
@@ -2283,11 +2202,9 @@ def _cmd_ab_sweep(
             _append_sweep_experiments_row(args, report, variant_name, variant_report, variants[variant_name], result_path)
     _print_sweep_report(report)
 
-
 # ---------------------------------------------------------------------------
 # calibrate
 # ---------------------------------------------------------------------------
-
 
 def _shuffle_turns(dialogue: list[dict[str, Any]], seed: int) -> list[dict[str, Any]]:
     """Degrade by shuffling turn order with a seeded RNG (seed = run index)."""
@@ -2295,7 +2212,6 @@ def _shuffle_turns(dialogue: list[dict[str, Any]], seed: int) -> list[dict[str, 
     shuffled = list(dialogue)
     rng.shuffle(shuffled)
     return shuffled
-
 
 def _rotate_speakers(dialogue: list[dict[str, Any]], seed: int) -> list[dict[str, Any]]:
     """Degrade by rotating which character label is attached to each turn
@@ -2313,12 +2229,10 @@ def _rotate_speakers(dialogue: list[dict[str, Any]], seed: int) -> list[dict[str
     rotated = characters[1:] + characters[:1]
     return [dict(m, character=c) for m, c in zip(dialogue, rotated)]
 
-
 _DEGRADATIONS: tuple[tuple[str, Any], ...] = (
     ("shuffled_order", _shuffle_turns),
     ("rotated_speakers", _rotate_speakers),
 )
-
 
 def _build_calibrate_report(
     args: argparse.Namespace,
@@ -2347,7 +2261,6 @@ def _build_calibrate_report(
         report["error"] = error
     return report
 
-
 # ---------------------------------------------------------------------------
 # bench (#7314) - characterize ONE setting over N runs
 #
@@ -2371,7 +2284,6 @@ def _build_calibrate_report(
 # ~25 metrics compared at once.
 _BENCH_MOVED_Z = 2.0
 
-
 def _frozen_prior_stages(episode: dict[str, Any], stage: str) -> dict[str, Any]:
     """The days BEFORE `stage`, as the production judge would see them.
 
@@ -2391,7 +2303,6 @@ def _frozen_prior_stages(episode: dict[str, Any], stage: str) -> dict[str, Any]:
             prior[day] = {"dialogue": dialogue}
     return prior
 
-
 def _calls_now() -> int | None:
     """Current total_calls, or None when the counter cannot be read.
 
@@ -2406,7 +2317,6 @@ def _calls_now() -> int | None:
         return model_router.get_cost_summary().get("total_calls", 0)
     except Exception:
         return None
-
 
 def _spend(budget: CallBudget, fn=None, *, fallback: int = 1, reservation: int | None = None):
     """Run `fn` and record what it spent - even if it raises.
@@ -2439,7 +2349,6 @@ def _spend(budget: CallBudget, fn=None, *, fallback: int = 1, reservation: int |
         else:
             delta = after - before
             budget.record(delta if delta > 0 else fallback)
-
 
 def _judge_one_transcript(
     *,
@@ -2476,7 +2385,6 @@ def _judge_one_transcript(
         "weakest": (episode.get("judge_weakest") or {}).get(stage) or [],
         "reason": (episode.get("judge_reason") or {}).get(stage) or "",
     }
-
 
 def _distribution(values: list[Any]) -> dict[str, Any] | None:
     """mean / spread / range for one metric across a bench's runs.
@@ -2517,11 +2425,9 @@ def _distribution(values: list[Any]) -> dict[str, Any] | None:
         "max": max(vals),
     }
 
-
 # The judge's own contract: _JUDGE_SYSTEM_PROMPT asks for every dimension
 # on a 1-5 scale. Scores outside it are malformed verdicts, not data.
 _JUDGE_SCORE_RANGE = (1, 5)
-
 
 def _is_valid_judge_score(value: Any) -> bool:
     return (
@@ -2530,7 +2436,6 @@ def _is_valid_judge_score(value: Any) -> bool:
         and isfinite(value)
         and _JUDGE_SCORE_RANGE[0] <= value <= _JUDGE_SCORE_RANGE[1]
     )
-
 
 def _bench_aggregate(runs: list[dict[str, Any]]) -> dict[str, Any]:
     """Collapse per-run summaries and verdicts into one distribution each."""
@@ -2586,7 +2491,6 @@ def _bench_aggregate(runs: list[dict[str, Any]]) -> dict[str, Any]:
         "weakest_counts": dict(weakest_counts.most_common()),
     }
 
-
 def _bench_delta(
     current: dict[str, Any], baseline: dict[str, Any], section: str = "metrics"
 ) -> dict[str, Any]:
@@ -2640,7 +2544,6 @@ def _bench_delta(
         }
     return rows
 
-
 def _resolve_bench_scenario(
     args: argparse.Namespace,
 ) -> tuple[str, str | None, str | None, dict[str, Any]]:
@@ -2667,13 +2570,11 @@ def _resolve_bench_scenario(
     recipe_facts = _build_judge_recipe_facts(recipe_data) or None
     return concept, recipe_context, recipe_facts, _frozen_prior_stages(episode, args.stage)
 
-
 # Longest slugified --label allowed. The result filename is
 # "bench-<label>-<20-char stamp>[-N].json", and most filesystems cap a single
 # path component at 255 bytes, so this leaves comfortable room for the stamp,
 # the collision suffix and the extension.
 _MAX_LABEL_SLUG_LEN = 180
-
 
 def _validate_bench_args(args: argparse.Namespace) -> None:
     """Pure flag checks, run BEFORE anything that costs or can fail.
@@ -2700,7 +2601,6 @@ def _validate_bench_args(args: argparse.Namespace) -> None:
             f"result filename."
         )
 
-
 # The most paid calls ONE dialogue turn can cost, traced through
 # scripts/simulate_dialogue_week.py's generate_turn:
 #   1. the initial generate_response
@@ -2712,7 +2612,6 @@ def _validate_bench_args(args: argparse.Namespace) -> None:
 # spend 40 when both guards fired. A reservation that is not actually the
 # maximum is not a guard at all.
 _MAX_CALLS_PER_TURN = 4
-
 
 def _publish_json_atomically(path: Path, payload: dict[str, Any]) -> None:
     """Serialize to a sibling `.partial`, then rename onto `path`.
@@ -2734,7 +2633,6 @@ def _publish_json_atomically(path: Path, payload: dict[str, Any]) -> None:
     tmp = path.with_name(path.name + ".partial")
     tmp.write_text(json.dumps(payload, indent=2, default=str))
     os.replace(tmp, path)
-
 
 def _unique_result_path(directory: Path, stem: str) -> Path:
     """A path that does not already exist, so no paid result is overwritten.
@@ -2766,7 +2664,6 @@ def _unique_result_path(directory: Path, stem: str) -> Path:
         f"cannot find an unused result filename for {stem!r} in {directory}"
     )
 
-
 def _load_bench_baseline(args: argparse.Namespace) -> dict[str, Any]:
     """Read and validate a --compare baseline before any paid work starts.
 
@@ -2793,7 +2690,6 @@ def _load_bench_baseline(args: argparse.Namespace) -> dict[str, Any]:
 
     _validate_bench_aggregate(baseline, args.compare)
     return baseline
-
 
 def _validate_bench_aggregate(baseline: dict[str, Any], source: str) -> None:
     """Check the parts `_bench_delta` will actually read.
@@ -2833,7 +2729,6 @@ def _validate_bench_aggregate(baseline: dict[str, Any], source: str) -> None:
             aggregate, section, source, dry_run=bool(baseline.get("dry_run"))
         )
 
-
 def _validate_distribution_section(
     aggregate: dict[str, Any], section: str, source: str, dry_run: bool = False
 ) -> None:
@@ -2856,6 +2751,21 @@ def _validate_distribution_section(
             f"--compare baseline {source!r} has no usable 'aggregate.{section}' object "
             f"(found {type(distributions).__name__})"
         )
+    if section == "dimensions" and not dry_run:
+        # An EMPTY or PARTIAL dimensions block used to pass, because only
+        # entries that are present get validated (Codex). _bench_delta
+        # walks current dimensions and skips those missing from the baseline,
+        # so with stable metrics the report can say
+        # nothing moved while every judge comparison is simply absent.
+        # Same inversion as the missing-block case, one level down.
+        missing = [dim for dim in JUDGE_DIMENSIONS if dim not in distributions]
+        if missing:
+            raise ConversationLabError(
+                f"--compare baseline {source!r} is missing judge dimension(s) "
+                f"{', '.join(missing)} and is not a dry run - those comparisons "
+                f"would be silently absent"
+            )
+
     for key, dist in distributions.items():
         label = f"{section[:-1]} {key!r}"
         if not isinstance(dist, dict):
@@ -2892,12 +2802,9 @@ def _validate_distribution_section(
                 f"'stderr' ({dist['stderr']!r})"
             )
 
-
-# Report fields that must match for a delta to mean what it claims. Each is
-# an input that moves metrics or the judge on its own, so letting one differ
-# silently turns "this lever moved the average" into an unattributable
-# difference (Codex, PR #119). `judged_against_prior_days` is included
-# because the judge sees those days as context.
+# Recorded scenario fields checked before a comparison. They cover the frozen
+# judge inputs, but do not fingerprint source code or other generator inputs;
+# operators must establish those are unchanged (see PROTOCOL.md).
 _BENCH_SCENARIO_FIELDS = (
     "stage",
     "dry_run",
@@ -2905,12 +2812,8 @@ _BENCH_SCENARIO_FIELDS = (
     "recipe_context",
     "judged_against_prior_days",
     "judge_input_digest",
-    "generator_input_digest",
-    "generator_code_digest",
-    "evaluator_digest",
     "models",
 )
-
 
 def _judge_input_digest(
     prior_stages: dict[str, Any],
@@ -2950,177 +2853,6 @@ def _judge_input_digest(
     blob = json.dumps(payload, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
 
-
-# Placeholder substituted for a prompt lever before rendering, so the
-# generator digest tracks persona/bio/memory drift without tracking the
-# thing the experiment is deliberately changing.
-_LEVER_MASK = "<LEVER MASKED FOR DIGEST>"
-
-
-def _generator_input_digest(expected_cast: list[str], stage: str) -> str:
-    """Hash of what the generator's prompts ACTUALLY contain.
-
-    Rewritten after Codex's fifteenth round, which found three separate
-    bugs that were all the same mistake: hashing raw inputs and trying to
-    predict which parts the prompt uses. `build_system_prompt` ignores
-    `age`, `core_traits` and `behavioural_quirks`, ignores `backstory`
-    whenever a bio exists, and reads only the last two memories' `concept`
-    and `summary` - so hashing whole persona records, whole bio files and
-    whole memory files refused comparisons over edits the model never saw,
-    while any drift in my mirror of that logic would silently miss edits
-    it did see.
-
-    Hashing the RENDERED prompt removes the guesswork: it is the exact
-    string the model receives, so an edit matters exactly when it changes
-    what the character is told. The cache is cleared first because
-    `build_system_prompt` memoises per name.
-
-    `first_episode` is recorded separately because `run_simulation`
-    computes it across EVERY persona, not just the seated cast
-    (simulate_dialogue_week.py:2119), and it selects Monday's opener - so
-    adding off-cast Devon's memory changes a Monday prompt even when the
-    cast has none of its own.
-    """
-    parts: list[str] = ["cast_order:" + _canonical_repr(list(expected_cast))]
-    saved: dict[str, Any] = {}
-
-    try:
-        # Render with the LEVERS NEUTRALISED (Codex). The rendered prompt
-        # necessarily contains _SHARED_CHARACTER_RULES, so hashing it as-is
-        # meant changing that lever refused the documented workflow - the
-        # sixth time this digest has done that, and the direct cost of
-        # switching to rendered prompts without re-checking the levers.
-        #
-        # Which levers to mask is derived, not judged: whichever ones
-        # build_system_prompt actually references. Today that is
-        # _SHARED_CHARACTER_RULES alone; if a future lever lands in the
-        # system prompt this picks it up with no edit here.
-        masked = {
-            lever: _LEVER_MASK
-            for lever in _all_referenced_names(simulate_module.build_system_prompt.__code__)
-            if lever in ALLOWED_VARIANT_ATTRS
-        }
-        saved = {lever: getattr(simulate_module, lever) for lever in masked}
-        for lever, value in masked.items():
-            setattr(simulate_module, lever, value)
-        parts.append("masked_levers:" + _canonical_repr(sorted(masked)))
-
-        _clear_prompt_cache(simulate_module)
-        personas = simulate_module.load_personas()
-        for name in expected_cast:
-            persona = personas.get(name)
-            if persona is None:
-                parts.append(f"{name}:absent")
-                continue
-            rendered = simulate_module.build_system_prompt(persona)
-            parts.append(f"{name}:" + hashlib.sha256(rendered.encode("utf-8")).hexdigest())
-
-        # Monday only (Codex): generate_turn consults is_first_episode
-        # under `day == "monday"`, so hashing it for a Tuesday-Sunday bench
-        # let an off-cast character's first memory refuse a comparison in
-        # which no generated prompt changed at all.
-        if stage == "monday":
-            first_episode = all(
-                not simulate_module._load_memories(n) for n in personas
-            )
-            parts.append(f"first_episode:{first_episode}")
-
-        # NO separate memory hash (Codex). That comment was wrong:
-        # build_system_prompt DOES render the last two memories, so the
-        # rendered-prompt hash above already covers them. The extra raw
-        # hash was redundant and type-sensitive - a concept stored as the
-        # JSON number 2026 versus the string "2026" renders identically as
-        # `2026` but hashed differently, refusing a comparison whose
-        # generated text was byte-for-byte the same. Belt-and-braces became
-        # a liability the moment the braces were type-aware.
-    except Exception as exc:  # noqa: BLE001 - a digest must never take a bench down
-        parts.append(f"unreadable:{type(exc).__name__}")
-    finally:
-        for lever, value in saved.items():
-            setattr(simulate_module, lever, value)
-        _clear_prompt_cache(simulate_module)
-
-    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
-
-
-def _provider_of(dialogue_model: str | None) -> str | None:
-    """Which provider a dialogue model routes to, or None if unknown.
-
-    Deliberately reuses the router's own resolution rather than guessing
-    from the prefix, so this cannot drift from where generation actually
-    goes.
-    """
-    if not dialogue_model:
-        return None
-    try:
-        return model_router.route_model(dialogue_model).provider
-    except Exception:
-        prefix = dialogue_model.split("/")[0].lower().strip()
-        return prefix if prefix in {"openai", "anthropic", "google"} else None
-
-
-def _generator_code_digest(stage: str, dialogue_model: str | None = None) -> str:
-    """Hash of the GENERATION code and its non-lever configuration.
-
-    Codex: `_generator_input_digest` covers the system prompt and the
-    character data behind it, but nothing covered the turn prompt or the
-    turn COUNT. `TICKS_RANGE`, `_DAY_OPENER_CONTEXT`, `DAY_MEETING_GOAL`
-    and `_build_dynamic_arc` all change what gets generated and none of
-    them is an allowed lever - so a baseline taken before today's
-    `TICKS_RANGE["saturday"]` change would have been compared against one
-    taken after, with the difference credited to whatever lever was under
-    test.
-
-    Deliberately reuses `_scoring_source_parts` rather than adding another
-    bespoke fingerprint. That walk already follows a function's
-    module-level references to a bounded depth AND already skips
-    ALLOWED_VARIANT_ATTRS, which is exactly the rule wanted here: the
-    generator's code and fixed configuration are pinned, the levers under
-    test are not. Verified reachable from these two entry points:
-    TICKS_RANGE, DAY_MEETING_GOAL, _DAY_OPENER_CONTEXT, _DAY_CLOSER_CONTEXT,
-    _build_dynamic_arc, participants_for_day, _select_next_speaker.
-    """
-    # Skip the provider implementations that this bench will never call
-    # (Codex). generate_response fans out to _generate_openai,
-    # _generate_anthropic and _generate_google, so walking it unscoped
-    # meant an edit confined to the unused Google path refused an
-    # Anthropic comparison - too strict, in the direction I keep erring.
-    provider = _provider_of(dialogue_model)
-    inactive = {
-        f"_generate_{name}"
-        for name in ("openai", "anthropic", "google")
-        if provider is not None and name != provider
-    }
-    parts = _scoring_source_parts(
-        {
-            "run_simulation": simulate_module.run_simulation,
-            "generate_turn": simulate_module.generate_turn,
-        },
-        stage=stage,
-        skip_names=inactive,
-    )
-    parts.append(f"provider:{provider or 'unknown'}")
-    # The effective reasoning effort sits at depth 4 - inside
-    # model_router._reasoning_kwargs - which _SCORER_WALK_DEPTH discards,
-    # and the report's `models` field records only the model NAME.
-    #
-    # Included ONLY when the selected model actually consumes it (Codex).
-    # `_reasoning_kwargs` returns {} for anything not in
-    # OPENAI_REASONING_MODELS, so with an Anthropic dialogue model - the
-    # standing config - this setting never touches generation, and pinning
-    # it unconditionally refused comparisons over an irrelevant env var.
-    # That was the eighth way this machinery has refused a valid
-    # comparison, and I introduced it one round ago while fixing an
-    # unpinned input. Hence the mirror of the router's own condition rather
-    # than a guess about when it matters.
-    bare_model = (dialogue_model or "").split("/")[-1].lower().strip()
-    if bare_model in getattr(model_router, "OPENAI_REASONING_MODELS", set()):
-        parts.append(
-            f"reasoning_effort:{getattr(model_router, 'OPENAI_REASONING_EFFORT', '?')}"
-        )
-    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
-
-
 def _assert_writable(directory: Path) -> None:
     """Prove a file can actually be created here, before spending anything.
 
@@ -3141,242 +2873,6 @@ def _assert_writable(directory: Path) -> None:
             f"results directory {directory} is not writable: {exc}"
         ) from exc
 
-
-def _canonical_repr(value: Any) -> str:
-    """A stable text form for hashing, independent of hash-seed ordering.
-
-    P1 (Codex): `repr()` on a set emits elements in hash order, and Python
-    randomizes the string hash seed PER PROCESS. The baseline bench and the
-    follow-up bench are separate processes, so hashing `repr(a_set)` gave
-    a different evaluator_digest for identical code and refused a valid
-    comparison at random. Measured: three runs of the same unchanged module
-    produced three different digests.
-    """
-    if isinstance(value, (set, frozenset)):
-        return "{" + ",".join(sorted(_canonical_repr(v) for v in value)) + "}"
-    if isinstance(value, dict):
-        return "{" + ",".join(
-            f"{_canonical_repr(k)}:{_canonical_repr(v)}"
-            for k, v in sorted(value.items(), key=lambda kv: repr(kv[0]))
-        ) + "}"
-    if isinstance(value, (list, tuple)):
-        return "[" + ",".join(_canonical_repr(v) for v in value) + "]"
-    try:
-        return repr(value)
-    except Exception as exc:
-        # repr() is arbitrary user code and can raise: backend.config's
-        # __repr__ reads config.dialogue_model, which raises outright when
-        # DIALOGUE_MODEL is unset. A digest must never take a bench down -
-        # and it took this one down the moment the walk reached a container
-        # holding that object. Fall back to something stable and typed.
-        return f"<unrepresentable {type(value).__name__}: {type(exc).__name__}>"
-
-
-# Module-level names DERIVED from a lever rather than from scoring code.
-# _SHARED_RULES_SHINGLES is literally `_word_shingles(_SHARED_CHARACTER_RULES)`
-# (simulate_dialogue_week.py:1204), so a fresh import under a changed
-# _SHARED_CHARACTER_RULES recomputes it - and hashing it made the digest
-# move for the very lever the experiment is allowed to change (Codex).
-# Skipping the lever alone is not enough; its derivatives must go too.
-_LEVER_DERIVED_NAMES = frozenset({"_SHARED_RULES_SHINGLES", "_system_prompt_cache"})
-
-
-def _all_referenced_names(code: Any) -> set[str]:
-    """Every global name a function body references, nested scopes included.
-
-    `code.co_names` covers only the OUTER code object (Codex). A name used
-    inside a generator expression, comprehension or lambda lives in its own
-    nested code object under `co_consts`, so `score_quality`'s reference to
-    `PROHIBITED` - which drives `legacy_prohibited_hits` and the legacy
-    score - was invisible to the walk, and editing it left
-    `evaluator_digest` unchanged. Verified: `PROHIBITED` and
-    `is_prompt_echo` were both missed before this.
-    """
-    names = set(code.co_names)
-    for const in code.co_consts:
-        if isinstance(const, types.CodeType):
-            names |= _all_referenced_names(const)
-    return names
-
-
-# How far to follow a scorer's own dependencies. score_quality calls ten
-# helpers, several of which read module-level constants; depth 3 covers
-# that graph with room to spare. It is a bound, not a proof - a scoring
-# change buried deeper than this would not be caught, which is why the
-# metrics module is still hashed whole.
-_SCORER_WALK_DEPTH = 3
-
-
-def _scoping_key(value: Any, stage: str | None) -> Any:
-    """Narrow a per-day container to the day actually being benched.
-
-    Codex: `TICKS_RANGE`, `DAY_MEETING_GOAL`, `_DAY_OPENER_CONTEXT` and
-    friends are keyed by weekday, and hashing them whole meant a change to
-    MONDAY's turn range refused a SATURDAY comparison in which nothing
-    about Saturday's generation moved. The seventh distinct way this
-    machinery has refused a valid comparison.
-
-    Only containers whose keys are exactly day names are narrowed, so an
-    unrelated dict that happens to contain a day-like key is left alone.
-    """
-    if stage is None or not isinstance(value, dict) or not value:
-        return value
-    if not set(value).issubset(set(simulate_module.DAY_ORDER)):
-        return value
-    return {stage: value.get(stage)}
-
-
-def _scoring_source_parts(
-    root_names: dict[str, Any],
-    stage: str | None = None,
-    skip_names: set[str] | None = None,
-) -> list[str]:
-    """Source digests for scorers AND the module-level names they use.
-
-    Codex: hashing only `inspect.getsource(score_quality)` missed the ten
-    helpers it calls and the constants those read, so editing
-    `_voice_pattern_score` or `PROHIBITED` changed the reported legacy
-    metrics without changing the digest.
-
-    **Breadth-first, deliberately.** The first version recursed
-    depth-first with a `seen` set, which made coverage depend on the
-    iteration order of `root_names`: `generate_response` was first reached
-    at depth 3 via `run_simulation`, marked seen, and its children pruned -
-    so the shallower path through `generate_turn` never ran and the
-    provider implementations were never hashed at all. Visiting in
-    increasing depth guarantees every node is reached at its minimum
-    depth, so the traversal no longer depends on dict ordering.
-
-    Names in ALLOWED_VARIANT_ATTRS and their derivatives are skipped by
-    design: those are the levers under test and MUST be free to differ.
-    `skip_names` additionally drops paths this bench will never execute,
-    such as the provider implementations for models it is not using.
-    """
-    parts: list[str] = []
-    seen: set[str] = set()
-    queue: list[tuple[str, Any, int]] = [
-        (label, obj, 1) for label, obj in root_names.items()
-    ]
-    cursor = 0
-
-    while cursor < len(queue):
-        label, obj, depth = queue[cursor]
-        cursor += 1
-        if depth > _SCORER_WALK_DEPTH:
-            continue
-        key = f"{getattr(obj, '__module__', '?')}.{getattr(obj, '__qualname__', label)}"
-        if key in seen:
-            continue
-        seen.add(key)
-
-        try:
-            parts.append(
-                f"{label}:" + hashlib.sha256(inspect.getsource(obj).encode()).hexdigest()
-            )
-        except (OSError, TypeError):
-            parts.append(f"{label}:unreadable")
-            continue
-
-        module = sys.modules.get(getattr(obj, "__module__", "") or "")
-        code = getattr(obj, "__code__", None)
-        if module is None or code is None:
-            continue
-
-        for name in sorted(_all_referenced_names(code)):
-            if name in ALLOWED_VARIANT_ATTRS or name in _LEVER_DERIVED_NAMES:
-                continue  # the lever under test, and anything computed from it
-            if skip_names and name in skip_names:
-                continue  # a provider path this bench will never call
-            if name.startswith("__"):
-                # `__dict__` in particular is every global the module has,
-                # INCLUDING the levers - hashing it silently re-admitted the
-                # thing the two skips above exist to exclude, and made the
-                # digest depend on unrelated module state besides. Dunders
-                # are never scoring or generation configuration.
-                continue
-            referenced = getattr(module, name, None)
-            if inspect.isfunction(referenced):
-                queue.append((name, referenced, depth + 1))
-            elif isinstance(referenced, (str, int, float, tuple, frozenset, list, dict, set)):
-                scoped = _scoping_key(referenced, stage)
-                suffix = f"@{stage}" if scoped is not referenced else ""
-                parts.append(
-                    f"{name}{suffix}="
-                    + hashlib.sha256(_canonical_repr(scoped).encode()).hexdigest()
-                )
-
-    return sorted(set(parts))
-
-
-def _evaluator_digest() -> str:
-    """Hash of the SCORERS, not just their inputs.
-
-    The last gap in this family (Codex). `judge_input_digest` and
-    `generator_input_digest` pin what goes in; this pins what measures it.
-    If `_JUDGE_SYSTEM_PROMPT`'s rubric is edited, or a metric definition in
-    scripts/conversation_metrics.py changes, `_bench_delta` would subtract
-    aggregates computed under different definitions and the pass-rate
-    movement could come from a rewritten rubric rather than the lever under
-    test - which is precisely the attribution error the comparison exists
-    to prevent.
-
-    The whole metrics module is hashed, so a comment-only edit also
-    invalidates old baselines. That is deliberate: deciding a source change
-    was behaviour-free requires reading it, and refusing a comparison is
-    cheap next to silently publishing a wrong one.
-    `--allow-mismatched-baseline` remains the deliberate override.
-    """
-    from backend.admin.cron_routes import _JUDGE_SYSTEM_PROMPT
-
-    import backend.admin.cron_routes as cron_routes
-
-    parts = ["judge_prompt:" + hashlib.sha256(_JUDGE_SYSTEM_PROMPT.encode("utf-8")).hexdigest()]
-
-    # SCORING code only - deliberately NOT whole modules (Codex).
-    #
-    # The previous version hashed all of simulate_dialogue_week.py, which
-    # broke the entire point of the tool: the documented workflow is bench,
-    # change one prompt lever IN THAT FILE, bench again, compare - and a
-    # whole-file hash refused every such comparison. The only escape,
-    # --allow-mismatched-baseline, switches off the judge-rubric and
-    # judge-context checks too, so the workflow became "disable all the
-    # safety to do the normal thing". Hashing named scoring functions keeps
-    # the guarantee (a changed rubric or metric still refuses a comparison)
-    # without punishing the change you actually came to measure.
-    #
-    # cron_routes gets the same treatment for the same reason: it is mostly
-    # cron handlers, and an unrelated stage edit should not invalidate a
-    # baseline.
-    parts.extend(
-        _scoring_source_parts(
-            {
-                "judge_dialogue": cron_routes._judge_dialogue,
-                "parse_judge_json": cron_routes._parse_judge_json,
-                "score_quality": simulate_module.score_quality,
-                # This module's OWN aggregation layer is an evaluator too
-                # (Codex): the persisted means and standard errors depend on
-                # these, so changing the valid-score predicate changes which
-                # samples reach a mean with nothing else moving.
-                "distribution": _distribution,
-                "is_valid_judge_score": _is_valid_judge_score,
-                "bench_aggregate": _bench_aggregate,
-                "numeric_keys": _numeric_keys,
-            }
-        )
-    )
-    parts.append("judge_dimensions:" + _canonical_repr(list(JUDGE_DIMENSIONS)))
-
-    # conversation_metrics is hashed whole because every function in it is
-    # a reported metric - there is no unrelated surface to spare.
-    try:
-        metrics_src = Path(conversation_metrics.__file__).read_bytes()
-        parts.append("metrics:" + hashlib.sha256(metrics_src).hexdigest())
-    except (OSError, TypeError):
-        parts.append("metrics:unreadable")
-
-    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
-
-
 def _assert_comparable_scenario(baseline: dict[str, Any], report: dict[str, Any]) -> None:
     """Refuse a baseline whose scenario differs from this bench's."""
     mismatches = []
@@ -3389,10 +2885,9 @@ def _assert_comparable_scenario(baseline: dict[str, Any], report: dict[str, Any]
             "--compare baseline is not comparable to this bench:\n  "
             + "\n  ".join(mismatches)
             + "\nA delta is only meaningful between runs that differ in the one "
-            "setting under test. Pass --allow-mismatched-baseline if the "
-            "difference is deliberate."
+            "setting under test. Pass --allow-mismatched-baseline only when "
+            "the mismatch is deliberate and documented."
         )
-
 
 def cmd_bench(args: argparse.Namespace) -> None:
     _validate_bench_args(args)
@@ -3417,9 +2912,6 @@ def cmd_bench(args: argparse.Namespace) -> None:
         "recipe_context": recipe_context,
         "judged_against_prior_days": sorted(prior_stages.keys()),
         "judge_input_digest": _judge_input_digest(prior_stages, recipe_facts, expected_cast),
-        "generator_input_digest": _generator_input_digest(expected_cast, args.stage),
-        "generator_code_digest": _generator_code_digest(args.stage, default_model),
-        "evaluator_digest": _evaluator_digest(),
         "models": {"mode": mode, "dialogue": default_model, "judge": judge_model},
     }
     if baseline_report is not None and not args.allow_mismatched_baseline:
@@ -3618,13 +3110,11 @@ def cmd_bench(args: argparse.Namespace) -> None:
             f"{args.runs} run(s): {error} (partial result: {result_path})"
         )
 
-
 _BENCH_SECTION_HEADING = "## Benchmarks"
 _BENCH_TABLE_HEADER_LINE = (
     "| Date | Label | Stage | N | Pass rate | Most frequent weakest | Result file |\n"
 )
 _BENCH_TABLE_SEPARATOR_LINE = "|------|-------|-------|---|-----------|-----------------------|-------------|\n"
-
 
 def _insert_in_section(text: str, heading: str, row: str) -> str:
     """Append `row` to the last table row under `heading`.
@@ -3657,7 +3147,6 @@ def _insert_in_section(text: str, heading: str, row: str) -> str:
     lines.insert(insert_at, row.rstrip("\n"))
     return "\n".join(lines) + "\n"
 
-
 def _md_cell(value: Any) -> str:
     """One Markdown table cell, safe against delimiters in the value.
 
@@ -3668,7 +3157,6 @@ def _md_cell(value: Any) -> str:
     """
     text = " ".join(str(value).split())
     return text.replace("\\", "\\\\").replace("|", "\\|") or "-"
-
 
 def _append_bench_log(path: Path, report: dict[str, Any]) -> None:
     """Append one row to EXPERIMENTS.md's Benchmarks table.
@@ -3701,7 +3189,6 @@ def _append_bench_log(path: Path, report: dict[str, Any]) -> None:
     with _file_lock(path):
         _append_bench_row_locked(path, report, row)
 
-
 @contextmanager
 def _file_lock(path: Path):
     """Exclusive lock for `path`, held on a file OUTSIDE the worktree.
@@ -3723,7 +3210,6 @@ def _file_lock(path: Path):
             yield
         finally:
             fcntl.flock(handle, fcntl.LOCK_UN)
-
 
 def _append_bench_row_locked(path: Path, report: dict[str, Any], row: str) -> None:
     existing = path.read_text() if path.exists() else _EXPERIMENTS_HEADER
@@ -3750,7 +3236,6 @@ def _append_bench_row_locked(path: Path, report: dict[str, Any], row: str) -> No
     tmp = path.with_name(path.name + ".partial")
     tmp.write_text(updated)
     os.replace(tmp, path)
-
 
 def _print_bench_report(report: dict[str, Any]) -> None:
     agg = report["aggregate"]
@@ -3876,7 +3361,6 @@ def _print_bench_report(report: dict[str, Any]) -> None:
 
     print(f"\nresults written to: {report['results_file']}")
 
-
 def cmd_calibrate(args: argparse.Namespace) -> None:
     episode = _load_episode(args.from_episode, local=args.local)
     stage_data = (episode.get("stages") or {}).get(args.stage) or {}
@@ -3980,7 +3464,6 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
     _write_json_result(result_path, report)
     _print_calibrate_report(report)
 
-
 def _print_calibrate_report(report: dict[str, Any]) -> None:
     print(f"\n=== conversation_lab calibrate: {report['episode_id']} / {report['stage']} ===")
     abort_note = "  [ABORTED: max-calls/max-cost hit]" if report["aborted"] else ""
@@ -3995,11 +3478,9 @@ def _print_calibrate_report(report: dict[str, Any]) -> None:
         )
     print(f"\nresults written to: {report['results_file']}")
 
-
 # ---------------------------------------------------------------------------
 # pairs (blind human read)
 # ---------------------------------------------------------------------------
-
 
 def _blind_order(pair_position: int) -> tuple[str, str]:
     """Deterministic-but-scrambled A/B order for one pair.
@@ -4019,7 +3500,6 @@ def _blind_order(pair_position: int) -> tuple[str, str]:
     """
     rng = random.Random(pair_position)
     return ("control", "variant") if rng.random() < 0.5 else ("variant", "control")
-
 
 def _parse_pick_spec(spec: str) -> dict[int, str]:
     """Parse "1:A,2:B,3:tie" into {1: "A", 2: "B", 3: "tie"}."""
@@ -4042,7 +3522,6 @@ def _parse_pick_spec(spec: str) -> dict[int, str]:
             )
         picks[idx] = "tie" if normalized == "TIE" else normalized
     return picks
-
 
 def cmd_pairs(args: argparse.Namespace) -> None:
     if not args.show and not args.pick:
@@ -4145,11 +3624,9 @@ def cmd_pairs(args: argparse.Namespace) -> None:
             f" / {judge_tie} judge-tie - judge ties are excluded from the agreement rate)"
         )
 
-
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
-
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -4293,13 +3770,13 @@ def _build_parser() -> argparse.ArgumentParser:
     bench.add_argument("--recipe-context", default=None, help="One-line recipe anchor, verbatim; the judge then sees no previous days (mutually exclusive with --from-episode)")
     bench.add_argument("--local", action="store_true", help="With --from-episode, skip the CDN; read the local mirror")
     bench.add_argument("--label", default=None, help="Name for this bench, used for the result filename and the log row (default: <stage>-n<runs>)")
-    bench.add_argument("--compare", default=None, help="Path to an earlier bench result JSON; prints the per-metric delta and which averages moved. Loaded and validated BEFORE any paid run, and refused when its scenario does not match this one")
+    bench.add_argument("--compare", default=None, help="Earlier bench result JSON. Before paid work, validates aggregate schema and recorded stage, run mode, recipe context, frozen judge inputs, and models; source comparability for metrics, judge rules, generator code/configuration, and other prompt inputs must be checked manually.")
     bench.add_argument(
         "--allow-mismatched-baseline", action="store_true",
         help=(
-            "Compare against a baseline from a different stage or dry-run mode. Off by default: "
-            "a delta is meant to attribute movement to one changed setting, and comparing across "
-            "stages silently varies the cast, turn range, rubric and prior-day context too."
+            "Bypass all recorded scenario checks (stage, run mode, recipe and frozen judge inputs, "
+            "and models). Aggregate schema validation still applies. Use only when the mismatch "
+            "is deliberate and documented."
         ),
     )
     bench.add_argument(
@@ -4386,7 +3863,6 @@ def _build_parser() -> argparse.ArgumentParser:
 
     return parser
 
-
 def main(argv: list[str] | None = None) -> None:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -4405,7 +3881,6 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(f"conversation_lab: unknown command {args.command!r}")
     except ConversationLabError as exc:
         raise SystemExit(f"conversation_lab {args.command}: {exc}") from exc
-
 
 if __name__ == "__main__":
     main()
