@@ -54,3 +54,18 @@ Append-only log of `pt migration` sessions. Each section records the paths touch
 
 ---
 
+## pr119-bench-fingerprint-split — 2026-09-23T00:25:22Z
+
+- started_at:  `2026-09-23T00:21:32Z`
+- finished_at: `2026-09-23T00:25:22Z`
+- baseline_head: `f5855e8a11bb43205994c8732a2fd63c3efcaa5e`
+- action: `manifest-only`
+
+### New paths (introduced during session)
+- `[dirty]` `docs/conversation-lab/PROTOCOL.md`
+
+### Modified paths (status changed during session)
+- _(none)_
+
+---
+
