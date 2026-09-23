@@ -217,8 +217,17 @@ def execute_fake_chain(
                         raise ValueError(f"{week['week']}: memory record requires a stable memory_id")
                     if record.get("status") != slot_status:
                         raise ValueError(f"{week['week']}: memory status must be {slot_status!r} for {speaker}")
-                    if record.get("source_ids") != observed_source_ids:
-                        raise ValueError(f"{week['week']}: memory source IDs do not match the character's observed turns")
+                    cited_source_ids = record.get("source_ids")
+                    if not isinstance(cited_source_ids, list) or any(not isinstance(source_id, str) for source_id in cited_source_ids):
+                        raise ValueError(f"{week['week']}: memory source_ids must be a list of strings")
+                    if len(cited_source_ids) != len(set(cited_source_ids)):
+                        raise ValueError(f"{week['week']}: memory source_ids must not contain duplicates")
+                    if slot_status == "observed" and (
+                        not cited_source_ids or not set(cited_source_ids).issubset(observed_source_ids)
+                    ):
+                        raise ValueError(f"{week['week']}: observed memory source IDs must be a non-empty subset of the character's observed turns")
+                    if slot_status == "no_new_evidence" and cited_source_ids:
+                        raise ValueError(f"{week['week']}: no-evidence memory source IDs must be empty")
                     if record.get("prior_memory_ids") != expected_prior_ids:
                         raise ValueError(f"{week['week']}: memory record must retain the expected prior memory IDs")
                     memory_text = record.get("text")
@@ -226,7 +235,12 @@ def execute_fake_chain(
                         raise ValueError(f"{week['week']}: observed memory requires non-empty text")
                     if slot_status == "no_new_evidence" and memory_text is not None:
                         raise ValueError(f"{week['week']}: no-evidence memory text must be null")
-                    memory_record = {**record, "character": speaker, "week": week["week"]}
+                    memory_record = {
+                        **record,
+                        "character": speaker,
+                        "week": week["week"],
+                        "observed_source_ids": observed_source_ids,
+                    }
                     memory_records.append(memory_record)
                     new_memory_ids[speaker] = [memory_id]
             rows.append({
