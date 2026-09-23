@@ -57,13 +57,18 @@ individual mechanism caused it. It does not test only a format change.
 The in-repository [`BUDGET.md`](BUDGET.md) requires exact provider
 `count_tokens` before every paid generation, a shared `AnthropicBudgetGuard`
 ledger with a $5 ceiling, and preservation of partial results when stopped.
-Paid execution remains unimplemented: this module exposes no paid flag or
-model request path. The bounded gap is a reviewed runner that uses the shared
-ledger and patched Anthropic client, counts exact request tokens before each
-request, sends at most 12 generation calls (six characters times two arms)
-with a 220-token maximum, and preserves validated and partial outputs after
-guard failures. Until that runner is implemented and separately authorized,
-this artifact cannot spend API budget.
+This prompt renderer remains offline-only and exposes no paid flag or model
+request path. The separately implemented
+[`memory_paid_experiment.py`](../../scripts/memory_paid_experiment.py) runner
+requires an explicit `--execute`, validates the frozen artifact SHA, uses the
+shared $5 ledger, counts exact request tokens before generation, and caps the
+run at 12 calls (six characters times two arms) with a 220-token response cap.
+Its result and resume behavior are described in
+[`MEMORY_PAID_EXPERIMENT.md`](MEMORY_PAID_EXPERIMENT.md). No paid calls have
+been run; the W35 prompt artifact used for offline sizing remains SHA-256
+`1919bcd838743d4c53678672fa53848ec66e84040f51c21393db1251a36a5e52`. Paid
+execution remains pending explicit authorization, and this artifact alone
+cannot spend API budget.
 
 The methodology file `prompt-research/TESTING_METHODOLOGY.md` referenced by
 `EXPERIMENTS.md` is gitignored and was not present in the available checkout.

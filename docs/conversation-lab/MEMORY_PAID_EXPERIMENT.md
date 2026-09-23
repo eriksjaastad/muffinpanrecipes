@@ -20,7 +20,10 @@ ledger binding to match, and a checkpoint with no in-flight call; only valid
 saved responses are skipped. Each raw response, usage record, and stop reason
 is atomically checkpointed with `measurement_status: pending` before parsing
 or token-length measurement. On resume, a pending measurement is completed and
-durably checkpointed before the next generation request. Writes to application
+durably checkpointed before the next generation request. Descriptive prose
+length counts run after the generation guard context closes, so a measurement
+failure leaves the raw response pending and the $5 generation ledger active;
+resume retries measurement without repeating generation. Writes to application
 data and live Blob are not part of this runner.
 
 For successfully parsed responses, the runner extracts memory prose separately

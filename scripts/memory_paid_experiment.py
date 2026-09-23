@@ -369,41 +369,49 @@ def execute(artifact: dict[str, Any], digest: str, ledger_path: Path, checkpoint
         _atomic_json(checkpoint_path, state, create=True)
 
     import anthropic
-    with AnthropicBudgetGuard(ledger_path, budget_usd=BUDGET_USD, create=not resume) as guard:
+    # Enter the guard for client construction so the SDK is configured with
+    # retries disabled. Descriptive post-response count_tokens calls happen
+    # only after each generation guard context has exited.
+    with AnthropicBudgetGuard(ledger_path, budget_usd=BUDGET_USD, create=not resume):
         client = anthropic.Anthropic()
         if not resume:
             state["ledger_created_at"] = json.loads(ledger_path.read_text(encoding="utf-8"))["created_at"]
             _atomic_json(checkpoint_path, state)
-        with guard.phase("ab"):
-            def finish_pending_measurement(item: dict[str, Any]) -> None:
-                record = next(row for row in artifact["prompts"] if row["character"] == item["character"])
-                state["status"] = "measuring"
-                _atomic_json(checkpoint_path, state)
-                try:
-                    _finish_response_measurement(client, item, record)
-                except Exception as exc:
-                    state["status"] = "stopped"
-                    state["stop_reason"] = type(exc).__name__
-                    _atomic_json(checkpoint_path, state)
-                    guard.raise_if_stopped()
-                    raise
-                state["pending_measurement_call_id"] = None
-                state["status"] = "complete" if state["next_call_index"] == 12 else "partial"
-                _atomic_json(checkpoint_path, state)
 
-            if state.get("pending_measurement_call_id") is not None:
-                finish_pending_measurement(state["responses"][-1])
+    def finish_pending_measurement(item: dict[str, Any]) -> None:
+        record = next(row for row in artifact["prompts"] if row["character"] == item["character"])
+        state["status"] = "measuring"
+        _atomic_json(checkpoint_path, state)
+        try:
+            # This is descriptive measurement only, outside the generation
+            # guard. A failure leaves the raw response pending and the spend
+            # ledger active so resume can retry measurement without generation.
+            _finish_response_measurement(client, item, record)
+        except Exception as exc:
+            state["status"] = "stopped"
+            state["stop_reason"] = type(exc).__name__
+            _atomic_json(checkpoint_path, state)
+            raise
+        state["pending_measurement_call_id"] = None
+        state["status"] = "complete" if state["next_call_index"] == 12 else "partial"
+        _atomic_json(checkpoint_path, state)
 
-            for index in range(state["next_call_index"], len(state["calls"])):
-                call = state["calls"][index]
-                character = call["character"]
-                arm = call["arm"]
-                record = next(item for item in artifact["prompts"] if item["character"] == character)
-                prompt = record["arms"][arm]
-                state["status"] = "running"
-                state["in_flight_call_id"] = call["call_id"]
-                _atomic_json(checkpoint_path, state)
-                try:
+    if state.get("pending_measurement_call_id") is not None:
+        finish_pending_measurement(state["responses"][-1])
+
+    for index in range(state["next_call_index"], len(state["calls"])):
+        call = state["calls"][index]
+        character = call["character"]
+        arm = call["arm"]
+        record = next(item for item in artifact["prompts"] if item["character"] == character)
+        prompt = record["arms"][arm]
+        state["status"] = "running"
+        state["in_flight_call_id"] = call["call_id"]
+        _atomic_json(checkpoint_path, state)
+        request_guard = None
+        try:
+            with AnthropicBudgetGuard(ledger_path, budget_usd=BUDGET_USD, create=False) as request_guard:
+                with request_guard.phase("ab"):
                     response = client.messages.create(
                         model=MODEL,
                         max_tokens=HARD_MAX_TOKENS,
@@ -411,37 +419,38 @@ def execute(artifact: dict[str, Any], digest: str, ledger_path: Path, checkpoint
                         system=prompt["system"],
                         messages=[{"role": "user", "content": prompt["user"]}],
                     )
-                    raw_text = _response_text(response)
-                    usage = _usage_fields(response)
-                    item: dict[str, Any] = {
-                        "call_id": call["call_id"],
-                        "character": character,
-                        "arm": arm,
-                        "raw_response_text": raw_text,
-                        "usage": usage,
-                        "stop_reason": getattr(response, "stop_reason", None),
-                        "request_id": getattr(response, "_request_id", None),
-                        "actual_cost_microusd": usage["input_tokens"] + 5 * usage["output_tokens"],
-                        "measurement_status": "pending",
-                    }
-                    state["responses"].append(item)
-                    state["next_call_index"] = index + 1
-                    state["in_flight_call_id"] = None
-                    state["pending_measurement_call_id"] = call["call_id"]
-                    state["status"] = "measuring"
-                    # Raw result and billing usage become durable before any
-                    # parse or prose-length count request is attempted.
-                    _atomic_json(checkpoint_path, state)
-                    finish_pending_measurement(item)
-                except Exception as exc:
-                    state["status"] = "stopped"
-                    state["stop_reason"] = type(exc).__name__
-                    _atomic_json(checkpoint_path, state)
-                    guard.raise_if_stopped()
-                    raise
-            state["status"] = "complete"
-            state["guard_summary"] = guard.summary()
+            raw_text = _response_text(response)
+            usage = _usage_fields(response)
+            item: dict[str, Any] = {
+                "call_id": call["call_id"],
+                "character": character,
+                "arm": arm,
+                "raw_response_text": raw_text,
+                "usage": usage,
+                "stop_reason": getattr(response, "stop_reason", None),
+                "request_id": getattr(response, "_request_id", None),
+                "actual_cost_microusd": usage["input_tokens"] + 5 * usage["output_tokens"],
+                "measurement_status": "pending",
+            }
+            state["responses"].append(item)
+            state["next_call_index"] = index + 1
+            state["in_flight_call_id"] = None
+            state["pending_measurement_call_id"] = call["call_id"]
+            state["status"] = "measuring"
+            # Raw result and billing usage become durable before any parse or
+            # descriptive prose-length count request is attempted.
             _atomic_json(checkpoint_path, state)
+            finish_pending_measurement(item)
+        except Exception as exc:
+            state["status"] = "stopped"
+            state["stop_reason"] = type(exc).__name__
+            _atomic_json(checkpoint_path, state)
+            if request_guard is not None:
+                request_guard.raise_if_stopped()
+            raise
+    state["status"] = "complete"
+    state["guard_summary"] = AnthropicBudgetGuard(ledger_path, budget_usd=BUDGET_USD).summary()
+    _atomic_json(checkpoint_path, state)
     return state
 
 

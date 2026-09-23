@@ -46,10 +46,18 @@ def _write_artifact(path: Path, artifact: dict | None = None) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _fake_sdk(monkeypatch, *, fail_on: int | None = None, token_count: int | None = None):
+def _fake_sdk(
+    monkeypatch,
+    *,
+    fail_on: int | None = None,
+    token_count: int | None = None,
+    fail_count_on: int | None = None,
+):
     calls = {"create": [], "count": []}
     def count_tokens(self, **kwargs):
         calls["count"].append(kwargs)
+        if fail_count_on == len(calls["count"]):
+            raise RuntimeError("synthetic descriptive count_tokens failure")
         return SimpleNamespace(input_tokens=token_count or max(0, len(kwargs["messages"][0]["content"].split()) + 10))
     def create(self, **kwargs):
         calls["create"].append(kwargs)
@@ -427,3 +435,35 @@ def test_resume_finishes_durable_raw_response_measurement_before_next_generation
     assert completed_first["memory_structure"]
     assert completed_first["normalized_text_lengths"]["memory_prose_tokens"] > 0
     assert resumed["pending_measurement_call_id"] is None
+
+
+def test_descriptive_count_failure_keeps_ledger_active_and_resumes_without_regeneration(tmp_path, monkeypatch):
+    calls = _fake_sdk(monkeypatch, fail_count_on=2)
+    artifact, digest = _artifact(), "5" * 64
+    ledger, checkpoint = tmp_path / "ledger.json", tmp_path / "result.json"
+    with pytest.raises(RuntimeError, match="descriptive count_tokens failure"):
+        paid.execute(artifact, digest, ledger, checkpoint)
+
+    partial = json.loads(checkpoint.read_text(encoding="utf-8"))
+    ledger_after_failure = json.loads(ledger.read_text(encoding="utf-8"))
+    assert partial["pending_measurement_call_id"] == "Devon:A"
+    assert partial["responses"][0]["raw_response_text"]
+    assert partial["responses"][0]["measurement_status"] == "pending"
+    assert ledger_after_failure["status"] == "active"
+    assert ledger_after_failure["totals"]["generation_attempts"] == 1
+    assert ledger_after_failure["totals"]["actual_microusd"] == 340
+    assert ledger_after_failure["totals"]["reserved_microusd"] == 0
+    assert ledger_after_failure["totals"]["uncertain_microusd"] == 0
+    assert len(calls["create"]) == 1
+
+    resumed = paid.execute(artifact, digest, ledger, checkpoint, resume=True)
+    final_ledger = json.loads(ledger.read_text(encoding="utf-8"))
+    assert len(calls["create"]) == 12  # original response plus eleven new generations
+    assert len(resumed["responses"]) == 12
+    assert resumed["responses"][0]["measurement_status"] == "complete"
+    assert resumed["responses"][0]["normalized_text_lengths"]["memory_prose_tokens"] > 0
+    assert final_ledger["status"] == "active"
+    assert final_ledger["totals"]["generation_attempts"] == 12
+    assert final_ledger["totals"]["actual_microusd"] == 12 * 340
+    assert final_ledger["totals"]["reserved_microusd"] == 0
+    assert final_ledger["totals"]["uncertain_microusd"] == 0
