@@ -240,6 +240,44 @@ def test_execution_refuses_non_fake_or_provider_enabled_adapters(tmp_path):
         execute_fake_chain(build_plan(), paid_adapter, STATE)
 
 
+@pytest.mark.parametrize("tamper,expected_error", [
+    ("experiment_id", "experiment_id"),
+    ("schema_version", "schema_version"),
+    ("concept", "frozen scenarios"),
+    ("seed", "frozen scenarios"),
+    ("arm", "frozen scenarios"),
+])
+def test_execution_rejects_tampered_fixed_scenario_before_callbacks(tmp_path, tamper, expected_error):
+    global STATE
+    STATE = FakeSimulatorState(tmp_path / "production-characters")
+    callback_calls = []
+
+    def simulate_week(*args):
+        callback_calls.append("simulate")
+        return {"turns": []}
+
+    def write_memory(*args):
+        callback_calls.append("memory")
+        return {}
+
+    adapters = FakeAdapters("fake", False, simulate_week, write_memory)
+    plan = build_plan()
+    if tamper == "experiment_id":
+        plan["experiment_id"] = "memory-chain-altered"
+    elif tamper == "schema_version":
+        plan["schema_version"] = 2
+    elif tamper == "concept":
+        plan["weeks"][0]["concept"] = "Changed concept"
+    elif tamper == "seed":
+        plan["weeks"][0]["seed"] += 1
+    elif tamper == "arm":
+        plan["weeks"][0]["arms"][1]["name"] = "changed_arm"
+
+    with pytest.raises(ValueError, match=expected_error):
+        execute_fake_chain(plan, adapters, STATE)
+    assert callback_calls == []
+
+
 def test_execution_rejects_speakers_outside_fixed_character_roster(tmp_path, monkeypatch):
     global STATE
     STATE = FakeSimulatorState(tmp_path / "production-characters")

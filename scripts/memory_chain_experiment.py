@@ -144,10 +144,18 @@ def execute_fake_chain(
     offline here, result metadata reports provider-call status as unverified.
     """
     _validate_assumptions(plan.get("assumptions", {}))
+    if plan.get("schema_version") != 1:
+        raise ValueError("plan schema_version must be 1")
+    if plan.get("experiment_id") != EXPERIMENT_ID:
+        raise ValueError("plan experiment_id does not match the fixed experiment")
+    if plan.get("status") != "plan_only":
+        raise ValueError("input must be an unexecuted plan-only artifact")
     if plan.get("execution_performed") is not False or plan.get("provider_calls") != 0:
         raise ValueError("input plan must be unexecuted with zero provider calls")
-    if [row.get("week") for row in plan.get("weeks", [])] != [row["week"] for row in WEEK_PLAN]:
-        raise ValueError("plan must contain the fixed three chronological weeks")
+    if plan.get("budget_usd") != 0:
+        raise ValueError("plan budget must remain zero")
+    if plan.get("weeks") != build_plan()["weeks"]:
+        raise ValueError("plan weeks, concepts, seeds, and arm definitions must match the frozen scenarios")
     if plan.get("character_roster") != list(CHARACTER_ROSTER):
         raise ValueError("plan must contain the fixed character roster")
     if any([arm.get("name") for arm in row.get("arms", [])] != list(ARMS) for row in plan["weeks"]):
