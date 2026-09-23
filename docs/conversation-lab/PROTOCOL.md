@@ -506,6 +506,15 @@ relative ledger reference and authoritative ledger summary separately from
 `cost_summary`, which remains the router's estimate. The ledger supports the
 current plain-text Anthropic Haiku 4.5 and Opus 4.6 requests. It disables SDK
 retries, validates usage, and retains reservations after ambiguous failures.
+Before dispatch, guarded A/B and bench runs also validate the configured
+dialogue and judge models against provider, pricing, and role allowlists;
+calibration validates its configured judge route. A mismatch stops and latches
+the ledger before command work begins. If a request is denied after an arm
+finishes, reports preserve its transcript under `partial_pairs` (and an
+unpaired sweep control under `unpaired_control_transcripts`). Partial arms
+and judge orientations are unscored evidence: they do not enter `pairs`,
+aggregates, or blind human review. Calibration keeps incomplete orientations
+under each degradation's `partial_pairs` for the same reason.
 Its conservative token reservation is an operational bound for these known
 request shapes and public price assumptions, not a guarantee of provider
 billing. See [BUDGET.md](BUDGET.md) for the request and pricing assumptions.

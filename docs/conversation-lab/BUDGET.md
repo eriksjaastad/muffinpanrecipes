@@ -23,6 +23,21 @@ limit. Successful validated standard-tier usage settles the reservation at
 those rates. Ambiguous failures and unpriced usage retain the reservation and
 stop the ledger.
 
+Before command dispatch, the CLI also validates the configured routes that
+will be used: guarded A/B and bench require an Anthropic Haiku 4.5 dialogue
+model and an Anthropic Opus 4.6 judge model under their respective router role
+allowlists; calibration validates its judge route. This catches router policy
+rejections that occur before the SDK hooks and that production's judge handler
+would otherwise convert into an ordinary FAIL score.
+
+If the guard stops after paid A/B arms have returned, the result preserves
+their scenario/run-tagged transcripts and any completed orientation in a
+separate `partial_pairs` field. They remain unscored and are excluded from
+completed pairs, aggregates, and blind review. Sweep control transcripts that
+have no associated pair are kept separately as `unpaired_control_transcripts`.
+Calibration similarly records incomplete orientations in each degradation's
+`partial_pairs` field.
+
 This is an operationally conservative bound for the current request shape and
 pricing assumptions, not a mathematical guarantee of provider billing. The
 ledger stores phases, call counts, and integer microdollar totals; it never
