@@ -29,21 +29,30 @@ character context. This uses authored profile prose, not numeric personality
 dials that have not been shown to bind behavior.
 
 Both arms use the same planned Haiku 4.5 model
-(`claude-haiku-4-5-20251001`), an 80–120 provider-output-token target band,
-and a 160-token hard maximum. Those are prompt-design fields; the dry run
-cannot measure or guarantee generated output length. When generation is
-authorized, record exact provider-reported output tokens for the *complete*
-response, including A's evidence map and B's citations. Compare arms within
-the same band and report token length separately from memory quality. Never
-pad an unsupported memory to hit the band.
+(`claude-haiku-4-5-20251001`) and the same 80–120 provider-token target band
+for **memory prose**, excluding citation and evidence-map overhead. The
+complete response has a 220-token hard maximum. Those are prompt instructions;
+the dry run cannot measure or guarantee generated prose length. When
+generation is authorized, retain provider-reported `usage.output_tokens` as
+the billable full-response count, including structure and citations. Measure
+prose length separately from citation/evidence metadata with the same
+extraction and token-count method in both arms. If using provider
+`count_tokens`, pass the extracted prose through the same message wrapper and
+subtract the same empty-message framing baseline; label this normalized prose
+length, not billable output usage. Compare memory quality only for outputs
+with matched actual prose lengths, and report unmatched outputs separately.
+Never pad an unsupported memory to hit the band.
 
-Arm A is a **recap-style control**, not a claim to reproduce the production
-writer exactly: it asks for a two-sentence third-person recap and a separate
-evidence map linking each sentence to only its supporting dialogue IDs. Arm B
-uses `Observed`, `Inference`, `Stance`, and `Open thread` fields, with IDs on
-each supported claim. Both receive the same per-message ID-tagged evidence
-block, persona block, source, planned model, and output band. They share the
-same no-invention rule.
+The comparison is between two **bundled memory-writing policies**. Arm A is
+the recap bundle: a two-sentence third-person recap plus a separate evidence
+map linking each sentence only to the dialogue IDs that support it. Arm B is
+the source-linked perspective-card bundle: `Observed`, `Inference`, `Stance`,
+and `Open thread` fields with citations for supported claims. Both receive
+the same per-message ID-tagged evidence block, persona block, model, prose
+target band, and full-response cap. They differ together in structure,
+perspective, content requirements, and citation obligations. Any observed
+gain applies to the bundled policy; this experiment cannot identify which
+individual mechanism caused it. It does not test only a format change.
 
 The in-repository [`BUDGET.md`](BUDGET.md) requires exact provider
 `count_tokens` before every paid generation, a shared `AnthropicBudgetGuard`
@@ -52,7 +61,7 @@ Paid execution remains unimplemented: this module exposes no paid flag or
 model request path. The bounded gap is a reviewed runner that uses the shared
 ledger and patched Anthropic client, counts exact request tokens before each
 request, sends at most 12 generation calls (six characters times two arms)
-with a 160-token maximum, and preserves validated and partial outputs after
+with a 220-token maximum, and preserves validated and partial outputs after
 guard failures. Until that runner is implemented and separately authorized,
 this artifact cannot spend API budget.
 

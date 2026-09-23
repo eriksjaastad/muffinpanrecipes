@@ -71,13 +71,19 @@ def test_builds_six_same_source_model_budget_prompt_pairs_without_future_leakage
     assert result["generation_performed"] is False
     assert result["paid_mode_available"] is False
     assert result["character_count"] == 6
-    assert result["target_output_token_band"] == [80, 120]
-    assert result["hard_max_output_tokens_per_prompt"] == 160
+    assert result["target_memory_prose_token_band"] == [80, 120]
+    assert result["hard_max_response_tokens_per_prompt"] == 220
+    assert result["arm_design"]["comparison_type"] == "bundled memory-writing policy comparison"
+    assert "cannot identify an individual mechanism" in result["arm_design"]["attribution_limit"]
+    assert result["arm_design"]["A"].startswith("recap bundle")
+    assert result["arm_design"]["B"].startswith("source-linked perspective-card bundle")
+    assert "matched actual prose lengths" in result["length_evaluation"]
+    assert "not billable output usage" in result["length_evaluation"]
     assert result["persona_profile_sha256"] == profile_hash
     assert [item["character"] for item in result["prompts"]] == sorted(CHARACTERS)
     for item in result["prompts"]:
-        assert item["target_output_token_band"] == [80, 120]
-        assert item["hard_max_output_tokens"] == 160
+        assert item["target_memory_prose_token_band"] == [80, 120]
+        assert item["hard_max_response_tokens"] == 220
         assert item["planned_model"] == "claude-haiku-4-5-20251001"
         assert item["model_called"] is False
         assert set(item["arms"]) == {"A", "B"}
@@ -99,7 +105,9 @@ def test_builds_six_same_source_model_budget_prompt_pairs_without_future_leakage
         assert "third person" in item["arms"]["A"]["system"]
         assert "Evidence map" in item["arms"]["A"]["system"]
         assert "40 words" not in item["arms"]["A"]["system"]
-        assert "80–120 provider output tokens for the complete response" in item["arms"]["A"]["system"]
+        assert "80–120 provider tokens of memory prose" in item["arms"]["A"]["system"]
+        assert "complete response" in item["arms"]["A"]["system"]
+        assert "220-token hard cap" in item["arms"]["A"]["system"]
         assert "only the source ID(s) that support that sentence" in item["arms"]["A"]["system"]
         assert "Inference:" in item["arms"]["B"]["system"]
         assert "citing source ID(s)" in item["arms"]["B"]["system"]
