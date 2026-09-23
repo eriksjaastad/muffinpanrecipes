@@ -40,7 +40,6 @@ def test_manifest_uses_accepted_complete_dialogue_and_keeps_all_perspectives(tmp
     assert len(ria["weekly_memory_slots"]) == 3
     first_week, second_week, third_week = ria["weekly_memory_slots"]
     assert manifest["episodes"][0]["sha256"] == hashlib.sha256(episodes[0].read_bytes()).hexdigest()
-    assert manifest["episodes"][0]["sha256"] == hashlib.sha256(episodes[0].read_bytes()).hexdigest()
     assert [row["episode_id"] for row in first_week["observations"]] == ["2026-W10", "2026-W10"]
     assert [row["perspective"] for row in first_week["observations"]] == ["self", "heard"]
     assert all("Rejected line" not in row["message"]
@@ -140,6 +139,17 @@ def test_manifest_rejects_out_of_order_iso_weeks(tmp_path):
     ]
 
     with pytest.raises(ValueError, match="chronological ISO week order"):
+        build_manifest(paths)
+
+
+@pytest.mark.parametrize("bad_turn", [3, {"character": "Ria"}, {"character": "", "message": "Hello."}, {"character": "Ria", "message": "  "}])
+def test_manifest_rejects_malformed_turns_with_provenance(tmp_path, bad_turn):
+    paths = []
+    for week in ("2026-W20", "2026-W21", "2026-W22"):
+        monday = [bad_turn] if week == "2026-W20" else []
+        paths.append(_episode(tmp_path / f"{week}.json", week, monday))
+
+    with pytest.raises(ValueError, match=r"2026-W20.*monday\.dialogue\[0\]"):
         build_manifest(paths)
 
 

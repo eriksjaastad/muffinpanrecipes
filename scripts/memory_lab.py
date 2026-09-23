@@ -95,13 +95,13 @@ def collect_episode(path: Path, *, allow_partial: bool = False) -> tuple[dict[st
             raise ValueError(f"{path}: {day}.dialogue must be a list")
         for turn_index, turn in enumerate(dialogue):
             if not isinstance(turn, dict):
-                continue
+                raise ValueError(f"{path}: {day}.dialogue[{turn_index}] must be an object")
             character, message = turn.get("character"), turn.get("message")
             if not isinstance(character, str) or not character.strip() or not isinstance(message, str):
-                continue
+                raise ValueError(f"{path}: {day}.dialogue[{turn_index}] requires non-empty character and string message")
             character, message = character.strip(), message.strip()
             if not message:
-                continue
+                raise ValueError(f"{path}: {day}.dialogue[{turn_index}].message must not be empty")
             record = {
                 "source_id": _source_id(episode_id, str(day), turn_index, character, message),
                 "episode_id": episode_id,
