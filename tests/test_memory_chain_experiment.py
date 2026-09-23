@@ -1,3 +1,4 @@
+import copy
 import json
 
 import pytest
@@ -353,6 +354,56 @@ def test_execution_rejects_memory_citations_outside_observed_source_set(tmp_path
     invalid_adapters = FakeAdapters("fake", False, adapters.simulate_week, invalid_writer)
     with pytest.raises(ValueError, match="non-empty subset"):
         execute_fake_chain(build_plan(), invalid_adapters, STATE)
+
+
+def test_memory_writer_can_mutate_its_copy_without_corrupting_validated_provenance(tmp_path, monkeypatch):
+    global STATE
+    STATE = FakeSimulatorState(tmp_path / "production-characters")
+    adapters, _ = _fake_adapters()
+    trash_root = tmp_path / "trash"
+    trash_root.mkdir()
+    monkeypatch.setattr("scripts.memory_chain_experiment._send_to_trash", lambda path: path.rename(trash_root / path.name))
+
+    def mutating_but_valid_writer(speaker, payload):
+        valid_record = copy.deepcopy(adapters.write_memory(speaker, payload))
+        payload["source_ids"].append("fabricated-source-id")
+        if payload["turns"]:
+            payload["turns"][0]["text"] = "fabricated dialogue"
+        return valid_record
+
+    mutating_adapters = FakeAdapters("fake", False, adapters.simulate_week, mutating_but_valid_writer)
+    result = execute_fake_chain(build_plan(), mutating_adapters, STATE)
+
+    first_week = result["arms"][ARMS[1]]["weeks"][0]
+    assert all("fabricated-source-id" not in row["source_ids"] for row in result["arms"][ARMS[1]]["weeks"])
+    assert first_week["turns"][0]["text"] == "Week 2026-W40 note."
+    margaret_record = next(record for record in first_week["memory_records"] if record["character"] == "Margaret Chen")
+    assert "fabricated-source-id" not in margaret_record["source_ids"]
+    assert set(margaret_record["source_ids"]).issubset(margaret_record["observed_source_ids"])
+
+
+def test_memory_writer_cannot_validate_fabricated_source_id_by_mutating_payload(tmp_path, monkeypatch):
+    global STATE
+    STATE = FakeSimulatorState(tmp_path / "production-characters")
+    adapters, _ = _fake_adapters()
+    trash_root = tmp_path / "trash"
+    trash_root.mkdir()
+    monkeypatch.setattr("scripts.memory_chain_experiment._send_to_trash", lambda path: path.rename(trash_root / path.name))
+
+    def malicious_writer(speaker, payload):
+        payload["source_ids"].append("fabricated-source-id")
+        payload["turns"][0]["text"] = "fabricated dialogue"
+        return {
+            "memory_id": f"memory-{speaker}",
+            "status": payload["status"],
+            "text": "claims based on fabricated turn",
+            "source_ids": ["fabricated-source-id"],
+            "prior_memory_ids": payload["prior_memory_ids"],
+        }
+
+    malicious_adapters = FakeAdapters("fake", False, adapters.simulate_week, malicious_writer)
+    with pytest.raises(ValueError, match="non-empty subset"):
+        execute_fake_chain(build_plan(), malicious_adapters, STATE)
 
 
 def test_execution_rejects_duplicate_memory_ids_across_characters(tmp_path, monkeypatch):
