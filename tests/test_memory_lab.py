@@ -153,6 +153,23 @@ def test_manifest_rejects_malformed_turns_with_provenance(tmp_path, bad_turn):
         build_manifest(paths)
 
 
+def test_complete_stage_requires_dialogue_key_but_accepts_empty_list(tmp_path):
+    paths = [
+        _episode(tmp_path / f"{week}.json", week, [{"character": "Ria", "message": "Monday."}])
+        for week in ("2026-W20", "2026-W21", "2026-W22")
+    ]
+    missing_dialogue = json.loads(paths[1].read_text(encoding="utf-8"))
+    missing_dialogue["stages"]["tuesday"] = {"status": "complete"}
+    paths[1].write_text(json.dumps(missing_dialogue), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"2026-W21.*tuesday\.dialogue is missing"):
+        build_manifest(paths)
+
+    missing_dialogue["stages"]["tuesday"]["dialogue"] = []
+    paths[1].write_text(json.dumps(missing_dialogue), encoding="utf-8")
+    assert build_manifest(paths)["episode_count"] == 3
+
+
 def test_cli_creates_output_parent_directory(tmp_path):
     paths = [
         _episode(tmp_path / f"{week}.json", week, [{"character": "Ria", "message": "Monday."}])

@@ -90,7 +90,9 @@ def collect_episode(path: Path, *, allow_partial: bool = False) -> tuple[dict[st
         stage = stages.get(day)
         if not isinstance(stage, dict) or stage.get("status") != "complete":
             continue
-        dialogue = stage.get("dialogue", [])
+        if "dialogue" not in stage:
+            raise ValueError(f"{path}: {day}.dialogue is missing from a complete stage")
+        dialogue = stage["dialogue"]
         if not isinstance(dialogue, list):
             raise ValueError(f"{path}: {day}.dialogue must be a list")
         for turn_index, turn in enumerate(dialogue):
