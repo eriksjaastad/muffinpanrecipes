@@ -1,0 +1,375 @@
+{
+  "artifact_type": "calibration-input-preservation",
+  "command": "calibrate",
+  "episode_id": "2026-W25",
+  "stage": "thursday",
+  "concept": "Harissa Chickpea Feta Cups",
+  "source_commit": "c08a73950ee7a976f3b4885ec7e0f4348b62ed11",
+  "source_episode": "data/episodes/2026-W25.json",
+  "source_episode_sha256": "555401c9ecfb2e2a5641eef9ffcfcf55f9bbe8a0bbb9b2abbb450e4e0e0cb1d6",
+  "source_transcript_turns": [
+    {
+      "day": "thursday",
+      "stage": "copywriting",
+      "character": "Marcus Reid",
+      "message": "Morning, all. Got the harissa chickpea situation drafted and I'm thinking the title should be \"Five-Minute Breakfast in a Muffin Pan\" - something that promises speed but doesn't lie about the actual work involved, which I think matters here.",
+      "timestamp": "2026-06-18T09:00:00+00:00",
+      "model": "anthropic/claude-haiku-4-5-20251001",
+      "attachments": []
+    },
+    {
+      "day": "thursday",
+      "stage": "copywriting",
+      "character": "Ria Castillo",
+      "message": "Five minutes is a lie though - the dicing alone takes longer, and people hate that. What about \"Crispy Chickpea Cups, Five Ingredients\"? That's honest and it stops the scroll.",
+      "timestamp": "2026-06-18T10:36:00+00:00",
+      "model": "anthropic/claude-haiku-4-5-20251001",
+      "attachments": []
+    },
+    {
+      "day": "thursday",
+      "stage": "copywriting",
+      "character": "Marcus Reid",
+      "message": "You're right about the dicing - I was leaning into the promise rather than the reality, which is exactly the trap you called out. What if we went \"Harissa Chickpea Feta Cups\" and let the copy do the work of showing it's actually doable, not pretending it's faster than it is?",
+      "timestamp": "2026-06-18T12:12:00+00:00",
+      "model": "anthropic/claude-haiku-4-5-20251001",
+      "attachments": []
+    },
+    {
+      "day": "thursday",
+      "stage": "copywriting",
+      "character": "Margaret Chen",
+      "message": "Marcus got it right - title stays simple, copy carries the work. That's how it should be.",
+      "timestamp": "2026-06-18T13:48:00+00:00",
+      "model": "anthropic/claude-haiku-4-5-20251001",
+      "attachments": []
+    },
+    {
+      "day": "thursday",
+      "stage": "copywriting",
+      "character": "Stephanie 'Steph' Whitmore",
+      "message": "Love that Margaret and Ria pushed back - the simpler title actually gives Marcus more room to show the real process instead of overselling it.",
+      "timestamp": "2026-06-18T15:24:00+00:00",
+      "model": "anthropic/claude-haiku-4-5-20251001",
+      "attachments": []
+    }
+  ],
+  "deterministic_degraded_variants": {
+    "shuffled_order": [
+      {
+        "seed": 1,
+        "dialogue": [
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Marcus Reid",
+            "message": "You're right about the dicing - I was leaning into the promise rather than the reality, which is exactly the trap you called out. What if we went \"Harissa Chickpea Feta Cups\" and let the copy do the work of showing it's actually doable, not pretending it's faster than it is?",
+            "timestamp": "2026-06-18T12:12:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          },
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Margaret Chen",
+            "message": "Marcus got it right - title stays simple, copy carries the work. That's how it should be.",
+            "timestamp": "2026-06-18T13:48:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          },
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Stephanie 'Steph' Whitmore",
+            "message": "Love that Margaret and Ria pushed back - the simpler title actually gives Marcus more room to show the real process instead of overselling it.",
+            "timestamp": "2026-06-18T15:24:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          },
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Marcus Reid",
+            "message": "Morning, all. Got the harissa chickpea situation drafted and I'm thinking the title should be \"Five-Minute Breakfast in a Muffin Pan\" - something that promises speed but doesn't lie about the actual work involved, which I think matters here.",
+            "timestamp": "2026-06-18T09:00:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          },
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Ria Castillo",
+            "message": "Five minutes is a lie though - the dicing alone takes longer, and people hate that. What about \"Crispy Chickpea Cups, Five Ingredients\"? That's honest and it stops the scroll.",
+            "timestamp": "2026-06-18T10:36:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          }
+        ]
+      },
+      {
+        "seed": 2,
+        "dialogue": [
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Marcus Reid",
+            "message": "You're right about the dicing - I was leaning into the promise rather than the reality, which is exactly the trap you called out. What if we went \"Harissa Chickpea Feta Cups\" and let the copy do the work of showing it's actually doable, not pretending it's faster than it is?",
+            "timestamp": "2026-06-18T12:12:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          },
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Ria Castillo",
+            "message": "Five minutes is a lie though - the dicing alone takes longer, and people hate that. What about \"Crispy Chickpea Cups, Five Ingredients\"? That's honest and it stops the scroll.",
+            "timestamp": "2026-06-18T10:36:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          },
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Margaret Chen",
+            "message": "Marcus got it right - title stays simple, copy carries the work. That's how it should be.",
+            "timestamp": "2026-06-18T13:48:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          },
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Stephanie 'Steph' Whitmore",
+            "message": "Love that Margaret and Ria pushed back - the simpler title actually gives Marcus more room to show the real process instead of overselling it.",
+            "timestamp": "2026-06-18T15:24:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          },
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Marcus Reid",
+            "message": "Morning, all. Got the harissa chickpea situation drafted and I'm thinking the title should be \"Five-Minute Breakfast in a Muffin Pan\" - something that promises speed but doesn't lie about the actual work involved, which I think matters here.",
+            "timestamp": "2026-06-18T09:00:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          }
+        ]
+      },
+      {
+        "seed": 3,
+        "dialogue": [
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Marcus Reid",
+            "message": "Morning, all. Got the harissa chickpea situation drafted and I'm thinking the title should be \"Five-Minute Breakfast in a Muffin Pan\" - something that promises speed but doesn't lie about the actual work involved, which I think matters here.",
+            "timestamp": "2026-06-18T09:00:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          },
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Marcus Reid",
+            "message": "You're right about the dicing - I was leaning into the promise rather than the reality, which is exactly the trap you called out. What if we went \"Harissa Chickpea Feta Cups\" and let the copy do the work of showing it's actually doable, not pretending it's faster than it is?",
+            "timestamp": "2026-06-18T12:12:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          },
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Margaret Chen",
+            "message": "Marcus got it right - title stays simple, copy carries the work. That's how it should be.",
+            "timestamp": "2026-06-18T13:48:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          },
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Stephanie 'Steph' Whitmore",
+            "message": "Love that Margaret and Ria pushed back - the simpler title actually gives Marcus more room to show the real process instead of overselling it.",
+            "timestamp": "2026-06-18T15:24:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          },
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Ria Castillo",
+            "message": "Five minutes is a lie though - the dicing alone takes longer, and people hate that. What about \"Crispy Chickpea Cups, Five Ingredients\"? That's honest and it stops the scroll.",
+            "timestamp": "2026-06-18T10:36:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          }
+        ]
+      }
+    ],
+    "rotated_speakers": [
+      {
+        "seed": 1,
+        "dialogue": [
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Ria Castillo",
+            "message": "Morning, all. Got the harissa chickpea situation drafted and I'm thinking the title should be \"Five-Minute Breakfast in a Muffin Pan\" - something that promises speed but doesn't lie about the actual work involved, which I think matters here.",
+            "timestamp": "2026-06-18T09:00:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          },
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Marcus Reid",
+            "message": "Five minutes is a lie though - the dicing alone takes longer, and people hate that. What about \"Crispy Chickpea Cups, Five Ingredients\"? That's honest and it stops the scroll.",
+            "timestamp": "2026-06-18T10:36:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          },
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Margaret Chen",
+            "message": "You're right about the dicing - I was leaning into the promise rather than the reality, which is exactly the trap you called out. What if we went \"Harissa Chickpea Feta Cups\" and let the copy do the work of showing it's actually doable, not pretending it's faster than it is?",
+            "timestamp": "2026-06-18T12:12:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          },
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Stephanie 'Steph' Whitmore",
+            "message": "Marcus got it right - title stays simple, copy carries the work. That's how it should be.",
+            "timestamp": "2026-06-18T13:48:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          },
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Marcus Reid",
+            "message": "Love that Margaret and Ria pushed back - the simpler title actually gives Marcus more room to show the real process instead of overselling it.",
+            "timestamp": "2026-06-18T15:24:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          }
+        ]
+      },
+      {
+        "seed": 2,
+        "dialogue": [
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Ria Castillo",
+            "message": "Morning, all. Got the harissa chickpea situation drafted and I'm thinking the title should be \"Five-Minute Breakfast in a Muffin Pan\" - something that promises speed but doesn't lie about the actual work involved, which I think matters here.",
+            "timestamp": "2026-06-18T09:00:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          },
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Marcus Reid",
+            "message": "Five minutes is a lie though - the dicing alone takes longer, and people hate that. What about \"Crispy Chickpea Cups, Five Ingredients\"? That's honest and it stops the scroll.",
+            "timestamp": "2026-06-18T10:36:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          },
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Margaret Chen",
+            "message": "You're right about the dicing - I was leaning into the promise rather than the reality, which is exactly the trap you called out. What if we went \"Harissa Chickpea Feta Cups\" and let the copy do the work of showing it's actually doable, not pretending it's faster than it is?",
+            "timestamp": "2026-06-18T12:12:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          },
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Stephanie 'Steph' Whitmore",
+            "message": "Marcus got it right - title stays simple, copy carries the work. That's how it should be.",
+            "timestamp": "2026-06-18T13:48:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          },
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Marcus Reid",
+            "message": "Love that Margaret and Ria pushed back - the simpler title actually gives Marcus more room to show the real process instead of overselling it.",
+            "timestamp": "2026-06-18T15:24:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          }
+        ]
+      },
+      {
+        "seed": 3,
+        "dialogue": [
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Ria Castillo",
+            "message": "Morning, all. Got the harissa chickpea situation drafted and I'm thinking the title should be \"Five-Minute Breakfast in a Muffin Pan\" - something that promises speed but doesn't lie about the actual work involved, which I think matters here.",
+            "timestamp": "2026-06-18T09:00:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          },
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Marcus Reid",
+            "message": "Five minutes is a lie though - the dicing alone takes longer, and people hate that. What about \"Crispy Chickpea Cups, Five Ingredients\"? That's honest and it stops the scroll.",
+            "timestamp": "2026-06-18T10:36:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          },
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Margaret Chen",
+            "message": "You're right about the dicing - I was leaning into the promise rather than the reality, which is exactly the trap you called out. What if we went \"Harissa Chickpea Feta Cups\" and let the copy do the work of showing it's actually doable, not pretending it's faster than it is?",
+            "timestamp": "2026-06-18T12:12:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          },
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Stephanie 'Steph' Whitmore",
+            "message": "Marcus got it right - title stays simple, copy carries the work. That's how it should be.",
+            "timestamp": "2026-06-18T13:48:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          },
+          {
+            "day": "thursday",
+            "stage": "copywriting",
+            "character": "Marcus Reid",
+            "message": "Love that Margaret and Ria pushed back - the simpler title actually gives Marcus more room to show the real process instead of overselling it.",
+            "timestamp": "2026-06-18T15:24:00+00:00",
+            "model": "anthropic/claude-haiku-4-5-20251001",
+            "attachments": []
+          }
+        ]
+      }
+    ]
+  },
+  "variant_notes": {
+    "shuffled_order": "scripts.conversation_lab._shuffle_turns(dialogue, seed); seeds are 1, 2, 3.",
+    "rotated_speakers": "scripts.conversation_lab._rotate_speakers(dialogue, seed); rotates each turn label one position; deterministic and identical for seeds 1, 2, 3."
+  },
+  "result_artifact": "docs/conversation-lab/results/20260923T015903Z-calibrate-2026-W25-thursday.json",
+  "result_sha256": "17f5b68c7271f7763d9dd4f073ac9d725c481b694e54c066754b9d547f087195",
+  "budget_ledger_snapshot": "20260923T015903Z-calibrate-budget-ledger.json",
+  "ledger_sha256": "f74becd5ad3a1ccc4e73d9b0c5d728056dd993d95b9dea3e1beabf96958f17d6",
+  "limitations": [
+    "The source result stores combined pairwise verdicts, not raw orientation answers.",
+    "This artifact preserves source and deterministic inputs; it does not reconstruct or claim missing raw judge answers."
+  ]
+}

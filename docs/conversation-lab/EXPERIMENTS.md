@@ -140,6 +140,57 @@ write them so the log and the tool never drift apart.
 | Date | Experiment ID | Lever (one) | Target dimension(s) | N | Wins/Ties/Losses on target | Other dimensions lost | Decision | Shipped PR | Live confirmation week + scores |
 |------|----------------|--------------|----------------------|---|------------------------------|------------------------|-----------|-------------|-----------------------------------|
 
+### 2026-09-23 — W25 Thursday judge calibration (not an A/B result)
+
+At source commit `c08a73950ee7a976f3b4885ec7e0f4348b62ed11`, the calibration
+command tested the existing W25 Thursday transcript for **Harissa Chickpea
+Feta Cups** against two deterministic degradations, three runs each, with
+both position orders judged (12 paid judge requests total). The judge was
+Anthropic Claude Opus 4.6. This was a calibration of the current judge on a
+W25 transcript; it was **not** the approved v3 A/B, and it does not measure
+the future v3 panel's experiment outcomes.
+
+| Degradation | Completed / requested | Combined results | Tool verdict |
+|---|---:|---|---|
+| `shuffled_order` | 3 / 3 | real preferred 3; ties 0; degraded preferred 0 | GRADER OK (100% real preference) |
+| `rotated_speakers` | 3 / 3 | real preferred 0; ties 3; degraded preferred 0 | GRADER SUSPECT (0% real preference) |
+
+The shared guard ledger records **$0.214525 actual** for calibration, with
+zero reserved and zero uncertain spend, against its $5 ceiling. The original
+tool result is
+[`20260923T015903Z-calibrate-2026-W25-thursday.json`](results/20260923T015903Z-calibrate-2026-W25-thursday.json).
+The copied ledger and preservation snapshot are
+[`20260923T015903Z-calibrate-budget-ledger.json`](results/20260923T015903Z-calibrate-budget-ledger.json)
+and
+[`20260923T015903Z-calibrate-2026-W25-thursday.inputs.json`](results/20260923T015903Z-calibrate-2026-W25-thursday.inputs.json).
+The snapshot records the source episode SHA-256
+`555401c9ecfb2e2a5641eef9ffcfcf55f9bbe8a0bbb9b2abbb450e4e0e0cb1d6` and
+original tool-result SHA-256
+`17f5b68c7271f7763d9dd4f073ac9d725c481b694e54c066754b9d547f087195`, along
+with the source transcript and seed 1–3 degraded variants.
+
+Interpret this narrowly. The combined records preserve only the combined
+verdicts; raw answers from the two judge orientations were not recorded, so
+the three rotated-speaker ties cannot be attributed to either position order.
+A combined tie could mean both orientations tied or that their preferences
+disagreed; the saved record does not distinguish those cases.
+At the source commit, `PAIRWISE_JUDGE_SYSTEM_PROMPT` and
+`_build_pairwise_prompt` provide names, roster, recipe facts, and transcripts,
+but no character voice guides or identity expectations. The rotation itself
+changes turn labels by one position and is identical for seeds 1–3; that
+construction does not establish that the resulting dialogue has poor voice
+distinctness. Therefore **GRADER SUSPECT is the tool's flag for this known-
+degradation test, not proof that the judge is wrong or that the characters
+are indistinct**. The protocol's known-bad calibration guidance still calls
+for diagnosing judge prompts when ties appear; this record does not claim
+that diagnosis is complete.
+
+The `rules-trim` A/B remains unrun and pending Erik's direction; no
+production prompt changed. Tuesday remains held. The Experiments table above
+stays empty until an actual A/B tool run produces a row; this calibration
+must not be represented as a completed lever test. No additional paid calls
+were made while recording this entry.
+
 ## Heat map baseline v0 (2026-09-06)
 
 A one-off read across the full corpus (W11-W36, 917 dialogue lines) to size
