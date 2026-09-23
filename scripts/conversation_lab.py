@@ -2553,7 +2553,7 @@ def _bench_aggregate(runs: list[dict[str, Any]]) -> dict[str, Any]:
 def _bench_delta(
     current: dict[str, Any], baseline: dict[str, Any], section: str = "metrics"
 ) -> dict[str, Any]:
-    """Per-metric movement between two bench aggregates.
+    """Compare every key seen in either aggregate without inventing samples.
 
     `z` is the difference in means over the standard error of that
     difference. See `_BENCH_MOVED_Z` for what it is and is not.
@@ -2565,11 +2565,42 @@ def _bench_delta(
     metrics stayed flat was reported as "nothing moved", which is the tool
     failing at the exact job it was built for.
     """
+    current_distributions = current.get(section)
+    baseline_distributions = baseline.get(section)
+    current_distributions = current_distributions if isinstance(current_distributions, dict) else {}
+    baseline_distributions = baseline_distributions if isinstance(baseline_distributions, dict) else {}
     rows: dict[str, Any] = {}
-    for key, cur in (current.get(section) or {}).items():
-        base = (baseline.get(section) or {}).get(key)
-        if not base:
+    for key in sorted(set(current_distributions) | set(baseline_distributions)):
+        cur = current_distributions.get(key)
+        base = baseline_distributions.get(key)
+        cur = cur if isinstance(cur, dict) else None
+        base = base if isinstance(base, dict) else None
+        cur_n = cur.get("n", 0) if cur else 0
+        base_n = base.get("n", 0) if base else 0
+        current_available = bool(cur and cur_n > 0 and not cur.get("no_valid_samples"))
+        baseline_available = bool(base and base_n > 0 and not base.get("no_valid_samples"))
+        common = {
+            "baseline_available": baseline_available,
+            "current_available": current_available,
+            "baseline_n": base_n,
+            "current_n": cur_n,
+        }
+        if not current_available or not baseline_available:
+            rows[key] = {
+                **common,
+                "status": "unavailable",
+                "unavailable": True,
+                "no_valid_samples": True,
+                "baseline_mean": base.get("mean") if baseline_available else None,
+                "mean": cur.get("mean") if current_available else None,
+                "delta": None,
+                "stderr_diff": None,
+                "z": None,
+                "moved": None,
+                "estimable": False,
+            }
             continue
+
         delta = cur["mean"] - base["mean"]
         se = sqrt(cur["stderr"] ** 2 + base["stderr"] ** 2)
         estimable = cur.get("n", 0) >= 2 and base.get("n", 0) >= 2
@@ -2590,9 +2621,10 @@ def _bench_delta(
             z = None
             moved = delta != 0
         rows[key] = {
-            "no_valid_samples": bool(
-                cur.get("no_valid_samples") or base.get("no_valid_samples")
-            ),
+            **common,
+            "status": "indeterminate" if moved is None else ("moved" if moved else "unchanged"),
+            "unavailable": False,
+            "no_valid_samples": False,
             "baseline_mean": base["mean"],
             "mean": cur["mean"],
             "delta": round(delta, 4),
@@ -2602,6 +2634,35 @@ def _bench_delta(
             "estimable": estimable,
         }
     return rows
+
+
+def _comparison_row_sort_key(item: tuple[str, dict[str, Any]]) -> tuple[int, float, str]:
+    """Order moved, indeterminate, unavailable, then unchanged rows safely."""
+    key, row = item
+    order = {"moved": 0, "indeterminate": 1, "unavailable": 2, "unchanged": 3}
+    delta = row.get("delta")
+    z = row.get("z")
+    magnitude = abs(z) if isinstance(z, (int, float)) else (
+        abs(delta) if isinstance(delta, (int, float)) else 0.0
+    )
+    return order.get(row.get("status"), 4), -magnitude, key
+
+
+def _comparison_summary(label: str, rows: dict[str, dict[str, Any]]) -> str:
+    """Summarize movement while naming unavailable and indeterminate rows."""
+    if not rows:
+        return f"{label} comparison unavailable: neither bench recorded any measurements."
+    counts = Counter(row.get("status", "unavailable") for row in rows.values())
+    parts = [f"{counts[status]} {status}" for status in ("moved", "unchanged", "indeterminate", "unavailable") if counts[status]]
+    if counts["unavailable"] == len(rows):
+        return f"{label} comparison unavailable for all rows ({'; '.join(parts)})."
+    if counts["moved"]:
+        lead = f"{counts['moved']} {label} moved"
+    elif counts["indeterminate"] or counts["unavailable"]:
+        lead = f"No {label} movement established"
+    else:
+        lead = f"No {label} moved"
+    return lead + "; " + "; ".join(parts) + "."
 
 def _resolve_bench_scenario(
     args: argparse.Namespace,
@@ -2861,6 +2922,36 @@ def _validate_distribution_section(
                 f"--compare baseline {source!r}: {label} has a negative "
                 f"'stderr' ({dist['stderr']!r})"
             )
+        if section == "dimensions":
+            no_samples = dist.get("no_valid_samples")
+            if "no_valid_samples" in dist and not isinstance(no_samples, bool):
+                raise ConversationLabError(
+                    f"--compare baseline {source!r}: {label} has a non-boolean "
+                    "'no_valid_samples' flag"
+                )
+            if n == 0:
+                if (
+                    no_samples is not True
+                    or dist["mean"] != 0
+                    or dist["stderr"] != 0
+                ):
+                    raise ConversationLabError(
+                        f"--compare baseline {source!r}: {label} with n=0 must use "
+                        "the no_valid_samples=true, zero mean/stderr placeholder"
+                    )
+            else:
+                if no_samples is True:
+                    raise ConversationLabError(
+                        f"--compare baseline {source!r}: {label} has n={n} but "
+                        "contradictory no_valid_samples=true"
+                    )
+                low, high = _JUDGE_SCORE_RANGE
+                if not low <= dist["mean"] <= high:
+                    raise ConversationLabError(
+                        f"--compare baseline {source!r}: {label} mean must be "
+                        f"within the judge score range {low}..{high} "
+                        f"(found {dist['mean']!r})"
+                    )
 
 # Recorded scenario fields checked before a comparison. They cover the frozen
 # judge inputs and stage-specific photo inputs, but do not fingerprint source
@@ -3395,12 +3486,18 @@ def _print_bench_report(report: dict[str, Any]) -> None:
         dim_rows = comparison.get("dimensions") or {}
         if dim_rows:
             print(f"\n{'judge dimension':<34}{'baseline':>10}{'now':>10}{'delta':>10}{'z':>8}")
-            for key, row in sorted(dim_rows.items(), key=lambda kv: -abs(kv[1]["delta"])):
-                if row.get("no_valid_samples"):
-                    print(f"{key:<34}{'NOT SCORED - the judge returned no usable value':>44}")
+            for key, row in sorted(dim_rows.items(), key=_comparison_row_sort_key):
+                if row.get("unavailable"):
+                    missing = []
+                    if not row.get("baseline_available"):
+                        missing.append("baseline")
+                    if not row.get("current_available"):
+                        missing.append("now")
+                    reason = "NOT SCORED" if row.get("no_valid_samples") else "UNAVAILABLE"
+                    print(f"{key:<34}{reason + ' (' + ', '.join(missing) + ')':>44}")
                     continue
                 z_text = "   n/a" if row["z"] is None else f"{row['z']:>+6.2f}"
-                if row["moved"] is None:
+                if row["status"] == "indeterminate":
                     flag = "  <- indeterminate (n < 2)"
                 elif row["moved"]:
                     flag = "  <- moved"
@@ -3411,57 +3508,57 @@ def _print_bench_report(report: dict[str, Any]) -> None:
                     f"{row['delta']:>+10.2f}  {z_text}{flag}"
                 )
 
-        moved_dims = {k: v for k, v in dim_rows.items() if v["moved"]}
-        moved = {k: v for k, v in comparison["metrics"].items() if v["moved"]}
-        indeterminate = sum(
-            1
-            for section in ("metrics", "dimensions")
-            for v in (comparison.get(section) or {}).values()
-            if v["moved"] is None
-        )
-        print(f"{'metric':<34}{'baseline':>10}{'now':>10}{'delta':>10}{'z':>8}")
-        rows = moved or comparison["metrics"]
-        # z is None when neither arm varied (see _bench_delta). Those rows
-        # sort first when they moved - a repeatable shift is the most
-        # interesting thing on the table, not an unsortable edge case.
-        def _sort_key(item: tuple[str, dict[str, Any]]) -> tuple[int, float]:
-            row = item[1]
-            if row["z"] is None:
-                return (0 if row["moved"] else 2, 0.0)
-            return (1, -abs(row["z"]))
-
-        for key, row in sorted(rows.items(), key=_sort_key):
-            z_text = "   n/a" if row["z"] is None else f"{row['z']:>+6.2f}"
-            print(
-                f"{key:<34}{row['baseline_mean']:>10.3f}{row['mean']:>10.3f}"
-                f"{row['delta']:>+10.3f}  {z_text}"
-            )
-        if not moved:
-            # Qualified deliberately (Codex): this line used to read
-            # "nothing moved" directly beneath a judge dimension the table
-            # had just flagged as moved, which is the one summary an
-            # operator might read instead of the tables.
-            indeterminate_dims = sum(1 for v in dim_rows.values() if v["moved"] is None)
-            scope = (
-                "no DETERMINISTIC metric"
-                if (moved_dims or indeterminate_dims)
-                else "nothing"
-            )
-            if moved_dims:
-                suffix = f" - but {len(moved_dims)} judge dimension(s) did; see the table above"
-            elif indeterminate_dims:
-                suffix = (
-                    f" - and {indeterminate_dims} judge dimension(s) were INDETERMINATE, "
-                    "not unchanged; see the table above"
+        metric_rows = comparison.get("metrics") or {}
+        if metric_rows:
+            print(f"{'metric':<34}{'baseline':>10}{'now':>10}{'delta':>10}{'z':>8}")
+            for key, row in sorted(metric_rows.items(), key=_comparison_row_sort_key):
+                if row.get("unavailable"):
+                    missing = []
+                    if not row.get("baseline_available"):
+                        missing.append("baseline")
+                    if not row.get("current_available"):
+                        missing.append("now")
+                    print(f"{key:<34}{('UNAVAILABLE (' + ', '.join(missing) + ')'):>44}")
+                    continue
+                z_text = "   n/a" if row["z"] is None else f"{row['z']:>+6.2f}"
+                flag = "  <- indeterminate (n < 2)" if row["status"] == "indeterminate" else (
+                    "  <- moved" if row["moved"] else ""
                 )
-            else:
-                suffix = ""
-            print(f"({scope} moved by |z| >= {_BENCH_MOVED_Z}; showing all metrics{suffix})")
-        if indeterminate:
-            print(
-                f"({indeterminate} metric(s) indeterminate - fewer than 2 runs in an "
-                "arm, so the spread was never estimated and no movement can be claimed)"
+                print(
+                    f"{key:<34}{row['baseline_mean']:>10.3f}{row['mean']:>10.3f}"
+                    f"{row['delta']:>+10.3f}  {z_text}{flag}"
+                )
+        else:
+            print("metric comparison unavailable: neither bench recorded any metric keys.")
+
+        print(_comparison_summary("metric", metric_rows))
+        if dim_rows:
+            print(_comparison_summary("judge dimension", dim_rows))
+            indeterminate_dims = sum(
+                row["status"] == "indeterminate" for row in dim_rows.values()
             )
+            if indeterminate_dims:
+                print(
+                    f"{indeterminate_dims} judge dimension(s) were "
+                    "INDETERMINATE, not unchanged."
+                )
+        metric_statuses = {row["status"] for row in metric_rows.values()}
+        if metric_rows and metric_statuses == {"unchanged"}:
+            moved_dims = sum(row["status"] == "moved" for row in dim_rows.values())
+            uncertain_dims = sum(
+                row["status"] in {"indeterminate", "unavailable"}
+                for row in dim_rows.values()
+            )
+            if moved_dims or uncertain_dims:
+                note = "no DETERMINISTIC metric moved"
+                if moved_dims:
+                    note += f"; {moved_dims} judge dimension(s) did"
+                elif uncertain_dims:
+                    note += (
+                        f"; {uncertain_dims} judge dimension(s) were "
+                        "INDETERMINATE, not unchanged"
+                    )
+                print(f"({note}; unavailable rows remain listed above)")
 
     print(f"\nresults written to: {report['results_file']}")
 
