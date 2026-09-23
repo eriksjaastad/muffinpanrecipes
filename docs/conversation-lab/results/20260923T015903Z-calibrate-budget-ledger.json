@@ -1,0 +1,151 @@
+{
+  "budget_microusd": 5000000,
+  "calls": [
+    {
+      "actual_microusd": 17100,
+      "id": "0677b616ab3d49f3ab0e253412c1cfd7",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 170585,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 17050,
+      "id": "e496cdf5a761494eae7fc7691a0b95ce",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 170585,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 17500,
+      "id": "6593149abf314372910b67466d25751f",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 170585,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 17025,
+      "id": "4fc8c126f0784ed3a1ae115a6c75c239",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 170585,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 17600,
+      "id": "325e2b34d5cb4fc78f940718e4d2abe0",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 170585,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 17850,
+      "id": "58529947a75649aca28f8d0238fc9d2d",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 170585,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 17375,
+      "id": "842aeae692254bd2abc50973f0facdf7",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 170585,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 19900,
+      "id": "b69afb4d017d4ebdb1b26c4c069ce478",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 170585,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 18425,
+      "id": "58ff1517fd6142c69af31aed99bd5fd1",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 170585,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 18125,
+      "id": "73cd42afe2b441efa8a61845b55a3d65",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 170585,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 17475,
+      "id": "26fedb631bb74a5f9f437b4c827abb97",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 170585,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 19100,
+      "id": "8e755d9eeb52400fa19cfe3876e78d40",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 170585,
+      "status": "settled",
+      "uncertain_microusd": 0
+    }
+  ],
+  "created_at": "2026-09-23T01:59:02.939713+00:00",
+  "phases": {
+    "ab": {
+      "actual_microusd": 0,
+      "count_token_failures": 0,
+      "count_token_requests": 0,
+      "generation_attempts": 0,
+      "reserved_microusd": 0,
+      "uncertain_microusd": 0
+    },
+    "bench": {
+      "actual_microusd": 0,
+      "count_token_failures": 0,
+      "count_token_requests": 0,
+      "generation_attempts": 0,
+      "reserved_microusd": 0,
+      "uncertain_microusd": 0
+    },
+    "calibration": {
+      "actual_microusd": 214525,
+      "count_token_failures": 0,
+      "count_token_requests": 12,
+      "generation_attempts": 12,
+      "reserved_microusd": 0,
+      "uncertain_microusd": 0
+    }
+  },
+  "schema_version": 1,
+  "status": "active",
+  "stop_reason": null,
+  "totals": {
+    "actual_microusd": 214525,
+    "count_token_failures": 0,
+    "count_token_requests": 12,
+    "generation_attempts": 12,
+    "reserved_microusd": 0,
+    "uncertain_microusd": 0
+  }
+}
