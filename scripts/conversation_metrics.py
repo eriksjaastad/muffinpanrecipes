@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from math import log
 from statistics import mean, pstdev
 from typing import Any
 
@@ -295,6 +296,134 @@ def _ngrams(words: list[str], n: int) -> list[tuple[str, ...]]:
     return [tuple(words[i : i + n]) for i in range(len(words) - n + 1)]
 
 
+def speaker_attribution(messages: list[dict[str, Any]]) -> dict[str, Any]:
+    """Estimate lexical voice separability with leave-one-out Naive Bayes.
+
+    Each eligible line is classified from its content-word counts using all
+    other lines as training data. The class prior is uniform. Word likelihoods
+    use additive smoothing toward the pooled training unigram distribution,
+    which preserves ties when speakers use the same word distribution even
+    when they have different amounts of training text. A tied prediction gets
+    fractional expected credit rather than depending on character sort order.
+
+    Only speakers with at least two transcript lines are classifier
+    candidates, so each can retain training data when one line is held out;
+    the chance baseline uses that same fixed candidate set. Vocabulary and
+    pooled probabilities are rebuilt from each fold's training lines only;
+    held-out-only words are ignored and lines with no remaining known words
+    are excluded. Likelihood smoothing is (class_count + pooled_probability) /
+    (class_total + 1). This measures word-choice separability, not personality
+    quality.
+    """
+    samples: list[tuple[str, Counter[str]]] = []
+    for message in messages:
+        character = _first_name(message.get("character"))
+        text = message.get("message", "")
+        content = _content_words(text)
+        counts = Counter(word for word in _words(text) if word in content)
+        samples.append((character, counts))
+
+    observed_characters = sorted({character for character, _ in samples})
+    sample_counts = Counter(character for character, _ in samples)
+    # A class needs at least two lines globally: one held out and at least one
+    # line left to train on. Singletons are reported as excluded, not treated
+    # as a class the classifier could learn.
+    candidates = [character for character in observed_characters if sample_counts[character] >= 2]
+    correct_by_character: Counter[str] = Counter()
+    scored_by_character: Counter[str] = Counter()
+    scored = 0
+    excluded_no_content = 0
+    excluded_no_training = 0
+    excluded_no_known_words = 0
+
+    for heldout_index, (actual, heldout_counts) in enumerate(samples):
+        if not heldout_counts:
+            excluded_no_content += 1
+            continue
+
+        training = [
+            (character, counts)
+            for index, (character, counts) in enumerate(samples)
+            if index != heldout_index and character in candidates
+        ]
+        if not any(character == actual for character, _ in training):
+            excluded_no_training += 1
+            continue
+
+        vocabulary = set().union(*(counts.keys() for _, counts in training)) if training else set()
+        known_heldout = Counter({word: count for word, count in heldout_counts.items() if word in vocabulary})
+        if not known_heldout:
+            excluded_no_known_words += 1
+            continue
+        # Keep counts strictly within the fold vocabulary. In particular, a
+        # held-out word cannot create a feature or affect smoothing mass.
+        class_counts: dict[str, Counter[str]] = {character: Counter() for character in candidates}
+        pooled_counts: Counter[str] = Counter()
+        class_totals: Counter[str] = Counter()
+        for character, counts in training:
+            filtered = Counter({word: count for word, count in counts.items() if word in vocabulary})
+            if character in class_counts:
+                class_counts[character].update(filtered)
+            class_totals[character] += sum(filtered.values())
+            pooled_counts.update(filtered)
+
+        vocab_size = len(vocabulary)
+        if not vocab_size or not sum(pooled_counts.values()):
+            excluded_no_content += 1
+            continue
+
+        pooled_total = sum(pooled_counts.values())
+        # One pooled-distribution pseudo-count per class. This is a proper
+        # multinomial prior with no arbitrary vocabulary-sized uniform tail.
+        alpha = 1.0
+        log_scores: dict[str, float] = {}
+        for character in candidates:
+            total = class_totals[character]
+            denominator = total + alpha
+            score = -log(len(candidates))
+            for word, count in known_heldout.items():
+                pooled_probability = pooled_counts[word] / pooled_total
+                probability = (class_counts[character][word] + alpha * pooled_probability) / denominator
+                if probability > 0:
+                    score += count * log(probability)
+            log_scores[character] = score
+
+        best_score = max(log_scores.values())
+        # Numerical tolerance only groups scores indistinguishable at float
+        # precision; deterministic fractional tie credit avoids label-order bias.
+        tied = [character for character, score in log_scores.items() if abs(score - best_score) <= 1e-12]
+        credit = (1.0 / len(tied)) if actual in tied else 0.0
+        scored += 1
+        scored_by_character[actual] += 1
+        correct_by_character[actual] += credit
+
+    per_character_recall = {
+        character: round(correct_by_character[character] / scored_by_character[character], 4)
+        if scored_by_character[character]
+        else None
+        for character in observed_characters
+    }
+    eligible = len(messages) - excluded_no_content - excluded_no_training - excluded_no_known_words
+    enough_data = len(candidates) >= 2 and scored >= 2 and all(scored_by_character[c] for c in candidates)
+    return {
+        "accuracy": round(sum(correct_by_character.values()) / scored, 4)
+        if scored and len(candidates) >= 2 else None,
+        "chance": round(1 / len(candidates), 4)
+        if scored and len(candidates) >= 2 else None,
+        "per_character_recall": per_character_recall,
+        "character_count": len(observed_characters),
+        "candidate_characters": candidates,
+        "sample_count": len(messages),
+        "eligible_count": eligible,
+        "scored_count": scored,
+        "coverage": round(scored / len(messages), 4) if messages else 0.0,
+        "excluded_no_content": excluded_no_content,
+        "excluded_no_training": excluded_no_training,
+        "excluded_no_known_words": excluded_no_known_words,
+        "sufficient_data": enough_data,
+    }
+
+
 def cast_coverage(expected: list[str], messages: list[dict[str, Any]]) -> dict[str, Any]:
     """Compare who was supposed to speak against who actually did.
 
@@ -501,6 +630,7 @@ def summarize(
     openers = opener_diversity(messages)
     pitch = pitch_vocab_rate(messages)
     brand = brand_term_rate(messages)
+    attribution = speaker_attribution(messages)
 
     tic_count = sum(len(v) for v in repeated["per_character_4gram_tics"].values())
     unique_characters = len({_first_name(m.get("character")) for m in messages})
@@ -535,6 +665,8 @@ def summarize(
         "pitch_vocab_rate": pitch["rate"],
         # Brand-reinforcement rate (card #6492 slice 3) - see BRAND_TERM_PATTERNS.
         "brand_term_rate": brand["rate"],
+        "speaker_attribution_accuracy": attribution["accuracy"],
+        "speaker_attribution_chance": attribution["chance"],
         "cast_detail": cast,
         "adjacency_detail": adjacency,
         "qa_detail": qa,
@@ -550,6 +682,7 @@ def summarize(
         "opener_diversity_detail": openers,
         "pitch_vocab_detail": pitch,
         "brand_term_detail": brand,
+        "speaker_attribution_detail": attribution,
     }
 
 
