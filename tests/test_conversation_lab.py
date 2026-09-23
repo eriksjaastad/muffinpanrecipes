@@ -3224,6 +3224,126 @@ def test_complete_baseline_dimensions_accept_n_zero_placeholders():
     }
     cl._validate_bench_aggregate(baseline, "valid-full-baseline.json")
 
+@pytest.mark.parametrize("mean", [0.0, 50.0])
+def test_bench_rejects_dimension_mean_outside_judge_scale(mean):
+    dims = {dim: {"n": 2, "mean": 4.0, "stderr": 0.1} for dim in cl.JUDGE_DIMENSIONS}
+    dims["voice_distinctiveness"] = {"n": 2, "mean": mean, "stderr": 0.1}
+    baseline = {"command": "bench", "aggregate": {"metrics": {}, "dimensions": dims}}
+    with pytest.raises(cl.ConversationLabError, match="judge score range"):
+        cl._validate_bench_aggregate(baseline, "out-of-range.json")
+
+@pytest.mark.parametrize("mean", [0.0, 50.0])
+def test_bench_rejects_out_of_range_baseline_before_generation(tmp_path, monkeypatch, mean):
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
+    dims = {dim: {"n": 2, "mean": 4.0, "stderr": 0.1} for dim in cl.JUDGE_DIMENSIONS}
+    dims["turn_taking"] = {"n": 2, "mean": mean, "stderr": 0.1}
+    baseline = tmp_path / "bad-scale.json"
+    baseline.write_text(json.dumps({
+        "command": "bench", "aggregate": {"metrics": {}, "dimensions": dims},
+    }))
+    with pytest.raises(cl.ConversationLabError, match="judge score range"):
+        cl.cmd_bench(_bench_args(tmp_path, compare=str(baseline)))
+
+@pytest.mark.parametrize("mean", [1.0, 5.0])
+def test_bench_accepts_dimension_mean_at_judge_scale_endpoints(mean):
+    dims = {dim: {"n": 2, "mean": 4.0, "stderr": 0.1} for dim in cl.JUDGE_DIMENSIONS}
+    dims["voice_distinctiveness"] = {"n": 2, "mean": mean, "stderr": 0.1}
+    cl._validate_bench_aggregate(
+        {"command": "bench", "aggregate": {"metrics": {}, "dimensions": dims}},
+        "valid-endpoint.json",
+    )
+
+@pytest.mark.parametrize("placeholder", [
+    {"n": 0, "mean": 0.0, "stderr": 0.0, "no_valid_samples": True},
+    {"n": 0, "mean": 0.0, "stderr": 0.0},
+    {"n": 0, "mean": 0.0, "stderr": 0.0, "no_valid_samples": False},
+    {"n": 0, "mean": 1.0, "stderr": 0.0, "no_valid_samples": True},
+])
+def test_bench_validates_zero_sample_dimension_placeholder(placeholder):
+    dims = {dim: {"n": 2, "mean": 4.0, "stderr": 0.1} for dim in cl.JUDGE_DIMENSIONS}
+    dims["voice_distinctiveness"] = placeholder
+    baseline = {"command": "bench", "aggregate": {"metrics": {}, "dimensions": dims}}
+    if placeholder.get("no_valid_samples") is True and placeholder["mean"] == 0:
+        cl._validate_bench_aggregate(baseline, "valid-empty.json")
+    else:
+        with pytest.raises(cl.ConversationLabError, match="n=0"):
+            cl._validate_bench_aggregate(baseline, "bad-empty.json")
+
+@pytest.mark.parametrize("missing_side", ["baseline", "current"])
+def test_bench_delta_keeps_partial_metric_keys_unavailable(missing_side):
+    populated = {"message_count": {"n": 2, "mean": 5.0, "stderr": 0.0}}
+    empty = {}
+    current, baseline = (populated, empty) if missing_side == "baseline" else (empty, populated)
+    row = cl._bench_delta({"metrics": current}, {"metrics": baseline})["message_count"]
+    assert row["status"] == "unavailable"
+    assert row["delta"] is None and row["mean"] is None if missing_side == "current" else row["delta"] is None
+    assert row["current_available"] is (missing_side == "baseline")
+    assert row["baseline_available"] is (missing_side == "current")
+
+def test_bench_delta_does_not_treat_zero_sample_metric_as_measured_zero():
+    row = cl._bench_delta(
+        {"metrics": {"m": {"n": 0, "mean": 0.0, "stderr": 0.0}}},
+        {"metrics": {"m": {"n": 2, "mean": 0.0, "stderr": 0.0}}},
+    )["m"]
+    assert row["status"] == "unavailable"
+    assert row["mean"] is None and row["delta"] is None
+
+def test_bench_delta_keeps_single_observation_mean_but_marks_movement_indeterminate():
+    row = cl._bench_delta(
+        {"metrics": {"m": {"n": 1, "mean": 3.0, "stderr": 0.0}}},
+        {"metrics": {"m": {"n": 2, "mean": 2.0, "stderr": 0.1}}},
+    )["m"]
+    assert row["status"] == "indeterminate"
+    assert row["mean"] == 3.0 and row["delta"] == 1.0
+    assert row["moved"] is None
+
+def test_bench_prints_partial_and_indeterminate_metric_rows_with_moved_row(capsys, tmp_path):
+    report = {
+        "label": "demo", "stage": "saturday", "concept": "Dish",
+        "completed_runs": 2, "requested_runs": 2, "calls_used": 2, "max_calls": 2,
+        "models": {"dialogue": "d", "judge": "j"}, "judged_against_prior_days": [],
+        "dry_run": False, "aborted": False, "error": None,
+        "aggregate": {"judged_runs": 0, "metrics": {}, "dimensions": {}, "pass_count": 0,
+                      "pass_rate": None, "weakest_counts": {}},
+        "comparison": {
+            "baseline_label": "base", "baseline_file": "base.json", "baseline_pass_rate": None,
+            "metrics": {
+                "moved_metric": {"status": "moved", "unavailable": False, "baseline_available": True,
+                    "current_available": True, "baseline_n": 2, "current_n": 2, "baseline_mean": 1.,
+                    "mean": 2., "delta": 1., "stderr_diff": .1, "z": 10., "moved": True, "estimable": True},
+                "no_current": {"status": "unavailable", "unavailable": True, "baseline_available": True,
+                    "current_available": False, "baseline_n": 2, "current_n": 0, "baseline_mean": 1.,
+                    "mean": None, "delta": None, "stderr_diff": None, "z": None, "moved": None, "estimable": False},
+                "one_sample": {"status": "indeterminate", "unavailable": False, "baseline_available": True,
+                    "current_available": True, "baseline_n": 2, "current_n": 1, "baseline_mean": 1.,
+                    "mean": 1.5, "delta": .5, "stderr_diff": None, "z": None, "moved": None, "estimable": False},
+            }, "dimensions": {},
+        }, "results_file": str(tmp_path / "report.json"),
+    }
+    cl._print_bench_report(report)
+    out = capsys.readouterr().out
+    assert "moved_metric" in out and "no_current" in out and "one_sample" in out
+    assert "UNAVAILABLE (now)" in out and "indeterminate (n < 2)" in out
+    assert "1 moved; 1 indeterminate; 1 unavailable" in out
+
+def test_bench_prints_empty_metric_comparison_as_unavailable(capsys, tmp_path):
+    report = {
+        "label": "demo", "stage": "saturday", "concept": "Dish",
+        "completed_runs": 2, "requested_runs": 2, "calls_used": 2, "max_calls": 2,
+        "models": {"dialogue": "d", "judge": "j"}, "judged_against_prior_days": [],
+        "dry_run": False, "aborted": False, "error": None,
+        "aggregate": {"judged_runs": 0, "metrics": {}, "dimensions": {}, "pass_count": 0,
+                      "pass_rate": None, "weakest_counts": {}},
+        "comparison": {"baseline_label": "base", "baseline_file": "base.json",
+                       "baseline_pass_rate": None, "metrics": {}, "dimensions": {}},
+        "results_file": str(tmp_path / "report.json"),
+    }
+    cl._print_bench_report(report)
+    out = capsys.readouterr().out
+    assert "metric comparison unavailable: neither bench recorded any metric keys" in out
+    assert "No metric moved" not in out and "nothing moved" not in out
+
 def test_bench_never_prints_nothing_moved_when_a_dimension_moved(tmp_path, monkeypatch, capsys):
     """Codex: the summary line contradicted the table directly above it.
 
