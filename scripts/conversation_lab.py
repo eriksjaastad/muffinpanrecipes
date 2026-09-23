@@ -1030,6 +1030,37 @@ def _bench_photography_inputs(episode: dict[str, Any], stage: str) -> dict[str, 
         "sources": {"photography_context": context_source, "image_paths": paths_source},
     }
 
+
+def _effective_bench_photography_inputs(
+    stage: str, concept: str, photography_context: Any
+) -> dict[str, Any]:
+    """Render the photo inputs that can affect bench prompts or Wednesday turns.
+
+    Call the simulator's pure renderers directly so comparison semantics stay
+    tied to the code that creates the prompts, rather than a copied field list.
+    Image attachments are audit metadata and are added after turn generation.
+    """
+    try:
+        dynamic_arc = simulate_module._build_dynamic_arc(
+            stage, concept, photography_context=photography_context
+        )
+        scene_direction = simulate_module._build_photography_scene_direction(
+            photography_context, stage
+        )
+        tick_floor = 0
+        if stage == "wednesday" and photography_context:
+            tick_floor = 10 if photography_context.get("reshoot_happened") else 7
+    except Exception as exc:
+        raise ConversationLabError(
+            f"photography inputs cannot be rendered for stage={stage!r}: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
+    return {
+        "dynamic_arc": dynamic_arc,
+        "scene_direction": scene_direction,
+        "wednesday_tick_floor": tick_floor,
+    }
+
 def _resolve_recipe_context_and_facts(
     args: argparse.Namespace,
 ) -> tuple[str | None, str | None]:
@@ -2496,6 +2527,76 @@ def _is_valid_judge_score(value: Any) -> bool:
         and _JUDGE_SCORE_RANGE[0] <= value <= _JUDGE_SCORE_RANGE[1]
     )
 
+
+def _usable_bench_verdict(run: Any) -> bool:
+    """Whether a production judge produced a complete scored verdict."""
+    if not isinstance(run, dict) or not isinstance(run.get("judge"), dict):
+        return False
+    judge = run["judge"]
+    scores = judge.get("scores")
+    verdict = judge.get("verdict")
+    passed = judge.get("passed")
+    verdict_passed = verdict == "PASS" or (
+        isinstance(verdict, str) and verdict.startswith("PASS -")
+    )
+    verdict_failed = verdict == "FAIL" or (
+        isinstance(verdict, str) and verdict.startswith("FAIL -")
+    )
+    return (
+        isinstance(passed, bool)
+        and ((passed and verdict_passed) or (not passed and verdict_failed))
+        and isinstance(scores, dict)
+        and all(_is_valid_judge_score(scores.get(dim)) for dim in JUDGE_DIMENSIONS)
+    )
+
+
+def _bench_judge_coverage(runs: list[Any]) -> dict[str, Any]:
+    scored = sum(1 for run in runs if _usable_bench_verdict(run))
+    attempted = len(runs)
+    return {
+        "attempted_runs": attempted,
+        "scored_verdicts": scored,
+        "unjudged_runs": attempted - scored,
+        "rate": round(scored / attempted, 4) if attempted else None,
+        "applicable": True,
+    }
+
+
+def _baseline_judge_summary(baseline: dict[str, Any]) -> dict[str, Any]:
+    """Re-derive legacy pass rates from per-run evidence, never trust old aggregates."""
+    if baseline.get("dry_run") is True:
+        return {
+            "pass_count": None,
+            "pass_rate": None,
+            "judge_coverage": {
+                "attempted_runs": 0, "scored_verdicts": 0, "unjudged_runs": 0,
+                "rate": None, "applicable": False,
+            },
+            "unavailable_reason": "baseline is a dry run; judge scoring is not applicable",
+        }
+    runs = baseline.get("runs")
+    if not isinstance(runs, list):
+        return {
+            "pass_count": None,
+            "pass_rate": None,
+            "judge_coverage": None,
+            "unavailable_reason": (
+                "baseline has no per-run judge evidence; stored aggregate pass rate "
+                "may include unjudged failures"
+            ),
+        }
+    coverage = _bench_judge_coverage(runs)
+    scored = [run for run in runs if _usable_bench_verdict(run)]
+    pass_count = sum(1 for run in scored if run["judge"]["passed"])
+    rate = round(pass_count / len(scored), 4) if scored else None
+    reason = "baseline has no complete usable scored verdicts" if not scored else None
+    return {
+        "pass_count": pass_count if scored else None,
+        "pass_rate": rate,
+        "judge_coverage": coverage,
+        "unavailable_reason": reason,
+    }
+
 def _bench_aggregate(runs: list[dict[str, Any]]) -> dict[str, Any]:
     """Collapse per-run summaries and verdicts into one distribution each."""
     metric_keys = sorted({k for run in runs for k in _numeric_keys(run.get("summary") or {})})
@@ -2505,7 +2606,7 @@ def _bench_aggregate(runs: list[dict[str, Any]]) -> dict[str, Any]:
         if dist:
             metrics[key] = dist
 
-    judged = [run for run in runs if run.get("judge")]
+    judged = [run for run in runs if isinstance(run, dict) and isinstance(run.get("judge"), dict)]
     dimensions: dict[str, Any] = {}
     for dim in JUDGE_DIMENSIONS:
         # Clamped to the judge's own contract (Codex). _JUDGE_SYSTEM_PROMPT
@@ -2517,7 +2618,8 @@ def _bench_aggregate(runs: list[dict[str, Any]]) -> dict[str, Any]:
         samples = [
             score
             for run in judged
-            for score in [(run["judge"].get("scores") or {}).get(dim)]
+            for score in [((run["judge"].get("scores")) or {}).get(dim)
+                          if isinstance(run["judge"].get("scores"), dict) else None]
             if _is_valid_judge_score(score)
         ]
         # A dimension with no usable samples is recorded as an explicit
@@ -2537,16 +2639,21 @@ def _bench_aggregate(runs: list[dict[str, Any]]) -> dict[str, Any]:
         }
 
     weakest_counts: Counter[str] = Counter()
-    for run in judged:
+    usable = [run for run in judged if _usable_bench_verdict(run)]
+    for run in usable:
         weakest_counts.update(str(w) for w in (run["judge"].get("weakest") or []))
 
-    pass_count = sum(1 for run in judged if run["judge"]["passed"])
+    pass_count = sum(1 for run in usable if run["judge"]["passed"])
+    coverage = _bench_judge_coverage(runs)
     return {
         "metrics": metrics,
         "dimensions": dimensions,
-        "judged_runs": len(judged),
+        "judged_runs": len(usable),
+        "scored_verdicts": len(usable),
+        "unjudged_runs": coverage["unjudged_runs"],
+        "judge_coverage": coverage,
         "pass_count": pass_count,
-        "pass_rate": round(pass_count / len(judged), 4) if judged else None,
+        "pass_rate": round(pass_count / len(usable), 4) if usable else None,
         "weakest_counts": dict(weakest_counts.most_common()),
     }
 
@@ -2663,6 +2770,26 @@ def _comparison_summary(label: str, rows: dict[str, dict[str, Any]]) -> str:
     else:
         lead = f"No {label} moved"
     return lead + "; " + "; ".join(parts) + "."
+
+
+def _pass_rate_label(
+    rate: float | None, coverage: dict[str, Any] | None, unavailable_reason: str | None = None
+) -> str:
+    if isinstance(coverage, dict) and coverage.get("applicable") is False:
+        return "n/a (dry run)"
+    if rate is None:
+        if unavailable_reason:
+            return f"unavailable ({unavailable_reason})"
+        scored = coverage.get("scored_verdicts", 0) if isinstance(coverage, dict) else 0
+        attempted = coverage.get("attempted_runs", 0) if isinstance(coverage, dict) else 0
+        return f"unavailable ({scored}/{attempted} complete scored verdicts)"
+    if isinstance(coverage, dict):
+        return (
+            f"{rate:.0%} ({coverage.get('scored_verdicts', 0)}/"
+            f"{coverage.get('attempted_runs', 0)} scored; "
+            f"{coverage.get('unjudged_runs', 0)} unjudged)"
+        )
+    return f"{rate:.0%} (scoring coverage unavailable)"
 
 def _resolve_bench_scenario(
     args: argparse.Namespace,
@@ -2964,9 +3091,7 @@ _BENCH_SCENARIO_FIELDS = (
     "recipe_context",
     "judged_against_prior_days",
     "judge_input_digest",
-    "photography_context",
-    "image_paths",
-    "photography_input_sources",
+    "effective_photography_inputs",
     "models",
 )
 
@@ -3031,40 +3156,24 @@ def _assert_writable(directory: Path) -> None:
 def _assert_comparable_scenario(baseline: dict[str, Any], report: dict[str, Any]) -> None:
     """Refuse a baseline whose scenario differs from this bench's."""
     mismatches = []
-    photo_fields = {"photography_context", "image_paths", "photography_input_sources"}
-    baseline_sources = baseline.get("photography_input_sources")
-    report_sources = report.get("photography_input_sources")
-    baseline_sources = baseline_sources if isinstance(baseline_sources, dict) else {}
-    report_sources = report_sources if isinstance(report_sources, dict) else {}
-    malformed_photo_source = any(
-        isinstance(source, str) and source.startswith("invalid")
-        for sources in (baseline_sources, report_sources)
-        for source in sources.values()
-    )
     for field in _BENCH_SCENARIO_FIELDS:
-        if field == "photography_input_sources":
-            # Source metadata is recorded for audit, but absent vs present-
-            # empty is not a changed prompt input. Invalid nonempty sources
-            # must remain distinguishable from missing data.
-            if not malformed_photo_source:
-                continue
-            theirs, ours = baseline_sources, report_sources
-        elif field == "photography_context":
-            theirs = baseline.get(field)
-            ours = report.get(field)
-            # The simulator's photography helpers treat {} as no context.
-            if theirs == {}:
-                theirs = None
-            if ours == {}:
-                ours = None
-        elif field == "image_paths":
-            # Old baseline files had no photo fields. Their effective image
-            # input was empty, preserving manual and no-photo comparisons.
-            theirs, ours = baseline.get(field, []), report.get(field, [])
+        if field == "effective_photography_inputs":
+            theirs = _effective_bench_photography_inputs(
+                baseline.get("stage"), baseline.get("concept"),
+                baseline.get("photography_context"),
+            )
+            ours = _effective_bench_photography_inputs(
+                report.get("stage"), report.get("concept"),
+                report.get("photography_context"),
+            )
         else:
             theirs, ours = baseline.get(field), report.get(field)
         if theirs != ours:
-            mismatches.append(f"{field}: {theirs!r} vs {ours!r}")
+            label = (
+                "photography_context effective prompts/tick floor"
+                if field == "effective_photography_inputs" else field
+            )
+            mismatches.append(f"{label}: {theirs!r} vs {ours!r}")
     if mismatches:
         raise ConversationLabError(
             "--compare baseline is not comparable to this bench:\n  "
@@ -3100,6 +3209,9 @@ def cmd_bench(args: argparse.Namespace) -> None:
         "photography_context": photo_inputs["photography_context"],
         "image_paths": photo_inputs["image_paths"],
         "photography_input_sources": photo_inputs["sources"],
+        "effective_photography_inputs": _effective_bench_photography_inputs(
+            args.stage, concept, photo_inputs["photography_context"]
+        ),
         "models": {"mode": mode, "dialogue": default_model, "judge": judge_model},
     }
     if baseline_report is not None and not args.allow_mismatched_baseline:
@@ -3226,6 +3338,15 @@ def cmd_bench(args: argparse.Namespace) -> None:
         interrupted = isinstance(exc, KeyboardInterrupt)
 
     aggregate = _bench_aggregate(runs)
+    if args.dry_run:
+        aggregate["judge_coverage"] = {
+            "attempted_runs": 0,
+            "scored_verdicts": 0,
+            "unjudged_runs": 0,
+            "rate": None,
+            "applicable": False,
+        }
+        aggregate["unjudged_runs"] = 0
     corpus = conversation_metrics.recurring_phrases_across(
         [run["transcript"] for run in runs], n=4, min_transcripts=2
     )
@@ -3263,10 +3384,15 @@ def cmd_bench(args: argparse.Namespace) -> None:
 
     comparison = None
     if baseline_report is not None:
+        baseline_judge = _baseline_judge_summary(baseline_report)
         comparison = {
             "baseline_file": str(args.compare),
             "baseline_label": baseline_report.get("label"),
-            "baseline_pass_rate": (baseline_report.get("aggregate") or {}).get("pass_rate"),
+            "baseline_pass_rate": baseline_judge["pass_rate"],
+            "baseline_pass_count": baseline_judge["pass_count"],
+            "baseline_judge_coverage": baseline_judge["judge_coverage"],
+            "baseline_pass_rate_unavailable_reason": baseline_judge["unavailable_reason"],
+            "current_judge_coverage": aggregate["judge_coverage"],
             "metrics": _bench_delta(aggregate, baseline_report.get("aggregate") or {}),
             "dimensions": _bench_delta(
                 aggregate, baseline_report.get("aggregate") or {}, section="dimensions"
@@ -3307,9 +3433,9 @@ def cmd_bench(args: argparse.Namespace) -> None:
 
 _BENCH_SECTION_HEADING = "## Benchmarks"
 _BENCH_TABLE_HEADER_LINE = (
-    "| Date | Label | Stage | N | Pass rate | Most frequent weakest | Result file |\n"
+    "| Date | Label | Stage | N | Pass rate (scored/ran) | Most frequent weakest | Result file |\n"
 )
-_BENCH_TABLE_SEPARATOR_LINE = "|------|-------|-------|---|-----------|-----------------------|-------------|\n"
+_BENCH_TABLE_SEPARATOR_LINE = "|------|-------|-------|---|----------------------|-----------------------|-------------|\n"
 
 def _insert_in_section(text: str, heading: str, row: str) -> str:
     """Append `row` to the last table row under `heading`.
@@ -3367,12 +3493,19 @@ def _append_bench_log(path: Path, report: dict[str, Any]) -> None:
     weakest = aggregate.get("weakest_counts") or {}
     top_weakest = next(iter(weakest), "-")
     pass_rate = aggregate.get("pass_rate")
+    scored = aggregate.get("scored_verdicts", aggregate.get("judged_runs", 0))
+    ran = report.get("completed_runs", 0)
+    pass_cell = (
+        f"n/a ({scored}/{ran} scored)"
+        if pass_rate is None
+        else f"{pass_rate:.0%} ({scored}/{ran})"
+    )
     row = (
         f"| {datetime.now(timezone.utc).date().isoformat()} "
         f"| {_md_cell(report['label'])} "
         f"| {_md_cell(report['stage'])} "
         f"| {report['completed_runs']} "
-        f"| {'n/a' if pass_rate is None else f'{pass_rate:.0%}'} "
+        f"| {_md_cell(pass_cell)} "
         f"| {_md_cell(top_weakest)} "
         f"| {_md_cell(Path(report['results_file']).name)} |\n"
     )
@@ -3447,8 +3580,21 @@ def _print_bench_report(report: dict[str, Any]) -> None:
     if report["error"]:
         print(f"ERROR after {report['completed_runs']} run(s): {report['error']}")
 
-    if agg["judged_runs"]:
-        print(f"\njudge: {agg['pass_count']}/{agg['judged_runs']} PASS ({agg['pass_rate']:.0%})")
+    coverage = agg.get("judge_coverage") or {}
+    if coverage.get("applicable") is not False and coverage.get("attempted_runs", 0):
+        print(
+            f"\njudge coverage: {coverage.get('scored_verdicts', 0)}/"
+            f"{coverage['attempted_runs']} scored; "
+            f"{coverage.get('unjudged_runs', 0)} unjudged"
+        )
+    if coverage.get("attempted_runs", 0) and not report["dry_run"]:
+        if agg["pass_rate"] is None:
+            print("judge pass rate: unavailable (no complete usable scorecards)")
+        else:
+            print(
+                f"judge: {agg['pass_count']}/{agg['judged_runs']} PASS "
+                f"({agg['pass_rate']:.0%})"
+            )
         print(f"{'dimension':<24}{'mean':>8}{'sd':>7}{'min':>6}{'max':>6}")
         for dim, dist in agg["dimensions"].items():
             if dist.get("no_valid_samples"):
@@ -3481,8 +3627,15 @@ def _print_bench_report(report: dict[str, Any]) -> None:
     if comparison:
         print(f"\n=== vs {comparison['baseline_label']} ({comparison['baseline_file']}) ===")
         base_rate = comparison["baseline_pass_rate"]
-        if base_rate is not None and agg["pass_rate"] is not None:
-            print(f"pass rate: {base_rate:.0%} -> {agg['pass_rate']:.0%}")
+        baseline_rate_text = _pass_rate_label(
+            base_rate,
+            comparison.get("baseline_judge_coverage"),
+            comparison.get("baseline_pass_rate_unavailable_reason"),
+        )
+        current_rate_text = _pass_rate_label(
+            agg.get("pass_rate"), comparison.get("current_judge_coverage")
+        )
+        print(f"pass rate: {baseline_rate_text} -> {current_rate_text}")
         dim_rows = comparison.get("dimensions") or {}
         if dim_rows:
             print(f"\n{'judge dimension':<34}{'baseline':>10}{'now':>10}{'delta':>10}{'z':>8}")
