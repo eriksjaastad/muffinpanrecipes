@@ -8,6 +8,7 @@ never writes character data or remote storage.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import hashlib
 import json
 import re
@@ -19,6 +20,7 @@ from typing import Any
 DEFAULT_BUDGETS = (80, 160, 300)
 WEEK_DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 TOKEN_RE = re.compile(r"\w+|[^\w\s]", re.UNICODE)
+ISO_WEEK_RE = re.compile(r"^(\d{4})-W(\d{2})$")
 
 
 def estimate_tokens(text: str) -> int:
@@ -53,10 +55,23 @@ def _episode_id(episode: dict[str, Any], path: Path) -> str:
     return value.strip()
 
 
+def _iso_week_key(episode_id: str) -> tuple[int, int]:
+    match = ISO_WEEK_RE.fullmatch(episode_id)
+    if not match:
+        raise ValueError(f"episode_id {episode_id!r} must use ISO week format YYYY-Www")
+    year, week = map(int, match.groups())
+    try:
+        monday = dt.date.fromisocalendar(year, week, 1)
+    except ValueError as exc:
+        raise ValueError(f"invalid ISO week episode_id {episode_id!r}") from exc
+    return (monday.year, monday.timetuple().tm_yday)
+
+
 def collect_episode(path: Path, *, allow_partial: bool = False) -> tuple[dict[str, Any], dict[str, list[dict[str, Any]]]]:
     try:
-        episode = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        raw_bytes = path.read_bytes()
+        episode = json.loads(raw_bytes.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError(f"cannot read episode {path}: {exc}") from exc
     if not isinstance(episode, dict):
         raise ValueError(f"{path}: episode JSON must be an object")
@@ -110,6 +125,7 @@ def collect_episode(path: Path, *, allow_partial: bool = False) -> tuple[dict[st
     return {
         "episode_id": episode_id,
         "source_path": str(path),
+        "sha256": hashlib.sha256(raw_bytes).hexdigest(),
         "accepted_messages": accepted,
         "missing_days": missing_days,
     }, observations
@@ -120,15 +136,20 @@ def build_manifest(
 ) -> dict[str, Any]:
     episodes: list[dict[str, Any]] = []
     per_episode: list[tuple[str, dict[str, list[dict[str, Any]]]]] = []
+    week_order: list[tuple[str, tuple[int, int]]] = []
     for path in paths:
         summary, observations = collect_episode(path, allow_partial=allow_partial)
         if any(episode["episode_id"] == summary["episode_id"] for episode in episodes):
             raise ValueError(f"duplicate episode_id {summary['episode_id']!r}; provide three distinct weeks")
+        week_order.append((summary["episode_id"], _iso_week_key(summary["episode_id"])))
         episodes.append({key: value for key, value in summary.items() if key != "accepted_messages"} | {
             "accepted_message_count": len(summary["accepted_messages"]),
             "source_ids": [row["source_id"] for row in summary["accepted_messages"]],
         })
         per_episode.append((summary["episode_id"], observations))
+
+    if [key for _, key in week_order] != sorted(key for _, key in week_order):
+        raise ValueError("episode paths must be in chronological ISO week order")
 
     all_characters = sorted({character for _, observations in per_episode for character in observations})
     characters: dict[str, Any] = {}
@@ -185,6 +206,7 @@ def main(argv: list[str] | None = None) -> int:
         manifest = build_manifest(args.episodes, tuple(args.budgets), allow_partial=args.allow_partial)
         rendered = json.dumps(manifest, indent=2, ensure_ascii=False) + "\n"
         if args.output:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(rendered, encoding="utf-8")
         else:
             sys.stdout.write(rendered)

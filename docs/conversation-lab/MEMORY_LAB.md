@@ -15,7 +15,10 @@ uv run python scripts/memory_lab.py \
 
 Replace the three placeholders with the actual completed episode paths (for
 example, copies of W35, W36, and W37 placed under `.scratch/`). Do not assume
-that every numbered week exists in the episode corpus.
+that every numbered week exists in the episode corpus. Episode IDs must use
+`YYYY-Www` ISO-week form, and the paths must be in chronological order so a
+prior slot cannot point to a later week. The output parent directory is
+created when needed.
 
 Only `stages[day].dialogue` is included when that stage has
 `status: "complete"`. `rejected_dialogues`, rejected or incomplete stages,
@@ -27,7 +30,8 @@ day, turn index, speaker, and message text. A character observes only the
 days on which they speak; on those days, their observations include the full
 accepted group dialogue with `self` and `heard` attribution. This captures
 what colleagues said around them without assigning unseen dialogue or
-pretending every line was addressed directly to them.
+pretending every line was addressed directly to them. The manifest stores a
+SHA-256 hash of each raw episode file to identify the exact source bytes used.
 
 Each character has one empty candidate memory slot for each of the three
 episodes. Each slot contains that week's observations, an empty schema with
