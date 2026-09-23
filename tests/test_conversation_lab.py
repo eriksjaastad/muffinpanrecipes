@@ -2053,6 +2053,36 @@ def test_bench_pass_rate_comes_from_the_production_judge(tmp_path, monkeypatch):
     assert agg["dimensions"]["natural_progression"]["mean"] == 3.0
 
 
+def test_real_production_fail_without_reason_remains_a_scored_verdict(tmp_path, monkeypatch):
+    _patch_bench_generation(monkeypatch, sdw)
+    from backend.admin import cron_routes
+
+    monkeypatch.setattr(cl, "judge_dialogue", cron_routes._judge_dialogue)
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-test-key")
+    monkeypatch.setattr(
+        cron_routes,
+        "generate_judge_response",
+        lambda **_kwargs: json.dumps({
+            "verdict": "FAIL",
+            "scores": _complete_judge_scores(2),
+            "weakest": [],
+            "reason": "",
+        }),
+    )
+
+    cl.cmd_bench(_bench_args(tmp_path, runs=1, label="fail-no-reason"))
+    report = _read_bench(tmp_path, "fail-no-reason")
+    run = report["runs"][0]
+    assert run["judge"]["verdict"].startswith("FAIL | scores:")
+    assert run["judge"]["passed"] is False
+    assert cl._usable_bench_verdict(run)
+    aggregate = report["aggregate"]
+    assert aggregate["scored_verdicts"] == 1
+    assert aggregate["pass_count"] == 0
+    assert aggregate["pass_rate"] == 0.0
+
+
 @pytest.mark.parametrize("failure_mode", ["provider_outage", "unparseable"])
 def test_bench_excludes_real_production_judge_outages_from_pass_rate(
     tmp_path, monkeypatch, capsys, failure_mode,
