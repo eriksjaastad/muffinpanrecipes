@@ -365,6 +365,19 @@ they are ignored.
 With `--from-episode`, the judge sees that episode's earlier days as its
 PREVIOUS DAYS context, frozen and identical for every run - that is what
 makes runs comparable to each other *and* predictive of the live gate.
+For Wednesday, the generation call also receives that episode stage's
+`photography_data` when it is a dict and `image_paths` when it is a list, as
+the Wednesday cron does. Friday receives Wednesday's `photography_data`
+when it is a dict and no image paths, as the Friday cron does. The bench
+freezes these inputs before run one, gives each run fresh copies, and records
+the effective values and input states in the scenario. `--compare` rejects a
+changed photo baseline before generation; absent and present-but-empty values
+remain comparable when they produce the same empty simulator input, while an
+invalid nonempty source remains distinguishable from missing data. Older
+results without photo fields remain usable only when the current effective
+photo inputs are empty. Manual `--recipe-context` benches continue to run
+without photo context.
+
 With `--recipe-context` the stage is judged in isolation, which is cheaper
 to set up and fine for a structural question, but its pass rate will not
 match production's.
