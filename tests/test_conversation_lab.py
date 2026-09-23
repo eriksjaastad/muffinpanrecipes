@@ -21,11 +21,9 @@ import scripts.conversation_lab as cl
 import scripts.simulate_dialogue_week as sdw
 from backend.utils import model_router
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
 
 def _messages(tag: str, count: int = 2) -> list[dict]:
     return [
@@ -34,28 +32,22 @@ def _messages(tag: str, count: int = 2) -> list[dict]:
         for i in range(count)
     ]
 
-
 def _write_variant(tmp_path, payload: dict) -> "cl.Path":
     path = tmp_path / "variant.json"
     path.write_text(json.dumps(payload))
     return path
 
-
 def _fail_urlopen(*_args, **_kwargs):
     raise AssertionError("urlopen must never be called in a test")
-
 
 def _fail_episode_load(*_args, **_kwargs):
     raise AssertionError("episode load was unexpected")
 
-
 def _raise_snapshot_unavailable(*_args, **_kwargs):
     raise RuntimeError("snapshot unavailable")
 
-
 def _fail_generation(*_args, **_kwargs):
     raise AssertionError("generated before load failure")
-
 
 @pytest.fixture(autouse=True)
 def _block_network(monkeypatch, tmp_path):
@@ -71,21 +63,17 @@ def _block_network(monkeypatch, tmp_path):
     monkeypatch.setattr(cl, "DEFAULT_EXPERIMENTS_LOG", tmp_path / "_default_results" / "EXPERIMENTS.md")
     monkeypatch.setattr(cl, "_cost_summary_failure_warned", False)
 
-
 # ---------------------------------------------------------------------------
 # Variant apply/restore mechanism
 # ---------------------------------------------------------------------------
-
 
 def test_apply_variant_refuses_unknown_attribute():
     with pytest.raises(cl.ConversationLabError, match="unknown attribute"):
         cl._apply_variant(sdw, {"_DOES_NOT_EXIST": "x"})
 
-
 def test_apply_variant_refuses_callable_attribute():
     with pytest.raises(cl.ConversationLabError, match="not a string/dict"):
         cl._apply_variant(sdw, {"build_system_prompt": "x"})
-
 
 def test_apply_and_restore_variant_round_trips():
     original = sdw._SHARED_CHARACTER_RULES
@@ -94,7 +82,6 @@ def test_apply_and_restore_variant_round_trips():
     cl._restore_variant(sdw, saved)
     assert sdw._SHARED_CHARACTER_RULES == original
 
-
 def test_apply_variant_clears_prompt_cache():
     sdw._system_prompt_cache["Margaret Chen"] = "stale cached prompt"
     saved = cl._apply_variant(sdw, {"_SHARED_CHARACTER_RULES": "VARIANT TEXT"})
@@ -102,11 +89,9 @@ def test_apply_variant_clears_prompt_cache():
     cl._restore_variant(sdw, saved)
     assert "Margaret Chen" not in sdw._system_prompt_cache
 
-
 # ---------------------------------------------------------------------------
 # ab: pairing, variant-arm-only patching, restore-on-error
 # ---------------------------------------------------------------------------
-
 
 def test_ab_pairs_control_then_variant_per_run_and_restores_after_each(tmp_path, monkeypatch):
     original_rules = sdw._SHARED_CHARACTER_RULES
@@ -135,7 +120,6 @@ def test_ab_pairs_control_then_variant_per_run_and_restores_after_each(tmp_path,
     # The module is left exactly as it started.
     assert sdw._SHARED_CHARACTER_RULES == original_rules
 
-
 def test_ab_restores_variant_even_when_variant_arm_raises(tmp_path, monkeypatch):
     original_rules = sdw._SHARED_CHARACTER_RULES
     call_count = {"n": 0}
@@ -158,11 +142,9 @@ def test_ab_restores_variant_even_when_variant_arm_raises(tmp_path, monkeypatch)
 
     assert sdw._SHARED_CHARACTER_RULES == original_rules
 
-
 # ---------------------------------------------------------------------------
 # ab: --dry-run makes zero judge calls
 # ---------------------------------------------------------------------------
-
 
 def test_ab_dry_run_never_calls_the_judge(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
@@ -189,11 +171,9 @@ def test_ab_dry_run_never_calls_the_judge(tmp_path, monkeypatch):
         assert pair["judge"]["overall"] == "tie"
         assert all(pair["judge"][d] == "tie" for d in cl.JUDGE_DIMENSIONS)
 
-
 # ---------------------------------------------------------------------------
 # ab: swapped-position agreement rule
 # ---------------------------------------------------------------------------
-
 
 def test_ab_pairwise_judge_agreement_counts_as_win(tmp_path, monkeypatch):
     """A judge that correctly identifies the variant regardless of A/B
@@ -231,7 +211,6 @@ def test_ab_pairwise_judge_agreement_counts_as_win(tmp_path, monkeypatch):
     assert report["per_dimension_counts"]["turn_taking"] == {"variant": 1}
     assert report["target_win_rate"] == 1.0
 
-
 def test_ab_pairwise_judge_disagreement_results_in_tie(tmp_path, monkeypatch):
     """A positionally-biased judge that always picks "A" regardless of
     content disagrees between the two swapped orientations, so the
@@ -263,18 +242,15 @@ def test_ab_pairwise_judge_disagreement_results_in_tie(tmp_path, monkeypatch):
     assert report["overall_counts"] == {"tie": 1}
     assert all(counts == {"tie": 1} for counts in report["per_dimension_counts"].values())
 
-
 def _make_fake_run_simulation():
     def fake_run_simulation(*, concept, default_model, run_index, stage_only, mode, recipe_context, **kwargs):
         tag = "VARIANT_TAG" if sdw._SHARED_CHARACTER_RULES == "VARIANT_RULES" else "CONTROL_TAG"
         return {"messages": _messages(tag)}
     return fake_run_simulation
 
-
 # ---------------------------------------------------------------------------
 # ab: --max-calls abort writes a partial, aborted result
 # ---------------------------------------------------------------------------
-
 
 def test_ab_aborts_before_exceeding_max_calls(tmp_path, monkeypatch):
     # Each arm returns a 2-message transcript -> 2 calls; a pair costs 4.
@@ -297,11 +273,9 @@ def test_ab_aborts_before_exceeding_max_calls(tmp_path, monkeypatch):
     assert report["requested_runs"] == 2
     assert report["calls_used"] == 4
 
-
 # ---------------------------------------------------------------------------
 # ab: results file schema
 # ---------------------------------------------------------------------------
-
 
 def test_ab_results_file_has_expected_schema(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
@@ -326,11 +300,9 @@ def test_ab_results_file_has_expected_schema(tmp_path, monkeypatch):
         assert key in report, f"missing results key: {key}"
     assert report["command"] == "ab"
 
-
 # ---------------------------------------------------------------------------
 # ab: EXPERIMENTS.md append + --no-log
 # ---------------------------------------------------------------------------
-
 
 def test_ab_appends_experiments_row_with_header_on_first_write(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
@@ -347,7 +319,6 @@ def test_ab_appends_experiments_row_with_header_on_first_write(tmp_path, monkeyp
     text = log_path.read_text()
     assert text.count("| Date | Experiment ID |") == 1
     assert text.count("\n") >= 3  # title + header + separator + >=1 row
-
 
 def test_ab_experiments_log_is_independent_of_results_dir(tmp_path, monkeypatch):
     """--results-dir must never be used to derive the log path (#6492
@@ -367,7 +338,6 @@ def test_ab_experiments_log_is_independent_of_results_dir(tmp_path, monkeypatch)
     assert log_path.exists()
     assert not (results_dir.parent / "EXPERIMENTS.md").exists()
 
-
 def test_ab_no_log_does_not_touch_experiments_file(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
@@ -380,7 +350,6 @@ def test_ab_no_log_does_not_touch_experiments_file(tmp_path, monkeypatch):
     ])
 
     assert not (tmp_path / "lab" / "EXPERIMENTS.md").exists()
-
 
 def test_ab_without_experiments_log_or_no_log_never_touches_tracked_file(tmp_path, monkeypatch):
     """Regression guard for the bug this slice fixes: prior to redirecting
@@ -405,7 +374,6 @@ def test_ab_without_experiments_log_or_no_log_never_touches_tracked_file(tmp_pat
 
     after = real_log.read_bytes()
     assert after == before
-
 
 def test_append_experiments_row_inserts_into_table_not_after_later_sections(tmp_path, monkeypatch):
     """finding (2): _append_experiments_row used to append unconditionally
@@ -440,7 +408,6 @@ def test_append_experiments_row_inserts_into_table_not_after_later_sections(tmp_
     heat_map_idx = text.index("## Heat map baseline")
     row_idx = text.index("| _SHARED_CHARACTER_RULES |")
     assert experiments_idx < row_idx < heat_map_idx
-
 
 def test_append_experiments_row_finds_table_after_prose_paragraph(tmp_path, monkeypatch):
     """slice-3 review (high): the real docs/conversation-lab/EXPERIMENTS.md has a
@@ -479,7 +446,6 @@ def test_append_experiments_row_finds_table_after_prose_paragraph(tmp_path, monk
     assert text.index("| 20") < text.index("## Heat map baseline")
     assert "Do not hand-edit rows." in text
 
-
 def test_ab_tolerates_and_appends_to_an_existing_experiments_file(tmp_path, monkeypatch):
     """Simulates another implementer's already-authored EXPERIMENTS.md:
     the tool must not rewrite its header, only append."""
@@ -503,11 +469,9 @@ def test_ab_tolerates_and_appends_to_an_existing_experiments_file(tmp_path, monk
     assert "| Test Muffins |" not in text  # concept isn't a column; sanity the row format
     assert text.count("\n") > existing.count("\n")  # a row was appended
 
-
 # ---------------------------------------------------------------------------
 # ab: model resolution fails loud without --dry-run
 # ---------------------------------------------------------------------------
-
 
 def test_ab_without_dry_run_fails_loud_when_dialogue_model_unset(tmp_path, monkeypatch):
     monkeypatch.delenv("DIALOGUE_MODEL", raising=False)
@@ -520,11 +484,9 @@ def test_ab_without_dry_run_fails_loud_when_dialogue_model_unset(tmp_path, monke
             "--results-dir", str(tmp_path / "results"),
         ])
 
-
 # ---------------------------------------------------------------------------
 # baseline
 # ---------------------------------------------------------------------------
-
 
 def test_baseline_local_reads_real_episode_and_writes_results(tmp_path):
     results_dir = tmp_path / "results"
@@ -540,7 +502,6 @@ def test_baseline_local_reads_real_episode_and_writes_results(tmp_path):
     assert monday["summary"]["message_count"] == monday["message_count"]
     assert "judge" in monday
 
-
 def test_load_episode_falls_back_to_local_on_cdn_failure(monkeypatch, capsys):
     def raising_urlopen(*_args, **_kwargs):
         raise urllib.error.URLError("no network in test sandbox")
@@ -549,7 +510,6 @@ def test_load_episode_falls_back_to_local_on_cdn_failure(monkeypatch, capsys):
     episode = cl._load_episode("2026-W36", local=False)
     assert episode["_lab_source"] == "local"
     assert "STALE MIRROR" in capsys.readouterr().err
-
 
 def test_load_episode_cdn_success_path_is_monkeypatched(monkeypatch):
     payload = json.dumps({"concept": "From CDN", "stages": {}}).encode("utf-8")
@@ -569,11 +529,9 @@ def test_load_episode_cdn_success_path_is_monkeypatched(monkeypatch):
     assert episode["_lab_source"] == "cdn"
     assert episode["concept"] == "From CDN"
 
-
 # ---------------------------------------------------------------------------
 # calibrate
 # ---------------------------------------------------------------------------
-
 
 def test_calibrate_degradations_are_deterministic_for_a_seed():
     dialogue = [
@@ -595,7 +553,6 @@ def test_calibrate_degradations_are_deterministic_for_a_seed():
     ]
     assert [m["message"] for m in rotated_a] == [m["message"] for m in dialogue]
 
-
 def test_calibrate_dry_run_makes_zero_judge_calls_and_writes_results(tmp_path, monkeypatch):
     def fail_judge(**kwargs):
         raise AssertionError("generate_judge_response must not be called in --dry-run")
@@ -615,7 +572,6 @@ def test_calibrate_dry_run_makes_zero_judge_calls_and_writes_results(tmp_path, m
     for info in report["degradations"].values():
         assert info["attempted"] == 2
 
-
 def _snapshot_episode() -> dict:
     recipe = {
         "title": "Snapshot Spiral Bites",
@@ -633,14 +589,12 @@ def _snapshot_episode() -> dict:
         },
     }
 
-
 def _judge_stub() -> str:
     return json.dumps({
         "winner": "tie",
         "per_dimension": {d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS},
         "reason": "stub",
     })
-
 
 def test_ab_uses_one_episode_snapshot_for_anchor_and_every_judge_orientation(tmp_path, monkeypatch):
     """The generator and both judge orientations must see one recipe revision."""
@@ -699,7 +653,6 @@ def test_ab_uses_one_episode_snapshot_for_anchor_and_every_judge_orientation(tmp
     assert len({p.split("RECIPE GROUND TRUTH", 1)[1].split("Expected cast", 1)[0] for p in prompts}) == 1
     assert all("Stir the Tuesday batter." in p for p in prompts)
 
-
 def test_calibrate_uses_one_snapshot_and_monday_fallback_for_all_judges(tmp_path, monkeypatch):
     episode = _snapshot_episode()
     load_count = {"n": 0}
@@ -725,7 +678,6 @@ def test_calibrate_uses_one_snapshot_and_monday_fallback_for_all_judges(tmp_path
     assert len({p.split("RECIPE GROUND TRUTH", 1)[1].split("Expected cast", 1)[0] for p in prompts}) == 1
     assert all("This week's recipe: Snapshot Spiral Bites" in p for p in prompts)
     assert all("Roll the dough into a log." in p for p in prompts)
-
 
 def test_manual_recipe_context_does_not_load_or_supply_facts(tmp_path, monkeypatch):
     anchors: list[str | None] = []
@@ -764,7 +716,6 @@ def test_manual_recipe_context_does_not_load_or_supply_facts(tmp_path, monkeypat
         orientations.append(("CONTROL generated" in transcript_a, "CONTROL generated" in transcript_b))
     assert orientations == [(True, False), (False, True)]
 
-
 def test_episode_load_failure_propagates_before_generation(tmp_path, monkeypatch):
     monkeypatch.setenv("DIALOGUE_MODEL", "test-dialogue")
     monkeypatch.setenv("JUDGE_MODEL", "test-judge")
@@ -779,12 +730,10 @@ def test_episode_load_failure_propagates_before_generation(tmp_path, monkeypatch
             "--no-log", "--results-dir", str(tmp_path / "results"),
         ])
 
-
 # ---------------------------------------------------------------------------
 # JUDGE_MODEL fails loud (never backend.config.config.judge_model's silent
 # sonnet default) - finding (a)
 # ---------------------------------------------------------------------------
-
 
 def test_ab_without_dry_run_fails_loud_when_judge_model_unset(tmp_path, monkeypatch):
     monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
@@ -798,7 +747,6 @@ def test_ab_without_dry_run_fails_loud_when_judge_model_unset(tmp_path, monkeypa
             "--results-dir", str(tmp_path / "results"),
         ])
 
-
 def test_calibrate_without_dry_run_fails_loud_when_judge_model_unset(tmp_path, monkeypatch):
     monkeypatch.delenv("JUDGE_MODEL", raising=False)
 
@@ -808,13 +756,11 @@ def test_calibrate_without_dry_run_fails_loud_when_judge_model_unset(tmp_path, m
             "--results-dir", str(tmp_path / "results"),
         ])
 
-
 # ---------------------------------------------------------------------------
 # Placeholder-concept fallback - finding (b). 2026-W32/W27/W33/W11 are real
 # local mirrors whose top-level `concept` is still the placeholder even
 # though the baker already picked a real dish name.
 # ---------------------------------------------------------------------------
-
 
 def test_baseline_reports_real_title_not_placeholder_concept(tmp_path):
     results_dir = tmp_path / "results"
@@ -823,7 +769,6 @@ def test_baseline_reports_real_title_not_placeholder_concept(tmp_path):
     report = json.loads((results_dir / "2026-W32-baseline.json").read_text())
     assert report["concept"] != cl.PLACEHOLDER_CONCEPT
     assert report["concept"] == "Miso Ginger Donburi Cups"
-
 
 def test_calibrate_judge_prompt_never_contains_placeholder_concept(tmp_path, monkeypatch):
     captured_prompts: list[str] = []
@@ -847,7 +792,6 @@ def test_calibrate_judge_prompt_never_contains_placeholder_concept(tmp_path, mon
     assert captured_prompts, "the judge should have been called"
     for prompt in captured_prompts:
         assert cl.PLACEHOLDER_CONCEPT not in prompt
-
 
 def test_calibrate_falls_back_to_monday_recipe_data_for_recipe_context(tmp_path, monkeypatch):
     """2026-W32's tuesday stage carries dialogue but no recipe_data of its
@@ -874,12 +818,10 @@ def test_calibrate_falls_back_to_monday_recipe_data_for_recipe_context(tmp_path,
     assert captured_prompts, "the judge should have been called"
     assert "This week's recipe:" in captured_prompts[0]
 
-
 # ---------------------------------------------------------------------------
 # _judge_info_for_stage treats an empty stage-level dict as missing -
 # finding (g)
 # ---------------------------------------------------------------------------
-
 
 def test_judge_info_for_stage_treats_empty_stage_dict_as_missing():
     episode = {
@@ -895,12 +837,10 @@ def test_judge_info_for_stage_treats_empty_stage_dict_as_missing():
     assert info["weakest"] == ["voice_distinctiveness"]
     assert info["reason"] == "ok"
 
-
 # ---------------------------------------------------------------------------
 # _judge_orientation normalises case/whitespace and rejects garbage verdicts
 # instead of silently mapping them to "tie" - finding (e)
 # ---------------------------------------------------------------------------
-
 
 def test_normalize_verdict_value_accepts_case_and_whitespace_variants():
     assert cl._normalize_verdict_value(" a ", field="winner") == "A"
@@ -908,20 +848,17 @@ def test_normalize_verdict_value_accepts_case_and_whitespace_variants():
     assert cl._normalize_verdict_value("Tie", field="winner") == "tie"
     assert cl._normalize_verdict_value(" TIE", field="winner") == "tie"
 
-
 def test_normalize_verdict_value_raises_on_garbage():
     with pytest.raises(cl.ConversationLabError, match="invalid winner verdict"):
         cl._normalize_verdict_value("C", field="winner")
     with pytest.raises(cl.ConversationLabError, match=r"invalid per_dimension\.turn_taking verdict"):
         cl._normalize_verdict_value("unsure", field="per_dimension.turn_taking")
 
-
 # ---------------------------------------------------------------------------
 # Any exception mid-run writes a partial, error-flagged result before
 # re-raising - finding (d). Also exercises finding (e): an invalid judge
 # verdict is what triggers the exception here.
 # ---------------------------------------------------------------------------
-
 
 def test_ab_writes_partial_result_on_exception_mid_run(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
@@ -964,7 +901,6 @@ def test_ab_writes_partial_result_on_exception_mid_run(tmp_path, monkeypatch):
     assert "invalid winner verdict" in report["error"]
     assert report["completed_pairs"] == 1  # pair 1 survives; pair 2 never finished
 
-
 def test_calibrate_writes_partial_result_on_exception_mid_run(tmp_path, monkeypatch):
     monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
     call_count = {"n": 0}
@@ -1001,12 +937,10 @@ def test_calibrate_writes_partial_result_on_exception_mid_run(tmp_path, monkeypa
     # but only 1 pair actually finished and was recorded.
     assert len(report["degradations"]["shuffled_order"]["pairs"]) == 1
 
-
 # ---------------------------------------------------------------------------
 # --max-calls estimates the next generation's cost from the last observed
 # control/variant call count, not a flat 1 - finding (f)
 # ---------------------------------------------------------------------------
-
 
 def test_ab_max_calls_estimate_prevents_a_second_pair_from_starting(tmp_path, monkeypatch):
     """Each arm returns a 5-message transcript (5 calls via the message-
@@ -1031,18 +965,15 @@ def test_ab_max_calls_estimate_prevents_a_second_pair_from_starting(tmp_path, mo
     assert report["completed_pairs"] == 1
     assert report["calls_used"] == 10  # no overshoot into pair 2 at all
 
-
 # ---------------------------------------------------------------------------
 # --max-cost aborts once total_cost has already reached the cap - finding
 # (h)
 # ---------------------------------------------------------------------------
 
-
 def test_would_exceed_cost_true_once_at_or_over_cap(monkeypatch):
     monkeypatch.setattr(model_router, "get_cost_summary", lambda: {"total_cost": 5.0})
     assert cl._would_exceed_cost(5.0) is True
     assert cl._would_exceed_cost(5.01) is False
-
 
 def test_would_exceed_cost_fails_open_on_a_read_error(monkeypatch):
     def raising_get_cost_summary():
@@ -1050,7 +981,6 @@ def test_would_exceed_cost_fails_open_on_a_read_error(monkeypatch):
 
     monkeypatch.setattr(model_router, "get_cost_summary", raising_get_cost_summary)
     assert cl._would_exceed_cost(1.0) is False
-
 
 def test_would_exceed_cost_respects_a_per_variant_baseline(monkeypatch):
     """ab --sweep's per-variant cap: (total - baseline) >= max_cost, not
@@ -1060,7 +990,6 @@ def test_would_exceed_cost_respects_a_per_variant_baseline(monkeypatch):
     assert cl._would_exceed_cost(5.0) is True  # absolute cap: 9 >= 5
     assert cl._would_exceed_cost(5.0, baseline=6.0) is False  # delta: 9-6=3 < 5
     assert cl._would_exceed_cost(5.0, baseline=3.0) is True  # delta: 9-3=6 >= 5
-
 
 def test_would_exceed_cost_warns_once_on_stderr_on_first_failure(monkeypatch, capsys):
     def raising_get_cost_summary():
@@ -1076,7 +1005,6 @@ def test_would_exceed_cost_warns_once_on_stderr_on_first_failure(monkeypatch, ca
     assert cl._would_exceed_cost(1.0) is False
     second_err = capsys.readouterr().err
     assert second_err == ""
-
 
 def test_ab_aborts_when_cost_cap_already_reached(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
@@ -1096,7 +1024,6 @@ def test_ab_aborts_when_cost_cap_already_reached(tmp_path, monkeypatch):
     assert report["completed_pairs"] == 0
     assert report["max_cost"] == 5.0
 
-
 def test_ab_default_max_cost_is_five_dollars(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
@@ -1112,11 +1039,9 @@ def test_ab_default_max_cost_is_five_dollars(tmp_path, monkeypatch):
     report = json.loads(result_file.read_text())
     assert report["max_cost"] == 5.00
 
-
 # ---------------------------------------------------------------------------
 # --max-calls is DERIVED per mode when omitted - finding (3)
 # ---------------------------------------------------------------------------
-
 
 def test_max_turns_for_stage_floors_at_ten():
     # monday's TICKS_RANGE upper bound is already 10.
@@ -1125,7 +1050,6 @@ def test_max_turns_for_stage_floors_at_ten():
     assert cl._max_turns_for_stage("thursday") == 10
     # An unknown stage falls back to (4, 6) - still floored to 10.
     assert cl._max_turns_for_stage("not-a-real-day") == 10
-
 
 def test_ab_single_concept_default_max_calls_is_120(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
@@ -1141,7 +1065,6 @@ def test_ab_single_concept_default_max_calls_is_120(tmp_path, monkeypatch):
     [result_file] = list(results_dir.glob("*-ab-*.json"))
     report = json.loads(result_file.read_text())
     assert report["max_calls"] == 120
-
 
 def test_ab_testbed_default_max_calls_is_derived_from_panel_size_and_runs(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
@@ -1166,7 +1089,6 @@ def test_ab_testbed_default_max_calls_is_derived_from_panel_size_and_runs(tmp_pa
     assert report["max_calls_derived"] is True
     assert report["panel_size"] == 2
 
-
 def test_ab_testbed_explicit_max_calls_is_not_rederived(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
     testbed_path = _write_testbed(tmp_path, [
@@ -1186,12 +1108,10 @@ def test_ab_testbed_explicit_max_calls_is_not_rederived(tmp_path, monkeypatch):
     assert report["max_calls"] == 4
     assert report["max_calls_derived"] is False
 
-
 # ---------------------------------------------------------------------------
 # calibrate --dry-run reports "DRY RUN - no signal", never GRADER OK/SUSPECT
 # - finding (4)
 # ---------------------------------------------------------------------------
-
 
 def test_calibrate_dry_run_verdict_is_dry_run_not_grader(tmp_path):
     results_dir = tmp_path / "results"
@@ -1206,11 +1126,9 @@ def test_calibrate_dry_run_verdict_is_dry_run_not_grader(tmp_path):
         assert info["verdict"] == "DRY RUN - no signal"
         assert "GRADER" not in info["verdict"]
 
-
 # ---------------------------------------------------------------------------
 # ab --concept/--runs are required unless --testbed is passed
 # ---------------------------------------------------------------------------
-
 
 def test_ab_requires_concept_without_testbed(tmp_path):
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "V"})
@@ -1220,7 +1138,6 @@ def test_ab_requires_concept_without_testbed(tmp_path):
             "--recipe-context", "anchor", "--dry-run", "--results-dir", str(tmp_path / "results"),
         ])
 
-
 def test_ab_requires_runs_without_testbed(tmp_path):
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "V"})
     with pytest.raises(SystemExit, match="--runs is required"):
@@ -1229,14 +1146,12 @@ def test_ab_requires_runs_without_testbed(tmp_path):
             "--recipe-context", "anchor", "--dry-run", "--results-dir", str(tmp_path / "results"),
         ])
 
-
 def test_ab_requires_variant_or_sweep(tmp_path):
     with pytest.raises(SystemExit, match="--variant is required unless --sweep"):
         cl.main([
             "ab", "--concept", "X", "--stage", "monday", "--runs", "1",
             "--recipe-context", "anchor", "--dry-run", "--results-dir", str(tmp_path / "results"),
         ])
-
 
 def test_ab_variant_and_sweep_are_mutually_exclusive(tmp_path):
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "V"})
@@ -1248,17 +1163,14 @@ def test_ab_variant_and_sweep_are_mutually_exclusive(tmp_path):
             "--dry-run", "--results-dir", str(tmp_path / "results"),
         ])
 
-
 # ---------------------------------------------------------------------------
 # ab --testbed - finding (i)
 # ---------------------------------------------------------------------------
-
 
 def _write_testbed(tmp_path, scenarios: list[dict]) -> "cl.Path":
     path = tmp_path / "testbed.json"
     path.write_text(json.dumps({"scenarios": scenarios}))
     return path
-
 
 def test_ab_testbed_runs_every_scenario_and_aggregates(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", _make_fake_run_simulation())
@@ -1304,7 +1216,6 @@ def test_ab_testbed_runs_every_scenario_and_aggregates(tmp_path, monkeypatch):
         assert scenario["completed_pairs"] == 2
         assert scenario["target_win_rate"] == 1.0
 
-
 def test_ab_testbed_default_runs_is_three(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
     testbed_path = _write_testbed(tmp_path, [
@@ -1323,7 +1234,6 @@ def test_ab_testbed_default_runs_is_three(tmp_path, monkeypatch):
     assert report["runs_per_scenario"] == 3
     assert report["completed_pairs"] == 3
 
-
 def test_ab_testbed_forbids_concept_and_recipe_context(tmp_path):
     testbed_path = _write_testbed(tmp_path, [{"id": "s1", "concept": "C", "recipe_context": "r"}])
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "V"})
@@ -1335,7 +1245,6 @@ def test_ab_testbed_forbids_concept_and_recipe_context(tmp_path):
             "--results-dir", str(tmp_path / "results"),
         ])
 
-
 def test_ab_testbed_missing_file_exits(tmp_path):
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "V"})
     with pytest.raises(SystemExit, match="testbed file not found"):
@@ -1344,7 +1253,6 @@ def test_ab_testbed_missing_file_exits(tmp_path):
             "--testbed", str(tmp_path / "does-not-exist.json"), "--dry-run",
             "--results-dir", str(tmp_path / "results"),
         ])
-
 
 def test_ab_testbed_writes_partial_result_on_exception_in_a_later_scenario(tmp_path, monkeypatch):
     """finding (d) in the --testbed loop specifically: scenario 1 must
@@ -1395,7 +1303,6 @@ def test_ab_testbed_writes_partial_result_on_exception_in_a_later_scenario(tmp_p
     assert {s["id"] for s in report["scenarios"]} == {"s1", "s2"}
     assert report["scenarios"][1]["completed_pairs"] == 0  # s2 never finished a pair
 
-
 def test_legacy_v1_testbed_still_has_its_five_scenarios():
     """v1 is kept so pre-2026-09-15 results stay interpretable (#7201)."""
     scenarios = cl._load_testbed(cl.LEGACY_TESTBED_PATH)
@@ -1404,7 +1311,6 @@ def test_legacy_v1_testbed_still_has_its_five_scenarios():
     for scenario in scenarios:
         assert cl.PLACEHOLDER_CONCEPT not in scenario["concept"]
         assert scenario["recipe_context"]
-
 
 def test_default_testbed_is_v2_with_real_titles():
     scenarios = cl._load_testbed(cl.DEFAULT_TESTBED_PATH)
@@ -1416,11 +1322,9 @@ def test_default_testbed_is_v2_with_real_titles():
         assert cl.PLACEHOLDER_CONCEPT not in scenario["concept"]
         assert scenario["recipe_context"]
 
-
 # ---------------------------------------------------------------------------
 # Lab-only judge dimensions - finding (j)
 # ---------------------------------------------------------------------------
-
 
 def test_ab_target_accepts_a_lab_only_dimension(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
@@ -1439,24 +1343,20 @@ def test_ab_target_accepts_a_lab_only_dimension(tmp_path, monkeypatch):
     assert "emotional_range" in report["per_dimension_counts"]
     assert "register_naturalness" in report["per_dimension_counts"]
 
-
 def test_pairwise_judge_prompt_mentions_lab_only_dimensions():
     assert "emotional_range" in cl.PAIRWISE_JUDGE_SYSTEM_PROMPT
     assert "register_naturalness" in cl.PAIRWISE_JUDGE_SYSTEM_PROMPT
     assert set(cl.LAB_ONLY_JUDGE_DIMENSIONS) <= set(cl.ALL_JUDGE_DIMENSIONS)
     assert set(cl.JUDGE_DIMENSIONS) & set(cl.LAB_ONLY_JUDGE_DIMENSIONS) == set()
 
-
 # ---------------------------------------------------------------------------
 # `pairs`: blind human read + agreement scoring - finding (k)
 # ---------------------------------------------------------------------------
-
 
 def test_blind_order_is_deterministic_and_only_two_shapes():
     assert cl._blind_order(3) == cl._blind_order(3)
     orders = {cl._blind_order(i) for i in range(20)}
     assert orders <= {("control", "variant"), ("variant", "control")}
-
 
 def test_pairs_show_prints_unlabeled_transcripts(tmp_path, capsys):
     result_path = tmp_path / "result.json"
@@ -1473,7 +1373,6 @@ def test_pairs_show_prints_unlabeled_transcripts(tmp_path, capsys):
     assert "Pair 1" in out
     assert "--- A ---" in out
     assert "--- B ---" in out
-
 
 def test_pairs_pick_records_and_computes_agreement(tmp_path):
     result_path = tmp_path / "result.json"
@@ -1500,7 +1399,6 @@ def test_pairs_pick_records_and_computes_agreement(tmp_path):
     assert report["human_judge_agreement_rate"] == round(agreements / compared, 4)
     assert report["human_judge_agreed_count"] + report["human_judge_disagreed_count"] == compared
     assert report["human_judge_tie_count"] == 0
-
 
 def test_pairs_pick_agreement_rate_excludes_judge_ties(tmp_path):
     """finding (6): a judge "tie" carries no direction to agree or
@@ -1539,7 +1437,6 @@ def test_pairs_pick_agreement_rate_excludes_judge_ties(tmp_path):
     assert report["human_judge_agreed_count"] + report["human_judge_disagreed_count"] == 2
     assert report["human_judge_agreement_rate"] == round(expected_agreed / 2, 4)
 
-
 def test_pairs_pick_rejects_bad_spec(tmp_path):
     result_path = tmp_path / "result.json"
     result_path.write_text(json.dumps({
@@ -1547,7 +1444,6 @@ def test_pairs_pick_rejects_bad_spec(tmp_path):
     }))
     with pytest.raises(SystemExit, match="bad --pick"):
         cl.main(["pairs", "--from", str(result_path), "--pick", "garbage"])
-
 
 def test_pairs_pick_rejects_unknown_run_index(tmp_path):
     result_path = tmp_path / "result.json"
@@ -1557,7 +1453,6 @@ def test_pairs_pick_rejects_unknown_run_index(tmp_path):
     with pytest.raises(SystemExit, match="unknown pair position"):
         cl.main(["pairs", "--from", str(result_path), "--pick", "99:A"])
 
-
 def test_pairs_requires_show_or_pick(tmp_path):
     result_path = tmp_path / "result.json"
     result_path.write_text(json.dumps({
@@ -1565,7 +1460,6 @@ def test_pairs_requires_show_or_pick(tmp_path):
     }))
     with pytest.raises(SystemExit, match="pass --show, --pick"):
         cl.main(["pairs", "--from", str(result_path)])
-
 
 def test_ab_result_stores_both_transcripts_per_pair(tmp_path, monkeypatch):
     """`pairs` needs the raw messages, not just the summaries - finding
@@ -1585,7 +1479,6 @@ def test_ab_result_stores_both_transcripts_per_pair(tmp_path, monkeypatch):
     pair = report["pairs"][0]
     assert pair["control_messages"]
     assert pair["variant_messages"]
-
 
 def test_pairs_addresses_by_position_not_run_index_in_a_testbed_result(tmp_path, monkeypatch):
     """A --testbed result's `pairs` list has every scenario's run_index
@@ -1619,12 +1512,10 @@ def test_pairs_addresses_by_position_not_run_index_in_a_testbed_result(tmp_path,
     assert set(updated["human_picks"].keys()) == {"1", "2"}
     assert updated["human_judge_agreement_rate"] is not None
 
-
 # ---------------------------------------------------------------------------
 # Metric-delta section stays generic over whatever summarize() returns -
 # finding (l), already true in slice 1's implementation; confirmed here.
 # ---------------------------------------------------------------------------
-
 
 def test_metric_deltas_are_generic_over_every_numeric_summary_key(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
@@ -1644,11 +1535,9 @@ def test_metric_deltas_are_generic_over_every_numeric_summary_key(tmp_path, monk
     assert expected_keys  # summarize() returns at least one numeric key
     assert set(report["metric_deltas"].keys()) == set(expected_keys)
 
-
 # ---------------------------------------------------------------------------
 # ab --sweep: one shared control, many variants ranked against it - NEW (7)
 # ---------------------------------------------------------------------------
-
 
 def test_ab_sweep_generates_control_exactly_once_per_scenario_run(tmp_path, monkeypatch):
     """The whole point of --sweep: the control transcript for a given
@@ -1688,7 +1577,6 @@ def test_ab_sweep_generates_control_exactly_once_per_scenario_run(tmp_path, monk
     [result_file] = list(results_dir.glob("*-ab-sweep-*.json"))
     report = json.loads(result_file.read_text())
     assert report["control_transcripts_generated"] == 2
-
 
 def test_ab_sweep_ranks_three_variants_and_result_schema(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", _make_fake_run_simulation())
@@ -1749,7 +1637,6 @@ def test_ab_sweep_ranks_three_variants_and_result_schema(tmp_path, monkeypatch):
         assert variant_report["pairs"][0]["control_messages"]
         assert variant_report["pairs"][0]["variant_messages"]
 
-
 def test_ab_sweep_per_variant_cost_cap_abort_writes_partial(tmp_path, monkeypatch):
     """Erik's --max-cost cap is PER VARIANT: a variant's own spend is
     measured relative to the total observed when IT started, not from
@@ -1796,7 +1683,6 @@ def test_ab_sweep_per_variant_cost_cap_abort_writes_partial(tmp_path, monkeypatc
     assert variant_report["aborted"] is True
     assert variant_report["completed_pairs"] == 1  # only the first scenario finished
 
-
 def test_ab_sweep_dry_run_makes_zero_judge_calls(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
 
@@ -1827,14 +1713,12 @@ def test_ab_sweep_dry_run_makes_zero_judge_calls(tmp_path, monkeypatch):
         for pair in variant_report["pairs"]:
             assert pair["judge"]["overall"] == "tie"
 
-
 def test_ab_sweep_missing_directory_exits(tmp_path):
     with pytest.raises(SystemExit, match="--sweep directory not found"):
         cl.main([
             "ab", "--sweep", str(tmp_path / "does-not-exist"), "--stage", "monday",
             "--runs", "1", "--dry-run", "--results-dir", str(tmp_path / "results"),
         ])
-
 
 def test_ab_sweep_empty_directory_exits(tmp_path):
     sweep_dir = tmp_path / "sweep"
@@ -1845,7 +1729,6 @@ def test_ab_sweep_empty_directory_exits(tmp_path):
             "--runs", "1", "--dry-run", "--results-dir", str(tmp_path / "results"),
         ])
 
-
 def test_ab_sweep_forbids_concept(tmp_path):
     sweep_dir = tmp_path / "sweep"
     sweep_dir.mkdir()
@@ -1855,7 +1738,6 @@ def test_ab_sweep_forbids_concept(tmp_path):
             "ab", "--sweep", str(sweep_dir), "--stage", "monday", "--concept", "Not Allowed",
             "--runs", "1", "--dry-run", "--results-dir", str(tmp_path / "results"),
         ])
-
 
 def test_pairs_from_sweep_result_requires_variant_name(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
@@ -1878,7 +1760,6 @@ def test_pairs_from_sweep_result_requires_variant_name(tmp_path, monkeypatch):
     updated = json.loads(result_file.read_text())
     assert updated["variants"]["only"]["human_picks"]["1"] in ("control", "variant")
 
-
 # --- validation must precede any paid generation (Codex audit) -----------------
 
 def test_validate_variant_rejects_a_partial_history_depth():
@@ -1887,12 +1768,10 @@ def test_validate_variant_rejects_a_partial_history_depth():
         cl.validate_variant(sdw, {"HISTORY_DEPTH": {"early": (8, 4)}})
     assert "late" in str(exc.value)
 
-
 def test_validate_variant_rejects_booleans_as_depths():
     """bool is a subclass of int in Python; True is not a history depth."""
     with pytest.raises(cl.ConversationLabError):
         cl.validate_variant(sdw, {"HISTORY_DEPTH": {"early": (True, 4), "late": (8, 4)}})
-
 
 @pytest.mark.parametrize(
     "bad",
@@ -1908,10 +1787,8 @@ def test_validate_variant_rejects_malformed_shapes(bad):
     with pytest.raises(cl.ConversationLabError):
         cl.validate_variant(sdw, {"HISTORY_DEPTH": bad})
 
-
 def test_validate_variant_accepts_a_well_formed_override():
     cl.validate_variant(sdw, {"HISTORY_DEPTH": {"early": (10, 6), "late": (14, 10)}})
-
 
 def test_apply_variant_validates_every_key_before_mutating_any():
     """An invalid second key must not leave the first one installed.
@@ -1927,7 +1804,6 @@ def test_apply_variant_validates_every_key_before_mutating_any():
         )
     assert sdw._REACTION_DIRECTIVE == before, "module was left partially patched"
 
-
 def test_apply_variant_round_trips_a_valid_multi_key_variant():
     before_directive = sdw._REACTION_DIRECTIVE
     before_depth = sdw.HISTORY_DEPTH
@@ -1940,7 +1816,6 @@ def test_apply_variant_round_trips_a_valid_multi_key_variant():
     cl._restore_variant(sdw, original)
     assert sdw._REACTION_DIRECTIVE == before_directive
     assert sdw.HISTORY_DEPTH == before_depth
-
 
 def test_a_malformed_variant_costs_nothing(monkeypatch):
     """Drive the REAL experiment path, not the validator directly.
@@ -1980,7 +1855,6 @@ def test_a_malformed_variant_costs_nothing(monkeypatch):
     assert calls == [], "a malformed variant reached a generation call"
     assert pairs == []
 
-
 def test_a_valid_variant_does_reach_generation(monkeypatch):
     """Counterpart to the test above: prove it is the VALIDITY that gates spend.
 
@@ -2017,7 +1891,6 @@ def test_a_valid_variant_does_reach_generation(monkeypatch):
     # and the module must not be left patched by the aborted run
     assert sdw.HISTORY_DEPTH != {"early": (10, 6), "late": (14, 10)}
 
-
 # --- output-contract guards are sweepable levers -----------------------------
 
 @pytest.mark.parametrize(
@@ -2036,13 +1909,11 @@ def test_guard_levers_reject_malformed_values(variant):
     with pytest.raises(cl.ConversationLabError):
         cl.validate_variant(sdw, variant)
 
-
 def test_guard_levers_accept_a_strict_enforcement_sweep():
     """WORD_BUDGET_TOLERANCE 1.0 is the "hold them to the stated max" arm."""
     cl.validate_variant(
         sdw, {"WORD_BUDGET_TOLERANCE": 1.0, "SHAPE_WINDOW": 4, "SHAPE_MAX_IN_WINDOW": 1}
     )
-
 
 def test_guard_levers_round_trip_through_apply_and_restore():
     before = (sdw.SHAPE_WINDOW, sdw.SHAPE_MAX_IN_WINDOW, sdw.WORD_BUDGET_TOLERANCE)
@@ -2053,11 +1924,9 @@ def test_guard_levers_round_trip_through_apply_and_restore():
     cl._restore_variant(sdw, original)
     assert (sdw.SHAPE_WINDOW, sdw.SHAPE_MAX_IN_WINDOW, sdw.WORD_BUDGET_TOLERANCE) == before
 
-
 # ---------------------------------------------------------------------------
 # bench (#7314): single-arm characterization
 # ---------------------------------------------------------------------------
-
 
 def _bench_args(tmp_path, **overrides):
     args = {
@@ -2080,7 +1949,6 @@ def _bench_args(tmp_path, **overrides):
     args.update(overrides)
     return cl.argparse.Namespace(**args)
 
-
 def _patch_bench_generation(monkeypatch, sdw_module, *, turns=4):
     def fake_run_simulation(*, concept, default_model, run_index, stage_only, mode, recipe_context, **kwargs):
         return {"messages": _messages(f"run{run_index}", count=turns)}
@@ -2088,17 +1956,14 @@ def _patch_bench_generation(monkeypatch, sdw_module, *, turns=4):
     monkeypatch.setattr(sdw_module, "run_simulation", fake_run_simulation)
     monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "dialogue-model", "judge-model"))
 
-
 def _bench_path(tmp_path, label="saturday-n3"):
     """Resolve a bench result by label prefix - filenames carry a UTC stamp."""
     matches = sorted((tmp_path / "results").glob(f"bench-{label}-*.json"))
     assert matches, f"no bench result written for label {label!r}"
     return matches[-1]
 
-
 def _read_bench(tmp_path, label="saturday-n3"):
     return json.loads(_bench_path(tmp_path, label).read_text())
-
 
 def test_bench_runs_n_times_and_aggregates(tmp_path, monkeypatch):
     _patch_bench_generation(monkeypatch, sdw)
@@ -2111,7 +1976,6 @@ def test_bench_runs_n_times_and_aggregates(tmp_path, monkeypatch):
     assert len(report["runs"]) == 5
     assert report["aggregate"]["metrics"]["message_count"]["n"] == 5
     assert report["aggregate"]["metrics"]["message_count"]["mean"] == 4.0
-
 
 def test_bench_dry_run_never_calls_the_judge(tmp_path, monkeypatch):
     _patch_bench_generation(monkeypatch, sdw)
@@ -2126,7 +1990,6 @@ def test_bench_dry_run_never_calls_the_judge(tmp_path, monkeypatch):
     assert report["dry_run"] is True
     assert report["aggregate"]["pass_rate"] is None
     assert all("judge" not in run for run in report["runs"])
-
 
 def test_bench_gives_the_judge_a_fresh_episode_each_run(tmp_path, monkeypatch):
     """Regression guard: _judge_dialogue WRITES its scores onto the episode
@@ -2149,7 +2012,6 @@ def test_bench_gives_the_judge_a_fresh_episode_each_run(tmp_path, monkeypatch):
     assert len(set(seen_ids)) == 3
     assert [run["judge"]["scores"]["turn_taking"] for run in report["runs"]] == [1, 2, 3]
 
-
 def test_bench_pass_rate_comes_from_the_production_judge(tmp_path, monkeypatch):
     _patch_bench_generation(monkeypatch, sdw)
     verdicts = iter([True, False, False, True])
@@ -2170,7 +2032,6 @@ def test_bench_pass_rate_comes_from_the_production_judge(tmp_path, monkeypatch):
     assert agg["weakest_counts"] == {"natural_progression": 2}
     assert agg["dimensions"]["natural_progression"]["mean"] == 3.0
 
-
 def _patch_varying_generation(monkeypatch, sdw_module, turn_counts):
     counts = list(turn_counts)
 
@@ -2179,7 +2040,6 @@ def _patch_varying_generation(monkeypatch, sdw_module, turn_counts):
 
     monkeypatch.setattr(sdw_module, "run_simulation", fake_run_simulation)
     monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
-
 
 def test_bench_compare_reports_a_moved_average(tmp_path, monkeypatch):
     # Real spread in both arms, so a z can actually be formed - a metric
@@ -2207,7 +2067,6 @@ def test_bench_compare_reports_a_moved_average(tmp_path, monkeypatch):
     assert abs(row["z"]) >= cl._BENCH_MOVED_Z
     assert row["moved"] is True
 
-
 def test_bench_compare_flags_a_shift_that_has_no_variance_to_divide_by(tmp_path, monkeypatch):
     """A perfectly repeatable shift still moved, even though z is undefined.
 
@@ -2233,7 +2092,6 @@ def test_bench_compare_flags_a_shift_that_has_no_variance_to_divide_by(tmp_path,
     assert row["z"] is None
     assert row["moved"] is True
 
-
 def test_bench_compare_rejects_a_result_that_is_not_a_bench(tmp_path, monkeypatch):
     _patch_bench_generation(monkeypatch, sdw)
     monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
@@ -2242,7 +2100,6 @@ def test_bench_compare_rejects_a_result_that_is_not_a_bench(tmp_path, monkeypatc
 
     with pytest.raises(cl.ConversationLabError, match="expects a bench result"):
         cl.cmd_bench(_bench_args(tmp_path, compare=str(not_a_bench)))
-
 
 def test_bench_keeps_completed_runs_when_a_later_run_raises(tmp_path, monkeypatch):
     """Finished runs are paid work and must reach disk even if run N+1 dies."""
@@ -2268,7 +2125,6 @@ def test_bench_keeps_completed_runs_when_a_later_run_raises(tmp_path, monkeypatc
     assert "provider blew up" in report["error"]
     assert report["aggregate"]["metrics"]["message_count"]["n"] == 2
 
-
 def test_bench_aborts_on_max_calls_and_still_writes_a_report(tmp_path, monkeypatch):
     _patch_bench_generation(monkeypatch, sdw, turns=4)
     monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
@@ -2280,16 +2136,13 @@ def test_bench_aborts_on_max_calls_and_still_writes_a_report(tmp_path, monkeypat
     assert report["completed_runs"] < 10
     assert report["calls_used"] <= 6
 
-
 def test_bench_requires_concept_with_an_explicit_recipe_context(tmp_path):
     with pytest.raises(cl.ConversationLabError, match="needs --concept"):
         cl.cmd_bench(_bench_args(tmp_path, concept=None))
 
-
 def test_bench_requires_exactly_one_scenario_source(tmp_path):
     with pytest.raises(cl.ConversationLabError, match="exactly one"):
         cl.cmd_bench(_bench_args(tmp_path, from_episode="2026-W38"))
-
 
 def test_bench_logs_to_the_benchmarks_table_not_the_experiments_table(tmp_path, monkeypatch):
     _patch_bench_generation(monkeypatch, sdw)
@@ -2304,11 +2157,9 @@ def test_bench_logs_to_the_benchmarks_table_not_the_experiments_table(tmp_path, 
     assert text.index(cl._EXPERIMENTS_TABLE_HEADER_LINE) < text.index(cl._BENCH_SECTION_HEADING)
     assert "| saturday-n3 | saturday | 3 | 100% |" in text
 
-
 # ---------------------------------------------------------------------------
 # bench helpers
 # ---------------------------------------------------------------------------
-
 
 def test_frozen_prior_stages_stops_at_the_stage_and_skips_empty_days():
     episode = {
@@ -2324,7 +2175,6 @@ def test_frozen_prior_stages_stops_at_the_stage_and_skips_empty_days():
     prior = cl._frozen_prior_stages(episode, "saturday")
     assert sorted(prior) == ["friday", "monday", "wednesday"]
 
-
 def test_distribution_uses_sample_stdev_and_standard_error():
     dist = cl._distribution([2, 4, 4, 4, 5, 5, 7, 9])
     assert dist["n"] == 8
@@ -2339,13 +2189,11 @@ def test_distribution_uses_sample_stdev_and_standard_error():
     assert dist["stderr"] == pytest.approx(2.13809 / (8 ** 0.5), rel=1e-4)
     assert dist["stdev"] != 2.0, "population stdev would be exactly 2.0"
 
-
 def test_distribution_ignores_non_numeric_and_empty_input():
     assert cl._distribution([]) is None
     assert cl._distribution([None, "x", True]) is None
     single = cl._distribution([3])
     assert single["n"] == 1 and single["stdev"] == 0.0 and single["stderr"] == 0.0
-
 
 def test_bench_from_episode_uses_the_episode_recipe_concept_and_prior_days(tmp_path, monkeypatch):
     """The --from-episode path end to end.
@@ -2390,7 +2238,6 @@ def test_bench_from_episode_uses_the_episode_recipe_concept_and_prior_days(tmp_p
     assert report["judged_against_prior_days"] == ["monday", "tuesday", "wednesday"]
     assert judged_prior == [["monday", "tuesday", "wednesday"]] * 2
 
-
 def test_bench_from_episode_fails_loud_when_the_recipe_data_is_unusable(tmp_path, monkeypatch):
     monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: {"episode_id": "empty", "stages": {}})
     monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
@@ -2398,7 +2245,6 @@ def test_bench_from_episode_fails_loud_when_the_recipe_data_is_unusable(tmp_path
 
     with pytest.raises(cl.ConversationLabError, match="no usable recipe_data"):
         cl.cmd_bench(_bench_args(tmp_path, concept=None, recipe_context=None, from_episode="empty"))
-
 
 def test_bench_appends_to_an_already_populated_benchmarks_table(tmp_path, monkeypatch):
     """Two benches must produce two rows under ONE Benchmarks heading."""
@@ -2415,7 +2261,6 @@ def test_bench_appends_to_an_already_populated_benchmarks_table(tmp_path, monkey
     assert "| first | saturday |" in text
     assert "| second | saturday |" in text
     assert text.index("| first |") < text.index("| second |")
-
 
 def test_bench_derives_max_calls_from_runs_when_the_flag_is_omitted(tmp_path, monkeypatch):
     _patch_bench_generation(monkeypatch, sdw)
@@ -2435,11 +2280,9 @@ def test_bench_derives_max_calls_from_runs_when_the_flag_is_omitted(tmp_path, mo
     # the new expression in.
     assert _read_bench(tmp_path)["max_calls"] == 126
 
-
 # ---------------------------------------------------------------------------
 # bench: the five findings from Codex's review of PR #119
 # ---------------------------------------------------------------------------
-
 
 def test_bench_refuses_to_start_an_arm_that_cannot_fit_the_call_budget(tmp_path, monkeypatch):
     """Codex P1: the cap must be a real upper bound, not a last-observed guess.
@@ -2458,7 +2301,6 @@ def test_bench_refuses_to_start_an_arm_that_cannot_fit_the_call_budget(tmp_path,
     assert report["aborted"] is True
     assert report["completed_runs"] == 0
     assert report["calls_used"] == 0
-
 
 def test_bench_never_overwrites_an_earlier_paid_result(tmp_path, monkeypatch):
     """Codex P1: two benches at the same stage/N must not collide.
@@ -2479,7 +2321,6 @@ def test_bench_never_overwrites_an_earlier_paid_result(tmp_path, monkeypatch):
     assert len(both) == 2, "the second bench overwrote the first paid result"
     assert json.loads(both[0].read_text())["results_file"] != json.loads(both[1].read_text())["results_file"]
 
-
 def test_bench_validates_compare_before_spending_anything(tmp_path, monkeypatch):
     """Codex P2: a typo'd --compare used to cost a full bench first."""
     monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
@@ -2493,7 +2334,6 @@ def test_bench_validates_compare_before_spending_anything(tmp_path, monkeypatch)
     bad_json.write_text("{not json")
     with pytest.raises(cl.ConversationLabError, match="not valid JSON"):
         cl.cmd_bench(_bench_args(tmp_path, compare=str(bad_json)))
-
 
 def test_bench_keeps_a_paid_transcript_when_the_judge_raises(tmp_path, monkeypatch):
     """Codex P2: the record is appended before judging, so a judge failure
@@ -2523,7 +2363,6 @@ def test_bench_keeps_a_paid_transcript_when_the_judge_raises(tmp_path, monkeypat
     assert report["aggregate"]["judged_runs"] == 1
     assert report["aggregate"]["metrics"]["message_count"]["n"] == 2
 
-
 def test_bench_refuses_a_baseline_from_a_different_stage(tmp_path, monkeypatch):
     """Codex P2: a cross-stage delta varies cast, turn range and rubric too."""
     _patch_bench_generation(monkeypatch, sdw)
@@ -2543,7 +2382,6 @@ def test_bench_refuses_a_baseline_from_a_different_stage(tmp_path, monkeypatch):
     )
     assert _read_bench(tmp_path, "override")["comparison"]["baseline_label"] == "monday-base"
 
-
 def test_bench_refuses_to_compare_a_dry_run_against_a_paid_baseline(tmp_path, monkeypatch):
     """Template dialogue is not a control for real dialogue."""
     _patch_bench_generation(monkeypatch, sdw)
@@ -2554,11 +2392,9 @@ def test_bench_refuses_to_compare_a_dry_run_against_a_paid_baseline(tmp_path, mo
     with pytest.raises(cl.ConversationLabError, match="dry_run"):
         cl.cmd_bench(_bench_args(tmp_path, runs=2, dry_run=True, compare=baseline))
 
-
 # ---------------------------------------------------------------------------
 # bench: Codex's second review of PR #119 (findings on the first round's fixes)
 # ---------------------------------------------------------------------------
-
 
 def test_bench_reserves_four_calls_per_turn_not_two(tmp_path, monkeypatch):
     """A turn can cost 4 paid calls, so 2x turns was never a worst case.
@@ -2578,7 +2414,6 @@ def test_bench_reserves_four_calls_per_turn_not_two(tmp_path, monkeypatch):
     report = _read_bench(tmp_path, "saturday-n2")
     assert report["aborted"] is True
     assert report["completed_runs"] == 0
-
 
 def test_bench_records_calls_spent_by_a_generation_arm_that_raises(tmp_path, monkeypatch):
     """Codex: recording only on the success path under-reported real spend.
@@ -2605,7 +2440,6 @@ def test_bench_records_calls_spent_by_a_generation_arm_that_raises(tmp_path, mon
     assert report["completed_runs"] == 0
     assert report["calls_used"] == 7, "calls spent by the failed arm were not recorded"
 
-
 def test_bench_rejects_a_structurally_broken_baseline_before_spending(tmp_path, monkeypatch):
     """Codex: command == 'bench' alone let a broken payload through, and the
     TypeError landed in _bench_delta after everything was paid for."""
@@ -2625,7 +2459,6 @@ def test_bench_rejects_a_structurally_broken_baseline_before_spending(tmp_path, 
         with pytest.raises(cl.ConversationLabError):
             cl.cmd_bench(_bench_args(tmp_path, compare=str(bad)))
 
-
 def test_bench_refuses_a_baseline_with_a_different_recipe_or_model(tmp_path, monkeypatch):
     """Codex: stage + dry_run was too narrow. A different dish or a different
     dialogue model moves both the metrics and the judge on its own."""
@@ -2642,7 +2475,6 @@ def test_bench_refuses_a_baseline_with_a_different_recipe_or_model(tmp_path, mon
     monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "other-model", "j"))
     with pytest.raises(cl.ConversationLabError, match="models"):
         cl.cmd_bench(_bench_args(tmp_path, runs=2, compare=baseline))
-
 
 def test_bench_claims_its_result_filename_atomically(tmp_path, monkeypatch):
     """Codex: exists()-then-write is a TOCTOU race. _unique_result_path must
@@ -2663,11 +2495,9 @@ def test_bench_claims_its_result_filename_atomically(tmp_path, monkeypatch):
     assert not first.exists(), "no empty .json may be visible before the write"
     assert not second.exists()
 
-
 # ---------------------------------------------------------------------------
 # bench: Codex's third review of PR #119 (seven P2s, no P1s)
 # ---------------------------------------------------------------------------
-
 
 def test_bench_compare_calls_a_one_sample_shift_indeterminate(tmp_path, monkeypatch):
     """Codex: at --runs 1 the stderr is zero because variance was never
@@ -2688,7 +2518,6 @@ def test_bench_compare_calls_a_one_sample_shift_indeterminate(tmp_path, monkeypa
     assert row["estimable"] is False
     assert row["moved"] is None, "a single sample per arm cannot establish movement"
 
-
 def test_bench_dry_run_spends_and_reserves_nothing(tmp_path, monkeypatch):
     """Codex: a template run makes zero API calls, so a plumbing check must
     not report calls_used, nor be refused by a low --max-calls."""
@@ -2704,7 +2533,6 @@ def test_bench_dry_run_spends_and_reserves_nothing(tmp_path, monkeypatch):
     assert report["calls_used"] == 0
     assert report["aborted"] is False
     assert report["completed_runs"] == 2, "a dry run cannot spend, so a low cap must not stop it"
-
 
 def test_bench_result_is_published_atomically(tmp_path, monkeypatch):
     """Codex: writing into the claimed zero-byte file leaves a truncated
@@ -2726,7 +2554,6 @@ def test_bench_result_is_published_atomically(tmp_path, monkeypatch):
     cl._publish_json_atomically(target, {"command": "bench"})
     assert json.loads(target.read_text()) == {"command": "bench"}
 
-
 def test_bench_log_append_preserves_both_rows_under_a_lock(tmp_path, monkeypatch):
     """Codex: the audit append is a read-modify-write; a lost row means a
     paid result file with no required log trace."""
@@ -2741,7 +2568,6 @@ def test_bench_log_append_preserves_both_rows_under_a_lock(tmp_path, monkeypatch
     assert "| row-a |" in text and "| row-b |" in text
     assert text.count(cl._BENCH_SECTION_HEADING) == 1
 
-
 def test_bench_rejects_a_baseline_with_a_non_numeric_pass_rate(tmp_path, monkeypatch):
     """Codex: _print_bench_report formats pass_rate with :.0%, so a string
     crashed after everything was paid for and written."""
@@ -2754,7 +2580,6 @@ def test_bench_rejects_a_baseline_with_a_non_numeric_pass_rate(tmp_path, monkeyp
     }))
     with pytest.raises(cl.ConversationLabError, match="pass_rate"):
         cl.cmd_bench(_bench_args(tmp_path, compare=str(bad)))
-
 
 def test_bench_scenario_digest_notices_changed_prior_day_dialogue():
     """Codex: the day NAMES stay identical when an episode's earlier
@@ -2770,11 +2595,9 @@ def test_bench_scenario_digest_notices_changed_prior_day_dialogue():
     # Same inputs must still agree, or every comparison would be refused.
     assert cl._judge_input_digest(before, "facts", cast) == cl._judge_input_digest(before, "facts", cast)
 
-
 # ---------------------------------------------------------------------------
 # bench: Codex's fourth review — bugs in the third round's own fixes
 # ---------------------------------------------------------------------------
-
 
 def test_bench_delta_is_indeterminate_when_only_one_arm_has_samples(tmp_path, monkeypatch):
     """Codex: `estimable` was consulted only AFTER `if se`.
@@ -2791,7 +2614,6 @@ def test_bench_delta_is_indeterminate_when_only_one_arm_has_samples(tmp_path, mo
     assert row["delta"] == 5.0
     assert row["estimable"] is False
     assert row["moved"] is None, "one arm never had its variance estimated"
-
 
 def test_bench_delta_uses_unrounded_standard_errors(tmp_path):
     """Codex: stderr was rounded to 4dp before being used as a denominator.
@@ -2813,13 +2635,11 @@ def test_bench_delta_uses_unrounded_standard_errors(tmp_path):
     assert row["z"] == pytest.approx(1.06, abs=0.05)
     assert row["moved"] is False
 
-
 def test_distribution_keeps_full_precision():
     """The stored values feed a division, so they are not rounded."""
     dist = cl._distribution([1.00001, 1.00002, 1.00003])
     assert dist["stderr"] > 0
     assert round(dist["stderr"], 4) == 0.0, "rounding would have destroyed this"
-
 
 def test_bench_keeps_the_transcript_when_summarize_raises(tmp_path, monkeypatch):
     """Codex: the summary was computed while building the record, so a
@@ -2847,7 +2667,6 @@ def test_bench_keeps_the_transcript_when_summarize_raises(tmp_path, monkeypatch)
     assert "summary" in report["runs"][0]
     assert "summary" not in report["runs"][1], "unsummarized, but NOT discarded"
 
-
 def test_bench_preserves_partial_results_on_ctrl_c(tmp_path, monkeypatch):
     """Codex: KeyboardInterrupt is a BaseException, so `except Exception`
     skipped the handler and threw away every completed paid run."""
@@ -2871,7 +2690,6 @@ def test_bench_preserves_partial_results_on_ctrl_c(tmp_path, monkeypatch):
     assert "KeyboardInterrupt" in report["error"]
     assert report["aggregate"]["metrics"]["message_count"]["n"] == 2
 
-
 def test_bench_creates_the_results_directory_before_spending(tmp_path, monkeypatch):
     """Codex: mkdir ran after the loop, so a path error lost every run."""
     _patch_bench_generation(monkeypatch, sdw)
@@ -2889,11 +2707,9 @@ def test_bench_creates_the_results_directory_before_spending(tmp_path, monkeypat
 
     assert seen and all(seen), "the results dir must exist before the first paid call"
 
-
 # ---------------------------------------------------------------------------
 # bench: Codex's fifth review
 # ---------------------------------------------------------------------------
-
 
 def test_bench_lock_never_lands_in_the_worktree(tmp_path, monkeypatch):
     """Codex: a sibling EXPERIMENTS.md.lock is untracked, un-ignored repo
@@ -2911,7 +2727,6 @@ def test_bench_lock_never_lands_in_the_worktree(tmp_path, monkeypatch):
     assert log.exists()
     assert not list(log_dir.glob("*.lock")), "the lock must not live next to the log"
     assert not list(log_dir.glob("*.partial")), "no temp artifact may survive a clean run"
-
 
 def test_bench_log_is_replaced_atomically(tmp_path, monkeypatch):
     """Codex: a truncated write_text destroys prior audit rows. The lock
@@ -2935,7 +2750,6 @@ def test_bench_log_is_replaced_atomically(tmp_path, monkeypatch):
 
     assert log.read_text() == before, "a failed append must not truncate the audit trail"
 
-
 def test_bench_rejects_a_baseline_with_a_non_integer_sample_count(tmp_path, monkeypatch):
     """Codex: _bench_delta evaluates `n >= 2`, which raises on a string -
     after the whole bench has been paid for."""
@@ -2948,7 +2762,6 @@ def test_bench_rejects_a_baseline_with_a_non_integer_sample_count(tmp_path, monk
     }))
     with pytest.raises(cl.ConversationLabError, match="sample count"):
         cl.cmd_bench(_bench_args(tmp_path, compare=str(bad)))
-
 
 def test_bench_refuses_an_unwritable_results_directory_before_spending(tmp_path, monkeypatch):
     """Codex: mkdir(exist_ok=True) succeeds on an existing read-only dir,
@@ -2964,73 +2777,9 @@ def test_bench_refuses_an_unwritable_results_directory_before_spending(tmp_path,
     finally:
         results.chmod(0o700)
 
-
-def test_generator_input_digest_notices_rewritten_character_memory(tmp_path, monkeypatch):
-    """Codex: the Sunday stage rewrites memory.json every published week,
-    so two benches a week apart ran different system prompts while every
-    scenario field matched."""
-    import scripts.simulate_dialogue_week as sdw_mod
-
-    chars = tmp_path / "characters"
-    (chars / "margaret-chen").mkdir(parents=True)
-    (chars / "margaret-chen" / "bio.md").write_text("Blunt. Short sentences.")
-    mem = chars / "margaret-chen" / "memory.json"
-    mem.write_text(json.dumps({"episodes": [{"concept": "W1", "summary": "a"}]}))
-    monkeypatch.setattr(sdw_mod, "CHARACTERS_DIR", chars)
-
-    before = cl._generator_input_digest(["Margaret Chen"], "monday")
-    mem.write_text(json.dumps({"episodes": [{"concept": "W2", "summary": "b"}]}))
-    after = cl._generator_input_digest(["Margaret Chen"], "monday")
-
-    assert before != after, "a rewritten memory must break the comparison"
-    assert cl._generator_input_digest(["Margaret Chen"], "monday") == after, "and be stable otherwise"
-
-
-def test_evaluator_digest_notices_a_changed_judge_rubric(monkeypatch):
-    """Codex: the inputs were fingerprinted but the SCORERS were not.
-
-    A rubric edit between two benches means _bench_delta subtracts
-    aggregates computed under different definitions, and the pass-rate
-    movement can come from the rewritten rubric rather than the lever.
-    """
-    import backend.admin.cron_routes as cron
-
-    before = cl._evaluator_digest()
-    monkeypatch.setattr(cron, "_JUDGE_SYSTEM_PROMPT", cron._JUDGE_SYSTEM_PROMPT + "\nNEW RULE.")
-    after = cl._evaluator_digest()
-
-    assert before != after, "a rewritten rubric must break the comparison"
-    monkeypatch.undo()
-    assert cl._evaluator_digest() == before, "and be stable when nothing changed"
-
-
-def test_evaluator_digest_notices_a_changed_metric_definition(monkeypatch, tmp_path):
-    """The deterministic metrics are the other half of the scorer."""
-    fake = tmp_path / "conversation_metrics.py"
-    fake.write_text("# v1\n")
-    monkeypatch.setattr(cl.conversation_metrics, "__file__", str(fake))
-    before = cl._evaluator_digest()
-
-    fake.write_text("# v2 - question_rate now counts rhetorical questions\n")
-    assert cl._evaluator_digest() != before
-
-
-def test_bench_refuses_a_baseline_scored_by_a_different_evaluator(tmp_path, monkeypatch):
-    """End to end: the digest has to actually gate the comparison."""
-    _patch_bench_generation(monkeypatch, sdw)
-    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
-    cl.cmd_bench(_bench_args(tmp_path, runs=2, label="old-rubric"))
-    baseline = str(_bench_path(tmp_path, "old-rubric"))
-
-    monkeypatch.setattr(cl, "_evaluator_digest", lambda: "different0000000")
-    with pytest.raises(cl.ConversationLabError, match="evaluator_digest"):
-        cl.cmd_bench(_bench_args(tmp_path, runs=2, compare=baseline))
-
-
 # ---------------------------------------------------------------------------
 # bench: Codex's seventh review
 # ---------------------------------------------------------------------------
-
 
 def test_spend_charges_the_reservation_when_the_counter_is_unreadable(monkeypatch):
     """Codex: an unreadable cost log made --max-calls stop being a cap.
@@ -3047,7 +2796,6 @@ def test_spend_charges_the_reservation_when_the_counter_is_unreadable(monkeypatc
     assert budget.used == 40, "an invisible spend must be charged at the reservation"
     assert budget.would_exceed(40), "and a second worst-case arm must no longer fit"
 
-
 def test_spend_still_records_the_real_delta_when_the_counter_works(monkeypatch):
     counts = iter([5, 12])
     monkeypatch.setattr(cl, "_calls_now", lambda: next(counts))
@@ -3056,57 +2804,6 @@ def test_spend_still_records_the_real_delta_when_the_counter_works(monkeypatch):
     cl._spend(budget, lambda: "ok", fallback=1, reservation=40)
 
     assert budget.used == 7, "a readable counter must charge actual spend, not the reservation"
-
-
-def test_evaluator_digest_pins_scoring_code_but_not_the_prompt_levers(monkeypatch, tmp_path):
-    """The digest must catch a changed SCORER without refusing the workflow.
-
-    Hashing all of simulate_dialogue_week.py broke the documented loop -
-    bench, change one prompt lever IN THAT FILE, bench again, compare -
-    because every such change invalidated the baseline, and the only
-    escape also switched off the judge-rubric and judge-context checks
-    (Codex). Both halves are pinned here: scoring changes must be caught,
-    lever changes must not.
-    """
-    import backend.admin.cron_routes as cron
-
-    baseline = cl._evaluator_digest()
-
-    # A changed prompt LEVER must NOT invalidate the comparison - that is
-    # the thing under test.
-    monkeypatch.setattr(sdw, "_DAY_OPENER_CONTEXT", {"monday": "totally different"})
-    monkeypatch.setattr(sdw, "HISTORY_DEPTH", {"early": (99, 99), "late": (99, 99)})
-    assert cl._evaluator_digest() == baseline, "a prompt lever change must not refuse the compare"
-    monkeypatch.undo()
-
-    # A changed SCORER must.
-    monkeypatch.setattr(cron, "_JUDGE_SYSTEM_PROMPT", cron._JUDGE_SYSTEM_PROMPT + "\nNEW RULE.")
-    assert cl._evaluator_digest() != baseline, "the judge rubric is not pinned"
-    monkeypatch.undo()
-
-    fake = tmp_path / "metrics.py"
-    fake.write_text("# question_rate now counts rhetorical questions\n")
-    monkeypatch.setattr(cl.conversation_metrics, "__file__", str(fake))
-    assert cl._evaluator_digest() != baseline, "the metrics module is not pinned"
-    monkeypatch.undo()
-
-    assert cl._evaluator_digest() == baseline
-
-
-def test_evaluator_digest_pins_the_named_scoring_functions():
-    """score_quality feeds legacy_quality's reported numbers, and
-    _judge_dialogue / _parse_judge_json assemble and parse the verdict, so
-    all three are hashed by source rather than by whole module."""
-    import backend.admin.cron_routes as cron
-
-    digest_inputs = {
-        "judge_dialogue": cron._judge_dialogue,
-        "parse_judge_json": cron._parse_judge_json,
-        "score_quality": sdw.score_quality,
-    }
-    for name, obj in digest_inputs.items():
-        assert cl.inspect.getsource(obj), f"{name} source must be readable for the digest"
-
 
 def test_bench_persists_its_cost_summary(tmp_path, monkeypatch):
     """Codex: the cost log is process-local, so without this the result
@@ -3124,7 +2821,6 @@ def test_bench_persists_its_cost_summary(tmp_path, monkeypatch):
     assert report["cost_summary"]["total_cost"] == 1.23
     assert report["cost_summary"]["total_calls"] == 42
 
-
 def test_bench_survives_an_unreadable_cost_summary(tmp_path, monkeypatch):
     """A broken cost log must not take the whole report down with it."""
     _patch_bench_generation(monkeypatch, sdw)
@@ -3140,11 +2836,9 @@ def test_bench_survives_an_unreadable_cost_summary(tmp_path, monkeypatch):
     assert report["cost_summary"] is None
     assert report["completed_runs"] == 1
 
-
 # ---------------------------------------------------------------------------
 # bench: Codex's eighth review
 # ---------------------------------------------------------------------------
-
 
 def test_bench_compare_reports_moved_judge_dimensions(tmp_path, monkeypatch):
     """Codex: --compare walked only aggregate.metrics.
@@ -3190,7 +2884,6 @@ def test_bench_compare_reports_moved_judge_dimensions(tmp_path, monkeypatch):
     # And the metrics table really would have shown nothing.
     assert not any(v["moved"] for v in comparison["metrics"].values())
 
-
 def test_bench_rejects_a_baseline_with_nan_or_infinite_values(tmp_path, monkeypatch):
     """Codex: json.loads accepts NaN/Infinity and both pass an isinstance
     check. A NaN stderr makes z NaN, and abs(NaN) >= 2 is False - an
@@ -3209,7 +2902,6 @@ def test_bench_rejects_a_baseline_with_nan_or_infinite_values(tmp_path, monkeypa
         with pytest.raises(cl.ConversationLabError, match="non-finite"):
             cl.cmd_bench(_bench_args(tmp_path, compare=str(bad)))
 
-
 def test_bench_rejects_a_negative_standard_error(tmp_path, monkeypatch):
     monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
     monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
@@ -3220,7 +2912,6 @@ def test_bench_rejects_a_negative_standard_error(tmp_path, monkeypatch):
     }))
     with pytest.raises(cl.ConversationLabError, match="negative"):
         cl.cmd_bench(_bench_args(tmp_path, compare=str(bad)))
-
 
 def test_bench_rejects_an_overlong_label_before_spending(tmp_path, monkeypatch):
     """Codex: ENAMETOOLONG fired at write time, after the whole bench was
@@ -3233,11 +2924,9 @@ def test_bench_rejects_an_overlong_label_before_spending(tmp_path, monkeypatch):
 
     assert not list((tmp_path / "results").glob("*.json")) if (tmp_path / "results").is_dir() else True
 
-
 # ---------------------------------------------------------------------------
 # bench: Codex's ninth review — fallout from the dimension-comparison fix
 # ---------------------------------------------------------------------------
-
 
 def test_distribution_drops_non_finite_live_samples():
     """Codex: only BASELINE values were checked for finiteness.
@@ -3254,7 +2943,6 @@ def test_distribution_drops_non_finite_live_samples():
     assert cl.isfinite(dist["stdev"]) and cl.isfinite(dist["stderr"])
 
     assert cl._distribution([float("nan"), float("-inf")]) is None
-
 
 def test_bench_survives_a_non_finite_judge_score(tmp_path, monkeypatch):
     """End to end: a poisoned verdict must not take the bench down."""
@@ -3282,12 +2970,14 @@ def test_bench_survives_a_non_finite_judge_score(tmp_path, monkeypatch):
     assert unusable["no_valid_samples"] is True
     assert report["aggregate"]["dimensions"]["natural_progression"]["mean"] == 3.0
 
-
 def test_bench_validates_baseline_dimensions_before_spending(tmp_path, monkeypatch):
     """Codex: _bench_delta reads dimensions now, but preflight did not."""
     monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
     monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
     good_metrics = {"qa_rate": {"n": 3, "mean": 1.0, "stderr": 0.1}}
+    full_dims = {
+        dim: {"n": 3, "mean": 4.0, "stderr": 0.1} for dim in cl.JUDGE_DIMENSIONS
+    }
 
     bad = tmp_path / "bad-dims.json"
     bad.write_text(json.dumps({
@@ -3302,12 +2992,29 @@ def test_bench_validates_baseline_dimensions_before_spending(tmp_path, monkeypat
         "command": "bench",
         "aggregate": {
             "metrics": good_metrics,
-            "dimensions": {"turn_taking": {"n": 3, "mean": 4.0}},  # no stderr
+            "dimensions": {**full_dims, "turn_taking": {"n": 3, "mean": 4.0}},  # no stderr
         },
     }))
     with pytest.raises(cl.ConversationLabError, match="turn_taking"):
         cl.cmd_bench(_bench_args(tmp_path, compare=str(worse)))
 
+def test_complete_baseline_dimensions_accept_n_zero_placeholders():
+    """A legitimate non-dry bench records every dimension, including n=0."""
+    dims = {
+        dim: {"n": 3, "mean": 4.0, "stderr": 0.1}
+        for dim in cl.JUDGE_DIMENSIONS
+    }
+    dims["voice_distinctiveness"] = {
+        "n": 0, "mean": 0.0, "stderr": 0.0, "no_valid_samples": True,
+    }
+    baseline = {
+        "command": "bench", "dry_run": False,
+        "aggregate": {
+            "metrics": {"qa_rate": {"n": 3, "mean": 1.0, "stderr": 0.1}},
+            "dimensions": dims,
+        },
+    }
+    cl._validate_bench_aggregate(baseline, "valid-full-baseline.json")
 
 def test_bench_never_prints_nothing_moved_when_a_dimension_moved(tmp_path, monkeypatch, capsys):
     """Codex: the summary line contradicted the table directly above it.
@@ -3342,11 +3049,9 @@ def test_bench_never_prints_nothing_moved_when_a_dimension_moved(tmp_path, monke
     assert "judge dimension(s) did" in out
     assert "(nothing moved" not in out, "the summary must not contradict the table above it"
 
-
 # ---------------------------------------------------------------------------
 # bench: Codex's tenth review
 # ---------------------------------------------------------------------------
-
 
 def test_bench_compare_survives_a_changed_prompt_lever(tmp_path, monkeypatch):
     """The documented workflow, end to end: bench, change a lever, compare.
@@ -3368,7 +3073,6 @@ def test_bench_compare_survives_a_changed_prompt_lever(tmp_path, monkeypatch):
 
     assert _read_bench(tmp_path, "variant")["comparison"]["baseline_label"] == "control"
 
-
 def test_bench_drops_judge_scores_outside_the_one_to_five_contract(tmp_path, monkeypatch):
     """Codex: the verdict parser stores whatever JSON it is handed, so a
     malformed 50 would drag a dimension mean far enough to invent or hide
@@ -3387,7 +3091,6 @@ def test_bench_drops_judge_scores_outside_the_one_to_five_contract(tmp_path, mon
     dist = _read_bench(tmp_path, "saturday-n4")["aggregate"]["dimensions"]["turn_taking"]
     assert dist["n"] == 2, "only the two in-contract scores are data"
     assert dist["mean"] == 5.0, "a 50 would have dragged this to 15.0"
-
 
 def test_bench_labels_indeterminate_judge_dimensions(tmp_path, monkeypatch, capsys):
     """Codex: an unlabeled n/a in the dimension table plus a summary that
@@ -3418,43 +3121,9 @@ def test_bench_labels_indeterminate_judge_dimensions(tmp_path, monkeypatch, caps
     assert "INDETERMINATE, not unchanged" in out
     assert "(nothing moved" not in out
 
-
 # ---------------------------------------------------------------------------
 # bench: Codex's eleventh review
 # ---------------------------------------------------------------------------
-
-
-def test_evaluator_digest_follows_scorers_into_their_helpers(monkeypatch):
-    """Codex: hashing only score_quality's body missed the ten helpers it
-    calls and the constants those read, so editing _voice_pattern_score
-    changed the reported legacy metrics without changing the digest."""
-    baseline = cl._evaluator_digest()
-
-    real = sdw._voice_pattern_score
-
-    def altered_helper(*args, **kwargs):
-        """A different implementation entirely."""
-        return real(*args, **kwargs)
-
-    monkeypatch.setattr(sdw, "_voice_pattern_score", altered_helper)
-    assert cl._evaluator_digest() != baseline, "a changed scoring helper must be caught"
-    monkeypatch.undo()
-    assert cl._evaluator_digest() == baseline
-
-
-def test_evaluator_digest_still_ignores_the_levers_under_test(monkeypatch):
-    """The walk must skip ALLOWED_VARIANT_ATTRS, or it reintroduces the
-    whole-module problem one level down."""
-    baseline = cl._evaluator_digest()
-    for lever in cl.ALLOWED_VARIANT_ATTRS:
-        current = getattr(sdw, lever)
-        replacement = (
-            current + "\nDIFFERENT\n" if isinstance(current, str) else {"changed": True}
-        )
-        monkeypatch.setattr(sdw, lever, replacement)
-        assert cl._evaluator_digest() == baseline, f"{lever} must not affect the digest"
-        monkeypatch.undo()
-
 
 def test_bench_compare_shows_a_dimension_the_judge_never_scored(tmp_path, monkeypatch, capsys):
     """Codex: an all-invalid dimension used to vanish from the aggregate,
@@ -3486,36 +3155,9 @@ def test_bench_compare_shows_a_dimension_the_judge_never_scored(tmp_path, monkey
     assert dims["voice_distinctiveness"]["no_valid_samples"] is True
     assert "NOT SCORED" in out
 
-
 # ---------------------------------------------------------------------------
 # bench: Codex's twelfth review
 # ---------------------------------------------------------------------------
-
-
-def test_all_referenced_names_reaches_into_nested_code_objects():
-    """Codex: co_names covers only the OUTER code object.
-
-    score_quality references PROHIBITED inside a generator expression, so
-    it lives in a nested code object under co_consts and the walk never
-    saw it - meaning an edit to PROHIBITED changed legacy_prohibited_hits
-    while evaluator_digest stayed identical.
-    """
-    outer = set(sdw.score_quality.__code__.co_names)
-    everything = cl._all_referenced_names(sdw.score_quality.__code__)
-
-    assert "PROHIBITED" not in outer, "this is precisely why the shallow walk missed it"
-    assert "PROHIBITED" in everything
-    assert outer < everything
-
-
-def test_evaluator_digest_catches_a_changed_scoring_constant(monkeypatch):
-    """The end-to-end consequence of the fix above."""
-    baseline = cl._evaluator_digest()
-    monkeypatch.setattr(sdw, "PROHIBITED", list(sdw.PROHIBITED) + ["newly-banned-phrase"])
-    assert cl._evaluator_digest() != baseline, "a changed scoring constant must be caught"
-    monkeypatch.undo()
-    assert cl._evaluator_digest() == baseline
-
 
 def test_bench_main_table_does_not_fabricate_a_score_for_an_unscored_dimension(
     tmp_path, monkeypatch, capsys
@@ -3543,46 +3185,9 @@ def test_bench_main_table_does_not_fabricate_a_score_for_an_unscored_dimension(
     # The dimension that WAS scored still reports normally.
     assert "4.00" in next(l for l in out.splitlines() if l.startswith("turn_taking"))
 
-
 # ---------------------------------------------------------------------------
 # bench: Codex's thirteenth review (a P1 - the first since round two)
 # ---------------------------------------------------------------------------
-
-
-def test_canonical_repr_is_stable_for_unordered_containers():
-    """P1 (Codex): repr() on a set is hash-seed dependent, and Python
-    randomizes that seed PER PROCESS.
-
-    The baseline bench and the follow-up bench are separate processes, so
-    hashing repr(a_set) produced a different evaluator_digest for
-    IDENTICAL code and refused a valid comparison at random. Measured
-    before the fix: three runs of the same module, three different digests.
-    """
-    a = {"gamma", "alpha", "beta", "delta"}
-    b = {"delta", "beta", "alpha", "gamma"}
-    assert cl._canonical_repr(a) == cl._canonical_repr(b)
-
-    # Nested, and dicts too - iteration order must not leak anywhere.
-    assert cl._canonical_repr({"x": {3, 1, 2}, "y": 1}) == cl._canonical_repr({"y": 1, "x": {2, 3, 1}})
-    assert cl._canonical_repr(frozenset({"b", "a"})) == cl._canonical_repr(frozenset({"a", "b"}))
-
-    # Ordered containers must NOT be reordered - order is meaningful there.
-    assert cl._canonical_repr([1, 2]) != cl._canonical_repr([2, 1])
-
-
-def test_evaluator_digest_ignores_globals_derived_from_a_lever(monkeypatch):
-    """Codex: _SHARED_RULES_SHINGLES is _word_shingles(_SHARED_CHARACTER_RULES).
-
-    A fresh import under a changed lever recomputes it, so hashing it made
-    the digest move for the very lever an experiment is allowed to change.
-    The earlier test missed this because monkeypatching the lever leaves
-    the derived cache stale - so this one changes the DERIVED value
-    directly, which is what a real re-import would do.
-    """
-    baseline = cl._evaluator_digest()
-    monkeypatch.setattr(sdw, "_SHARED_RULES_SHINGLES", {"completely", "different", "shingles"})
-    assert cl._evaluator_digest() == baseline, "a lever-derived cache must not move the digest"
-
 
 def test_bench_log_row_survives_pipes_and_newlines(tmp_path, monkeypatch):
     """Codex: a pipe in --label, or in the judge's unvalidated `weakest`
@@ -3611,11 +3216,9 @@ def test_bench_log_row_survives_pipes_and_newlines(tmp_path, monkeypatch):
     assert "\\|" in rows[0], "the delimiter in the value is escaped, not dropped"
     assert "a\\|b c" in rows[0], "the label survives, flattened and escaped"
 
-
 # ---------------------------------------------------------------------------
 # bench: Codex's fourteenth review — the targeted digest pass I asked for
 # ---------------------------------------------------------------------------
-
 
 def test_judge_input_digest_preserves_cast_ORDER():
     """Codex: I was sorting expected_cast and hiding a real difference.
@@ -3629,89 +3232,6 @@ def test_judge_input_digest_preserves_cast_ORDER():
     b = ["Margaret Chen", "Devon Park"]
     assert sorted(a) == sorted(b), "same people - only the order differs"
     assert cl._judge_input_digest({}, "facts", a) != cl._judge_input_digest({}, "facts", b)
-    assert cl._generator_input_digest(a, "saturday") != cl._generator_input_digest(b, "saturday")
-
-
-def test_generator_digest_tracks_the_RENDERED_prompt_not_raw_fields(monkeypatch):
-    """Codex round 15: hashing raw persona records refused comparisons over
-    edits the model never saw.
-
-    build_system_prompt ignores `backstory` whenever a bio exists, and
-    ignores `age` and `core_traits` entirely. Verified against the real
-    persona: only communication_style of these reaches the prompt. The
-    digest tracks the rendered string, so it matters exactly when the
-    character is actually told something different.
-    """
-    real = sdw.load_personas()
-    cast = ["Devon Park", "Margaret Chen"]
-    baseline = cl._generator_input_digest(cast, "saturday")
-
-    # Off-cast persona: never rendered for this bench.
-    off = dict(real)
-    victim = next(n for n in off if n not in cast)
-    off[victim] = {
-        **off[victim],
-        "communication_style": {
-            **off[victim]["communication_style"],
-            "signature_phrases": ["utterly different"],
-        },
-    }
-    monkeypatch.setattr(sdw, "load_personas", lambda: off)
-    assert cl._generator_input_digest(cast, "saturday") == baseline, "an off-cast persona must not matter"
-    monkeypatch.undo()
-
-    # On-cast but PROMPT-INVISIBLE: backstory is ignored when a bio exists.
-    ignored = dict(real)
-    ignored["Devon Park"] = {**ignored["Devon Park"], "backstory": "completely rewritten"}
-    monkeypatch.setattr(sdw, "load_personas", lambda: ignored)
-    assert cl._generator_input_digest(cast, "saturday") == baseline, (
-        "backstory never reaches the prompt when a bio exists - refusing on it "
-        "was the bug"
-    )
-    monkeypatch.undo()
-
-    # On-cast AND prompt-visible. Of communication_style's five keys, only
-    # signature_phrases is rendered - formality, verbosity, directness and
-    # emotional_expressiveness reach the prompt not at all, which is card
-    # #6966 ("make the numeric dials bind") confirmed empirically.
-    visible = dict(real)
-    visible["Devon Park"] = {
-        **visible["Devon Park"],
-        "communication_style": {
-            **visible["Devon Park"]["communication_style"],
-            "signature_phrases": ["a brand new catchphrase"],
-        },
-    }
-    monkeypatch.setattr(sdw, "load_personas", lambda: visible)
-    assert cl._generator_input_digest(cast, "saturday") != baseline, "a rendered change MUST be caught"
-
-
-def test_generator_digest_tracks_off_cast_first_episode_state(monkeypatch):
-    """Codex: run_simulation computes first_episode across EVERY persona and
-    uses it to pick Monday's opener, so off-cast Devon's memory changes a
-    Monday prompt even when the seated cast has none of its own."""
-    cast = ["Margaret Chen"]
-    monkeypatch.setattr(sdw, "_load_memories", lambda name: [])
-    none_at_all = cl._generator_input_digest(cast, "monday")
-
-    # Only an OFF-cast character gains a memory.
-    monkeypatch.setattr(
-        sdw, "_load_memories",
-        lambda name: [{"concept": "W1", "summary": "s"}] if name == "Devon Park" else [],
-    )
-    assert cl._generator_input_digest(cast, "monday") != none_at_all, (
-        "an off-cast memory flips first_episode and changes Monday's opener"
-    )
-    # ...and must NOT matter on any other day, where generate_turn never
-    # consults the flag.
-    monkeypatch.setattr(sdw, "_load_memories", lambda name: [])
-    saturday_none = cl._generator_input_digest(cast, "saturday")
-    monkeypatch.setattr(
-        sdw, "_load_memories",
-        lambda name: [{"concept": "W1", "summary": "s"}] if name == "Devon Park" else [],
-    )
-    assert cl._generator_input_digest(cast, "saturday") == saturday_none
-
 
 def test_judge_input_digest_normalises_whitespace_like_the_judge(monkeypatch):
     """Codex: _judge_dialogue renders ' '.join(msg.split()) and the first
@@ -3726,7 +3246,6 @@ def test_judge_input_digest_normalises_whitespace_like_the_judge(monkeypatch):
     # A real content change must still be caught.
     different = {"monday": {"dialogue": [{"character": "Margaret Chen", "message": "The ratio is fine."}]}}
     assert cl._judge_input_digest(tidy, "f", cast) != cl._judge_input_digest(different, "f", cast)
-
 
 def test_bench_refuses_a_non_dry_baseline_missing_its_dimensions(tmp_path, monkeypatch):
     """Codex: waving through a missing dimensions block meant every judge
@@ -3751,255 +3270,37 @@ def test_bench_refuses_a_non_dry_baseline_missing_its_dimensions(tmp_path, monke
         compare=str(ok), allow_mismatched_baseline=True, stage="saturday", dry_run=True,
     ))
 
-
-def test_evaluator_digest_covers_this_modules_own_aggregation_layer(monkeypatch):
-    """Codex: the persisted means depend on OUR filtering and aggregation,
-    not only on the upstream scorers. Changing the valid-score predicate
-    changes which samples reach a mean with nothing else moving."""
-    baseline = cl._evaluator_digest()
-    real = cl._is_valid_judge_score
-
-    def wider_predicate(value):
-        """A deliberately different valid-score rule."""
-        return real(value)
-
-    monkeypatch.setattr(cl, "_is_valid_judge_score", wider_predicate)
-    assert cl._evaluator_digest() != baseline, "our own score filter must be pinned"
-    monkeypatch.undo()
-
-    monkeypatch.setattr(cl, "JUDGE_DIMENSIONS", cl.JUDGE_DIMENSIONS + ("new_dimension",))
-    assert cl._evaluator_digest() != baseline, "the dimension list must be pinned"
-    monkeypatch.undo()
-
-    assert cl._evaluator_digest() == baseline
-
-
-def test_all_digests_are_stable_across_processes():
-    """The P1 guard, as a property rather than a one-off measurement.
-
-    Every digest must be reproducible under a randomized hash seed, since
-    a baseline bench and its follow-up are always separate processes.
-    """
+def test_judge_input_digest_is_stable_across_processes():
+    """Frozen judge input hashing must be stable across hash seeds."""
     import subprocess
     import sys as _sys
 
     script = (
         "import scripts.conversation_lab as cl;"
-        "print(cl._evaluator_digest(),"
-        "cl._generator_input_digest(['Devon Park','Margaret Chen'],'saturday'),"
-        "cl._judge_input_digest({}, 'facts', ['Devon Park','Margaret Chen']))"
+        "print(cl._judge_input_digest({}, 'facts', ['Devon Park','Margaret Chen']))"
     )
     outs = {
         subprocess.run(
             [_sys.executable, "-c", script],
-            capture_output=True, text=True, check=True,
+            capture_output=True, text=True, check=True, timeout=10,
             env={**os.environ, "PYTHONHASHSEED": str(seed)},
         ).stdout.strip()
         for seed in (0, 1, 12345)
     }
     assert len(outs) == 1, f"digests differ across hash seeds: {outs}"
 
-
 # ---------------------------------------------------------------------------
 # bench: Codex's sixteenth review
 # ---------------------------------------------------------------------------
-
-
-def test_generator_digest_masks_the_lever_it_renders(monkeypatch):
-    """Codex: the rendered prompt CONTAINS _SHARED_CHARACTER_RULES.
-
-    Switching to rendered prompts fixed three bugs and introduced this
-    one - the sixth time this digest has refused the documented workflow.
-    The lever must be masked before rendering, while everything else in
-    the prompt still counts.
-    """
-    cast = ["Devon Park", "Margaret Chen"]
-    baseline = cl._generator_input_digest(cast, "saturday")
-
-    monkeypatch.setattr(sdw, "_SHARED_CHARACTER_RULES", "COMPLETELY DIFFERENT SHARED RULES\n")
-    assert cl._generator_input_digest(cast, "saturday") == baseline, (
-        "the lever under test must not refuse the comparison"
-    )
-    monkeypatch.undo()
-
-    # Non-lever prompt content still counts.
-    real = sdw.load_personas()
-    changed = dict(real)
-    changed["Devon Park"] = {
-        **changed["Devon Park"],
-        "communication_style": {
-            **changed["Devon Park"]["communication_style"],
-            "signature_phrases": ["something new"],
-        },
-    }
-    monkeypatch.setattr(sdw, "load_personas", lambda: changed)
-    assert cl._generator_input_digest(cast, "saturday") != baseline
-
-
-def test_generator_digest_restores_every_lever_it_masked():
-    """The mask mutates module globals, so a leak would silently change
-    what the NEXT bench generates."""
-    before = {lever: getattr(sdw, lever) for lever in cl.ALLOWED_VARIANT_ATTRS}
-    cl._generator_input_digest(["Devon Park", "Margaret Chen"], "saturday")
-    after = {lever: getattr(sdw, lever) for lever in cl.ALLOWED_VARIANT_ATTRS}
-    assert before == after
-    assert cl._LEVER_MASK not in sdw._SHARED_CHARACTER_RULES
-
-
-def test_generator_digest_restores_levers_even_when_rendering_raises(monkeypatch):
-    """A masked lever left in place would be a silent, lasting corruption
-    of the generator - worse than any digest error."""
-    original = sdw._SHARED_CHARACTER_RULES
-
-    def boom(_persona):
-        raise RuntimeError("render exploded")
-
-    monkeypatch.setattr(sdw, "build_system_prompt", boom)
-    cl._generator_input_digest(["Devon Park"], "saturday")  # must not raise
-    assert sdw._SHARED_CHARACTER_RULES == original, "the lever must be restored on the error path"
-
-
-def test_which_levers_get_masked_is_derived_not_hardcoded():
-    """Masking is computed from what build_system_prompt references, so a
-    future lever landing in the system prompt is picked up with no edit."""
-    referenced = cl._all_referenced_names(sdw.build_system_prompt.__code__)
-    masked = referenced & set(cl.ALLOWED_VARIANT_ATTRS)
-    assert masked == {"_SHARED_CHARACTER_RULES"}, (
-        f"today only that lever reaches the system prompt; got {masked}"
-    )
-
 
 # ---------------------------------------------------------------------------
 # bench: Codex's seventeenth review
 # ---------------------------------------------------------------------------
 
-
-def test_generator_code_digest_pins_turn_config_but_not_levers(monkeypatch):
-    """Codex: nothing covered the turn prompt or the turn COUNT.
-
-    TICKS_RANGE, _DAY_OPENER_CONTEXT, DAY_MEETING_GOAL and
-    _build_dynamic_arc all change what gets generated and none is an
-    allowed lever - so a baseline taken before today's
-    TICKS_RANGE["saturday"] change would have been compared against one
-    taken after, with the difference credited to the lever under test.
-    """
-    baseline = cl._generator_code_digest("saturday")
-
-    # Non-lever generation config MUST be pinned. This is the real value
-    # that changed in production today.
-    monkeypatch.setattr(sdw, "TICKS_RANGE", {**sdw.TICKS_RANGE, "saturday": (3, 5)})
-    assert cl._generator_code_digest("saturday") != baseline, "the turn count must be pinned"
-    monkeypatch.undo()
-
-    monkeypatch.setattr(
-        sdw, "_DAY_OPENER_CONTEXT", {**sdw._DAY_OPENER_CONTEXT, "saturday": "different"}
-    )
-    assert cl._generator_code_digest("saturday") != baseline, "the opener context must be pinned"
-    monkeypatch.undo()
-
-    # Levers MUST NOT be, or this reintroduces the refusal bug.
-    for lever in ("_SHARED_CHARACTER_RULES", "_REACTION_DIRECTIVE"):
-        monkeypatch.setattr(sdw, lever, "A COMPLETELY DIFFERENT LEVER VALUE\n")
-        assert cl._generator_code_digest("saturday") == baseline, f"{lever} must not be pinned"
-        monkeypatch.undo()
-
-    assert cl._generator_code_digest("saturday") == baseline
-
-
-def test_dependency_walk_skips_dunders():
-    """`__dict__` is every global a module has, INCLUDING the levers.
-
-    Hashing it silently re-admitted exactly what the lever skips exist to
-    exclude - the walk reported a changed digest for a changed lever until
-    dunders were excluded.
-    """
-    parts = cl._scoring_source_parts({"run_simulation": sdw.run_simulation})
-    assert parts, "the walk must actually produce something"
-    assert not any(part.startswith("__") for part in parts), (
-        f"dunder entries leaked into the digest: {[p for p in parts if p.startswith('__')]}"
-    )
-
-
-def test_canonical_repr_survives_an_object_whose_repr_raises():
-    """A digest must never take a bench down - and this one did.
-
-    backend.config's __repr__ reads config.dialogue_model, which raises
-    outright when DIALOGUE_MODEL is unset, so the walk reaching a container
-    holding it killed the whole run.
-    """
-    class Hostile:
-        def __repr__(self):
-            raise RuntimeError("no repr for you")
-
-    rendered = cl._canonical_repr({"cfg": Hostile()})
-    assert "unrepresentable Hostile" in rendered
-    assert "RuntimeError" in rendered
-    # Stable, so it cannot become a source of spurious digest churn.
-    assert rendered == cl._canonical_repr({"cfg": Hostile()})
-
-
 # ---------------------------------------------------------------------------
 # bench: Codex's eighteenth review
 # ---------------------------------------------------------------------------
 
-
-def test_generator_code_digest_is_scoped_to_the_benched_stage(monkeypatch):
-    """Codex: per-day containers were hashed whole.
-
-    A change to MONDAY's turn range refused a SATURDAY comparison in which
-    nothing about Saturday's generation moved - the seventh distinct way
-    this machinery has refused a valid comparison.
-    """
-    saturday = cl._generator_code_digest("saturday")
-
-    monkeypatch.setattr(sdw, "TICKS_RANGE", {**sdw.TICKS_RANGE, "monday": (9, 12)})
-    assert cl._generator_code_digest("saturday") == saturday, (
-        "another day's turn range must not refuse a Saturday comparison"
-    )
-    # ...but it MUST move Monday's own digest.
-    assert cl._generator_code_digest("monday") != cl._generator_code_digest("saturday")
-    monkeypatch.undo()
-
-    monkeypatch.setattr(sdw, "TICKS_RANGE", {**sdw.TICKS_RANGE, "saturday": (3, 5)})
-    assert cl._generator_code_digest("saturday") != saturday, "THIS day's range must be pinned"
-
-
-def test_scoping_key_only_narrows_genuine_per_day_containers():
-    """A dict that merely contains a day-like key must be left whole."""
-    per_day = {day: f"value-{day}" for day in sdw.DAY_ORDER}
-    narrowed = cl._scoping_key(per_day, "saturday")
-    assert narrowed == {"saturday": "value-saturday"}
-
-    # Not every key is a day -> untouched.
-    mixed = {"monday": 1, "not_a_day": 2}
-    assert cl._scoping_key(mixed, "saturday") is mixed
-
-    # No stage, empty, or non-dict -> untouched.
-    assert cl._scoping_key(per_day, None) is per_day
-    assert cl._scoping_key({}, "saturday") == {}
-    assert cl._scoping_key(["a"], "saturday") == ["a"]
-
-
-def test_reasoning_effort_is_pinned_only_for_models_that_consume_it(monkeypatch):
-    """Codex round 19: I pinned OPENAI_REASONING_EFFORT unconditionally in
-    round 18 while fixing an unpinned input, and thereby created the EIGHTH
-    way this machinery refuses a valid comparison.
-
-    model_router._reasoning_kwargs returns {} for anything not in
-    OPENAI_REASONING_MODELS, so with an Anthropic dialogue model - the
-    standing config for this project - the setting never touches
-    generation and must not affect the digest.
-    """
-    haiku = cl._generator_code_digest("saturday", "anthropic/claude-haiku-4-5")
-    astra = cl._generator_code_digest("saturday", "openai/gpt-6-astra")
-
-    monkeypatch.setattr(cl.model_router, "OPENAI_REASONING_EFFORT", "low")
-    assert cl._generator_code_digest("saturday", "anthropic/claude-haiku-4-5") == haiku, (
-        "an irrelevant env var must not refuse an Anthropic comparison"
-    )
-    assert cl._generator_code_digest("saturday", "openai/gpt-6-astra") != astra, (
-        "but it MUST be pinned for a model that actually consumes it"
-    )
 def test_bench_row_lands_inside_the_benchmarks_table(tmp_path, monkeypatch):
     """Codex: an unconditional end-of-file append put the row under
     whatever section came last, so once any narrative section follows the
@@ -4018,7 +3319,6 @@ def test_bench_row_lands_inside_the_benchmarks_table(tmp_path, monkeypatch):
         "the row must join the Benchmarks table, not trail the last section"
     )
     assert text.rstrip().endswith("Some prose."), "the later section must survive intact"
-
 
 def test_bench_preflights_the_audit_log_destination(tmp_path, monkeypatch):
     """Codex: an unusable --experiments-log raised only in _append_bench_log,
@@ -4040,87 +3340,14 @@ def test_bench_preflights_the_audit_log_destination(tmp_path, monkeypatch):
     finally:
         locked.chmod(0o700)
 
-
 def test_insert_in_section_appends_when_the_heading_is_absent():
     """The just-created-the-section path must still work."""
     out = cl._insert_in_section("# Log\n\nnothing yet\n", "## Benchmarks", "| row |\n")
     assert out.rstrip().endswith("| row |")
 
-
 # ---------------------------------------------------------------------------
 # bench: Codex's twentieth review — the "too strict" pass I asked for
 # ---------------------------------------------------------------------------
-
-
-def test_walk_is_breadth_first_so_coverage_does_not_depend_on_root_order():
-    """A bug of my own, found while fixing Codex's provider finding.
-
-    The walk recursed depth-first with a `seen` set, so coverage depended
-    on the iteration order of root_names: generate_response was first
-    reached at depth 3 via run_simulation, marked seen, and its children
-    pruned - meaning the shallower path through generate_turn never ran
-    and the provider implementations were never hashed AT ALL. Breadth
-    first, every node is reached at its minimum depth.
-    """
-    forward = cl._scoring_source_parts(
-        {"run_simulation": sdw.run_simulation, "generate_turn": sdw.generate_turn}
-    )
-    reversed_roots = cl._scoring_source_parts(
-        {"generate_turn": sdw.generate_turn, "run_simulation": sdw.run_simulation}
-    )
-    assert forward == reversed_roots, "root ordering must not change what gets hashed"
-
-    labels = {part.split(":")[0].split("=")[0] for part in forward}
-    assert "_generate_anthropic" in labels, (
-        "the provider implementation must be reachable at all - it was not before"
-    )
-
-
-def test_generator_code_digest_walks_only_the_active_provider():
-    """Codex: an edit confined to the unused Google path refused an
-    Anthropic comparison. Too strict, in the direction I keep erring."""
-    roots = {"run_simulation": sdw.run_simulation, "generate_turn": sdw.generate_turn}
-    for provider in ("anthropic", "openai", "google"):
-        inactive = {f"_generate_{n}" for n in ("openai", "anthropic", "google") if n != provider}
-        labels = {
-            part.split(":")[0].split("=")[0]
-            for part in cl._scoring_source_parts(roots, skip_names=inactive)
-        }
-        walked = {n for n in ("_generate_openai", "_generate_anthropic", "_generate_google") if n in labels}
-        assert walked == {f"_generate_{provider}"}, f"{provider}: walked {walked}"
-
-
-def test_provider_of_uses_the_routers_own_resolution():
-    assert cl._provider_of("anthropic/claude-haiku-4-5") == "anthropic"
-    assert cl._provider_of("openai/gpt-6-astra") == "openai"
-    assert cl._provider_of(None) is None
-
-
-def test_generator_digest_no_longer_double_hashes_memories(monkeypatch):
-    """Codex: build_system_prompt ALREADY renders the last two memories, so
-    the extra raw hash was redundant and type-sensitive - a concept stored
-    as the JSON number 2026 versus the string "2026" renders identically
-    as `2026` but hashed differently, refusing a comparison whose
-    generated text was byte-for-byte the same."""
-    assert "_load_memories" in sdw.build_system_prompt.__code__.co_names, (
-        "the premise: memories really are rendered into the system prompt"
-    )
-    cast = ["Margaret Chen"]
-
-    monkeypatch.setattr(
-        sdw, "_load_memories",
-        lambda name: [{"concept": 2026, "summary": "s"}] if name == "Margaret Chen" else [],
-    )
-    as_number = cl._generator_input_digest(cast, "saturday")
-
-    monkeypatch.setattr(
-        sdw, "_load_memories",
-        lambda name: [{"concept": "2026", "summary": "s"}] if name == "Margaret Chen" else [],
-    )
-    as_string = cl._generator_input_digest(cast, "saturday")
-
-    assert as_number == as_string, "both render as `2026`; only the raw hash saw a difference"
-
 
 def test_bench_rejects_an_experiments_log_that_is_a_directory(tmp_path, monkeypatch):
     """Codex: a directory at that path has a writable PARENT, so the
@@ -4133,3 +3360,32 @@ def test_bench_rejects_an_experiments_log_that_is_a_directory(tmp_path, monkeypa
 
     with pytest.raises(cl.ConversationLabError, match="not a regular file"):
         cl.cmd_bench(_bench_args(tmp_path, no_log=False, experiments_log=str(as_dir)))
+
+def test_bench_requires_every_judge_dimension_in_a_non_dry_baseline(tmp_path, monkeypatch):
+    """An EMPTY or PARTIAL dimensions block must fail before paid work.
+
+    _bench_delta walks current dimensions and skips any missing from the
+    baseline, so incomplete baselines silently omit judge comparisons.
+    """
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
+    metrics = {"qa_rate": {"n": 3, "mean": 1.0, "stderr": 0.1}}
+
+    empty = tmp_path / "empty-dims.json"
+    empty.write_text(json.dumps({
+        "command": "bench", "dry_run": False,
+        "aggregate": {"metrics": metrics, "dimensions": {}},
+    }))
+    with pytest.raises(cl.ConversationLabError, match="missing judge dimension"):
+        cl.cmd_bench(_bench_args(tmp_path, compare=str(empty)))
+
+    partial = tmp_path / "partial-dims.json"
+    partial.write_text(json.dumps({
+        "command": "bench", "dry_run": False,
+        "aggregate": {
+            "metrics": metrics,
+            "dimensions": {"turn_taking": {"n": 3, "mean": 4.0, "stderr": 0.1}},
+        },
+    }))
+    with pytest.raises(cl.ConversationLabError, match="voice_distinctiveness"):
+        cl.cmd_bench(_bench_args(tmp_path, compare=str(partial)))
