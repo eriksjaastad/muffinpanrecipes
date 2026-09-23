@@ -279,6 +279,92 @@ def test_pitch_vocab_rate_detects_marketing_register_phrases():
 
 
 # ---------------------------------------------------------------------------
+# speaker_attribution - leave-one-out lexical separability
+# ---------------------------------------------------------------------------
+
+
+def test_speaker_attribution_separates_distinct_word_choices():
+    messages = [
+        _msg("Margaret Chen", "Butter ratio crumb tender dough.") for _ in range(4)
+    ] + [
+        _msg("Marcus Reid", "Metaphor cadence sonnet luminous prose.") for _ in range(4)
+    ]
+    result = cm.speaker_attribution(messages)
+    assert result["accuracy"] == 1.0
+    assert result["chance"] == 0.5
+    assert result["per_character_recall"] == {"Margaret": 1.0, "Marcus": 1.0}
+    assert result["scored_count"] == 8
+    assert result["coverage"] == 1.0
+
+
+def test_speaker_attribution_identical_messages_tie_at_chance_despite_imbalance():
+    same = "Butter ratio tender dough."
+    messages = [_msg("Margaret Chen", same) for _ in range(5)] + [
+        _msg("Marcus Reid", same) for _ in range(2)
+    ]
+    result = cm.speaker_attribution(messages)
+    assert result["accuracy"] == result["chance"] == 0.5
+    assert result["per_character_recall"] == {"Margaret": 0.5, "Marcus": 0.5}
+
+
+def test_speaker_attribution_normalizes_full_names_and_reports_singletons():
+    messages = [
+        _msg("Margaret Chen", "Butter ratio tender dough."),
+        _msg("Margaret Chen", "Butter ratio soft crumb."),
+        _msg("Marcus Reid", "Metaphor cadence sonnet luminous."),
+        _msg("Marcus Reid", "Metaphor cadence prose luminous."),
+        _msg("Devon Park", "Staging deploy pipeline."),
+    ]
+    result = cm.speaker_attribution(messages)
+    assert result["candidate_characters"] == ["Marcus", "Margaret"]
+    assert result["excluded_no_training"] == 1
+    assert result["sample_count"] == 5
+    assert result["scored_count"] == 4
+    assert result["coverage"] == 0.8
+
+
+def test_speaker_attribution_empty_and_no_content_are_unavailable():
+    empty = cm.speaker_attribution([])
+    assert empty["accuracy"] is None
+    assert empty["chance"] is None
+    assert empty["sample_count"] == empty["scored_count"] == 0
+    assert empty["sufficient_data"] is False
+
+    no_content = cm.speaker_attribution([
+        _msg("Margaret Chen", "Yes, it is."),
+        _msg("Marcus Reid", "The, and, but."),
+    ])
+    assert no_content["accuracy"] is None
+    assert no_content["chance"] is None
+    assert no_content["excluded_no_content"] == 2
+    assert no_content["coverage"] == 0.0
+
+
+def test_speaker_attribution_singleton_only_is_insufficient():
+    result = cm.speaker_attribution([_msg("Margaret Chen", "Butter ratio tender dough.")])
+    assert result["accuracy"] is None
+    assert result["chance"] is None
+    assert result["excluded_no_training"] == 1
+    assert result["candidate_characters"] == []
+    assert result["sufficient_data"] is False
+
+
+def test_speaker_attribution_ignores_heldout_only_vocabulary():
+    messages = [
+        _msg("Margaret Chen", "Butter ratio tender dough."),
+        _msg("Margaret Chen", "Butter ratio tender dough."),
+        _msg("Margaret Chen", "Quenellezarf."),
+        _msg("Marcus Reid", "Metaphor cadence sonnet luminous."),
+        _msg("Marcus Reid", "Metaphor cadence sonnet luminous."),
+        _msg("Marcus Reid", "Flummeryquartz."),
+    ]
+    result = cm.speaker_attribution(messages)
+    assert result["excluded_no_known_words"] == 2
+    assert result["eligible_count"] == result["scored_count"] == 4
+    assert result["coverage"] == round(4 / 6, 4)
+
+
+# ---------------------------------------------------------------------------
 # brand_term_rate (card #6492 slice 3)
 # ---------------------------------------------------------------------------
 
@@ -344,7 +430,8 @@ def test_summarize_flat_dict_has_expected_top_level_numeric_keys():
         "per_character_4gram_tic_count", "legacy_score",
         "dash_clause_rate", "frame_claim_rate", "agree_opener_rate",
         "short_line_rate", "question_rate", "length_stdev", "opener_diversity",
-        "pitch_vocab_rate", "brand_term_rate",
+        "pitch_vocab_rate", "brand_term_rate", "speaker_attribution_accuracy",
+        "speaker_attribution_chance",
     ):
         assert key in result, f"missing summarize() key: {key}"
     assert result["message_count"] == 2
@@ -352,6 +439,7 @@ def test_summarize_flat_dict_has_expected_top_level_numeric_keys():
     assert isinstance(result["legacy_quality_detail"], dict)
     assert isinstance(result["dash_clause_detail"], dict)
     assert isinstance(result["brand_term_detail"], dict)
+    assert isinstance(result["speaker_attribution_detail"], dict)
 
 
 # ---------------------------------------------------------------------------
