@@ -138,6 +138,11 @@ def _verify_cron_secret(request: Request) -> None:
 # literal this module writes.
 PLACEHOLDER_CONCEPT = episode_integrity.PLACEHOLDER_CONCEPT
 
+# Temporary containment for the remainder of W39. This applies only to
+# authenticated scheduled GETs; manual POST recovery remains available.
+_SCHEDULED_PAUSE_EPISODE_ID = "2026-W39"
+_SCHEDULED_PAUSE_STAGES = frozenset({"thursday", "friday", "saturday", "sunday"})
+
 
 class ConceptSelectionError(RuntimeError):
     """Monday could not select a real concept for the week.
@@ -163,6 +168,25 @@ def _current_episode_id() -> str:
     now = datetime.now(timezone.utc)
     iso = now.isocalendar()
     return f"{iso.year}-W{iso.week:02d}"
+
+
+def _scheduled_w39_pause(request: Request, stage: str) -> dict | None:
+    """Return an explicit pause response for W39's remaining scheduled GETs."""
+    if request.method != "GET" or stage not in _SCHEDULED_PAUSE_STAGES:
+        return None
+    episode_id = _current_episode_id()
+    if episode_id != _SCHEDULED_PAUSE_EPISODE_ID:
+        return None
+    return {
+        "status": "paused",
+        "stage": stage,
+        "episode_id": episode_id,
+        "reason": (
+            "Temporary W39 containment: this scheduled stage was intentionally skipped "
+            "while the existing Tuesday/Wednesday failures remain unresolved. "
+            "No stage was completed or published."
+        ),
+    }
 
 
 def _load_or_create_episode(episode_id: str, concept: str) -> dict:
@@ -2590,6 +2614,9 @@ async def cron_wednesday(request: Request):
 @router.api_route("/thursday", methods=["GET", "POST"])
 async def cron_thursday(request: Request):
     _verify_cron_secret(request)
+    paused = _scheduled_w39_pause(request, "thursday")
+    if paused is not None:
+        return paused
     body = await _parse_body(request)
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     with _test_mode_scope(body):
@@ -2641,6 +2668,9 @@ async def cron_thursday(request: Request):
 @router.api_route("/friday", methods=["GET", "POST"])
 async def cron_friday(request: Request):
     _verify_cron_secret(request)
+    paused = _scheduled_w39_pause(request, "friday")
+    if paused is not None:
+        return paused
     body = await _parse_body(request)
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     with _test_mode_scope(body):
@@ -2698,6 +2728,9 @@ async def cron_friday(request: Request):
 @router.api_route("/saturday", methods=["GET", "POST"])
 async def cron_saturday(request: Request):
     _verify_cron_secret(request)
+    paused = _scheduled_w39_pause(request, "saturday")
+    if paused is not None:
+        return paused
     body = await _parse_body(request)
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     with _test_mode_scope(body):
@@ -2745,6 +2778,9 @@ async def cron_saturday(request: Request):
 @router.api_route("/sunday", methods=["GET", "POST"])
 async def cron_sunday(request: Request):
     _verify_cron_secret(request)
+    paused = _scheduled_w39_pause(request, "sunday")
+    if paused is not None:
+        return paused
     body = await _parse_body(request)
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     with _test_mode_scope(body):
