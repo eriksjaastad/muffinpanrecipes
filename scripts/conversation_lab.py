@@ -247,7 +247,7 @@ from backend.config import config
 from backend.utils import model_router
 from backend.utils.episode_integrity import PLACEHOLDER_CONCEPT, _recipe_title
 from scripts.conversation_metrics import summarize
-from scripts.conversation_budget import AnthropicBudgetGuard, BudgetGuardError
+from scripts.conversation_budget import AnthropicBudgetGuard, BudgetExceeded, BudgetGuardError
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LAB_DIR = ROOT / "docs" / "conversation-lab"
@@ -873,28 +873,47 @@ def _judge_orientation(
     second_arm: str,
     second_messages: list[dict[str, Any]],
     recipe_facts: str | None = None,
+    evidence: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     """Judge once with A=first_arm, B=second_arm; map the A/B verdict back to arm labels."""
     prompt = _build_pairwise_prompt(
         concept, stage, recipe_context, expected_cast, first_messages, second_messages,
         recipe_facts=recipe_facts,
     )
+    mapping = {"A": first_arm, "B": second_arm, "tie": "tie"}
+    if evidence is not None:
+        evidence.update({
+            "prompt": prompt,
+            "system_prompt": PAIRWISE_JUDGE_SYSTEM_PROMPT,
+            "model": judge_model,
+            "temperature": 0.2,
+            "mapping": mapping,
+            "first_arm": first_arm,
+            "second_arm": second_arm,
+        })
     raw = model_router.generate_judge_response(
         prompt=prompt,
         system_prompt=PAIRWISE_JUDGE_SYSTEM_PROMPT,
         model=judge_model,
         temperature=0.2,
     )
+    if evidence is not None:
+        evidence["raw_response"] = raw
     parsed = _parse_judge_json(raw)
     if parsed is None:
         raise ConversationLabError(f"pairwise judge returned unparseable output: {raw[:200]!r}")
 
-    mapping = {"A": first_arm, "B": second_arm, "tie": "tie"}
-    winner_value = _normalize_verdict_value(parsed.get("winner", "tie"), field="winner")
+    if "winner" not in parsed:
+        raise ConversationLabError("pairwise judge response is missing winner")
+    winner_value = _normalize_verdict_value(parsed["winner"], field="winner")
     result: dict[str, str] = {"overall": mapping[winner_value]}
-    per_dimension = parsed.get("per_dimension") or {}
+    per_dimension = parsed.get("per_dimension")
+    if not isinstance(per_dimension, dict):
+        raise ConversationLabError("pairwise judge response per_dimension must be an object")
     for dim in ALL_JUDGE_DIMENSIONS:
-        value = _normalize_verdict_value(per_dimension.get(dim, "tie"), field=f"per_dimension.{dim}")
+        if dim not in per_dimension:
+            raise ConversationLabError(f"pairwise judge response is missing per_dimension.{dim}")
+        value = _normalize_verdict_value(per_dimension[dim], field=f"per_dimension.{dim}")
         result[dim] = mapping[value]
     result["reason"] = str(parsed.get("reason", ""))
     return result
@@ -903,14 +922,14 @@ def _normalize_verdict_value(raw: Any, *, field: str) -> str:
     """Normalise a judge verdict value's case and whitespace, and validate
     it is really one of A/B/tie.
 
-    A missing field already defaulted to the string "tie" by the caller
-    before this runs, which is always valid and never raises. What must
-    never happen is silently mapping a garbage value - a hallucinated
-    "C", a typo, an empty string the model returned instead of following
-    instructions - into "tie", because that hides a judge that isn't
-    doing its job behind an innocuous-looking result.
+    Only string verdicts are accepted. Missing, null, and mistyped values
+    are malformed scorecards, not ties.
     """
-    text = str(raw).strip().upper()
+    if not isinstance(raw, str):
+        raise ConversationLabError(
+            f"pairwise judge returned an invalid {field} verdict: {raw!r} (expected a string)"
+        )
+    text = raw.strip().upper()
     if text == "TIE":
         return "tie"
     if text in ("A", "B"):
@@ -927,6 +946,48 @@ def _combine_orientations(first: dict[str, str], second: dict[str, str]) -> dict
         v1, v2 = first.get(key, "tie"), second.get(key, "tie")
         combined[key] = v1 if v1 == v2 else "tie"
     return combined
+
+def _orientation_diagnostics(first: dict[str, str], second: dict[str, str]) -> dict[str, dict[str, str]]:
+    """Explain conservative ties without changing the combined decision."""
+    diagnostics = {}
+    for key in ("overall", *ALL_JUDGE_DIMENSIONS):
+        a, b = first[key], second[key]
+        if a == b == "tie":
+            status = "unanimous_tie"
+        elif a != b:
+            status = "orientation_disagreement"
+        else:
+            status = "agreement"
+        diagnostics[key] = {"status": status, "first": a, "second": b}
+    return diagnostics
+
+def _run_judge_orientation(
+    *, orientation: str, pending_pair: dict[str, Any], budget: "CallBudget", **kwargs: Any,
+) -> dict[str, str]:
+    """Record evidence even when generation/parsing fails; count each invocation."""
+    evidence: dict[str, Any] = {}
+    result = None
+    error = None
+    budget_denied = False
+    try:
+        result = _judge_orientation(**kwargs, evidence=evidence)
+        return result
+    except BaseException as exc:
+        error = f"{type(exc).__name__}: {exc}"
+        budget_denied = isinstance(exc, BudgetExceeded)
+        raise
+    finally:
+        # The shared guard can reject before a provider request is made; such
+        # budget denials are not judge calls and retain the historical count.
+        if not budget_denied:
+            budget.record(1)
+            entry: dict[str, Any] = {"orientation": orientation, "evidence": evidence}
+            if result is not None:
+                entry["result"] = result
+            if error is not None:
+                entry["error"] = error
+            pending_pair["judge_orientations"].append(entry)
+            _budget_checkpoint()
 
 def _dry_run_combined() -> dict[str, str]:
     return {"overall": "tie", **{dim: "tie" for dim in ALL_JUDGE_DIMENSIONS}}
@@ -1333,32 +1394,26 @@ def _generate_and_judge_pairs(
                 if budget.would_exceed(1) or _would_exceed_cost(max_cost):
                     aborted = True
                     break
-                first = _judge_orientation(
-                    judge_model, concept, stage, recipe_context, expected_cast,
-                    "control", control_messages, "variant", variant_messages,
+                first = _run_judge_orientation(
+                    orientation="control_first", pending_pair=pending_pair, budget=budget,
+                    judge_model=judge_model, concept=concept, stage=stage,
+                    recipe_context=recipe_context, expected_cast=expected_cast,
+                    first_arm="control", first_messages=control_messages,
+                    second_arm="variant", second_messages=variant_messages,
                     recipe_facts=recipe_facts,
                 )
-                budget.record(1)
-                pending_pair["judge_orientations"].append({
-                    "orientation": "control_first",
-                    "result": first,
-                })
-                _budget_checkpoint()
 
                 if budget.would_exceed(1) or _would_exceed_cost(max_cost):
                     aborted = True
                     break
-                second = _judge_orientation(
-                    judge_model, concept, stage, recipe_context, expected_cast,
-                    "variant", variant_messages, "control", control_messages,
+                second = _run_judge_orientation(
+                    orientation="variant_first", pending_pair=pending_pair, budget=budget,
+                    judge_model=judge_model, concept=concept, stage=stage,
+                    recipe_context=recipe_context, expected_cast=expected_cast,
+                    first_arm="variant", first_messages=variant_messages,
+                    second_arm="control", second_messages=control_messages,
                     recipe_facts=recipe_facts,
                 )
-                budget.record(1)
-                pending_pair["judge_orientations"].append({
-                    "orientation": "variant_first",
-                    "result": second,
-                })
-                _budget_checkpoint()
                 combined = _combine_orientations(first, second)
 
             completed_pair = {
@@ -1368,6 +1423,8 @@ def _generate_and_judge_pairs(
                 "control_summary": summarize(control_messages, expected_cast, concept=concept, day=stage),
                 "variant_summary": summarize(variant_messages, expected_cast, concept=concept, day=stage),
                 "judge": combined,
+                "judge_diagnostics": _orientation_diagnostics(first, second) if not dry_run else None,
+                "judge_orientations": pending_pair["judge_orientations"],
                 "dry_run": bool(dry_run),
             }
             pairs.append(completed_pair)
@@ -2038,32 +2095,26 @@ def _run_sweep_variant(
                     if budget.would_exceed(1) or _would_exceed_cost(max_cost, baseline=baseline_cost):
                         aborted = True
                         break
-                    first = _judge_orientation(
-                        judge_model, scenario["concept"], stage, scenario["recipe_context"], expected_cast,
-                        "control", control_messages, "variant", variant_messages,
+                    first = _run_judge_orientation(
+                        orientation="control_first", pending_pair=pending_pair, budget=budget,
+                        judge_model=judge_model, concept=scenario["concept"], stage=stage,
+                        recipe_context=scenario["recipe_context"], expected_cast=expected_cast,
+                        first_arm="control", first_messages=control_messages,
+                        second_arm="variant", second_messages=variant_messages,
                         recipe_facts=scenario.get("judge_recipe_facts"),
                     )
-                    budget.record(1)
-                    pending_pair["judge_orientations"].append({
-                        "orientation": "control_first",
-                        "result": first,
-                    })
-                    _budget_checkpoint()
 
                     if budget.would_exceed(1) or _would_exceed_cost(max_cost, baseline=baseline_cost):
                         aborted = True
                         break
-                    second = _judge_orientation(
-                        judge_model, scenario["concept"], stage, scenario["recipe_context"], expected_cast,
-                        "variant", variant_messages, "control", control_messages,
+                    second = _run_judge_orientation(
+                        orientation="variant_first", pending_pair=pending_pair, budget=budget,
+                        judge_model=judge_model, concept=scenario["concept"], stage=stage,
+                        recipe_context=scenario["recipe_context"], expected_cast=expected_cast,
+                        first_arm="variant", first_messages=variant_messages,
+                        second_arm="control", second_messages=control_messages,
                         recipe_facts=scenario.get("judge_recipe_facts"),
                     )
-                    budget.record(1)
-                    pending_pair["judge_orientations"].append({
-                        "orientation": "variant_first",
-                        "result": second,
-                    })
-                    _budget_checkpoint()
                     combined = _combine_orientations(first, second)
 
                 completed_pair = {
@@ -2074,12 +2125,19 @@ def _run_sweep_variant(
                     "control_summary": summarize(control_messages, expected_cast, concept=scenario["concept"], day=stage),
                     "variant_summary": summarize(variant_messages, expected_cast, concept=scenario["concept"], day=stage),
                     "judge": combined,
+                    "judge_diagnostics": _orientation_diagnostics(first, second) if not dry_run else None,
+                    "judge_orientations": pending_pair["judge_orientations"],
                     "dry_run": bool(dry_run),
                 }
                 pairs.append(completed_pair)
                 partial_pairs.remove(pending_pair)
             if aborted:
                 break
+    except BaseException as exc:
+        # The report writer catches this outside the function; expose the
+        # truthful invocation count so a failed pair does not erase it.
+        setattr(exc, "conversation_lab_calls_used", budget.used)
+        raise
     finally:
         if restore_pending is not None:
             _restore_variant(simulate_module, restore_pending)
@@ -2406,9 +2464,10 @@ def _cmd_ab_sweep(
                         dry_run=args.dry_run, pairs=variant_pairs,
                         partial_pairs=variant_partial_pairs,
                     )
-                except BaseException:
+                except BaseException as exc:
                     variant_reports[variant_name] = _build_sweep_variant_report(
-                        variant_name, variant, variant_pairs, True, None, None, args.target, args.dry_run,
+                        variant_name, variant, variant_pairs, True,
+                        getattr(exc, "conversation_lab_calls_used", None), None, args.target, args.dry_run,
                         partial_pairs=variant_partial_pairs,
                     )
                     raise
@@ -3950,37 +4009,36 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
                         if budget.would_exceed(1) or _would_exceed_cost(args.max_cost):
                             aborted = True
                             break
-                        first = _judge_orientation(
-                            judge_model, concept, args.stage, recipe_context, expected_cast,
-                            "real", dialogue, "degraded", degraded,
+                        first = _run_judge_orientation(
+                            orientation="real_first", pending_pair=pending_pair, budget=budget,
+                            judge_model=judge_model, concept=concept, stage=args.stage,
+                            recipe_context=recipe_context, expected_cast=expected_cast,
+                            first_arm="real", first_messages=dialogue,
+                            second_arm="degraded", second_messages=degraded,
                             recipe_facts=recipe_facts,
                         )
-                        budget.record(1)
-                        pending_pair["judge_orientations"].append({
-                            "orientation": "real_first",
-                            "result": first,
-                        })
-                        _budget_checkpoint()
 
                         if budget.would_exceed(1) or _would_exceed_cost(args.max_cost):
                             aborted = True
                             break
-                        second = _judge_orientation(
-                            judge_model, concept, args.stage, recipe_context, expected_cast,
-                            "degraded", degraded, "real", dialogue,
+                        second = _run_judge_orientation(
+                            orientation="degraded_first", pending_pair=pending_pair, budget=budget,
+                            judge_model=judge_model, concept=concept, stage=args.stage,
+                            recipe_context=recipe_context, expected_cast=expected_cast,
+                            first_arm="degraded", first_messages=degraded,
+                            second_arm="real", second_messages=dialogue,
                             recipe_facts=recipe_facts,
                         )
-                        budget.record(1)
-                        pending_pair["judge_orientations"].append({
-                            "orientation": "degraded_first",
-                            "result": second,
-                        })
-                        _budget_checkpoint()
                         combined = _combine_orientations(first, second)
 
                     if combined["overall"] == "real":
                         wins += 1
-                    pair_records.append({"run_index": run_index, "judge": combined})
+                    pair_records.append({
+                        "run_index": run_index,
+                        "judge": combined,
+                        "judge_diagnostics": _orientation_diagnostics(first, second) if not args.dry_run else None,
+                        "judge_orientations": pending_pair["judge_orientations"],
+                    })
                     partial_pair_records.remove(pending_pair)
             finally:
                 scored_pairs = 0 if args.dry_run else len(pair_records)
