@@ -439,6 +439,14 @@ because the spread was never estimated, not because the result repeats,
 and treating that as movement turns a coin flip into a finding. This is
 the concrete reason N=1 is not a bench.
 
+Comparison rows cover the union of metric keys observed in either arm. A
+missing key or a distribution with `n=0` is **unavailable**, not a measured
+zero; `n=1` retains its observed mean and delta but cannot establish movement.
+The summary reports unavailable and indeterminate rows even when other rows
+move. Judge-dimension baselines must keep means within the judge's 1–5 scale;
+their `n=0` placeholder is valid only with `no_valid_samples: true` and zero
+mean/stderr. This checks stored aggregates before the comparison spends calls.
+
 That threshold is a **screening rule for deciding what to look at next,
 not a significance test.** It applies no correction for comparing ~25
 metrics at once, and the runs are not independent draws from a stable
