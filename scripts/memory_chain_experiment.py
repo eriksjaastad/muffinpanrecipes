@@ -24,6 +24,21 @@ WEEK_PLAN = (
     {"week": "2026-W42", "concept": "Roasted tomato polenta muffin bites", "seed": 40142},
 )
 ARMS = ("control_no_persistent_memory", "weekly_character_memory")
+CHARACTER_ROSTER = (
+    "Margaret Chen",
+    "Stephanie 'Steph' Whitmore",
+    "Julian Torres",
+    "Marcus Reid",
+    "Devon Park",
+    "Ria Castillo",
+)
+
+
+def _send_to_trash(path: Path) -> None:
+    """Move an experiment root to the OS trash so it remains recoverable."""
+    from send2trash import send2trash
+
+    send2trash(str(path))
 
 
 def _validate_assumptions(assumptions: dict[str, Any]) -> None:
@@ -31,7 +46,7 @@ def _validate_assumptions(assumptions: dict[str, Any]) -> None:
         "budget_usd": 0,
         "provider_calls_allowed": False,
         "provenance": "every generated turn retains week, day, speaker, and stable source_id",
-        "isolation": "each arm has a temporary character-memory root removed after the run",
+        "isolation": "each arm uses a temporary character-memory root that is sent to OS trash after the run",
         "side_effects": "no cron, publish, Blob, or production character writes",
     }
     for key, expected in required.items():
@@ -42,11 +57,11 @@ def _validate_assumptions(assumptions: dict[str, Any]) -> None:
 def build_plan(assumptions: dict[str, Any] | None = None) -> dict[str, Any]:
     if assumptions is None:
         assumptions = {
-        "budget_usd": 0,
-        "provider_calls_allowed": False,
-        "provenance": "every generated turn retains week, day, speaker, and stable source_id",
-        "isolation": "each arm has a temporary character-memory root removed after the run",
-        "side_effects": "no cron, publish, Blob, or production character writes",
+            "budget_usd": 0,
+            "provider_calls_allowed": False,
+            "provenance": "every generated turn retains week, day, speaker, and stable source_id",
+            "isolation": "each arm uses a temporary character-memory root that is sent to OS trash after the run",
+            "side_effects": "no cron, publish, Blob, or production character writes",
         }
     _validate_assumptions(assumptions)
     return {
@@ -56,6 +71,8 @@ def build_plan(assumptions: dict[str, Any] | None = None) -> dict[str, Any]:
         "execution_performed": False,
         "provider_calls": 0,
         "budget_usd": 0,
+        "character_roster": list(CHARACTER_ROSTER),
+        "weekly_memory_slots_per_arm": len(CHARACTER_ROSTER) * len(WEEK_PLAN),
         "assumptions": assumptions,
         "weeks": [
             {
@@ -72,7 +89,7 @@ def build_plan(assumptions: dict[str, Any] | None = None) -> dict[str, Any]:
             for week in WEEK_PLAN
         ],
         "source_id_policy": "derive stable IDs from experiment, arm, ISO week, day, turn index, speaker, and exact generated text; retain IDs through each weekly memory",
-        "memory_retention_policy": "write each week's memories inside that arm's isolated temporary character-memory root; only the following week in that arm may read them",
+        "memory_retention_policy": "write one character slot each week; carry prior memory references forward through weeks with no observed dialogue, without inventing an event; send roots to OS trash after the run",
         "measurement": [
             "voice distinctiveness by named character",
             "grounding against the cited source turns",
@@ -107,7 +124,7 @@ def stable_source_id(arm: str, week: str, day: str, index: int, speaker: str, te
 
 @dataclass(frozen=True)
 class FakeAdapters:
-    """Explicitly marked fake callbacks; production adapters are not accepted."""
+    """Injected callbacks; `kind=fake` is a test convention, not a sandbox."""
 
     kind: str
     provider_calls_allowed: bool
@@ -122,14 +139,17 @@ def execute_fake_chain(
 ) -> dict[str, Any]:
     """Exercise orchestration with fake adapters under isolated temp roots.
 
-    No real simulation adapter exists by design. This function rejects an
-    adapter unless it is explicitly marked fake and zero-provider.
+    No real simulation adapter exists by design. The `fake` marker is a caller
+    convention, not a sandbox. Since arbitrary callbacks cannot be proven
+    offline here, result metadata reports provider-call status as unverified.
     """
     _validate_assumptions(plan.get("assumptions", {}))
     if plan.get("execution_performed") is not False or plan.get("provider_calls") != 0:
         raise ValueError("input plan must be unexecuted with zero provider calls")
     if [row.get("week") for row in plan.get("weeks", [])] != [row["week"] for row in WEEK_PLAN]:
         raise ValueError("plan must contain the fixed three chronological weeks")
+    if plan.get("character_roster") != list(CHARACTER_ROSTER):
+        raise ValueError("plan must contain the fixed character roster")
     if any([arm.get("name") for arm in row.get("arms", [])] != list(ARMS) for row in plan["weeks"]):
         raise ValueError("each week must contain the fixed control and memory arms")
     if adapters.kind != "fake" or adapters.provider_calls_allowed is not False:
@@ -158,6 +178,14 @@ def execute_fake_chain(
             turns = result.get("turns")
             if not isinstance(turns, list):
                 raise ValueError(f"{week['week']}: fake simulation must return a turns list")
+            unknown_speakers = sorted({
+                turn.get("speaker") for turn in turns
+                if isinstance(turn, dict)
+                and isinstance(turn.get("speaker"), str)
+                and turn.get("speaker") not in CHARACTER_ROSTER
+            })
+            if unknown_speakers:
+                raise ValueError(f"{week['week']}: speakers outside the fixed roster: {unknown_speakers}")
             normalized_turns = []
             for index, turn in enumerate(turns):
                 if not isinstance(turn, dict) or not all(isinstance(turn.get(key), str) and turn[key] for key in ("day", "speaker", "text")):
@@ -168,26 +196,37 @@ def execute_fake_chain(
                 raise ValueError(f"{week['week']}: duplicate source IDs")
             new_memory_ids: dict[str, list[str]] = {}
             if arm == ARMS[1]:
-                for speaker in sorted({turn["speaker"] for turn in normalized_turns}):
+                for speaker in CHARACTER_ROSTER:
                     attended_days = {turn["day"] for turn in normalized_turns if turn["speaker"] == speaker}
                     observations = [turn for turn in normalized_turns if turn["day"] in attended_days]
                     observed_source_ids = [turn["source_id"] for turn in observations]
-                    memory_id = adapters.write_memory(speaker, {"week": week["week"], "source_ids": observed_source_ids, "turns": observations}, root)
+                    slot_status = "observed" if observations else "no_new_evidence"
+                    memory_id = adapters.write_memory(speaker, {
+                        "week": week["week"],
+                        "status": slot_status,
+                        "source_ids": observed_source_ids,
+                        "turns": observations,
+                        "prior_memory_ids": list(previous_memory_ids.get(speaker, [])),
+                    }, root)
                     if not isinstance(memory_id, str) or not memory_id:
                         raise ValueError(f"{week['week']}: memory writer must return a stable memory ID")
                     new_memory_ids[speaker] = [memory_id]
             rows.append({"week": week["week"], "source_ids": source_ids, "turns": normalized_turns, "prior_memory_ids": dict(previous_memory_ids)})
             previous_memory_ids = new_memory_ids
-        return {"weeks": rows, "memory_root": str(root)}
+        return {"weeks": rows}
 
+    isolated_roots: list[Path] = []
     try:
-        with tempfile.TemporaryDirectory(prefix="mpr-memory-control-") as control_dir:
-            control = run_arm(Path(control_dir), ARMS[0])
-        with tempfile.TemporaryDirectory(prefix="mpr-memory-treatment-") as treatment_dir:
-            treatment = run_arm(Path(treatment_dir), ARMS[1])
+        control_root = Path(tempfile.mkdtemp(prefix="mpr-memory-control-"))
+        isolated_roots.append(control_root)
+        control = run_arm(control_root, ARMS[0])
+        treatment_root = Path(tempfile.mkdtemp(prefix="mpr-memory-treatment-"))
+        isolated_roots.append(treatment_root)
+        treatment = run_arm(treatment_root, ARMS[1])
         output["arms"] = {ARMS[0]: control, ARMS[1]: treatment}
         output["execution_performed"] = True
-        output["provider_calls"] = 0
+        output["provider_calls"] = "unverified_in_injected_callbacks"
+        output["provider_calls_verified"] = False
         return output
     finally:
         simulator_state.CHARACTERS_DIR = original_characters_dir
@@ -195,6 +234,8 @@ def execute_fake_chain(
         simulator_state._system_prompt_cache.update(original_cache)
         simulator_state.DAY_STAGE_DIRECTIONS.clear()
         simulator_state.DAY_STAGE_DIRECTIONS.update(original_directions)
+        for root in isolated_roots:
+            _send_to_trash(root)
 
 
 def main(argv: list[str] | None = None) -> int:
