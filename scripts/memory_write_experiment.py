@@ -16,17 +16,17 @@ from typing import Any
 
 TARGET_EPISODE = "2026-W35"
 PLANNED_MODEL = "claude-haiku-4-5-20251001"
-OUTPUT_TOKEN_TARGET = 160
-OUTPUT_TOKEN_BAND = (80, 120)
+MAX_RESPONSE_TOKENS = 220
+MEMORY_PROSE_TOKEN_BAND = (80, 120)
 EXPECTED_CHARACTER_COUNT = 6
 MAX_PROFILE_CONTEXT_CHARS = 1200
 DEFAULT_PROFILES = Path(__file__).resolve().parents[1] / "backend" / "data" / "agent_personalities.json"
 
-COMMON_SYSTEM = """Write one weekly memory for {character}, based on the accepted dialogue evidence and stable persona context supplied by the user. The same evidence is provided to both memory formats. Persona context is identity framing, not event evidence: do not report profile history as something that happened this week or assert that a relationship changed unless dialogue supports it. Do not invent events, facts, quotes, motives, feelings, relationships, or unresolved issues. Every factual event or interpretation must be traceable to the supplied dialogue source IDs. Aim for 80–120 provider output tokens for the complete response, including any evidence map or citations, when the evidence supports that length. If not, write less rather than repeat or invent. The hard output cap is 160 tokens."""
+COMMON_SYSTEM = """Write one weekly memory for {character}, based on the accepted dialogue evidence and stable persona context supplied by the user. The same evidence is provided to both memory policies. Persona context is identity framing, not event evidence: do not report profile history as something that happened this week or assert that a relationship changed unless dialogue supports it. Do not invent events, facts, quotes, motives, feelings, relationships, or unresolved issues. Every factual event or interpretation must be traceable to the supplied dialogue source IDs. Aim for 80–120 provider tokens of memory prose, excluding citation and evidence-map overhead, when the evidence supports that length. If not, write less rather than repeat or invent. Keep the complete response, including labels and citations, under the 220-token hard cap."""
 
-FORMAT_A = """Format A — recap-style control. Write exactly two sentences in third person, past tense. Focus on supported interpersonal meaning rather than technical specifications. Do not include source IDs in the prose. After the two-sentence memory, add a separate Evidence map with one entry per sentence and only the source ID(s) that support that sentence. Do not add a sentence that lacks direct evidence."""
+FORMAT_A = """Policy A — recap bundle. Write exactly two sentences in third person, past tense. Focus on supported interpersonal meaning rather than technical specifications. Do not include source IDs in the prose. After the two-sentence memory, add a separate Evidence map with one entry per sentence and only the source ID(s) that support that sentence. Do not add a sentence that lacks direct evidence."""
 
-FORMAT_B = """Format B — personal, source-linked form. Write a compact memory in this exact labeled structure: Observed: one concrete event, citing source ID(s). Inference: the character's interpretation, explicitly marked as an inference and citing source ID(s), or 'none supported'. Stance: a supported change in stance, citing source ID(s), or 'no change evidenced' when this week's evidence does not establish one. Open thread: an explicitly unresolved issue supported by source ID(s), or 'none'. Do not claim a prior stance, feeling, or unresolved issue that the supplied evidence does not establish."""
+FORMAT_B = """Policy B — source-linked perspective-card bundle. Write a compact memory in this exact labeled structure: Observed: one concrete event, citing source ID(s). Inference: the character's interpretation, explicitly marked as an inference and citing source ID(s), or 'none supported'. Stance: a supported change in stance, citing source ID(s), or 'no change evidenced' when this week's evidence does not establish one. Open thread: an explicitly unresolved issue supported by source ID(s), or 'none'. Do not claim a prior stance, feeling, or unresolved issue that the supplied evidence does not establish."""
 
 FORMAT_A_SYSTEM = "You write concise character summaries. The memory itself is exactly 2 sentences."
 
@@ -227,8 +227,8 @@ def build_experiment(
             "profile_context_chars": profile_context_chars,
             "source_ids": source_ids,
             "observation_count": len(rows),
-            "target_output_token_band": list(OUTPUT_TOKEN_BAND),
-            "hard_max_output_tokens": OUTPUT_TOKEN_TARGET,
+            "target_memory_prose_token_band": list(MEMORY_PROSE_TOKEN_BAND),
+            "hard_max_response_tokens": MAX_RESPONSE_TOKENS,
             "planned_model": PLANNED_MODEL,
             "model_called": False,
             "arms": _prompt_pair(character, episode_id, rows, profile_context),
@@ -241,7 +241,7 @@ def build_experiment(
     ).hexdigest()
     return {
         "schema_version": 1,
-        "experiment": "memory_write_format_ab_dry_run",
+        "experiment": "memory_write_policy_bundle_ab_dry_run",
         "mode": "offline_prompt_render_only",
         "generation_performed": False,
         "paid_mode_available": False,
@@ -250,14 +250,16 @@ def build_experiment(
         "persona_profile_sha256": profile_sha256,
         "source_episode_sha256": source_episode.get("sha256"),
         "planned_model": PLANNED_MODEL,
-        "target_output_token_band": list(OUTPUT_TOKEN_BAND),
-        "hard_max_output_tokens_per_prompt": OUTPUT_TOKEN_TARGET,
-        "length_evaluation": "When paid generation is authorized, record provider-reported output tokens per arm; compare formats within the same 80-120 token band and report length separately from memory quality. Do not pad unsupported memories to meet the band.",
+        "target_memory_prose_token_band": list(MEMORY_PROSE_TOKEN_BAND),
+        "hard_max_response_tokens_per_prompt": MAX_RESPONSE_TOKENS,
+        "length_evaluation": "When paid generation is authorized, provider response usage output_tokens is the billing count for the full response. Measure prose separately from citation/evidence metadata with one consistent extraction and count method for both arms; if using count_tokens, subtract the same empty-message framing baseline and label that measure as normalized prose length, not billable output usage. Compare memory quality only for outputs with matched actual prose lengths; report unmatched outputs separately.",
         "character_count": len(prompts),
         "arm_design": {
-            "A": "recap-style control: two-sentence third-person memory plus per-sentence evidence map",
-            "B": "source-linked personal perspective with marked inference, evidence-based stance, and real open thread only",
-            "controlled_fields": ["episode evidence", "profile context", "planned model", "output token band", "hard output cap"],
+            "comparison_type": "bundled memory-writing policy comparison",
+            "A": "recap bundle: two-sentence third-person recap plus a per-sentence evidence map",
+            "B": "source-linked perspective-card bundle: observed event, marked interpretation, evidence-based stance, cited open thread only when real",
+            "shared_inputs": ["episode evidence", "profile context", "planned model", "memory prose target band", "hard response cap"],
+            "attribution_limit": "Structure, perspective, content requirements, and citation obligations differ together. Any observed gain belongs to the bundled policy; this comparison cannot identify an individual mechanism.",
         },
         "prompts": prompts,
     }
