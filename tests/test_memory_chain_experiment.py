@@ -25,15 +25,36 @@ class FakeSimulatorState:
 def _fake_adapters(*, fail_week=None, observed=None):
     observed = observed if observed is not None else []
 
-    def simulate_week(week, arm, memory_root):
+    def simulate_week(week, arm, memory_root, prior_memories):
         if arm == ARMS[0]:
             assert list(memory_root.iterdir()) == []
+            (memory_root / "unwanted-memory.json").write_text("control-local-only", encoding="utf-8")
+        elif week["week"] == "2026-W40":
+            assert list(memory_root.iterdir()) == []
+            assert all(not records for records in prior_memories.values())
+        elif week["week"] == "2026-W41":
+            assert list(memory_root.iterdir()) == []
+            assert all(len(prior_memories[character]) == 1 for character in CHARACTER_ROSTER)
+            margaret_prior = prior_memories["Margaret Chen"]
+            assert len(margaret_prior) == 1
+            assert margaret_prior[0]["week"] == "2026-W40"
+            assert margaret_prior[0]["text"] == "Synthetic fake memory, not dialogue content."
+            assert margaret_prior[0]["memory_id"] == "mem_2026-W40_margaretchen"
+        elif week["week"] == "2026-W42":
+            assert list(memory_root.iterdir()) == []
+            assert all(len(prior_memories[character]) == 2 for character in CHARACTER_ROSTER)
+            ria_prior = prior_memories["Ria Castillo"]
+            assert [record["week"] for record in ria_prior] == ["2026-W40", "2026-W41"]
+            assert ria_prior[0]["text"] == "Synthetic fake memory, not dialogue content."
+            assert ria_prior[1]["status"] == "no_new_evidence"
+            assert ria_prior[1]["text"] is None
         observed.append({
             "week": week["week"],
             "seed": week["seed"],
             "arm": arm,
             "cache_at_start": dict(STATE._system_prompt_cache),
             "root": memory_root,
+            "prior_memories": prior_memories,
         })
         assert STATE._system_prompt_cache == {}
         STATE._system_prompt_cache["added during week"] = week["week"]
@@ -41,9 +62,10 @@ def _fake_adapters(*, fail_week=None, observed=None):
         if fail_week == week["week"] and arm == ARMS[1]:
             raise RuntimeError("synthetic simulation failure")
         if arm == ARMS[1]:
-            prior = sorted(memory_root.glob("*/memory.json"))
-            assert len(prior) == len(CHARACTER_ROSTER) if week["week"] != "2026-W40" else not prior
-            observed[-1]["prior_memory_files"] = [path.parent.name for path in prior]
+            observed[-1]["prior_memory_ids"] = {
+                character: [record["memory_id"] for record in records]
+                for character, records in prior_memories.items()
+            }
         turns = [
             {"day": "monday", "speaker": "Margaret Chen", "text": f"Week {week['week']} note."},
             {"day": "monday", "speaker": "Ria Castillo", "text": "I see the framing differently."},
@@ -52,10 +74,7 @@ def _fake_adapters(*, fail_week=None, observed=None):
             turns = turns[:1]
         return {"turns": turns}
 
-    def write_memory(speaker, payload, root):
-        path = root / speaker / "memory.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        prior = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+    def write_memory(speaker, payload):
         normalized = "".join(character.lower() for character in speaker if character.isalnum())
         cited_ids = payload["source_ids"]
         if speaker == "Margaret Chen" and payload["status"] == "observed":
@@ -68,8 +87,6 @@ def _fake_adapters(*, fail_week=None, observed=None):
             "source_ids": cited_ids,
             "prior_memory_ids": payload["prior_memory_ids"],
         }
-        prior.append(record)
-        path.write_text(json.dumps(prior), encoding="utf-8")
         return record
 
     return FakeAdapters("fake", False, simulate_week, write_memory), observed
@@ -152,12 +169,22 @@ def test_fake_chain_keeps_arms_isolated_and_links_week_memories(tmp_path, monkey
 
     assert result["provider_calls"] == "unverified_in_injected_callbacks"
     assert result["provider_calls_verified"] is False
+    assert result["prompt_injection_verified"] is False
+    assert "model_prompt_visibility_unverified" in result["memory_delivery"]
     assert set(result["arms"]) == set(ARMS)
     assert [row["week"] for row in result["arms"][ARMS[0]]["weeks"]] == [row["week"] for row in WEEK_PLAN]
     assert [row["week"] for row in result["arms"][ARMS[1]]["weeks"]] == [row["week"] for row in WEEK_PLAN]
     assert all(not row["prior_memory_ids"] for row in result["arms"][ARMS[0]]["weeks"])
     treatment_weeks = result["arms"][ARMS[1]]["weeks"]
     assert treatment_weeks[0]["prior_memory_ids"] == {}
+    assert treatment_weeks[0]["prior_memory_records_provided_to_callback"] == {
+        character: [] for character in CHARACTER_ROSTER
+    }
+    w40_margaret_record = next(
+        record for record in treatment_weeks[0]["memory_records"]
+        if record["character"] == "Margaret Chen"
+    )
+    assert treatment_weeks[1]["prior_memory_records_provided_to_callback"]["Margaret Chen"] == [w40_margaret_record]
     assert treatment_weeks[1]["prior_memory_ids"] == {
         character: [f"mem_2026-W40_{''.join(c.lower() for c in character if c.isalnum())}"]
         for character in CHARACTER_ROSTER
@@ -188,22 +215,31 @@ def test_fake_chain_keeps_arms_isolated_and_links_week_memories(tmp_path, monkey
     assert STATE._system_prompt_cache == original_cache
     assert STATE.DAY_STAGE_DIRECTIONS == original_directions
     assert all("memory_root" not in arm for arm in result["arms"].values())
-    assert len(trashed) == 2
-    assert len(list(trash_root.iterdir())) == 2
-    treatment_trash = next(path for path in trashed if path.name.startswith("mpr-memory-treatment-"))
-    assert len(list(treatment_trash.glob("*/memory.json"))) == len(CHARACTER_ROSTER)
+    assert len(trashed) == 7
+    assert len(list(trash_root.iterdir())) == 7
+    treatment_trash = next(path for path in trashed if path.name.startswith("mpr-memory-treatment-store-"))
+    assert len(list(treatment_trash.rglob("*.json"))) == len(CHARACTER_ROSTER) * len(WEEK_PLAN)
     assert all(path.exists() for path in trashed)
     treatment_roots = {str(row["root"]) for row in observed if row["arm"] == ARMS[1]}
     control_roots = {str(row["root"]) for row in observed if row["arm"] == ARMS[0]}
-    assert len(treatment_roots) == len(control_roots) == 1
+    assert len(treatment_roots) == len(control_roots) == 3
     assert treatment_roots.isdisjoint(control_roots)
+    assert len({observation["root"] for observation in observed}) == 6
+    control_trash = [path for path in trashed if path.name.startswith("mpr-memory-control_no_persistent_memory-")]
+    assert len(control_trash) == 3
+    assert all((path / "unwanted-memory.json").read_text(encoding="utf-8") == "control-local-only"
+               for path in control_trash)
     for character in CHARACTER_ROSTER:
-        records = json.loads((treatment_trash / character / "memory.json").read_text(encoding="utf-8"))
+        char_key = "".join(char.lower() for char in character if char.isalnum())
+        records = [
+            json.loads((treatment_trash / "characters" / char_key / f"{week['week']}.json").read_text(encoding="utf-8"))
+            for week in WEEK_PLAN
+        ]
         assert len(records) == 3
-    ria_records = json.loads((treatment_trash / "Ria Castillo" / "memory.json").read_text(encoding="utf-8"))
-    assert ria_records[1]["status"] == "no_new_evidence"
-    assert ria_records[1]["source_ids"] == []
-    assert ria_records[1]["prior_memory_ids"] == ["mem_2026-W40_riacastillo"]
+    ria_w41 = json.loads((treatment_trash / "characters" / "riacastillo" / "2026-W41.json").read_text(encoding="utf-8"))
+    assert ria_w41["status"] == "no_new_evidence"
+    assert ria_w41["source_ids"] == []
+    assert ria_w41["prior_memory_ids"] == ["mem_2026-W40_riacastillo"]
     assert treatment_weeks[2]["prior_memory_ids"]["Ria Castillo"] == ["mem_2026-W41_riacastillo"]
     retained_ria_slot = next(record for record in treatment_weeks[1]["memory_records"] if record["character"] == "Ria Castillo")
     assert retained_ria_slot["text"] is None
@@ -227,7 +263,7 @@ def test_globals_restore_after_fake_simulation_exception(tmp_path, monkeypatch):
     assert STATE.CHARACTERS_DIR == original_dir
     assert STATE._system_prompt_cache == original_cache
     assert STATE.DAY_STAGE_DIRECTIONS == original_directions
-    assert len(list(trash_root.iterdir())) == 2
+    assert len(list(trash_root.iterdir())) == 6
 
 
 def test_execution_refuses_non_fake_or_provider_enabled_adapters(tmp_path):
@@ -283,7 +319,7 @@ def test_execution_rejects_speakers_outside_fixed_character_roster(tmp_path, mon
     STATE = FakeSimulatorState(tmp_path / "production-characters")
     adapters, _ = _fake_adapters()
 
-    def unknown_speaker(week, arm, root):
+    def unknown_speaker(week, arm, root, prior_memories):
         return {"turns": [{"day": "monday", "speaker": "Unknown Guest", "text": "Hello."}]}
 
     monkeypatch.setattr("scripts.memory_chain_experiment._send_to_trash", lambda path: path.rename(tmp_path / path.name))
@@ -301,8 +337,8 @@ def test_execution_rejects_memory_citations_outside_observed_source_set(tmp_path
     trash_root.mkdir()
     monkeypatch.setattr("scripts.memory_chain_experiment._send_to_trash", lambda path: path.rename(trash_root / path.name))
 
-    def invalid_writer(speaker, payload, root):
-        record = adapters.write_memory(speaker, payload, root)
+    def invalid_writer(speaker, payload):
+        record = adapters.write_memory(speaker, payload)
         if speaker == "Margaret Chen" and payload["status"] == "observed":
             record["source_ids"] = ["turn_not_in_observed_week"]
         return record
@@ -320,8 +356,8 @@ def test_execution_rejects_duplicate_memory_ids_across_characters(tmp_path, monk
     trash_root.mkdir()
     monkeypatch.setattr("scripts.memory_chain_experiment._send_to_trash", lambda path: path.rename(trash_root / path.name))
 
-    def duplicate_writer(speaker, payload, root):
-        record = adapters.write_memory(speaker, payload, root)
+    def duplicate_writer(speaker, payload):
+        record = adapters.write_memory(speaker, payload)
         record["memory_id"] = "duplicate-id"
         return record
 
@@ -350,8 +386,8 @@ def test_cleanup_attempts_every_root_and_reports_primary_and_cleanup_errors(tmp_
     with pytest.raises(ExceptionGroup) as exc_info:
         execute_fake_chain(build_plan(), adapters, STATE)
 
-    assert len(cleanup_calls) == 2
-    assert len(list(preserved_roots.iterdir())) == 2
+    assert len(cleanup_calls) == 6
+    assert len(list(preserved_roots.iterdir())) == 6
     exception_messages = [str(error) for error in exc_info.value.exceptions]
     assert any("synthetic simulation failure" in message for message in exception_messages)
     assert any("simulated first trash failure" in message for message in exception_messages)
