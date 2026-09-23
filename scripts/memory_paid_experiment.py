@@ -181,7 +181,10 @@ def _extract_prose(
         if len(found) != 1:
             return None, f"missing or duplicate {label} field", None
         matches.append((found[0].start(), found[0].end(), label))
-    matches.sort()
+    if raw[:matches[0][0]].strip():
+        return None, "perspective card has content before Observed", None
+    if any(matches[index][0] >= matches[index + 1][0] for index in range(len(matches) - 1)):
+        return None, "perspective card fields are out of declared order", None
     contents = {
         label: raw[end:matches[index + 1][0] if index + 1 < len(matches) else len(raw)].strip()
         for index, (_, end, label) in enumerate(matches)

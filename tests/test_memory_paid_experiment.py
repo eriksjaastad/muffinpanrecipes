@@ -221,6 +221,38 @@ def test_b_prose_length_excludes_field_labels_and_citation_wrappers():
     assert structure_a["fields"] == structure_b["fields"]
 
 
+def test_b_requires_declared_order_and_no_prefix_but_accepts_whitespace():
+    source_id = "msg_0123456789abcdefabcd"
+    allowed = {source_id}
+    valid = (
+        " \n  Observed : Launch paused [" + source_id + "]  \n"
+        "  Inference: The delay may help [" + source_id + "]\n"
+        "Stance: no change evidenced. \n  Open thread: none  \n"
+    )
+    prose, error, structure = paid._extract_prose("B", valid, allowed)
+    assert error is None
+    assert structure["fields"]["Observed"] == "Launch paused"
+    assert structure["fields"]["Inference"] == "The delay may help"
+
+    out_of_order = (
+        "Observed: Launch paused [" + source_id + "]\n"
+        "Stance: no change evidenced\n"
+        "Inference: The delay may help [" + source_id + "]\nOpen thread: none"
+    )
+    parsed, error, structure = paid._extract_prose("B", out_of_order, allowed)
+    assert parsed is None and structure is None
+    assert error == "perspective card fields are out of declared order"
+
+    prefixed = (
+        "Unlabeled introduction [" + source_id + "]\n"
+        "Observed: Launch paused [" + source_id + "]\n"
+        "Inference: none supported\nStance: no change evidenced\nOpen thread: none"
+    )
+    parsed, error, structure = paid._extract_prose("B", prefixed, allowed)
+    assert parsed is None and structure is None
+    assert error == "perspective card has content before Observed"
+
+
 def test_b_uncited_no_change_fallback_is_exact_and_citation_groups_strip_cleanly():
     source_id = "msg_0123456789abcdefabcd"
     source_id_2 = "msg_abcdef0123456789abcd"
