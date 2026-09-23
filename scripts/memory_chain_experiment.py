@@ -175,6 +175,7 @@ def execute_fake_chain(
         simulator_state._system_prompt_cache.clear()
         rows = []
         previous_memory_ids: dict[str, list[str]] = {}
+        seen_memory_ids: set[str] = set()
         for week in plan["weeks"]:
             simulator_state._system_prompt_cache.clear()
             week_directions = dict(simulator_state.DAY_STAGE_DIRECTIONS)
@@ -223,6 +224,9 @@ def execute_fake_chain(
                     memory_id = record.get("memory_id")
                     if not isinstance(memory_id, str) or not memory_id:
                         raise ValueError(f"{week['week']}: memory record requires a stable memory_id")
+                    if memory_id in seen_memory_ids:
+                        raise ValueError(f"{week['week']}: duplicate memory_id {memory_id!r} makes memory references ambiguous")
+                    seen_memory_ids.add(memory_id)
                     if record.get("status") != slot_status:
                         raise ValueError(f"{week['week']}: memory status must be {slot_status!r} for {speaker}")
                     cited_source_ids = record.get("source_ids")
@@ -275,13 +279,21 @@ def execute_fake_chain(
         output["provider_calls_verified"] = False
         return output
     finally:
+        primary_error = sys.exc_info()[1]
         simulator_state.CHARACTERS_DIR = original_characters_dir
         simulator_state._system_prompt_cache.clear()
         simulator_state._system_prompt_cache.update(original_cache)
         simulator_state.DAY_STAGE_DIRECTIONS.clear()
         simulator_state.DAY_STAGE_DIRECTIONS.update(original_directions)
+        cleanup_errors = []
         for root in isolated_roots:
-            _send_to_trash(root)
+            try:
+                _send_to_trash(root)
+            except Exception as exc:
+                cleanup_errors.append(exc)
+        if cleanup_errors:
+            errors = ([primary_error] if primary_error is not None else []) + cleanup_errors
+            raise BaseExceptionGroup("memory experiment failed during simulation and/or root cleanup", errors)
 
 
 def main(argv: list[str] | None = None) -> int:
