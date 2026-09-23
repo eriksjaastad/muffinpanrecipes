@@ -3829,13 +3829,21 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
                     pair_records.append({"run_index": run_index, "judge": combined})
                     partial_pair_records.remove(pending_pair)
             finally:
-                preference_rate = round(wins / attempted, 4) if attempted else 0.0
+                scored_pairs = 0 if args.dry_run else len(pair_records)
+                preference_rate = (
+                    round(wins / scored_pairs, 4) if scored_pairs else None
+                )
                 if args.dry_run:
                     verdict = "DRY RUN - no signal"
+                elif not scored_pairs or len(pair_records) < args.runs:
+                    verdict = "INCOMPLETE - grader readiness unavailable"
                 else:
                     verdict = "GRADER OK" if preference_rate >= 0.8 else "GRADER SUSPECT"
                 degradation_reports[name] = {
                     "attempted": attempted,
+                    "requested_runs": args.runs,
+                    "completed_pairs": len(pair_records),
+                    "scored_pairs": scored_pairs,
                     "real_preference_rate": preference_rate,
                     "verdict": verdict,
                     "pairs": pair_records,
@@ -3863,9 +3871,13 @@ def _print_calibrate_report(report: dict[str, Any]) -> None:
         f"cost cap: ${report['max_cost']:.2f}{abort_note}  dry_run={report['dry_run']}"
     )
     for name, info in report["degradations"].items():
+        rate = info["real_preference_rate"]
+        rate_text = "unavailable" if rate is None else f"{rate:.2%}"
         print(
             f"  {name:<18} attempted={info['attempted']:<4} "
-            f"real_preference_rate={info['real_preference_rate']:.2%}  {info['verdict']}"
+            f"completed={info.get('completed_pairs', 0)}/{info.get('requested_runs', info['attempted'])} "
+            f"scored={info.get('scored_pairs', info.get('completed_pairs', 0))} "
+            f"real_preference_rate={rate_text}  {info['verdict']}"
         )
     print(f"\nresults written to: {report['results_file']}")
 

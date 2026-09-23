@@ -571,6 +571,8 @@ def test_calibrate_dry_run_makes_zero_judge_calls_and_writes_results(tmp_path, m
     assert set(report["degradations"].keys()) == {"shuffled_order", "rotated_speakers"}
     for info in report["degradations"].values():
         assert info["attempted"] == 2
+        assert info["real_preference_rate"] is None
+        assert info["scored_pairs"] == 0
 
 def _snapshot_episode() -> dict:
     recipe = {
@@ -589,6 +591,97 @@ def _snapshot_episode() -> dict:
         },
     }
 
+
+def test_calibrate_complete_runs_keep_grader_threshold_and_scored_pair_rate(tmp_path, monkeypatch):
+    monkeypatch.setattr(cl, "_load_episode", lambda *_args, **_kwargs: _snapshot_episode())
+    monkeypatch.setenv("JUDGE_MODEL", "test-judge")
+
+    for winners, expected_rate, expected_verdict in (
+        (["A", "B", "A", "B"], 1.0, "GRADER OK"),
+        (["B", "A", "B", "A"], 0.0, "GRADER SUSPECT"),
+    ):
+        answers = iter(winners)
+        monkeypatch.setattr(
+            model_router,
+            "generate_judge_response",
+            lambda **_kwargs: json.dumps({
+                "winner": next(answers),
+                "per_dimension": {dim: "tie" for dim in cl.ALL_JUDGE_DIMENSIONS},
+                "reason": "fixture",
+            }),
+        )
+        results = tmp_path / f"results-{expected_verdict.lower().replace(' ', '-')}"
+        cl.main([
+            "calibrate", "--from-episode", "snapshot-week", "--stage", "tuesday",
+            "--runs", "1", "--results-dir", str(results),
+        ])
+        [path] = results.glob("*-calibrate-*.json")
+        report = json.loads(path.read_text())
+        for info in report["degradations"].values():
+            assert info["attempted"] == 1
+            assert info["requested_runs"] == 1
+            assert info["completed_pairs"] == info["scored_pairs"] == 1
+            assert info["real_preference_rate"] == expected_rate
+            assert info["verdict"] == expected_verdict
+
+
+def test_calibrate_zero_completed_pairs_has_unavailable_rate_and_incomplete_verdict(
+    tmp_path, monkeypatch, capsys,
+):
+    monkeypatch.setattr(cl, "_load_episode", lambda *_args, **_kwargs: _snapshot_episode())
+    monkeypatch.setenv("JUDGE_MODEL", "test-judge")
+    monkeypatch.setattr(model_router, "generate_judge_response", lambda **_kwargs: _judge_stub())
+
+    cl.main([
+        "calibrate", "--from-episode", "snapshot-week", "--stage", "tuesday",
+        "--runs", "2", "--max-calls", "1", "--results-dir", str(tmp_path / "results"),
+    ])
+
+    [path] = (tmp_path / "results").glob("*-calibrate-*.json")
+    report = json.loads(path.read_text())
+    info = report["degradations"]["shuffled_order"]
+    assert report["aborted"] is True
+    assert info["attempted"] == 1
+    assert info["completed_pairs"] == info["scored_pairs"] == 0
+    assert info["real_preference_rate"] is None
+    assert info["verdict"] == "INCOMPLETE - grader readiness unavailable"
+    assert len(info["partial_pairs"]) == 1
+    output = capsys.readouterr().out
+    assert "real_preference_rate=unavailable" in output
+    assert "INCOMPLETE - grader readiness unavailable" in output
+
+
+def test_calibrate_completed_plus_partial_rate_uses_only_complete_pairs(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cl, "_load_episode", lambda *_args, **_kwargs: _snapshot_episode())
+    monkeypatch.setenv("JUDGE_MODEL", "test-judge")
+    winners = iter(["A", "B", "A"])
+    monkeypatch.setattr(
+        model_router,
+        "generate_judge_response",
+        lambda **_kwargs: json.dumps({
+            "winner": next(winners),
+            "per_dimension": {dim: "tie" for dim in cl.ALL_JUDGE_DIMENSIONS},
+            "reason": "fixture",
+        }),
+    )
+
+    cl.main([
+        "calibrate", "--from-episode", "snapshot-week", "--stage", "tuesday",
+        "--runs", "2", "--max-calls", "3", "--results-dir", str(tmp_path / "results"),
+    ])
+
+    [path] = (tmp_path / "results").glob("*-calibrate-*.json")
+    report = json.loads(path.read_text())
+    info = report["degradations"]["shuffled_order"]
+    assert info["attempted"] == 2
+    assert info["requested_runs"] == 2
+    assert info["completed_pairs"] == info["scored_pairs"] == 1
+    assert info["real_preference_rate"] == 1.0
+    assert info["verdict"] == "INCOMPLETE - grader readiness unavailable"
+    assert len(info["partial_pairs"]) == 1
+    output = capsys.readouterr().out
+    assert "completed=1/2 scored=1 real_preference_rate=100.00%" in output
+    assert "INCOMPLETE - grader readiness unavailable" in output
 def _judge_stub() -> str:
     return json.dumps({
         "winner": "tie",
@@ -935,7 +1028,13 @@ def test_calibrate_writes_partial_result_on_exception_mid_run(tmp_path, monkeypa
     # shuffled_order's one successful pair (run 1) must have survived the
     # crash in its second run - "attempted" counts the started run (2),
     # but only 1 pair actually finished and was recorded.
-    assert len(report["degradations"]["shuffled_order"]["pairs"]) == 1
+    degradation = report["degradations"]["shuffled_order"]
+    assert len(degradation["pairs"]) == 1
+    assert degradation["attempted"] == 2
+    assert degradation["completed_pairs"] == degradation["scored_pairs"] == 1
+    assert degradation["real_preference_rate"] == 0.0
+    assert degradation["verdict"] == "INCOMPLETE - grader readiness unavailable"
+    assert len(degradation["partial_pairs"]) == 1
 
 # ---------------------------------------------------------------------------
 # --max-calls reserves the full structural generation-arm bound
