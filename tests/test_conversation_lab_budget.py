@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import anthropic
+import httpx
 import pytest
 from anthropic.resources.messages import Messages
 
@@ -82,6 +83,30 @@ def _run_cli_generation(_args):
     assert _generate() == '{"winner":"tie","per_dimension":{}}'
 
 
+def _run_guarded_ab_until_judge_stops(tmp_path, monkeypatch, cap):
+    variant = tmp_path / "variant.json"
+    variant.write_text(json.dumps({"_SHARED_CHARACTER_RULES": "fixture variant"}))
+    generated = []
+
+    def simulation(**kwargs):
+        generated.append(kwargs)
+        _generate()
+        return {"messages": _messages(f"generation-{len(generated)}")}
+
+    monkeypatch.setattr(sdw, "run_simulation", simulation)
+    results = tmp_path / "results"
+    ledger = tmp_path / "ledger.json"
+    with pytest.raises(SystemExit):
+        cl.main([
+            "ab", "--concept", "Fixture", "--stage", "monday", "--runs", "1",
+            "--variant", str(variant), "--recipe-context", "Fixture anchor", "--no-log",
+            "--results-dir", str(results), "--max-cost", str(cap), "--budget-ledger",
+            str(ledger), "--create-budget-ledger",
+        ])
+    [result_path] = results.glob("*.json")
+    return json.loads(result_path.read_text(encoding="utf-8")), generated, ledger
+
+
 def test_cli_uses_one_resumed_ledger_for_calibrate_bench_and_ab(tmp_path, monkeypatch, fake_sdk):
     ledger = tmp_path / "combined.json"
     variant = tmp_path / "variant.json"
@@ -115,6 +140,146 @@ def test_cli_uses_one_resumed_ledger_for_calibrate_bench_and_ab(tmp_path, monkey
     assert Messages.create is sdk_create
     assert Messages.count_tokens is sdk_count
     assert fake_sdk["retries"] == [0, 0, 0]
+
+
+@pytest.mark.parametrize(
+    ("role", "model", "stop_reason"),
+    [
+        ("judge", "anthropic/claude-unsupported-test", "unsupported_judge_model"),
+        ("judge", "anthropic/claude-haiku-4-5-20251001", "judge_model_not_allowlisted"),
+        ("judge", "bad-model", "invalid_judge_model"),
+        ("dialogue", "openai/gpt-5.1", "unsupported_dialogue_provider"),
+        ("dialogue", "anthropic/claude-opus-4-6", "dialogue_model_not_allowlisted"),
+    ],
+)
+def test_guarded_bench_latches_invalid_role_models_before_dispatch(
+    tmp_path, monkeypatch, fake_sdk, role, model, stop_reason,
+):
+    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-opus-4-6")
+    monkeypatch.setenv("DIALOGUE_MODEL" if role == "dialogue" else "JUDGE_MODEL", model)
+    monkeypatch.setattr(cl, "cmd_bench", lambda _args: pytest.fail("invalid guarded route reached dispatch"))
+    ledger = tmp_path / "ledger.json"
+
+    with pytest.raises(SystemExit, match="request rejected by conversation budget guard"):
+        cl.main([
+            "bench", "--stage", "monday", "--runs", "1", "--concept", "Fixture",
+            "--recipe-context", "Fixture anchor", "--budget-ledger", str(ledger),
+            "--create-budget-ledger",
+        ])
+
+    stopped = _ledger(ledger)
+    assert stopped["status"] == "stopped"
+    assert stopped["stop_reason"] == stop_reason
+    assert fake_sdk["create"] == []
+    assert fake_sdk["count"] == []
+
+
+def test_guarded_calibrate_preflights_judge_role_before_dispatch(tmp_path, monkeypatch, fake_sdk):
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-haiku-4-5-20251001")
+    monkeypatch.setattr(cl, "cmd_calibrate", lambda _args: pytest.fail("invalid judge route reached dispatch"))
+    ledger = tmp_path / "ledger.json"
+
+    with pytest.raises(SystemExit, match="request rejected by conversation budget guard"):
+        cl.main([
+            "calibrate", "--from-episode", "fixture", "--stage", "monday",
+            "--budget-ledger", str(ledger), "--create-budget-ledger",
+        ])
+
+    stopped = _ledger(ledger)
+    assert stopped["status"] == "stopped"
+    assert stopped["stop_reason"] == "judge_model_not_allowlisted"
+    assert fake_sdk["create"] == []
+    assert fake_sdk["count"] == []
+
+
+def test_guarded_bench_prevents_real_production_judge_from_swallowing_bad_route(
+    tmp_path, monkeypatch, fake_sdk,
+):
+    from backend.admin.cron_routes import _judge_dialogue
+
+    assert cl.judge_dialogue is _judge_dialogue
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-unsupported-test")
+    generation_calls = []
+
+    def simulation(**kwargs):
+        generation_calls.append(kwargs)
+        _generate()
+        return {"messages": _messages("would-have-been-judged")}
+
+    monkeypatch.setattr(sdw, "run_simulation", simulation)
+    with pytest.raises(SystemExit, match="unsupported_judge_model"):
+        cl.main([
+            "bench", "--stage", "monday", "--runs", "2", "--concept", "Fixture",
+            "--recipe-context", "Fixture anchor", "--no-log", "--results-dir", str(tmp_path / "results"),
+            "--budget-ledger", str(tmp_path / "ledger.json"), "--create-budget-ledger",
+        ])
+
+    assert generation_calls == []
+    assert fake_sdk["create"] == []
+    assert fake_sdk["count"] == []
+    assert _ledger(tmp_path / "ledger.json")["stop_reason"] == "unsupported_judge_model"
+
+
+def test_guarded_supported_model_roles_pass_actual_sdk_route_with_mock_http(tmp_path, monkeypatch):
+    import anthropic
+
+    calls = []
+    original_client = anthropic.Anthropic
+
+    def transport(request):
+        body = json.loads(request.content)
+        calls.append((request.url.path, body))
+        if request.url.path.endswith("count_tokens"):
+            return httpx.Response(200, json={"input_tokens": 100})
+        usage = {"input_tokens": 80, "output_tokens": 4, "service_tier": "standard"}
+        if body["model"] == "claude-opus-4-6":
+            usage["inference_geo"] = "global"
+            text = json.dumps({
+                "scores": {dimension: 4 for dimension in (
+                    "title_fidelity", "arc_resolution", "voice_distinctiveness",
+                    "technical_credibility", "natural_progression", "promise_delivery",
+                    "turn_taking", "cast_coverage",
+                )},
+                "verdict": "PASS", "weakest": [], "reason": "fixture verdict",
+            })
+        else:
+            text = "fixture"
+        return httpx.Response(200, json={
+            "id": "msg_fixture", "type": "message", "role": "assistant",
+            "model": body["model"], "content": [{"type": "text", "text": text}],
+            "stop_reason": "end_turn", "stop_sequence": None, "usage": usage,
+        })
+
+    def mock_http_client(*args, **kwargs):
+        kwargs["http_client"] = httpx.Client(transport=httpx.MockTransport(transport))
+        return original_client(*args, **kwargs)
+
+    monkeypatch.setattr(anthropic, "Anthropic", mock_http_client)
+    monkeypatch.setattr(model_router, "_central_track", lambda *args, **kwargs: None)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-test-key")
+    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-opus-4-6")
+    ledger = tmp_path / "ledger.json"
+
+    with cl.AnthropicBudgetGuard(ledger, budget_usd=1, create=True) as guard:
+        guard.validate_configured_models(
+            dialogue_model=os.environ["DIALOGUE_MODEL"], judge_model=os.environ["JUDGE_MODEL"],
+        )
+        with guard.phase("bench"):
+            assert _generate() == "fixture"
+            passed, verdict = cl.judge_dialogue(
+                "Fixture", "monday", _messages("actual production judge"), {},
+            )
+
+    create_calls = [body for path, body in calls if path.endswith("messages")]
+    assert [body["model"] for body in create_calls] == [
+        "claude-haiku-4-5-20251001", "claude-opus-4-6",
+    ]
+    assert all(body["service_tier"] == "standard_only" for body in create_calls)
+    assert create_calls[1]["inference_geo"] == "global"
+    assert passed is True and verdict == "PASS - fixture verdict"
+    assert _ledger(ledger)["status"] == "active"
 
 
 def test_create_without_path_and_resume_missing_ledger_fail_before_dispatch(tmp_path, monkeypatch, fake_sdk):
@@ -228,6 +393,188 @@ def test_corrupt_ledger_after_a_paid_generation_still_publishes_transcript_evide
     assert judge_calls == [], "a stopped ledger must be checked before production judging"
     assert len(fake_sdk["create"]) == 1
     assert calls["runs"] == 1
+
+
+def test_ab_first_judge_denial_preserves_both_paid_arms_as_unscored_partial(tmp_path, monkeypatch, fake_sdk):
+    report, generated, ledger = _run_guarded_ab_until_judge_stops(tmp_path, monkeypatch, 0.05)
+
+    assert len(generated) == 2
+    assert report["completed_pairs"] == 0
+    assert report["pairs"] == []
+    [partial] = report["partial_pairs"]
+    assert partial["status"] == "awaiting_judges"
+    assert partial["run_index"] == 1
+    assert partial["control_messages"] == _messages("generation-1")
+    assert partial["variant_messages"] == _messages("generation-2")
+    assert partial["judge_orientations"] == []
+    assert [call["model"] for call in fake_sdk["create"]] == [
+        "claude-haiku-4-5-20251001", "claude-haiku-4-5-20251001",
+    ]
+    assert _ledger(ledger)["status"] == "stopped"
+
+
+def test_ab_second_judge_denial_preserves_first_orientation_separately(tmp_path, monkeypatch, fake_sdk):
+    report, generated, ledger = _run_guarded_ab_until_judge_stops(tmp_path, monkeypatch, 0.1375)
+
+    assert len(generated) == 2
+    assert report["completed_pairs"] == 0
+    assert report["pairs"] == []
+    [partial] = report["partial_pairs"]
+    assert partial["control_messages"] == _messages("generation-1")
+    assert partial["variant_messages"] == _messages("generation-2")
+    assert [item["orientation"] for item in partial["judge_orientations"]] == ["control_first"]
+    assert partial["judge_orientations"][0]["result"]["overall"] == "tie"
+    assert [call["model"] for call in fake_sdk["create"]] == [
+        "claude-haiku-4-5-20251001", "claude-haiku-4-5-20251001", "claude-opus-4-6",
+    ]
+    assert _ledger(ledger)["status"] == "stopped"
+
+
+def test_testbed_partial_pair_keeps_scenario_provenance_without_aggregating(tmp_path, monkeypatch, fake_sdk):
+    scenario = {
+        "id": "scenario-1", "concept": "Fixture", "recipe_context": "Fixture anchor",
+        "recipe_facts": None, "category": "savory", "cuisine": "test", "source_episode": "fixture",
+    }
+    monkeypatch.setattr(cl, "_load_testbed", lambda _path: [scenario])
+    monkeypatch.setattr(sdw, "run_simulation", lambda **kwargs: (_generate(), {"messages": _messages("testbed")} )[1])
+    variant = tmp_path / "variant.json"
+    variant.write_text(json.dumps({"_SHARED_CHARACTER_RULES": "fixture variant"}))
+    results = tmp_path / "results"
+    ledger = tmp_path / "ledger.json"
+
+    with pytest.raises(SystemExit):
+        cl.main([
+            "ab", "--testbed", str(tmp_path / "testbed.json"), "--stage", "monday",
+            "--runs", "1", "--variant", str(variant), "--no-log", "--results-dir", str(results),
+            "--max-cost", "0.05", "--budget-ledger", str(ledger), "--create-budget-ledger",
+        ])
+
+    [result_path] = results.glob("*.json")
+    report = json.loads(result_path.read_text(encoding="utf-8"))
+    assert report["completed_pairs"] == 0
+    assert report["pairs"] == []
+    [partial] = report["partial_pairs"]
+    assert partial["scenario_id"] == "scenario-1"
+    assert partial["run_index"] == 1
+    assert partial["control_messages"] == _messages("testbed")
+    assert partial["variant_messages"] == _messages("testbed")
+    assert report["scenarios"][0]["completed_pairs"] == 0
+    assert report["scenarios"][0]["partial_pairs"] == [partial]
+    assert len(fake_sdk["create"]) == 2
+
+
+def test_sweep_partial_pair_keeps_shared_control_and_variant_transcripts(tmp_path, monkeypatch, fake_sdk):
+    scenario = {
+        "id": "scenario-1", "concept": "Fixture", "recipe_context": "Fixture anchor",
+        "recipe_facts": None, "category": "savory", "cuisine": "test", "source_episode": "fixture",
+    }
+    monkeypatch.setattr(cl, "_load_testbed", lambda _path: [scenario])
+    runs = []
+
+    def simulation(**kwargs):
+        _generate()
+        runs.append(1)
+        return {"messages": _messages(f"sweep-{len(runs)}")}
+
+    monkeypatch.setattr(sdw, "run_simulation", simulation)
+    sweep_dir = tmp_path / "variants"
+    sweep_dir.mkdir()
+    (sweep_dir / "sample.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "fixture variant"}))
+    results = tmp_path / "results"
+    ledger = tmp_path / "ledger.json"
+
+    with pytest.raises(SystemExit):
+        cl.main([
+            "ab", "--sweep", str(sweep_dir), "--testbed", str(tmp_path / "testbed.json"),
+            "--stage", "monday", "--runs", "1", "--no-log", "--results-dir", str(results),
+            "--max-cost", "0.05", "--budget-ledger", str(ledger), "--create-budget-ledger",
+        ])
+
+    [result_path] = results.glob("*.json")
+    report = json.loads(result_path.read_text(encoding="utf-8"))
+    variant_report = report["variants"]["sample"]
+    assert variant_report["completed_pairs"] == 0
+    assert variant_report["pairs"] == []
+    [partial] = variant_report["partial_pairs"]
+    assert partial["scenario_id"] == "scenario-1"
+    assert partial["control_messages"] == _messages("sweep-1")
+    assert partial["variant_messages"] == _messages("sweep-2")
+    assert report["unpaired_control_transcripts"] == []
+    assert len(runs) == 2 and len(fake_sdk["create"]) == 2
+
+
+def test_sweep_control_checkpoint_preserves_unpaired_paid_transcript(tmp_path, monkeypatch, fake_sdk):
+    ledger = tmp_path / "ledger.json"
+    transcripts = {}
+
+    def corrupt_after_generation(*_args, **kwargs):
+        _generate()
+        ledger.write_text("not-json", encoding="utf-8")
+        return {"messages": _messages("shared-control")}
+
+    monkeypatch.setattr(cl, "_run_arm", corrupt_after_generation)
+    with cl.AnthropicBudgetGuard(ledger, create=True) as guard:
+        token = cl._ACTIVE_BUDGET_GUARD.set(guard)
+        try:
+            with guard.phase("ab"), pytest.raises(cl.BudgetGuardError):
+                cl._generate_sweep_control(
+                    scenarios=[{"id": "scenario-1", "concept": "Fixture", "recipe_context": "anchor"}],
+                    stage="monday", runs=1, mode="openai", default_model="anthropic/claude-haiku-4-5-20251001",
+                    budget=cl.CallBudget(max_calls=40), transcripts=transcripts,
+                )
+        finally:
+            cl._ACTIVE_BUDGET_GUARD.reset(token)
+
+    assert transcripts[("scenario-1", 1)]["messages"] == _messages("shared-control")
+    report = cl._build_sweep_report(
+        cl._build_parser().parse_args([
+            "ab", "--sweep", str(tmp_path), "--stage", "monday", "--no-log",
+        ]),
+        tmp_path, {}, [{"id": "scenario-1"}], 1, transcripts, False, None,
+        cl.CallBudget(max_calls=40), {}, True, tmp_path / "report.json", False,
+    )
+    assert report["unpaired_control_transcripts"] == [{
+        "scenario_id": "scenario-1", "run_index": 1, "messages": _messages("shared-control"),
+    }]
+
+
+def test_calibrate_second_orientation_denial_keeps_first_unscored(tmp_path, monkeypatch, fake_sdk):
+    original_create = Messages.create
+
+    def near_reservation_opus_usage(self, **kwargs):
+        response = original_create(self, **kwargs)
+        if kwargs["model"] == "claude-opus-4-6":
+            usage = response.usage.model_dump(exclude_none=True)
+            usage["output_tokens"] = 4000
+            response.usage = SimpleNamespace(model_dump=lambda exclude_none=True: usage)
+        return response
+
+    monkeypatch.setattr(Messages, "create", near_reservation_opus_usage)
+    episode = {
+        "concept": "Fixture",
+        "stages": {"monday": {"dialogue": _messages("calibrate"), "recipe_data": {"title": "Fixture"}}},
+    }
+    monkeypatch.setattr(cl, "_load_episode", lambda *_args, **_kwargs: episode)
+    results = tmp_path / "results"
+    ledger = tmp_path / "ledger.json"
+
+    with pytest.raises(SystemExit):
+        cl.main([
+            "calibrate", "--from-episode", "fixture", "--stage", "monday", "--local",
+            "--runs", "1", "--results-dir", str(results), "--max-cost", "0.2",
+            "--budget-ledger", str(ledger), "--create-budget-ledger",
+        ])
+
+    [result_path] = results.glob("*-calibrate-*.json")
+    report = json.loads(result_path.read_text(encoding="utf-8"))
+    degradation = report["degradations"][cl._DEGRADATIONS[0][0]]
+    assert degradation["pairs"] == []
+    [partial] = degradation["partial_pairs"]
+    assert partial["run_index"] == 1
+    assert partial["status"] == "awaiting_judges"
+    assert [item["orientation"] for item in partial["judge_orientations"]] == ["real_first"]
+    assert len(fake_sdk["create"]) == 1
+    assert fake_sdk["create"][0]["model"] == "claude-opus-4-6"
 
 
 def test_ab_structural_arm_reservation_denies_tiny_cap_before_generation(monkeypatch):

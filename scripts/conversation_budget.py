@@ -232,6 +232,45 @@ class AnthropicBudgetGuard:
         finally:
             self._phase.reset(token)
 
+    def validate_configured_models(
+        self,
+        *,
+        dialogue_model: str | None,
+        judge_model: str | None,
+    ) -> None:
+        """Fail closed before dispatch if configured routes exceed guard scope.
+
+        The SDK hooks cannot observe failures raised earlier by model_router's
+        provider and role allowlists. Validate the exact configured roles here
+        so production's fail-closed judge handler cannot turn a bad model into
+        a scored FAIL while later paid arms continue.
+        """
+        from backend.utils import model_router
+
+        configured = []
+        if dialogue_model is not None:
+            configured.append(("dialogue", dialogue_model))
+        configured.append(("judge", judge_model))
+        for role, raw_model in configured:
+            try:
+                routed = model_router.parse_model(raw_model)
+            except Exception as exc:
+                self._reject(f"invalid_{role}_model")
+                raise AssertionError("unreachable") from exc
+
+            if routed.provider != "anthropic":
+                self._reject(f"unsupported_{role}_provider")
+            if routed.model not in MODEL_RATES:
+                self._reject(f"unsupported_{role}_model")
+            if role == "dialogue":
+                try:
+                    model_router.ensure_anthropic_model_allowed(routed.model)
+                except Exception as exc:
+                    self._reject("dialogue_model_not_allowlisted")
+                    raise AssertionError("unreachable") from exc
+            elif routed.model not in model_router.JUDGE_ALLOWLIST:
+                self._reject("judge_model_not_allowlisted")
+
     def _lock(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
         lock_file = open(self.path.with_name(self.path.name + ".lock"), "a+b")

@@ -804,14 +804,6 @@ def _run_arm_and_count(
     delta = after - before
     message_count = len(result.get("messages", []))
     calls = delta if delta > 0 else message_count
-    try:
-        _budget_checkpoint()
-    except Exception as exc:
-        # The response is already returned and should survive a later ledger
-        # read/validation failure in the caller's partial-result handler.
-        setattr(exc, "conversation_lab_partial_arm", result)
-        setattr(exc, "conversation_lab_partial_calls", calls)
-        raise
     return result, calls
 
 # ---------------------------------------------------------------------------
@@ -893,7 +885,6 @@ def _judge_orientation(
         model=judge_model,
         temperature=0.2,
     )
-    _budget_checkpoint()
     parsed = _parse_judge_json(raw)
     if parsed is None:
         raise ConversationLabError(f"pairwise judge returned unparseable output: {raw[:200]!r}")
@@ -1234,6 +1225,7 @@ def _generate_and_judge_pairs(
     max_cost: float,
     dry_run: bool,
     pairs: list[dict[str, Any]],
+    partial_pairs: list[dict[str, Any]] | None = None,
 ) -> bool:
     """Append up to `runs` control/variant pairs to `pairs` in place; return
     whether the run aborted (--max-calls or --max-cost hit).
@@ -1254,6 +1246,7 @@ def _generate_and_judge_pairs(
     """
     aborted = False
     restore_pending: dict[str, Any] | None = None
+    partial_pairs = partial_pairs if partial_pairs is not None else []
     arm_call_reservation = (
         0 if dry_run else _MAX_CALLS_PER_TURN * _max_turns_for_stage(stage)
     )
@@ -1273,6 +1266,15 @@ def _generate_and_judge_pairs(
                 concept, stage, run_index, recipe_context, mode, default_model
             )
             budget.record(0 if dry_run else control_calls)
+            pending_pair: dict[str, Any] = {
+                "run_index": run_index,
+                "status": "control_generated",
+                "control_messages": control_result.get("messages", []),
+                "variant_messages": None,
+                "judge_orientations": [],
+            }
+            partial_pairs.append(pending_pair)
+            _budget_checkpoint()
 
             if budget.would_exceed(arm_call_reservation) or _would_exceed_cost(max_cost):
                 aborted = True
@@ -1290,6 +1292,9 @@ def _generate_and_judge_pairs(
 
             control_messages = control_result.get("messages", [])
             variant_messages = variant_result.get("messages", [])
+            pending_pair["variant_messages"] = variant_messages
+            pending_pair["status"] = "awaiting_judges"
+            _budget_checkpoint()
 
             if dry_run:
                 combined = _dry_run_combined()
@@ -1303,6 +1308,11 @@ def _generate_and_judge_pairs(
                     recipe_facts=recipe_facts,
                 )
                 budget.record(1)
+                pending_pair["judge_orientations"].append({
+                    "orientation": "control_first",
+                    "result": first,
+                })
+                _budget_checkpoint()
 
                 if budget.would_exceed(1) or _would_exceed_cost(max_cost):
                     aborted = True
@@ -1313,9 +1323,14 @@ def _generate_and_judge_pairs(
                     recipe_facts=recipe_facts,
                 )
                 budget.record(1)
+                pending_pair["judge_orientations"].append({
+                    "orientation": "variant_first",
+                    "result": second,
+                })
+                _budget_checkpoint()
                 combined = _combine_orientations(first, second)
 
-            pairs.append({
+            completed_pair = {
                 "run_index": run_index,
                 "control_messages": control_messages,
                 "variant_messages": variant_messages,
@@ -1323,7 +1338,9 @@ def _generate_and_judge_pairs(
                 "variant_summary": summarize(variant_messages, expected_cast, concept=concept, day=stage),
                 "judge": combined,
                 "dry_run": bool(dry_run),
-            })
+            }
+            pairs.append(completed_pair)
+            partial_pairs.remove(pending_pair)
     finally:
         if restore_pending is not None:
             _restore_variant(simulate_module, restore_pending)
@@ -1407,23 +1424,28 @@ def cmd_ab(args: argparse.Namespace) -> None:
     result_path = _ab_result_path(_results_dir(args), _slugify(args.concept), variant_path)
 
     pairs: list[dict[str, Any]] = []
+    partial_pairs: list[dict[str, Any]] = []
     try:
         aborted = _generate_and_judge_pairs(
             concept=args.concept, stage=args.stage, recipe_context=recipe_context,
             recipe_facts=recipe_facts, runs=args.runs,
             variant=variant, mode=mode, default_model=default_model, judge_model=judge_model,
             expected_cast=expected_cast, budget=budget, max_cost=args.max_cost, dry_run=args.dry_run,
-            pairs=pairs,
+            pairs=pairs, partial_pairs=partial_pairs,
         )
     except BaseException as exc:
         report = _build_ab_report(
             args, variant_path, variant, pairs, True, budget, result_path,
+            partial_pairs=partial_pairs,
             error=f"{type(exc).__name__}: {exc}",
         )
         _write_json_result(result_path, report)
         raise
 
-    report = _build_ab_report(args, variant_path, variant, pairs, aborted, budget, result_path)
+    report = _build_ab_report(
+        args, variant_path, variant, pairs, aborted, budget, result_path,
+        partial_pairs=partial_pairs,
+    )
     _write_json_result(result_path, report)
     if not args.no_log:
         _append_experiments_row(args, report, variant, result_path)
@@ -1453,29 +1475,35 @@ def _cmd_ab_testbed(
 
     scenario_reports: list[dict[str, Any]] = []
     all_pairs: list[dict[str, Any]] = []
+    all_partial_pairs: list[dict[str, Any]] = []
     aborted = False
 
     try:
         for scenario in scenarios:
             scenario_pairs: list[dict[str, Any]] = []
+            scenario_partial_pairs: list[dict[str, Any]] = []
             try:
                 scenario_aborted = _generate_and_judge_pairs(
                     concept=scenario["concept"], stage=args.stage, recipe_context=scenario["recipe_context"],
                         recipe_facts=scenario.get("judge_recipe_facts"),
                     runs=runs, variant=variant, mode=mode, default_model=default_model, judge_model=judge_model,
                     expected_cast=expected_cast, budget=budget, max_cost=args.max_cost, dry_run=args.dry_run,
-                    pairs=scenario_pairs,
+                    pairs=scenario_pairs, partial_pairs=scenario_partial_pairs,
                 )
             finally:
                 for pair in scenario_pairs:
                     pair["scenario_id"] = scenario["id"]
+                for partial in scenario_partial_pairs:
+                    partial["scenario_id"] = scenario["id"]
                 all_pairs.extend(scenario_pairs)
+                all_partial_pairs.extend(scenario_partial_pairs)
                 scenario_reports.append({
                     "id": scenario["id"],
                     "concept": scenario["concept"],
                     "category": scenario.get("category"),
                     "cuisine": scenario.get("cuisine"),
                     "source_episode": scenario.get("source_episode"),
+                    "partial_pairs": scenario_partial_pairs,
                     **_aggregate_pairs(scenario_pairs, args.target, args.dry_run),
                 })
             if scenario_aborted:
@@ -1484,13 +1512,15 @@ def _cmd_ab_testbed(
     except BaseException as exc:
         report = _build_testbed_ab_report(
             args, variant_path, variant, scenario_reports, all_pairs, True, budget, result_path,
-            max_calls_derived, error=f"{type(exc).__name__}: {exc}",
+            max_calls_derived, partial_pairs=all_partial_pairs,
+            error=f"{type(exc).__name__}: {exc}",
         )
         _write_json_result(result_path, report)
         raise
 
     report = _build_testbed_ab_report(
         args, variant_path, variant, scenario_reports, all_pairs, aborted, budget, result_path, max_calls_derived,
+        partial_pairs=all_partial_pairs,
     )
     _write_json_result(result_path, report)
     if not args.no_log:
@@ -1557,6 +1587,7 @@ def _build_ab_report(
     aborted: bool,
     budget: CallBudget,
     result_path: Path,
+    partial_pairs: list[dict[str, Any]] | None = None,
     error: str | None = None,
 ) -> dict[str, Any]:
     try:
@@ -1583,6 +1614,7 @@ def _build_ab_report(
         "decision_rule": DECISION_RULE_TEXT,
         "cost_summary": cost_summary,
         "pairs": pairs,
+        "partial_pairs": partial_pairs or [],
         "results_file": str(result_path),
         **_aggregate_pairs(pairs, args.target, args.dry_run),
     }
@@ -1600,6 +1632,7 @@ def _build_testbed_ab_report(
     budget: CallBudget,
     result_path: Path,
     max_calls_derived: bool,
+    partial_pairs: list[dict[str, Any]] | None = None,
     error: str | None = None,
 ) -> dict[str, Any]:
     try:
@@ -1632,6 +1665,7 @@ def _build_testbed_ab_report(
         "cost_summary": cost_summary,
         "scenarios": scenario_reports,
         "pairs": all_pairs,
+        "partial_pairs": partial_pairs or [],
         "results_file": str(result_path),
         **_aggregate_pairs(all_pairs, args.target, args.dry_run),
     }
@@ -1878,6 +1912,7 @@ def _generate_sweep_control(
             )
             budget.record(0 if dry_run else calls)
             transcripts[(scenario["id"], run_index)] = result
+            _budget_checkpoint()
     return False
 
 def _run_sweep_variant(
@@ -1895,6 +1930,7 @@ def _run_sweep_variant(
     max_cost: float,
     dry_run: bool,
     pairs: list[dict[str, Any]],
+    partial_pairs: list[dict[str, Any]] | None = None,
 ) -> tuple[bool, int, float | None]:
     """Generate this ONE variant's own transcripts (one per scenario/run)
     and pairwise-judge each against the ALREADY-GENERATED shared control
@@ -1915,6 +1951,7 @@ def _run_sweep_variant(
     from "unknown."
     """
     budget = CallBudget(max_calls=max_calls)
+    partial_pairs = partial_pairs if partial_pairs is not None else []
     baseline_cost = _total_cost_or_none() or 0.0
     aborted = False
     restore_pending: dict[str, Any] | None = None
@@ -1938,6 +1975,17 @@ def _run_sweep_variant(
                     aborted = True
                     break
 
+                control_messages = control_result.get("messages", [])
+                pending_pair: dict[str, Any] = {
+                    "scenario_id": scenario["id"],
+                    "run_index": run_index,
+                    "status": "control_generated",
+                    "control_messages": control_messages,
+                    "variant_messages": None,
+                    "judge_orientations": [],
+                }
+                partial_pairs.append(pending_pair)
+
                 restore_pending = _apply_variant(simulate_module, variant)
                 try:
                     variant_result, variant_calls = _run_arm_and_count(
@@ -1948,8 +1996,10 @@ def _run_sweep_variant(
                     restore_pending = None
                 budget.record(0 if dry_run else variant_calls)
 
-                control_messages = control_result.get("messages", [])
                 variant_messages = variant_result.get("messages", [])
+                pending_pair["variant_messages"] = variant_messages
+                pending_pair["status"] = "awaiting_judges"
+                _budget_checkpoint()
 
                 if dry_run:
                     combined = _dry_run_combined()
@@ -1963,6 +2013,11 @@ def _run_sweep_variant(
                         recipe_facts=scenario.get("judge_recipe_facts"),
                     )
                     budget.record(1)
+                    pending_pair["judge_orientations"].append({
+                        "orientation": "control_first",
+                        "result": first,
+                    })
+                    _budget_checkpoint()
 
                     if budget.would_exceed(1) or _would_exceed_cost(max_cost, baseline=baseline_cost):
                         aborted = True
@@ -1973,9 +2028,14 @@ def _run_sweep_variant(
                         recipe_facts=scenario.get("judge_recipe_facts"),
                     )
                     budget.record(1)
+                    pending_pair["judge_orientations"].append({
+                        "orientation": "variant_first",
+                        "result": second,
+                    })
+                    _budget_checkpoint()
                     combined = _combine_orientations(first, second)
 
-                pairs.append({
+                completed_pair = {
                     "scenario_id": scenario["id"],
                     "run_index": run_index,
                     "control_messages": control_messages,
@@ -1984,7 +2044,9 @@ def _run_sweep_variant(
                     "variant_summary": summarize(variant_messages, expected_cast, concept=scenario["concept"], day=stage),
                     "judge": combined,
                     "dry_run": bool(dry_run),
-                })
+                }
+                pairs.append(completed_pair)
+                partial_pairs.remove(pending_pair)
             if aborted:
                 break
     finally:
@@ -2004,6 +2066,7 @@ def _build_sweep_variant_report(
     cost: float | None,
     target: str,
     dry_run: bool,
+    partial_pairs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     return {
         "variant_name": variant_name,
@@ -2012,6 +2075,7 @@ def _build_sweep_variant_report(
         "calls_used": calls_used,
         "cost": cost,
         "pairs": pairs,
+        "partial_pairs": partial_pairs or [],
         **_aggregate_pairs(pairs, target, dry_run),
     }
 
@@ -2114,6 +2178,20 @@ def _build_sweep_report(
         f"{sid}-run{run_index}": result.get("messages", [])
         for (sid, run_index), result in control_transcripts.items()
     }
+    represented_control_keys = {
+        (pair.get("scenario_id"), pair.get("run_index"))
+        for variant_report in variant_reports.values()
+        for pair in [*variant_report.get("pairs", []), *variant_report.get("partial_pairs", [])]
+    }
+    unpaired_control_transcripts = [
+        {
+            "scenario_id": scenario_id,
+            "run_index": run_index,
+            "messages": result.get("messages", []),
+        }
+        for (scenario_id, run_index), result in control_transcripts.items()
+        if (scenario_id, run_index) not in represented_control_keys
+    ]
 
     report = {
         "command": "ab",
@@ -2135,6 +2213,7 @@ def _build_sweep_report(
         "control_calls_used": control_budget.used,
         "control_cost": control_cost,
         "control_transcripts_generated": len(control_transcripts),
+        "unpaired_control_transcripts": unpaired_control_transcripts,
         "control_top_phrases": _arm_top_phrases(control_transcripts_by_key),
         "dry_run": bool(args.dry_run),
         "target_dimension": args.target,
@@ -2287,20 +2366,24 @@ def _cmd_ab_sweep(
         if not control_aborted:
             for variant_name, variant in variants.items():
                 variant_pairs: list[dict[str, Any]] = []
+                variant_partial_pairs: list[dict[str, Any]] = []
                 try:
                     v_aborted, v_calls, v_cost = _run_sweep_variant(
                         variant=variant, scenarios=scenarios, stage=args.stage, runs=runs, mode=mode,
                         default_model=default_model, judge_model=judge_model, expected_cast=expected_cast,
                         control_transcripts=control_transcripts, max_calls=args.max_calls, max_cost=args.max_cost,
                         dry_run=args.dry_run, pairs=variant_pairs,
+                        partial_pairs=variant_partial_pairs,
                     )
                 except BaseException:
                     variant_reports[variant_name] = _build_sweep_variant_report(
                         variant_name, variant, variant_pairs, True, None, None, args.target, args.dry_run,
+                        partial_pairs=variant_partial_pairs,
                     )
                     raise
                 variant_reports[variant_name] = _build_sweep_variant_report(
                     variant_name, variant, variant_pairs, v_aborted, v_calls, v_cost, args.target, args.dry_run,
+                    partial_pairs=variant_partial_pairs,
                 )
                 if v_aborted:
                     aborted = True
@@ -3591,6 +3674,7 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
     try:
         for name, degrade in _DEGRADATIONS:
             pair_records: list[dict[str, Any]] = []
+            partial_pair_records: list[dict[str, Any]] = []
             wins = 0
             attempted = 0
             try:
@@ -3600,6 +3684,14 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
                         break
                     degraded = degrade(dialogue, run_index)
                     attempted += 1
+                    pending_pair: dict[str, Any] = {
+                        "run_index": run_index,
+                        "status": "awaiting_judges",
+                        "real_dialogue": dialogue,
+                        "degraded_dialogue": degraded,
+                        "judge_orientations": [],
+                    }
+                    partial_pair_records.append(pending_pair)
 
                     if args.dry_run:
                         combined = _dry_run_combined()
@@ -3613,6 +3705,11 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
                             recipe_facts=recipe_facts,
                         )
                         budget.record(1)
+                        pending_pair["judge_orientations"].append({
+                            "orientation": "real_first",
+                            "result": first,
+                        })
+                        _budget_checkpoint()
 
                         if budget.would_exceed(1) or _would_exceed_cost(args.max_cost):
                             aborted = True
@@ -3623,11 +3720,17 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
                             recipe_facts=recipe_facts,
                         )
                         budget.record(1)
+                        pending_pair["judge_orientations"].append({
+                            "orientation": "degraded_first",
+                            "result": second,
+                        })
+                        _budget_checkpoint()
                         combined = _combine_orientations(first, second)
 
                     if combined["overall"] == "real":
                         wins += 1
                     pair_records.append({"run_index": run_index, "judge": combined})
+                    partial_pair_records.remove(pending_pair)
             finally:
                 preference_rate = round(wins / attempted, 4) if attempted else 0.0
                 if args.dry_run:
@@ -3639,6 +3742,7 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
                     "real_preference_rate": preference_rate,
                     "verdict": verdict,
                     "pairs": pair_records,
+                    "partial_pairs": partial_pair_records,
                 }
             if aborted:
                 break
@@ -4108,6 +4212,14 @@ def main(argv: list[str] | None = None) -> None:
             try:
                 phase = "calibration" if args.command == "calibrate" else args.command
                 with guard.phase(phase):
+                    if not args.dry_run:
+                        guard.validate_configured_models(
+                            dialogue_model=(
+                                None if args.command == "calibrate"
+                                else os.environ.get("DIALOGUE_MODEL", "").strip()
+                            ),
+                            judge_model=os.environ.get("JUDGE_MODEL", "").strip(),
+                        )
                     _dispatch_command(args)
                 _budget_checkpoint()
             finally:
