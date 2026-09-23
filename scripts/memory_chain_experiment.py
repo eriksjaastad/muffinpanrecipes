@@ -40,13 +40,14 @@ def _validate_assumptions(assumptions: dict[str, Any]) -> None:
 
 
 def build_plan(assumptions: dict[str, Any] | None = None) -> dict[str, Any]:
-    assumptions = assumptions or {
+    if assumptions is None:
+        assumptions = {
         "budget_usd": 0,
         "provider_calls_allowed": False,
         "provenance": "every generated turn retains week, day, speaker, and stable source_id",
         "isolation": "each arm has a temporary character-memory root removed after the run",
         "side_effects": "no cron, publish, Blob, or production character writes",
-    }
+        }
     _validate_assumptions(assumptions)
     return {
         "schema_version": 1,

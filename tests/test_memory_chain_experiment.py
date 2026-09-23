@@ -85,6 +85,11 @@ def test_plan_rejects_missing_or_unsafe_assumptions(key, value):
         build_plan(assumptions)
 
 
+def test_plan_rejects_empty_assumptions_instead_of_filling_defaults():
+    with pytest.raises(ValueError, match="experiment assumption"):
+        build_plan({})
+
+
 def test_write_plan_is_an_artifact_only(tmp_path):
     output = tmp_path / "out" / "plan.json"
 
