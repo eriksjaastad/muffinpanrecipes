@@ -535,8 +535,12 @@ exception instead of a quiet budget violation. `conversation_lab.py ab`
 does this automatically: every completed run (single-concept or
 `--testbed`) appends a row to the Experiments table via `--experiments-log`
 (default `docs/conversation-lab/EXPERIMENTS.md`; pass `--no-log` to skip).
-`calibrate` does not append a row - it reports a GRADER OK / not-OK verdict
-per degradation instead of a lever result. `bench` appends to its own
+`calibrate` does not append a row - it reports a GRADER OK / GRADER SUSPECT
+verdict per degradation instead of a lever result, and marks an incomplete
+requested run set as INCOMPLETE. Its preference rate uses only complete,
+position-swapped scored pairs; partial pairs remain audit evidence and do not
+enter the rate. With no scored pairs the rate is unavailable, not zero.
+`bench` appends to its own
 **Benchmarks** table in the same file rather than the Experiments table,
 whose columns (wins/ties/losses on a target dimension) a single-arm run
 has none of.
