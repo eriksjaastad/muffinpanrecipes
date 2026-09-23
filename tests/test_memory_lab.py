@@ -1,3 +1,4 @@
+import hashlib
 import json
 
 import pytest
@@ -5,11 +6,11 @@ import pytest
 from scripts.memory_lab import WEEK_DAYS, build_manifest, main, render_candidate
 
 
-def _episode(path, episode_id, monday, *, rejected=None, extra_stage=None):
+def _episode(path, episode_id, monday, *, rejected=None, tuesday_stage=None):
     stages = {day: {"status": "complete", "dialogue": []} for day in WEEK_DAYS}
     stages["monday"] = {"status": "complete", "dialogue": monday}
-    if extra_stage:
-        stages["tuesday_retry"] = extra_stage
+    if tuesday_stage:
+        stages["tuesday"] = tuesday_stage
     payload = {"episode_id": episode_id, "stages": stages}
     if rejected is not None:
         payload["rejected_dialogues"] = rejected
@@ -22,8 +23,7 @@ def test_manifest_uses_accepted_complete_dialogue_and_keeps_all_perspectives(tmp
         _episode(tmp_path / "one.json", "2026-W10", [
             {"character": "Ria", "message": "The label needs more contrast."},
             {"character": "Marcus", "message": "I can simplify the title."},
-        ], rejected=[{"character": "Ria", "message": "Rejected line must not appear."}],
-            extra_stage={"status": "rejected", "dialogue": [{"character": "Ria", "message": "Incomplete stage."}]}),
+        ], rejected=[{"character": "Ria", "message": "Rejected line must not appear."}]),
         _episode(tmp_path / "two.json", "2026-W11", [
             {"character": "Ria", "message": "That title reads clearly now."},
         ]),
@@ -39,9 +39,11 @@ def test_manifest_uses_accepted_complete_dialogue_and_keeps_all_perspectives(tmp
     assert manifest["episode_count"] == 3
     assert len(ria["weekly_memory_slots"]) == 3
     first_week, second_week, third_week = ria["weekly_memory_slots"]
+    assert manifest["episodes"][0]["sha256"] == hashlib.sha256(episodes[0].read_bytes()).hexdigest()
+    assert manifest["episodes"][0]["sha256"] == hashlib.sha256(episodes[0].read_bytes()).hexdigest()
     assert [row["episode_id"] for row in first_week["observations"]] == ["2026-W10", "2026-W10"]
     assert [row["perspective"] for row in first_week["observations"]] == ["self", "heard"]
-    assert all("Rejected line" not in row["message"] and "Incomplete stage" not in row["message"]
+    assert all("Rejected line" not in row["message"]
                for slot in ria["weekly_memory_slots"] for row in slot["observations"])
     assert first_week["observations"][1]["character"] == "Marcus"
     assert first_week["observations"][1]["source_id"].startswith("msg_")
@@ -80,7 +82,7 @@ def test_character_observes_only_days_they_attended(tmp_path):
         _episode(tmp_path / f"{week}.json", week, [
             {"character": "Ria", "message": "I attended Monday."},
             {"character": "Marcus", "message": "I spoke Monday too."},
-        ], extra_stage={"status": "complete", "dialogue": [
+        ], tuesday_stage={"status": "complete", "dialogue": [
             {"character": "Marcus", "message": "This Tuesday exchange is unseen by Ria."},
         ]})
         for week in ("2026-W30", "2026-W31", "2026-W32")
@@ -89,9 +91,12 @@ def test_character_observes_only_days_they_attended(tmp_path):
     manifest = build_manifest(episodes)
 
     ria_first = manifest["characters"]["Ria"]["weekly_memory_slots"][0]
+    marcus_first = manifest["characters"]["Marcus"]["weekly_memory_slots"][0]
     assert {row["day"] for row in ria_first["observations"]} == {"monday"}
     assert "This Tuesday" not in " ".join(row["message"] for row in ria_first["observations"])
     assert "I spoke Monday too." in " ".join(row["message"] for row in ria_first["observations"])
+    assert {row["day"] for row in marcus_first["observations"]} == {"monday", "tuesday"}
+    assert "This Tuesday" in " ".join(row["message"] for row in marcus_first["observations"])
 
 
 def test_incomplete_week_requires_explicit_partial_flag(tmp_path):
@@ -126,3 +131,25 @@ def test_cli_rejects_partial_input_by_default(tmp_path, capsys):
 
     assert exc.value.code == 2
     assert "incomplete week" in capsys.readouterr().err
+
+
+def test_manifest_rejects_out_of_order_iso_weeks(tmp_path):
+    paths = [
+        _episode(tmp_path / f"{week}.json", week, [{"character": "Ria", "message": "Monday."}])
+        for week in ("2026-W32", "2026-W31", "2026-W33")
+    ]
+
+    with pytest.raises(ValueError, match="chronological ISO week order"):
+        build_manifest(paths)
+
+
+def test_cli_creates_output_parent_directory(tmp_path):
+    paths = [
+        _episode(tmp_path / f"{week}.json", week, [{"character": "Ria", "message": "Monday."}])
+        for week in ("2026-W20", "2026-W21", "2026-W22")
+    ]
+    output = tmp_path / "new" / "nested" / "manifest.json"
+
+    main([*(str(path) for path in paths), "--output", str(output)])
+
+    assert json.loads(output.read_text(encoding="utf-8"))["episode_count"] == 3
