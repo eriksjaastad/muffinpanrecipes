@@ -227,3 +227,31 @@ def test_reference_panel_abort_keeps_first_orientation_as_partial_evidence(tmp_p
     [partial] = info["partial_pairs"]
     assert [item["orientation"] for item in partial["judge_orientations"]] == ["left_first"]
     assert partial["judge_orientations"][0]["evidence"]["raw_response"] == _tie_response()
+
+
+def test_reference_panel_coverage_counts_attempted_malformed_orientation(tmp_path, monkeypatch):
+    monkeypatch.setenv("JUDGE_MODEL", "test-reference-judge")
+    malformed = '{"winner":"A","per_dimension":{}}'
+    monkeypatch.setattr(model_router, "generate_judge_response", lambda **_kwargs: malformed)
+    results_dir = tmp_path / "results"
+    with pytest.raises(SystemExit, match="missing per_dimension"):
+        cl.main([
+            "calibrate", "--reference-panel", str(PANEL), "--runs", "1", "--max-calls", "1",
+            "--results-dir", str(results_dir),
+        ])
+
+    [result_path] = results_dir.glob("*-calibrate-reference-panel-v0.json")
+    report = json.loads(result_path.read_text())
+    evidence = report["evidence_summary"]
+    assert report["aborted"] is True
+    assert report["calls_used"] == 1
+    assert evidence["planned_orientation_count"] == 8
+    assert evidence["attempted_orientations"] == 1
+    assert evidence["valid_responses"] == 0
+    assert evidence["attempted_valid_response_rate"] == 0.0
+    assert evidence["planned_orientation_coverage"] == 0.125
+    [partial] = report["cases"]["identical-pair"]["partial_pairs"]
+    [orientation] = partial["judge_orientations"]
+    assert orientation["status"] == "invoked"
+    assert "missing per_dimension" in orientation["error"]
+    assert orientation["evidence"]["raw_response"] == malformed
