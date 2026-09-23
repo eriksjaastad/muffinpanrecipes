@@ -33,6 +33,9 @@ def _messages(tag: str, count: int = 2) -> list[dict]:
         for i in range(count)
     ]
 
+def _complete_judge_scores(value: int = 4) -> dict[str, int]:
+    return {dim: value for dim in cl.JUDGE_DIMENSIONS}
+
 def _write_variant(tmp_path, payload: dict) -> "cl.Path":
     path = tmp_path / "variant.json"
     path.write_text(json.dumps(payload))
@@ -2087,6 +2090,8 @@ def test_bench_dry_run_never_calls_the_judge(tmp_path, monkeypatch):
     report = _read_bench(tmp_path)
     assert report["dry_run"] is True
     assert report["aggregate"]["pass_rate"] is None
+    assert report["aggregate"]["judge_coverage"]["applicable"] is False
+    assert report["aggregate"]["unjudged_runs"] == 0
     assert all("judge" not in run for run in report["runs"])
 
 def test_bench_gives_the_judge_a_fresh_episode_each_run(tmp_path, monkeypatch):
@@ -2113,22 +2118,185 @@ def test_bench_gives_the_judge_a_fresh_episode_each_run(tmp_path, monkeypatch):
 def test_bench_pass_rate_comes_from_the_production_judge(tmp_path, monkeypatch):
     _patch_bench_generation(monkeypatch, sdw)
     verdicts = iter([True, False, False, True])
+    from backend.admin import cron_routes
+    _judge_dialogue = cron_routes._judge_dialogue
 
-    def fake_judge(concept, stage, dialogue, episode, **kwargs):
+    monkeypatch.setattr(cl, "judge_dialogue", _judge_dialogue)
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-test-key")
+
+    def fake_judge_response(**_kwargs):
         passed = next(verdicts)
-        episode.setdefault("judge_scores", {})[stage] = {"natural_progression": 4 if passed else 2}
-        episode.setdefault("judge_weakest", {})[stage] = [] if passed else ["natural_progression"]
-        return passed, "PASS" if passed else "FAIL - thin"
+        scores = _complete_judge_scores(4 if passed else 2)
+        return json.dumps({
+            "verdict": "PASS" if passed else "FAIL",
+            "scores": scores,
+            "weakest": [] if passed else ["natural_progression"],
+            "reason": "fixture",
+        })
 
-    monkeypatch.setattr(cl, "judge_dialogue", fake_judge)
+    monkeypatch.setattr(cron_routes, "generate_judge_response", fake_judge_response)
     cl.cmd_bench(_bench_args(tmp_path, runs=4))
 
     agg = _read_bench(tmp_path, "saturday-n4")["aggregate"]
     assert agg["judged_runs"] == 4
     assert agg["pass_count"] == 2
     assert agg["pass_rate"] == 0.5
+    assert agg["scored_verdicts"] == 4
+    assert agg["unjudged_runs"] == 0
     assert agg["weakest_counts"] == {"natural_progression": 2}
     assert agg["dimensions"]["natural_progression"]["mean"] == 3.0
+
+
+def test_real_production_fail_without_reason_remains_a_scored_verdict(tmp_path, monkeypatch):
+    _patch_bench_generation(monkeypatch, sdw)
+    from backend.admin import cron_routes
+
+    monkeypatch.setattr(cl, "judge_dialogue", cron_routes._judge_dialogue)
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-test-key")
+    monkeypatch.setattr(
+        cron_routes,
+        "generate_judge_response",
+        lambda **_kwargs: json.dumps({
+            "verdict": "FAIL",
+            "scores": _complete_judge_scores(2),
+            "weakest": [],
+            "reason": "",
+        }),
+    )
+
+    cl.cmd_bench(_bench_args(tmp_path, runs=1, label="fail-no-reason"))
+    report = _read_bench(tmp_path, "fail-no-reason")
+    run = report["runs"][0]
+    assert run["judge"]["verdict"].startswith("FAIL | scores:")
+    assert run["judge"]["passed"] is False
+    assert cl._usable_bench_verdict(run)
+    aggregate = report["aggregate"]
+    assert aggregate["scored_verdicts"] == 1
+    assert aggregate["pass_count"] == 0
+    assert aggregate["pass_rate"] == 0.0
+
+
+@pytest.mark.parametrize("failure_mode", ["provider_outage", "unparseable"])
+def test_bench_excludes_real_production_judge_outages_from_pass_rate(
+    tmp_path, monkeypatch, capsys, failure_mode,
+):
+    _patch_bench_generation(monkeypatch, sdw)
+    from backend.admin import cron_routes
+    _judge_dialogue = cron_routes._judge_dialogue
+
+    monkeypatch.setattr(cl, "judge_dialogue", _judge_dialogue)
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-test-key")
+    calls = []
+
+    def broken_judge(**_kwargs):
+        calls.append(1)
+        if failure_mode == "provider_outage":
+            raise RuntimeError("synthetic provider outage")
+        return "not a judge response"
+
+    monkeypatch.setattr(cron_routes, "generate_judge_response", broken_judge)
+    label = f"outage-{failure_mode.replace('_', '-')}"
+    cl.cmd_bench(_bench_args(tmp_path, runs=1, label=label))
+
+    report = _read_bench(tmp_path, label)
+    agg = report["aggregate"]
+    assert agg["pass_count"] == 0
+    assert agg["pass_rate"] is None
+    assert agg["judged_runs"] == agg["scored_verdicts"] == 0
+    assert agg["unjudged_runs"] == 1
+    assert agg["judge_coverage"] == {
+        "attempted_runs": 1, "scored_verdicts": 0, "unjudged_runs": 1, "rate": 0.0,
+        "applicable": True,
+    }
+    assert all(dist["n"] == 0 for dist in agg["dimensions"].values())
+    assert len(calls) == (1 if failure_mode == "provider_outage" else 2)
+    output = capsys.readouterr().out
+    assert "judge pass rate: unavailable" in output
+    assert "judge coverage: 0/1 scored; 1 unjudged" in output
+
+
+def test_bench_keeps_valid_partial_dimensions_but_not_incomplete_overall_scorecard(
+    tmp_path, monkeypatch,
+):
+    _patch_bench_generation(monkeypatch, sdw)
+    from backend.admin import cron_routes
+    _judge_dialogue = cron_routes._judge_dialogue
+
+    monkeypatch.setattr(cl, "judge_dialogue", _judge_dialogue)
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-test-key")
+    monkeypatch.setattr(
+        cron_routes, "generate_judge_response",
+        lambda **_kwargs: json.dumps({
+            "verdict": "PASS", "scores": {"natural_progression": 4},
+            "weakest": [], "reason": "partial fixture scorecard",
+        }),
+    )
+
+    cl.cmd_bench(_bench_args(tmp_path, runs=1, label="partial-scorecard"))
+
+    aggregate = _read_bench(tmp_path, "partial-scorecard")["aggregate"]
+    assert aggregate["pass_rate"] is None
+    assert aggregate["judged_runs"] == 0
+    assert aggregate["unjudged_runs"] == 1
+    assert aggregate["dimensions"]["natural_progression"]["n"] == 1
+    assert aggregate["dimensions"]["natural_progression"]["mean"] == 4.0
+    assert aggregate["dimensions"]["title_fidelity"]["n"] == 0
+
+
+def test_legacy_baseline_rate_is_rederived_from_run_evidence_or_unavailable():
+    outage_judge = {"passed": False, "verdict": "JUDGE ERROR: outage", "scores": {}}
+    legacy = {
+        "aggregate": {"pass_count": 0, "judged_runs": 1, "pass_rate": 0.0},
+        "runs": [{"judge": outage_judge}],
+    }
+    derived = cl._baseline_judge_summary(legacy)
+    assert derived["pass_rate"] is None
+    assert derived["pass_count"] is None
+    assert derived["judge_coverage"]["unjudged_runs"] == 1
+    assert "no complete usable" in derived["unavailable_reason"]
+
+    no_run_evidence = cl._baseline_judge_summary({"aggregate": {"pass_rate": 0.0}})
+    assert no_run_evidence["pass_rate"] is None
+    assert "no per-run judge evidence" in no_run_evidence["unavailable_reason"]
+
+    contradictory = {
+        "runs": [{"judge": {"passed": True, "verdict": "FAIL", "scores": _complete_judge_scores()}}],
+    }
+    assert cl._baseline_judge_summary(contradictory)["pass_rate"] is None
+
+
+def test_bench_prints_pass_rate_coverage_and_unavailable_baseline_reason(capsys, tmp_path):
+    report = {
+        "label": "demo", "stage": "saturday", "concept": "Dish",
+        "completed_runs": 2, "requested_runs": 2, "calls_used": 2, "max_calls": 2,
+        "models": {"dialogue": "d", "judge": "j"}, "judged_against_prior_days": [],
+        "dry_run": False, "aborted": False, "error": None,
+        "aggregate": {
+            "judged_runs": 0, "metrics": {}, "dimensions": {}, "pass_count": 0,
+            "pass_rate": None, "weakest_counts": {},
+            "judge_coverage": {"attempted_runs": 2, "scored_verdicts": 0,
+                "unjudged_runs": 2, "rate": 0.0, "applicable": True},
+        },
+        "comparison": {
+            "baseline_label": "old", "baseline_file": "old.json",
+            "baseline_pass_rate": None,
+            "baseline_pass_rate_unavailable_reason": "baseline has no per-run judge evidence",
+            "baseline_judge_coverage": None,
+            "current_judge_coverage": {"attempted_runs": 2, "scored_verdicts": 0,
+                "unjudged_runs": 2, "rate": 0.0, "applicable": True},
+            "metrics": {}, "dimensions": {},
+        },
+        "results_file": str(tmp_path / "report.json"),
+    }
+    cl._print_bench_report(report)
+    output = capsys.readouterr().out
+    assert "judge coverage: 0/2 scored; 2 unjudged" in output
+    assert "baseline has no per-run judge evidence" in output
+    assert "0/2 complete scored verdicts" in output
 
 def _patch_varying_generation(monkeypatch, sdw_module, turn_counts):
     counts = list(turn_counts)
@@ -2244,7 +2412,14 @@ def test_bench_requires_exactly_one_scenario_source(tmp_path):
 
 def test_bench_logs_to_the_benchmarks_table_not_the_experiments_table(tmp_path, monkeypatch):
     _patch_bench_generation(monkeypatch, sdw)
-    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+    monkeypatch.setattr(
+        cl, "judge_dialogue",
+        lambda _concept, stage, _dialogue, episode, **_kwargs: (
+            episode.setdefault("judge_scores", {}).__setitem__(stage, _complete_judge_scores())
+            or True,
+            "PASS",
+        ),
+    )
     log = tmp_path / "EXPERIMENTS.md"
 
     cl.cmd_bench(_bench_args(tmp_path, no_log=False, experiments_log=str(log)))
@@ -2253,7 +2428,7 @@ def test_bench_logs_to_the_benchmarks_table_not_the_experiments_table(tmp_path, 
     assert cl._BENCH_SECTION_HEADING in text
     # The A/B table's own header must be left untouched above it.
     assert text.index(cl._EXPERIMENTS_TABLE_HEADER_LINE) < text.index(cl._BENCH_SECTION_HEADING)
-    assert "| saturday-n3 | saturday | 3 | 100% |" in text
+    assert "| saturday-n3 | saturday | 3 | 100% (3/3) |" in text
 
 # ---------------------------------------------------------------------------
 # bench helpers
@@ -2467,6 +2642,119 @@ def test_bench_photo_input_type_guards_match_production_without_hiding_invalid_s
     }
 
 
+def test_photo_comparison_uses_effective_rendered_inputs_not_audit_metadata():
+    base = {"winner": {"variant": "hero_threequarter"}, "rounds": []}
+    # These fields are retained in reports but do not affect the simulator's
+    # dynamic arc, photo direction, or Wednesday turn floor.
+    changed = {
+        **base,
+        "provider": "another-provider",
+        "cost": 99,
+        "selected_shots": ["different-cdn-url.png"],
+        "rounds": [],
+    }
+    baseline = {"stage": "wednesday", "concept": "Spiral Bites", "photography_context": base}
+    current = {"stage": "wednesday", "concept": "Spiral Bites", "photography_context": changed}
+    cl._assert_comparable_scenario(baseline, current)
+
+
+@pytest.mark.parametrize(
+    "baseline_context,current_context",
+    [
+        ({"winner": {"variant": "macro_closeup"}}, {"winner": {"variant": "hero_threequarter"}}),
+        ({"reshoot_happened": False, "winner": {"variant": "same"}}, {"reshoot_happened": True, "winner": {"variant": "same"}}),
+        (
+            {"winner": {"variant": "same"}, "rounds": [{"variants": [{"variant": "a"}, {"variant": "b"}]}]},
+            {"winner": {"variant": "same"}, "rounds": [{"variants": [{"variant": "b"}, {"variant": "a"}]}]},
+        ),
+    ],
+)
+def test_photo_comparison_rejects_changes_to_effective_wednesday_prompts(
+    baseline_context, current_context,
+):
+    baseline = {"stage": "wednesday", "concept": "Spiral Bites", "photography_context": baseline_context}
+    current = {"stage": "wednesday", "concept": "Spiral Bites", "photography_context": current_context}
+    with pytest.raises(cl.ConversationLabError, match="photography_context effective"):
+        cl._assert_comparable_scenario(baseline, current)
+
+
+@pytest.mark.parametrize("stage", ["wednesday", "friday"])
+def test_photo_comparison_treats_none_and_empty_context_as_same(stage):
+    baseline = {"stage": stage, "concept": "Spiral Bites", "photography_context": None}
+    current = {"stage": stage, "concept": "Spiral Bites", "photography_context": {}}
+    cl._assert_comparable_scenario(baseline, current)
+
+
+def test_nonempty_wednesday_context_changes_turn_floor_even_if_metadata_is_unused():
+    baseline = {"stage": "wednesday", "concept": "Spiral Bites", "photography_context": None}
+    current = {"stage": "wednesday", "concept": "Spiral Bites", "photography_context": {"provider": "legacy"}}
+    with pytest.raises(cl.ConversationLabError, match="photography_context effective"):
+        cl._assert_comparable_scenario(baseline, current)
+
+
+def test_friday_ignores_gallery_and_unused_round_metadata_but_tracks_reshoot_winner_round():
+    baseline_context = {
+        "reshoot_happened": False,
+        "winner": {"variant": "same", "round": 1},
+        "rounds": [{"variants": [{"variant": "a"}]}],
+    }
+    changed_irrelevant = {
+        "reshoot_happened": False,
+        "winner": {"variant": "same", "round": 5},
+        "rounds": [{"variants": [{"variant": "other", "url": "new-url"}]}],
+    }
+    cl._assert_comparable_scenario(
+        {"stage": "friday", "concept": "Spiral Bites", "photography_context": baseline_context,
+         "image_paths": ["old.png"]},
+        {"stage": "friday", "concept": "Spiral Bites", "photography_context": changed_irrelevant,
+         "image_paths": ["new.png"]},
+    )
+
+    baseline_context["reshoot_happened"] = True
+    changed_irrelevant["reshoot_happened"] = True
+    with pytest.raises(cl.ConversationLabError, match="photography_context effective"):
+        cl._assert_comparable_scenario(
+            {"stage": "friday", "concept": "Spiral Bites", "photography_context": baseline_context},
+            {"stage": "friday", "concept": "Spiral Bites", "photography_context": changed_irrelevant},
+        )
+
+
+def test_truthy_reshoot_changes_effective_wednesday_floor():
+    falsey = {"reshoot_happened": False, "winner": {"variant": "same"}}
+    truthy = {"reshoot_happened": "false", "winner": {"variant": "same"}}
+    assert cl._effective_bench_photography_inputs("wednesday", "Spiral Bites", falsey)["wednesday_tick_floor"] == 7
+    assert cl._effective_bench_photography_inputs("wednesday", "Spiral Bites", truthy)["wednesday_tick_floor"] == 10
+    with pytest.raises(cl.ConversationLabError, match="photography_context effective"):
+        cl._assert_comparable_scenario(
+            {"stage": "wednesday", "concept": "Spiral Bites", "photography_context": falsey},
+            {"stage": "wednesday", "concept": "Spiral Bites", "photography_context": truthy},
+        )
+
+
+def test_invalid_effective_photo_data_fails_before_generation(tmp_path, monkeypatch):
+    episode = _snapshot_episode()
+    episode["stages"]["wednesday"] = {"photography_data": {"winner": "malformed"}}
+    monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: episode)
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    generated = []
+
+    def sentinel_generation(**kwargs):
+        generated.append(kwargs)
+        raise AssertionError("invalid effective photo input reached generation")
+
+    monkeypatch.setattr(sdw, "run_simulation", sentinel_generation)
+    with pytest.raises(cl.ConversationLabError, match="photography inputs cannot be rendered"):
+        cl.cmd_bench(_bench_args(
+            tmp_path,
+            stage="wednesday",
+            concept=None,
+            recipe_context=None,
+            from_episode="snapshot-week",
+            runs=1,
+        ))
+    assert generated == []
+
+
 def test_bench_photo_baseline_mismatch_is_rejected_before_generation(tmp_path, monkeypatch):
     episode = _snapshot_episode()
     episode["stages"]["wednesday"] = {
@@ -2542,8 +2830,7 @@ def test_legacy_no_photo_baseline_remains_comparable_for_manual_scenario():
             "photography_context": "invalid:str", "image_paths": "present"
         },
     }
-    with pytest.raises(cl.ConversationLabError, match="photography_input_sources"):
-        cl._assert_comparable_scenario({"stage": "wednesday"}, malformed_wednesday)
+    cl._assert_comparable_scenario({"stage": "wednesday"}, malformed_wednesday)
 
 def test_bench_from_episode_fails_loud_when_the_recipe_data_is_unusable(tmp_path, monkeypatch):
     monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: {"episode_id": "empty", "stages": {}})
@@ -2667,7 +2954,9 @@ def test_bench_keeps_a_paid_transcript_when_the_judge_raises(tmp_path, monkeypat
     assert [len(r["transcript"]) for r in report["runs"]] == [4, 4]
     assert "judge" in report["runs"][0]
     assert "judge" not in report["runs"][1]
-    assert report["aggregate"]["judged_runs"] == 1
+    assert report["aggregate"]["judged_runs"] == 0
+    assert report["aggregate"]["unjudged_runs"] == 2
+    assert report["aggregate"]["pass_rate"] is None
     assert report["aggregate"]["metrics"]["message_count"]["n"] == 2
 
 def test_bench_refuses_a_baseline_from_a_different_stage(tmp_path, monkeypatch):
