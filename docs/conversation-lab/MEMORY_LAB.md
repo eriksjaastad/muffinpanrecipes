@@ -7,27 +7,44 @@ does not touch character files or Blob, and does not create memory prose.
 
 ```sh
 uv run python scripts/memory_lab.py \
-  data/episodes/2026-W10.json \
-  data/episodes/2026-W11.json \
-  data/episodes/2026-W12.json \
+  <week-1-episode.json> \
+  <week-2-episode.json> \
+  <week-3-episode.json> \
   --output .scratch/memory-manifest.json
 ```
 
+Replace the three placeholders with the actual completed episode paths (for
+example, copies of W35, W36, and W37 placed under `.scratch/`). Do not assume
+that every numbered week exists in the episode corpus.
+
 Only `stages[day].dialogue` is included when that stage has
 `status: "complete"`. `rejected_dialogues`, rejected or incomplete stages,
-and malformed turns are excluded. Each accepted message gets a stable ID from
-episode ID, day, turn index, speaker, and message text. Each speaker's
-observations contain the accepted dialogue for all scenes in which they
-participated, with `self` and `heard` attribution. This gives a future
-character-specific memory writer evidence of what colleagues said around
-them, without pretending every line was addressed directly to them.
+and malformed turns are excluded. By default, each episode must have all
+seven Monday-through-Sunday stages marked complete. `--allow-partial` opts
+into partial input and records missing days plus a top-level partial-input
+flag in the manifest. Each accepted message gets a stable ID from episode ID,
+day, turn index, speaker, and message text. A character observes only the
+days on which they speak; on those days, their observations include the full
+accepted group dialogue with `self` and `heard` attribution. This captures
+what colleagues said around them without assigning unseen dialogue or
+pretending every line was addressed directly to them.
 
-Each character has an empty candidate memory schema with supporting source
-IDs, source episode IDs, and a future memory-kind field. The default 80, 160,
-and 300 token variants are budget slots, not generated content. The local
-word/punctuation token estimate is for relative comparisons only; it is not
-the model provider's tokenizer. The library function `render_candidate()`
-can render a candidate supplied by a later experiment and flags overflow.
+Each character has one empty candidate memory slot for each of the three
+episodes. Each slot contains that week's observations, an empty schema with
+supporting source IDs and a future memory-kind field, and default 80, 160,
+and 300 token budget variants. Later slots list earlier slot IDs as possible
+prior-memory inputs, preserving the week-by-week creation order. Those prior
+slots become available only after they have actually been created; the
+manifest contains no generated or presumed memories. Characters seen in any
+input week have a slot for every week, including an empty-evidence slot when
+they were absent. Supply episode paths in chronological order so prior-slot
+links represent earlier weeks.
+
+The local word/punctuation estimate supports rough comparisons only. It does
+not enforce a provider token cap. Any paid generation experiment must count
+with the exact provider tokenizer before making the request. The library
+function `render_candidate()` can render supplied candidate text and flags
+overflow against the local estimate.
 
 ## What to test next
 
@@ -51,13 +68,14 @@ curated highlights, and forced callbacks sounded unnatural; memories should
 help a character respond when relevant rather than require a callback.
 
 The current manifest is preparation for these experiments, not evidence that
-any memory format improves the dialogue. It also only includes characters
-who speak in accepted complete scenes; adding the canonical roster and
-explicit addressed-to detection should be separate, measured choices.
+any memory format improves the dialogue. It includes characters who speak in
+accepted scenes; adding the canonical roster and explicit addressed-to
+detection should be separate, measured choices.
 
 ## Validation
 
-The synthetic tests verify accepted/rejected separation, complete-stage
-filtering, character-specific attribution across a shared scene, deterministic
-source IDs, empty candidate slots at all three budgets, and overflow
-reporting. They require no API credentials or episode data.
+The synthetic tests verify accepted/rejected separation, complete-week
+validation, day-scoped attendance, weekly slots and prior-slot ordering,
+character-specific attribution across shared scenes, deterministic source
+IDs, empty candidate slots at all three budgets, and overflow reporting. They
+require no API credentials or episode data.

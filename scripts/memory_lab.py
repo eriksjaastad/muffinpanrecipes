@@ -17,6 +17,7 @@ from typing import Any
 
 
 DEFAULT_BUDGETS = (80, 160, 300)
+WEEK_DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 TOKEN_RE = re.compile(r"\w+|[^\w\s]", re.UNICODE)
 
 
@@ -52,7 +53,7 @@ def _episode_id(episode: dict[str, Any], path: Path) -> str:
     return value.strip()
 
 
-def collect_episode(path: Path) -> tuple[dict[str, Any], dict[str, list[dict[str, Any]]]]:
+def collect_episode(path: Path, *, allow_partial: bool = False) -> tuple[dict[str, Any], dict[str, list[dict[str, Any]]]]:
     try:
         episode = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -64,9 +65,14 @@ def collect_episode(path: Path) -> tuple[dict[str, Any], dict[str, list[dict[str
     if not isinstance(stages, dict):
         raise ValueError(f"{path}: stages must be an object")
 
+    complete_days = [day for day in WEEK_DAYS if isinstance(stages.get(day), dict) and stages[day].get("status") == "complete"]
+    missing_days = [day for day in WEEK_DAYS if day not in complete_days]
+    if missing_days and not allow_partial:
+        raise ValueError(f"{path}: incomplete week; missing complete stages: {', '.join(missing_days)} (use --allow-partial to label it)")
+
     accepted: list[dict[str, Any]] = []
-    observations: dict[str, list[dict[str, Any]]] = {}
-    for day, stage in stages.items():
+    for day in WEEK_DAYS:
+        stage = stages.get(day)
         if not isinstance(stage, dict) or stage.get("status") != "complete":
             continue
         dialogue = stage.get("dialogue", [])
@@ -91,48 +97,68 @@ def collect_episode(path: Path) -> tuple[dict[str, Any], dict[str, list[dict[str
                 "estimated_tokens": estimate_tokens(message),
             }
             accepted.append(record)
-    # Each participant gets the whole accepted scene evidence. Attribution is
-    # explicit so later memory-writing experiments can model perception.
-    for character in sorted({row["character"] for row in accepted}):
+    # Participation is tracked by day. A character receives the group turns
+    # from days they spoke, never dialogue from days they did not attend.
+    participants = {row["character"] for row in accepted}
+    observations: dict[str, list[dict[str, Any]]] = {}
+    for character in participants:
+        attended_days = {row["day"] for row in accepted if row["character"] == character}
         observations[character] = [
             {**row, "perspective": "self" if row["character"] == character else "heard"}
-            for row in accepted
+            for row in accepted if row["day"] in attended_days
         ]
-    return {"episode_id": episode_id, "source_path": str(path), "accepted_messages": accepted}, observations
+    return {
+        "episode_id": episode_id,
+        "source_path": str(path),
+        "accepted_messages": accepted,
+        "missing_days": missing_days,
+    }, observations
 
 
-def build_manifest(paths: list[Path], budgets: tuple[int, ...] = DEFAULT_BUDGETS) -> dict[str, Any]:
+def build_manifest(
+    paths: list[Path], budgets: tuple[int, ...] = DEFAULT_BUDGETS, *, allow_partial: bool = False
+) -> dict[str, Any]:
     episodes: list[dict[str, Any]] = []
-    by_character: dict[str, list[dict[str, Any]]] = {}
+    per_episode: list[tuple[str, dict[str, list[dict[str, Any]]]]] = []
     for path in paths:
-        summary, observations = collect_episode(path)
+        summary, observations = collect_episode(path, allow_partial=allow_partial)
+        if any(episode["episode_id"] == summary["episode_id"] for episode in episodes):
+            raise ValueError(f"duplicate episode_id {summary['episode_id']!r}; provide three distinct weeks")
         episodes.append({key: value for key, value in summary.items() if key != "accepted_messages"} | {
             "accepted_message_count": len(summary["accepted_messages"]),
             "source_ids": [row["source_id"] for row in summary["accepted_messages"]],
         })
-        for character, rows in observations.items():
-            by_character.setdefault(character, []).extend(rows)
+        per_episode.append((summary["episode_id"], observations))
 
+    all_characters = sorted({character for _, observations in per_episode for character in observations})
     characters: dict[str, Any] = {}
-    for character, rows in sorted(by_character.items()):
-        source_ids = [row["source_id"] for row in rows]
-        candidate_schema = {
-            "text": None,
-            "source_ids": [],
-            "created_from_episode_ids": [],
-            "memory_kind": None,
-        }
+    for character in all_characters:
+        weekly_slots = []
+        prior_slot_ids: list[str] = []
+        for episode_id, observations in per_episode:
+            slot_id = "mem_" + hashlib.sha256(f"{episode_id}\0{character}".encode("utf-8")).hexdigest()[:20]
+            rows = observations.get(character, [])
+            candidate_schema = {"text": None, "source_ids": [], "created_from_episode_ids": [], "memory_kind": None}
+            weekly_slots.append({
+                "slot_id": slot_id,
+                "episode_id": episode_id,
+                "observations": rows,
+                "candidate_memory_schema": candidate_schema,
+                "budget_variants": [render_candidate(candidate_schema, budget) for budget in budgets],
+                "prior_slot_ids_available_after_creation": list(prior_slot_ids),
+            })
+            prior_slot_ids.append(slot_id)
         characters[character] = {
-            "observations": rows,
-            "candidate_memory_schema": candidate_schema,
-            "budget_variants": [render_candidate(candidate_schema, budget) for budget in budgets],
-            "available_source_ids": source_ids,
+            "weekly_memory_slots": weekly_slots,
         }
     return {
         "schema_version": 1,
         "mode": "offline_dry_run",
         "generation_performed": False,
         "token_estimator": "regex word/punctuation approximation; not provider tokenizer",
+        "token_cap_enforced": False,
+        "provider_token_count_required_before_paid_generation": True,
+        "partial_input": any(bool(episode["missing_days"]) for episode in episodes),
         "memory_policy_note": "Fading is a future prompt-selection policy; source evidence is retained.",
         "episode_count": len(episodes),
         "episodes": episodes,
@@ -150,12 +176,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("episodes", nargs=3, type=Path, help="three episode JSON files")
     parser.add_argument("--budgets", nargs="+", type=int, default=list(DEFAULT_BUDGETS), help="candidate memory token budgets")
+    parser.add_argument("--allow-partial", action="store_true", help="accept incomplete weeks and label them in the manifest")
     parser.add_argument("--output", type=Path, help="write manifest here (default: stdout)")
     args = parser.parse_args(argv)
     if any(budget <= 0 for budget in args.budgets):
         parser.error("budgets must be positive")
     try:
-        manifest = build_manifest(args.episodes, tuple(args.budgets))
+        manifest = build_manifest(args.episodes, tuple(args.budgets), allow_partial=args.allow_partial)
         rendered = json.dumps(manifest, indent=2, ensure_ascii=False) + "\n"
         if args.output:
             args.output.write_text(rendered, encoding="utf-8")

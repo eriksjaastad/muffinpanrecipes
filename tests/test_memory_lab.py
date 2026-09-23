@@ -1,12 +1,15 @@
 import json
 
-from scripts.memory_lab import build_manifest, render_candidate
+import pytest
+
+from scripts.memory_lab import WEEK_DAYS, build_manifest, main, render_candidate
 
 
 def _episode(path, episode_id, monday, *, rejected=None, extra_stage=None):
-    stages = {"monday": {"status": "complete", "dialogue": monday}}
+    stages = {day: {"status": "complete", "dialogue": []} for day in WEEK_DAYS}
+    stages["monday"] = {"status": "complete", "dialogue": monday}
     if extra_stage:
-        stages["tuesday"] = extra_stage
+        stages["tuesday_retry"] = extra_stage
     payload = {"episode_id": episode_id, "stages": stages}
     if rejected is not None:
         payload["rejected_dialogues"] = rejected
@@ -34,18 +37,25 @@ def test_manifest_uses_accepted_complete_dialogue_and_keeps_all_perspectives(tmp
 
     ria = manifest["characters"]["Ria"]
     assert manifest["episode_count"] == 3
-    assert [row["episode_id"] for row in ria["observations"]] == [
-        "2026-W10", "2026-W10", "2026-W11", "2026-W12", "2026-W12"
-    ]
-    assert [row["perspective"] for row in ria["observations"]] == ["self", "heard", "self", "heard", "self"]
+    assert len(ria["weekly_memory_slots"]) == 3
+    first_week, second_week, third_week = ria["weekly_memory_slots"]
+    assert [row["episode_id"] for row in first_week["observations"]] == ["2026-W10", "2026-W10"]
+    assert [row["perspective"] for row in first_week["observations"]] == ["self", "heard"]
     assert all("Rejected line" not in row["message"] and "Incomplete stage" not in row["message"]
-               for row in ria["observations"])
-    assert ria["observations"][1]["character"] == "Marcus"
-    assert ria["observations"][1]["source_id"].startswith("msg_")
-    assert ria["observations"][1]["turn_index"] == 1
-    assert ria["candidate_memory_schema"]["text"] is None
-    assert [v["budget_tokens"] for v in ria["budget_variants"]] == [80, 160, 300]
-    assert all(v["estimated_tokens"] == 0 and not v["overflow"] for v in ria["budget_variants"])
+               for slot in ria["weekly_memory_slots"] for row in slot["observations"])
+    assert first_week["observations"][1]["character"] == "Marcus"
+    assert first_week["observations"][1]["source_id"].startswith("msg_")
+    assert first_week["observations"][1]["turn_index"] == 1
+    assert first_week["candidate_memory_schema"]["text"] is None
+    assert [v["budget_tokens"] for v in first_week["budget_variants"]] == [80, 160, 300]
+    assert all(v["estimated_tokens"] == 0 and not v["overflow"] for v in first_week["budget_variants"])
+    assert first_week["prior_slot_ids_available_after_creation"] == []
+    assert second_week["prior_slot_ids_available_after_creation"] == [first_week["slot_id"]]
+    assert third_week["prior_slot_ids_available_after_creation"] == [first_week["slot_id"], second_week["slot_id"]]
+    marcus_weeks = manifest["characters"]["Marcus"]["weekly_memory_slots"]
+    assert marcus_weeks[1]["episode_id"] == "2026-W11"
+    assert marcus_weeks[1]["observations"] == []
+    assert marcus_weeks[1]["prior_slot_ids_available_after_creation"] == [marcus_weeks[0]["slot_id"]]
     assert manifest["generation_performed"] is False
 
 
@@ -56,10 +66,63 @@ def test_source_ids_are_stable_and_budget_rendering_flags_overflow(tmp_path):
     ]
     first = build_manifest(paths)
     second = build_manifest(paths)
-    first_id = first["characters"]["Ria"]["observations"][0]["source_id"]
-    second_id = second["characters"]["Ria"]["observations"][0]["source_id"]
+    first_id = first["characters"]["Ria"]["weekly_memory_slots"][0]["observations"][0]["source_id"]
+    second_id = second["characters"]["Ria"]["weekly_memory_slots"][0]["observations"][0]["source_id"]
     assert first_id == second_id
 
     rendered = render_candidate({"text": "word " * 81, "source_ids": [first_id]}, budget=80)
     assert rendered["estimated_tokens"] == 81
     assert rendered["overflow"] is True
+
+
+def test_character_observes_only_days_they_attended(tmp_path):
+    episodes = [
+        _episode(tmp_path / f"{week}.json", week, [
+            {"character": "Ria", "message": "I attended Monday."},
+            {"character": "Marcus", "message": "I spoke Monday too."},
+        ], extra_stage={"status": "complete", "dialogue": [
+            {"character": "Marcus", "message": "This Tuesday exchange is unseen by Ria."},
+        ]})
+        for week in ("2026-W30", "2026-W31", "2026-W32")
+    ]
+
+    manifest = build_manifest(episodes)
+
+    ria_first = manifest["characters"]["Ria"]["weekly_memory_slots"][0]
+    assert {row["day"] for row in ria_first["observations"]} == {"monday"}
+    assert "This Tuesday" not in " ".join(row["message"] for row in ria_first["observations"])
+    assert "I spoke Monday too." in " ".join(row["message"] for row in ria_first["observations"])
+
+
+def test_incomplete_week_requires_explicit_partial_flag(tmp_path):
+    paths = []
+    for week in ("2026-W40", "2026-W41", "2026-W42"):
+        path = _episode(tmp_path / f"{week}.json", week, [{"character": "Ria", "message": "Monday."}])
+        if week == "2026-W40":
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["stages"].pop("sunday")
+            path.write_text(json.dumps(payload), encoding="utf-8")
+        paths.append(path)
+
+    with pytest.raises(ValueError, match="incomplete week"):
+        build_manifest(paths)
+    manifest = build_manifest(paths, allow_partial=True)
+    assert manifest["partial_input"] is True
+    assert manifest["episodes"][0]["missing_days"] == ["sunday"]
+
+
+def test_cli_rejects_partial_input_by_default(tmp_path, capsys):
+    paths = []
+    for week in ("2026-W50", "2026-W51", "2026-W52"):
+        path = _episode(tmp_path / f"{week}.json", week, [{"character": "Ria", "message": "Monday."}])
+        if week == "2026-W50":
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["stages"].pop("sunday")
+            path.write_text(json.dumps(payload), encoding="utf-8")
+        paths.append(str(path))
+
+    with pytest.raises(SystemExit) as exc:
+        main(paths)
+
+    assert exc.value.code == 2
+    assert "incomplete week" in capsys.readouterr().err
