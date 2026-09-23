@@ -213,6 +213,55 @@ def test_b_prose_length_excludes_field_labels_and_citation_wrappers():
     assert structure_a["fields"] == structure_b["fields"]
 
 
+def test_b_uncited_no_change_fallback_is_exact_and_citation_groups_strip_cleanly():
+    source_id = "msg_0123456789abcdefabcd"
+    source_id_2 = "msg_abcdef0123456789abcd"
+    allowed = {source_id, source_id_2}
+
+    def response(stance: str, observed: str) -> str:
+        return (
+            f"Observed: {observed}\nInference: none supported\nStance: {stance}\n"
+            "Open thread: none"
+        )
+
+    for fallback in ("no change evidenced", "No change evidenced.", "no change evidenced!!!"):
+        parsed, error, structure = paid._extract_prose(
+            "B", response(fallback, f"Launch paused [{source_id}, {source_id_2}]"), allowed
+        )
+        assert error is None
+        assert structure["fields"]["Observed"] == "Launch paused"
+        assert ", ]" not in parsed and "[" not in parsed
+
+    malformed, error, _ = paid._extract_prose(
+        "B",
+        response("no change evidenced because the team was exhausted", f"Launch paused [{source_id}]"),
+        allowed,
+    )
+    assert malformed is None
+    assert error == "changed Stance field lacks a source ID"
+
+    cited, error, _ = paid._extract_prose(
+        "B",
+        response(
+            f"no change evidenced because the team was exhausted [{source_id}]",
+            f"Launch paused [{source_id}]",
+        ),
+        allowed,
+    )
+    assert error is None
+    assert "because the team was exhausted" in cited
+
+
+def test_pairwise_length_matching_has_fixed_band_and_tolerance():
+    assert paid.matched_prose_lengths(80, 95)
+    assert paid.matched_prose_lengths(105, 120)
+    assert not paid.matched_prose_lengths(79, 90)
+    assert not paid.matched_prose_lengths(80, 96)
+    assert not paid.matched_prose_lengths(121, 120)
+    assert not paid.matched_prose_lengths(None, 100)
+    assert not paid.matched_prose_lengths(True, 100)
+
+
 def test_a_evidence_map_requires_one_ordered_allowed_entry_per_sentence():
     first_id = "msg_0123456789abcdefabcd"
     second_id = "msg_abcdef0123456789abcd"
