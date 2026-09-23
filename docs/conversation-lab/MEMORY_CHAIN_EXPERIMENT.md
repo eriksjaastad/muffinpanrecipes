@@ -21,11 +21,14 @@ provider calls. It refuses plan assumptions that omit provenance, isolation, or
 the no-side-effects boundary.
 
 The module also has an orchestration helper used only with explicitly marked
-fake adapters in unit tests. It gives each arm a separate temporary character
-root, clears the simulator prompt cache before every week, provides a memory
-writer callback only to the memory arm, and restores the original character
-root, prompt cache, and scene directions even if a fake week raises. Stable
-source IDs include arm, ISO week, day, turn number, speaker, and exact text.
+fake adapters in unit tests. Every arm and week receives a fresh temporary
+simulator character root, so a write from one control week cannot leak into the
+next. The treatment uses a separate harness-owned memory store: the helper
+validates each returned memory record, persists and reads it back, then passes
+those actual records to the next treatment callback. It clears the simulator
+prompt cache before every week and restores the original character root, prompt
+cache, and scene directions even if a fake week raises. Stable source IDs
+include arm, ISO week, day, turn number, speaker, and exact text.
 Each week writes one slot for every character. An absent character receives a
 `no_new_evidence` slot with no source IDs and a reference to the prior memory,
 so continuity carries forward without inventing an event. Weekly memory records
@@ -39,8 +42,12 @@ retained separately, and a citation outside that set fails validation.
 
 The callback helper's `kind="fake"` marker is a test convention, not a security
 boundary. It reports provider calls as unverified because arbitrary Python
-callbacks cannot be proven offline. The CLI plan artifact itself performs zero
-calls, and the unit tests supply local fake callbacks.
+callbacks cannot be proven offline. Its output field
+`prior_memory_records_provided_to_callback` shows which records reached the
+callback; `prompt_injection_verified` remains false because this does not prove
+a future simulator placed them in its model prompt. That prompt path must be
+checked by a separately reviewed adapter. The CLI plan artifact itself performs
+zero calls, and the unit tests supply local fake callbacks.
 
 This deliberately stops before a full-week simulation adapter. The production
 simulator can call providers, writes memory at the end of a week, mutates shared

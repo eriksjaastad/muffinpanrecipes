@@ -89,7 +89,7 @@ def build_plan(assumptions: dict[str, Any] | None = None) -> dict[str, Any]:
             for week in WEEK_PLAN
         ],
         "source_id_policy": "derive stable IDs from experiment, arm, ISO week, day, turn index, speaker, and exact generated text; retain IDs through each weekly memory",
-        "memory_retention_policy": "write one character slot each week; carry prior memory references forward through weeks with no observed dialogue, without inventing an event; send roots to OS trash after the run",
+        "memory_retention_policy": "persist one character slot each week in the harness-owned treatment store; pass read-back records to the next treatment week; carry prior memory references through weeks with no observed dialogue without inventing an event; send roots to OS trash after the run",
         "measurement": [
             "voice distinctiveness by named character",
             "grounding against the cited source turns",
@@ -128,8 +128,45 @@ class FakeAdapters:
 
     kind: str
     provider_calls_allowed: bool
-    simulate_week: Callable[[dict[str, Any], str, Path], dict[str, Any]]
-    write_memory: Callable[[str, dict[str, Any], Path], dict[str, Any]]
+    simulate_week: Callable[[dict[str, Any], str, Path, dict[str, list[dict[str, Any]]]], dict[str, Any]]
+    write_memory: Callable[[str, dict[str, Any]], dict[str, Any]]
+
+
+def _character_store_key(character: str) -> str:
+    return "".join(char.lower() for char in character if char.isalnum())
+
+
+def _persist_memory_record(store_root: Path, record: dict[str, Any]) -> dict[str, Any]:
+    path = store_root / "characters" / _character_store_key(record["character"]) / f"{record['week']}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        raise ValueError(f"memory slot already exists for {record['character']} in {record['week']}")
+    path.write_text(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
+    persisted = json.loads(path.read_text(encoding="utf-8"))
+    if persisted != record:
+        raise ValueError(f"persisted memory did not round-trip for {record['character']} in {record['week']}")
+    return persisted
+
+
+def _load_prior_memory_records(
+    store_root: Path, prior_weeks: list[str]
+) -> dict[str, list[dict[str, Any]]]:
+    records_by_character = {character: [] for character in CHARACTER_ROSTER}
+    for character in CHARACTER_ROSTER:
+        for week in prior_weeks:
+            path = store_root / "characters" / _character_store_key(character) / f"{week}.json"
+            try:
+                record = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise ValueError(f"cannot read persisted memory for {character} in {week}: {exc}") from exc
+            if not isinstance(record, dict) or record.get("character") != character or record.get("week") != week:
+                raise ValueError(f"persisted memory identity mismatch for {character} in {week}")
+            if not isinstance(record.get("memory_id"), str) or not record["memory_id"]:
+                raise ValueError(f"persisted memory ID missing for {character} in {week}")
+            if not isinstance(record.get("status"), str) or "text" not in record:
+                raise ValueError(f"persisted memory content/status missing for {character} in {week}")
+            records_by_character[character].append(record)
+    return records_by_character
 
 
 def execute_fake_chain(
@@ -165,22 +202,43 @@ def execute_fake_chain(
     if not hasattr(simulator_state, "CHARACTERS_DIR") or not hasattr(simulator_state, "_system_prompt_cache") or not hasattr(simulator_state, "DAY_STAGE_DIRECTIONS"):
         raise ValueError("simulator state lacks required isolation and restoration surfaces")
 
-    output: dict[str, Any] = {"experiment_id": plan["experiment_id"], "arms": {}}
+    output: dict[str, Any] = {
+        "experiment_id": plan["experiment_id"],
+        "arms": {},
+        "prompt_injection_verified": False,
+        "memory_delivery": "read_back_records_passed_to_injected_callback; model_prompt_visibility_unverified",
+    }
     original_characters_dir = simulator_state.CHARACTERS_DIR
     original_cache = dict(simulator_state._system_prompt_cache)
     original_directions = dict(simulator_state.DAY_STAGE_DIRECTIONS)
 
-    def run_arm(root: Path, arm: str) -> dict[str, Any]:
-        simulator_state.CHARACTERS_DIR = root
-        simulator_state._system_prompt_cache.clear()
+    def new_isolated_root(prefix: str) -> Path:
+        root = Path(tempfile.mkdtemp(prefix=prefix))
+        isolated_roots.append(root)
+        return root
+
+    def run_arm(arm: str, memory_store_root: Path | None = None) -> dict[str, Any]:
         rows = []
-        previous_memory_ids: dict[str, list[str]] = {}
         seen_memory_ids: set[str] = set()
-        for week in plan["weeks"]:
+        for week_index, week in enumerate(plan["weeks"]):
+            # Every simulated week gets a fresh character root. Only the
+            # treatment arm has a distinct harness-owned memory store.
+            root = new_isolated_root(f"mpr-memory-{arm}-{week['week']}-")
+            simulator_state.CHARACTERS_DIR = root
             simulator_state._system_prompt_cache.clear()
+            prior_weeks = [row["week"] for row in plan["weeks"][:week_index]] if arm == ARMS[1] else []
+            prior_memory_records = (
+                _load_prior_memory_records(memory_store_root, prior_weeks)
+                if memory_store_root is not None else {character: [] for character in CHARACTER_ROSTER}
+            )
+            prior_memory_ids = {
+                character: [records[-1]["memory_id"]]
+                for character, records in prior_memory_records.items()
+                if records
+            }
             week_directions = dict(simulator_state.DAY_STAGE_DIRECTIONS)
             try:
-                result = adapters.simulate_week(week, arm, root)
+                result = adapters.simulate_week(week, arm, root, prior_memory_records)
             finally:
                 simulator_state.DAY_STAGE_DIRECTIONS.clear()
                 simulator_state.DAY_STAGE_DIRECTIONS.update(week_directions)
@@ -203,7 +261,6 @@ def execute_fake_chain(
             source_ids = [turn["source_id"] for turn in normalized_turns]
             if len(source_ids) != len(set(source_ids)):
                 raise ValueError(f"{week['week']}: duplicate source IDs")
-            new_memory_ids: dict[str, list[str]] = {}
             memory_records = []
             if arm == ARMS[1]:
                 for speaker in CHARACTER_ROSTER:
@@ -211,14 +268,14 @@ def execute_fake_chain(
                     observations = [turn for turn in normalized_turns if turn["day"] in attended_days]
                     observed_source_ids = [turn["source_id"] for turn in observations]
                     slot_status = "observed" if observations else "no_new_evidence"
-                    expected_prior_ids = list(previous_memory_ids.get(speaker, []))
+                    expected_prior_ids = list(prior_memory_ids.get(speaker, []))
                     record = adapters.write_memory(speaker, {
                         "week": week["week"],
                         "status": slot_status,
                         "source_ids": observed_source_ids,
                         "turns": observations,
                         "prior_memory_ids": expected_prior_ids,
-                    }, root)
+                    })
                     if not isinstance(record, dict):
                         raise ValueError(f"{week['week']}: memory writer must return a structured memory record")
                     memory_id = record.get("memory_id")
@@ -248,31 +305,34 @@ def execute_fake_chain(
                     if slot_status == "no_new_evidence" and memory_text is not None:
                         raise ValueError(f"{week['week']}: no-evidence memory text must be null")
                     memory_record = {
-                        **record,
+                        "memory_id": memory_id,
+                        "text": memory_text,
+                        "status": slot_status,
+                        "source_ids": cited_source_ids,
+                        "prior_memory_ids": expected_prior_ids,
                         "character": speaker,
                         "week": week["week"],
                         "observed_source_ids": observed_source_ids,
                     }
-                    memory_records.append(memory_record)
-                    new_memory_ids[speaker] = [memory_id]
+                    if memory_store_root is None:
+                        raise ValueError("treatment memory store is required to persist generated records")
+                    persisted_record = _persist_memory_record(memory_store_root, memory_record)
+                    memory_records.append(persisted_record)
             rows.append({
                 "week": week["week"],
                 "source_ids": source_ids,
                 "turns": normalized_turns,
-                "prior_memory_ids": dict(previous_memory_ids),
+                "prior_memory_ids": prior_memory_ids,
+                "prior_memory_records_provided_to_callback": prior_memory_records,
                 "memory_records": memory_records,
             })
-            previous_memory_ids = new_memory_ids
         return {"weeks": rows}
 
     isolated_roots: list[Path] = []
     try:
-        control_root = Path(tempfile.mkdtemp(prefix="mpr-memory-control-"))
-        isolated_roots.append(control_root)
-        control = run_arm(control_root, ARMS[0])
-        treatment_root = Path(tempfile.mkdtemp(prefix="mpr-memory-treatment-"))
-        isolated_roots.append(treatment_root)
-        treatment = run_arm(treatment_root, ARMS[1])
+        control = run_arm(ARMS[0])
+        treatment_memory_store = new_isolated_root("mpr-memory-treatment-store-")
+        treatment = run_arm(ARMS[1], treatment_memory_store)
         output["arms"] = {ARMS[0]: control, ARMS[1]: treatment}
         output["execution_performed"] = True
         output["provider_calls"] = "unverified_in_injected_callbacks"
