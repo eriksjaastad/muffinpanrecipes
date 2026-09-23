@@ -30,9 +30,15 @@ def test_build_recipe_context_full_payload():
     assert "Maple Hash Brown Nests" in summary
     assert "(savory)" in summary
     assert "edges go crisp" in summary
-    # The ingredient list is deliberately gone — it invited invented texture.
-    assert "russet potatoes" not in summary
-    assert "maple breakfast sausage" not in summary
+    # #7441 put the ingredient NAMES back. #7104's finding still holds and is
+    # still enforced below: what it dropped was a truncated list carrying
+    # amounts, which said what was IN the dish and nothing about what the
+    # finished thing was LIKE. The description above carries the texture; the
+    # names exist so a speaker cannot invent an ingredient the dish lacks.
+    assert "russet potatoes" in summary
+    assert "maple breakfast sausage" in summary
+    assert "1 lb" not in summary
+    assert "8 oz" not in summary
 
 
 def test_build_recipe_context_keeps_the_whole_description_not_just_sentence_one():
@@ -119,7 +125,12 @@ def test_build_recipe_context_survives_a_missing_description():
     summary = cron_routes._build_recipe_context(
         {"title": "No Description Cups", "category": "Sweet", "ingredients": [{"item": "sugar"}]}
     )
-    assert summary == "This week's recipe: No Description Cups (sweet)."
+    # The anchor still forms without a description. The ingredient names
+    # (#7441) ride along; "What it is:" is what is absent here.
+    assert summary.startswith("This week's recipe: No Description Cups (sweet).")
+    assert "What it is:" not in summary
+    assert "ingredient names" in summary
+    assert "sugar" in summary
 
 
 def test_build_recipe_context_empty_inputs():
@@ -428,3 +439,278 @@ def test_fit_method_never_exceeds_its_budget(budget):
     out = cron_routes._fit_method(steps, budget)
     assert len(out) <= budget, f"budget {budget} produced {len(out)}"
     assert "79. Step 79" in out, "the tail must still survive"
+
+
+# ---------------------------------------------------------------------------
+# The speakers' ingredient boundary (#7441)
+# ---------------------------------------------------------------------------
+
+
+def _kibbeh() -> dict:
+    """W39's real shape: prep clauses in `item`, and a duplicate onion."""
+    return {
+        "title": "Lebanese Kibbeh Baked Cups",
+        "category": "Party",
+        "description": "A crisp shell around a juicy filling.",
+        "ingredients": [
+            {"item": "fine bulgur wheat", "amount": "1 cup"},
+            {"item": "lean ground beef", "amount": "1 lb", "notes": "90/10"},
+            {"item": "yellow onion", "amount": "1"},
+            {"item": "olive oil, divided, plus more for greasing", "amount": "3 tbsp"},
+            {"item": "yellow onion, finely diced", "amount": "1/2"},
+            {"item": "pine nuts", "amount": "1/3 cup", "notes": "toasted"},
+        ],
+    }
+
+
+def test_the_names_reach_the_speakers_and_the_amounts_do_not():
+    """W39 Tuesday failed 3x because Margaret asserted butter, then egg white.
+
+    She had never seen the list. The judge had, with amounts and notes.
+    """
+    summary = cron_routes._build_recipe_context(_kibbeh())
+
+    assert "fine bulgur wheat" in summary
+    assert "lean ground beef" in summary
+    assert "pine nuts" in summary
+    # Amounts and notes stay judge-side — a quantity is what a character
+    # would recite; a name is what stops them inventing one.
+    for leaked in ("1 cup", "1 lb", "90/10", "3 tbsp", "1/3 cup", "toasted"):
+        assert leaked not in summary, leaked
+
+
+def test_a_prep_clause_in_the_item_field_is_dropped():
+    """"olive oil, divided, plus more for greasing" is not an ingredient name."""
+    summary = cron_routes._build_recipe_context(_kibbeh())
+
+    assert "olive oil" in summary
+    assert "divided" not in summary
+    assert "greasing" not in summary
+
+
+def test_the_same_ingredient_twice_appears_once():
+    """W39 carried both "yellow onion" and "yellow onion, finely diced"."""
+    names = cron_routes._ingredient_names(_kibbeh())
+
+    assert names.count("yellow onion") == 1
+    assert names == [
+        "fine bulgur wheat",
+        "lean ground beef",
+        "yellow onion",
+        "olive oil",
+        "pine nuts",
+    ]
+
+
+def test_a_complete_list_says_so_and_a_cut_one_does_not():
+    """Telling the speakers a truncated list is exhaustive is worse than the
+    bug this line fixes — they would then 'correct' real ingredients away."""
+    short = _kibbeh()
+    summary = cron_routes._build_recipe_context(short)
+    assert "Listed ingredient names (amounts, optionality" in summary
+    assert "This list is incomplete" not in summary
+
+    long = _kibbeh()
+    long["ingredients"] = [
+        {"item": f"ingredient number {i} with a deliberately long name"}
+        for i in range(40)
+    ]
+    summary = cron_routes._build_recipe_context(long)
+    assert "Some listed ingredient names (amounts, optionality" in summary
+    assert "This list is incomplete" in summary
+
+
+def test_the_cut_list_never_splits_a_name():
+    long = _kibbeh()
+    long["ingredients"] = [{"item": f"ingredient {i:02d} padded out"} for i in range(60)]
+    summary = cron_routes._build_recipe_context(long)
+
+    # Extract the ingredient list from the summary. The list appears after
+    # "Some listed ingredient names (amounts, optionality and substitution notes omitted):"
+    # and before the next sentence starting with "This list is incomplete"
+    start = summary.find("notes omitted): ") + len("notes omitted): ")
+    end = summary.find(". This list is incomplete", start)
+    listed = summary[start:end]
+    for name in listed.split(", "):
+        assert name.startswith("ingredient "), name
+        assert name.endswith("padded out"), name
+
+
+def test_optional_and_substitute_notes_are_omitted_without_requiring_every_name():
+    recipe = {
+        "title": "Mint Cups",
+        "category": "savory",
+        "description": "A crisp cup.",
+        "ingredients": [
+            {"item": "fresh mint", "amount": "2 tbsp", "notes": "optional"},
+            {"item": "ghee", "amount": "1 tbsp", "notes": "or olive oil"},
+        ],
+    }
+    summary = cron_routes._build_recipe_context(recipe)
+
+    assert "fresh mint" in summary
+    assert "ghee" in summary
+    assert "fresh mint is optional" not in summary
+    assert "olive oil" not in summary
+    assert "2 tbsp" not in summary
+    assert "1 tbsp" not in summary
+    assert "without assuming every item is required" in summary
+    assert "may be discussed as proposals" in summary
+    assert "do not assert they are in this recipe" in summary
+    assert "exactly these and nothing else" not in summary
+
+
+def test_inline_item_alternative_is_retained_as_one_name():
+    recipe = {
+        "title": "Pan Cups",
+        "ingredients": [{"item": "cooking spray or butter", "notes": "for greasing"}],
+    }
+    summary = cron_routes._build_recipe_context(recipe)
+
+    assert "cooking spray or butter" in summary
+    assert "for greasing" not in summary
+
+
+@pytest.mark.parametrize("name_length", [599, 600])
+def test_ingredient_list_cap_accepts_names_at_599_and_600(name_length):
+    name = "x" * name_length
+    summary = cron_routes._build_recipe_context({"title": "Boundary", "ingredients": [{"item": name}]})
+
+    assert name in summary
+    assert "Listed ingredient names" in summary
+    assert "This list is incomplete" not in summary
+
+
+def test_first_ingredient_over_cap_preserves_original_anchor():
+    recipe = {
+        "title": "Boundary",
+        "category": "sweet",
+        "description": "A crisp cup.",
+        "ingredients": [{"item": "x" * 601}],
+    }
+    base_anchor = cron_routes._build_recipe_context({**recipe, "ingredients": []})
+
+    assert cron_routes._build_recipe_context(recipe) == base_anchor
+
+
+def test_all_blank_ingredient_names_preserve_original_anchor():
+    recipe = {
+        "title": "Blank Cups",
+        "category": "sweet",
+        "description": "A crisp cup.",
+        "ingredients": [{"item": " "}, {"item": "\t"}, {}],
+    }
+    base_anchor = cron_routes._build_recipe_context({**recipe, "ingredients": []})
+
+    assert cron_routes._build_recipe_context(recipe) == base_anchor
+
+
+def test_no_ingredients_leaves_the_anchor_untouched():
+    """Monday before the baker runs, and test runs that skip it."""
+    recipe = {"title": "Something", "category": "Sweet", "description": "A thing."}
+    summary = cron_routes._build_recipe_context(recipe)
+
+    assert "do not name an ingredient" not in summary
+    assert summary.endswith("A thing.")
+    assert cron_routes._ingredient_names(None) == []
+    assert cron_routes._ingredient_names({}) == []
+    assert cron_routes._ingredient_names({"ingredients": [{}, {"item": "  "}, ""]}) == []
+
+
+def test_plain_string_ingredients_still_work():
+    """_build_judge_recipe_facts handles these; so must the speaker context."""
+    recipe = {
+        "title": "Something",
+        "category": "Sweet",
+        "description": "A thing.",
+        "ingredients": ["caster sugar", "unsalted butter, softened"],
+    }
+    assert cron_routes._ingredient_names(recipe) == ["caster sugar", "unsalted butter"]
+
+
+@pytest.mark.parametrize(
+    ("amount", "item", "expected"),
+    [
+        ("Cooking", "spray", "Cooking spray"),
+        ("Ghee", "or neutral oil, for greasing the muffin tin", "Ghee or neutral oil"),
+        ("Nonstick", "cooking spray", "Nonstick cooking spray"),
+        ("Lime", "wedges", "Lime wedges"),
+        ("Sriracha,", "to taste", "Sriracha"),
+        ("Pinch", "fine sea salt", "fine sea salt"),
+        ("Pinch", "of salt", "salt"),
+        ("Extra", "orange zest", "orange zest"),
+        ("as needed", "nonstick cooking spray", "nonstick cooking spray"),
+        ("to taste", "hot sauce or salsa", "hot sauce or salsa"),
+        ("Optional:", "pinch of crushed red pepper flakes", "crushed red pepper flakes"),
+        ("1–2", "Tbsp flour", "flour"),
+        ("1 tbsp", "of salt", "salt"),
+        ("2", "whole milk", "whole milk"),
+        ("2", "ground cloves", "ground cloves"),
+        ("2", "cloves", "cloves"),
+        ("1 tbsp", "or neutral oil", "neutral oil"),
+        ("", "or neutral oil", "neutral oil"),
+        ("Whole", "milk", "Whole milk"),
+        ("", "ground cloves", "ground cloves"),
+        ("", "cloves", "cloves"),
+        ("", "2% milk", "2% milk"),
+        ("", "5-spice powder", "5-spice powder"),
+        ("", "cooking spray or butter", "cooking spray or butter"),
+    ],
+)
+def test_ingredient_name_normalization_table(amount, item, expected):
+    assert cron_routes._ingredient_names({
+        "ingredients": [{"amount": amount, "item": item, "notes": "notes must not leak"}],
+    }) == [expected]
+
+
+@pytest.mark.parametrize(
+    ("amount", "item", "expected"),
+    [
+        ("1 tbsp plus extra", "flour", "flour"),
+        ("1 tbsp plus 1 tsp", "flour", "flour"),
+        ("1 tsp plus more", "flour", "flour"),
+        ("12 thin slices (about 6 oz)", "fresh ginger", "fresh ginger"),
+        ("1 sheet (8–9 oz)", "puff pastry", "puff pastry"),
+        ("1 stick (about 3 inches)", "cinnamon", "cinnamon"),
+        ("1 strip (about 3 inches)", "lemon peel", "lemon peel"),
+        ("1 bunch", "parsley", "parsley"),
+        ("1 heaping cup", "flour", "flour"),
+        ("2 full sheets", "nori", "nori"),
+    ],
+)
+def test_supported_composite_amounts_are_removed_as_a_whole(amount, item, expected):
+    assert cron_routes._ingredient_names({
+        "ingredients": [{"amount": amount, "item": item}],
+    }) == [expected]
+
+
+@pytest.mark.parametrize(
+    ("plain_ingredient", "expected"),
+    [
+        ("whole milk", "whole milk"),
+        ("ground cloves", "ground cloves"),
+        ("cloves", "cloves"),
+        ("2% milk", "2% milk"),
+        ("5-spice powder", "5-spice powder"),
+        ("cooking spray or butter", "cooking spray or butter"),
+        ("1–2 Tbsp flour", "flour"),
+        ("1/3 cup sugar", "sugar"),
+        ("½ cup sugar", "sugar"),
+        ("1 heaping cup flour", "flour"),
+    ],
+)
+def test_plain_string_names_and_supported_quantities(plain_ingredient, expected):
+    assert cron_routes._ingredient_names({"ingredients": [plain_ingredient]}) == [expected]
+
+
+@pytest.mark.parametrize("amount", ["1 cup", "1/2 tsp", "½ cup", "1–2 tbsp", "1 1/2 cups"])
+def test_supported_numeric_amounts_and_notes_do_not_appear_in_context(amount):
+    recipe = {
+        "title": "Quantity Cups",
+        "ingredients": [{"amount": amount, "item": "fine flour", "notes": "optional for garnish"}],
+    }
+    summary = cron_routes._build_recipe_context(recipe)
+
+    assert "fine flour" in summary
+    assert amount not in summary
+    assert "optional for garnish" not in summary

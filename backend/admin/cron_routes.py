@@ -63,7 +63,11 @@ from backend.utils.recipe_sanity import (
     check_recipe_sanity,
 )
 from backend.utils.title_validator import check_title_conflict
-from backend.utils.discord import notify_judge_failure, notify_pipeline_failure
+from backend.utils.discord import (
+    notify_judge_advisory,
+    notify_judge_failure,
+    notify_pipeline_failure,
+)
 from backend.utils.model_router import generate_judge_response, generate_response
 from backend.utils.text_sanitize import sanitize_text, has_encoding_issues
 
@@ -179,6 +183,11 @@ def _load_or_create_episode(episode_id: str, concept: str) -> dict:
 # enough for the recipe's whole description, short enough that it cannot become
 # the recitation the summary exists to prevent.
 RECIPE_CONTEXT_ANCHOR_MAX = 400
+# Names-only ingredient list handed to the SPEAKERS (#7441). Generous enough
+# that a normal recipe fits whole — W39's 22 ingredients render to ~250 chars —
+# because a truncated list cannot honestly be called complete, and the whole
+# point of this line is that it IS complete.
+RECIPE_CONTEXT_INGREDIENTS_MAX = 600
 
 # Cap for the method block the JUDGE receives (#7104 second pass). Sized against
 # real stored recipes, not guessed: W35-W38 methods run 2,486-4,956 chars, the
@@ -192,6 +201,118 @@ RECIPE_CONTEXT_ANCHOR_MAX = 400
 # frontier model a handful of times a week, so ~2k tokens there is cheap next to
 # shipping an episode that discusses a technique the recipe does not use.
 JUDGE_METHOD_MAX = 8000
+
+
+_INGREDIENT_NUMBER = r"(?:\d+\s+\d+/\d+|\d+/\d+|\d+(?:\.\d+)?|[¼½¾⅓⅔⅛⅜⅝⅞])"
+_INGREDIENT_RANGE = rf"{_INGREDIENT_NUMBER}(?:\s*(?:-|–|—|to)\s*{_INGREDIENT_NUMBER})?"
+_INGREDIENT_MEASURE = (
+    r"(?:cups?|tablespoons?|tbsp|teaspoons?|tsp|ounces?|oz|pounds?|lbs?|lb|"
+    r"grams?|grammes?|g|kilograms?|kg|milliliters?|millilitres?|ml|"
+    r"liters?|litres?|l|inches?|inch|in\.)"
+)
+_INGREDIENT_QUANTITY_RE = re.compile(
+    rf"(?:about\s+)?{_INGREDIENT_RANGE}(?:\s+(?:heaping|full)\s+{_INGREDIENT_MEASURE}|\s+{_INGREDIENT_MEASURE})?"
+    rf"(?:\s+plus\s+(?:more|extra|(?:about\s+)?{_INGREDIENT_RANGE}(?:\s+{_INGREDIENT_MEASURE})?))?",
+    re.IGNORECASE,
+)
+_INGREDIENT_COUNT_RE = re.compile(
+    rf"{_INGREDIENT_NUMBER}\s+(?:(?:thin|small|large|full)\s+)?"
+    r"(?:sheets?|sticks?|strips?|cloves?|pieces?|slices?|cans?|packages?|"
+    r"bunch(?:es)?|heads?|large|medium|small)"
+    rf"(?:\s*\((?:about\s+)?{_INGREDIENT_RANGE}\s+{_INGREDIENT_MEASURE}\))?",
+    re.IGNORECASE,
+)
+_PRESENTATION_AMOUNT_RE = re.compile(
+    r"(?:optional\s*:\s*)?(?:pinch(?:\s+of)?|dash(?:\s+of)?|handful(?:\s+of)?)|"
+    r"optional\s*:|extra|as\s+needed|to\s+taste",
+    re.IGNORECASE,
+)
+_RESIDUAL_MEASURE_RE = re.compile(
+    rf"^{_INGREDIENT_MEASURE}\b\s*", re.IGNORECASE
+)
+
+
+def _ingredient_amount_kind(amount: str) -> str | None:
+    """Classify only known quantity and presentation forms from stored recipe data."""
+    normalized = " ".join(amount.split())
+    if not normalized:
+        return None
+    if _PRESENTATION_AMOUNT_RE.fullmatch(normalized):
+        return "presentation"
+    if _INGREDIENT_QUANTITY_RE.fullmatch(normalized) or _INGREDIENT_COUNT_RE.fullmatch(normalized):
+        return "quantity"
+    return None
+
+
+def _split_plain_ingredient_quantity(value: str) -> tuple[str, str]:
+    """Split a leading supported quantity from a plain-string ingredient."""
+    boundaries = [match.start() for match in re.finditer(r"\s+", value)]
+    for boundary in reversed(boundaries):
+        amount = value[:boundary].strip()
+        item = value[boundary:].strip()
+        if _ingredient_amount_kind(amount) == "quantity" and item and not item.startswith(("%", "/")):
+            return amount, item
+    return "", value
+
+
+def _ingredient_names(recipe_data: dict | None) -> list[str]:
+    """Return normalized, deduped ingredient names from stored recipe shapes.
+
+    Dict entries use separate ``amount`` and ``item`` strings; plain strings
+    are either names or may begin with a supported quantity. Known full
+    quantities and presentation labels are omitted. Unknown amount prefixes
+    are conservatively restored before the item, since recipe generation can
+    split ingredient names across these fields. ``notes`` are never included.
+    This is a bounded normalizer for these stored shapes, not a general recipe
+    parser. A comma in the reconstructed item still starts the existing prep
+    clause convention; supported measurement units left in ``item`` are
+    removed only when the amount itself supplies quantity evidence.
+    """
+    if not isinstance(recipe_data, dict):
+        return []
+    names: list[str] = []
+    seen: set[str] = set()
+    for ing in (recipe_data.get("ingredients") or []):
+        if isinstance(ing, dict):
+            amount = " ".join(str(ing.get("amount") or "").split())
+            item = " ".join(str(ing.get("item") or "").split())
+        else:
+            amount = ""
+            item = " ".join(str(ing or "").split())
+            amount, item = _split_plain_ingredient_quantity(item)
+
+        amount_kind = _ingredient_amount_kind(amount)
+        quantity_evidence = amount_kind == "quantity"
+        if amount_kind:
+            name = item
+        elif amount:
+            separator = "" if amount.endswith(",") else " "
+            name = f"{amount}{separator}{item}".strip()
+        else:
+            name = item
+
+        # These are anchored presentation prefixes found in stored recipe data.
+        # Do not remove ordinary identity words such as "whole" or "cloves".
+        name = re.sub(r"^optional\s*:\s*", "", name, flags=re.IGNORECASE)
+        name = re.sub(r"^(?:pinch|dash|handful)\s+of\s+", "", name, flags=re.IGNORECASE)
+        if amount_kind:
+            name = re.sub(r"^of\s+", "", name, flags=re.IGNORECASE)
+        if quantity_evidence:
+            name = _RESIDUAL_MEASURE_RE.sub("", name)
+        if not amount or amount_kind:
+            # Some parsed rows leave a presentation "or" in the item field
+            # after its first choice was omitted. Preserve it when an unknown
+            # lexical amount (for example, "Ghee") is restored above.
+            name = re.sub(r"^or\s+", "", name, flags=re.IGNORECASE)
+        name = name.split(",", 1)[0].strip()
+        if not name:
+            continue
+        key = name.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        names.append(name)
+    return names
 
 
 def _build_recipe_context(recipe_data: dict | None) -> str:
@@ -234,6 +355,53 @@ def _build_recipe_context(recipe_data: dict | None) -> str:
         if len(anchor) > RECIPE_CONTEXT_ANCHOR_MAX:
             anchor = anchor[:RECIPE_CONTEXT_ANCHOR_MAX].rsplit(" ", 1)[0].rstrip(",;:") + "..."
         summary += f" What it is: {anchor}"
+
+    # The speakers' ingredient boundary (#7441). W39 Tuesday failed the judge
+    # three times on technical_credibility: attempt 2 asserted butter for a
+    # recipe that uses only olive oil, attempt 3 asserted egg white for a shell
+    # of bulgur, beef, onion, herbs and spices. Neither speaker had ever seen
+    # the ingredient list — the judge had, with amounts and notes. Tuesday is
+    # the recipe-development day, so that asymmetry made technical_credibility
+    # unsatisfiable by construction on the one day it matters most (#7079 is
+    # the same defect class).
+    #
+    # This is not a revert of #7104. That change dropped a truncated
+    # first-five-ingredients list because it said what was IN the dish and
+    # nothing about what the finished thing was LIKE; the description above
+    # still carries the texture. Names are back for factual grounding only.
+    names = _ingredient_names(recipe_data)
+    if names:
+        joined = ", ".join(names)
+        complete = True
+        if len(joined) > RECIPE_CONTEXT_INGREDIENTS_MAX:
+            kept: list[str] = []
+            used = 0
+            for name in names:
+                cost = len(name) + (2 if kept else 0)
+                if used + cost > RECIPE_CONTEXT_INGREDIENTS_MAX:
+                    break
+                kept.append(name)
+                used += cost
+            joined = ", ".join(kept)
+            complete = False
+        # A first name larger than the cap leaves no truthful list to show.
+        # Keep the title/description anchor intact instead of appending an
+        # empty "Some listed" boundary.
+        if not joined:
+            return summary
+        if complete:
+            summary += (
+                f" Listed ingredient names (amounts, optionality and substitution notes omitted): {joined}. "
+                f"Ground factual ingredient claims in these names without assuming every item is required. "
+                f"Other ingredients may be discussed as proposals, but do not assert they are in this recipe."
+            )
+        else:
+            summary += (
+                f" Some listed ingredient names (amounts, optionality and substitution notes omitted): {joined}. "
+                f"This list is incomplete; do not infer that an unlisted ingredient is absent. "
+                f"Ground factual ingredient claims in these names without assuming every item is required. "
+                f"Other ingredients may be discussed as proposals, but do not assert they are in this recipe."
+            )
     return summary
 
 
@@ -580,6 +748,12 @@ def _judge_dialogue(
         # provider outage therefore pauses the episode instead of waving
         # unjudged dialogue through (the PR #45 contract).
         logger.error(f"Judge errored for {stage} (treated as FAIL): {type(e).__name__}: {e}")
+        # Record EMPTY meta, do not leave the previous attempt's (or the
+        # previous run's) numbers standing (#7394). Whatever is on the
+        # episode describes a dialogue that is not this one, and callers
+        # read these keys to rank attempts and to fill the published stage
+        # record. Empty is the honest answer for an attempt nobody judged.
+        _record_judge_meta({}, [], f"judge error: {type(e).__name__}")
         return False, f"JUDGE ERROR: {type(e).__name__}: {e}"
 
     parsed = _parse_judge_json(raw)
@@ -601,6 +775,7 @@ def _judge_dialogue(
             ).strip()
         except Exception as e:
             logger.error(f"Judge errored on retry for {stage} (treated as FAIL): {type(e).__name__}: {e}")
+            _record_judge_meta({}, [], f"judge error: {type(e).__name__}")
             return False, f"JUDGE ERROR: {type(e).__name__}: {e}"
         parsed = _parse_judge_json(raw)
 
@@ -643,6 +818,28 @@ def _judge_meta_fields(episode: dict, stage: str) -> dict:
         "judge_weakest": episode.get("judge_weakest", {}).get(stage, []),
         "judge_reason": episode.get("judge_reason", {}).get(stage, ""),
     }
+
+
+def _announce_advisory_publication(episode: dict, stage: str, concept: str) -> None:
+    """Send the advisory alert once the page it describes actually exists.
+
+    _generate_and_judge_dialogue records that it SELECTED a below-bar
+    dialogue; only the publish path knows whether the recipe went live. The
+    record is flipped and persisted by the caller before this fires, so a
+    delivery failure cannot leave the episode claiming an unsent alert.
+    """
+    record = episode.get("judge_advisory", {}).get(stage)
+    if not record or not record.get("published"):
+        return
+    notify_judge_advisory(
+        concept=concept,
+        stage=stage,
+        verdict=record.get("verdict", ""),
+        episode_id=episode.get("episode_id", "unknown"),
+        attempts=record.get("attempts", 0),
+        scores=record.get("scores") or {},
+        weakest=record.get("weakest") or [],
+    )
 
 
 class JudgeFailedError(Exception):
@@ -707,12 +904,20 @@ def _generate_and_judge_dialogue(
     max_retries: int = 2,
     injected_event: str | None = None,
     recipe_data: dict | None = None,
+    advisory: bool = False,
 ) -> tuple[list[dict], str]:
     """Generate dialogue and run judge. Retry on FAIL up to max_retries.
 
     Returns (dialogue, verdict_str).
     Raises JudgeFailedError if all retries exhausted — caller should
     save episode as judge_failed and NOT publish.
+
+    Set advisory=True to score without gating: an exhausted retry loop then
+    returns the best-scoring rejected attempt instead of raising. Sunday uses
+    it (#7394). The dialogue is an accompaniment to the recipe, and until now
+    a weak conversation could withhold a finished, QA-passed recipe from
+    readers — which is what lost W38 entirely. The recipe's own gate,
+    _editorial_qa_review, still blocks and is unaffected.
 
     Pass recipe_data (typically `episode['stages']['monday']['recipe_data']`)
     to anchor both the simulator and the judge to the actual dish. Without
@@ -755,6 +960,16 @@ def _generate_and_judge_dialogue(
             recipe_facts=recipe_facts or None,
         )
         if passed:
+            # This stage cleared the judge, so any advisory record from an
+            # earlier abandoned run is now a lie. A Sunday that failed the
+            # judge and then failed editorial QA persists
+            # judge_advisory["sunday"] with published=False; the re-fire
+            # after the recipe is fixed would otherwise inherit it, flip it
+            # to published=True and email the discarded run's verdict and
+            # scores for a week that actually passed. Unlike
+            # rejected_dialogues, which is inert evidence, this record is
+            # read to make a claim — so it has to be cleared, not kept.
+            episode.get("judge_advisory", {}).pop(stage, None)
             # Run QA scoring on the accepted dialogue
             qa_scores = _score_dialogue_qa(dialogue, stage, concept)
             if qa_scores:
@@ -792,9 +1007,16 @@ def _generate_and_judge_dialogue(
     #
     # Without this, the only surviving evidence of a judge failure is one
     # sentence of verdict, which is not enough to tune a prompt against.
+    best = None
     if rejected:
+        # Only attempts the judge actually scored can win. An attempt whose
+        # judge call errored or came back unparseable carries {} — it was
+        # never assessed, so it must not out-rank a judged one on a sum of
+        # nothing, and under the advisory gate it must not be publishable
+        # at all (see below).
+        scored = [i for i, r in enumerate(rejected) if r.get("scores")]
         best = max(
-            range(len(rejected)),
+            scored or range(len(rejected)),
             key=lambda i: sum(
                 v for v in (rejected[i].get("scores") or {}).values()
                 if isinstance(v, (int, float))
@@ -804,6 +1026,84 @@ def _generate_and_judge_dialogue(
         episode.setdefault("rejected_dialogues", {})[stage] = rejected
 
     episode_id = episode.get("episode_id", "unknown")
+
+    if advisory:
+        # Ship the best attempt rather than the week. `best` is None only if
+        # the loop never ran, which max_retries >= 0 makes impossible — but a
+        # publish path must not depend on that, so fall back to the dialogue
+        # in hand and say so.
+        # "The judge said it is weak" and "the judge never spoke" are
+        # different states, and only the first one may publish. The comment
+        # on the judge's own error path states the contract from PR #45: a
+        # provider outage pauses the episode rather than waving unjudged
+        # dialogue through. Advisory relaxes the verdict, never the
+        # requirement that there BE one — otherwise an Anthropic outage
+        # publishes a conversation nobody ever looked at.
+        chosen = rejected[best] if best is not None else {}
+        if not chosen.get("scores"):
+            chosen = {}
+        dialogue = chosen.get("dialogue") or []
+        if not dialogue:
+            # Nothing to publish is a different failure from something weak,
+            # so this one still fails closed. Alert BEFORE raising:
+            # JudgeFailedError.already_notified is True, which makes
+            # _save_stage_failure skip its own ping on the promise that the
+            # raiser already sent a better one. Raising here without alerting
+            # would make Sunday fail in total silence — the exact shape of
+            # the incident this advisory gate exists to prevent.
+            notify_judge_failure(
+                concept=concept,
+                stage=stage,
+                verdict=verdict or "no dialogue survived the judge loop",
+                episode_id=episode_id,
+                attempts=total_attempts,
+            )
+            logger.error(
+                f"Advisory gate cannot publish {stage}: no attempt was "
+                f"actually judged (all {total_attempts} errored or were "
+                f"unparseable). Failing closed."
+            )
+            raise JudgeFailedError(stage=stage, verdict=verdict, attempts=total_attempts)
+        scores = chosen.get("scores") or {}
+        weakest = chosen.get("weakest") or []
+        # Restore the chosen attempt's own scores. The loop leaves the LAST
+        # attempt's scores on the episode, and the attempt we publish is
+        # usually not the last one, so without this the site's stage record
+        # would carry another dialogue's numbers. Written unconditionally:
+        # if the published attempt has no parsed scores, empty is the honest
+        # value — keeping a different attempt's numbers is the bug.
+        episode.setdefault("judge_scores", {})[stage] = scores
+        episode.setdefault("judge_weakest", {})[stage] = weakest
+        episode.setdefault("judge_reason", {})[stage] = chosen.get("reason", "")
+        # SELECTED, not published. Sunday still has to clear editorial QA and
+        # the publish itself, and this helper cannot know whether either
+        # succeeds. Claiming publication here would write
+        # published_below_bar=True onto an episode whose QA then rejected the
+        # recipe, and email Erik that a page is live when it is not. The
+        # handler flips `published` and sends the alert once the page exists.
+        episode.setdefault("judge_advisory", {})[stage] = {
+            "selected_below_bar": True,
+            "published": False,
+            "attempts": total_attempts,
+            "attempt_selected": chosen.get("attempt"),
+            "verdict": chosen.get("verdict") or verdict,
+            "scores": scores,
+            "weakest": weakest,
+            "recorded_at": datetime.now(timezone.utc).isoformat(),
+        }
+        episode.setdefault("events", []).append(
+            f"{stage}: judge FAILED all {total_attempts} attempts — "
+            f"selected the best attempt anyway (advisory gate)"
+        )
+        qa_scores = _score_dialogue_qa(dialogue, stage, concept)
+        if qa_scores:
+            episode.setdefault("qa_scores", {})[stage] = qa_scores
+        logger.error(
+            f"Judge failed all {total_attempts} attempts for {stage}; advisory "
+            f"gate — selected attempt {chosen.get('attempt')} for publication."
+        )
+        return dialogue, chosen.get("verdict") or verdict
+
     notify_judge_failure(
         concept=concept,
         stage=stage,
@@ -1323,6 +1623,13 @@ class StageRequest(BaseModel):
     model: Optional[str] = None        # override dialogue model (e.g. "openai/gpt-5.1")
     test: bool = False                 # test mode: saves to test/ prefix in blob
     force: bool = False                # skip day-of-week check (manual catch-ups only)
+    # Narrative problem handed to every character for this stage (#7352). The
+    # parameter has been plumbed end to end since W15 but nothing could supply
+    # one, so every production prompt has carried "Injected event: none" and
+    # the back half of the week had nothing left to decide. Operator-supplied
+    # only: the cron sends no body, so unattended runs still inject nothing.
+    # Automatic per-day events are a separate, gated question (#6967).
+    injected_event: Optional[str] = None
 
 
 async def _parse_body(request: Request) -> StageRequest:
@@ -2087,7 +2394,7 @@ async def cron_monday(request: Request):
 
         dialogue, judge_verdict = _generate_and_judge_dialogue(
             "monday", concept, ep, model=body.model,
-            injected_event=injected_event,
+            injected_event=body.injected_event or injected_event,
             recipe_data=recipe_data,
         )
 
@@ -2133,6 +2440,7 @@ async def cron_tuesday(request: Request):
       with _run_stage(ep, "tuesday"):
         dialogue, judge_verdict = _generate_and_judge_dialogue(
             "tuesday", concept, ep, model=body.model,
+            injected_event=body.injected_event,
             recipe_data=ep.get("stages", {}).get("monday", {}).get("recipe_data"),
         )
         ep["stages"]["tuesday"] = {
@@ -2243,6 +2551,7 @@ async def cron_wednesday(request: Request):
             image_paths=image_paths,
             photography_context=photography_result if isinstance(photography_result, dict) else None,
             model=body.model,
+            injected_event=body.injected_event,
             recipe_data=ep.get("stages", {}).get("monday", {}).get("recipe_data"),
         )
 
@@ -2301,6 +2610,7 @@ async def cron_thursday(request: Request):
         copy_text = orchestrator._execute_stage_copywriting(recipe_id, concept, recipe_data)
         dialogue, judge_verdict = _generate_and_judge_dialogue(
             "thursday", concept, ep, model=body.model,
+            injected_event=body.injected_event,
             recipe_data=recipe_data,
         )
 
@@ -2356,6 +2666,7 @@ async def cron_friday(request: Request):
             "friday", concept, ep,
             photography_context=friday_photo_ctx,
             model=body.model,
+            injected_event=body.injected_event,
             recipe_data=ep.get("stages", {}).get("monday", {}).get("recipe_data"),
         )
 
@@ -2406,6 +2717,7 @@ async def cron_saturday(request: Request):
         orchestrator._execute_stage_deployment(recipe_id)
         dialogue, judge_verdict = _generate_and_judge_dialogue(
             "saturday", concept, ep, model=body.model,
+            injected_event=body.injected_event,
             recipe_data=ep.get("stages", {}).get("monday", {}).get("recipe_data"),
         )
 
@@ -2471,7 +2783,12 @@ async def cron_sunday(request: Request):
 
         dialogue, judge_verdict = _generate_and_judge_dialogue(
             "sunday", concept, ep, model=body.model,
+            injected_event=body.injected_event,
             recipe_data=ep.get("stages", {}).get("monday", {}).get("recipe_data"),
+            # The judge scores Sunday but does not gate it (#7394). A weak
+            # sign-off scene is a tuning problem; withholding the recipe from
+            # readers over it is how W38 published nothing at all.
+            advisory=True,
         )
 
         # Editorial QA gate with auto-fix retry loop
@@ -2629,12 +2946,26 @@ async def cron_sunday(request: Request):
             logger.error(f"Memory generation failed (non-fatal): {type(e).__name__}: {e}")
             ep["events"].append(f"sunday: memory generation failed ({type(e).__name__})")
 
+        # The page exists now, so the advisory record can claim it (#7394).
+        advisory = ep.get("judge_advisory", {}).get("sunday")
+        if advisory and not advisory.get("published"):
+            advisory["published"] = True
+            advisory["published_at"] = ep["published_at"]
+
         # Persist the published episode before writing the catalog so a crash
         # between authoritative writes and the manual deployment handoff is
         # retryable.
         _set_static_deploy_state(ep, "pending")
         storage.save_episode(episode_id, ep)
         _complete_static_source_handoff(episode_id, ep)
+        # Last, because the handoff is what writes the reader-facing pages
+        # and catalog. It raises on failure with its own alert saying the
+        # episode is marked published but the pages were NOT written
+        # (_complete_static_source_handoff), so announcing before it could
+        # put "the recipe is live" and "the pages were not written" in the
+        # same inbox. Skipping the advisory alert on that path loses it —
+        # carded — which is the lesser harm of the two.
+        _announce_advisory_publication(ep, "sunday", concept)
 
     return _stage_response("sunday", episode_id, concept, {
         "published": True,

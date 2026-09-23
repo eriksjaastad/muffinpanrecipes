@@ -686,7 +686,15 @@ def test_ab_uses_one_episode_snapshot_for_anchor_and_every_judge_orientation(tmp
     assert load_count["n"] == 1
     assert len(anchors) == 4  # control + variant for each of two runs
     assert len(set(anchors)) == 1
-    assert anchors[0] == "This week's recipe: Tuesday Override Bites (savory). What it is: A stage-specific crisp and tender bite."
+    # The anchor is built from the TUESDAY override, not Monday's recipe. Its
+    # title, its description and its ingredient (#7441) all have to be the
+    # stage-specific ones; cornmeal appears only in the tuesday override.
+    assert anchors[0].startswith(
+        "This week's recipe: Tuesday Override Bites (savory). "
+        "What it is: A stage-specific crisp and tender bite."
+    )
+    assert "cornmeal" in anchors[0]
+    assert "1 cup" not in anchors[0]
     assert len(prompts) == 4  # both A/B orientations for both runs
     assert len({p.split("RECIPE GROUND TRUTH", 1)[1].split("Expected cast", 1)[0] for p in prompts}) == 1
     assert all("Stir the Tuesday batter." in p for p in prompts)

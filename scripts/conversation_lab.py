@@ -39,14 +39,15 @@ Four subcommands:
       exercise the plumbing for free.
 
       --testbed replaces a single --concept/--recipe-context run with the
-      frozen seven-scenario panel in docs/conversation-lab/testbed-v2.json
+      frozen seven-scenario panel in docs/conversation-lab/testbed-v3.json
       (or a path you pass), running --runs pairs (default 3 in testbed mode)
       per scenario and reporting both a per-scenario breakdown and an
       aggregate across every scenario's pairs - the fixed panel keeps
       experiments comparable month to month instead of drifting with
-      whatever episode happens to be in progress. --concept,
-      --recipe-context, and --from-episode are forbidden with --testbed;
-      each scenario already carries its own.
+      whatever episode happens to be in progress. v3 is the current anchor
+      panel (#7441); v2 and v1 (legacy) are available for historical
+      comparison. --concept, --recipe-context, and --from-episode are
+      forbidden with --testbed; each scenario already carries its own.
 
       Every judged dimension - the production 8 plus two lab-only ones,
       emotional_range and register_naturalness (see
@@ -246,11 +247,13 @@ from scripts.conversation_metrics import summarize
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LAB_DIR = ROOT / "docs" / "conversation-lab"
 DEFAULT_RESULTS_DIR = DEFAULT_LAB_DIR / "results"
-# v2 is the CURRENT-anchor panel (#7201). v1 (testbed.json) is kept, not deleted,
-# so pre-2026-09-15 results stay interpretable - it carries the old
-# "Key ingredients:" context format that production stopped emitting with #7104,
-# and a run against it silently tests a context shape production no longer uses.
-DEFAULT_TESTBED_PATH = DEFAULT_LAB_DIR / "testbed-v2.json"
+# v3 is the CURRENT-anchor panel (#7441). v2 (#7201) and v1 (testbed.json) are kept
+# for historical baseline comparison. v2 carried recipe_context without ingredient
+# boundaries; v3 builds from production's #7441-aware _build_recipe_context, so
+# experiments now measure what speakers actually see in production. v1 carries the
+# pre-#7104 "Key ingredients:" format (production stopped emitting, 2026-09-15).
+DEFAULT_TESTBED_PATH = DEFAULT_LAB_DIR / "testbed-v3.json"
+LEGACY_TESTBED_V2_PATH = DEFAULT_LAB_DIR / "testbed-v2.json"
 LEGACY_TESTBED_PATH = DEFAULT_LAB_DIR / "testbed.json"
 DEFAULT_TESTBED_RUNS = 3
 
@@ -1089,10 +1092,13 @@ def _resolve_models(dry_run: bool) -> tuple[str, str, str]:
 
 
 def _load_testbed(path: Path) -> list[dict[str, Any]]:
-    """Load the frozen scenario panel (docs/conversation-lab/testbed-v2.json by default).
+    """Load the frozen scenario panel (docs/conversation-lab/testbed-v3.json by default).
 
     Committed data, not regenerated at run time - see the module docstring
-    and _build_parser's `--testbed` help for how it was produced.
+    and _build_parser's `--testbed` help for how it was produced. v3 includes
+    the ingredient boundaries from #7441 so experiments measure what speakers
+    actually see in production. Legacy v2 and v1 panels are available for
+    historical baseline comparison.
     """
     if not path.exists():
         raise SystemExit(f"conversation_lab ab: testbed file not found: {path}")
@@ -1122,8 +1128,16 @@ def _load_testbed(path: Path) -> list[dict[str, Any]]:
     if stale:
         print(
             "[testbed] WARNING: those scenarios use the pre-#7104 'Key ingredients:' "
-            "anchor. Production emits 'What it is: <description>'. Results from this "
-            "panel do not transfer to production behaviour."
+            "anchor. Production now emits 'What it is: <description>' plus ingredient "
+            "boundaries (added #7441). Results from this panel do not transfer to production "
+            "behaviour."
+        )
+    if version == "v2":
+        print(
+            "[testbed] WARNING: v2 predates the #7441 ingredient boundary. Speakers in these "
+            "scenarios see only the description, without ingredient names. Current production "
+            "includes ingredient boundaries. v2 measurements do not transfer to production "
+            "behaviour."
         )
     return scenarios
 
