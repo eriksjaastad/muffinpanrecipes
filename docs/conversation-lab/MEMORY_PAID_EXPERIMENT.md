@@ -17,8 +17,11 @@ text, usage, stop reason, request ID when available, and a cost computed from
 the validated Haiku rates. A failed or ambiguous paid call stays marked
 in-flight and is never retried. Resume requires both files, their artifact and
 ledger binding to match, and a checkpoint with no in-flight call; only valid
-saved responses are skipped. Writes to application data and live Blob are not
-part of this runner.
+saved responses are skipped. Each raw response, usage record, and stop reason
+is atomically checkpointed with `measurement_status: pending` before parsing
+or token-length measurement. On resume, a pending measurement is completed and
+durably checkpointed before the next generation request. Writes to application
+data and live Blob are not part of this runner.
 
 For successfully parsed responses, the runner extracts memory prose separately
 from citation/evidence-map text. It records prose length using Anthropic
@@ -36,11 +39,13 @@ The result/checkpoint JSON fields are:
   `ledger_path_binding_sha256`, `ledger_created_at`, `model`, `max_tokens`, and
   `temperature`. The checkpoint does not store an absolute machine path.
 - Progress: ordered `calls` (`call_id`, `character`, `arm`),
-  `next_call_index`, `in_flight_call_id`, `status`, and optional `stop_reason`.
+  `next_call_index`, `in_flight_call_id`, `pending_measurement_call_id`,
+  `status`, and optional `stop_reason`.
 - Each `responses` entry: `call_id`, `character`, `arm`, `raw_response_text`,
   `usage` (`input_tokens`, `output_tokens`, `service_tier`, and
   `inference_geo` when supplied), `stop_reason`, `request_id`,
-  `actual_cost_microusd`, `prose_parse_status`, and `prose_parse_error`.
+  `actual_cost_microusd`, `measurement_status`, `prose_parse_status`, and
+  `prose_parse_error`.
   Successfully parsed responses also have `memory_prose` and
   `memory_structure` (format plus parsed fields when applicable), and
   `normalized_text_lengths` (`method`, `response_text_tokens`,

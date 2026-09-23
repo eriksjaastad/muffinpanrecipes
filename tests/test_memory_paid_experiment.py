@@ -360,7 +360,11 @@ def test_resume_skips_only_valid_saved_response_and_continues(tmp_path, monkeypa
     state["responses"] = [{
         "call_id": "Devon:A", "character": "Devon", "arm": "A",
         "raw_response_text": raw, "usage": usage, "stop_reason": "end_turn",
-        "actual_cost_microusd": 340, "prose_parse_status": "parsed",
+        "actual_cost_microusd": 340, "measurement_status": "complete",
+        "prose_parse_status": "parsed", "prose_parse_error": None,
+        "memory_prose": "The room agreed to pause the launch. Marcus noticed the concern remained unresolved.",
+        "memory_structure": {"format": "two_sentence_recap"},
+        "normalized_text_lengths": {"memory_prose_tokens": 18},
     }]
     state["next_call_index"] = 1
     state["status"] = "partial"
@@ -370,3 +374,56 @@ def test_resume_skips_only_valid_saved_response_and_continues(tmp_path, monkeypa
     assert len(resumed["responses"]) == 12
     assert resumed["responses"][0]["raw_response_text"] == raw
     assert len(calls["create"]) == 12  # one preexisting plus eleven new calls
+
+
+def test_resume_finishes_durable_raw_response_measurement_before_next_generation(tmp_path, monkeypatch):
+    calls = _fake_sdk(monkeypatch)
+    artifact, digest = _artifact(), "6" * 64
+    ledger, checkpoint = tmp_path / "ledger.json", tmp_path / "result.json"
+    measure = paid._finish_response_measurement
+
+    def crash_before_measurement(*args, **kwargs):
+        raise SystemExit("simulated process interruption after raw checkpoint")
+
+    monkeypatch.setattr(paid, "_finish_response_measurement", crash_before_measurement)
+    with pytest.raises(SystemExit, match="simulated process interruption"):
+        paid.execute(artifact, digest, ledger, checkpoint)
+
+    raw_checkpoint = json.loads(checkpoint.read_text(encoding="utf-8"))
+    assert raw_checkpoint["next_call_index"] == 1
+    assert raw_checkpoint["pending_measurement_call_id"] == "Devon:A"
+    first = raw_checkpoint["responses"][0]
+    assert first["measurement_status"] == "pending"
+    assert first["raw_response_text"]
+    assert "memory_prose" not in first
+    assert len(calls["create"]) == 1
+    assert paid._validate_state(raw_checkpoint, digest, ledger)["responses"][0]["measurement_status"] == "pending"
+    inconsistent = json.loads(json.dumps(raw_checkpoint))
+    inconsistent["pending_measurement_call_id"] = None
+    with pytest.raises(paid.ExperimentError, match="pending measurement checkpoint identity"):
+        paid._validate_state(inconsistent, digest, ledger)
+
+    events = []
+
+    def record_measurement(*args, **kwargs):
+        events.append("measure")
+        return measure(*args, **kwargs)
+
+    original_create = Messages.create
+
+    def record_generation(self, **kwargs):
+        events.append("generate")
+        return original_create(self, **kwargs)
+
+    monkeypatch.setattr(paid, "_finish_response_measurement", record_measurement)
+    monkeypatch.setattr(Messages, "create", record_generation)
+    resumed = paid.execute(artifact, digest, ledger, checkpoint, resume=True)
+    assert len(calls["create"]) == 12  # pending response resumed; only eleven new generations
+    assert events[:2] == ["measure", "generate"]
+    completed_first = resumed["responses"][0]
+    assert completed_first["measurement_status"] == "complete"
+    assert completed_first["prose_parse_status"] == "parsed"
+    assert completed_first["memory_prose"]
+    assert completed_first["memory_structure"]
+    assert completed_first["normalized_text_lengths"]["memory_prose_tokens"] > 0
+    assert resumed["pending_measurement_call_id"] is None

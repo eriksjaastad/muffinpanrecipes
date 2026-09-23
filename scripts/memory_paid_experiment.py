@@ -242,6 +242,7 @@ def _base_state(artifact: dict[str, Any], digest: str, ledger_path: Path) -> dic
         "calls": calls,
         "next_call_index": 0,
         "in_flight_call_id": None,
+        "pending_measurement_call_id": None,
         "responses": [],
         "status": "ready",
     }
@@ -277,6 +278,7 @@ def _validate_state(state: Any, digest: str, ledger_path: Path) -> dict[str, Any
         raise ExperimentError("checkpoint has an ambiguous in-flight request; refusing to repeat it")
     if len(responses) > 12 or state.get("next_call_index") != len(responses):
         raise ExperimentError("checkpoint progress is inconsistent")
+    pending_indexes = []
     for index, response in enumerate(responses):
         if not isinstance(response, dict) or response.get("call_id") != calls[index].get("call_id"):
             raise ExperimentError("checkpoint contains an invalid completed response")
@@ -286,10 +288,53 @@ def _validate_state(state: Any, digest: str, ledger_path: Path) -> dict[str, Any
             or not isinstance(response.get("raw_response_text"), str)
             or not response["raw_response_text"]
             or not isinstance(response.get("usage"), dict)
-            or response.get("prose_parse_status") not in {"parsed", "unscored"}
+            or response.get("measurement_status") not in {"pending", "complete"}
         ):
             raise ExperimentError("checkpoint completed response is incomplete")
+        if response["measurement_status"] == "pending":
+            pending_indexes.append(index)
+        elif response.get("prose_parse_status") not in {"parsed", "unscored"}:
+            raise ExperimentError("checkpoint has a completed measurement without a parse result")
+        elif response.get("prose_parse_status") == "parsed" and (
+            not isinstance(response.get("memory_prose"), str)
+            or not isinstance(response.get("memory_structure"), dict)
+            or not isinstance(response.get("normalized_text_lengths"), dict)
+        ):
+            raise ExperimentError("checkpoint has an incomplete parsed measurement")
+    if pending_indexes:
+        if pending_indexes != [len(responses) - 1]:
+            raise ExperimentError("only the newest raw response may await measurement")
+        pending_call_id = responses[pending_indexes[0]]["call_id"]
+        if state.get("pending_measurement_call_id") != pending_call_id:
+            raise ExperimentError("pending measurement checkpoint identity is inconsistent")
+    elif state.get("pending_measurement_call_id") is not None:
+        raise ExperimentError("checkpoint names a missing pending measurement")
     return state
+
+
+def _finish_response_measurement(client: Any, item: dict[str, Any], record: dict[str, Any]) -> None:
+    """Persistable derived fields for one already-durable raw response."""
+    parsed, parse_error, structure = _extract_prose(
+        item["arm"], item["raw_response_text"], set(record["source_ids"])
+    )
+    item["prose_parse_status"] = "unscored" if parse_error else "parsed"
+    item["prose_parse_error"] = parse_error
+    if parsed is not None:
+        item["memory_prose"] = parsed
+        item["memory_structure"] = structure
+        empty = client.messages.count_tokens(model=MODEL, messages=[{"role": "user", "content": ""}]).input_tokens
+        raw_count = client.messages.count_tokens(
+            model=MODEL, messages=[{"role": "user", "content": item["raw_response_text"]}]
+        ).input_tokens
+        prose_count = client.messages.count_tokens(
+            model=MODEL, messages=[{"role": "user", "content": parsed}]
+        ).input_tokens
+        item["normalized_text_lengths"] = {
+            "method": "Anthropic count_tokens input count minus same empty-user-message framing baseline; descriptive text length only, not output usage",
+            "response_text_tokens": max(0, raw_count - empty),
+            "memory_prose_tokens": max(0, prose_count - empty),
+        }
+    item["measurement_status"] = "complete"
 
 
 def execute(artifact: dict[str, Any], digest: str, ledger_path: Path, checkpoint_path: Path, *, resume: bool = False) -> dict[str, Any]:
@@ -330,6 +375,25 @@ def execute(artifact: dict[str, Any], digest: str, ledger_path: Path, checkpoint
             state["ledger_created_at"] = json.loads(ledger_path.read_text(encoding="utf-8"))["created_at"]
             _atomic_json(checkpoint_path, state)
         with guard.phase("ab"):
+            def finish_pending_measurement(item: dict[str, Any]) -> None:
+                record = next(row for row in artifact["prompts"] if row["character"] == item["character"])
+                state["status"] = "measuring"
+                _atomic_json(checkpoint_path, state)
+                try:
+                    _finish_response_measurement(client, item, record)
+                except Exception as exc:
+                    state["status"] = "stopped"
+                    state["stop_reason"] = type(exc).__name__
+                    _atomic_json(checkpoint_path, state)
+                    guard.raise_if_stopped()
+                    raise
+                state["pending_measurement_call_id"] = None
+                state["status"] = "complete" if state["next_call_index"] == 12 else "partial"
+                _atomic_json(checkpoint_path, state)
+
+            if state.get("pending_measurement_call_id") is not None:
+                finish_pending_measurement(state["responses"][-1])
+
             for index in range(state["next_call_index"], len(state["calls"])):
                 call = state["calls"][index]
                 character = call["character"]
@@ -349,9 +413,6 @@ def execute(artifact: dict[str, Any], digest: str, ledger_path: Path, checkpoint
                     )
                     raw_text = _response_text(response)
                     usage = _usage_fields(response)
-                    parsed, parse_error, structure = _extract_prose(
-                        arm, raw_text, set(record["source_ids"])
-                    )
                     item: dict[str, Any] = {
                         "call_id": call["call_id"],
                         "character": character,
@@ -361,28 +422,17 @@ def execute(artifact: dict[str, Any], digest: str, ledger_path: Path, checkpoint
                         "stop_reason": getattr(response, "stop_reason", None),
                         "request_id": getattr(response, "_request_id", None),
                         "actual_cost_microusd": usage["input_tokens"] + 5 * usage["output_tokens"],
-                        "prose_parse_status": "unscored" if parse_error else "parsed",
-                        "prose_parse_error": parse_error,
+                        "measurement_status": "pending",
                     }
                     state["responses"].append(item)
                     state["next_call_index"] = index + 1
                     state["in_flight_call_id"] = None
-                    state["status"] = "complete" if state["next_call_index"] == 12 else "partial"
-                    # First durable write after a response preserves the full
-                    # raw text even if a later length-measurement call fails.
+                    state["pending_measurement_call_id"] = call["call_id"]
+                    state["status"] = "measuring"
+                    # Raw result and billing usage become durable before any
+                    # parse or prose-length count request is attempted.
                     _atomic_json(checkpoint_path, state)
-                    if parsed is not None:
-                        item["memory_prose"] = parsed
-                        item["memory_structure"] = structure
-                        empty = client.messages.count_tokens(model=MODEL, messages=[{"role": "user", "content": ""}]).input_tokens
-                        raw_count = client.messages.count_tokens(model=MODEL, messages=[{"role": "user", "content": raw_text}]).input_tokens
-                        prose_count = client.messages.count_tokens(model=MODEL, messages=[{"role": "user", "content": parsed}]).input_tokens
-                        item["normalized_text_lengths"] = {
-                            "method": "Anthropic count_tokens input count minus same empty-user-message framing baseline; descriptive text length only, not output usage",
-                            "response_text_tokens": max(0, raw_count - empty),
-                            "memory_prose_tokens": max(0, prose_count - empty),
-                        }
-                    _atomic_json(checkpoint_path, state)
+                    finish_pending_measurement(item)
                 except Exception as exc:
                     state["status"] = "stopped"
                     state["stop_reason"] = type(exc).__name__
