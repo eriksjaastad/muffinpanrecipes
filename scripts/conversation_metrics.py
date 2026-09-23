@@ -478,6 +478,55 @@ def adjacency_continuity(messages: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def callback_depth(messages: list[dict[str, Any]]) -> dict[str, Any]:
+    """Does a line revive something said EARLIER than the turn before it?
+
+    `adjacency_continuity` above only ever compares turn i against turn
+    i-1, so it cannot distinguish "answered the last speaker" from
+    "picked up a thread from four turns ago" - Erik's complaint
+    (2026-09-19) was that characters seem to talk past the conversation
+    as a whole, not just past the previous line.
+
+    For every turn from the third onward, this subtracts the previous
+    turn's content words from the overlap, so a word only counts as a
+    callback when the turn *before* this one did not just say it. That
+    isolates a genuine reach backwards from ordinary local continuity.
+
+    `share_with_callback` is the fraction of eligible turns that revive at
+    least one such word. `mean_callback_distance` averages the gap to the
+    nearest turn that supplied one (2 = the turn before last), so a rising
+    share with a flat distance means more callbacks but no deeper reach.
+
+    Caveat: in a scene anchored to one dish the recipe's own nouns recur
+    everywhere, which inflates both numbers. Read it as a relative measure
+    between arms of the same experiment, never as an absolute.
+    """
+    eligible = 0
+    callback_turns = 0
+    distances: list[int] = []
+
+    for i in range(2, len(messages)):
+        eligible += 1
+        current = _content_words(messages[i].get("message", ""))
+        previous = _content_words(messages[i - 1].get("message", ""))
+        nearest: int | None = None
+        for j in range(i - 2, -1, -1):
+            revived = (current & _content_words(messages[j].get("message", ""))) - previous
+            if revived:
+                nearest = j
+                break
+        if nearest is not None:
+            callback_turns += 1
+            distances.append(i - nearest)
+
+    return {
+        "share_with_callback": round(callback_turns / eligible, 4) if eligible else 0.0,
+        "mean_callback_distance": round(mean(distances), 4) if distances else 0.0,
+        "eligible_turns": eligible,
+        "callback_turns": callback_turns,
+    }
+
+
 def question_answer_rate(messages: list[dict[str, Any]]) -> dict[str, Any]:
     """Fraction of questions that get an actual answer.
 
@@ -549,6 +598,74 @@ def repeated_phrases(messages: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def recurring_phrases_across(
+    transcripts: list[list[dict[str, Any]]],
+    n: int = 4,
+    min_transcripts: int = 2,
+    limit: int = 20,
+) -> dict[str, Any]:
+    """Phrases that recur ACROSS transcripts - the same-catchphrase-every-week detector.
+
+    `repeated_phrases` above is scoped to a single transcript, so it finds
+    a tic Marcus repeats twice on one Thursday and is blind to one he
+    reaches for in all six weeks. Erik named exactly that case on
+    2026-09-19: "are they using the same catchphrase every single week?"
+
+    Each transcript contributes each n-gram AT MOST ONCE, so a phrase said
+    five times in one scene does not look like a habit spanning five
+    weeks; the counts here are numbers of transcripts, never occurrences.
+
+    `per_character_catchphrases` is the one to read. A phrase can recur
+    corpus-wide simply because every week discusses baking, but a phrase
+    only ever spoken by Marcus, in most weeks, is his verbal tic.
+
+    Caveat: when the transcripts share a concept (N runs of one bench
+    setting rather than N different weeks), the dish's own nouns recur by
+    construction and will dominate `cross_transcript_ngrams`. Compare
+    across concepts when the question is about voice.
+    """
+    corpus_counts: Counter[tuple[str, ...]] = Counter()
+    per_char_counts: dict[str, Counter[tuple[str, ...]]] = {}
+
+    for messages in transcripts:
+        seen_corpus: set[tuple[str, ...]] = set()
+        seen_per_char: dict[str, set[tuple[str, ...]]] = {}
+        for msg in messages:
+            char = _first_name(msg.get("character"))
+            for gram in _ngrams(_words(msg.get("message", "")), n):
+                seen_corpus.add(gram)
+                seen_per_char.setdefault(char, set()).add(gram)
+        corpus_counts.update(seen_corpus)
+        for char, grams in seen_per_char.items():
+            per_char_counts.setdefault(char, Counter()).update(grams)
+
+    cross = [
+        (" ".join(gram), count)
+        for gram, count in corpus_counts.items()
+        if count >= min_transcripts
+    ]
+    cross.sort(key=lambda item: (-item[1], item[0]))
+
+    per_character: dict[str, list[tuple[str, int]]] = {}
+    for char, counter in per_char_counts.items():
+        hits = [
+            (" ".join(gram), count)
+            for gram, count in counter.items()
+            if count >= min_transcripts
+        ]
+        hits.sort(key=lambda item: (-item[1], item[0]))
+        if hits:
+            per_character[char] = hits[:limit]
+
+    return {
+        "transcript_count": len(transcripts),
+        "n": n,
+        "min_transcripts": min_transcripts,
+        "cross_transcript_ngrams": cross[:limit],
+        "per_character_catchphrases": per_character,
+    }
+
+
 def length_stats(messages: list[dict[str, Any]]) -> dict[str, Any]:
     """Word-count spread, overall and per character.
 
@@ -617,6 +734,7 @@ def summarize(
     """
     cast = cast_coverage(expected_cast, messages)
     adjacency = adjacency_continuity(messages)
+    callback = callback_depth(messages)
     qa = question_answer_rate(messages)
     repeated = repeated_phrases(messages)
     lengths = length_stats(messages)
@@ -643,6 +761,8 @@ def summarize(
         "cast_unexpected_count": len(cast["unexpected"]),
         "adjacency_mean_overlap": adjacency["mean_overlap"],
         "adjacency_share_with_link": adjacency["share_with_link"],
+        "callback_share": callback["share_with_callback"],
+        "callback_mean_distance": callback["mean_callback_distance"],
         "qa_rate": qa["rate"],
         "qa_question_count": qa["question_count"],
         "length_mean_words": lengths["mean"],
@@ -669,6 +789,7 @@ def summarize(
         "speaker_attribution_chance": attribution["chance"],
         "cast_detail": cast,
         "adjacency_detail": adjacency,
+        "callback_detail": callback,
         "qa_detail": qa,
         "repeated_phrases_detail": repeated,
         "length_detail": lengths,
@@ -702,6 +823,6 @@ AREA_METRICS: dict[str, list[str]] = {
     "Agree-openers": ["agree_opener_rate"],
     "Brand reinforcement": ["brand_term_rate"],
     "Pitch vocabulary": ["pitch_vocab_rate"],
-    "Engagement": ["question_rate", "qa_rate", "adjacency_mean_overlap", "adjacency_share_with_link"],
+    "Engagement": ["question_rate", "qa_rate", "adjacency_mean_overlap", "adjacency_share_with_link", "callback_share"],
     "Cast": ["cast_ratio"],
 }

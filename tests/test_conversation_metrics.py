@@ -467,3 +467,132 @@ def test_area_metrics_covers_the_expected_areas():
         "Structure", "Frames", "Agree-openers", "Brand reinforcement",
         "Pitch vocabulary", "Engagement", "Cast",
     }
+
+
+# ---------------------------------------------------------------------------
+# callback_depth - reaching back past the previous turn
+# ---------------------------------------------------------------------------
+
+
+def test_callback_depth_finds_a_revived_word():
+    # msg2 revives "cardamom" from msg0; msg1 never said it, so it counts.
+    messages = [
+        _msg("Margaret Chen", "Cardamom gets lost."),
+        _msg("Julian Torres", "Lighting needs warmth."),
+        _msg("Marcus Reid", "Cardamom deserves the headline."),
+    ]
+    result = cm.callback_depth(messages)
+    assert result["eligible_turns"] == 1
+    assert result["callback_turns"] == 1
+    assert result["share_with_callback"] == 1.0
+    assert result["mean_callback_distance"] == 2.0
+
+
+def test_callback_depth_ignores_pure_local_continuity():
+    # msg2 picks up "lighting" straight from msg1 and reaches no further
+    # back. adjacency_continuity sees a link; callback_depth must not -
+    # this is the whole reason the metric exists.
+    messages = [
+        _msg("Margaret Chen", "Cardamom gets lost."),
+        _msg("Julian Torres", "Lighting needs warmth."),
+        _msg("Marcus Reid", "Lighting is the whole problem."),
+    ]
+    # adjacency's one linked pair is msg1->msg2 (msg0->msg1 shares nothing),
+    # and msg2 is precisely the turn callback_depth scores as no-callback.
+    assert cm.adjacency_continuity(messages)["share_with_link"] == 0.5
+    result = cm.callback_depth(messages)
+    assert result["callback_turns"] == 0
+    assert result["share_with_callback"] == 0.0
+    assert result["mean_callback_distance"] == 0.0
+
+
+def test_callback_depth_measures_distance_to_the_nearest_source():
+    # "cardamom" appears at msg0 and msg2. Judged from msg4 the nearest
+    # supplier is msg2 (distance 2), not msg0 (distance 4) - a
+    # farthest-match implementation would report a mean of 3.0 here.
+    messages = [
+        _msg("Margaret Chen", "Cardamom gets lost."),
+        _msg("Devon Park", "Shutter speed matters."),
+        _msg("Marcus Reid", "Cardamom again here."),
+        _msg("Julian Torres", "Lighting needs warmth."),
+        _msg("Margaret Chen", "Cardamom finally lands."),
+    ]
+    result = cm.callback_depth(messages)
+    assert result["eligible_turns"] == 3
+    assert result["callback_turns"] == 2
+    assert result["mean_callback_distance"] == 2.0
+
+
+def test_callback_depth_needs_three_turns():
+    messages = [
+        _msg("Devon Park", "Staged."),
+        _msg("Margaret Chen", "Good."),
+    ]
+    result = cm.callback_depth(messages)
+    assert result["eligible_turns"] == 0
+    assert result["share_with_callback"] == 0.0
+
+
+def test_summarize_exposes_callback_keys():
+    messages = [
+        _msg("Margaret Chen", "Cardamom gets lost."),
+        _msg("Julian Torres", "Lighting needs warmth."),
+        _msg("Marcus Reid", "Cardamom deserves the headline."),
+    ]
+    summary = cm.summarize(messages, ["Margaret Chen"], concept="Spiral Bites", day="monday")
+    assert summary["callback_share"] == 1.0
+    assert summary["callback_mean_distance"] == 2.0
+    assert summary["callback_detail"]["eligible_turns"] == 1
+
+
+# ---------------------------------------------------------------------------
+# recurring_phrases_across - the same-catchphrase-every-week detector
+# ---------------------------------------------------------------------------
+
+
+def test_recurring_phrases_across_finds_a_per_character_catchphrase():
+    catchphrase = "that is the story"
+    transcripts = [
+        [_msg("Marcus Reid", f"{catchphrase} we are telling.")],
+        [_msg("Marcus Reid", f"Honestly {catchphrase} here.")],
+        [_msg("Margaret Chen", "Ratio is off again.")],
+    ]
+    result = cm.recurring_phrases_across(transcripts, n=4, min_transcripts=2)
+    assert result["transcript_count"] == 3
+    assert ("that is the story", 2) in result["per_character_catchphrases"]["Marcus"]
+    assert "Margaret" not in result["per_character_catchphrases"]
+
+
+def test_recurring_phrases_across_counts_transcripts_not_occurrences():
+    # Said three times, but all inside ONE transcript: that is a within-scene
+    # tic (repeated_phrases' job), not a habit spanning weeks.
+    line = "lock one decision now"
+    transcripts = [
+        [
+            _msg("Margaret Chen", f"{line} please."),
+            _msg("Margaret Chen", f"Again, {line} please."),
+            _msg("Margaret Chen", f"Seriously, {line} please."),
+        ],
+        [_msg("Margaret Chen", "Ratio is off again.")],
+    ]
+    result = cm.recurring_phrases_across(transcripts, n=4, min_transcripts=2)
+    assert result["cross_transcript_ngrams"] == []
+    assert result["per_character_catchphrases"] == {}
+
+
+def test_recurring_phrases_across_honours_min_transcripts():
+    line = "lock one decision now"
+    transcripts = [
+        [_msg("Margaret Chen", f"{line} please.")],
+        [_msg("Margaret Chen", f"{line} again.")],
+    ]
+    assert cm.recurring_phrases_across(transcripts, n=4, min_transcripts=3)["cross_transcript_ngrams"] == []
+    hits = cm.recurring_phrases_across(transcripts, n=4, min_transcripts=2)["cross_transcript_ngrams"]
+    assert ("lock one decision now", 2) in hits
+
+
+def test_recurring_phrases_across_handles_empty_corpus():
+    result = cm.recurring_phrases_across([], n=4)
+    assert result["transcript_count"] == 0
+    assert result["cross_transcript_ngrams"] == []
+    assert result["per_character_catchphrases"] == {}
