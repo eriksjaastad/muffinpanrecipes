@@ -183,6 +183,11 @@ def _load_or_create_episode(episode_id: str, concept: str) -> dict:
 # enough for the recipe's whole description, short enough that it cannot become
 # the recitation the summary exists to prevent.
 RECIPE_CONTEXT_ANCHOR_MAX = 400
+# Names-only ingredient list handed to the SPEAKERS (#7441). Generous enough
+# that a normal recipe fits whole — W39's 22 ingredients render to ~250 chars —
+# because a truncated list cannot honestly be called complete, and the whole
+# point of this line is that it IS complete.
+RECIPE_CONTEXT_INGREDIENTS_MAX = 600
 
 # Cap for the method block the JUDGE receives (#7104 second pass). Sized against
 # real stored recipes, not guessed: W35-W38 methods run 2,486-4,956 chars, the
@@ -196,6 +201,118 @@ RECIPE_CONTEXT_ANCHOR_MAX = 400
 # frontier model a handful of times a week, so ~2k tokens there is cheap next to
 # shipping an episode that discusses a technique the recipe does not use.
 JUDGE_METHOD_MAX = 8000
+
+
+_INGREDIENT_NUMBER = r"(?:\d+\s+\d+/\d+|\d+/\d+|\d+(?:\.\d+)?|[¼½¾⅓⅔⅛⅜⅝⅞])"
+_INGREDIENT_RANGE = rf"{_INGREDIENT_NUMBER}(?:\s*(?:-|–|—|to)\s*{_INGREDIENT_NUMBER})?"
+_INGREDIENT_MEASURE = (
+    r"(?:cups?|tablespoons?|tbsp|teaspoons?|tsp|ounces?|oz|pounds?|lbs?|lb|"
+    r"grams?|grammes?|g|kilograms?|kg|milliliters?|millilitres?|ml|"
+    r"liters?|litres?|l|inches?|inch|in\.)"
+)
+_INGREDIENT_QUANTITY_RE = re.compile(
+    rf"(?:about\s+)?{_INGREDIENT_RANGE}(?:\s+(?:heaping|full)\s+{_INGREDIENT_MEASURE}|\s+{_INGREDIENT_MEASURE})?"
+    rf"(?:\s+plus\s+(?:more|extra|(?:about\s+)?{_INGREDIENT_RANGE}(?:\s+{_INGREDIENT_MEASURE})?))?",
+    re.IGNORECASE,
+)
+_INGREDIENT_COUNT_RE = re.compile(
+    rf"{_INGREDIENT_NUMBER}\s+(?:(?:thin|small|large|full)\s+)?"
+    r"(?:sheets?|sticks?|strips?|cloves?|pieces?|slices?|cans?|packages?|"
+    r"bunch(?:es)?|heads?|large|medium|small)"
+    rf"(?:\s*\((?:about\s+)?{_INGREDIENT_RANGE}\s+{_INGREDIENT_MEASURE}\))?",
+    re.IGNORECASE,
+)
+_PRESENTATION_AMOUNT_RE = re.compile(
+    r"(?:optional\s*:\s*)?(?:pinch(?:\s+of)?|dash(?:\s+of)?|handful(?:\s+of)?)|"
+    r"optional\s*:|extra|as\s+needed|to\s+taste",
+    re.IGNORECASE,
+)
+_RESIDUAL_MEASURE_RE = re.compile(
+    rf"^{_INGREDIENT_MEASURE}\b\s*", re.IGNORECASE
+)
+
+
+def _ingredient_amount_kind(amount: str) -> str | None:
+    """Classify only known quantity and presentation forms from stored recipe data."""
+    normalized = " ".join(amount.split())
+    if not normalized:
+        return None
+    if _PRESENTATION_AMOUNT_RE.fullmatch(normalized):
+        return "presentation"
+    if _INGREDIENT_QUANTITY_RE.fullmatch(normalized) or _INGREDIENT_COUNT_RE.fullmatch(normalized):
+        return "quantity"
+    return None
+
+
+def _split_plain_ingredient_quantity(value: str) -> tuple[str, str]:
+    """Split a leading supported quantity from a plain-string ingredient."""
+    boundaries = [match.start() for match in re.finditer(r"\s+", value)]
+    for boundary in reversed(boundaries):
+        amount = value[:boundary].strip()
+        item = value[boundary:].strip()
+        if _ingredient_amount_kind(amount) == "quantity" and item and not item.startswith(("%", "/")):
+            return amount, item
+    return "", value
+
+
+def _ingredient_names(recipe_data: dict | None) -> list[str]:
+    """Return normalized, deduped ingredient names from stored recipe shapes.
+
+    Dict entries use separate ``amount`` and ``item`` strings; plain strings
+    are either names or may begin with a supported quantity. Known full
+    quantities and presentation labels are omitted. Unknown amount prefixes
+    are conservatively restored before the item, since recipe generation can
+    split ingredient names across these fields. ``notes`` are never included.
+    This is a bounded normalizer for these stored shapes, not a general recipe
+    parser. A comma in the reconstructed item still starts the existing prep
+    clause convention; supported measurement units left in ``item`` are
+    removed only when the amount itself supplies quantity evidence.
+    """
+    if not isinstance(recipe_data, dict):
+        return []
+    names: list[str] = []
+    seen: set[str] = set()
+    for ing in (recipe_data.get("ingredients") or []):
+        if isinstance(ing, dict):
+            amount = " ".join(str(ing.get("amount") or "").split())
+            item = " ".join(str(ing.get("item") or "").split())
+        else:
+            amount = ""
+            item = " ".join(str(ing or "").split())
+            amount, item = _split_plain_ingredient_quantity(item)
+
+        amount_kind = _ingredient_amount_kind(amount)
+        quantity_evidence = amount_kind == "quantity"
+        if amount_kind:
+            name = item
+        elif amount:
+            separator = "" if amount.endswith(",") else " "
+            name = f"{amount}{separator}{item}".strip()
+        else:
+            name = item
+
+        # These are anchored presentation prefixes found in stored recipe data.
+        # Do not remove ordinary identity words such as "whole" or "cloves".
+        name = re.sub(r"^optional\s*:\s*", "", name, flags=re.IGNORECASE)
+        name = re.sub(r"^(?:pinch|dash|handful)\s+of\s+", "", name, flags=re.IGNORECASE)
+        if amount_kind:
+            name = re.sub(r"^of\s+", "", name, flags=re.IGNORECASE)
+        if quantity_evidence:
+            name = _RESIDUAL_MEASURE_RE.sub("", name)
+        if not amount or amount_kind:
+            # Some parsed rows leave a presentation "or" in the item field
+            # after its first choice was omitted. Preserve it when an unknown
+            # lexical amount (for example, "Ghee") is restored above.
+            name = re.sub(r"^or\s+", "", name, flags=re.IGNORECASE)
+        name = name.split(",", 1)[0].strip()
+        if not name:
+            continue
+        key = name.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        names.append(name)
+    return names
 
 
 def _build_recipe_context(recipe_data: dict | None) -> str:
@@ -238,6 +355,53 @@ def _build_recipe_context(recipe_data: dict | None) -> str:
         if len(anchor) > RECIPE_CONTEXT_ANCHOR_MAX:
             anchor = anchor[:RECIPE_CONTEXT_ANCHOR_MAX].rsplit(" ", 1)[0].rstrip(",;:") + "..."
         summary += f" What it is: {anchor}"
+
+    # The speakers' ingredient boundary (#7441). W39 Tuesday failed the judge
+    # three times on technical_credibility: attempt 2 asserted butter for a
+    # recipe that uses only olive oil, attempt 3 asserted egg white for a shell
+    # of bulgur, beef, onion, herbs and spices. Neither speaker had ever seen
+    # the ingredient list — the judge had, with amounts and notes. Tuesday is
+    # the recipe-development day, so that asymmetry made technical_credibility
+    # unsatisfiable by construction on the one day it matters most (#7079 is
+    # the same defect class).
+    #
+    # This is not a revert of #7104. That change dropped a truncated
+    # first-five-ingredients list because it said what was IN the dish and
+    # nothing about what the finished thing was LIKE; the description above
+    # still carries the texture. Names are back for factual grounding only.
+    names = _ingredient_names(recipe_data)
+    if names:
+        joined = ", ".join(names)
+        complete = True
+        if len(joined) > RECIPE_CONTEXT_INGREDIENTS_MAX:
+            kept: list[str] = []
+            used = 0
+            for name in names:
+                cost = len(name) + (2 if kept else 0)
+                if used + cost > RECIPE_CONTEXT_INGREDIENTS_MAX:
+                    break
+                kept.append(name)
+                used += cost
+            joined = ", ".join(kept)
+            complete = False
+        # A first name larger than the cap leaves no truthful list to show.
+        # Keep the title/description anchor intact instead of appending an
+        # empty "Some listed" boundary.
+        if not joined:
+            return summary
+        if complete:
+            summary += (
+                f" Listed ingredient names (amounts, optionality and substitution notes omitted): {joined}. "
+                f"Ground factual ingredient claims in these names without assuming every item is required. "
+                f"Other ingredients may be discussed as proposals, but do not assert they are in this recipe."
+            )
+        else:
+            summary += (
+                f" Some listed ingredient names (amounts, optionality and substitution notes omitted): {joined}. "
+                f"This list is incomplete; do not infer that an unlisted ingredient is absent. "
+                f"Ground factual ingredient claims in these names without assuming every item is required. "
+                f"Other ingredients may be discussed as proposals, but do not assert they are in this recipe."
+            )
     return summary
 
 
