@@ -312,6 +312,51 @@ def test_execution_rejects_memory_citations_outside_observed_source_set(tmp_path
         execute_fake_chain(build_plan(), invalid_adapters, STATE)
 
 
+def test_execution_rejects_duplicate_memory_ids_across_characters(tmp_path, monkeypatch):
+    global STATE
+    STATE = FakeSimulatorState(tmp_path / "production-characters")
+    adapters, _ = _fake_adapters()
+    trash_root = tmp_path / "trash"
+    trash_root.mkdir()
+    monkeypatch.setattr("scripts.memory_chain_experiment._send_to_trash", lambda path: path.rename(trash_root / path.name))
+
+    def duplicate_writer(speaker, payload, root):
+        record = adapters.write_memory(speaker, payload, root)
+        record["memory_id"] = "duplicate-id"
+        return record
+
+    duplicate_adapters = FakeAdapters("fake", False, adapters.simulate_week, duplicate_writer)
+    with pytest.raises(ValueError, match="duplicate memory_id"):
+        execute_fake_chain(build_plan(), duplicate_adapters, STATE)
+
+
+def test_cleanup_attempts_every_root_and_reports_primary_and_cleanup_errors(tmp_path, monkeypatch):
+    global STATE
+    STATE = FakeSimulatorState(tmp_path / "production-characters")
+    adapters, _ = _fake_adapters(fail_week="2026-W41")
+    preserved_roots = tmp_path / "preserved-roots"
+    preserved_roots.mkdir()
+    cleanup_calls = []
+
+    def fail_first_cleanup(path):
+        destination = preserved_roots / path.name
+        path.rename(destination)
+        cleanup_calls.append(destination)
+        if len(cleanup_calls) == 1:
+            raise OSError("simulated first trash failure")
+
+    monkeypatch.setattr("scripts.memory_chain_experiment._send_to_trash", fail_first_cleanup)
+
+    with pytest.raises(ExceptionGroup) as exc_info:
+        execute_fake_chain(build_plan(), adapters, STATE)
+
+    assert len(cleanup_calls) == 2
+    assert len(list(preserved_roots.iterdir())) == 2
+    exception_messages = [str(error) for error in exc_info.value.exceptions]
+    assert any("synthetic simulation failure" in message for message in exception_messages)
+    assert any("simulated first trash failure" in message for message in exception_messages)
+
+
 def test_stable_source_ids_include_arm_and_week():
     common = ("monday", 0, "Ria", "The crop needs more space.")
 
