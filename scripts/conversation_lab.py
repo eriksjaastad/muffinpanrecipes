@@ -210,6 +210,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import random
 import re
@@ -1421,20 +1422,44 @@ def _aggregate_pairs(pairs: list[dict[str, Any]], target: str, dry_run: bool) ->
 
     Shared by the single-scenario report and both the per-scenario and
     cross-scenario testbed aggregates, so the three never compute this
-    differently by accident. Metric deltas are generic over every numeric
-    key `scripts.conversation_metrics.summarize()` returns (read off the
-    first pair's own summary, since every pair's summary has the same key
-    set) - a new metric someone adds there shows up here with no code
-    change.
+    differently by accident. Metric deltas are generic over summary keys,
+    but include only pairs with finite numeric observations on both sides.
+    Coverage records how many pairs supported each metric; unavailable values
+    are never imputed as zero.
     """
     n = len(pairs)
     overall_counts = Counter(p["judge"]["overall"] for p in pairs)
     per_dimension_counts = {dim: Counter(p["judge"][dim] for p in pairs) for dim in ALL_JUDGE_DIMENSIONS}
 
     metric_deltas: dict[str, float] = {}
-    if pairs:
-        for key in _numeric_keys(pairs[0]["control_summary"]):
-            deltas = [p["variant_summary"].get(key, 0) - p["control_summary"].get(key, 0) for p in pairs]
+    metric_coverage: dict[str, dict[str, float | int]] = {}
+    summary_keys = {
+        key
+        for pair in pairs
+        for summary_name in ("control_summary", "variant_summary")
+        for key, value in pair[summary_name].items()
+        if value is None or (isinstance(value, (int, float)) and not isinstance(value, bool))
+    }
+    for key in sorted(summary_keys):
+        deltas = []
+        for pair in pairs:
+            control_value = pair["control_summary"].get(key)
+            variant_value = pair["variant_summary"].get(key)
+            if (
+                isinstance(control_value, (int, float))
+                and not isinstance(control_value, bool)
+                and math.isfinite(control_value)
+                and isinstance(variant_value, (int, float))
+                and not isinstance(variant_value, bool)
+                and math.isfinite(variant_value)
+            ):
+                deltas.append(variant_value - control_value)
+        metric_coverage[key] = {
+            "paired_samples": len(deltas),
+            "eligible_pairs": n,
+            "coverage": round(len(deltas) / n, 4) if n else 0.0,
+        }
+        if deltas:
             metric_deltas[key] = round(mean(deltas), 4)
 
     target_wins = (
@@ -1465,6 +1490,7 @@ def _aggregate_pairs(pairs: list[dict[str, Any]], target: str, dry_run: bool) ->
         "dimensions_losing_to_control": losing_dims,
         "meets_decision_rule": meets_decision_rule,
         "metric_deltas": metric_deltas,
+        "metric_coverage": metric_coverage,
     }
 
 
@@ -1567,10 +1593,18 @@ def _print_dimension_table(per_dimension_counts: dict[str, dict[str, int]]) -> N
         print(f"{dim:<24}{counts.get('variant', 0):>8}{counts.get('tie', 0):>8}{counts.get('control', 0):>8}")
 
 
-def _print_metric_deltas(metric_deltas: dict[str, float]) -> None:
+def _print_metric_deltas(
+    metric_deltas: dict[str, float], metric_coverage: dict[str, dict[str, float | int]] | None = None,
+) -> None:
     print("\nmean metric deltas (variant - control):")
-    for key, value in sorted(metric_deltas.items()):
-        print(f"  {key:<32}{value:+.4f}")
+    coverage = metric_coverage or {}
+    for key in sorted(set(metric_deltas) | set(coverage)):
+        sample = coverage.get(key)
+        sample_text = f" n={sample['paired_samples']}/{sample['eligible_pairs']}" if sample else ""
+        if key in metric_deltas:
+            print(f"  {key:<32}{metric_deltas[key]:+.4f}{sample_text}")
+        else:
+            print(f"  {key:<32}unavailable{sample_text}")
 
 
 def _print_ab_report(report: dict[str, Any]) -> None:
@@ -1587,7 +1621,7 @@ def _print_ab_report(report: dict[str, Any]) -> None:
     print(f"\ntarget ({report['target_dimension']}) win rate: {report['target_win_rate']:.2%}")
     print(f"worst other-dimension loss rate: {report['worst_other_dimension_loss_rate']:.2%}")
     print(f"dimensions losing to control: {report['dimensions_losing_to_control'] or 'none'}")
-    _print_metric_deltas(report["metric_deltas"])
+    _print_metric_deltas(report["metric_deltas"], report.get("metric_coverage"))
     print(f"\nDECISION RULE (informational, not enforced): {report['decision_rule']}")
     print(f"cost summary: {report['cost_summary']}")
     print(f"\nresults written to: {report['results_file']}")
@@ -1620,7 +1654,7 @@ def _print_testbed_ab_report(report: dict[str, Any]) -> None:
     print(f"\ntarget ({report['target_dimension']}) win rate: {report['target_win_rate']:.2%}")
     print(f"worst other-dimension loss rate: {report['worst_other_dimension_loss_rate']:.2%}")
     print(f"dimensions losing to control: {report['dimensions_losing_to_control'] or 'none'}")
-    _print_metric_deltas(report["metric_deltas"])
+    _print_metric_deltas(report["metric_deltas"], report.get("metric_coverage"))
     print(f"\nDECISION RULE (informational, not enforced): {report['decision_rule']}")
     print(f"cost summary: {report['cost_summary']}")
     print(f"\nresults written to: {report['results_file']}")
@@ -2002,6 +2036,8 @@ def _rank_sweep_variants(
         }
 
         metric_deltas = report.get("metric_deltas", {})
+        metric_coverage = report.get("metric_coverage", {})
+        entry["metric_coverage"] = metric_coverage
         if area_metrics:
             entry["area_metric_deltas"] = {
                 area: {k: metric_deltas[k] for k in keys if k in metric_deltas}
@@ -2116,17 +2152,27 @@ def _print_sweep_report(report: dict[str, Any]) -> None:
         deltas = entry.get("area_metric_deltas") or {}
         if deltas:
             parts: list[str] = []
+            coverage = entry.get("metric_coverage", {})
             if all(isinstance(v, dict) for v in deltas.values()):
                 for area, metrics in deltas.items():
                     inner = ", ".join(
-                        f"{k} {v:+.3f}" for k, v in metrics.items() if isinstance(v, (int, float))
+                        f"{k} {v:+.3f}"
+                        + (f" (n={coverage[k]['paired_samples']}/{coverage[k]['eligible_pairs']})" if k in coverage else "")
+                        for k, v in metrics.items() if isinstance(v, (int, float))
                     )
                     if inner:
                         parts.append(f"{area}: {inner}")
             else:
-                parts = [f"{k} {v:+.3f}" for k, v in deltas.items() if isinstance(v, (int, float))]
+                parts = [
+                    f"{k} {v:+.3f}"
+                    + (f" (n={coverage[k]['paired_samples']}/{coverage[k]['eligible_pairs']})" if k in coverage else "")
+                    for k, v in deltas.items() if isinstance(v, (int, float))
+                ]
             if parts:
                 print("      area deltas (variant - control): " + " | ".join(parts))
+        for key, sample in entry.get("metric_coverage", {}).items():
+            if sample["paired_samples"] == 0:
+                print(f"      {key}: unavailable (n=0/{sample['eligible_pairs']})")
 
     if report.get("error"):
         print(f"\nERROR: {report['error']}")
