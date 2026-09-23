@@ -382,17 +382,20 @@ somewhat smaller than the line count suggests.
 
 ### What the caps actually guarantee
 
-Codex's review of PR #119 was right that "checked before every paid unit"
-overstates it, and the correction is worth stating precisely because the
-whole point of a cap here is to be a *guarantee*, not a hope.
+The paid call caps have different guarantees. `--max-calls` uses a
+structural reservation before each A/B generation arm: four requests per
+turn for the initial generation, CoT retry, fault rewrite, and rewrite CoT
+retry. Testbed/sweep defaults reserve that amount for both arms plus two
+pairwise judge requests. `bench` reserves the same four requests per turn
+and two requests for its production judge, which may retry once. Reports
+still record observed calls, not reservations. Dry runs reserve and record
+zero calls.
 
-`run_simulation` makes one paid call per turn, plus possible rewrite
-retries, and the judge can retry once on an unparseable verdict. The lab
-does not hook `model_router`, so nothing intercepts an individual call.
-What `bench` does instead is **reserve the worst case before starting a
-unit and refuse to start one that would not fit**: `4 * max_turns` for a
-generation arm, `2` for a judge call. `--max-calls` is therefore a true
-upper bound.
+Without `--budget-ledger`, `--max-cost` reads the router's estimated cost
+between paid units. A single unit can cross that soft cap before the next
+check. The optional ledger described below intercepts supported Anthropic
+SDK calls and reserves estimated dollars before each request; it provides a
+separate operational guard for the authorized plain-text model shapes.
 
 Four, not two, and the difference is the whole point of the guard: one
 turn can cost the initial `generate_response`, `_guard_cot_leak`'s retry
@@ -403,13 +406,11 @@ and called it a worst case, which meant an arm admitted under
 retry structure, change `_MAX_CALLS_PER_TURN` with it. What gets *recorded* afterwards is the actual count, so
 `calls_used` reports spending, not reservations.
 
-`--max-cost` is weaker and honestly so: it is checked between units, so a
-single arm can carry the total past the cap before the next check sees it.
-The overshoot is bounded by one arm. Treat `--max-calls` as the hard guard
-and `--max-cost` as the soft one.
-
-The same last-observed-reservation weakness still exists in `ab`'s
-`_generate_and_judge_pairs` and is tracked separately.
+For unguarded runs, `--max-cost` is weaker and honestly so: it is checked
+between units, so a single arm can carry the router-estimated total past
+the cap before the next check sees it. The overshoot is bounded by one
+arm. Treat `--max-calls` as the hard call-count guard and unguarded
+`--max-cost` as the soft router-estimate guard.
 
 ### Deciding whether an average moved
 
@@ -464,6 +465,37 @@ is not in the same class and should not be sized as if it were.
 plan without hitting a model). `baseline` has no `--dry-run` flag and needs
 none - it is already free, since it only reads already-generated data and
 never calls a model.
+
+### Shared Anthropic experiment ledger
+
+For a combined calibration, bench, and A/B allowance, pass the same
+`--budget-ledger PATH` to each paid command. Create it once, then resume it
+without `--create-budget-ledger`:
+
+```sh
+doppler run -- uv run python scripts/conversation_lab.py calibrate \
+  --from-episode 2026-W36 --stage monday --budget-ledger .scratch/experiment-budget.json \
+  --create-budget-ledger
+
+doppler run -- uv run python scripts/conversation_lab.py bench \
+  --stage monday --runs 2 --from-episode 2026-W36 --budget-ledger .scratch/experiment-budget.json
+
+doppler run -- uv run python scripts/conversation_lab.py ab \
+  --testbed --stage monday --runs 3 --variant .scratch/lab/rules-trim.json \
+  --budget-ledger .scratch/experiment-budget.json
+```
+
+The ledger uses each command's `--max-cost` value (default $5.00) as the
+shared ceiling and labels spend as `calibration`, `bench`, or `ab`. Resume
+requires the same ceiling and an active, readable ledger; it never resets a
+missing, corrupt, stopped, or mismatched ledger. Guarded reports include the
+relative ledger reference and authoritative ledger summary separately from
+`cost_summary`, which remains the router's estimate. The ledger supports the
+current plain-text Anthropic Haiku 4.5 and Opus 4.6 requests. It disables SDK
+retries, validates usage, and retains reservations after ambiguous failures.
+Its conservative token reservation is an operational bound for these known
+request shapes and public price assumptions, not a guarantee of provider
+billing. See [BUDGET.md](BUDGET.md) for the request and pricing assumptions.
 
 The portfolio-wide default budget is 20 API calls per task
 (`~/projects/CLAUDE.md`). An offline conversation experiment is explicitly

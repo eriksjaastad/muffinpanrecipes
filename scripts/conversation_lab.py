@@ -141,6 +141,10 @@ Four subcommands:
       which variant's own pairs to review in an `ab --sweep` result (which
       nests pairs per variant instead of one flat top-level list).
 
+  Paid experiment commands accept --budget-ledger PATH to share an
+  authoritative Anthropic token-usage ledger across ab, bench and calibrate;
+  pass --create-budget-ledger once to create it, then resume without that flag.
+
 Both models fail loud, never a silent default: `ab`/`calibrate` read
 DIALOGUE_MODEL via backend.config.config.dialogue_model (which itself
 raises when unset) and JUDGE_MODEL directly from the environment - NEVER
@@ -157,8 +161,8 @@ control/variant generation, or a judge call), whichever hits first:
     - a single --concept/--recipe-context `ab` run: a flat 120
       (_SINGLE_CONCEPT_MAX_CALLS, per docs/conversation-lab/PROTOCOL.md's
       cost budget); `calibrate` keeps its own flat default of 40.
-    - `ab --testbed`/`ab --sweep`: `panel_size * runs * (2 * max_turns +
-      2)`, where max_turns is the upper bound of
+    - `ab --testbed`/`ab --sweep`: `panel_size * runs * (2 * 4 * max_turns +
+      2)`, reserving four generation requests per turn for each arm, where max_turns is the upper bound of
       scripts.simulate_dialogue_week.TICKS_RANGE for --stage, floored at
       _MIN_MAX_TURNS_FLOOR (10) - some stages can run more turns than
       their static range says (Wednesday with photography context bumps
@@ -209,6 +213,7 @@ in tests/test_conversation_lab.py.
 from __future__ import annotations
 
 import argparse
+import contextvars
 import fcntl
 import hashlib
 import json
@@ -241,6 +246,7 @@ from backend.config import config
 from backend.utils import model_router
 from backend.utils.episode_integrity import PLACEHOLDER_CONCEPT, _recipe_title
 from scripts.conversation_metrics import summarize
+from scripts.conversation_budget import AnthropicBudgetGuard, BudgetGuardError
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LAB_DIR = ROOT / "docs" / "conversation-lab"
@@ -535,6 +541,58 @@ def _results_dir(args: argparse.Namespace) -> Path:
     return Path(raw) if raw else DEFAULT_RESULTS_DIR
 
 DEFAULT_EXPERIMENTS_LOG = DEFAULT_LAB_DIR / "EXPERIMENTS.md"
+_ACTIVE_BUDGET_GUARD: contextvars.ContextVar[AnthropicBudgetGuard | None] = (
+    contextvars.ContextVar("conversation_lab_budget_guard", default=None)
+)
+
+
+def _budget_checkpoint() -> None:
+    guard = _ACTIVE_BUDGET_GUARD.get()
+    if guard is not None:
+        guard.raise_if_stopped()
+
+
+def _budget_guard_stopped() -> bool:
+    guard = _ACTIVE_BUDGET_GUARD.get()
+    if guard is None:
+        return False
+    try:
+        guard.raise_if_stopped()
+    except BudgetGuardError:
+        return True
+    return False
+
+
+def _annotate_budget_report(path: Path, payload: dict[str, Any]) -> None:
+    guard = _ACTIVE_BUDGET_GUARD.get()
+    if guard is None:
+        return
+    ledger_ref = os.path.relpath(guard.path.resolve(), ROOT)
+    try:
+        summary = guard.summary()
+        metadata = {"status": summary["status"], "summary": summary}
+    except Exception as exc:
+        # Preserve already-collected run evidence even when the ledger itself
+        # becomes unreadable. The command remains failed/aborted and main's
+        # final checkpoint will fail closed; unknown spend is never zeroed.
+        summary = None
+        metadata = {
+            "status": "unavailable",
+            "summary": None,
+            "summary_error": f"{type(exc).__name__}: {exc}",
+        }
+        payload["aborted"] = True
+        if payload.get("error") is None:
+            payload["error"] = "budget ledger summary unavailable; accounting is unknown"
+    payload["budget_guard_ledger"] = {
+        "ledger_ref": ledger_ref,
+        "authoritative": True,
+        **metadata,
+        "cost_summary_note": (
+            "The lab router cost_summary is an estimate; this separate ledger "
+            "is authoritative for the guarded Anthropic request shapes."
+        ),
+    }
 
 def _experiments_log_path(args: argparse.Namespace) -> Path:
     """Where `ab` appends its experiment row.
@@ -549,6 +607,7 @@ def _experiments_log_path(args: argparse.Namespace) -> Path:
     return Path(raw) if raw else DEFAULT_EXPERIMENTS_LOG
 
 def _write_json_result(path: Path, payload: dict[str, Any]) -> Path:
+    _annotate_budget_report(path, payload)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     return path
@@ -742,6 +801,14 @@ def _run_arm_and_count(
     delta = after - before
     message_count = len(result.get("messages", []))
     calls = delta if delta > 0 else message_count
+    try:
+        _budget_checkpoint()
+    except Exception as exc:
+        # The response is already returned and should survive a later ledger
+        # read/validation failure in the caller's partial-result handler.
+        setattr(exc, "conversation_lab_partial_arm", result)
+        setattr(exc, "conversation_lab_partial_calls", calls)
+        raise
     return result, calls
 
 # ---------------------------------------------------------------------------
@@ -823,6 +890,7 @@ def _judge_orientation(
         model=judge_model,
         temperature=0.2,
     )
+    _budget_checkpoint()
     parsed = _parse_judge_json(raw)
     if parsed is None:
         raise ConversationLabError(f"pairwise judge returned unparseable output: {raw[:200]!r}")
@@ -1121,17 +1189,15 @@ def _generate_and_judge_pairs(
     cmd_ab additionally writes a partial result (with "error"/"aborted")
     on any exception from this function - see its call sites.
 
-    The pre-generation budget checks estimate the upcoming arm's call
-    cost from the LAST OBSERVED control/variant call count of the SAME
-    kind (1 before anything has been observed) rather than checking
-    against a flat 1 - a flat 1 only guards the very next call, so a
-    single arm's full turn count (an 8-turn day, say) could still blow
-    straight through --max-calls in one step right at the boundary.
+    Before each generation arm, reserve the structural worst case of four
+    paid requests per turn: the initial request, its CoT retry, a fault
+    rewrite, and the rewrite's CoT retry. Recording still uses actual calls.
     """
     aborted = False
     restore_pending: dict[str, Any] | None = None
-    last_control_calls = 1
-    last_variant_calls = 1
+    arm_call_reservation = (
+        0 if dry_run else _MAX_CALLS_PER_TURN * _max_turns_for_stage(stage)
+    )
 
     # Before the control arm costs anything (Codex audit): a malformed variant
     # used to surface only when _apply_variant ran, which is after the control
@@ -1140,17 +1206,16 @@ def _generate_and_judge_pairs(
 
     try:
         for run_index in range(1, runs + 1):
-            if budget.would_exceed(last_control_calls) or _would_exceed_cost(max_cost):
+            if budget.would_exceed(arm_call_reservation) or _would_exceed_cost(max_cost):
                 aborted = True
                 break
 
             control_result, control_calls = _run_arm_and_count(
                 concept, stage, run_index, recipe_context, mode, default_model
             )
-            budget.record(control_calls)
-            last_control_calls = control_calls
+            budget.record(0 if dry_run else control_calls)
 
-            if budget.would_exceed(last_variant_calls) or _would_exceed_cost(max_cost):
+            if budget.would_exceed(arm_call_reservation) or _would_exceed_cost(max_cost):
                 aborted = True
                 break
 
@@ -1162,8 +1227,7 @@ def _generate_and_judge_pairs(
             finally:
                 _restore_variant(simulate_module, restore_pending)
                 restore_pending = None
-            budget.record(variant_calls)
-            last_variant_calls = variant_calls
+            budget.record(0 if dry_run else variant_calls)
 
             control_messages = control_result.get("messages", [])
             variant_messages = variant_result.get("messages", [])
@@ -1238,13 +1302,9 @@ def _derive_max_calls(mode: str, *, scenario_count: int, runs: int, stage: str) 
     budget) - a lone --concept/--recipe-context run has no panel size to
     derive a formula from.
 
-    "testbed"/"sweep": `scenario_count * runs * (3 * max_turns + 2)` -
-    `3 * max_turns` estimates one pair's control + variant generation
-    calls with retry headroom (each arm can run up to `max_turns` turns -
-    see `_max_turns_for_stage` - and a live turn can cost a second call
-    for the CoT-leak retry or the repetition rewrite, so 2x would abort a
-    normal live variant mid-run), `+ 2` its two position-swapped judge
-    calls.
+    "testbed"/"sweep": `scenario_count * runs * (2 * _MAX_CALLS_PER_TURN * max_turns + 2)`.
+    This reserves four generation requests per turn for each arm, plus the
+    two position-swapped judge calls.
     Both modes use this same formula; a --sweep's shared control makes
     the true call count lower than this in practice (the control is
     generated once, not once per variant), so the derived cap is a
@@ -1253,7 +1313,7 @@ def _derive_max_calls(mode: str, *, scenario_count: int, runs: int, stage: str) 
     if mode == "single":
         return _SINGLE_CONCEPT_MAX_CALLS
     max_turns = _max_turns_for_stage(stage)
-    return scenario_count * runs * (3 * max_turns + 2)
+    return scenario_count * runs * (2 * _MAX_CALLS_PER_TURN * max_turns + 2)
 
 def cmd_ab(args: argparse.Namespace) -> None:
     if args.sweep and args.variant:
@@ -1746,16 +1806,18 @@ def _generate_sweep_control(
     a whole, never to a variant. Returns whether the run aborted before
     every (scenario, run) pair got a control transcript.
     """
-    last_calls = 1
+    dry_run = mode == "template"
+    arm_call_reservation = (
+        0 if dry_run else _MAX_CALLS_PER_TURN * _max_turns_for_stage(stage)
+    )
     for scenario in scenarios:
         for run_index in range(1, runs + 1):
-            if budget.would_exceed(last_calls):
+            if budget.would_exceed(arm_call_reservation):
                 return True
             result, calls = _run_arm_and_count(
                 scenario["concept"], stage, run_index, scenario["recipe_context"], mode, default_model,
             )
-            budget.record(calls)
-            last_calls = calls
+            budget.record(0 if dry_run else calls)
             transcripts[(scenario["id"], run_index)] = result
     return False
 
@@ -1797,7 +1859,9 @@ def _run_sweep_variant(
     baseline_cost = _total_cost_or_none() or 0.0
     aborted = False
     restore_pending: dict[str, Any] | None = None
-    last_variant_calls = 1
+    arm_call_reservation = (
+        0 if dry_run else _MAX_CALLS_PER_TURN * _max_turns_for_stage(stage)
+    )
 
     try:
         for scenario in scenarios:
@@ -1811,7 +1875,7 @@ def _run_sweep_variant(
                     aborted = True
                     break
 
-                if budget.would_exceed(last_variant_calls) or _would_exceed_cost(max_cost, baseline=baseline_cost):
+                if budget.would_exceed(arm_call_reservation) or _would_exceed_cost(max_cost, baseline=baseline_cost):
                     aborted = True
                     break
 
@@ -1823,8 +1887,7 @@ def _run_sweep_variant(
                 finally:
                     _restore_variant(simulate_module, restore_pending)
                     restore_pending = None
-                budget.record(variant_calls)
-                last_variant_calls = variant_calls
+                budget.record(0 if dry_run else variant_calls)
 
                 control_messages = control_result.get("messages", [])
                 variant_messages = variant_result.get("messages", [])
@@ -2378,6 +2441,7 @@ def _judge_one_transcript(
         recipe_context=recipe_context,
         recipe_facts=recipe_facts,
     )
+    _budget_checkpoint()
     return {  # noqa: DOC201 - the caller measures calls separately
         "passed": bool(passed),
         "verdict": verdict,
@@ -2630,6 +2694,7 @@ def _publish_json_atomically(path: Path, payload: dict[str, Any]) -> None:
     hook-blocked in this workspace, and reaching for trash tooling to tidy
     a temp file would be the wrong trade.
     """
+    _annotate_budget_report(path, payload)
     tmp = path.with_name(path.name + ".partial")
     tmp.write_text(json.dumps(payload, indent=2, default=str))
     os.replace(tmp, path)
@@ -3029,6 +3094,23 @@ def cmd_bench(args: argparse.Namespace) -> None:
         # must not be the one path that loses the evidence.
         error = f"{type(exc).__name__}: {exc}"
         interrupted = isinstance(exc, KeyboardInterrupt)
+        if _budget_guard_stopped():
+            aborted = True
+        partial_arm = getattr(exc, "conversation_lab_partial_arm", None)
+        if partial_arm is not None:
+            messages = partial_arm.get("messages", [])
+            partial_record: dict[str, Any] = {
+                "run_index": len(runs) + 1,
+                "message_count": len(messages),
+                "transcript": messages,
+            }
+            try:
+                partial_record["summary"] = summarize(
+                    messages, expected_cast, concept=concept, day=args.stage
+                )
+            except Exception as summary_exc:
+                error += f"; partial transcript summary failed: {type(summary_exc).__name__}: {summary_exc}"
+            runs.append(partial_record)
 
     aggregate = _bench_aggregate(runs)
     corpus = conversation_metrics.recurring_phrases_across(
@@ -3628,6 +3710,17 @@ def cmd_pairs(args: argparse.Namespace) -> None:
 # CLI
 # ---------------------------------------------------------------------------
 
+def _add_budget_guard_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--budget-ledger", type=Path, default=None,
+        help="Persist/resume the shared Anthropic spending ledger across ab, bench, and calibrate.",
+    )
+    parser.add_argument(
+        "--create-budget-ledger", action="store_true",
+        help="Create a new ledger at --budget-ledger; refuses to replace an existing file.",
+    )
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="conversation_lab",
@@ -3724,7 +3817,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Defaults to a value DERIVED from the mode when omitted (printed in the report): "
             f"a single --concept/--recipe-context run gets a flat {_SINGLE_CONCEPT_MAX_CALLS}; "
-            "--testbed and --sweep get `panel_size * runs * (2 * max_turns + 2)`, where "
+            "--testbed and --sweep reserve four calls/turn for each generation arm, plus two judges: "
+            "`panel_size * runs * (2 * 4 * max_turns + 2)`, where "
             "max_turns is the upper bound of scripts.simulate_dialogue_week.TICKS_RANGE for "
             f"--stage (floored at {_MIN_MAX_TURNS_FLOOR} - Wednesday with photography context "
             "can run more turns than its static range says). Pass an explicit value to override."
@@ -3744,6 +3838,7 @@ def _build_parser() -> argparse.ArgumentParser:
     ab.add_argument("--no-log", action="store_true", help="Do not append a row to the experiments log")
     ab.add_argument("--experiments-log", default=None, help=f"Override the EXPERIMENTS.md path (default: {DEFAULT_EXPERIMENTS_LOG})")
     ab.add_argument("--results-dir", default=None)
+    _add_budget_guard_options(ab)
 
     bench = sub.add_parser(
         "bench",
@@ -3799,6 +3894,7 @@ def _build_parser() -> argparse.ArgumentParser:
     bench.add_argument("--no-log", action="store_true", help="Do not append a row to the experiments log")
     bench.add_argument("--experiments-log", default=None, help=f"Override the EXPERIMENTS.md path (default: {DEFAULT_EXPERIMENTS_LOG})")
     bench.add_argument("--results-dir", default=None)
+    _add_budget_guard_options(bench)
 
     calibrate = sub.add_parser(
         "calibrate",
@@ -3822,6 +3918,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     calibrate.add_argument("--dry-run", action="store_true")
     calibrate.add_argument("--results-dir", default=None)
+    _add_budget_guard_options(calibrate)
 
     pairs_cmd = sub.add_parser(
         "pairs",
@@ -3863,23 +3960,51 @@ def _build_parser() -> argparse.ArgumentParser:
 
     return parser
 
+def _dispatch_command(args: argparse.Namespace) -> None:
+    if args.command == "baseline":
+        cmd_baseline(args)
+    elif args.command == "ab":
+        cmd_ab(args)
+    elif args.command == "bench":
+        cmd_bench(args)
+    elif args.command == "calibrate":
+        cmd_calibrate(args)
+    elif args.command == "pairs":
+        cmd_pairs(args)
+    else:  # pragma: no cover - argparse enforces valid choices
+        raise SystemExit(f"conversation_lab: unknown command {args.command!r}")
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    ledger_path = getattr(args, "budget_ledger", None)
+    create_ledger = bool(getattr(args, "create_budget_ledger", False))
+    if create_ledger and ledger_path is None:
+        raise SystemExit("conversation_lab: --create-budget-ledger requires --budget-ledger PATH")
+    if ledger_path is not None and args.command not in {"ab", "bench", "calibrate"}:
+        raise SystemExit("conversation_lab: --budget-ledger is supported only for ab, bench, and calibrate")
+
     try:
-        if args.command == "baseline":
-            cmd_baseline(args)
-        elif args.command == "ab":
-            cmd_ab(args)
-        elif args.command == "bench":
-            cmd_bench(args)
-        elif args.command == "calibrate":
-            cmd_calibrate(args)
-        elif args.command == "pairs":
-            cmd_pairs(args)
-        else:  # pragma: no cover - argparse enforces valid choices
-            raise SystemExit(f"conversation_lab: unknown command {args.command!r}")
-    except ConversationLabError as exc:
+        if ledger_path is None:
+            _dispatch_command(args)
+            return
+
+        guard = AnthropicBudgetGuard(
+            ledger_path,
+            budget_usd=getattr(args, "max_cost", DEFAULT_MAX_COST_USD),
+            create=create_ledger,
+        )
+        with guard:
+            token = _ACTIVE_BUDGET_GUARD.set(guard)
+            try:
+                phase = "calibration" if args.command == "calibrate" else args.command
+                with guard.phase(phase):
+                    _dispatch_command(args)
+                _budget_checkpoint()
+            finally:
+                _ACTIVE_BUDGET_GUARD.reset(token)
+    except (ConversationLabError, BudgetGuardError) as exc:
         raise SystemExit(f"conversation_lab {args.command}: {exc}") from exc
 
 if __name__ == "__main__":
