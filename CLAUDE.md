@@ -12,6 +12,43 @@ An AI-generated editorial cooking site at [muffinpanrecipes.com](https://muffinp
 
 Five paid APIs hit on every weekly cycle: **Anthropic** (dialogue via Haiku 4.5, judging via Opus 4.6), **OpenAI** (recipe generation via GPT-5.1), **Stability AI** or **Nano Banana** (image generation), plus **Vercel Blob** storage. A runaway loop or unguarded retry burns real money. Follow the Cost Doctrine in `~/projects/CLAUDE.md` — max 20 API calls per task, max 3 retries, escalate don't power through.
 
+## Before you change the conversation
+
+**Read `docs/conversation-lab/DIALS.md` before proposing any change to the weekly
+dialogue** — prompt, personality dials, judge, cast, turn counts, openers. It is the
+design record: what was intended, what actually binds in code, and what was measured
+against the 917-line corpus.
+
+It already answers the question you are probably about to ask. Section 2(c),
+"Backstory is pasted in; nothing per character binds," records that the four numeric
+traits in `agent_personalities.json` — `verbosity`, `directness`, `formality`,
+`emotional_expressiveness` — do not bind. Nothing acts on them:
+`build_system_prompt` touches `communication_style` only to pull `signature_phrases`.
+Section 4 is the per-character fix, already specified. That work is card #6966 and has
+never been started.
+
+**Do not conclude from that the characters are thinly drawn.** `build_system_prompt`
+(scripts/simulate_dialogue_week.py:536) pastes considerably more per character than
+2(c)'s "bio.md and the relationship text" — among it a per-character voice guide and
+few-shot example messages. Read the function, not the document's summary of it. The
+voices blur anyway, which is why "add more character material" is a hypothesis rather
+than an obvious fix; few-shot depth has already been swept and ruled out (#7206).
+
+Read DIALS.md's measurements in DIALS.md and do not restate them here. Its "1.5-2.5x"
+ratio in particular has no stated denominator and undercounts what reaches the prompt,
+so re-derive it before relying on it; correcting 2(c) is carded.
+
+**Do not propose a lever DIALS.md has already evaluated, and do not write a fresh
+analysis of a question it answers.** On 2026-09-22 a session spent an afternoon
+rediscovering section 2(c) from scratch and presenting it as a new finding; the
+document had been sitting in the repo since 09-06 while three weeks of prompt nudges
+ran past it. `EXPERIMENTS.md` is the canonical record of what has already been tried.
+
+The general form, because this will happen again with some other document:
+**repeatedly failing at the same thing is a lookup trigger, not a reasoning prompt.**
+When a week fails the same way it failed last week, open the design record before
+theorizing.
+
 ## Authorization — Check Doppler First
 
 Before saying "I need to log in" to any third-party CLI, check Doppler. This repo has `doppler.yaml` pinned to project `muffinpanrecipes`, config `dev`, and production/staging secrets are managed through Doppler sync.
