@@ -307,7 +307,7 @@ def test_the_gate_is_still_a_gate_everywhere_else():
 
 
 def _sunday_request() -> SimpleNamespace:
-    return SimpleNamespace(url=SimpleNamespace(path="/api/cron/sunday"))
+    return SimpleNamespace(method="POST", url=SimpleNamespace(path="/api/cron/sunday"))
 
 
 def _sunday_episode() -> dict:

@@ -4,6 +4,20 @@
 
 ---
 
+## TEMPORARY W39 — Scheduled Thursday–Sunday cron pause (prepared, not active until deployed)
+
+This change prepares an authenticated-GET-only pause for `/api/cron/{thursday,friday,saturday,sunday}` whenever `_current_episode_id()` is `2026-W39`, beginning only after deployment during W39 and expiring at **2026-09-28 00:00 UTC**. The scheduled target days are Thursday 2026-09-24 through Sunday 2026-09-27. After deployment, authenticated GETs to those four routes return HTTP 200 with `status: "paused"`, the stage and episode ID, and a reason. They return before body/day validation, storage, orchestration, generation, publishing, or alerts. The response is an intentional skip, not a completed stage or a health repair. **Until deployment, live behavior is unchanged; this document does not claim the pause is active.**
+
+W39's existing Tuesday/Wednesday failures remain failures; the reported status is still **8/9**, and health checks and existing failure reporting remain authoritative. Do not treat a paused response as a green week, suppress the failure alerts, or rewrite episode data. This change does not alter `vercel.json`, health logic, force behavior, or W40. When `_current_episode_id()` advances to `2026-W40` on Monday 2026-09-28, all scheduled stages follow normal handling.
+
+Manual authenticated POST recovery and offline experiments remain available. The pause adds no override and does not change `force=true`; a POST still enters the existing stage path. Before manually re-firing a failed stage, verify the target episode and expected state: re-runs can overwrite stage data and incur paid calls. This prepared pause does not authorize or perform a manual run.
+
+### Validate before activation
+
+After the Doppler presence preflight in `docs/OPENCLAW_PREFLIGHT.md`, run the offline harness for `tests/test_w39_scheduled_pause.py`, `tests/test_stage_gate.py`, `tests/test_advisory_judge_publishes.py`, and `tests/test_sunday_publish_idempotency.py` with live provider, storage, and alert credentials stripped from the test process. The pause tests use synthetic cron auth and mocked stage work. Keep the W39/W40 boundary, malformed/valid manual POST, and unaffected-day checks **offline only**; their mocks prove normal dispatch without touching shared storage or making paid calls.
+
+Before any activation, deploy to a protected preview while the preview resolves to W39 and probe **only** authenticated GETs to the four affected routes plus one unauthenticated GET. Confirm each authenticated response has the explicit paused shape and no `complete`/published claim, and the unauthenticated request remains 401. Do not send a POST or probe an unaffected stage against a live or shared preview; those behaviors are verified by the offline mocks. Do not validate by firing the production cron or by making paid calls. This task prepares code and tests only; review and a concrete activation decision remain separate.
+
 ## INCIDENT 5 — "GA4 shows no traffic from recipe pages" (CSP blocked the tag on Lambda routes; the static homepage masked it)
 
 ### Symptom

@@ -21,7 +21,9 @@ from backend.admin import cron_routes
 
 
 def _request(day: str) -> Request:
-    return cast(Request, SimpleNamespace(url=SimpleNamespace(path=f"/api/cron/{day}")))
+    return cast(Request, SimpleNamespace(
+        method="POST", url=SimpleNamespace(path=f"/api/cron/{day}"),
+    ))
 
 
 def _body() -> cron_routes.StageRequest:
