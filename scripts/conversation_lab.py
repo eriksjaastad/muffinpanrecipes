@@ -2847,7 +2847,8 @@ def _cmd_calibrate_reference_panel(args: argparse.Namespace) -> None:
             "attempted_valid_response_rate": round(valid / len(all_orientations), 4) if all_orientations else None,
             "planned_orientation_count": planned_orientation_count,
             "planned_orientation_coverage": (
-                round(valid / planned_orientation_count, 4) if planned_orientation_count else None
+                round(len(all_orientations) / planned_orientation_count, 4)
+                if planned_orientation_count else None
             ),
             "order_agreement_by_case_and_dimension": {},
             "repetition_stability_by_case_and_dimension": {},
