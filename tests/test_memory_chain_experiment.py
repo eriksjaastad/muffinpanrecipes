@@ -1,0 +1,179 @@
+import json
+from pathlib import Path
+
+import pytest
+
+from scripts.memory_chain_experiment import (
+    ARMS,
+    WEEK_PLAN,
+    FakeAdapters,
+    build_plan,
+    execute_fake_chain,
+    stable_source_id,
+    write_plan,
+)
+
+
+class FakeSimulatorState:
+    def __init__(self, characters_dir):
+        self.CHARACTERS_DIR = characters_dir
+        self._system_prompt_cache = {"existing": "cached prompt"}
+        self.DAY_STAGE_DIRECTIONS = {"monday": "original Monday", "tuesday": "original Tuesday"}
+
+
+def _fake_adapters(*, fail_week=None, observed=None):
+    observed = observed if observed is not None else []
+
+    def simulate_week(week, arm, memory_root):
+        if arm == ARMS[0]:
+            assert list(memory_root.iterdir()) == []
+        observed.append({
+            "week": week["week"],
+            "seed": week["seed"],
+            "arm": arm,
+            "cache_at_start": dict(STATE._system_prompt_cache),
+            "root": memory_root,
+        })
+        assert STATE._system_prompt_cache == {}
+        STATE._system_prompt_cache["added during week"] = week["week"]
+        STATE.DAY_STAGE_DIRECTIONS["monday"] = "mutated in fake simulator"
+        if fail_week == week["week"] and arm == ARMS[1]:
+            raise RuntimeError("synthetic simulation failure")
+        if arm == ARMS[1]:
+            prior = sorted(memory_root.glob("*/memory.json"))
+            assert len(prior) == 2 if week["week"] != "2026-W40" else not prior
+            observed[-1]["prior_memory_files"] = [path.parent.name for path in prior]
+        return {"turns": [
+            {"day": "monday", "speaker": "Margaret", "text": f"Week {week['week']} note."},
+            {"day": "monday", "speaker": "Ria", "text": "I see the framing differently."},
+        ]}
+
+    def write_memory(speaker, payload, root):
+        path = root / speaker / "memory.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        prior = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+        prior.append({"week": payload["week"], "source_ids": payload["source_ids"]})
+        path.write_text(json.dumps(prior), encoding="utf-8")
+        return f"mem_{payload['week']}_{speaker.lower()}"
+
+    return FakeAdapters("fake", False, simulate_week, write_memory), observed
+
+
+def test_plan_has_fixed_three_week_control_and_memory_arms():
+    plan = build_plan()
+
+    assert [row["week"] for row in plan["weeks"]] == [row["week"] for row in WEEK_PLAN]
+    assert [row["seed"] for row in plan["weeks"]] == [40140, 40141, 40142]
+    assert all([arm["name"] for arm in row["arms"]] == list(ARMS) for row in plan["weeks"])
+    assert plan["execution_performed"] is False
+    assert plan["provider_calls"] == 0
+    assert plan["budget_usd"] == 0
+
+
+@pytest.mark.parametrize("key,value", [
+    ("budget_usd", 5),
+    ("provider_calls_allowed", True),
+    ("provenance", "missing"),
+    ("isolation", "production directory"),
+    ("side_effects", "cron enabled"),
+])
+def test_plan_rejects_missing_or_unsafe_assumptions(key, value):
+    assumptions = build_plan()["assumptions"]
+    assumptions[key] = value
+
+    with pytest.raises(ValueError, match="experiment assumption"):
+        build_plan(assumptions)
+
+
+def test_write_plan_is_an_artifact_only(tmp_path):
+    output = tmp_path / "out" / "plan.json"
+
+    plan = write_plan(output)
+
+    assert json.loads(output.read_text(encoding="utf-8")) == plan
+    assert plan["status"] == "plan_only"
+    assert plan["execution_performed"] is False
+
+
+def test_fake_chain_keeps_arms_isolated_and_links_week_memories(tmp_path):
+    global STATE
+    production_root = tmp_path / "production-characters"
+    production_root.mkdir()
+    sentinel = production_root / "sentinel.json"
+    sentinel.write_text("preserve", encoding="utf-8")
+    STATE = FakeSimulatorState(production_root)
+    original_cache = dict(STATE._system_prompt_cache)
+    original_directions = dict(STATE.DAY_STAGE_DIRECTIONS)
+    adapters, observed = _fake_adapters()
+
+    result = execute_fake_chain(build_plan(), adapters, STATE)
+
+    assert result["provider_calls"] == 0
+    assert set(result["arms"]) == set(ARMS)
+    assert [row["week"] for row in result["arms"][ARMS[0]]["weeks"]] == [row["week"] for row in WEEK_PLAN]
+    assert [row["week"] for row in result["arms"][ARMS[1]]["weeks"]] == [row["week"] for row in WEEK_PLAN]
+    assert all(not row["prior_memory_ids"] for row in result["arms"][ARMS[0]]["weeks"])
+    treatment_weeks = result["arms"][ARMS[1]]["weeks"]
+    assert treatment_weeks[0]["prior_memory_ids"] == {}
+    assert treatment_weeks[1]["prior_memory_ids"] == {
+        "Margaret": ["mem_2026-W40_margaret"], "Ria": ["mem_2026-W40_ria"]
+    }
+    assert treatment_weeks[2]["prior_memory_ids"] == {
+        "Margaret": ["mem_2026-W41_margaret"], "Ria": ["mem_2026-W41_ria"]
+    }
+    for arm in ARMS:
+        for week in result["arms"][arm]["weeks"]:
+            assert all(turn["week"] == week["week"] for turn in week["turns"])
+            assert all(turn["source_id"].startswith("turn_") for turn in week["turns"])
+            assert len(week["source_ids"]) == len(set(week["source_ids"]))
+    assert all(observation["cache_at_start"] == {} for observation in observed)
+    assert STATE.CHARACTERS_DIR == production_root
+    assert sentinel.read_text(encoding="utf-8") == "preserve"
+    assert sorted(path.name for path in production_root.iterdir()) == ["sentinel.json"]
+    assert STATE._system_prompt_cache == original_cache
+    assert STATE.DAY_STAGE_DIRECTIONS == original_directions
+    assert not Path(result["arms"][ARMS[0]]["memory_root"]).exists()
+    assert not Path(result["arms"][ARMS[1]]["memory_root"]).exists()
+    treatment_roots = {str(row["root"]) for row in observed if row["arm"] == ARMS[1]}
+    control_roots = {str(row["root"]) for row in observed if row["arm"] == ARMS[0]}
+    assert len(treatment_roots) == len(control_roots) == 1
+    assert treatment_roots.isdisjoint(control_roots)
+
+
+def test_globals_restore_after_fake_simulation_exception(tmp_path):
+    global STATE
+    STATE = FakeSimulatorState(tmp_path / "production-characters")
+    original_dir = STATE.CHARACTERS_DIR
+    original_cache = dict(STATE._system_prompt_cache)
+    original_directions = dict(STATE.DAY_STAGE_DIRECTIONS)
+    adapters, _ = _fake_adapters(fail_week="2026-W41")
+
+    with pytest.raises(RuntimeError, match="synthetic simulation failure"):
+        execute_fake_chain(build_plan(), adapters, STATE)
+
+    assert STATE.CHARACTERS_DIR == original_dir
+    assert STATE._system_prompt_cache == original_cache
+    assert STATE.DAY_STAGE_DIRECTIONS == original_directions
+
+
+def test_execution_refuses_non_fake_or_provider_enabled_adapters(tmp_path):
+    global STATE
+    STATE = FakeSimulatorState(tmp_path)
+    adapters, _ = _fake_adapters()
+    paid_adapter = FakeAdapters("provider", True, adapters.simulate_week, adapters.write_memory)
+
+    with pytest.raises(ValueError, match="only explicitly marked zero-provider fake"):
+        execute_fake_chain(build_plan(), paid_adapter, STATE)
+
+
+def test_stable_source_ids_include_arm_and_week():
+    common = ("monday", 0, "Ria", "The crop needs more space.")
+
+    control_id = stable_source_id(ARMS[0], "2026-W40", *common)
+    same_control_id = stable_source_id(ARMS[0], "2026-W40", *common)
+    treatment_id = stable_source_id(ARMS[1], "2026-W40", *common)
+    next_week_id = stable_source_id(ARMS[1], "2026-W41", *common)
+
+    assert control_id == same_control_id
+    assert control_id != treatment_id
+    assert treatment_id != next_week_id
