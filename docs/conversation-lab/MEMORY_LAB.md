@@ -21,8 +21,10 @@ prior slot cannot point to a later week. The output parent directory is
 created when needed.
 
 Only `stages[day].dialogue` is included when that stage has
-`status: "complete"`. `rejected_dialogues`, rejected or incomplete stages,
-and malformed turns are excluded. By default, each episode must have all
+`status: "complete"`. `rejected_dialogues` and rejected or incomplete stages
+are excluded. A malformed turn in an accepted stage fails the run with its
+episode, day, and turn index so evidence cannot disappear silently; empty
+dialogue lists remain valid. By default, each episode must have all
 seven Monday-through-Sunday stages marked complete. `--allow-partial` opts
 into partial input and records missing days plus a top-level partial-input
 flag in the manifest. Each accepted message gets a stable ID from episode ID,
