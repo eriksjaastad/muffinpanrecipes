@@ -2540,7 +2540,8 @@ def _usable_bench_verdict(run: Any) -> bool:
         isinstance(verdict, str) and verdict.startswith("PASS -")
     )
     verdict_failed = verdict == "FAIL" or (
-        isinstance(verdict, str) and verdict.startswith("FAIL -")
+        isinstance(verdict, str)
+        and (verdict.startswith("FAIL -") or verdict.startswith("FAIL |"))
     )
     return (
         isinstance(passed, bool)
