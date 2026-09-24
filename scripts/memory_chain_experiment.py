@@ -227,7 +227,8 @@ def execute_fake_chain(
             root = new_isolated_root(f"mpr-memory-{arm}-{week['week']}-")
             simulator_state.CHARACTERS_DIR = root
             simulator_state._system_prompt_cache.clear()
-            prior_weeks = [row["week"] for row in plan["weeks"][:week_index]] if arm == ARMS[1] else []
+            # Pass only the immediately preceding week's memory
+            prior_weeks = [plan["weeks"][week_index - 1]["week"]] if arm == ARMS[1] and week_index > 0 else []
             prior_memory_records = (
                 _load_prior_memory_records(memory_store_root, prior_weeks)
                 if memory_store_root is not None else {character: [] for character in CHARACTER_ROSTER}
@@ -240,8 +241,10 @@ def execute_fake_chain(
             prior_memory_records_snapshot = copy.deepcopy(prior_memory_records)
             prior_memory_records_for_callback = copy.deepcopy(prior_memory_records)
             week_directions = dict(simulator_state.DAY_STAGE_DIRECTIONS)
+            # Defensively copy the frozen week before invoking the adapter
+            week_copy = copy.deepcopy(week)
             try:
-                result = adapters.simulate_week(week, arm, root, prior_memory_records_for_callback)
+                result = adapters.simulate_week(week_copy, arm, root, prior_memory_records_for_callback)
             finally:
                 simulator_state.DAY_STAGE_DIRECTIONS.clear()
                 simulator_state.DAY_STAGE_DIRECTIONS.update(week_directions)
@@ -285,6 +288,7 @@ def execute_fake_chain(
                     memory_id = record.get("memory_id")
                     if not isinstance(memory_id, str) or not memory_id:
                         raise ValueError(f"{week['week']}: memory record requires a stable memory_id")
+                    # Reject reused memory record IDs across all characters and weeks in this arm
                     if memory_id in seen_memory_ids:
                         raise ValueError(f"{week['week']}: duplicate memory_id {memory_id!r} makes memory references ambiguous")
                     seen_memory_ids.add(memory_id)
@@ -322,6 +326,10 @@ def execute_fake_chain(
                     if memory_store_root is None:
                         raise ValueError("treatment memory store is required to persist generated records")
                     persisted_record = _persist_memory_record(memory_store_root, memory_record)
+                    # Verify returned memories were persisted
+                    expected_path = memory_store_root / "characters" / _character_store_key(speaker) / f"{week['week']}.json"
+                    if not expected_path.exists():
+                        raise ValueError(f"{week['week']}: memory writer returned valid record but did not persist to {expected_path}")
                     memory_records.append(persisted_record)
             rows.append({
                 "week": week["week"],
