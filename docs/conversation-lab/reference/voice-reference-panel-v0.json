@@ -1,0 +1,389 @@
+{
+  "packet_id": "voice-reference-panel-v0",
+  "status": "draft for human calibration; no human labels assigned",
+  "scope_note": "Each case names one target property. Structural relations are hypotheses, not labels or claims of model quality.",
+  "sources": {
+    "W25 Monday": {
+      "path": "local ignored episode mirror: data/episodes/2026-W25.json",
+      "sha256": "555401c9ecfb2e2a5641eef9ffcfcf55f9bbe8a0bbb9b2abbb450e4e0e0cb1d6",
+      "day": "stages.monday.dialogue",
+      "turns": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "raw_json_line_indexes": [
+        127,
+        136,
+        145,
+        154,
+        163
+      ],
+      "raw_json_character_line_indexes": [
+        126,
+        135,
+        144,
+        153,
+        162
+      ]
+    },
+    "W38 Wednesday": {
+      "path": "local ignored episode mirror: data/episodes/2026-W38.json",
+      "sha256": "44eb1bae8b59fe33b00b5fad9bf1cf13a54a9fad8def16b622248ea3f1407b7a",
+      "day": "stages.wednesday.dialogue",
+      "turns": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "raw_json_line_indexes": [
+        563,
+        575,
+        584,
+        593,
+        602,
+        613,
+        622
+      ],
+      "raw_json_character_line_indexes": [
+        562,
+        574,
+        583,
+        592,
+        601,
+        612,
+        621
+      ]
+    }
+  },
+  "cases": [
+    {
+      "id": "identical-pair",
+      "target_property": "pairwise identity preference on identical inputs",
+      "inputs": {
+        "A": [
+          {
+            "speaker": "Margaret Chen",
+            "text": "Coffee's cold. We're doing muffin pan recipes weekly - harissa chickpea feta cups this week. Breakfast format. Thoughts before we lock it."
+          },
+          {
+            "speaker": "Ria Castillo",
+            "text": "Cold coffee tracks - anyway, muffin pan format is smart because it's portion control and the golden edges are gonna pop on video, but we need to nail the moment she pulls one out hot with that feta melting. Is that the hook or do we lead with the chickpea crunch?"
+          },
+          {
+            "speaker": "Margaret Chen",
+            "text": "The feta doesn't melt that fast - it softens. And we don't need a \"hook\" if the dish is actually good."
+          },
+          {
+            "speaker": "Ria Castillo",
+            "text": "Softening feta is the hook - that's literally the visual that stops the scroll pm."
+          },
+          {
+            "speaker": "Margaret Chen",
+            "text": "Scroll-stopping is not a cooking technique. Make it right and people will watch."
+          }
+        ],
+        "B": [
+          {
+            "speaker": "Margaret Chen",
+            "text": "Coffee's cold. We're doing muffin pan recipes weekly - harissa chickpea feta cups this week. Breakfast format. Thoughts before we lock it."
+          },
+          {
+            "speaker": "Ria Castillo",
+            "text": "Cold coffee tracks - anyway, muffin pan format is smart because it's portion control and the golden edges are gonna pop on video, but we need to nail the moment she pulls one out hot with that feta melting. Is that the hook or do we lead with the chickpea crunch?"
+          },
+          {
+            "speaker": "Margaret Chen",
+            "text": "The feta doesn't melt that fast - it softens. And we don't need a \"hook\" if the dish is actually good."
+          },
+          {
+            "speaker": "Ria Castillo",
+            "text": "Softening feta is the hook - that's literally the visual that stops the scroll pm."
+          },
+          {
+            "speaker": "Margaret Chen",
+            "text": "Scroll-stopping is not a cooking technique. Make it right and people will watch."
+          }
+        ]
+      },
+      "transform": "None; exact same five-turn transcript on both sides.",
+      "other_properties_and_confounds": [
+        "All properties and presentation are identical."
+      ],
+      "structural_hypothesis": "A and B should be a logical tie; any directional preference reflects order or judge noise, not a content difference.",
+      "scene_source": "W25 Monday"
+    },
+    {
+      "id": "consistent-name-permutation",
+      "target_property": "anonymous speaker separability under a consistent Margaret/Ria name permutation",
+      "inputs": {
+        "original": [
+          {
+            "speaker": "Margaret Chen",
+            "text": "Coffee's cold. We're doing muffin pan recipes weekly - harissa chickpea feta cups this week. Breakfast format. Thoughts before we lock it."
+          },
+          {
+            "speaker": "Ria Castillo",
+            "text": "Cold coffee tracks - anyway, muffin pan format is smart because it's portion control and the golden edges are gonna pop on video, but we need to nail the moment she pulls one out hot with that feta melting. Is that the hook or do we lead with the chickpea crunch?"
+          },
+          {
+            "speaker": "Margaret Chen",
+            "text": "The feta doesn't melt that fast - it softens. And we don't need a \"hook\" if the dish is actually good."
+          },
+          {
+            "speaker": "Ria Castillo",
+            "text": "Softening feta is the hook - that's literally the visual that stops the scroll pm."
+          },
+          {
+            "speaker": "Margaret Chen",
+            "text": "Scroll-stopping is not a cooking technique. Make it right and people will watch."
+          }
+        ],
+        "permuted": [
+          {
+            "speaker": "Ria Castillo",
+            "text": "Coffee's cold. We're doing muffin pan recipes weekly - harissa chickpea feta cups this week. Breakfast format. Thoughts before we lock it."
+          },
+          {
+            "speaker": "Margaret Chen",
+            "text": "Cold coffee tracks - anyway, muffin pan format is smart because it's portion control and the golden edges are gonna pop on video, but we need to nail the moment she pulls one out hot with that feta melting. Is that the hook or do we lead with the chickpea crunch?"
+          },
+          {
+            "speaker": "Ria Castillo",
+            "text": "The feta doesn't melt that fast - it softens. And we don't need a \"hook\" if the dish is actually good."
+          },
+          {
+            "speaker": "Margaret Chen",
+            "text": "Softening feta is the hook - that's literally the visual that stops the scroll pm."
+          },
+          {
+            "speaker": "Ria Castillo",
+            "text": "Scroll-stopping is not a cooking technique. Make it right and people will watch."
+          }
+        ]
+      },
+      "transform": "Swap every Margaret Chen label with Ria Castillo and vice versa; preserve exact utterance strings, turn order, and all other labels.",
+      "other_properties_and_confounds": [
+        "Intended persona fidelity may change because labels are mapped to the other person; that is a separate Erik judgment.",
+        "The five turns contain only Margaret and Ria, each repeated."
+      ],
+      "structural_hypothesis": "Anonymous separability should be invariant under the consistent permutation. Persona fidelity is an open human question, not inferred from separability.",
+      "human_decision": {
+        "date": "2026-09-23",
+        "quote": "No, names are part of voice scoring.",
+        "interpretation": "A consistent Margaret/Ria rename is not an expected tie for the project voice score. Anonymous separability remains a separate diagnostic. The original named-character fit is a hypothesis informed by the referenced character biographies, not a human-labeled directional result."
+      },
+      "scene_source": "W25 Monday"
+    },
+    {
+      "id": "one-turn-each-label-exchange",
+      "target_property": "within-character consistency when recurring speaker labels are inconsistently assigned",
+      "inputs": {
+        "original": [
+          {
+            "speaker": "Margaret Chen",
+            "text": "Coffee's cold. We're doing muffin pan recipes weekly - harissa chickpea feta cups this week. Breakfast format. Thoughts before we lock it."
+          },
+          {
+            "speaker": "Ria Castillo",
+            "text": "Cold coffee tracks - anyway, muffin pan format is smart because it's portion control and the golden edges are gonna pop on video, but we need to nail the moment she pulls one out hot with that feta melting. Is that the hook or do we lead with the chickpea crunch?"
+          },
+          {
+            "speaker": "Margaret Chen",
+            "text": "The feta doesn't melt that fast - it softens. And we don't need a \"hook\" if the dish is actually good."
+          },
+          {
+            "speaker": "Ria Castillo",
+            "text": "Softening feta is the hook - that's literally the visual that stops the scroll pm."
+          },
+          {
+            "speaker": "Margaret Chen",
+            "text": "Scroll-stopping is not a cooking technique. Make it right and people will watch."
+          }
+        ],
+        "mixed_labels": [
+          {
+            "speaker": "Margaret Chen",
+            "text": "Coffee's cold. We're doing muffin pan recipes weekly - harissa chickpea feta cups this week. Breakfast format. Thoughts before we lock it."
+          },
+          {
+            "speaker": "Margaret Chen",
+            "text": "Cold coffee tracks - anyway, muffin pan format is smart because it's portion control and the golden edges are gonna pop on video, but we need to nail the moment she pulls one out hot with that feta melting. Is that the hook or do we lead with the chickpea crunch?"
+          },
+          {
+            "speaker": "Ria Castillo",
+            "text": "The feta doesn't melt that fast - it softens. And we don't need a \"hook\" if the dish is actually good."
+          },
+          {
+            "speaker": "Ria Castillo",
+            "text": "Softening feta is the hook - that's literally the visual that stops the scroll pm."
+          },
+          {
+            "speaker": "Margaret Chen",
+            "text": "Scroll-stopping is not a cooking technique. Make it right and people will watch."
+          }
+        ]
+      },
+      "transform": "Exchange labels only on original turns 2 and 3 (Ria→Margaret; Margaret→Ria); keep all utterance text and turn order exactly unchanged.",
+      "other_properties_and_confounds": [
+        "Each person has three labeled turns, but one utterance per person is reassigned.",
+        "A reader may notice mismatch between line content and speaker label; the example tests that structural inconsistency only."
+      ],
+      "structural_hypothesis": "The mixed-label version should provide weaker evidence of stable within-speaker identity than the original; magnitude and human detectability are unknown.",
+      "scene_source": "W25 Monday"
+    },
+    {
+      "id": "w38-agreement-heavy-manual-variant",
+      "target_property": "concrete pushback in the photography discussion",
+      "inputs": {
+        "original": [
+          {
+            "speaker": "Julian Torres",
+            "text": "Just got the shots processed. Three totally different reads on these spiral bites - macro detail, geometric overhead, and the three-quarter with the break. Ready to talk through which one actually leads."
+          },
+          {
+            "speaker": "Stephanie 'Steph' Whitmore",
+            "text": "The three-quarter break feels right to me - you can actually see that glossy orange-rose hit when it's torn open, and I think that's what stops the scroll."
+          },
+          {
+            "speaker": "Ria Castillo",
+            "text": "Yeah, the break works, but we need to see the steam too - that glossy glaze catching light while it's still hot is what makes someone stop scrolling pm."
+          },
+          {
+            "speaker": "Stephanie 'Steph' Whitmore",
+            "text": "Right, the steam rising off it - that's the moment someone actually *wants* one, not just thinks it looks nice."
+          },
+          {
+            "speaker": "Julian Torres",
+            "text": "The steam's the problem though - it's unpredictable, reads as blur on mobile, kills the cardamom detail that makes this actually different from a regular cinnamon roll."
+          },
+          {
+            "speaker": "Margaret Chen",
+            "text": "The cardamom's not visible in any of those shots - that's the actual problem. Steam or no steam, if people can't see what makes this different, they're just looking at another cinnamon roll."
+          },
+          {
+            "speaker": "Ria Castillo",
+            "text": "She's right about the cardamom - that's the actual hook here. Three-quarter break as the hero, but we need that first frame to show the pistachio fleck or the spice color in the glaze so people know it's not just cinnamon. We've got our shot. I'm out."
+          }
+        ],
+        "manual_variant": [
+          {
+            "speaker": "Julian Torres",
+            "text": "Just got the shots processed. Three totally different reads on these spiral bites - macro detail, geometric overhead, and the three-quarter with the break. Ready to talk through which one actually leads."
+          },
+          {
+            "speaker": "Stephanie 'Steph' Whitmore",
+            "text": "The three-quarter break feels right to me - you can actually see that glossy orange-rose hit when it's torn open, and I think that's what stops the scroll."
+          },
+          {
+            "speaker": "Ria Castillo",
+            "text": "Yeah, the break works, but we need to see the steam too - that glossy glaze catching light while it's still hot is what makes someone stop scrolling pm."
+          },
+          {
+            "speaker": "Stephanie 'Steph' Whitmore",
+            "text": "Right, the steam rising off it - that's the moment someone actually *wants* one, not just thinks it looks nice."
+          },
+          {
+            "speaker": "Julian Torres",
+            "text": "I see what you mean about the steam; the three-quarter break still gives us a clear view of the roll, and the cardamom detail is a nice extra."
+          },
+          {
+            "speaker": "Margaret Chen",
+            "text": "That makes sense. The cardamom detail is worth keeping in frame, and the three-quarter break gives us a clear direction."
+          },
+          {
+            "speaker": "Ria Castillo",
+            "text": "She's right about the cardamom - that's the actual hook here. Three-quarter break as the hero, but we need that first frame to show the pistachio fleck or the spice color in the glaze so people know it's not just cinnamon. We've got our shot. I'm out."
+          }
+        ]
+      },
+      "transform": "W38 Wednesday original is seven saved turns. In the variant, manually replace only turns 5 and 6 with agreement-heavy paraphrases; turns 1–4 and 7 retain exact original text, and speaker order/count are unchanged.",
+      "other_properties_and_confounds": [
+        "Variant is synthetic/manual, not generated or saved in an episode.",
+        "The edits also reduce conflict and alter wording/voice; improved or reduced coherence may affect judgment.",
+        "Steph appears as written in source; do not score Steph persona fidelity because DIALS section 8 leaves her identity design open."
+      ],
+      "structural_hypothesis": "The variant should have less concrete pushback than the original. This does not predict overall quality, persona fidelity, or preference.",
+      "human_decision": {
+        "date": "2026-09-23",
+        "quote": "Yes, for pushback only (recommended).",
+        "interpretation": "Pushback is the accepted target. Natural progression may be reported as a diagnostic only; this decision does not label overall quality or voice."
+      },
+      "scene_source": "W38 Wednesday"
+    },
+    {
+      "id": "optional-template-topic-confound",
+      "target_property": "whether job/topic words alone can distinguish speakers in a shared template",
+      "inputs": {
+        "synthetic_messages": [
+          {
+            "speaker": "Margaret Chen",
+            "text": "For the bake, I would check the cardamom before we choose the shot."
+          },
+          {
+            "speaker": "Ria Castillo",
+            "text": "For the hook, I would check the cardamom before we choose the shot."
+          },
+          {
+            "speaker": "Margaret Chen",
+            "text": "For the bake, I would check the pistachio before we choose the crop."
+          },
+          {
+            "speaker": "Ria Castillo",
+            "text": "For the hook, I would check the pistachio before we choose the crop."
+          }
+        ]
+      },
+      "transform": "Fully authored synthetic four-line control. Speakers share the same sentence frame; only topic-role terms (“bake”/“hook”) differ consistently.",
+      "other_properties_and_confounds": [
+        "Synthetic, very short, and deliberately repetitive.",
+        "The example isolates a possible lexical/topic cue; it does not measure natural voice."
+      ],
+      "structural_hypothesis": "A lexical attribution method may separate labels from the topic-role words alone, even though sentence structure is shared."
+    }
+  ],
+  "character_reference_sources": {
+    "Margaret Chen": [
+      "data/character-profiles.md#Margaret-Chen-—-Head-Baker",
+      "backend/data/characters/margaret-chen/bio.md"
+    ],
+    "Ria Castillo": [
+      "data/character-profiles.md#Ria-Castillo-—-Social-Media-Manager",
+      "backend/data/characters/ria-castillo/bio.md"
+    ],
+    "Julian Torres": [
+      "data/character-profiles.md#Julian-Torres-—-Art-Director",
+      "backend/data/characters/julian-torres/bio.md"
+    ],
+    "Steph": "No persona-fidelity scoring in this packet; DIALS.md section 8 leaves identity design open."
+  },
+  "human_decisions": {
+    "date": "2026-09-23",
+    "decisions": [
+      {
+        "case_id": "consistent-name-permutation",
+        "quote": "No, names are part of voice scoring."
+      },
+      {
+        "case_id": "w38-agreement-heavy-manual-variant",
+        "quote": "Yes, for pushback only (recommended)."
+      }
+    ]
+  },
+  "scene_contexts": {
+    "W25 Monday": {
+      "concept": "Weekly Muffin Pan Recipe",
+      "recipe_context": "This week's recipe: Harissa Chickpea Feta Cups (breakfast). These savory North African–inspired cups bake chickpeas, roasted peppers, and spinach into a softly set egg base with pockets of salty feta and smoky harissa heat. Each round, golden portion pops out of the tin as a complete protein-packed bite that reheats beautifully for weekday breakfasts or light lunches."
+    },
+    "W38 Wednesday": {
+      "concept": "Cinnamon Roll Spiral Bites",
+      "recipe_context": "This week's recipe: Cardamom Cinnamon Spiral Bites (sweet). These spiral bites wrap classic cinnamon-roll comfort around warm cardamom, orange, and pistachio for a Middle Eastern–inspired twist. A rich, buttery dough is coiled into each muffin cup so it bakes into a round, self-contained roll with crisp edges, tender centers, and a glossy orange-rose glaze."
+    }
+  }
+}

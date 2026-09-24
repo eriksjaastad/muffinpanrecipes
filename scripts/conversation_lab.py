@@ -114,7 +114,7 @@ Four subcommands:
       run (see below) - any exception mid-sweep writes whatever variants/
       pairs completed so far before re-raising.
 
-  calibrate --from-episode ID --stage DAY [--runs 3] [--local]
+  calibrate (--from-episode ID --stage DAY | --reference-panel PATH) [--runs 3] [--local]
             [--max-calls 40] [--max-cost USD] [--dry-run]
       Grader sanity check (PROTOCOL.md's "Open hypothesis"): take a real
       transcript and build two degraded copies - shuffled turn order
@@ -124,6 +124,9 @@ Four subcommands:
       >= 0.8 is "GRADER OK", otherwise "GRADER SUSPECT". --dry-run reports
       "DRY RUN - no signal" instead of either verdict - a template-mode,
       no-judge run has no preference rate worth calling OK or SUSPECT.
+      --reference-panel validates and compares the versioned human-reference
+      fixture. Its paid comparisons use the versioned pairwise evaluator and
+      remain separate from the independent-generation grader verdict.
 
   pairs --from RESULT_JSON [--show] [--pick "1:A,2:B,..."]
         [--variant-name NAME]
@@ -321,28 +324,39 @@ LAB_ONLY_JUDGE_DIMENSIONS: tuple[str, ...] = (
 
 ALL_JUDGE_DIMENSIONS: tuple[str, ...] = JUDGE_DIMENSIONS + LAB_ONLY_JUDGE_DIMENSIONS
 
-# A new prompt (this module's own, not backend/admin/cron_routes.py's
-# _JUDGE_SYSTEM_PROMPT) asking for a pairwise A/B verdict instead of a
-# single-transcript score. Reuses the same 8 dimension *definitions* as
+# This lab-only prompt asks for a pairwise A/B verdict instead of a
+# single-transcript score. Its candidate-version framing covers saved,
+# transformed, and independently generated scenes. The character rules are
+# copied verbatim from backend/admin/cron_routes.py's _JUDGE_SYSTEM_PROMPT;
+# production code and its prompt are not changed here. Reuses the same 8 dimension *definitions* as
 # cron_routes.py's judge (lines ~267-317) so the pairwise judge is scoring
 # the same things the production judge scores, just comparatively, plus
 # LAB_ONLY_JUDGE_DIMENSIONS above (lab-only - never fed back into the
 # production judge prompt).
+PAIRWISE_JUDGE_PROMPT_VERSION = "pairwise-v2-candidate-versions-character-rules"
 PAIRWISE_JUDGE_SYSTEM_PROMPT = (
     "You are a senior editorial judge for a food content site comparing TWO "
     "candidate dialogue transcripts for the SAME day, recipe concept, and "
-    "cast - 6-7 AI characters (Margaret, Steph, Julian, Marcus, Devon, Ria) "
-    "collaborating on a muffin-tin recipe. Transcript A and Transcript B are "
-    "two independent generations of the identical stage. Decide which one "
+    "cast of a six-person creative team (Margaret, Steph, Julian, Marcus, Devon, Ria) "
+    "collaborating on a muffin-tin recipe. EXPECTED CAST below defines who appears "
+    "in this scene. Transcript A and Transcript B are "
+    "two candidate versions of the same scene. Decide which one "
     "is better on each dimension below, from a reader's perspective - which "
     "one would you publish?\n\n"
+    "CHARACTER RULES:\n"
+    "- Margaret: Blunt, short sentences, zero fluff, standards enforcer\n"
+    "- Steph: Warm, diplomatic, NOT a nervous intern\n"
+    "- Julian: Visual thinker, theatrical, cares about light/composition\n"
+    "- Marcus: Literary, verbose, metaphor-heavy\n"
+    "- Devon: Efficient, understated, speaks only when needed\n"
+    "- Ria: Direct, platform-savvy, thinks in hooks and engagement, impatient with process\n\n"
     "DIMENSIONS:\n"
     "- title_fidelity: does the talk stay anchored to the named dish/hero "
     "ingredient, or does it wander into an unrelated tangent?\n"
     "- arc_resolution: does a problem a character raises actually get "
     "resolved, not reframed away or dropped?\n"
     "- voice_distinctiveness: are the characters who spoke separable blind, "
-    "each sounding like themselves and nobody else?\n"
+    "each sounding like the named character and nobody else?\n"
     "- technical_credibility: would a real cook believe the food science?\n"
     "- natural_progression: does the conversation build, or do characters "
     "repeat themselves and agree in circles?\n"
@@ -374,6 +388,13 @@ PAIRWISE_JUDGE_SYSTEM_PROMPT = (
     '"emotional_range": "A"|"B"|"tie", "register_naturalness": "A"|"B"|"tie"}, '
     '"reason": "<one sentence>"}'
 )
+
+
+def _pairwise_evaluator_metadata() -> dict[str, str]:
+    return {
+        "evaluator_prompt_version": PAIRWISE_JUDGE_PROMPT_VERSION,
+        "evaluator_prompt_sha256": hashlib.sha256(PAIRWISE_JUDGE_SYSTEM_PROMPT.encode("utf-8")).hexdigest(),
+    }
 
 DECISION_RULE_TEXT = (
     "ship if variant wins >= 65% of pairs on --target and loses no other "
@@ -1792,6 +1813,7 @@ def _build_ab_report(
     report = {
         "command": "ab",
         "mode": "single",
+        **_pairwise_evaluator_metadata(),
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "concept": args.concept,
         "stage": args.stage,
@@ -1837,6 +1859,7 @@ def _build_testbed_ab_report(
     report = {
         "command": "ab",
         "mode": "testbed",
+        **_pairwise_evaluator_metadata(),
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "concept": None,
         "stage": args.stage,
@@ -2401,6 +2424,7 @@ def _build_sweep_report(
     report = {
         "command": "ab",
         "mode": "sweep",
+        **_pairwise_evaluator_metadata(),
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "stage": args.stage,
         "sweep_dir": str(sweep_dir),
@@ -2655,6 +2679,148 @@ _DEGRADATIONS: tuple[tuple[str, Any], ...] = (
     ("rotated_speakers", _rotate_speakers),
 )
 
+REFERENCE_PANEL_PROMPT_NOTE = (
+    "Evaluator v1 framed A/B as independent generations and omitted named-character "
+    "rules. Versioned v2 uses neutral candidate-version wording and production "
+    "character rules verbatim. The consistent-name permutation remains diagnostic; "
+    "its direction is an evidence-based hypothesis, not a human label."
+)
+
+
+def _load_reference_panel(path: Path) -> dict[str, Any]:
+    """Load the frozen v0 panel and verify its declared transformations.
+
+    This is deliberately an input-integrity check, not a quality rubric. It
+    validates exact content-preserving controls and confines authored edits
+    to the turns declared in the fixture.
+    """
+    try:
+        panel_bytes = path.read_bytes()
+        panel = json.loads(panel_bytes.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"conversation_lab calibrate: invalid reference panel {path}: {exc}") from exc
+    if not isinstance(panel, dict) or panel.get("packet_id") != "voice-reference-panel-v0":
+        raise SystemExit("conversation_lab calibrate: unsupported reference panel (expected voice-reference-panel-v0)")
+    cases = panel.get("cases")
+    if not isinstance(cases, list) or not cases:
+        raise SystemExit("conversation_lab calibrate: reference panel must contain cases")
+    by_id = {c.get("id"): c for c in cases if isinstance(c, dict)}
+    if len(by_id) != len(cases):
+        raise SystemExit("conversation_lab calibrate: reference panel case ids must be unique")
+
+    def turns(value: Any, where: str) -> list[dict[str, str]]:
+        if not isinstance(value, list) or not value:
+            raise SystemExit(f"conversation_lab calibrate: {where} must be a non-empty turn list")
+        for index, turn in enumerate(value, start=1):
+            if not isinstance(turn, dict) or not isinstance(turn.get("speaker"), str) or not isinstance(turn.get("text"), str):
+                raise SystemExit(f"conversation_lab calibrate: malformed {where} turn {index}")
+        return value
+
+    try:
+        identical = by_id["identical-pair"]["inputs"]
+        a = turns(identical["A"], "identical-pair A")
+        b = turns(identical["B"], "identical-pair B")
+        if a != b:
+            raise ValueError("identical-pair A and B differ")
+
+        swap = by_id["consistent-name-permutation"]["inputs"]
+        original = turns(swap["original"], "consistent-name-permutation original")
+        permuted = turns(swap["permuted"], "consistent-name-permutation permuted")
+        name_swap = {"Margaret Chen": "Ria Castillo", "Ria Castillo": "Margaret Chen"}
+        expected = [{"speaker": name_swap.get(t["speaker"], t["speaker"]), "text": t["text"]} for t in original]
+        if permuted != expected:
+            raise ValueError("consistent-name-permutation is not the exact Margaret/Ria label swap")
+
+        mixed_case = by_id["one-turn-each-label-exchange"]["inputs"]
+        base = turns(mixed_case["original"], "one-turn-each-label-exchange original")
+        mixed = turns(mixed_case["mixed_labels"], "one-turn-each-label-exchange mixed")
+        expected_mixed = [dict(t) for t in base]
+        if len(base) != 5:
+            raise ValueError("one-turn-each-label-exchange must contain five turns")
+        expected_mixed[1]["speaker"], expected_mixed[2]["speaker"] = (
+            expected_mixed[2]["speaker"], expected_mixed[1]["speaker"]
+        )
+        if mixed != expected_mixed:
+            raise ValueError("one-turn-each-label-exchange must exchange labels on turns 2 and 3 only")
+
+        w38_case = by_id["w38-agreement-heavy-manual-variant"]["inputs"]
+        w38 = turns(w38_case["original"], "w38 original")
+        edited = turns(w38_case["manual_variant"], "w38 manual_variant")
+        if len(w38) != 7 or len(edited) != 7:
+            raise ValueError("W38 comparison must contain seven turns per arm")
+        changed = [i for i, (left, right) in enumerate(zip(w38, edited), start=1) if left != right]
+        if changed != [5, 6] or any(w38[i - 1]["speaker"] != edited[i - 1]["speaker"] for i in changed):
+            raise ValueError("W38 manual variant may change text on turns 5 and 6 only, preserving speakers")
+
+        topic = by_id["optional-template-topic-confound"]["inputs"].get("synthetic_messages")
+        turns(topic, "optional-template-topic-confound")
+    except (KeyError, TypeError, ValueError) as exc:
+        raise SystemExit(f"conversation_lab calibrate: invalid reference panel structure: {exc}") from exc
+
+    panel["_loaded_fixture_sha256"] = hashlib.sha256(panel_bytes).hexdigest()
+    return panel
+
+
+def _reference_pairs(panel: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return only declared A/B comparisons; the optional topic probe is not a pair."""
+    input_fields = {
+        "identical-pair": ("A", "B"),
+        "consistent-name-permutation": ("original", "permuted"),
+        "one-turn-each-label-exchange": ("original", "mixed_labels"),
+        "w38-agreement-heavy-manual-variant": ("original", "manual_variant"),
+    }
+    result = []
+    for case in panel["cases"]:
+        if case["id"] not in input_fields:
+            continue
+        left_key, right_key = input_fields[case["id"]]
+        scene = (panel.get("scene_contexts") or {}).get(case.get("scene_source"), {})
+        if not scene.get("concept") or not scene.get("recipe_context"):
+            raise SystemExit(f"conversation_lab calibrate: missing scene context for {case['id']}")
+        result.append({
+            "case_id": case["id"],
+            "target_property": case["target_property"],
+            "structural_hypothesis": case["structural_hypothesis"],
+            "concept": scene["concept"],
+            "recipe_context": scene["recipe_context"],
+            "left_messages": [
+                {"character": turn["speaker"], "message": turn["text"]}
+                for turn in case["inputs"][left_key]
+            ],
+            "right_messages": [
+                {"character": turn["speaker"], "message": turn["text"]}
+                for turn in case["inputs"][right_key]
+            ],
+        })
+    return result
+
+
+def _reference_acceptance_plan() -> dict[str, Any]:
+    """Proposed, reviewable gates; these are not human labels or defaults."""
+    return {
+        "identical-pair": {
+            "target_dimension": "overall logical-tie control",
+            "proposed_acceptance": "unanimous ties in both orientations for every repeat",
+        },
+        "one-turn-each-label-exchange": {
+            "target_dimension": "voice_distinctiveness",
+            "proposed_acceptance": "original preferred in at least 80% of completed pairs",
+        },
+        "w38-agreement-heavy-manual-variant": {
+            "target_dimension": ["natural_progression (diagnostic only)", "raw judge reason (pushback diagnostic)"],
+            "proposed_acceptance": "no binary gate; the current rubric has no dedicated pushback dimension, and turn_taking does not isolate it",
+        },
+        "consistent-name-permutation": {
+            "target_dimension": "voice_distinctiveness; named-character fit and anonymous separability remain separate interpretations",
+            "proposed_acceptance": "diagnostic only; the original named-character fit is a source-based hypothesis, not a human-labeled direction",
+        },
+        "reporting": [
+            "valid judge response rate per case",
+            "position-order agreement per case and dimension",
+            "repetition stability per case and dimension",
+        ],
+    }
+
 def _build_calibrate_report(
     args: argparse.Namespace,
     concept: str,
@@ -2666,6 +2832,7 @@ def _build_calibrate_report(
 ) -> dict[str, Any]:
     report = {
         "command": "calibrate",
+        **_pairwise_evaluator_metadata(),
         "episode_id": args.from_episode,
         "stage": args.stage,
         "concept": concept,
@@ -2681,6 +2848,236 @@ def _build_calibrate_report(
     if error is not None:
         report["error"] = error
     return report
+
+
+def _cmd_calibrate_reference_panel(args: argparse.Namespace) -> None:
+    if args.runs < 1:
+        raise SystemExit("conversation_lab calibrate: --runs must be at least 1 for --reference-panel")
+    panel_path = Path(args.reference_panel)
+    panel = _load_reference_panel(panel_path)
+    pairs = _reference_pairs(panel)
+    judge_model = "template" if args.dry_run else _resolve_judge_model()
+    budget = CallBudget(max_calls=args.max_calls)
+    result_path = _results_dir(args) / (
+        f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}-calibrate-reference-panel-v0.json"
+    )
+    reports: dict[str, Any] = {}
+    aborted = False
+    error = None
+
+    def evidence_summary() -> dict[str, Any]:
+        if args.dry_run:
+            return {
+                "status": "not collected under dry-run",
+                "valid_responses": 0,
+                "attempted_orientations": 0,
+                "valid_response_rate": None,
+                "attempted_valid_response_rate": None,
+                "planned_orientation_count": 0,
+                "planned_orientation_coverage": None,
+                "valid_response_rate_by_case": {},
+                "order_agreement_by_case_and_dimension": {},
+                "repetition_stability_by_case_and_dimension": {},
+            }
+        all_orientations = [
+            orientation
+            for case_report in reports.values()
+            for pair in [*case_report.get("completed_pairs", []), *case_report.get("partial_pairs", [])]
+            for orientation in pair.get("judge_orientations", [])
+        ]
+        valid = sum(1 for item in all_orientations if isinstance(item.get("result"), dict))
+        planned_orientation_count = len(pairs) * args.runs * 2
+        summary: dict[str, Any] = {
+            "valid_responses": valid,
+            "attempted_orientations": len(all_orientations),
+            "valid_response_rate": round(valid / len(all_orientations), 4) if all_orientations else None,
+            "attempted_valid_response_rate": round(valid / len(all_orientations), 4) if all_orientations else None,
+            "planned_orientation_count": planned_orientation_count,
+            "planned_orientation_coverage": (
+                round(len(all_orientations) / planned_orientation_count, 4)
+                if planned_orientation_count else None
+            ),
+            "valid_response_rate_by_case": {},
+            "order_agreement_by_case_and_dimension": {},
+            "repetition_stability_by_case_and_dimension": {},
+        }
+        for case_id, case_report in reports.items():
+            pairs_for_case = case_report.get("completed_pairs", [])
+            case_orientations = [
+                orientation
+                for pair in [*case_report.get("completed_pairs", []), *case_report.get("partial_pairs", [])]
+                for orientation in pair.get("judge_orientations", [])
+            ]
+            case_valid = sum(1 for item in case_orientations if isinstance(item.get("result"), dict))
+            summary["valid_response_rate_by_case"][case_id] = {
+                "valid_responses": case_valid,
+                "attempted_orientations": len(case_orientations),
+                "valid_response_rate": round(case_valid / len(case_orientations), 4) if case_orientations else None,
+            }
+            dimensions = ("overall", *ALL_JUDGE_DIMENSIONS)
+            order: dict[str, Any] = {}
+            repeat: dict[str, Any] = {}
+            for dimension in dimensions:
+                diag = [p.get("judge_diagnostics", {}).get(dimension, {}).get("status") for p in pairs_for_case]
+                comparable = [status for status in diag if status]
+                agreements = sum(status in {"agreement", "unanimous_tie"} for status in comparable)
+                order[dimension] = {
+                    "agreements": agreements,
+                    "comparable_pairs": len(comparable),
+                    "rate": round(agreements / len(comparable), 4) if comparable else None,
+                }
+                values = [p.get("judge", {}).get(dimension) for p in pairs_for_case]
+                values = [value for value in values if value is not None]
+                counts = dict(Counter(values))
+                repeat[dimension] = {
+                    "stable": (len(set(values)) <= 1) if len(values) >= 2 else None,
+                    "runs_with_result": len(values),
+                    "result_counts": counts,
+                }
+            summary["order_agreement_by_case_and_dimension"][case_id] = order
+            summary["repetition_stability_by_case_and_dimension"][case_id] = repeat
+        return summary
+
+    def make_report() -> dict[str, Any]:
+        cost_summary_error = None
+        try:
+            cost_summary = model_router.get_cost_summary()
+        except Exception as exc:
+            cost_summary = {}
+            cost_summary_error = f"{type(exc).__name__}: {exc}"
+        return {
+            "command": "calibrate",
+            "mode": "reference_panel",
+            "panel_id": panel["packet_id"],
+            "panel_path": str(panel_path),
+            "panel_sha256": panel["_loaded_fixture_sha256"],
+            "source_sha256": {
+                name: source.get("sha256") for name, source in (panel.get("sources") or {}).items()
+            },
+            "validation_checks": [
+                "identical-pair content equality",
+                "consistent Margaret/Ria label permutation with exact text preservation",
+                "one-turn-each label exchange on W25 turns 2 and 3 with exact text preservation",
+                "W38 manual edits limited to text on turns 5 and 6; speaker labels preserved",
+                "optional synthetic topic-confound shape",
+            ],
+            "dry_run": bool(args.dry_run),
+            "aborted": aborted,
+            "max_calls": args.max_calls,
+            "max_cost": args.max_cost,
+            "calls_used": budget.used,
+            "cost_summary": cost_summary,
+            **({"cost_summary_error": cost_summary_error} if cost_summary_error else {}),
+            "evaluator": {
+                "prompt_sha256": hashlib.sha256(PAIRWISE_JUDGE_SYSTEM_PROMPT.encode("utf-8")).hexdigest(),
+                "prompt_version": PAIRWISE_JUDGE_PROMPT_VERSION,
+                "prompt_note": REFERENCE_PANEL_PROMPT_NOTE,
+                "model": judge_model,
+            },
+            "proposed_acceptance_plan": _reference_acceptance_plan(),
+            "evidence_summary": evidence_summary(),
+            "requested_runs_per_case": args.runs,
+            "planned_pairs": len(pairs) * args.runs,
+            "planned_judge_orientations": len(pairs) * args.runs * (0 if args.dry_run else 2),
+            "cases": reports,
+            "results_file": str(result_path),
+            **({"error": error} if error else {}),
+        }
+
+    try:
+        for case in pairs:
+            case_id = case["case_id"]
+            pair_records: list[dict[str, Any]] = []
+            partial_records: list[dict[str, Any]] = []
+            case_report = {
+                "target_property": case["target_property"],
+                "structural_hypothesis": case["structural_hypothesis"],
+                "target_dimension": _reference_acceptance_plan().get(case_id, {}).get("target_dimension"),
+                "proposed_acceptance": _reference_acceptance_plan().get(case_id, {}).get("proposed_acceptance"),
+                "concept": case["concept"],
+                "recipe_context": case["recipe_context"],
+                "left_cast": sorted({m["character"] for m in case["left_messages"]}),
+                "right_cast": sorted({m["character"] for m in case["right_messages"]}),
+                "completed_pairs": pair_records,
+                "partial_pairs": partial_records,
+                "interpretation": (
+                    "DRY RUN - validation only; no judge signal"
+                    if args.dry_run else "EXPLORATORY - versioned pairwise evaluator; no human-label verdict"
+                ),
+            }
+            reports[case_id] = case_report
+            for run_index in range(1, args.runs + 1):
+                pending: dict[str, Any] = {
+                    "run_index": run_index,
+                    "status": "awaiting_judges",
+                    "left_messages": case["left_messages"],
+                    "right_messages": case["right_messages"],
+                    "judge_orientations": [],
+                }
+                partial_records.append(pending)
+                if args.dry_run:
+                    combined = _dry_run_combined()
+                    diagnostics = None
+                else:
+                    speakers = sorted({m["character"] for m in [*case["left_messages"], *case["right_messages"]]})
+                    judge_kwargs = {
+                        "judge_model": judge_model,
+                        "concept": case["concept"],
+                        "stage": "reference scene",
+                        "recipe_context": case["recipe_context"],
+                        "expected_cast": speakers,
+                        "recipe_facts": None,
+                    }
+                    if budget.would_exceed(1) or _would_exceed_cost(args.max_cost):
+                        aborted = True
+                        break
+                    first = _run_judge_orientation(
+                        orientation="left_first", pending_pair=pending, budget=budget,
+                        first_arm="left", first_messages=case["left_messages"],
+                        second_arm="right", second_messages=case["right_messages"],
+                        **judge_kwargs,
+                    )
+                    if budget.would_exceed(1) or _would_exceed_cost(args.max_cost):
+                        aborted = True
+                        break
+                    second = _run_judge_orientation(
+                        orientation="right_first", pending_pair=pending, budget=budget,
+                        first_arm="right", first_messages=case["right_messages"],
+                        second_arm="left", second_messages=case["left_messages"],
+                        **judge_kwargs,
+                    )
+                    combined = _combine_orientations(first, second)
+                    diagnostics = _orientation_diagnostics(first, second)
+                pair_records.append({
+                    "run_index": run_index,
+                    "judge": combined,
+                    "judge_diagnostics": diagnostics,
+                    "judge_orientations": pending["judge_orientations"],
+                })
+                partial_records.remove(pending)
+            if aborted:
+                break
+    except BaseException as exc:
+        error = f"{type(exc).__name__}: {exc}"
+        aborted = True
+        _write_json_result(result_path, make_report())
+        raise
+
+    report = make_report()
+    _write_json_result(result_path, report)
+    print(f"\n=== conversation_lab calibrate: reference panel {panel['packet_id']} ===")
+    run_status = "ABORTED" if report["aborted"] else "COMPLETE"
+    print(f"status: {run_status}  calls used: {report['calls_used']} / max {report['max_calls']}  dry_run={report['dry_run']}")
+    if not args.dry_run:
+        print(f"NOTICE: {REFERENCE_PANEL_PROMPT_NOTE}")
+    print("preregistered operational checks (not human labels):")
+    for case_id, gate in report["proposed_acceptance_plan"].items():
+        if isinstance(gate, dict):
+            print(f"  {case_id}: {gate['target_dimension']} — {gate['proposed_acceptance']}")
+    print("consistent-name-permutation: source-based named-fit hypothesis only; no pass/fail gate")
+    for name, info in reports.items():
+        print(f"  {name}: completed={len(info['completed_pairs'])} partial={len(info['partial_pairs'])} {info['interpretation']}")
+    print(f"\nresults written to: {report['results_file']}")
 
 # ---------------------------------------------------------------------------
 # bench (#7314) - characterize ONE setting over N runs
@@ -4071,6 +4468,15 @@ def _print_bench_report(report: dict[str, Any]) -> None:
     print(f"\nresults written to: {report['results_file']}")
 
 def cmd_calibrate(args: argparse.Namespace) -> None:
+    if args.reference_panel:
+        if args.from_episode or args.stage:
+            raise SystemExit("conversation_lab calibrate: --reference-panel cannot be combined with --from-episode/--stage")
+        if args.local:
+            raise SystemExit("conversation_lab calibrate: --local is only valid with --from-episode")
+        _cmd_calibrate_reference_panel(args)
+        return
+    if not args.from_episode or not args.stage:
+        raise SystemExit("conversation_lab calibrate: pass --reference-panel PATH or both --from-episode ID and --stage DAY")
     episode = _load_episode(args.from_episode, local=args.local)
     stage_data = (episode.get("stages") or {}).get(args.stage) or {}
     dialogue = stage_data.get("dialogue") or []
@@ -4563,11 +4969,14 @@ def _build_parser() -> argparse.ArgumentParser:
             "copies (shuffled turn order, speakers rotated by one), "
             "pairwise-judge real vs. degraded with positions swapped, and "
             "report the judge's preference rate for the real transcript "
-            "per degradation - >= 0.8 is 'GRADER OK'."
+            "per degradation - >= 0.8 is 'GRADER OK'. Or pass "
+            "--reference-panel to validate and evaluate the frozen human "
+            "versioned reference fixture with a separate exploratory report."
         ),
     )
-    calibrate.add_argument("--from-episode", required=True)
-    calibrate.add_argument("--stage", required=True, choices=simulate_module.DAY_ORDER)
+    calibrate.add_argument("--from-episode")
+    calibrate.add_argument("--reference-panel", help="Validate / compare a versioned reference panel JSON")
+    calibrate.add_argument("--stage", choices=simulate_module.DAY_ORDER)
     calibrate.add_argument("--runs", type=int, default=3)
     calibrate.add_argument("--local", action="store_true")
     calibrate.add_argument("--max-calls", type=int, default=40)

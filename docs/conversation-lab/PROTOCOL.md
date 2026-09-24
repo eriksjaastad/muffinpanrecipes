@@ -311,6 +311,26 @@ report without a judge orientation record. A failed ledger snapshot is marked
 `accounting_unknown`; it does not mean zero calls. These counts do not
 establish billable requests; use the budget ledger as the spend record.
 
+### Voice reference calibration
+
+`calibrate --reference-panel docs/conversation-lab/reference/voice-reference-panel-v0.json`
+checks four paired controls from saved W25 Monday and W38 Wednesday dialogue.
+The fixture records source hashes and exact transformations. Dry-run validates
+the fixture without judge calls; paid runs use the same position-swapped
+pairwise prompt as `ab` and, when supplied, its shared budget ledger. They
+retain both raw orientations and report validity among attempted calls
+separately from coverage of planned calls. The optional synthetic topic-word
+example is a lexical diagnostic, not a pairwise judge case.
+
+The lab pairwise prompt is versioned `pairwise-v2-candidate-versions-character-rules`:
+it neutrally describes two candidate versions and includes the existing live
+judge's six character rules. Calibration and A/B reports record its version and
+SHA-256. Earlier results used the prior prompt, so their judge scores should
+not be compared as if the evaluator were unchanged. Erik's 2026-09-23 reference
+decisions are in the fixture: names count in the project voice score, and the
+W38 edit is a pushback reference only. The current rubric has no dedicated
+pushback dimension, so that case is diagnostic rather than a pass/fail gate.
+
 Shipped: the lab's pairwise judge - shared by `ab` and `calibrate`, both of
 which judge two transcripts head to head - scores the production eight
 (`title_fidelity`, `arc_resolution`, `voice_distinctiveness`,
