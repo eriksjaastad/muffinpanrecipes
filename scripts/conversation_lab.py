@@ -2875,6 +2875,7 @@ def _cmd_calibrate_reference_panel(args: argparse.Namespace) -> None:
                 "attempted_valid_response_rate": None,
                 "planned_orientation_count": 0,
                 "planned_orientation_coverage": None,
+                "valid_response_rate_by_case": {},
                 "order_agreement_by_case_and_dimension": {},
                 "repetition_stability_by_case_and_dimension": {},
             }
@@ -2896,11 +2897,23 @@ def _cmd_calibrate_reference_panel(args: argparse.Namespace) -> None:
                 round(len(all_orientations) / planned_orientation_count, 4)
                 if planned_orientation_count else None
             ),
+            "valid_response_rate_by_case": {},
             "order_agreement_by_case_and_dimension": {},
             "repetition_stability_by_case_and_dimension": {},
         }
         for case_id, case_report in reports.items():
             pairs_for_case = case_report.get("completed_pairs", [])
+            case_orientations = [
+                orientation
+                for pair in [*case_report.get("completed_pairs", []), *case_report.get("partial_pairs", [])]
+                for orientation in pair.get("judge_orientations", [])
+            ]
+            case_valid = sum(1 for item in case_orientations if isinstance(item.get("result"), dict))
+            summary["valid_response_rate_by_case"][case_id] = {
+                "valid_responses": case_valid,
+                "attempted_orientations": len(case_orientations),
+                "valid_response_rate": round(case_valid / len(case_orientations), 4) if case_orientations else None,
+            }
             dimensions = ("overall", *ALL_JUDGE_DIMENSIONS)
             order: dict[str, Any] = {}
             repeat: dict[str, Any] = {}
