@@ -88,11 +88,14 @@ def _validate_artifact(artifact: Any) -> None:
         seen.add(name)
         if record.get("planned_model") != MODEL or record.get("hard_max_response_tokens") != HARD_MAX_TOKENS:
             raise ExperimentError(f"{name}: model or response cap differs from the approved plan")
-        if not isinstance(record.get("source_ids"), list) or not all(
+        source_ids = record.get("source_ids")
+        if not isinstance(source_ids, list) or not all(
             isinstance(source_id, str) and SOURCE_ID_RE.fullmatch(source_id)
-            for source_id in record["source_ids"]
+            for source_id in source_ids
         ):
             raise ExperimentError(f"{name}: source_ids must be a list of stable message IDs")
+        if not source_ids:
+            raise ExperimentError(f"{name}: source_ids cannot be empty; parsers require at least one cited source ID")
         arms = record.get("arms")
         if not isinstance(arms, dict) or set(arms) != {"A", "B"}:
             raise ExperimentError(f"{name}: exactly A and B prompts are required")
@@ -146,7 +149,10 @@ def _extract_prose(
         if not marker:
             return None, "missing evidence map", None
         prose = raw[: marker.start()].strip()
-        sentences = re.split(r"(?<=[.!?])\s+", prose)
+        # Split on sentence boundaries while avoiding common abbreviations like p.m., a.m.
+        # Requires a lowercase letter immediately before the sentence-ending punctuation,
+        # which excludes most abbreviations (p.m., U.S., etc.) and single-letter markers.
+        sentences = re.split(r"(?<=[a-z][.!?])\s+(?=[A-Z])", prose)
         if len(sentences) != 2 or not all(sentence.strip() for sentence in sentences):
             return None, "recap is not exactly two sentences", None
         if SOURCE_ID_RE.search(prose):
@@ -317,6 +323,11 @@ def _validate_state(state: Any, digest: str, ledger_path: Path) -> dict[str, Any
 
 def _finish_response_measurement(client: Any, item: dict[str, Any], record: dict[str, Any]) -> None:
     """Persistable derived fields for one already-durable raw response."""
+    if item.get("stop_reason") != "end_turn":
+        item["prose_parse_status"] = "unscored"
+        item["prose_parse_error"] = f"non-end_turn stop_reason: {item.get('stop_reason')}"
+        item["measurement_status"] = "complete"
+        return
     parsed, parse_error, structure = _extract_prose(
         item["arm"], item["raw_response_text"], set(record["source_ids"])
     )
