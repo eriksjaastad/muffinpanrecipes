@@ -13,4 +13,4 @@ A self-sustaining weekly content engine where AI agents autonomously produce pub
 - Pipeline reliability: atomic writes, input validation, dry-run guards, score capping
 - Content quality: anti-repetition, title constraints, editorial QA gates, title debate stages
 - Model evaluation: Gemini provider, Nano Banana comparison, judge scoring
-- CI hardening: Claude auto-review workflow, PR label enforcement
+- CI hardening: Claude auto-review workflow

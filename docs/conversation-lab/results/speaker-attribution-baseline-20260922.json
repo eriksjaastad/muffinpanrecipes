@@ -1,0 +1,678 @@
+{
+  "generated_on": "2026-09-22",
+  "metric": "leave-one-out multinomial Naive Bayes on content-word counts",
+  "input": {
+    "collector": "scripts.conversation_heatmap.collect_corpus",
+    "corpus_path": "../../.scratch/attribution-corpus",
+    "include_unpublished": false,
+    "weeks_argument": null,
+    "used_weeks": [
+      "W11",
+      "W13",
+      "W14",
+      "W15",
+      "W16",
+      "W17",
+      "W18",
+      "W19",
+      "W20",
+      "W21",
+      "W23",
+      "W24",
+      "W25",
+      "W26",
+      "W27",
+      "W28",
+      "W29",
+      "W30",
+      "W31",
+      "W32",
+      "W33",
+      "W34",
+      "W35",
+      "W36",
+      "W37",
+      "W38"
+    ],
+    "excluded_weeks": [
+      "W12",
+      "W39"
+    ],
+    "empty_dialogue_weeks": [
+      "W10"
+    ],
+    "absent_expected_week": "W22",
+    "line_count": 999
+  },
+  "aggregate": {
+    "week_count": 26,
+    "valid_week_count": 26,
+    "line_count": 999,
+    "scored_count": 998,
+    "coverage": 0.999,
+    "weighted_week_accuracy": 0.2685,
+    "weighted_week_chance": 0.1716,
+    "macro_week_accuracy": 0.2685,
+    "macro_week_chance": 0.1718,
+    "aggregation_note": "Weighted summaries weight each weekly metric by its scored_count; macro summaries average weeks equally. These summarize weekly results and are not a single corpus-wide leave-one-out fit."
+  },
+  "weeks": {
+    "W11": {
+      "line_count": 39,
+      "scored_count": 39,
+      "coverage": 1.0,
+      "accuracy": 0.1795,
+      "chance": 0.2,
+      "candidate_characters": [
+        "Devon",
+        "Julian",
+        "Marcus",
+        "Margaret",
+        "Stephanie"
+      ],
+      "per_character_recall": {
+        "Devon": 0.0,
+        "Julian": 1.0,
+        "Marcus": 0.0,
+        "Margaret": 0.2143,
+        "Stephanie": 0.1818
+      },
+      "sufficient_data": true
+    },
+    "W13": {
+      "line_count": 40,
+      "scored_count": 40,
+      "coverage": 1.0,
+      "accuracy": 0.175,
+      "chance": 0.2,
+      "candidate_characters": [
+        "Devon",
+        "Julian",
+        "Marcus",
+        "Margaret",
+        "Stephanie"
+      ],
+      "per_character_recall": {
+        "Devon": 0.0,
+        "Julian": 0.0,
+        "Marcus": 0.1,
+        "Margaret": 0.2143,
+        "Stephanie": 0.3
+      },
+      "sufficient_data": true
+    },
+    "W14": {
+      "line_count": 29,
+      "scored_count": 29,
+      "coverage": 1.0,
+      "accuracy": 0.1724,
+      "chance": 0.2,
+      "candidate_characters": [
+        "Devon",
+        "Julian",
+        "Marcus",
+        "Margaret",
+        "Stephanie"
+      ],
+      "per_character_recall": {
+        "Devon": 0.0,
+        "Julian": 0.0,
+        "Marcus": 0.0,
+        "Margaret": 0.2,
+        "Stephanie": 0.3333
+      },
+      "sufficient_data": true
+    },
+    "W15": {
+      "line_count": 37,
+      "scored_count": 37,
+      "coverage": 1.0,
+      "accuracy": 0.2162,
+      "chance": 0.1667,
+      "candidate_characters": [
+        "Devon",
+        "Julian",
+        "Marcus",
+        "Margaret",
+        "Ria",
+        "Stephanie"
+      ],
+      "per_character_recall": {
+        "Devon": 0.6,
+        "Julian": 0.0,
+        "Marcus": 0.2857,
+        "Margaret": 0.2,
+        "Ria": 0.0,
+        "Stephanie": 0.125
+      },
+      "sufficient_data": true
+    },
+    "W16": {
+      "line_count": 40,
+      "scored_count": 40,
+      "coverage": 1.0,
+      "accuracy": 0.175,
+      "chance": 0.1667,
+      "candidate_characters": [
+        "Devon",
+        "Julian",
+        "Marcus",
+        "Margaret",
+        "Ria",
+        "Stephanie"
+      ],
+      "per_character_recall": {
+        "Devon": 0.75,
+        "Julian": 0.25,
+        "Marcus": 0.0,
+        "Margaret": 0.1429,
+        "Ria": 0.0,
+        "Stephanie": 0.125
+      },
+      "sufficient_data": true
+    },
+    "W17": {
+      "line_count": 44,
+      "scored_count": 44,
+      "coverage": 1.0,
+      "accuracy": 0.2045,
+      "chance": 0.1667,
+      "candidate_characters": [
+        "Devon",
+        "Julian",
+        "Marcus",
+        "Margaret",
+        "Ria",
+        "Stephanie"
+      ],
+      "per_character_recall": {
+        "Devon": 0.25,
+        "Julian": 0.0,
+        "Marcus": 0.0,
+        "Margaret": 0.2727,
+        "Ria": 0.375,
+        "Stephanie": 0.2
+      },
+      "sufficient_data": true
+    },
+    "W18": {
+      "line_count": 31,
+      "scored_count": 31,
+      "coverage": 1.0,
+      "accuracy": 0.3226,
+      "chance": 0.1667,
+      "candidate_characters": [
+        "Devon",
+        "Julian",
+        "Marcus",
+        "Margaret",
+        "Ria",
+        "Stephanie"
+      ],
+      "per_character_recall": {
+        "Devon": 0.3333,
+        "Julian": 0.0,
+        "Marcus": 0.0,
+        "Margaret": 0.2222,
+        "Ria": 1.0,
+        "Stephanie": 0.4286
+      },
+      "sufficient_data": true
+    },
+    "W19": {
+      "line_count": 41,
+      "scored_count": 41,
+      "coverage": 1.0,
+      "accuracy": 0.2683,
+      "chance": 0.1667,
+      "candidate_characters": [
+        "Devon",
+        "Julian",
+        "Marcus",
+        "Margaret",
+        "Ria",
+        "Stephanie"
+      ],
+      "per_character_recall": {
+        "Devon": 0.0,
+        "Julian": 0.0,
+        "Marcus": 0.4286,
+        "Margaret": 0.3077,
+        "Ria": 0.2,
+        "Stephanie": 0.3
+      },
+      "sufficient_data": true
+    },
+    "W20": {
+      "line_count": 41,
+      "scored_count": 41,
+      "coverage": 1.0,
+      "accuracy": 0.2439,
+      "chance": 0.1667,
+      "candidate_characters": [
+        "Devon",
+        "Julian",
+        "Marcus",
+        "Margaret",
+        "Ria",
+        "Stephanie"
+      ],
+      "per_character_recall": {
+        "Devon": 0.3333,
+        "Julian": 0.2,
+        "Marcus": 0.2857,
+        "Margaret": 0.3,
+        "Ria": 0.4286,
+        "Stephanie": 0.0
+      },
+      "sufficient_data": true
+    },
+    "W21": {
+      "line_count": 39,
+      "scored_count": 39,
+      "coverage": 1.0,
+      "accuracy": 0.2308,
+      "chance": 0.1667,
+      "candidate_characters": [
+        "Devon",
+        "Julian",
+        "Marcus",
+        "Margaret",
+        "Ria",
+        "Stephanie"
+      ],
+      "per_character_recall": {
+        "Devon": 0.3333,
+        "Julian": 0.0,
+        "Marcus": 0.0,
+        "Margaret": 0.25,
+        "Ria": 0.6667,
+        "Stephanie": 0.125
+      },
+      "sufficient_data": true
+    },
+    "W23": {
+      "line_count": 37,
+      "scored_count": 37,
+      "coverage": 1.0,
+      "accuracy": 0.2162,
+      "chance": 0.1667,
+      "candidate_characters": [
+        "Devon",
+        "Julian",
+        "Marcus",
+        "Margaret",
+        "Ria",
+        "Stephanie"
+      ],
+      "per_character_recall": {
+        "Devon": 0.0,
+        "Julian": 0.0,
+        "Marcus": 0.0,
+        "Margaret": 0.2727,
+        "Ria": 0.5,
+        "Stephanie": 0.2222
+      },
+      "sufficient_data": true
+    },
+    "W24": {
+      "line_count": 40,
+      "scored_count": 39,
+      "coverage": 0.975,
+      "accuracy": 0.359,
+      "chance": 0.2,
+      "candidate_characters": [
+        "Julian",
+        "Marcus",
+        "Margaret",
+        "Ria",
+        "Stephanie"
+      ],
+      "per_character_recall": {
+        "Devon": null,
+        "Julian": 0.0,
+        "Marcus": 0.4,
+        "Margaret": 0.5455,
+        "Ria": 0.7143,
+        "Stephanie": 0.0833
+      },
+      "sufficient_data": true
+    },
+    "W25": {
+      "line_count": 40,
+      "scored_count": 40,
+      "coverage": 1.0,
+      "accuracy": 0.275,
+      "chance": 0.1667,
+      "candidate_characters": [
+        "Devon",
+        "Julian",
+        "Marcus",
+        "Margaret",
+        "Ria",
+        "Stephanie"
+      ],
+      "per_character_recall": {
+        "Devon": 0.0,
+        "Julian": 0.25,
+        "Marcus": 0.5,
+        "Margaret": 0.0769,
+        "Ria": 0.5,
+        "Stephanie": 0.2857
+      },
+      "sufficient_data": true
+    },
+    "W26": {
+      "line_count": 33,
+      "scored_count": 33,
+      "coverage": 1.0,
+      "accuracy": 0.2424,
+      "chance": 0.1667,
+      "candidate_characters": [
+        "Devon",
+        "Julian",
+        "Marcus",
+        "Margaret",
+        "Ria",
+        "Stephanie"
+      ],
+      "per_character_recall": {
+        "Devon": 0.75,
+        "Julian": 0.0,
+        "Marcus": 0.5,
+        "Margaret": 0.1818,
+        "Ria": 0.1667,
+        "Stephanie": 0.0
+      },
+      "sufficient_data": true
+    },
+    "W27": {
+      "line_count": 38,
+      "scored_count": 38,
+      "coverage": 1.0,
+      "accuracy": 0.4474,
+      "chance": 0.1667,
+      "candidate_characters": [
+        "Devon",
+        "Julian",
+        "Marcus",
+        "Margaret",
+        "Ria",
+        "Stephanie"
+      ],
+      "per_character_recall": {
+        "Devon": 1.0,
+        "Julian": 1.0,
+        "Marcus": 0.1667,
+        "Margaret": 0.2857,
+        "Ria": 0.5,
+        "Stephanie": 0.5
+      },
+      "sufficient_data": true
+    },
+    "W28": {
+      "line_count": 39,
+      "scored_count": 39,
+      "coverage": 1.0,
+      "accuracy": 0.4359,
+      "chance": 0.1667,
+      "candidate_characters": [
+        "Devon",
+        "Julian",
+        "Marcus",
+        "Margaret",
+        "Ria",
+        "Stephanie"
+      ],
+      "per_character_recall": {
+        "Devon": 0.75,
+        "Julian": 0.3333,
+        "Marcus": 0.5714,
+        "Margaret": 0.3077,
+        "Ria": 0.5714,
+        "Stephanie": 0.2
+      },
+      "sufficient_data": true
+    },
+    "W29": {
+      "line_count": 36,
+      "scored_count": 36,
+      "coverage": 1.0,
+      "accuracy": 0.3611,
+      "chance": 0.1667,
+      "candidate_characters": [
+        "Devon",
+        "Julian",
+        "Marcus",
+        "Margaret",
+        "Ria",
+        "Stephanie"
+      ],
+      "per_character_recall": {
+        "Devon": 0.4,
+        "Julian": 0.25,
+        "Marcus": 0.3333,
+        "Margaret": 0.25,
+        "Ria": 0.5,
+        "Stephanie": 0.4286
+      },
+      "sufficient_data": true
+    },
+    "W30": {
+      "line_count": 36,
+      "scored_count": 36,
+      "coverage": 1.0,
+      "accuracy": 0.1944,
+      "chance": 0.1667,
+      "candidate_characters": [
+        "Devon",
+        "Julian",
+        "Marcus",
+        "Margaret",
+        "Ria",
+        "Stephanie"
+      ],
+      "per_character_recall": {
+        "Devon": 0.25,
+        "Julian": 0.5,
+        "Marcus": 0.0,
+        "Margaret": 0.25,
+        "Ria": 0.25,
+        "Stephanie": 0.125
+      },
+      "sufficient_data": true
+    },
+    "W31": {
+      "line_count": 36,
+      "scored_count": 36,
+      "coverage": 1.0,
+      "accuracy": 0.2778,
+      "chance": 0.1667,
+      "candidate_characters": [
+        "Devon",
+        "Julian",
+        "Marcus",
+        "Margaret",
+        "Ria",
+        "Stephanie"
+      ],
+      "per_character_recall": {
+        "Devon": 0.3333,
+        "Julian": 0.0,
+        "Marcus": 0.3333,
+        "Margaret": 0.4545,
+        "Ria": 0.25,
+        "Stephanie": 0.125
+      },
+      "sufficient_data": true
+    },
+    "W32": {
+      "line_count": 41,
+      "scored_count": 41,
+      "coverage": 1.0,
+      "accuracy": 0.3902,
+      "chance": 0.1667,
+      "candidate_characters": [
+        "Devon",
+        "Julian",
+        "Marcus",
+        "Margaret",
+        "Ria",
+        "Stephanie"
+      ],
+      "per_character_recall": {
+        "Devon": 0.75,
+        "Julian": 0.2,
+        "Marcus": 0.4286,
+        "Margaret": 0.5,
+        "Ria": 0.0,
+        "Stephanie": 0.4286
+      },
+      "sufficient_data": true
+    },
+    "W33": {
+      "line_count": 38,
+      "scored_count": 38,
+      "coverage": 1.0,
+      "accuracy": 0.2105,
+      "chance": 0.1667,
+      "candidate_characters": [
+        "Devon",
+        "Julian",
+        "Marcus",
+        "Margaret",
+        "Ria",
+        "Stephanie"
+      ],
+      "per_character_recall": {
+        "Devon": 1.0,
+        "Julian": 0.3333,
+        "Marcus": 0.1429,
+        "Margaret": 0.0909,
+        "Ria": 0.25,
+        "Stephanie": 0.0
+      },
+      "sufficient_data": true
+    },
+    "W34": {
+      "line_count": 37,
+      "scored_count": 37,
+      "coverage": 1.0,
+      "accuracy": 0.3514,
+      "chance": 0.1667,
+      "candidate_characters": [
+        "Devon",
+        "Julian",
+        "Marcus",
+        "Margaret",
+        "Ria",
+        "Stephanie"
+      ],
+      "per_character_recall": {
+        "Devon": 1.0,
+        "Julian": 0.0,
+        "Marcus": 0.0,
+        "Margaret": 0.3636,
+        "Ria": 0.6,
+        "Stephanie": 0.25
+      },
+      "sufficient_data": true
+    },
+    "W35": {
+      "line_count": 42,
+      "scored_count": 42,
+      "coverage": 1.0,
+      "accuracy": 0.2857,
+      "chance": 0.1667,
+      "candidate_characters": [
+        "Devon",
+        "Julian",
+        "Marcus",
+        "Margaret",
+        "Ria",
+        "Stephanie"
+      ],
+      "per_character_recall": {
+        "Devon": 0.5,
+        "Julian": 0.0,
+        "Marcus": 0.1,
+        "Margaret": 0.3,
+        "Ria": 0.5,
+        "Stephanie": 0.375
+      },
+      "sufficient_data": true
+    },
+    "W36": {
+      "line_count": 43,
+      "scored_count": 43,
+      "coverage": 1.0,
+      "accuracy": 0.2326,
+      "chance": 0.1667,
+      "candidate_characters": [
+        "Devon",
+        "Julian",
+        "Marcus",
+        "Margaret",
+        "Ria",
+        "Stephanie"
+      ],
+      "per_character_recall": {
+        "Devon": 0.75,
+        "Julian": 0.0,
+        "Marcus": 0.0,
+        "Margaret": 0.3571,
+        "Ria": 0.1667,
+        "Stephanie": 0.1429
+      },
+      "sufficient_data": true
+    },
+    "W37": {
+      "line_count": 41,
+      "scored_count": 41,
+      "coverage": 1.0,
+      "accuracy": 0.1951,
+      "chance": 0.1667,
+      "candidate_characters": [
+        "Devon",
+        "Julian",
+        "Marcus",
+        "Margaret",
+        "Ria",
+        "Stephanie"
+      ],
+      "per_character_recall": {
+        "Devon": 0.4,
+        "Julian": 0.0,
+        "Marcus": 0.5,
+        "Margaret": 0.1667,
+        "Ria": 0.2,
+        "Stephanie": 0.0
+      },
+      "sufficient_data": true
+    },
+    "W38": {
+      "line_count": 41,
+      "scored_count": 41,
+      "coverage": 1.0,
+      "accuracy": 0.3171,
+      "chance": 0.1667,
+      "candidate_characters": [
+        "Devon",
+        "Julian",
+        "Marcus",
+        "Margaret",
+        "Ria",
+        "Stephanie"
+      ],
+      "per_character_recall": {
+        "Devon": 0.0,
+        "Julian": 0.4,
+        "Marcus": 0.5,
+        "Margaret": 0.1538,
+        "Ria": 0.8333,
+        "Stephanie": 0.1429
+      },
+      "sufficient_data": true
+    }
+  }
+}
