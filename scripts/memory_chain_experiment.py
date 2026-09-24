@@ -73,7 +73,10 @@ def build_plan(assumptions: dict[str, Any] | None = None) -> dict[str, Any]:
         "provider_calls": 0,
         "budget_usd": 0,
         "character_roster": list(CHARACTER_ROSTER),
-        "weekly_memory_slots_per_arm": len(CHARACTER_ROSTER) * len(WEEK_PLAN),
+        "memory_slots_by_arm": {
+            ARMS[0]: 0,
+            ARMS[1]: len(CHARACTER_ROSTER) * len(WEEK_PLAN),
+        },
         "assumptions": assumptions,
         "weeks": [
             {
