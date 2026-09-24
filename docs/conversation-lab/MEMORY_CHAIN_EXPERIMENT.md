@@ -11,7 +11,7 @@ concepts, and seeds, and defines paired arms:
 The plan artifact is created with:
 
 ```sh
-python scripts/memory_chain_experiment.py --output memory-chain-plan.json
+doppler run -- python scripts/memory_chain_experiment.py --output memory-chain-plan.json
 ```
 
 The command only writes JSON. It does not import or invoke the weekly simulator,

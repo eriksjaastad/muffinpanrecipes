@@ -45,14 +45,14 @@ def _fake_adapters(*, fail_week=None, observed=None):
             margaret_prior[0]["memory_id"] = "mutated-memory-id"
         elif week["week"] == "2026-W42":
             assert list(memory_root.iterdir()) == []
-            assert all(len(prior_memories[character]) == 2 for character in CHARACTER_ROSTER)
+            assert all(len(prior_memories[character]) == 1 for character in CHARACTER_ROSTER)
             ria_prior = prior_memories["Ria Castillo"]
-            assert [record["week"] for record in ria_prior] == ["2026-W40", "2026-W41"]
-            assert ria_prior[0]["text"] == "Synthetic fake memory, not dialogue content."
-            assert ria_prior[1]["status"] == "no_new_evidence"
-            assert ria_prior[1]["text"] is None
+            assert [record["week"] for record in ria_prior] == ["2026-W41"]
+            assert ria_prior[0]["status"] == "no_new_evidence"
+            assert ria_prior[0]["text"] is None
+            assert ria_prior[0]["prior_memory_ids"] == ["mem_2026-W40_riacastillo"]
             margaret_prior = prior_memories["Margaret Chen"]
-            assert margaret_prior[0]["memory_id"] == "mem_2026-W40_margaretchen"
+            assert margaret_prior[0]["memory_id"] == "mem_2026-W41_margaretchen"
             assert margaret_prior[0]["text"] == "Synthetic fake memory, not dialogue content."
         observed.append({
             "week": week["week"],
@@ -104,7 +104,7 @@ def test_plan_has_fixed_three_week_control_and_memory_arms():
     assert [row["week"] for row in plan["weeks"]] == [row["week"] for row in WEEK_PLAN]
     assert [row["seed"] for row in plan["weeks"]] == [40140, 40141, 40142]
     assert plan["character_roster"] == list(CHARACTER_ROSTER)
-    assert plan["weekly_memory_slots_per_arm"] == 18
+    assert plan["memory_slots_by_arm"] == {ARMS[0]: 0, ARMS[1]: 18}
     assert all([arm["name"] for arm in row["arms"]] == list(ARMS) for row in plan["weeks"])
     assert plan["execution_performed"] is False
     assert plan["provider_calls"] == 0
