@@ -145,7 +145,7 @@ def test_one_ledger_carries_spend_between_all_three_phases(tmp_path, fake_sdk):
 def test_denial_happens_before_messages_create_and_latches(tmp_path, fake_sdk):
     path = tmp_path / "tiny-ledger.json"
     with AnthropicBudgetGuard(path, budget_usd="0.000001", create=True) as guard:
-        with pytest.raises(BudgetExceeded):
+        with pytest.raises(BudgetExceeded, match="configured ceiling \\$0\\.000001"):
             _generate()
         with pytest.raises(BudgetGuardError):
             guard.raise_if_stopped()
