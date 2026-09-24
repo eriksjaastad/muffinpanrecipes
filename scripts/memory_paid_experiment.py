@@ -23,9 +23,9 @@ MODEL = "claude-haiku-4-5-20251001"
 EXPERIMENT = "memory_write_policy_bundle_ab_dry_run"
 HARD_MAX_TOKENS = 220
 BUDGET_USD = 5
-SOURCE_ID_RE = re.compile(r"msg_[0-9a-f]{20}")
+SOURCE_ID_RE = re.compile(r"\bmsg_[0-9a-f]{20}\b")
 CITATION_GROUP_RE = re.compile(
-    r"\[\s*msg_[0-9a-f]{20}(?:[\s,;]+msg_[0-9a-f]{20})*\s*\]"
+    r"\[\s*\bmsg_[0-9a-f]{20}\b(?:[\s,;]+\bmsg_[0-9a-f]{20}\b)*\s*\]"
 )
 MATCHED_PROSE_TOKEN_MIN = 80
 MATCHED_PROSE_TOKEN_MAX = 120
@@ -355,16 +355,16 @@ def execute(artifact: dict[str, Any], digest: str, ledger_path: Path, checkpoint
             raise ExperimentError("resume ledger is stopped or has a different budget")
         if ledger.get("created_at") != state.get("ledger_created_at"):
             raise ExperimentError("checkpoint is bound to a different ledger instance")
-        if len(ledger.get("calls", [])) != len(state["responses"]):
-            raise ExperimentError("ledger generation history does not match saved responses")
+        ab_calls = [call for call in ledger.get("calls", []) if isinstance(call, dict) and call.get("phase") == "ab"]
+        if len(ab_calls) != len(state["responses"]):
+            raise ExperimentError("ledger ab phase history does not match saved responses")
         if any(
             not isinstance(call, dict)
             or call.get("model") != MODEL
-            or call.get("phase") != "ab"
             or call.get("status") != "settled"
-            for call in ledger.get("calls", [])
+            for call in ab_calls
         ):
-            raise ExperimentError("resume ledger contains a non-settled or foreign generation call")
+            raise ExperimentError("resume ledger contains a non-settled or foreign ab generation call")
     else:
         if ledger_path.exists() or checkpoint_path.exists():
             raise ExperimentError("fresh run requires unused ledger and checkpoint paths")
