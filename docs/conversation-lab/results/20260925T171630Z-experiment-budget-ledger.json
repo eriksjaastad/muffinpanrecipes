@@ -1,0 +1,6271 @@
+{
+  "budget_microusd": 5000000,
+  "calls": [
+    {
+      "actual_microusd": 17100,
+      "id": "0677b616ab3d49f3ab0e253412c1cfd7",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 170585,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 17050,
+      "id": "e496cdf5a761494eae7fc7691a0b95ce",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 170585,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 17500,
+      "id": "6593149abf314372910b67466d25751f",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 170585,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 17025,
+      "id": "4fc8c126f0784ed3a1ae115a6c75c239",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 170585,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 17600,
+      "id": "325e2b34d5cb4fc78f940718e4d2abe0",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 170585,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 17850,
+      "id": "58529947a75649aca28f8d0238fc9d2d",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 170585,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 17375,
+      "id": "842aeae692254bd2abc50973f0facdf7",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 170585,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 19900,
+      "id": "b69afb4d017d4ebdb1b26c4c069ce478",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 170585,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 18425,
+      "id": "58ff1517fd6142c69af31aed99bd5fd1",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 170585,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 18125,
+      "id": "73cd42afe2b441efa8a61845b55a3d65",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 170585,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 17475,
+      "id": "26fedb631bb74a5f9f437b4c827abb97",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 170585,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 19100,
+      "id": "8e755d9eeb52400fa19cfe3876e78d40",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 170585,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 9635,
+      "id": "d2e51e9861a44f13b5b90d919ca53685",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 147010,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 9635,
+      "id": "2b6cc4ff694c4fbba0ec76fa94f821cb",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 147010,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 9635,
+      "id": "a0bb48c638034a0c81c1b4b077d5f6e6",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 147010,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 9635,
+      "id": "65d53adb91364c0bbc28bded35759b54",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 147010,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 9635,
+      "id": "4ff38f5f67ad4492816042b853c38d73",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 147010,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 9635,
+      "id": "91cf6a2f6e194f679fe658ac6374b713",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 147010,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 11620,
+      "id": "f2271caff36240bd91ad99a66cfe0377",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 146985,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 11320,
+      "id": "8759b341dc594300ba094e28016cc5a9",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 146985,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 11520,
+      "id": "a2d9ae8c1e404162942ec27136bdf7f1",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 146985,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 11820,
+      "id": "394c190a2e8941f4877700709db9b485",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 146985,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 11620,
+      "id": "487ed79637c945a0a2afb6e0244f5735",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 146985,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 11470,
+      "id": "7607483643194482addca717c91da0e8",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 146985,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 10635,
+      "id": "e3c29be5f81e423d9e5b4b21f0e8f249",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 147010,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 11210,
+      "id": "4f339ab5f416483baffe06e49a291237",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 147010,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 10610,
+      "id": "c878f9cc6e484b399f5619b243a75e0f",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 147010,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 11185,
+      "id": "370dd0328c94462a8f6cc78ab67c4561",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 147010,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 11085,
+      "id": "d7b0466514984555b5762c76b801584e",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 147010,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 11535,
+      "id": "17f72fbac0b24091bdcb000eceb3d77f",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 147010,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 12580,
+      "id": "429d1017cc7f4f1580b260c98b9ffc1f",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 152550,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 12305,
+      "id": "14ac87ef253e4381862c0bc9bb45151f",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 152550,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 12130,
+      "id": "ac59d9c3cb134873befb39487a1ae7c4",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 152550,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 12605,
+      "id": "e20e2b3b08f2480397214068160e35b6",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 152550,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 12405,
+      "id": "a351df6b3871430882634bc3b5d109c8",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 152550,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 12355,
+      "id": "01ef993e296f4d3ca125c8093c4bd003",
+      "model": "claude-opus-4-6",
+      "phase": "calibration",
+      "reservation_microusd": 152550,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2645,
+      "id": "3f1f9e39a04d47ddad8ff40fec3c029e",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "bench",
+      "reservation_microusd": 34390,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2674,
+      "id": "f0779dbd283f421e817fd6edc9acaf91",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "bench",
+      "reservation_microusd": 34844,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2514,
+      "id": "f6700e820b9e4d859612445743a8fc2e",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "bench",
+      "reservation_microusd": 34303,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2676,
+      "id": "f4dbbddb43bd444a93b1b17a5c915d18",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "bench",
+      "reservation_microusd": 34704,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3286,
+      "id": "e258361ba1b24b6c8a31d860ab30039e",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "bench",
+      "reservation_microusd": 35245,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2834,
+      "id": "48248f8e225849cd85d38241e6d79f6f",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "bench",
+      "reservation_microusd": 35301,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2885,
+      "id": "f836cbc8870a4016aa2a9cb41bc2b71a",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "bench",
+      "reservation_microusd": 35828,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2882,
+      "id": "f688d1488f944f3db0a4a41fa1334c92",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "bench",
+      "reservation_microusd": 35124,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2940,
+      "id": "d4f57cf1ddcb46cb92982b0dd12525ee",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "bench",
+      "reservation_microusd": 35729,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2958,
+      "id": "d731c22477c9423a8cb3f7e523459b75",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "bench",
+      "reservation_microusd": 35319,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2948,
+      "id": "5de24fe9763a4d70a56a89acc5138021",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "bench",
+      "reservation_microusd": 36095,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3026,
+      "id": "c869d260c5a3480dbbab0320717a894b",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "bench",
+      "reservation_microusd": 35896,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3089,
+      "id": "3fae555e08664b488b732c5723e0fd59",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "bench",
+      "reservation_microusd": 36723,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 18610,
+      "id": "4a6459398a8645e9961aba2abbaeb6bf",
+      "model": "claude-opus-4-6",
+      "phase": "bench",
+      "reservation_microusd": 176330,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2630,
+      "id": "f981ff77f1754d3db6a372a0698ca830",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "bench",
+      "reservation_microusd": 34390,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2671,
+      "id": "114b1fa86108463991cbec048ffea912",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "bench",
+      "reservation_microusd": 34819,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2641,
+      "id": "6cfe51c86c61439da1f9998d4d449e7c",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "bench",
+      "reservation_microusd": 34604,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2848,
+      "id": "a4874883896e473cbad18ddbd4d1b192",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "bench",
+      "reservation_microusd": 34498,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2948,
+      "id": "33d3986f43e34502840d7f6629eccf60",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "bench",
+      "reservation_microusd": 35170,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2796,
+      "id": "e6e057cf56f34f8da45f61ec8765c974",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "bench",
+      "reservation_microusd": 34999,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2891,
+      "id": "008ee789b2e74e889b87fd6806993c13",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "bench",
+      "reservation_microusd": 35697,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2790,
+      "id": "2924200ab7f540b7a6475a2d882472c9",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "bench",
+      "reservation_microusd": 34952,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2846,
+      "id": "3e8bc3684f3243ed8615d19937233e11",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "bench",
+      "reservation_microusd": 35682,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3033,
+      "id": "0f71c31a96b2400ba493548fb83ed91c",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "bench",
+      "reservation_microusd": 35769,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3144,
+      "id": "6bd6cc8497b54025813f13a365f38a16",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "bench",
+      "reservation_microusd": 36596,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 18040,
+      "id": "35819899d1584598b0e28da578f66f58",
+      "model": "claude-opus-4-6",
+      "phase": "bench",
+      "reservation_microusd": 174295,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2830,
+      "id": "c42af7fbcb2941958172a21df8916fd0",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34390,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2771,
+      "id": "96400eed5a22408db75c313bc8e26f75",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34957,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2668,
+      "id": "6f231c8492a54c669b9d37d55a03ee12",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34636,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2645,
+      "id": "1bb3f3472bb1454e9d18eb0c9035c3b4",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34489,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2681,
+      "id": "0d38edcf00574368a2b179fa684bc0f5",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34946,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2734,
+      "id": "086510d4518345198934d0dea1caa935",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34911,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2855,
+      "id": "57d54ef777064c9b989b8b6b28b8d1f0",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35540,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2933,
+      "id": "b0dfd149798d440094709141b0f83e82",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34924,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3001,
+      "id": "57fc591204384f4c9baa466d64e93ff7",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35826,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3007,
+      "id": "da4eff64d4894bc6a58929dedaa98cc5",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35752,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3127,
+      "id": "2916746359314201bc477a942043b237",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36668,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2048,
+      "id": "2e57b26d277444eabb6ae216e46edad3",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 31953,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2126,
+      "id": "4055ec5492f048e8bf0bd97c40b8fe02",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32363,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 1982,
+      "id": "135487dd5c1e461caeffb3efd634ea01",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32183,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2095,
+      "id": "2170ac5116ee495183c154872b165323",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32313,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2191,
+      "id": "34e7c47e83814cf0af648b5714d163eb",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32713,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2144,
+      "id": "442071538f32432bbfcb922d57dcc833",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32643,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2291,
+      "id": "cfea2476c52b4782a082b6ec49b88105",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33163,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2271,
+      "id": "6d64b20e284a4e5e9d1d154b31357a6e",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32332,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2323,
+      "id": "23fe8b5a659540f0bc135d536aa664bf",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32983,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2154,
+      "id": "a1e504c58c6a4f4e9ccbc46954d56e5b",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32649,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2279,
+      "id": "f0d17ff9c3fe4979b2f9ad8ca0dc37e4",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33339,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2396,
+      "id": "f38fcc0b0246418ea80dd716b57784f4",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32932,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2415,
+      "id": "37bd354e9d4d459bb813071c64ebb4f0",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33944,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 20050,
+      "id": "d6fe6598507546e8b3b6b9bb6780717d",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 176560,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 20125,
+      "id": "5288d9c3a9684c64afc01a65214e8511",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 176560,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2665,
+      "id": "1c7148d9c73448eab7c6c67177fc39c7",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34390,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2683,
+      "id": "7a4f33103b994cf18ff2d2cf2645fad1",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34839,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2590,
+      "id": "5547355bce844a6b9983b52a9fe4be13",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34314,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2645,
+      "id": "62b85df8d4394ff1895b22ff2ff53228",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34755,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2670,
+      "id": "fc51c1d4429d4b8da7de3486acaa0013",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34719,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2728,
+      "id": "fbc2770c37d64e40a7869a5ecde258fc",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35247,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2701,
+      "id": "09ff436d45284d4298c46778bf168e3e",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34823,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2776,
+      "id": "d95888c9b8f0428ab3e7c0d1b14f7c24",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35340,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2734,
+      "id": "547d73dde3a2463db67dffc41d309339",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34634,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2815,
+      "id": "7938ac48d21f462e8a8cb6830cfc4e7a",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35257,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2995,
+      "id": "9d339959985f490e8286c2d6d72c0fc9",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35329,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3062,
+      "id": "9e5adb92bef540ffab3adff0916d5db0",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35995,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3185,
+      "id": "54bdd41f2f9547e1ad9b5943272f49a0",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36109,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3220,
+      "id": "0e58024656d24074bf3ca89c49d034f0",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 37115,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2083,
+      "id": "4ade8bd32d26433a9345e2b118ac2988",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 31953,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2148,
+      "id": "bb7125e0a2964af5b8bb3b753b67a134",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32413,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 1943,
+      "id": "6b080783af2947abac485f9703122b25",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 31914,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2114,
+      "id": "728ed967d359418a88111d2acfa588fd",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32358,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2147,
+      "id": "276c28ad86724e20836eaa02357d53bc",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32793,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2080,
+      "id": "0874ee59d962474a83aa6079cbd7e773",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32352,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2166,
+      "id": "4adcf2f1d1b143edad20a22327b10a9e",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32757,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2196,
+      "id": "b9d8adcb54a0496ab7d75402e381b047",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32322,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2300,
+      "id": "b46bcef96ade4a98a0051673f7bc149f",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32934,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2223,
+      "id": "953d6e12406c4eed9279206ea674ea83",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32768,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2334,
+      "id": "fa19ce17f85b41c9aabeaec6c9bb0357",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32954,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2362,
+      "id": "543c1defc7e34b8084f2490c1ffd4b13",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33556,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2284,
+      "id": "253a72ecd5964c8dac5498560fc7b702",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33317,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2374,
+      "id": "fe19ca0ae16d4e2ab22ecc17e4cb65af",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33832,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2301,
+      "id": "18e9912c4c9a4cdf92965072ce11acd8",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33440,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2376,
+      "id": "dac35a21da31405f99b6d575bcee6784",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33960,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2572,
+      "id": "d2ddbe3b5cf64909b861108c1ab14263",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33783,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2665,
+      "id": "79a71d52aea4454bb1f28ceb2d19bcc4",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34617,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 20305,
+      "id": "949817ee774b4ad9b50cd1dd8b7bf3ab",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 180345,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 21205,
+      "id": "4bef3da24ef1421f85d054726a092396",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 180345,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2710,
+      "id": "3dfc0728248943c9a89fe99f378fcb19",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34390,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2757,
+      "id": "8440980dfafb4408ac87020906a3456c",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34873,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2658,
+      "id": "2e1c7cd949ab4584ac0baf0897e21b82",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34654,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2612,
+      "id": "870c7bdb52aa416cbe2a397939d977cb",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34445,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2721,
+      "id": "7508136a369e421faf9449a25d86b818",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34975,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2875,
+      "id": "bc9ee83c56904336a102baa7a3b4edfa",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34632,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2931,
+      "id": "108e14359c8e4c76b906eba2b8645eb8",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35466,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2910,
+      "id": "54aab976449e47659924ebbc22094ace",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35265,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3012,
+      "id": "16e199b45e4349b6913360948e5a7153",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35994,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2884,
+      "id": "12a7bfa088fc4da9aede184d7afb4e73",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35330,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2942,
+      "id": "b947e5e72bcc49a5b7537926752184be",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35883,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2866,
+      "id": "fcb53447d6af4eb99eb250c6d2f37ec6",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35348,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3031,
+      "id": "e1905c8c8043487dbed936beb533078c",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36213,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2058,
+      "id": "e68699e90f7b4294ad767aaea1661ab6",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 31953,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2098,
+      "id": "7e5b1e2b8be64744befc12d65c8f3bfe",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32424,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 1991,
+      "id": "4ce55ba53d884401a3eb9276883fa364",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32185,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2012,
+      "id": "39d10255759a47a6b447b992975e6f0b",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32001,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2126,
+      "id": "622c2bcb06744e62829ad1e1dc6c88da",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32705,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2157,
+      "id": "058063e2a1a44a66b8b40e0c5f15d886",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32623,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2288,
+      "id": "c75976191c0247a0bc215b193dbb1a52",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32315,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2399,
+      "id": "058cd273efca4c4eaaecbd15c1272010",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33240,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2229,
+      "id": "615857bef3fb4abb890dc28203de4c02",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32932,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2329,
+      "id": "88dbbe061c8b4527ae65d956693edbb4",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32915,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2368,
+      "id": "5af241176bc54292bf0bc056c42a3794",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33600,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 20090,
+      "id": "68138f0144c548dda5d275eb2f23dc5e",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 177390,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 20040,
+      "id": "c7c5a794c42545a1b2ee18e8bdf4cf34",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 177390,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2764,
+      "id": "8558468c4c30469baa98a4d2a1a99d16",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34456,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2768,
+      "id": "c29f560e06e0408e94ef4e6a0389d767",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34966,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2636,
+      "id": "61721a2d72934c12bb13560e82a50602",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34408,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2699,
+      "id": "2ae8f5b85ac24644bf6a706db7e1cff1",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34872,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2750,
+      "id": "539a501c854a43dab9f5074e78924d04",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34830,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2803,
+      "id": "45af7c19a393464b91bf8b0425546bdf",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35246,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2867,
+      "id": "b72d8593c17c4b52ab4756b02dff525d",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34746,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2962,
+      "id": "313226df552f4848b100d766892021f4",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35497,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2903,
+      "id": "238e95caee174b82818b7f5df6537654",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35381,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3055,
+      "id": "8d6b983c09a2419ab8edd1227301b60e",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36211,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3015,
+      "id": "23c5057e0cf342de9e41bc3204ee6fae",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35622,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3103,
+      "id": "cc6870893a0c4588bf4d69903d5ae909",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36589,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2017,
+      "id": "d57cadfd7842481bbe5c36537deb397b",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32019,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 1984,
+      "id": "38162b1366514ca6957dc5dd6c393e1b",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 31948,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2051,
+      "id": "aaeef3809b094fe5bd50020efd6f5856",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32364,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2023,
+      "id": "c6d1ba734a584347b957fec9f6457f6e",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32068,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2067,
+      "id": "34624b8887e24d319b5ebdaca9dc48f6",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32523,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2138,
+      "id": "6cfba0a6f1564e1788707bc9fd9da453",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32482,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2252,
+      "id": "5b29f0ea7e244a5f991918cefb60f4a7",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33169,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2230,
+      "id": "756c8edf9e3c4a6f8ce2cb8b1910f15a",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32313,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2354,
+      "id": "fcc8e3192c9b4d0ea8f370670f3eb9a2",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33075,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2286,
+      "id": "2e44d8cad510447f91f409515c3d61c3",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32975,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2410,
+      "id": "cf95f27826c74a90bd702e24838c78ae",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33610,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2336,
+      "id": "34ca5c210b1a4183a4f7b2bfee1daec6",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32889,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2374,
+      "id": "ccef80a3d8a045849f9c23623d47ead5",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33495,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2339,
+      "id": "23c86adc7cf244a2a11397be8d122cc7",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33203,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2412,
+      "id": "12031095d1e84cdd801962f11b6e0ee8",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33909,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2490,
+      "id": "a42b1bd241364e88b622a78f44cb4744",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33618,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2640,
+      "id": "b5cb32b844dd4eefa85a339534f5be90",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34406,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 22405,
+      "id": "a775079a16154e4ca9f28ff47ee718aa",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 178155,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 22830,
+      "id": "14c87e5c47ae43f09eaaf01b5b0ec801",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 178155,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2689,
+      "id": "16895d746c74458c8fe9439c4129d90e",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34456,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2743,
+      "id": "bdc94db185ba4eef875eb1c16b84f0f2",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34885,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2579,
+      "id": "75028b0fa1004e9aa340aaf4cdca29f6",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34393,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2663,
+      "id": "af4962262b6f4728b84cec591cc02f13",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34838,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2852,
+      "id": "61500cb211d24d5cbaa330c45e5bf2fa",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34719,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2921,
+      "id": "4ecde95f598b4ba6b205f4f9c489893b",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35474,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2747,
+      "id": "3a5ab776bde74f3897e32c2f2bf36041",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35057,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2846,
+      "id": "1d1f79ef2b22420882386e6ad3c87bf7",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35592,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2852,
+      "id": "b03b573883ea4859848482ff5d47453e",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35439,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3007,
+      "id": "9ad0b75d40d749ba95e14691f5456fed",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36065,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3119,
+      "id": "64c993bf52a944ed90623bf03b2c58ae",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35751,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3202,
+      "id": "7d79c5bf1fec4d1582b5be2c287be667",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36579,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2082,
+      "id": "2a1f2b35907f443394b0e708054b46be",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32019,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2128,
+      "id": "2b9b40a6f412468cb246f1ccc41a9e40",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32477,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2034,
+      "id": "d6fb52b067a3472c8c036f5b05d20100",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32261,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2014,
+      "id": "c888ba94960b465b8c5d41946df0cb22",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32100,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2115,
+      "id": "30515c87cc3b44bfbe62655450b36c3c",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32501,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2151,
+      "id": "b8f0cfeb8adf4191a4b9a6422c75555c",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32586,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2205,
+      "id": "e7a15653d501469581efc1ff36999cd8",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33104,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2193,
+      "id": "51653255edca4b7fbef238460da6a896",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32567,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2285,
+      "id": "6000dde042fb4f5d8b69411d44f630e0",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33114,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2481,
+      "id": "47f20ec3a54c44f5a94b67b9c3e99602",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33342,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2504,
+      "id": "7fa0ba7828f4447c9849ec2e1884683c",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34193,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 21520,
+      "id": "df514ac1611140de9c1c029971f3d833",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 176545,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 21295,
+      "id": "a95ae31bdb334591b4358afee4a7366c",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 176545,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2774,
+      "id": "cddf5d007f41417c9eeabb55a12809cf",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34456,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2785,
+      "id": "32e1f7d8dbd9460e870d599437f2ed82",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34951,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2762,
+      "id": "3c0e9cd48e504722b87f05895969720c",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34459,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2776,
+      "id": "8f0b266c69b7444f8cc6d442645714a8",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34605,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2756,
+      "id": "f8c222b9a9414124b824dfc7a1d45ed6",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35144,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2780,
+      "id": "d732d4c1827f46309dff0f5409d18529",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35038,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2942,
+      "id": "9b949557c05941869efe0bc3a4427dcb",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35679,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2745,
+      "id": "0c279209e01d4e739317b1052ae96a6e",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34971,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2887,
+      "id": "211f690bee5b4827b233436229b80b19",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35735,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2901,
+      "id": "58a7e3dd683d414a856d11804b4ef657",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35324,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2984,
+      "id": "6a269b0addbd470786baecba31419f83",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36134,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2886,
+      "id": "faeea526b82e4a14828774087431f954",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35617,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2961,
+      "id": "fb1d100f93a84fcaa24ddaffde13e5a7",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36120,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2799,
+      "id": "a5d65ac0bae84b0eaf393a8828f7f041",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35189,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2929,
+      "id": "b5ed7f742f4e4b51a67064c911fde724",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35824,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2996,
+      "id": "03c8eaeb6e4444f0abc6b81dd6a0c6a3",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35770,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3162,
+      "id": "b2ac51c9ed2549f6a396c0a2c0c0543b",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36345,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2943,
+      "id": "3d3411101438458cb44ab48f02d34878",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36056,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3083,
+      "id": "b600ddb7c9194e3ea5670487164f5ddf",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36475,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2167,
+      "id": "481154ceb6f24da1b0a73638004e2d58",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32019,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2140,
+      "id": "e0c77dcc8dad4c6faee2971f3b867e4d",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32548,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2044,
+      "id": "67e7cdc6947d44b09441da5f1fa61996",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32009,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2161,
+      "id": "dcc55bee48c047f3accd2b8ed75a4f69",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32438,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2170,
+      "id": "7fc9ef61bcfe42e098678289a07790c7",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32910,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2266,
+      "id": "d097670cbb3343da933f5dd78b7556cf",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32489,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2121,
+      "id": "51a703cbdcfb4c2bade6168d5165edb4",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32429,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2205,
+      "id": "bb7dc1dcbbb8426f91e0edfdc50d8d7b",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33164,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2096,
+      "id": "62f6302a6113499e8b46a26fcdf38b19",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32481,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2222,
+      "id": "5ecaac872fb042b4ac1e73e2081f60ee",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33123,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2261,
+      "id": "dcc90c988eb247fe819a7a537c4773fc",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33085,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2321,
+      "id": "e49547bb52ac4bb6ba4159bca0557960",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33626,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2447,
+      "id": "14b1eb6b6f7844dba90cb435873350d6",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33604,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2503,
+      "id": "d7f7bf590b8e4d2b882926d2e01a9005",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34180,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 21000,
+      "id": "4c81b9ec381b41b9913417bdd1734b87",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 179905,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 22150,
+      "id": "264893e3d7a043b7bc3d4e51400498d5",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 179905,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2603,
+      "id": "a17493c5d2ce490191a2196a6709b7bb",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34469,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2614,
+      "id": "8a8fa9352de84ee1b3b0e81588640c84",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34446,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2779,
+      "id": "708bff21f8e845b184acca29139a4970",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34808,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2835,
+      "id": "6be587919d3246049ef9cd66cc93b214",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35287,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2771,
+      "id": "1eadaf73292f415d9f26d002af5cdd45",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34974,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2891,
+      "id": "ffc472e21a094c3987c202fb83e5ff16",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35659,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2696,
+      "id": "fef7df6ffcaf427b919ed7a11d8b9c51",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34759,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2797,
+      "id": "32ad3c5b8c454c638c0d3663aa967b65",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35301,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2735,
+      "id": "30868bc46b2e4627af4cd33eae58fdae",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34817,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2863,
+      "id": "816481a239fa41a5885881d8b7c23fe0",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35604,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2905,
+      "id": "e62b01232bff4b1f9e4dd08caffb526e",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35519,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3005,
+      "id": "a8c405c4a33a43038b9c495530b4ca20",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36189,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2794,
+      "id": "c99115c00b654579b7c620fabb490393",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35111,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2895,
+      "id": "fa9708f6db354ec5baddd57c8e46ed25",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35789,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3028,
+      "id": "95d70ff4d4b547cc91a376232df9e92f",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35973,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3072,
+      "id": "7c66e1ebbd064bc6a1ba3ff5406d1632",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36535,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3026,
+      "id": "146f68ff60c545c3881b3f91337389c6",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36159,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3139,
+      "id": "82cd9f5cfae74d40bc01282f1b123e8b",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36756,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2006,
+      "id": "3865963ce067448286efda4ed6093c67",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32032,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2068,
+      "id": "0b52fa4c5d7e483b8f9728fa70c940e3",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32293,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2192,
+      "id": "3cb28b95b815436a9b4a4d6c8900c323",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32144,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2298,
+      "id": "2fe6db74b100413e94ca7de9886c6c53",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32744,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2153,
+      "id": "1ce7ad3b1de6425fa59eb4c98b26d87b",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32576,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2259,
+      "id": "9f23e09b114f4ba9b86277d1aaa169bb",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33123,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2217,
+      "id": "43ac726b66944e2aa46e07465de3c130",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32951,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2357,
+      "id": "5e9fbdc111e74d739effe80ea20cf387",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33546,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2136,
+      "id": "59e9ee7ea41d49a9b6a69cc348795b5f",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32501,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2222,
+      "id": "2629ab23520c400b93d20a7bfac4728f",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33035,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2292,
+      "id": "50b50b60130c42ed90e6c4a5c9081c55",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33145,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2415,
+      "id": "80f43531fad446798adef99b8e3eb57c",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33791,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2253,
+      "id": "d67bd68f4fa945babd23545289660301",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32990,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2403,
+      "id": "ef21840b2a514b79af86547123160955",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33791,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2376,
+      "id": "e31b2069c7e04f14a6ef4088523b8dcb",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33340,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2518,
+      "id": "07bfea265dee4e4d814fb9ff2b102b3b",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33989,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2606,
+      "id": "6164646243bb4828861df33fecb47f31",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34049,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2701,
+      "id": "7c5f4dc9fd164d83b3f5c598dc57c125",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34981,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 21335,
+      "id": "eb6e36086c764381b56a13187172a282",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 176735,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 21010,
+      "id": "0e32da5c964f44aab412842f3142deca",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 176735,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2848,
+      "id": "1617a80491f04376892fcbb92ecf7d30",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34469,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2729,
+      "id": "f19484aaf2a0462f88b097313351527f",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35048,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2794,
+      "id": "31751617bef144318a189683b3a7bce4",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34435,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2724,
+      "id": "32d2445fe9184eafb47b47e02d7b5b15",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34966,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2932,
+      "id": "a719d1280f404c699559d34d409a5ddd",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35225,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3122,
+      "id": "b377660e103a4995af450c55a3884a25",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35939,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2801,
+      "id": "8fd040b510584cbea3350aac2cee222a",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35187,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2933,
+      "id": "7e40ff07ac0a4af3978f5356b18c4097",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36007,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2921,
+      "id": "fdad53947727437ca08514ac03cf0f63",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35856,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3012,
+      "id": "aa9ff4369fe745e69ca020245874abf2",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36359,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2876,
+      "id": "1561d4f1aba44afea5306d7715f4de45",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35677,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2913,
+      "id": "28d481e2410a49469bb154e01480a93a",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36186,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3045,
+      "id": "5a4dc683b49242bc80acde9505b49409",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35844,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3094,
+      "id": "92c8e7b8184f4e44b2ae0fc27b956ee3",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36290,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3152,
+      "id": "96615ca0c94445799dac770555308e2e",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36415,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3268,
+      "id": "11784391910d462088e8c63e3861bda6",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36923,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2121,
+      "id": "e896b23457d5490d8fa4e9ea0c6114c7",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32032,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2135,
+      "id": "28de784004864256aa3dc568d4386bff",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32517,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2050,
+      "id": "f544f42c69204bf3bd1522eb066347f5",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32285,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2098,
+      "id": "a5831f4d2d0e427cbc1212f820811aab",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32451,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2200,
+      "id": "b13db59dc50f44259b0c7c943317e1b7",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32773,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2277,
+      "id": "6cbb167b59db4e9ba3df002088d25b0f",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33318,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2355,
+      "id": "3b755be4227c4c048dca84a79ee62acd",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32910,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2406,
+      "id": "0f66551ad51540e0a140c5a32a045234",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33788,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2242,
+      "id": "0ff77e056fd14c7c96ccf7dac906feef",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32515,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2359,
+      "id": "e18931f4f838463d96e6bb0ab5f5db52",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33208,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2176,
+      "id": "b68cd6ae2b4342209e7656b4893ae35e",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32831,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2264,
+      "id": "91a6f67f101c4e90a6bf016447c58e13",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33355,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2602,
+      "id": "e3b970466c1b42a9a8ac487beec6e2b3",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33789,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2658,
+      "id": "70601cbf53f942e387c1c9abcd889047",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34693,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 20325,
+      "id": "53d4f50d08e64772a31c7ba1c3883134",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 176830,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 20100,
+      "id": "daea990064864b2784365faf185bb8aa",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 176830,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2578,
+      "id": "7343ab83474842cc90b79bbf52e99cf8",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34469,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2709,
+      "id": "0c00778f1ea64eeb9f186cd5b79999d2",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34437,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2764,
+      "id": "9b30e67217ec48bf8abf4f7ff554c332",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34871,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2833,
+      "id": "479875fae3ea46209fae18c091636ba3",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35453,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2861,
+      "id": "84540fe841054fb69a3c3d0dbec1da9d",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35000,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3008,
+      "id": "3b93dbd219bb41ed884833e0a0d10d6c",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35678,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2934,
+      "id": "89ea1c09bbaf4cefa607690593940a46",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35424,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2990,
+      "id": "bc64dc5106a64a4b9a8f0d8391361810",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36181,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2788,
+      "id": "10b8e8c0e2ca4a8ea755882043eec83c",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35022,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2876,
+      "id": "8a8c36ca955d4dfaba7d91f23508bec6",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35746,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2748,
+      "id": "6c94456bd0c248358b72d9da9691c705",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35059,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2895,
+      "id": "c6f69dcf86114042aa19aa757a11e851",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35825,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2945,
+      "id": "67244dcc05944b2f9950822892467190",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35728,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2983,
+      "id": "6339eaf03bf043d88d729372724b63b4",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36163,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3185,
+      "id": "23cfd990a54c4f30ace06c58e683bf3c",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36116,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3314,
+      "id": "ec8f9fd357f343648b7fa7c0b54dce9f",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36966,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2116,
+      "id": "6a6a029c596548079f482732290094ab",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32032,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2114,
+      "id": "a58f4c023e094a388d65ff1f5921e755",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32514,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2172,
+      "id": "73294c2ad4594e02a6a0f10d3d610d76",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32020,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2132,
+      "id": "3e8504be0c69492d828c83bdce68e9a2",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32518,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2214,
+      "id": "91405e7eb89645e38be1d7ca73d9040a",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33080,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2025,
+      "id": "8d76c54752c9440e92802eb0215092b4",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32316,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2123,
+      "id": "b7ec5cbfb23e45ab91f7e1bd3c79c9df",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32795,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2071,
+      "id": "1e8ad93f5fc744f7906d51644686250f",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32447,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2152,
+      "id": "966d52f2a4564e649b6835db1f2293af",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32961,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2239,
+      "id": "4d5d25edbadf4e94aed8c9b06f4f2e67",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33043,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2365,
+      "id": "1b2b7173c7224ca0b9a8c76e9e5475b9",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33603,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2531,
+      "id": "3354a2df0d10494b9908a36b1fd75747",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34067,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 19815,
+      "id": "efec17f7af864eb787ed399c5d286a62",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 176565,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 19315,
+      "id": "f46bd88cd52b4e1fa3bf05e337823ebe",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 176565,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2724,
+      "id": "5a4c896ed95f4d219d7f78a9fb8010ff",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34438,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2738,
+      "id": "b66747df224341869a45ea9298e90e2a",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34933,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2846,
+      "id": "d96d6b34aa6640beb14d8aa72cf13a1b",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34441,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2770,
+      "id": "4593b92eb16c4ed2bbb2f34c2a5cccf0",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35047,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2692,
+      "id": "22ed71c787af4c9d953b279960a9c6d4",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34833,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2761,
+      "id": "7545ebc74d1948768b2696304fe3a130",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35346,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2719,
+      "id": "3225bb6833dd42eb96f038abe0cbb226",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34562,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2740,
+      "id": "704fc5974168484c907b268bc5d92602",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35302,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2876,
+      "id": "8fd2adefd61e4727b0aed2499dae7737",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34967,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2916,
+      "id": "9888f4392d154c648bf6b81511aa1eef",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35595,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2725,
+      "id": "915ff9b5e1d444acbb2ba0c3dfdc3a79",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34822,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2826,
+      "id": "32358edc4cb9457b8555ef5e10d493b6",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35514,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2794,
+      "id": "21a487ad1f584b7bb0e996a8ccc8154b",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35411,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2964,
+      "id": "1b7ff6e7ad9a4c9bae13c4b1c1fa3be8",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36023,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3053,
+      "id": "01494bc6be714d90b59f202f88f870cf",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35978,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3195,
+      "id": "c2d33abcb2c7462e83012f485783a199",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36900,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2087,
+      "id": "7fb6cc0ce3a2495b9ddcad97affc4fc8",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32001,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2177,
+      "id": "d025477134a3466a8b6ea231337db511",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32453,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 1958,
+      "id": "7953eec71ab546a9abd708bdad0335b5",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 31952,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2110,
+      "id": "3966fef34afa402795d532f31c09e33c",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32359,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2056,
+      "id": "d3746d3a278d4678bedc0a2ea8038bd4",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32312,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2204,
+      "id": "a322272a80d14ff49c265f97a7660765",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33062,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2158,
+      "id": "4107ad0f471a4bdda086c878b3f6f836",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32646,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2279,
+      "id": "a16c58b4c2894544b234f2bfefe9166a",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33258,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2133,
+      "id": "7eed03a77c9145968dc7a9b4372e8346",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32493,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2340,
+      "id": "3b246e6df2ab4a8e9e513d4aa86d23cc",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33133,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2125,
+      "id": "fce8285065534996a534472e1d3109f9",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32653,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2192,
+      "id": "d5b56cfe571541c4b5267d18c3d19bfa",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33182,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2318,
+      "id": "f112fa3cdcfb4bc8ac6113e7de3ddb89",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33217,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2357,
+      "id": "f75846af09914c43977026ee806c2b81",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33763,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2574,
+      "id": "d1d40a1cc1044060afeb314ae66825ad",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33755,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2637,
+      "id": "9b7cc06e0b1a4b889d0a38ec4e683eeb",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34753,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 21215,
+      "id": "10a9939af2244763b07a2e2e0fd06bd4",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 175470,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 18840,
+      "id": "e76c6dff524745dbaad299387bed6c58",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 175470,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2689,
+      "id": "a17efdf5c4ee4be1a2af38042d467e6f",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34438,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2706,
+      "id": "1e008c270cad4166a473fe2fe9cd3cf3",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34923,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2821,
+      "id": "af3e05f9aee342dea252ab8418e9c9b4",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34429,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2811,
+      "id": "b258a0906e6f4245a04921d91928c36f",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35016,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2597,
+      "id": "3b27c2e2838f40ab9d3377517946fd62",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34558,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2716,
+      "id": "6ed5271bf17b4f009974c851db58ad6a",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34631,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2789,
+      "id": "745e78cadfe84cd8bb6879890014fc24",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35475,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2693,
+      "id": "143904cc6a264388bacc8422dc1ecd11",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34988,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2796,
+      "id": "7308824936474b32b92835b8cde0039b",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35484,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2781,
+      "id": "fdf394df60c3422688e38cf5f886e2d9",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35172,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2857,
+      "id": "4a566b6dc6a04a2ca0646b18a38ebdf2",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35359,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2891,
+      "id": "350b153ac9b942dea31d12b001b39e67",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35821,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2939,
+      "id": "0fbbbc5f9b4b4b18ae1e9324ee0264ff",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35417,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3064,
+      "id": "4c29d444532640ef84c57c9b0fc51037",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36105,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2952,
+      "id": "f987e4624a7a458c8669f10238f9ae2e",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35820,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3042,
+      "id": "01394136388f4323918d6a16ac6f46ce",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36538,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3120,
+      "id": "403dc9fbb7dc44d4b9e5a8a659f57230",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36332,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3278,
+      "id": "3244d9b2c57b444d9d8f2e3cfca8ef25",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 37272,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2147,
+      "id": "96a1f72f70ee4241a0e1c4defe6c6269",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32001,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2124,
+      "id": "9b7ae4be3731466d8df34c438f88edaf",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32545,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2107,
+      "id": "60c3e65d97364156af1257fe9b7c80f2",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32236,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2119,
+      "id": "1860b88c51044a788d996df8f7bbffc8",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32719,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2102,
+      "id": "e80fefe480ab42ccb713920d6dea4a85",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32368,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2036,
+      "id": "bf42d763d8064b65a77f1152b59c50ff",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32184,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2145,
+      "id": "92c9a922f8134b33946ee07b5fdd06d9",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32871,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2290,
+      "id": "e866fb8bac644bd5bfe8da12e912e37b",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32522,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2415,
+      "id": "8107fc1dbf914b60807ae08b2b779257",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33171,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2456,
+      "id": "8207bc915c624e3fb6cf160072d71d00",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33479,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2505,
+      "id": "f498dfe6be66407b8ab8438d9e841ba6",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34324,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 19625,
+      "id": "eec9e59e6e6d4dcf8ff5e8082a6050dc",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 175565,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 19700,
+      "id": "0138748338a94d30b26ed3855acb90d5",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 175565,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2549,
+      "id": "9f0e91cb25f14fb0b19c8bacb4220f8f",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34438,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2561,
+      "id": "5462a86475fa48b2a253f8a106c559c6",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34340,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2827,
+      "id": "b9174b0505d94a119779e93736110a1c",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34519,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2892,
+      "id": "a67dd84d6210449d9f7effc42f23bd22",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35185,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2775,
+      "id": "b41a03246d6e47d4a2116bdbe9780052",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34978,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2892,
+      "id": "a2e4f7ad1c5b47e6970a99c7ed1513ca",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35684,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2769,
+      "id": "be22b301ba7d4aa3b9d558bd7b58ed29",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35063,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2849,
+      "id": "7b424f5ab33a404d9c3e750df6dd7fb0",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35605,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2741,
+      "id": "4235866436fa48e29b379575305b1d75",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35120,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2914,
+      "id": "f0067b32eaa1406ebce1688ae1fcd5ca",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35726,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3019,
+      "id": "59b6c9a21bfb44e9bdc490062fafd78c",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35317,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3111,
+      "id": "e7f0290038e547778c641e4a2d206d80",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36237,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3010,
+      "id": "cf2abae37126422dbc0fb39fecfd0243",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35883,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3088,
+      "id": "177e9837c96c49d8bb8143c8ce7b6f7d",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36716,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2948,
+      "id": "872f64d971174c75b7b118255145d899",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35587,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3056,
+      "id": "5b40a667690441a5bda2b861ed33bf00",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36498,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 1957,
+      "id": "fef3d13efc1448048200e6ae74704618",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32001,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 1920,
+      "id": "ceaf6312fd884be0868dadd5676a9a75",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 31862,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2021,
+      "id": "644c475c70b44e9e8cdc283680cdce05",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32304,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2111,
+      "id": "c6a62b6a6bbd4e7499d101a89bc1924d",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32786,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 1997,
+      "id": "635aebdd6f0e48ddbafb1b1992632b61",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32099,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2128,
+      "id": "b2a1d673ca7e47fe9c3b656d91247bf1",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32730,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2119,
+      "id": "45ebcf697dff416d9f04dabcdb7da956",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32283,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2450,
+      "id": "e51171c45d1344cbb6292b1d7a791e38",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32947,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2254,
+      "id": "489844c578d04da59f299ce5fde50336",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33035,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2362,
+      "id": "9125478de43246848177adb53cd22ddb",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33721,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2580,
+      "id": "0d480694397f4b9bb1bde7163c50d4d6",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33303,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2649,
+      "id": "25f7b0366a7242d08d80f4df7e54d3ee",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34372,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 21290,
+      "id": "0b19dcd904e34612bd4846403e848b46",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 175645,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 21040,
+      "id": "97c9e3a8cf8149a19d8291b1b24e2dfc",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 175645,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2634,
+      "id": "8e08c9f7448b45c1914bf729e0cf5fbc",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34393,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2697,
+      "id": "c93e41e7466e4d188fd2ced150d803b2",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34823,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2656,
+      "id": "99444a440a6e4a639c44ae34de7568b5",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34373,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2790,
+      "id": "b24c5671d851418b9ab430dc57b756d3",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34786,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2630,
+      "id": "a5e66cbaf7b04f419207052813bb8259",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34462,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2703,
+      "id": "ac3780be247046d781a4a97a0cec458a",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35140,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2711,
+      "id": "d377adc3573b495aa369d83001a607ad",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34902,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2800,
+      "id": "1314679252c8408ab136ce39fa1f4939",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35395,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2751,
+      "id": "d754eaa088254713ba73737d377563cc",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34969,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2817,
+      "id": "b08c65bbf88943459a2cdba80efd55f6",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35490,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2743,
+      "id": "ed681633301a4b67bd5089217fad9595",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34947,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2777,
+      "id": "ec53fa4782be41c49073e9e243d31d61",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35396,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2789,
+      "id": "a632a241542a42538ec67333dd3311be",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35437,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2949,
+      "id": "1bc269ae5e794eba9424617e30167d30",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36029,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2137,
+      "id": "3af6e5fd99534c65a7815d9651e9c821",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 31956,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2119,
+      "id": "70eed9d2b2894aaa812b484c8e144a7b",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32462,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 1924,
+      "id": "b918fcd026da4e4e81863346cac4d202",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 31876,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2146,
+      "id": "2991ddee5fe64991b79454ba2df1e771",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32053,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2070,
+      "id": "861ff1f6ea2f4adbbf88ee4c903ffa5a",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32464,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2165,
+      "id": "0e7a75c0ba6a40dfb805819b9d0497e8",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32984,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2130,
+      "id": "bb1babfd1847418ab07761eb70fb7a56",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32633,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2250,
+      "id": "bfbc663ef7d9418cbcfa5b609e347b00",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33245,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2271,
+      "id": "6f650db1a519413aad012274d77d9b01",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32949,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2331,
+      "id": "23593c9438a8414ba412b924e540c8aa",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33663,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2438,
+      "id": "99478174cf1141d490c9d0f6395cde22",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33196,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2540,
+      "id": "6c74f1fd5d594770bec1f0dc84815def",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34038,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 18530,
+      "id": "61a1e9204b044e5fae5788e5bcfa70c9",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 171670,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 18680,
+      "id": "2dd3f215a2e94ec7bc33cd1fdacb838f",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 171670,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2674,
+      "id": "61a145101d984edb89590ded09a2f6c4",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34393,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2700,
+      "id": "8a0a55c6eaea460793966833d56dc7ed",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34849,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2609,
+      "id": "49fc2903b9ff4b1693b8e6953cbe4bf9",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34609,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2894,
+      "id": "4f5693359c4f4d9ba2e88078c6870a70",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34478,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3002,
+      "id": "6d955d81472947c794c79e79f10c0708",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35450,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2680,
+      "id": "20ac4540d81447c5980a1904d07aced8",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34630,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2784,
+      "id": "0fa575c3938346a3a7aa4b7814ace667",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35331,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2830,
+      "id": "88175145ee50431e9003a72f295de4e1",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35251,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2958,
+      "id": "c4f4540f049e454ca11b9c0c604b43a8",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35802,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2832,
+      "id": "a982357ba5b248108be5baaa1a448c1b",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35413,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2964,
+      "id": "3a387be6e244433980e26b3f283102f2",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36023,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3054,
+      "id": "b7d840f016be4ee6822205f8957997d0",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35696,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3077,
+      "id": "de7477857017438f865af4e26a030bea",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36377,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2027,
+      "id": "baab758571c84a7a9cae0df745174ad9",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 31956,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2052,
+      "id": "2a17b8e60e8f44e797cb9a6adc361495",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32397,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 1890,
+      "id": "ddaa2c3860d741fbaa35085aee503643",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 31860,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2157,
+      "id": "c4375c6b8dee4b7eac59332e3d300593",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32015,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2186,
+      "id": "30db8d1bfb58491a83a546c161459e68",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32498,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2059,
+      "id": "578151df68e846d583b9ba504d8a869c",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32363,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2157,
+      "id": "5af88b9094274a61b8df1bc779bf0786",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33008,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2186,
+      "id": "450fccc69c2d4271a07c5d2f57fae623",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32581,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2322,
+      "id": "81509f6955da4604be2c8449945a883e",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33396,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2157,
+      "id": "e91a14d4b7794eee85cdae289e7a3ca9",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32859,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2263,
+      "id": "169cd67c3867463d8234cd921d66672d",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33454,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2237,
+      "id": "3a8e96cc68e141c59546db81ec399152",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32806,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2306,
+      "id": "e626acac480245ee9433aa08ce39f611",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33611,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 18495,
+      "id": "008091ceff334234a30edbdbf85c04e8",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 171750,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 19320,
+      "id": "dcaf27f959714061b69a2f7d1ffa6b09",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 171750,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2604,
+      "id": "c33bc37d23904f518298499ee31237bd",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34393,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2676,
+      "id": "0cd7850f51054e359d74c853d312ac5d",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34803,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2565,
+      "id": "86593de0e03446dda9388456824d0089",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34297,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2733,
+      "id": "96d82e7c0b304c8498ee826119eb9e04",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34488,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2855,
+      "id": "e11acdf46829449abb95eb86b5c37b1e",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35083,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2622,
+      "id": "1c68d90b88204d139bccb4fe9416544e",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34554,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2767,
+      "id": "09f30bb7a96648aabb72ae492008cf10",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35302,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2817,
+      "id": "c543ce4aa83c484197d31f88a731bdbb",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35003,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2859,
+      "id": "b9c1a2b0ace3458288723e38389c3864",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35755,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2857,
+      "id": "db3f64a2bb67473ba3da751c05cc9ba5",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35275,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2910,
+      "id": "e23b0b088d304c3ca8ef901479c006ab",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35964,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2974,
+      "id": "05fb030cdabb400489b7f853c455b006",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35509,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3110,
+      "id": "4976e52195d94ef29d0c2a33269b219f",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36300,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 1972,
+      "id": "c39347e16f974f6193e62e744162aacf",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 31956,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2054,
+      "id": "dbf1ec54b2104bab9bb803482a67256c",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32172,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 1973,
+      "id": "03001426217c4d398568a801ca5cccff",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32051,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2123,
+      "id": "a6443858a2874c05872d04e709f687a1",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32508,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2225,
+      "id": "46278407022242eb9e6569dba586e112",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33174,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2250,
+      "id": "25285017f5914385ab8b53e32804e5eb",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32493,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2382,
+      "id": "92158073beee47009ba092e26c5c8c81",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33223,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2369,
+      "id": "beeef5460286436bb2f0eee821315515",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33349,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2431,
+      "id": "91935949d1e74eafb680b7f0dca5887a",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34142,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 19660,
+      "id": "5c625c53a655451db9edfd3b3246ab5b",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 170850,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 17985,
+      "id": "c0c117fd02e14591840687dbd61afcd6",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 170850,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2678,
+      "id": "608e4019eecf4341b43f6adcfee39eaf",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34595,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2734,
+      "id": "84a47fa031434ded80d2ca865f29d3f5",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35014,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2589,
+      "id": "40e7c46f29b047f9b5663135f553d56f",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34497,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2787,
+      "id": "779c8016c00546d59edf7d58f0d7ed0f",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34935,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2878,
+      "id": "8d970fcb0b3e46a1ac1356b01842ebc6",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35667,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2825,
+      "id": "c7074e2babad4a2c95dccaa02ce7d32f",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34836,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3015,
+      "id": "e43d9d77d13743138a2195e5592ef864",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35551,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2883,
+      "id": "f71cc033bc9a4f9fa5851e8ba893ff1d",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35339,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2976,
+      "id": "99d3540c99ff4c9091f0a60e34ccfc9c",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36050,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2894,
+      "id": "ac602b587261471494800b0a52d4d175",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35660,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3003,
+      "id": "f91d94c959ff486f97c30962f596b6d0",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36182,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2984,
+      "id": "3179e4a799864fd5b1c46eb8b8d5830b",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35813,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3059,
+      "id": "9e790906f9a0461bb7153189d7f560b9",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36513,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2904,
+      "id": "0902f46e7cda4b0aabd845738fb3afbb",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35296,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2981,
+      "id": "4386ac351c6746fab58175b705de69cf",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36139,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3048,
+      "id": "b3cddf95c1b0425685dd9e0870397e80",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36252,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3135,
+      "id": "04e8bc0b3ac14c2f8661d819f8f635cc",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36766,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3322,
+      "id": "fbc91051faa744afb70b4735b101e284",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36168,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3283,
+      "id": "fbec9478999542079384c8706b4399bd",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 37274,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2146,
+      "id": "ef30ac134b1d4dfda72803dcbe723e2b",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32158,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2164,
+      "id": "b2a39d2479c34c3eb18b8dc808d5de30",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32640,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2173,
+      "id": "45c62c39cfcf4498800f52245c0cb5c3",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32393,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2157,
+      "id": "cc83af30c34746e79ea36cd28e119bab",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32889,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2181,
+      "id": "6ea96ad76226427c8b9d8e7ccd6cd6b6",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32207,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2294,
+      "id": "15848389b3c741d1ae26c8546708c84d",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32688,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2152,
+      "id": "b50bbefa28a345debbf0cee67d09e04e",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32673,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2254,
+      "id": "c578864a29b54ad39cf2ee0976d939e6",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33319,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2136,
+      "id": "f6c448cd64f14871ae429898d09e25b3",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32672,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2239,
+      "id": "8504c7c8c2474e03a7dfa6b4e6d049c0",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33196,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2518,
+      "id": "5023f54e2f5a418fb3449f22b41a935b",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33510,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2561,
+      "id": "dcb2974e85724ff9af24cce58a9c22a7",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34404,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 20735,
+      "id": "8fe78aa5c4064c18993afe7a0eca7d4d",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 178925,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 20760,
+      "id": "d55331a424534dc48d5deab754571733",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 178925,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2713,
+      "id": "91898d61d19843ee9f39368fce53d6f7",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34595,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2751,
+      "id": "90b9fd5721a04ab5b9afda5e7f61ec01",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35041,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2576,
+      "id": "b43ebaf832344ffea0cead9b1f060056",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34509,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2774,
+      "id": "581530715c3e4b29b1ff9404b70d28c0",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34947,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2882,
+      "id": "0aa9825d5f6b4a99889d5a8e458926bf",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35747,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2733,
+      "id": "2e58723b2690401d893b4f0a8c6c106a",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35012,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2923,
+      "id": "08b99cdf527649d9942aa54399d536e1",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35633,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2815,
+      "id": "bd5cfb33915148d9a5a57e7a5be79445",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34945,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2892,
+      "id": "34b7f19831484b15864e7e292745d8af",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35511,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2976,
+      "id": "330cd8ce20a040578ac01bb50da47519",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35743,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3056,
+      "id": "4e2871fdfd4c4f67930b08b84a5a39fc",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36468,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3023,
+      "id": "acc7ad76561743a1842583418c079edf",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35831,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3167,
+      "id": "7c7555c6f13d4e97ae71bab6b63a3dd9",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36602,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 1996,
+      "id": "48fda40879e54a53827c23bd34f98b56",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32158,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 1960,
+      "id": "ff47aa9c6a564d19bbba6c76619edf38",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32075,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2076,
+      "id": "731c5d4cdd5e40c880a0250cc3d9d5b5",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32489,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2155,
+      "id": "7f02444b62de46d68fd034ea857114ed",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33009,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2116,
+      "id": "bcdc9ea86dd4459f94ba9a8690aceee0",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32358,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2340,
+      "id": "bca2a9b232114883a0c356f0c36ed423",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33013,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2232,
+      "id": "5528bbbf3d024e9eba2b438ba20169d3",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33014,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2369,
+      "id": "7e46300958cc40b1a1e1a80c7d8b2fb6",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33648,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2546,
+      "id": "79dcf76630f94e3ca7137f45ef3b76a6",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33321,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2656,
+      "id": "4e3bd47dffe7472397c2f49e98405ace",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34350,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 20395,
+      "id": "da8fd771251d4acaa8631a7007f81b31",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 177545,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 20545,
+      "id": "737424198ec14653becfd7c6784c65e2",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 177545,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2783,
+      "id": "daaeaf6cee3d4999916617c696fac87a",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34595,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2720,
+      "id": "4d6fb4e879de4b8f91491704bf0872b3",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35099,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2654,
+      "id": "3cf3e0b0f2144493b4102a833af900b1",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34777,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2698,
+      "id": "8bb48727cb2249609817b55de48844d9",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34912,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2819,
+      "id": "a28cbf94783a4eae8de5e9c6a53e5317",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35409,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2837,
+      "id": "2149e2d24d67439da74370defbc8ce02",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34762,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2892,
+      "id": "b9718c4b7743496aa1c9be807961b7d2",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35371,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2867,
+      "id": "4e7838f9168247a18732fd503e5274f9",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35433,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2928,
+      "id": "32cfa6c7d2ed4422920a1eb24ebae9e3",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35963,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2792,
+      "id": "bc732832780446c585c7464c4437b63b",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35174,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2875,
+      "id": "833b95b0bda341e7ad6bdac41df5a45c",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35861,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3059,
+      "id": "f3bdec14a53042e3a4196f8ac1342589",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35982,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3201,
+      "id": "ebfca85b00814a20afb9994226dc565b",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36819,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2116,
+      "id": "204382b7bd6b405a84f1c6ff24447efb",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32158,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2133,
+      "id": "a2b9dda9f8204eef9db1764fa1bd6626",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32606,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2073,
+      "id": "c49c20f599a04151baeb6a03818de585",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32384,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2155,
+      "id": "91c7bf4a2d8d40789709fc149c2b178f",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32246,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2281,
+      "id": "cd90934d718644f78963c91e170a7838",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32832,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2120,
+      "id": "9a01326cb79f408b8aa12653836a5698",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32398,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2248,
+      "id": "640e407a3a384303aa88f7ce3abef9bf",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33106,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2270,
+      "id": "f0bc8ce0deeb40c98a1a744359a5750d",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32814,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2431,
+      "id": "60e4a0480f8c44b092c7c2d439da1296",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33506,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2244,
+      "id": "bca3052f15ed4e75ba2e8c2997ff9dfe",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32964,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2319,
+      "id": "56d981b4fcf2457bb787e3c4e605ae72",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33680,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2258,
+      "id": "93ed42c5b54a4b6682ca5aa73e8e35fe",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33131,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2328,
+      "id": "fe43bce550d2475d877ba083dbb47990",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33681,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2406,
+      "id": "4d8d836f6e9f415589078d2852646058",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33681,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2511,
+      "id": "7502745ce371440ea19e9c132398f68e",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34318,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2491,
+      "id": "e172c4090c864da3a10407e0e3acd89b",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33969,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2601,
+      "id": "5f6b260073084e3bad0af193f6acf6aa",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34484,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 20970,
+      "id": "8570aab565914c749c47efbcde6a0a79",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 179240,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 20220,
+      "id": "f06d0394ce3d4db58503dd689db3f4a2",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 179240,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2757,
+      "id": "c24c4096644e475a885e42cb3cad2aab",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34417,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2744,
+      "id": "44bcad687aa942bf9068dc07dfa922a9",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34924,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2606,
+      "id": "436eb9cd5de8401ba743575140f3e4bd",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34365,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2653,
+      "id": "41cab57c0453407697a597962261a9c6",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34826,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2699,
+      "id": "2f28fcc02f3d40bb9f695be1890e7ecb",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34798,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2811,
+      "id": "acd32070c8bd40f3a97409abaf19a72b",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35427,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2757,
+      "id": "be1d9170c7d3404b9024b5fd86980599",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34875,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2883,
+      "id": "4e9d9f386d234bc0af9f5504142db73c",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35687,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2941,
+      "id": "1ad61de302384c04be65a38ba6b3fa09",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34929,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3038,
+      "id": "121a7df9b0e84891b2a48606dcbb0f56",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35870,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2867,
+      "id": "07cc81cd83a1493e94b823d0def428fe",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35228,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2953,
+      "id": "bec110c62ae4448cb4406fe477e15d4a",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36030,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2035,
+      "id": "5ba1c26572654cf6972104045276f3c4",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 31980,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2106,
+      "id": "844b40a4e1d944859579792fd36ff3c9",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32385,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 1914,
+      "id": "2a9cc6949d9340a0a1f7ea75cdbf9457",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 31909,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2056,
+      "id": "ae4034ebf8f746c88dbd723500634093",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32338,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2130,
+      "id": "1b2e8434f4eb4e19a6d280a8e3e547db",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32604,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2260,
+      "id": "97d02366ca8649a6acaa4c62804d845d",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32512,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2315,
+      "id": "ac88ac484acf43a98a25237c00718e7f",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33166,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2584,
+      "id": "a7c2aefe8cea4d7785d19122228926ed",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33357,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2539,
+      "id": "40851f04d4fc4a7980c259660192b236",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34202,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 23385,
+      "id": "ef957e76b2224a03abee9c07ee44559b",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 185000,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 23185,
+      "id": "98fa6498e09445a99d91738fbab07d05",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 185000,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2697,
+      "id": "875694d9236c41dba0b8461b682c4a13",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34417,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2712,
+      "id": "7290f4714c2247eab5349c0412beae9b",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34887,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2577,
+      "id": "d77b01d9f5044c8781b6518f90921ddb",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34342,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2654,
+      "id": "f3f05bad37094c4aae2b927baf2144bc",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34817,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2762,
+      "id": "c6ed5ec8b201404daf9866fdcddc7b10",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35295,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2779,
+      "id": "9508e93d7da9454498c5731ed4094caf",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34637,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2809,
+      "id": "59b3fb3fee1546e0a9c08993b24f64b5",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35242,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2799,
+      "id": "ce09506617964f989098e51f9d444b99",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35178,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2926,
+      "id": "db0fefa408ff48e48914f9fc036d7b6d",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35839,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2905,
+      "id": "8f4f9295a42544cd96497b2a7c8d12e3",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35203,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2985,
+      "id": "403d33776120446c86328e094d5b7865",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36145,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2075,
+      "id": "0001ada2a2244352ad33ea7393931338",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 31980,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2094,
+      "id": "a72acb0a01c14053ac4dc6281f87e316",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32444,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 1915,
+      "id": "7e303d3b447c47df8ab7086b840225ef",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 31901,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 1958,
+      "id": "e61d0bd5a7eb491dbc9f2a6791634f29",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 31975,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2048,
+      "id": "4725ce36392148b6a6462af1c6519379",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32437,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2144,
+      "id": "ef0605dfa76942c483b3bf79db77f17b",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32938,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2149,
+      "id": "2eb470c66222485da09f6aab0b7248f3",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32291,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2247,
+      "id": "faadb5b6b3fd4630a33f4435275145af",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32968,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2151,
+      "id": "e54c17cf3aa54d2ebce99b448602a7fe",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32599,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2232,
+      "id": "d72f270c1ced46628ead8fd401a421f5",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33174,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2082,
+      "id": "b67213c71c9d4fe49aac5759b5568183",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32539,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2155,
+      "id": "90d01177e8ec43f893de4501b2c2af0a",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33034,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2266,
+      "id": "b63532a33c1e44ceb452c13d42c9aa93",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32851,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2390,
+      "id": "df7df54f78ea463580227a83700d959b",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33524,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2288,
+      "id": "d04ef925b521400db779925040955b8a",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33220,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2332,
+      "id": "7e28aa33ae094c39b8f8194cdcbc9c36",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33752,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2299,
+      "id": "f6cbc558a9bf4b26a1c182f1e96e3d03",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33294,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2415,
+      "id": "c73caee9299942c3ac26790af4df0b7b",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34051,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 22265,
+      "id": "6064d8b1b83444798d1e2af979323f6c",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 186335,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 22990,
+      "id": "c078c7931e1e432eb5a2fc1f1120fa7a",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 186335,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2607,
+      "id": "161892431b7c4c63a74ae84849e75b97",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34417,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2596,
+      "id": "3124cd46514344d09b90a77d30977be6",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34364,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2636,
+      "id": "e7e8258fa4114c928f6a8f259430fee8",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34816,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2590,
+      "id": "abffe1ceae78415db67d5574a0d2eb58",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34427,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2779,
+      "id": "4f6666cf153f48acb6bda7f154585def",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34636,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2785,
+      "id": "ebb74db9862c414185dd3977563f2149",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35082,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2864,
+      "id": "4799750996f946a588bc4552beb8ce93",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35649,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2770,
+      "id": "30e6d79c693140668242c6535db294d6",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35022,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2850,
+      "id": "379df72132af4e9ab9d57124407b0ec5",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35685,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2922,
+      "id": "37770a1218224d0199ca301039b492e0",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35491,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3030,
+      "id": "6917ce24cba14b1a9246de0b083d70c6",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36206,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3116,
+      "id": "b76db10d6f8141eca0e6b46b545ac282",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 35786,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 3197,
+      "id": "d6197182574644dfadbce4054b63b99f",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 36770,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2115,
+      "id": "06f84b2871bb4bbc84157a7f9f8684d0",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 31980,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2097,
+      "id": "0e2ed243f53c4e9a95138d4afe6ad166",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32472,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2149,
+      "id": "0bd66e804b424a3c8e945259a6966183",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32220,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2168,
+      "id": "da2c70a515bb4680beb25af8363ad0eb",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32709,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 1974,
+      "id": "ef06a6bb89be4a1c877657b716a8b1cb",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 31967,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 1999,
+      "id": "4cde5e3d251242a0a117abbbf2216792",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32365,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2138,
+      "id": "3a7a20aca48d488486527776741da5fc",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32621,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2022,
+      "id": "e67d16a67f014cc1a6b23241f9ba2977",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32189,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2114,
+      "id": "8e0ed13f59f5461fb89858d08e67e4fb",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32704,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2149,
+      "id": "d450d7a18cd0476cbb0e279f518b9451",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32590,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2201,
+      "id": "403bc7ea4ec94ec4ad745113df30af59",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32991,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2226,
+      "id": "76aef1e6ecc34c609ca2597d585e2abe",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32491,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2403,
+      "id": "ceace688d25b4f689b2cc82512516bb1",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33189,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2233,
+      "id": "db18f92939574c6fae799f81e3da16f7",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33189,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2349,
+      "id": "800151f00fb1487599b6e53e05bfbe5f",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33699,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2196,
+      "id": "c99ac5296a5e44f9892367a829ca9efb",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 32952,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2272,
+      "id": "ab2e3ca09f8c492c947f3b192b300ac3",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33440,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2656,
+      "id": "1ee58dbf30cb4451a5506fa0fffa3629",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 33541,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 2642,
+      "id": "f500d6dbb0e7438e95ed451d80c0791a",
+      "model": "claude-haiku-4-5-20251001",
+      "phase": "ab",
+      "reservation_microusd": 34501,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 23925,
+      "id": "2f18c737a4ea4f8a8a8e41cf85961f45",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 188495,
+      "status": "settled",
+      "uncertain_microusd": 0
+    },
+    {
+      "actual_microusd": 25500,
+      "id": "2b34fb5c8d34430ca5a3be2a5dd67a1f",
+      "model": "claude-opus-4-6",
+      "phase": "ab",
+      "reservation_microusd": 188495,
+      "status": "settled",
+      "uncertain_microusd": 0
+    }
+  ],
+  "created_at": "2026-09-23T01:59:02.939713+00:00",
+  "phases": {
+    "ab": {
+      "actual_microusd": 2373907,
+      "count_token_failures": 0,
+      "count_token_requests": 630,
+      "generation_attempts": 630,
+      "reserved_microusd": 0,
+      "uncertain_microusd": 0
+    },
+    "bench": {
+      "actual_microusd": 105245,
+      "count_token_failures": 0,
+      "count_token_requests": 26,
+      "generation_attempts": 26,
+      "reserved_microusd": 0,
+      "uncertain_microusd": 0
+    },
+    "calibration": {
+      "actual_microusd": 482345,
+      "count_token_failures": 0,
+      "count_token_requests": 36,
+      "generation_attempts": 36,
+      "reserved_microusd": 0,
+      "uncertain_microusd": 0
+    }
+  },
+  "schema_version": 1,
+  "status": "active",
+  "stop_reason": null,
+  "totals": {
+    "actual_microusd": 2961497,
+    "count_token_failures": 0,
+    "count_token_requests": 692,
+    "generation_attempts": 692,
+    "reserved_microusd": 0,
+    "uncertain_microusd": 0
+  }
+}

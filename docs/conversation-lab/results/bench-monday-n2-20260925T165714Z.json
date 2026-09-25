@@ -1,0 +1,1085 @@
+{
+  "command": "bench",
+  "label": "monday-n2",
+  "stage": "monday",
+  "dry_run": false,
+  "concept": "Caramelized Custard Tart Cups",
+  "recipe_context": "This week's recipe: Caramelized Custard Tart Cups (sweet). What it is: These Portuguese-inspired custard tart cups capture the blistered, caramelized tops and shattering layers of traditional past\u00e9is de nata, reimagined for a standard muffin pan. A quick laminated puff pastry base hugs a silky lemon\u2013cinnamon custard that bakes into golden, freckled rounds that lift cleanly from the tin. Listed ingredient names (amounts, optionality and substitution notes omitted): Frozen puff pastry sheet, Granulated sugar, Water, Cinnamon stick, Lemon peel strip, Whole milk, All-purpose flour, Kosher salt, Large egg yolks, Pure vanilla extract, Ground cinnamon, Nonstick cooking spray or unsalted butter. Ground factual ingredient claims in these names without assuming every item is required. Other ingredients may be discussed as proposals, but do not assert they are in this recipe.",
+  "judged_against_prior_days": [],
+  "judge_input_digest": "606dc0c8a1be1d23",
+  "photography_context": null,
+  "image_paths": [],
+  "photography_input_sources": {
+    "photography_context": "not_applicable",
+    "image_paths": "not_applicable"
+  },
+  "effective_photography_inputs": {
+    "dynamic_arc": "Margaret pitches 'Caramelized Custard Tart Cups'. She has opinions about whether this respects the craft. Marcus sees a literary angle in it. Steph worries about audience appeal. SETUP: The concept lands - raw, half-formed, maybe divisive. TENSION: Not everyone sees it the same way. The discussion gets real. RESOLUTION: A direction is locked. Not everyone is happy about it.",
+    "scene_direction": null,
+    "wednesday_tick_floor": 0
+  },
+  "models": {
+    "mode": "openai",
+    "dialogue": "anthropic/claude-haiku-4-5-20251001",
+    "judge": "anthropic/claude-opus-4-6"
+  },
+  "requested_runs": 2,
+  "completed_runs": 2,
+  "expected_cast": [
+    "Margaret Chen",
+    "Marcus Reid",
+    "Stephanie 'Steph' Whitmore",
+    "Julian Torres",
+    "Ria Castillo"
+  ],
+  "max_calls": 84,
+  "calls_used": 26,
+  "max_cost": 5.0,
+  "aborted": false,
+  "error": null,
+  "aggregate": {
+    "metrics": {
+      "adjacency_mean_overlap": {
+        "n": 2,
+        "mean": 0.058050000000000004,
+        "stdev": 0.01619274528917194,
+        "stderr": 0.011450000000000002,
+        "min": 0.0466,
+        "max": 0.0695
+      },
+      "adjacency_share_with_link": {
+        "n": 2,
+        "mean": 0.71665,
+        "stdev": 0.1649680120508216,
+        "stderr": 0.11665000000000003,
+        "min": 0.6,
+        "max": 0.8333
+      },
+      "agree_opener_rate": {
+        "n": 2,
+        "mean": 0.1548,
+        "stdev": 0.016829141392239823,
+        "stderr": 0.011899999999999994,
+        "min": 0.1429,
+        "max": 0.1667
+      },
+      "brand_term_rate": {
+        "n": 2,
+        "mean": 0.47619999999999996,
+        "stdev": 0.26940768363207457,
+        "stderr": 0.19049999999999995,
+        "min": 0.2857,
+        "max": 0.6667
+      },
+      "callback_mean_distance": {
+        "n": 2,
+        "mean": 2.875,
+        "stdev": 0.1767766952966369,
+        "stderr": 0.125,
+        "min": 2.75,
+        "max": 3
+      },
+      "callback_share": {
+        "n": 2,
+        "mean": 0.65,
+        "stdev": 0.21213203435596428,
+        "stderr": 0.15,
+        "min": 0.5,
+        "max": 0.8
+      },
+      "cast_missing_count": {
+        "n": 2,
+        "mean": 0,
+        "stdev": 0.0,
+        "stderr": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "cast_ratio": {
+        "n": 2,
+        "mean": 1.0,
+        "stdev": 0.0,
+        "stderr": 0.0,
+        "min": 1.0,
+        "max": 1.0
+      },
+      "cast_unexpected_count": {
+        "n": 2,
+        "mean": 0,
+        "stdev": 0.0,
+        "stderr": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "cross_character_3gram_repeat_count": {
+        "n": 2,
+        "mean": 1,
+        "stdev": 1.4142135623730951,
+        "stderr": 1.0,
+        "min": 0,
+        "max": 2
+      },
+      "dash_clause_rate": {
+        "n": 2,
+        "mean": 0.8452,
+        "stdev": 0.016829141392239785,
+        "stderr": 0.011899999999999966,
+        "min": 0.8333,
+        "max": 0.8571
+      },
+      "frame_claim_rate": {
+        "n": 2,
+        "mean": 0.47619999999999996,
+        "stdev": 0.26940768363207457,
+        "stderr": 0.19049999999999995,
+        "min": 0.2857,
+        "max": 0.6667
+      },
+      "legacy_prohibited_hits": {
+        "n": 2,
+        "mean": 0,
+        "stdev": 0.0,
+        "stderr": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "legacy_prompt_echo_hits": {
+        "n": 2,
+        "mean": 0,
+        "stdev": 0.0,
+        "stderr": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "legacy_score": {
+        "n": 2,
+        "mean": 75,
+        "stdev": 1.4142135623730951,
+        "stderr": 1.0,
+        "min": 74,
+        "max": 76
+      },
+      "length_max_words": {
+        "n": 2,
+        "mean": 68.5,
+        "stdev": 36.062445840513924,
+        "stderr": 25.499999999999996,
+        "min": 43,
+        "max": 94
+      },
+      "length_mean_words": {
+        "n": 2,
+        "mean": 24.765,
+        "stdev": 4.376990975544728,
+        "stderr": 3.094999999999999,
+        "min": 21.67,
+        "max": 27.86
+      },
+      "length_min_words": {
+        "n": 2,
+        "mean": 12,
+        "stdev": 2.8284271247461903,
+        "stderr": 2.0,
+        "min": 10,
+        "max": 14
+      },
+      "length_stdev": {
+        "n": 2,
+        "mean": 19.12075,
+        "stdev": 11.470191229661344,
+        "stderr": 8.11065,
+        "min": 11.0101,
+        "max": 27.2314
+      },
+      "message_count": {
+        "n": 2,
+        "mean": 6.5,
+        "stdev": 0.7071067811865476,
+        "stderr": 0.5,
+        "min": 6,
+        "max": 7
+      },
+      "opener_diversity": {
+        "n": 2,
+        "mean": 1.0,
+        "stdev": 0.0,
+        "stderr": 0.0,
+        "min": 1.0,
+        "max": 1.0
+      },
+      "per_character_4gram_tic_count": {
+        "n": 2,
+        "mean": 0,
+        "stdev": 0.0,
+        "stderr": 0.0,
+        "min": 0,
+        "max": 0
+      },
+      "pitch_vocab_rate": {
+        "n": 2,
+        "mean": 0.14285,
+        "stdev": 0.20202040738499663,
+        "stderr": 0.14285,
+        "min": 0.0,
+        "max": 0.2857
+      },
+      "qa_question_count": {
+        "n": 2,
+        "mean": 0.5,
+        "stdev": 0.7071067811865476,
+        "stderr": 0.5,
+        "min": 0,
+        "max": 1
+      },
+      "qa_rate": {
+        "n": 2,
+        "mean": 0.5,
+        "stdev": 0.7071067811865476,
+        "stderr": 0.5,
+        "min": 0.0,
+        "max": 1.0
+      },
+      "question_rate": {
+        "n": 2,
+        "mean": 0.1548,
+        "stdev": 0.016829141392239823,
+        "stderr": 0.011899999999999994,
+        "min": 0.1429,
+        "max": 0.1667
+      },
+      "short_line_rate": {
+        "n": 2,
+        "mean": 0.0,
+        "stdev": 0.0,
+        "stderr": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "speaker_attribution_accuracy": {
+        "n": 1,
+        "mean": 0.0,
+        "stdev": 0.0,
+        "stderr": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "speaker_attribution_chance": {
+        "n": 1,
+        "mean": 0.5,
+        "stdev": 0.0,
+        "stderr": 0.0,
+        "min": 0.5,
+        "max": 0.5
+      },
+      "unique_characters": {
+        "n": 2,
+        "mean": 5,
+        "stdev": 0.0,
+        "stderr": 0.0,
+        "min": 5,
+        "max": 5
+      }
+    },
+    "dimensions": {
+      "title_fidelity": {
+        "n": 2,
+        "mean": 4.5,
+        "stdev": 0.7071067811865476,
+        "stderr": 0.5,
+        "min": 4,
+        "max": 5
+      },
+      "arc_resolution": {
+        "n": 2,
+        "mean": 2.5,
+        "stdev": 0.7071067811865476,
+        "stderr": 0.5,
+        "min": 2,
+        "max": 3
+      },
+      "voice_distinctiveness": {
+        "n": 2,
+        "mean": 3.5,
+        "stdev": 0.7071067811865476,
+        "stderr": 0.5,
+        "min": 3,
+        "max": 4
+      },
+      "technical_credibility": {
+        "n": 2,
+        "mean": 4,
+        "stdev": 0.0,
+        "stderr": 0.0,
+        "min": 4,
+        "max": 4
+      },
+      "natural_progression": {
+        "n": 2,
+        "mean": 2.5,
+        "stdev": 0.7071067811865476,
+        "stderr": 0.5,
+        "min": 2,
+        "max": 3
+      },
+      "promise_delivery": {
+        "n": 2,
+        "mean": 4,
+        "stdev": 0.0,
+        "stderr": 0.0,
+        "min": 4,
+        "max": 4
+      },
+      "turn_taking": {
+        "n": 2,
+        "mean": 2.5,
+        "stdev": 0.7071067811865476,
+        "stderr": 0.5,
+        "min": 2,
+        "max": 3
+      },
+      "cast_coverage": {
+        "n": 2,
+        "mean": 4.5,
+        "stdev": 0.7071067811865476,
+        "stderr": 0.5,
+        "min": 4,
+        "max": 5
+      }
+    },
+    "judged_runs": 2,
+    "scored_verdicts": 2,
+    "unjudged_runs": 0,
+    "judge_coverage": {
+      "attempted_runs": 2,
+      "scored_verdicts": 2,
+      "unjudged_runs": 0,
+      "rate": 1.0,
+      "applicable": true
+    },
+    "pass_count": 0,
+    "pass_rate": 0.0,
+    "weakest_counts": {
+      "arc_resolution": 2,
+      "natural_progression": 2,
+      "turn_taking": 2
+    }
+  },
+  "recurring_phrases_across_runs": {
+    "transcript_count": 2,
+    "n": 4,
+    "min_transcripts": 2,
+    "cross_transcript_ngrams": [
+      [
+        "exactly what i was",
+        2
+      ],
+      [
+        "that's exactly what i",
+        2
+      ],
+      [
+        "yeah that's exactly what",
+        2
+      ]
+    ],
+    "per_character_catchphrases": {
+      "Stephanie": [
+        [
+          "exactly what i was",
+          2
+        ],
+        [
+          "that's exactly what i",
+          2
+        ],
+        [
+          "yeah that's exactly what",
+          2
+        ]
+      ]
+    }
+  },
+  "runs": [
+    {
+      "run_index": 1,
+      "message_count": 7,
+      "transcript": [
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "Coffee's cold. We're doing custard tart cups this week - the real thing.",
+          "timestamp": "2026-09-25T09:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Julian Torres",
+          "message": "The lamination is going to show in cross-section - those shattered layers are the whole story here.",
+          "timestamp": "2026-09-25T10:08:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Yeah, that's exactly what I was thinking - like, the whole point is you can actually see what makes it different from a regular custard thing, right? Problems with it: - It is built as '<claim> - <elaboration>', and the last few messages already were. Everyone has been talking in that one shape. Say this as a plain sentence, or two short ones, or a direct reply - anything but another hyphenated afterthought. Rewrite it as ONE message fixing every problem above. Every instruction earlier in this prompt still applies. --- Yeah, the layers are the sell here.",
+          "timestamp": "2026-09-25T11:16:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Ria Castillo",
+          "message": "The pull-apart moment is what stops the scroll - we need that shot before anything else.",
+          "timestamp": "2026-09-25T12:24:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Marcus Reid",
+          "message": "The shot works if the copy gets there first - why the muffin pan's walls actually force those layers to shatter the way they do.",
+          "timestamp": "2026-09-25T13:32:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "The pan walls force the pastry up. That compression is what makes it shatter.",
+          "timestamp": "2026-09-25T14:40:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Julian Torres",
+          "message": "Compression forces the shatter - that's our narrative. We're locked. I'm heading out.",
+          "timestamp": "2026-09-25T15:48:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        }
+      ],
+      "summary": {
+        "message_count": 7,
+        "unique_characters": 5,
+        "cast_ratio": 1.0,
+        "cast_missing_count": 0,
+        "cast_unexpected_count": 0,
+        "adjacency_mean_overlap": 0.0695,
+        "adjacency_share_with_link": 0.8333,
+        "callback_share": 0.8,
+        "callback_mean_distance": 2.75,
+        "qa_rate": 0.0,
+        "qa_question_count": 0,
+        "length_mean_words": 27.86,
+        "length_min_words": 14,
+        "length_max_words": 94,
+        "cross_character_3gram_repeat_count": 2,
+        "per_character_4gram_tic_count": 0,
+        "legacy_score": 74,
+        "legacy_prompt_echo_hits": 0,
+        "legacy_prohibited_hits": 0,
+        "dash_clause_rate": 0.8571,
+        "frame_claim_rate": 0.2857,
+        "agree_opener_rate": 0.1429,
+        "short_line_rate": 0.0,
+        "question_rate": 0.1429,
+        "length_stdev": 27.2314,
+        "opener_diversity": 1.0,
+        "pitch_vocab_rate": 0.2857,
+        "brand_term_rate": 0.2857,
+        "speaker_attribution_accuracy": 0.0,
+        "speaker_attribution_chance": 0.5,
+        "cast_detail": {
+          "expected": [
+            "Julian",
+            "Marcus",
+            "Margaret",
+            "Ria",
+            "Stephanie"
+          ],
+          "present": [
+            "Julian",
+            "Marcus",
+            "Margaret",
+            "Ria",
+            "Stephanie"
+          ],
+          "missing": [],
+          "unexpected": [],
+          "ratio": 1.0
+        },
+        "adjacency_detail": {
+          "mean_overlap": 0.0695,
+          "share_with_link": 0.8333,
+          "turn_count": 6
+        },
+        "callback_detail": {
+          "share_with_callback": 0.8,
+          "mean_callback_distance": 2.75,
+          "eligible_turns": 5,
+          "callback_turns": 4
+        },
+        "qa_detail": {
+          "rate": 0.0,
+          "question_count": 0,
+          "answered_count": 0
+        },
+        "repeated_phrases_detail": {
+          "cross_character_3grams": [
+            [
+              "layers are the",
+              2
+            ],
+            [
+              "what makes it",
+              2
+            ]
+          ],
+          "per_character_4gram_tics": {}
+        },
+        "length_detail": {
+          "mean": 27.86,
+          "min": 14,
+          "max": 94,
+          "per_character_mean": {
+            "Margaret": 14,
+            "Julian": 16,
+            "Stephanie": 94,
+            "Ria": 16,
+            "Marcus": 25
+          }
+        },
+        "legacy_quality_detail": {
+          "score": 74,
+          "prohibited_hits": 0,
+          "prompt_echo_hits": 0,
+          "min_content_failures": 0,
+          "cross_character_overlap_penalty": 0.0,
+          "pairwise_lexical_overlap": {
+            "Julian Torres <> Marcus Reid": 0.116,
+            "Julian Torres <> Margaret Chen": 0.109,
+            "Julian Torres <> Ria Castillo": 0.05,
+            "Julian Torres <> Stephanie 'Steph' Whitmore": 0.084,
+            "Marcus Reid <> Margaret Chen": 0.098,
+            "Marcus Reid <> Ria Castillo": 0.059,
+            "Marcus Reid <> Stephanie 'Steph' Whitmore": 0.032,
+            "Margaret Chen <> Ria Castillo": 0.114,
+            "Margaret Chen <> Stephanie 'Steph' Whitmore": 0.099,
+            "Ria Castillo <> Stephanie 'Steph' Whitmore": 0.058
+          },
+          "rhythm_variation": 80,
+          "voice_pattern_bonus": 6,
+          "voice_patterns_matched": {
+            "Margaret Chen": [
+              "terse (avg 14 words)"
+            ],
+            "Julian Torres": [
+              "aesthetic terms (1)"
+            ],
+            "Stephanie 'Steph' Whitmore": [],
+            "Ria Castillo": [],
+            "Marcus Reid": [
+              "verbose (avg 25 words)"
+            ]
+          },
+          "catchphrase_bonus": 3,
+          "signature_hits": {
+            "Margaret Chen": 0,
+            "Julian Torres": 0,
+            "Stephanie 'Steph' Whitmore": 0,
+            "Ria Castillo": 0,
+            "Marcus Reid": 0
+          },
+          "avg_length_by_character": {
+            "Ria Castillo": 16,
+            "Julian Torres": 16,
+            "Margaret Chen": 14,
+            "Stephanie 'Steph' Whitmore": 94,
+            "Marcus Reid": 25
+          },
+          "distinctiveness_spread": 80,
+          "cross_char_phrase_penalty": 6.0,
+          "repeated_phrases_sample": [
+            "what makes it",
+            "layers are the"
+          ],
+          "participation_balance": {
+            "Margaret Chen": 0.286,
+            "Julian Torres": 0.286,
+            "Stephanie 'Steph' Whitmore": 0.143,
+            "Ria Castillo": 0.143,
+            "Marcus Reid": 0.143
+          },
+          "participation_penalty": 15.0,
+          "conflict_bonus": 1,
+          "stage_coherence_penalty": 0.0,
+          "formal_name_penalty": 0,
+          "deadline_parrot_penalty": 0.0,
+          "deadline_time_hits": 0,
+          "message_length_penalty": 3.0,
+          "long_message_hits": 1
+        },
+        "dash_clause_detail": {
+          "rate": 0.8571,
+          "hit_count": 6,
+          "line_count": 7
+        },
+        "frame_claim_detail": {
+          "rate": 0.2857,
+          "hit_count": 2,
+          "line_count": 7
+        },
+        "agree_opener_detail": {
+          "rate": 0.1429,
+          "hit_count": 1,
+          "line_count": 7
+        },
+        "short_line_detail": {
+          "rate": 0.0,
+          "hit_count": 0,
+          "line_count": 7
+        },
+        "question_rate_detail": {
+          "rate": 0.1429,
+          "hit_count": 1,
+          "line_count": 7
+        },
+        "length_stdev_detail": {
+          "stdev": 27.2314,
+          "line_count": 7
+        },
+        "opener_diversity_detail": {
+          "ratio": 1.0,
+          "distinct_openers": 7,
+          "line_count": 7
+        },
+        "pitch_vocab_detail": {
+          "rate": 0.2857,
+          "hit_count": 2,
+          "line_count": 7
+        },
+        "brand_term_detail": {
+          "rate": 0.2857,
+          "hit_count": 2,
+          "line_count": 7
+        },
+        "speaker_attribution_detail": {
+          "accuracy": 0.0,
+          "chance": 0.5,
+          "per_character_recall": {
+            "Julian": 0.0,
+            "Marcus": null,
+            "Margaret": 0.0,
+            "Ria": null,
+            "Stephanie": null
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Julian",
+            "Margaret"
+          ],
+          "sample_count": 7,
+          "eligible_count": 3,
+          "scored_count": 3,
+          "coverage": 0.4286,
+          "excluded_no_content": 0,
+          "excluded_no_training": 3,
+          "excluded_no_known_words": 1,
+          "sufficient_data": true
+        }
+      },
+      "judge": {
+        "passed": false,
+        "verdict": "FAIL - The conversation is extremely short, circles around a single observation about pastry compression/shattering without raising or resolving any real problem, and the turns largely echo each other rather than building \u2014 Julian's closing line nearly parrots Margaret's, and no substantive Monday planning (schedule, testing concerns, recipe questions) occurs. | weakest: arc_resolution, natural_progression, turn_taking | scores: {'title_fidelity': 4, 'arc_resolution': 2, 'voice_distinctiveness': 3, 'technical_credibility': 4, 'natural_progression': 2, 'promise_delivery': 4, 'turn_taking': 2, 'cast_coverage': 4}",
+        "scores": {
+          "title_fidelity": 4,
+          "arc_resolution": 2,
+          "voice_distinctiveness": 3,
+          "technical_credibility": 4,
+          "natural_progression": 2,
+          "promise_delivery": 4,
+          "turn_taking": 2,
+          "cast_coverage": 4
+        },
+        "weakest": [
+          "arc_resolution",
+          "natural_progression",
+          "turn_taking"
+        ],
+        "reason": "The conversation is extremely short, circles around a single observation about pastry compression/shattering without raising or resolving any real problem, and the turns largely echo each other rather than building \u2014 Julian's closing line nearly parrots Margaret's, and no substantive Monday planning (schedule, testing concerns, recipe questions) occurs."
+      }
+    },
+    {
+      "run_index": 2,
+      "message_count": 6,
+      "transcript": [
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "Portuguese custard tarts, muffin pan version. Real lamination, real technique.",
+          "timestamp": "2026-09-25T09:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Yeah, that's exactly what I was hoping you'd say - the lamination is what makes these actually work in the muffin pan, right?",
+          "timestamp": "2026-09-25T10:20:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Marcus Reid",
+          "message": "The lamination creates those shattered layers, but here's what I keep coming back to - the pan's depth forces the pastry up against the heat in a way that caramelizes the custard top faster than it would in a traditional tart tin.",
+          "timestamp": "2026-09-25T11:40:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Ria Castillo",
+          "message": "That caramelization is the stop-scroll moment - we're leading with those dark freckled tops.",
+          "timestamp": "2026-09-25T13:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Julian Torres",
+          "message": "The blistering is the shot - hard side light to catch every caramelized edge.",
+          "timestamp": "2026-09-25T14:20:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Ria Castillo",
+          "message": "We need the pull shot - hand lifting one out so people see it come clean from the pan. That's the win. Let's shoot.",
+          "timestamp": "2026-09-25T15:40:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        }
+      ],
+      "summary": {
+        "message_count": 6,
+        "unique_characters": 5,
+        "cast_ratio": 1.0,
+        "cast_missing_count": 0,
+        "cast_unexpected_count": 0,
+        "adjacency_mean_overlap": 0.0466,
+        "adjacency_share_with_link": 0.6,
+        "callback_share": 0.5,
+        "callback_mean_distance": 3,
+        "qa_rate": 1.0,
+        "qa_question_count": 1,
+        "length_mean_words": 21.67,
+        "length_min_words": 10,
+        "length_max_words": 43,
+        "cross_character_3gram_repeat_count": 0,
+        "per_character_4gram_tic_count": 0,
+        "legacy_score": 76,
+        "legacy_prompt_echo_hits": 0,
+        "legacy_prohibited_hits": 0,
+        "dash_clause_rate": 0.8333,
+        "frame_claim_rate": 0.6667,
+        "agree_opener_rate": 0.1667,
+        "short_line_rate": 0.0,
+        "question_rate": 0.1667,
+        "length_stdev": 11.0101,
+        "opener_diversity": 1.0,
+        "pitch_vocab_rate": 0.0,
+        "brand_term_rate": 0.6667,
+        "speaker_attribution_accuracy": null,
+        "speaker_attribution_chance": null,
+        "cast_detail": {
+          "expected": [
+            "Julian",
+            "Marcus",
+            "Margaret",
+            "Ria",
+            "Stephanie"
+          ],
+          "present": [
+            "Julian",
+            "Marcus",
+            "Margaret",
+            "Ria",
+            "Stephanie"
+          ],
+          "missing": [],
+          "unexpected": [],
+          "ratio": 1.0
+        },
+        "adjacency_detail": {
+          "mean_overlap": 0.0466,
+          "share_with_link": 0.6,
+          "turn_count": 5
+        },
+        "callback_detail": {
+          "share_with_callback": 0.5,
+          "mean_callback_distance": 3,
+          "eligible_turns": 4,
+          "callback_turns": 2
+        },
+        "qa_detail": {
+          "rate": 1.0,
+          "question_count": 1,
+          "answered_count": 1
+        },
+        "repeated_phrases_detail": {
+          "cross_character_3grams": [],
+          "per_character_4gram_tics": {}
+        },
+        "length_detail": {
+          "mean": 21.67,
+          "min": 10,
+          "max": 43,
+          "per_character_mean": {
+            "Margaret": 10,
+            "Stephanie": 24,
+            "Marcus": 43,
+            "Ria": 20,
+            "Julian": 13
+          }
+        },
+        "legacy_quality_detail": {
+          "score": 76,
+          "prohibited_hits": 0,
+          "prompt_echo_hits": 0,
+          "min_content_failures": 0,
+          "cross_character_overlap_penalty": 0.0,
+          "pairwise_lexical_overlap": {
+            "Julian Torres <> Marcus Reid": 0.044,
+            "Julian Torres <> Margaret Chen": 0.0,
+            "Julian Torres <> Ria Castillo": 0.07,
+            "Julian Torres <> Stephanie 'Steph' Whitmore": 0.067,
+            "Marcus Reid <> Margaret Chen": 0.048,
+            "Marcus Reid <> Ria Castillo": 0.062,
+            "Marcus Reid <> Stephanie 'Steph' Whitmore": 0.1,
+            "Margaret Chen <> Ria Castillo": 0.024,
+            "Margaret Chen <> Stephanie 'Steph' Whitmore": 0.115,
+            "Ria Castillo <> Stephanie 'Steph' Whitmore": 0.08
+          },
+          "rhythm_variation": 33,
+          "voice_pattern_bonus": 4,
+          "voice_patterns_matched": {
+            "Margaret Chen": [
+              "terse (avg 10 words)"
+            ],
+            "Stephanie 'Steph' Whitmore": [],
+            "Marcus Reid": [
+              "verbose (avg 43 words)"
+            ],
+            "Ria Castillo": [],
+            "Julian Torres": []
+          },
+          "catchphrase_bonus": 3,
+          "signature_hits": {
+            "Margaret Chen": 0,
+            "Stephanie 'Steph' Whitmore": 0,
+            "Marcus Reid": 0,
+            "Ria Castillo": 0,
+            "Julian Torres": 0
+          },
+          "avg_length_by_character": {
+            "Ria Castillo": 20,
+            "Julian Torres": 13,
+            "Margaret Chen": 10,
+            "Stephanie 'Steph' Whitmore": 24,
+            "Marcus Reid": 43
+          },
+          "distinctiveness_spread": 33,
+          "cross_char_phrase_penalty": 0.0,
+          "repeated_phrases_sample": [],
+          "participation_balance": {
+            "Margaret Chen": 0.167,
+            "Stephanie 'Steph' Whitmore": 0.167,
+            "Marcus Reid": 0.167,
+            "Ria Castillo": 0.333,
+            "Julian Torres": 0.167
+          },
+          "participation_penalty": 20.0,
+          "conflict_bonus": 1,
+          "stage_coherence_penalty": 0.0,
+          "formal_name_penalty": 0,
+          "deadline_parrot_penalty": 0.0,
+          "deadline_time_hits": 0,
+          "message_length_penalty": 0.0,
+          "long_message_hits": 0
+        },
+        "dash_clause_detail": {
+          "rate": 0.8333,
+          "hit_count": 5,
+          "line_count": 6
+        },
+        "frame_claim_detail": {
+          "rate": 0.6667,
+          "hit_count": 4,
+          "line_count": 6
+        },
+        "agree_opener_detail": {
+          "rate": 0.1667,
+          "hit_count": 1,
+          "line_count": 6
+        },
+        "short_line_detail": {
+          "rate": 0.0,
+          "hit_count": 0,
+          "line_count": 6
+        },
+        "question_rate_detail": {
+          "rate": 0.1667,
+          "hit_count": 1,
+          "line_count": 6
+        },
+        "length_stdev_detail": {
+          "stdev": 11.0101,
+          "line_count": 6
+        },
+        "opener_diversity_detail": {
+          "ratio": 1.0,
+          "distinct_openers": 6,
+          "line_count": 6
+        },
+        "pitch_vocab_detail": {
+          "rate": 0.0,
+          "hit_count": 0,
+          "line_count": 6
+        },
+        "brand_term_detail": {
+          "rate": 0.6667,
+          "hit_count": 4,
+          "line_count": 6
+        },
+        "speaker_attribution_detail": {
+          "accuracy": null,
+          "chance": null,
+          "per_character_recall": {
+            "Julian": null,
+            "Marcus": null,
+            "Margaret": null,
+            "Ria": null,
+            "Stephanie": null
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Ria"
+          ],
+          "sample_count": 6,
+          "eligible_count": 0,
+          "scored_count": 0,
+          "coverage": 0.0,
+          "excluded_no_content": 0,
+          "excluded_no_training": 4,
+          "excluded_no_known_words": 2,
+          "sufficient_data": false
+        }
+      },
+      "judge": {
+        "passed": false,
+        "verdict": "FAIL - The conversation is extremely short for a Monday planning session \u2014 no real problem is raised or resolved, characters mostly agree in rapid succession without pushback or substantive debate, and the turn-taking reads more like stacked monologues than genuine dialogue, leaving the scene underdeveloped for publication. | weakest: arc_resolution, natural_progression, turn_taking | scores: {'title_fidelity': 5, 'arc_resolution': 3, 'voice_distinctiveness': 4, 'technical_credibility': 4, 'natural_progression': 3, 'promise_delivery': 4, 'turn_taking': 3, 'cast_coverage': 5}",
+        "scores": {
+          "title_fidelity": 5,
+          "arc_resolution": 3,
+          "voice_distinctiveness": 4,
+          "technical_credibility": 4,
+          "natural_progression": 3,
+          "promise_delivery": 4,
+          "turn_taking": 3,
+          "cast_coverage": 5
+        },
+        "weakest": [
+          "arc_resolution",
+          "natural_progression",
+          "turn_taking"
+        ],
+        "reason": "The conversation is extremely short for a Monday planning session \u2014 no real problem is raised or resolved, characters mostly agree in rapid succession without pushback or substantive debate, and the turn-taking reads more like stacked monologues than genuine dialogue, leaving the scene underdeveloped for publication."
+      }
+    }
+  ],
+  "generated_at": "2026-09-25T16:57:14.447612+00:00",
+  "cost_summary": {
+    "by_model": {
+      "anthropic/claude-haiku-4-5-20251001": {
+        "calls": 24,
+        "tokens_in": 63605,
+        "tokens_out": 998,
+        "estimated_cost": 0.054876000000000015
+      },
+      "anthropic/claude-opus-4-6": {
+        "calls": 2,
+        "tokens_in": 5645,
+        "tokens_out": 337,
+        "estimated_cost": 0.03665
+      }
+    },
+    "total_cost": 0.09152600000000002,
+    "total_calls": 26,
+    "total_tokens_in": 69250,
+    "total_tokens_out": 1335
+  },
+  "results_file": ".scratch/voice-bench-paid/bench-monday-n2-20260925T165714Z.json",
+  "budget_guard_ledger": {
+    "ledger_ref": "../../muffinpanrecipes/.scratch/lab/first-rules-ab-budget.json",
+    "authoritative": true,
+    "status": "active",
+    "summary": {
+      "budget_microusd": 5000000,
+      "status": "active",
+      "stop_reason": null,
+      "totals": {
+        "actual_microusd": 587590,
+        "count_token_failures": 0,
+        "count_token_requests": 62,
+        "generation_attempts": 62,
+        "reserved_microusd": 0,
+        "uncertain_microusd": 0
+      },
+      "phases": {
+        "ab": {
+          "actual_microusd": 0,
+          "count_token_failures": 0,
+          "count_token_requests": 0,
+          "generation_attempts": 0,
+          "reserved_microusd": 0,
+          "uncertain_microusd": 0
+        },
+        "bench": {
+          "actual_microusd": 105245,
+          "count_token_failures": 0,
+          "count_token_requests": 26,
+          "generation_attempts": 26,
+          "reserved_microusd": 0,
+          "uncertain_microusd": 0
+        },
+        "calibration": {
+          "actual_microusd": 482345,
+          "count_token_failures": 0,
+          "count_token_requests": 36,
+          "generation_attempts": 36,
+          "reserved_microusd": 0,
+          "uncertain_microusd": 0
+        }
+      }
+    },
+    "cost_summary_note": "The lab router cost_summary is an estimate; this separate ledger is authoritative for the guarded Anthropic request shapes."
+  }
+}
