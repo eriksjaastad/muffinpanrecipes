@@ -139,6 +139,43 @@ write them so the log and the tool never drift apart.
 
 | Date | Experiment ID | Lever (one) | Target dimension(s) | N | Wins/Ties/Losses on target | Other dimensions lost | Decision | Shipped PR | Live confirmation week + scores |
 |------|----------------|--------------|----------------------|---|------------------------------|------------------------|-----------|-------------|-----------------------------------|
+| 2026-09-25T17:16:30.839007+00:00 | 20260925T165757Z-ab-testbed-rules-trim | _SHARED_CHARACTER_RULES | voice_distinctiveness | 21 | 6/11/4 | arc_resolution, technical_credibility, natural_progression, promise_delivery, turn_taking, emotional_range, register_naturalness | REJECT: 29% target wins, below 65% | not shipped | n/a |
+
+### 2026-09-25 — Reference calibration, bench, and first v3 A/B
+
+The [reference-panel calibration](results/20260925T165113Z-calibrate-reference-panel-v0.json)
+used the versioned `pairwise-v2-candidate-versions-character-rules` judge. All 24
+position-swapped responses were valid and all 12 pairs completed. Identical
+transcripts received unanimous ties in all three repeats. The original beat
+inconsistently reassigned speaker labels on `voice_distinctiveness` in all
+three repeats, meeting the preregistered 80% operational check. Consistent
+name permutation and the W38 pushback edit were diagnostic cases; they have
+no human directional quality label. This check supports using the judge for
+an exploratory comparison; it does not establish agreement with a blind human
+reader or validate the production publish gate.
+
+The [two-run Monday bench](results/bench-monday-n2-20260925T165714Z.json)
+scored 2/2 runs and passed 0/2. Arc resolution, natural progression, and
+turn-taking were the weakest judge dimensions in both runs. Two runs describe
+this baseline; they are too few to establish a population pass rate.
+
+The [approved single-lever A/B](results/20260925T165757Z-ab-testbed-rules-trim.json)
+used the unchanged v3 panel and approved `_SHARED_CHARACTER_RULES` trim:
+seven Monday scenarios with three pairs each. All 21 pairs completed.
+Voice distinctiveness favored the variant in 6, tied in 11, and favored
+control in 4. Its 28.57% target win rate misses the preregistered 65%
+threshold. No production prompt change follows from this result; the blind
+human read required before shipping has not been done.
+
+The [shared budget ledger](results/20260925T171630Z-experiment-budget-ledger.json)
+records 692 settled generation attempts and $2.961497 total actual spend:
+$0.482345 calibration (including the preserved September 23 run), $0.105245
+bench, and $2.373907 A/B. It has zero reserved or uncertain spend and
+$2.038503 remaining under the approved $5 combined ceiling. The router's
+per-command cost estimates differ from this authoritative ledger. These runs
+used source commit `007d5a3`; the current evaluator includes the speaker
+attribution metric merged through PR #126. The A/B and calibration both used
+judge prompt SHA-256 `c6570e4d93e3470eff97f779e4998b4aec0f8c04e6499f46c402c0af50d67329`.
 
 ### 2026-09-23 — W25 Thursday judge calibration (not an A/B result)
 
@@ -478,3 +515,11 @@ Judge scoring on the panel, repeated runs, position-swapped blind judging, and
 Erik's `pairs --show` read. All of that exists already and none of it was run
 here. Attribution is also unavailable by construction: swapping the model changes
 everything at once.
+
+## Benchmarks
+
+Single-arm characterization runs (`conversation_lab.py bench`). A row here is a baseline another run gets compared against, not a decision.
+
+| Date | Label | Stage | N | Pass rate (scored/ran) | Most frequent weakest | Result file |
+|------|-------|-------|---|----------------------|-----------------------|-------------|
+| 2026-09-25 | monday-n2 | monday | 2 | 0% (2/2) | arc_resolution | bench-monday-n2-20260925T165714Z.json |
