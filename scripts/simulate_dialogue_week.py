@@ -28,6 +28,7 @@ from typing import Any
 
 from backend.config import config
 from backend.utils.model_router import generate_response
+from backend.utils.stop_check import StopCheckError, check_scene_done
 
 ROOT = Path(__file__).resolve().parents[1]
 PERSONAS_PATH = ROOT / "backend" / "data" / "agent_personalities.json"
@@ -274,6 +275,33 @@ TICKS_RANGE: dict[str, tuple[int, int]] = {
     "saturday":  (5, 6),   # was (3, 5) - a 2-person cast still needs an arc (#7292)
     "sunday":    (5, 6),   # publish + warmth - was (3, 4), then (4, 6) (#7079, #7082)
 }
+
+# Wind-down/stop knobs (#7680, #7681, #7629) — module attributes so the
+# conversation lab can sweep them. The defaults reproduce today's production
+# behaviour exactly: the regex goal check below is the only trigger, and a day
+# always ends by winding down over its last two ticks.
+WINDDOWN_TRIGGER: str = "regex"
+
+# How a model-based stop check decides a scene is done. Done =
+# decided >= decided_threshold and (not require_pushback or
+# pushback >= pushback_threshold).
+STOP_CHECK: dict = {
+    "provider": "haiku",
+    "decided_threshold": 0.7,
+    "require_pushback": True,
+    "pushback_threshold": 0.5,
+}
+
+# Per-day open-ended safety cap. When a day is present its cap replaces the
+# TICKS_RANGE roll; the tick after goal_met becomes the closing turn and the
+# day ends, or the cap is reached and the last tick closes as today. Only
+# valid with WINDDOWN_TRIGGER == "check".
+OPEN_ENDED_MAX_TICKS: dict = {}
+
+# Every stop check is appended here (day, tick, decided, pushback, provider,
+# model, cost_usd). run_simulation clears it at start; the conversation lab
+# copies it into the result JSON after each arm.
+STOP_CHECK_LOG: list[dict] = []
 
 PROMPT_ECHO_PATTERNS = [
     "day:",
@@ -2115,6 +2143,14 @@ def run_simulation(
     recent_lines: list[str] = list(initial_recent_lines) if initial_recent_lines else []
     week_highlights: list[str] = list(initial_highlights) if initial_highlights else []
 
+    STOP_CHECK_LOG.clear()
+    if WINDDOWN_TRIGGER not in ("regex", "off", "check"):
+        raise ValueError(
+            f"WINDDOWN_TRIGGER must be 'regex', 'off', or 'check', got {WINDDOWN_TRIGGER!r}"
+        )
+    if OPEN_ENDED_MAX_TICKS and WINDDOWN_TRIGGER != "check":
+        raise ValueError("OPEN_ENDED_MAX_TICKS requires WINDDOWN_TRIGGER == 'check'")
+
     # Detect first episode — no character has any memories (#5030)
     first_episode = all(not _load_memories(name) for name in personas)
 
@@ -2130,7 +2166,13 @@ def run_simulation(
             DAY_STAGE_DIRECTIONS[day] = photo_scene
 
         # Variable message count — sample fresh each day/run
-        if ticks_per_day > 0:
+        open_ended_cap = OPEN_ENDED_MAX_TICKS.get(day) if OPEN_ENDED_MAX_TICKS else None
+        if open_ended_cap is not None:
+            # Open-ended safety cap: the day may still end EARLIER than this
+            # (the tick after goal_met becomes the closing turn), but it can
+            # never run past it.
+            day_ticks = open_ended_cap
+        elif ticks_per_day > 0:
             # Caller passed explicit count (e.g. pipeline stage calling with ticks_per_day=4)
             day_ticks = ticks_per_day
         else:
@@ -2138,7 +2180,7 @@ def run_simulation(
             day_ticks = random.randint(lo, hi)
 
         # Wednesday with photography context needs enough messages for hero debate
-        if day == "wednesday" and photography_context:
+        if day == "wednesday" and photography_context and open_ended_cap is None:
             if photography_context.get("reshoot_happened"):
                 day_ticks = max(day_ticks, 10)  # panic + reshoot + hero debate
             else:
@@ -2150,8 +2192,13 @@ def run_simulation(
         goal_met = False
 
         for tick in range(day_ticks):
+            # In an open-ended day, the tick after goal_met is the closing
+            # turn and the day ends after it.
+            goal_already_met = goal_met
             # Determine conversation phase
-            if tick == day_ticks - 1:
+            if open_ended_cap is not None and goal_already_met:
+                turn_phase = "closing"
+            elif tick == day_ticks - 1:
                 turn_phase = "closing"
             elif goal_met or tick >= day_ticks - 2:
                 turn_phase = "winding_down"
@@ -2177,7 +2224,7 @@ def run_simulation(
                 mode=mode,
                 prompt_style=prompt_style,
                 day_turn=tick + 1,
-                is_last_turn=(tick == day_ticks - 1),
+                is_last_turn=(tick == day_ticks - 1) or (open_ended_cap is not None and goal_already_met),
                 photography_context=photography_context,
                 phase=turn_phase,
                 prior_own_messages=day_messages_by_char.get(speaker, []),
@@ -2191,10 +2238,43 @@ def run_simulation(
             messages.append(Message(day=day, stage=stage, character=speaker, message=line, timestamp=ts.isoformat(), model=model))
 
             # Check if meeting goal was met (only after a few turns of discussion)
-            if not goal_met and tick >= 2:
-                combined = " ".join(recent_lines[-3:]).lower()
-                if re.search(goal["completion_signal"], combined):
-                    goal_met = True
+            if WINDDOWN_TRIGGER == "regex":
+                if not goal_met and tick >= 2:
+                    combined = " ".join(recent_lines[-3:]).lower()
+                    if re.search(goal["completion_signal"], combined):
+                        goal_met = True
+            elif WINDDOWN_TRIGGER == "check":
+                if not goal_met and tick >= 2:
+                    try:
+                        result = check_scene_done(
+                            lines=recent_lines,
+                            provider=STOP_CHECK["provider"],
+                            day=day,
+                            objective=goal["objective"],
+                        )
+                    except StopCheckError as exc:
+                        raise StopCheckError(f"stop check failed on {day} tick {tick}: {exc}") from exc
+                    STOP_CHECK_LOG.append({
+                        "day": day,
+                        "tick": tick,
+                        "decided": result.decided,
+                        "pushback": result.pushback,
+                        "provider": result.provider,
+                        "model": result.model,
+                        "cost_usd": result.cost_usd,
+                    })
+                    decided_ok = result.decided >= STOP_CHECK["decided_threshold"]
+                    pushback_ok = (
+                        (not STOP_CHECK["require_pushback"])
+                        or result.pushback >= STOP_CHECK["pushback_threshold"]
+                    )
+                    if decided_ok and pushback_ok:
+                        goal_met = True
+            # WINDDOWN_TRIGGER == "off": goal_met is never set; phases are
+            # purely tick-based.
+
+            if open_ended_cap is not None and goal_already_met:
+                break  # the closing turn that follows goal_met just finished
 
         # Generate highlights for this day to carry forward into later days
         if mode == "llm" and not stage_only:

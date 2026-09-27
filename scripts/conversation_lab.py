@@ -59,8 +59,14 @@ Four subcommands:
       values (a string or a dict). Only existing, non-callable module
       attributes may be overridden - see ALLOWED_VARIANT_ATTRS below for the
       documented, useful levers (docs/conversation-lab/PROTOCOL.md's "Where
-      the levers live"). The patch applies to the variant arm's generation
-      call only and is always restored afterward, even on error.
+      the levers live"). The lever set spans the character-prompt levers
+      (_SHARED_CHARACTER_RULES, _REACTION_DIRECTIVE, DAY_STAGE_DIRECTIONS,
+      CHARACTER_DAY_GOALS), the history window HISTORY_DEPTH, the
+      output-contract guards (SHAPE_WINDOW, SHAPE_MAX_IN_WINDOW,
+      WORD_BUDGET_TOLERANCE), and the wind-down/stop knobs (TICKS_RANGE,
+      WINDDOWN_TRIGGER, STOP_CHECK, OPEN_ENDED_MAX_TICKS). The patch applies
+      to the variant arm's generation call only and is always restored
+      afterward, even on error.
 
       --experiments-log overrides where the one-row-per-run log is
       inserted into the "## Experiments" table (default
@@ -294,6 +300,13 @@ ALLOWED_VARIANT_ATTRS: tuple[str, ...] = (
     "SHAPE_WINDOW",
     "SHAPE_MAX_IN_WINDOW",
     "WORD_BUDGET_TOLERANCE",
+    # Wind-down/stop knobs (#7680, #7681, #7629). TICKS_RANGE and
+    # OPEN_ENDED_MAX_TICKS raise a scene's turn count; WINDDOWN_TRIGGER and
+    # STOP_CHECK choose how the scene decides it is done.
+    "TICKS_RANGE",
+    "WINDDOWN_TRIGGER",
+    "STOP_CHECK",
+    "OPEN_ENDED_MAX_TICKS",
 )
 
 # The 8 dimensions the production judge scores (backend/admin/cron_routes.py
@@ -693,6 +706,12 @@ def _apply_variant(module: Any, variant: dict[str, Any]) -> dict[str, Any]:
     original: dict[str, Any] = {}
     for name, value in variant.items():
         original[name] = getattr(module, name)
+        if name == "TICKS_RANGE":
+            # Variant files are JSON, so pairs arrive as lists. run_simulation
+            # unpacks them by position, which works either way, but the module's
+            # own type is tuples - normalise on the way in so the patched module
+            # looks exactly like the default shape.
+            value = {day: tuple(pair) for day, pair in value.items()}
         setattr(module, name, value)
     _clear_prompt_cache(module)
     return original
@@ -718,6 +737,7 @@ def validate_variant(module: Any, variant: dict[str, Any]) -> None:
                 "constant this variant mechanism can safely restore"
             )
         _validate_lever_shape(name, value)
+    _validate_history_depth_invariant(module, variant)
 
 def _validate_lever_shape(name: str, value: Any) -> None:
     """Reject a structurally wrong lever BEFORE any API call is made.
@@ -740,6 +760,21 @@ def _validate_lever_shape(name: str, value: Any) -> None:
                 f"WORD_BUDGET_TOLERANCE must be a number >= 1 (1.0 enforces the stated "
                 f"maximum exactly; higher allows slack), got {value!r}"
             )
+        return
+    if name == "WINDDOWN_TRIGGER":
+        if value not in ("regex", "off", "check"):
+            raise ConversationLabError(
+                f"WINDDOWN_TRIGGER must be one of 'regex', 'off', 'check', got {value!r}"
+            )
+        return
+    if name == "STOP_CHECK":
+        _validate_stop_check_shape(value)
+        return
+    if name == "TICKS_RANGE":
+        _validate_ticks_range_shape(value)
+        return
+    if name == "OPEN_ENDED_MAX_TICKS":
+        _validate_open_ended_max_ticks_shape(value)
         return
     if name != "HISTORY_DEPTH":
         return
@@ -765,6 +800,129 @@ def _validate_lever_shape(name: str, value: Any) -> None:
             raise ConversationLabError(
                 f"HISTORY_DEPTH['{key}'] entries must be positive integers, got {pair!r}"
             )
+
+def _validate_stop_check_shape(value: Any) -> None:
+    expected_keys = {"provider", "decided_threshold", "require_pushback", "pushback_threshold"}
+    if not isinstance(value, dict) or set(value) != expected_keys:
+        missing = sorted(expected_keys - (set(value) if isinstance(value, dict) else set()))
+        extra = sorted((set(value) if isinstance(value, dict) else set()) - expected_keys)
+        raise ConversationLabError(
+            f"STOP_CHECK must be a dict with exactly the keys {sorted(expected_keys)}; "
+            f"missing {missing}, unexpected {extra}, got {type(value).__name__}"
+        )
+    provider = value["provider"]
+    if provider not in ("jev", "haiku"):
+        raise ConversationLabError(
+            f"STOP_CHECK['provider'] must be 'jev' or 'haiku', got {provider!r}"
+        )
+    decided_threshold = value["decided_threshold"]
+    if (
+        isinstance(decided_threshold, bool)
+        or not isinstance(decided_threshold, (int, float))
+        or not 0 <= decided_threshold <= 1
+    ):
+        raise ConversationLabError(
+            f"STOP_CHECK['decided_threshold'] must be a number 0-1, got {decided_threshold!r}"
+        )
+    require_pushback = value["require_pushback"]
+    if not isinstance(require_pushback, bool):
+        raise ConversationLabError(
+            f"STOP_CHECK['require_pushback'] must be a bool, got {require_pushback!r}"
+        )
+    pushback_threshold = value["pushback_threshold"]
+    if (
+        isinstance(pushback_threshold, bool)
+        or not isinstance(pushback_threshold, (int, float))
+        or not 0 <= pushback_threshold <= 1
+    ):
+        raise ConversationLabError(
+            f"STOP_CHECK['pushback_threshold'] must be a number 0-1, got {pushback_threshold!r}"
+        )
+
+def _validate_ticks_range_shape(value: Any) -> None:
+    if not isinstance(value, dict) or not value:
+        raise ConversationLabError(
+            f"TICKS_RANGE must be a non-empty dict of day -> [lo, hi] ints, "
+            f"got {type(value).__name__}"
+        )
+    for day, pair in value.items():
+        if day not in simulate_module.DAY_ORDER:
+            raise ConversationLabError(
+                f"TICKS_RANGE has unknown day {day!r} (expected one of {simulate_module.DAY_ORDER})"
+            )
+        if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+            raise ConversationLabError(
+                f"TICKS_RANGE[{day!r}] must be a 2-item [lo, hi], got {pair!r}"
+            )
+        lo, hi = pair
+        if (
+            isinstance(lo, bool) or not isinstance(lo, int)
+            or isinstance(hi, bool) or not isinstance(hi, int)
+        ):
+            raise ConversationLabError(
+                f"TICKS_RANGE[{day!r}] entries must be integers, got {pair!r}"
+            )
+        if not 1 <= lo <= hi:
+            raise ConversationLabError(
+                f"TICKS_RANGE[{day!r}] must satisfy 1 <= lo <= hi, got {pair!r}"
+            )
+
+def _validate_open_ended_max_ticks_shape(value: Any) -> None:
+    if not isinstance(value, dict) or not value:
+        raise ConversationLabError(
+            f"OPEN_ENDED_MAX_TICKS must be a non-empty dict of day -> cap >= 3, "
+            f"got {type(value).__name__}"
+        )
+    for day, cap in value.items():
+        if day not in simulate_module.DAY_ORDER:
+            raise ConversationLabError(
+                f"OPEN_ENDED_MAX_TICKS has unknown day {day!r} "
+                f"(expected one of {simulate_module.DAY_ORDER})"
+            )
+        if isinstance(cap, bool) or not isinstance(cap, int) or cap < 3:
+            raise ConversationLabError(
+                f"OPEN_ENDED_MAX_TICKS[{day!r}] must be an integer >= 3, got {cap!r}"
+            )
+
+def _validate_history_depth_invariant(module: Any, variant: dict[str, Any]) -> None:
+    """Refuse a variant whose max tick count would swallow the history floor.
+
+    HISTORY_DEPTH's later_turns floor must stay ABOVE the largest tick count a
+    scene can run (scripts/simulate_dialogue_week.py's comment above
+    HISTORY_DEPTH): once a scene's own premise scrolls out of the window nobody
+    can answer or close it. A variant that raises TICKS_RANGE upper bounds or
+    OPEN_ENDED_MAX_TICKS toward that floor must also raise HISTORY_DEPTH in the
+    SAME variant, or it would only fail mid-run, after paid calls.
+    """
+    history = variant.get("HISTORY_DEPTH")
+    if history is None:
+        history = getattr(module, "HISTORY_DEPTH")
+
+    def later_turns(day: str) -> int:
+        key = "late" if day in ("friday", "saturday", "sunday") else "early"
+        return history[key][1]
+
+    problems: list[str] = []
+    ticks_range = variant.get("TICKS_RANGE")
+    if isinstance(ticks_range, dict):
+        for day, pair in ticks_range.items():
+            if pair[1] >= later_turns(day):
+                problems.append(
+                    f"TICKS_RANGE[{day!r}] upper bound {pair[1]} reaches "
+                    f"HISTORY_DEPTH later_turns {later_turns(day)}"
+                )
+    open_ended = variant.get("OPEN_ENDED_MAX_TICKS")
+    if isinstance(open_ended, dict):
+        for day, cap in open_ended.items():
+            if cap >= later_turns(day):
+                problems.append(
+                    f"OPEN_ENDED_MAX_TICKS[{day!r}] cap {cap} reaches "
+                    f"HISTORY_DEPTH later_turns {later_turns(day)}"
+                )
+    if problems:
+        raise ConversationLabError(
+            "; ".join(problems) + ". Set HISTORY_DEPTH higher in the same variant."
+        )
 
 def _restore_variant(module: Any, original: dict[str, Any]) -> None:
     for name, value in original.items():
@@ -837,6 +995,53 @@ def _run_arm_and_count(
     message_count = len(result.get("messages", []))
     calls = delta if delta > 0 else message_count
     return result, calls
+
+def _snapshot_stop_check_log() -> list[dict[str, Any]]:
+    """Copy the simulator's STOP_CHECK_LOG (a list of dicts) after one arm."""
+    log = getattr(simulate_module, "STOP_CHECK_LOG", [])
+    return list(log) if isinstance(log, list) else []
+
+def _jev_cost_usd_from_log(log: Any) -> float:
+    """Sum cost_usd entries recorded for the jev provider in one stop-check log."""
+    total = 0.0
+    for entry in log or []:
+        if not isinstance(entry, dict) or entry.get("provider") != "jev":
+            continue
+        cost = entry.get("cost_usd")
+        if isinstance(cost, (int, float)) and not isinstance(cost, bool):
+            total += cost
+    return total
+
+def _jev_cost_usd_from_pairs(
+    pairs: list[dict[str, Any]],
+    partial_pairs: list[dict[str, Any]] | None = None,
+) -> float:
+    """Total Jev spend across completed and partial pair transcripts."""
+    total = 0.0
+    for pair in [*pairs, *(partial_pairs or [])]:
+        for key in ("control_stop_check_log", "variant_stop_check_log"):
+            total += _jev_cost_usd_from_log(pair.get(key))
+    return round(total, 9)
+
+def _sweep_jev_cost_usd(
+    control_transcripts: dict[tuple[str, int], dict[str, Any]],
+    variant_reports: dict[str, Any],
+) -> float:
+    """Total Jev spend for a sweep.
+
+    The control side is counted once, from the stored control transcripts
+    (whose `stop_check_log` was copied at generation time). The variant side
+    is counted from each variant pair's own `variant_stop_check_log` - never
+    from the pair's `control_stop_check_log`, which is a per-pair copy of the
+    same shared control transcript and would double-count.
+    """
+    total = 0.0
+    for result in control_transcripts.values():
+        total += _jev_cost_usd_from_log(result.get("stop_check_log"))
+    for variant_report in variant_reports.values():
+        for pair in [*variant_report.get("pairs", []), *variant_report.get("partial_pairs", [])]:
+            total += _jev_cost_usd_from_log(pair.get("variant_stop_check_log"))
+    return round(total, 9)
 
 # ---------------------------------------------------------------------------
 # Pairwise judge
@@ -1459,11 +1664,13 @@ def _generate_and_judge_pairs(
             control_result, control_calls = _run_arm_and_count(
                 concept, stage, run_index, recipe_context, mode, default_model
             )
+            control_stop_check_log = _snapshot_stop_check_log()
             budget.record(0 if dry_run else control_calls)
             pending_pair: dict[str, Any] = {
                 "run_index": run_index,
                 "status": "control_generated",
                 "control_messages": control_result.get("messages", []),
+                "control_stop_check_log": control_stop_check_log,
                 "variant_messages": None,
                 "judge_orientations": [],
             }
@@ -1479,6 +1686,7 @@ def _generate_and_judge_pairs(
                 variant_result, variant_calls = _run_arm_and_count(
                     concept, stage, run_index, recipe_context, mode, default_model
                 )
+                variant_stop_check_log = _snapshot_stop_check_log()
             finally:
                 _restore_variant(simulate_module, restore_pending)
                 restore_pending = None
@@ -1487,6 +1695,7 @@ def _generate_and_judge_pairs(
             control_messages = control_result.get("messages", [])
             variant_messages = variant_result.get("messages", [])
             pending_pair["variant_messages"] = variant_messages
+            pending_pair["variant_stop_check_log"] = variant_stop_check_log
             pending_pair["status"] = "awaiting_judges"
             _budget_checkpoint()
 
@@ -1522,6 +1731,8 @@ def _generate_and_judge_pairs(
                 "run_index": run_index,
                 "control_messages": control_messages,
                 "variant_messages": variant_messages,
+                "control_stop_check_log": control_stop_check_log,
+                "variant_stop_check_log": variant_stop_check_log,
                 "control_summary": summarize(control_messages, expected_cast, concept=concept, day=stage),
                 "variant_summary": summarize(variant_messages, expected_cast, concept=concept, day=stage),
                 "judge": combined,
@@ -1829,6 +2040,7 @@ def _build_ab_report(
         "target_dimension": args.target,
         "decision_rule": DECISION_RULE_TEXT,
         "cost_summary": cost_summary,
+        "jev_cost_usd": _jev_cost_usd_from_pairs(pairs, partial_pairs or []),
         "pairs": pairs,
         "partial_pairs": partial_pairs or [],
         "results_file": str(result_path),
@@ -1880,6 +2092,7 @@ def _build_testbed_ab_report(
         "target_dimension": args.target,
         "decision_rule": DECISION_RULE_TEXT,
         "cost_summary": cost_summary,
+        "jev_cost_usd": _jev_cost_usd_from_pairs(all_pairs, partial_pairs or []),
         "scenarios": scenario_reports,
         "pairs": all_pairs,
         "partial_pairs": partial_pairs or [],
@@ -1926,6 +2139,7 @@ def _print_ab_report(report: dict[str, Any]) -> None:
     _print_metric_deltas(report["metric_deltas"], report.get("metric_coverage"))
     print(f"\nDECISION RULE (informational, not enforced): {report['decision_rule']}")
     print(f"cost summary: {report['cost_summary']}")
+    print(f"jev cost: ${report['jev_cost_usd']:.9f}")
     print(f"\nresults written to: {report['results_file']}")
 
 def _print_testbed_ab_report(report: dict[str, Any]) -> None:
@@ -1958,6 +2172,7 @@ def _print_testbed_ab_report(report: dict[str, Any]) -> None:
     _print_metric_deltas(report["metric_deltas"], report.get("metric_coverage"))
     print(f"\nDECISION RULE (informational, not enforced): {report['decision_rule']}")
     print(f"cost summary: {report['cost_summary']}")
+    print(f"jev cost: ${report['jev_cost_usd']:.9f}")
     print(f"\nresults written to: {report['results_file']}")
 
 _EXPERIMENTS_SECTION_HEADING = "## Experiments"
@@ -2136,6 +2351,10 @@ def _generate_sweep_control(
                 scenario["concept"], stage, run_index, scenario["recipe_context"], mode, default_model,
             )
             budget.record(0 if dry_run else calls)
+            # The shared control is generated once, up front; its stop-check
+            # log would be long gone from the module by the time its pairs are
+            # judged, so copy it into the stored transcript now.
+            result["stop_check_log"] = _snapshot_stop_check_log()
             transcripts[(scenario["id"], run_index)] = result
             _budget_checkpoint()
     return False
@@ -2201,11 +2420,13 @@ def _run_sweep_variant(
                     break
 
                 control_messages = control_result.get("messages", [])
+                control_stop_check_log = control_result.get("stop_check_log", [])
                 pending_pair: dict[str, Any] = {
                     "scenario_id": scenario["id"],
                     "run_index": run_index,
                     "status": "control_generated",
                     "control_messages": control_messages,
+                    "control_stop_check_log": control_stop_check_log,
                     "variant_messages": None,
                     "judge_orientations": [],
                 }
@@ -2216,6 +2437,7 @@ def _run_sweep_variant(
                     variant_result, variant_calls = _run_arm_and_count(
                         scenario["concept"], stage, run_index, scenario["recipe_context"], mode, default_model,
                     )
+                    variant_stop_check_log = _snapshot_stop_check_log()
                 finally:
                     _restore_variant(simulate_module, restore_pending)
                     restore_pending = None
@@ -2223,6 +2445,7 @@ def _run_sweep_variant(
 
                 variant_messages = variant_result.get("messages", [])
                 pending_pair["variant_messages"] = variant_messages
+                pending_pair["variant_stop_check_log"] = variant_stop_check_log
                 pending_pair["status"] = "awaiting_judges"
                 _budget_checkpoint()
 
@@ -2259,6 +2482,8 @@ def _run_sweep_variant(
                     "run_index": run_index,
                     "control_messages": control_messages,
                     "variant_messages": variant_messages,
+                    "control_stop_check_log": control_stop_check_log,
+                    "variant_stop_check_log": variant_stop_check_log,
                     "control_summary": summarize(control_messages, expected_cast, concept=scenario["concept"], day=stage),
                     "variant_summary": summarize(variant_messages, expected_cast, concept=scenario["concept"], day=stage),
                     "judge": combined,
@@ -2448,6 +2673,7 @@ def _build_sweep_report(
         "target_dimension": args.target,
         "decision_rule": DECISION_RULE_TEXT,
         "cost_summary": cost_summary,
+        "jev_cost_usd": _sweep_jev_cost_usd(control_transcripts, variant_reports),
         "variants": variant_reports,
         "ranking": _rank_sweep_variants(variant_reports, args.target),
         "results_file": str(result_path),
@@ -2471,6 +2697,7 @@ def _print_sweep_report(report: dict[str, Any]) -> None:
         f"charged to the sweep, not to any one variant{abort_note}"
     )
     print(f"max_cost per variant: ${report['max_cost_per_variant']:.2f}  dry_run={report['dry_run']}")
+    print(f"jev cost: ${report['jev_cost_usd']:.9f}")
 
     print(f"\n--- variant ranking (target: {report['target_dimension']}) ---")
     for entry in report["ranking"]:

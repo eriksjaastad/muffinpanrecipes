@@ -246,9 +246,12 @@ def _capture_judge_prompts(monkeypatch):
 
     def fake_judge(prompt, system_prompt=None, model=None, temperature=None, **_kw):
         prompts.append(prompt)
+        # c94a60a made the pairwise parser require a per_dimension verdict for
+        # every judged dimension; a stub without it now fails before the prompt
+        # assertions this test exists for.
         return json.dumps({
-            "winner": "A", "scores": {}, "reason": "stub",
-            "dimensions": {"voice_distinctiveness": {"A": 4, "B": 3}},
+            "winner": "A", "reason": "stub",
+            "per_dimension": {dim: "tie" for dim in cl.ALL_JUDGE_DIMENSIONS},
         })
 
     monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
