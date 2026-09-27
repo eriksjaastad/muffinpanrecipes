@@ -1790,8 +1790,19 @@ def _judge_orientation(
     second_messages: list[dict[str, Any]],
     recipe_facts: str | None = None,
     evidence: dict[str, Any] | None = None,
+    budget: "CallBudget | None" = None,
+    max_cost: float | None = None,
+    baseline: float = 0.0,
 ) -> dict[str, str]:
-    """Judge once with A=first_arm, B=second_arm; map the A/B verdict back to arm labels."""
+    """Judge once with A=first_arm, B=second_arm; map the A/B verdict back to arm labels.
+
+    `budget`/`max_cost`/`baseline` are OPTIONAL and gate only the RETRY
+    attempts (see `_JUDGE_JSON_MAX_RETRIES`) - the first attempt is always
+    made; it was already pre-checked by the caller (every `_run_judge_
+    orientation` call site checks `budget.would_exceed(1)` and
+    `_would_exceed_cost` before invoking this orientation at all). Passing
+    `None` for either disables that dimension's retry cap (used by direct
+    unit-test calls that don't exercise budget/cost enforcement)."""
     prompt = _build_pairwise_prompt(
         concept, stage, recipe_context, expected_cast, first_messages, second_messages,
         recipe_facts=recipe_facts,
@@ -1815,7 +1826,9 @@ def _judge_orientation(
     raw = ""
     parsed: dict[str, Any] | None = None
     retries_used = 0
-    for attempt in range(_JUDGE_JSON_MAX_RETRIES + 1):
+    retry_blocked_by: str | None = None
+    attempt = 0
+    while True:
         try:
             raw = model_router.generate_judge_response(
                 prompt=prompt,
@@ -1848,10 +1861,27 @@ def _judge_orientation(
         parsed = _parse_judge_json(raw)
         if parsed is not None:
             break
-        if attempt < _JUDGE_JSON_MAX_RETRIES:
-            retries_used += 1
+        if attempt >= _JUDGE_JSON_MAX_RETRIES:
+            break
+        # About to spend ONE MORE real call on a retry of this SAME
+        # orientation. `budget.record()` only happens after the whole
+        # orientation finishes (see `_run_judge_orientation`), so
+        # `budget.used` does not yet reflect the `attempt + 1` real calls
+        # already made here - add them back in before checking the cap.
+        # Without this, an orientation that starts right at the edge of
+        # --max-calls/--max-cost can overshoot both by up to
+        # `_JUDGE_JSON_MAX_RETRIES` extra billed judge calls (#7714 follow-up).
+        calls_blocked = budget is not None and budget.would_exceed(attempt + 2)
+        cost_blocked = max_cost is not None and _would_exceed_cost(max_cost, baseline=baseline)
+        if calls_blocked or cost_blocked:
+            retry_blocked_by = "calls" if calls_blocked else "cost"
+            break
+        retries_used += 1
+        attempt += 1
     if evidence is not None:
         evidence["judge_retries"] = retries_used
+        if retry_blocked_by is not None:
+            evidence["judge_retry_blocked_by_cap"] = retry_blocked_by
 
     if parsed is None:
         raise ConversationLabError(
@@ -1920,13 +1950,18 @@ def _orientation_diagnostics(first: dict[str, str], second: dict[str, str]) -> d
 def _run_judge_orientation(
     *, orientation: str, pending_pair: dict[str, Any], budget: "CallBudget", **kwargs: Any,
 ) -> dict[str, str]:
-    """Record evidence even when generation/parsing fails; count each invocation."""
+    """Record evidence even when generation/parsing fails; count each invocation.
+
+    `budget` is always forwarded into `_judge_orientation` (in addition to
+    being used here for `.record()`) so a truncated-response retry can be
+    capped mid-orientation; pass `max_cost`/`baseline` through `**kwargs`
+    from the call site for the same reason - see `_judge_orientation`."""
     evidence: dict[str, Any] = {}
     result = None
     original_error: BaseException | None = None
     original_traceback = None
     try:
-        result = _judge_orientation(**kwargs, evidence=evidence)
+        result = _judge_orientation(**kwargs, evidence=evidence, budget=budget)
     except BaseException as exc:
         original_error = exc
         original_traceback = exc.__traceback__
@@ -2658,7 +2693,7 @@ def _generate_and_judge_pairs(
                     recipe_context=recipe_context, expected_cast=expected_cast,
                     first_arm="control", first_messages=control_messages,
                     second_arm="variant", second_messages=variant_messages,
-                    recipe_facts=recipe_facts,
+                    recipe_facts=recipe_facts, max_cost=max_cost,
                 )
 
                 if budget.would_exceed(1) or _would_exceed_cost(max_cost):
@@ -2670,7 +2705,7 @@ def _generate_and_judge_pairs(
                     recipe_context=recipe_context, expected_cast=expected_cast,
                     first_arm="variant", first_messages=variant_messages,
                     second_arm="control", second_messages=control_messages,
-                    recipe_facts=recipe_facts,
+                    recipe_facts=recipe_facts, max_cost=max_cost,
                 )
                 combined = _combine_orientations(first, second)
 
@@ -3478,6 +3513,7 @@ def _run_sweep_variant(
                         first_arm="control", first_messages=control_messages,
                         second_arm="variant", second_messages=variant_messages,
                         recipe_facts=scenario.get("judge_recipe_facts"),
+                        max_cost=max_cost, baseline=baseline_cost,
                     )
 
                     if budget.would_exceed(1) or _would_exceed_cost(max_cost, baseline=baseline_cost):
@@ -3490,6 +3526,7 @@ def _run_sweep_variant(
                         first_arm="variant", first_messages=variant_messages,
                         second_arm="control", second_messages=control_messages,
                         recipe_facts=scenario.get("judge_recipe_facts"),
+                        max_cost=max_cost, baseline=baseline_cost,
                     )
                     combined = _combine_orientations(first, second)
 
@@ -4311,6 +4348,7 @@ def _cmd_calibrate_reference_panel(args: argparse.Namespace) -> None:
                         "recipe_context": case["recipe_context"],
                         "expected_cast": speakers,
                         "recipe_facts": None,
+                        "max_cost": args.max_cost,
                     }
                     if budget.would_exceed(1) or _would_exceed_cost(args.max_cost):
                         aborted = True
@@ -5839,7 +5877,7 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
                             recipe_context=recipe_context, expected_cast=expected_cast,
                             first_arm="real", first_messages=dialogue,
                             second_arm="degraded", second_messages=degraded,
-                            recipe_facts=recipe_facts,
+                            recipe_facts=recipe_facts, max_cost=args.max_cost,
                         )
 
                         if budget.would_exceed(1) or _would_exceed_cost(args.max_cost):
@@ -5851,7 +5889,7 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
                             recipe_context=recipe_context, expected_cast=expected_cast,
                             first_arm="degraded", first_messages=degraded,
                             second_arm="real", second_messages=dialogue,
-                            recipe_facts=recipe_facts,
+                            recipe_facts=recipe_facts, max_cost=args.max_cost,
                         )
                         combined = _combine_orientations(first, second)
 

@@ -16,6 +16,7 @@ import math
 import os
 import re
 import urllib.error
+from unittest.mock import Mock
 
 import pytest
 
@@ -1120,6 +1121,124 @@ def test_run_judge_orientation_records_retry_count_and_charges_budget_for_every_
     [record] = pending["judge_orientations"]
     assert record["evidence"]["judge_retries"] == 1
     assert record["status"] == "invoked"
+
+# ---------------------------------------------------------------------------
+# A retry of a truncated/unparseable judge response is itself a real billed
+# call - up to _JUDGE_JSON_MAX_RETRIES of them per orientation. Every
+# `_run_judge_orientation` call site pre-checks the cap ONCE before the
+# orientation starts, so without a per-retry check a single orientation can
+# overshoot --max-calls/--max-cost by up to _JUDGE_JSON_MAX_RETRIES extra
+# billed judge calls (#7714 follow-up finding). These tests exercise the
+# retry-time cap check directly against the mocked provider call.
+# ---------------------------------------------------------------------------
+
+def test_run_judge_orientation_at_call_cap_skips_retry_and_fails_closed(monkeypatch):
+    mock = Mock(return_value='{"winner": "A", "per_dimension": {')  # truncated
+    monkeypatch.setattr(model_router, "generate_judge_response", mock)
+    pending = {"judge_orientations": []}
+    budget = cl.CallBudget(max_calls=2)
+    budget.used = 1  # max_calls - 1: exactly one more call fits, no retry
+    with pytest.raises(cl.ConversationLabError, match="unparseable output after 0 retries"):
+        cl._run_judge_orientation(
+            orientation="control_first", pending_pair=pending, budget=budget,
+            judge_model="judge", concept="muffins", stage="monday", recipe_context="anchor",
+            expected_cast=["Margaret"], first_arm="control", first_messages=[],
+            second_arm="variant", second_messages=[], recipe_facts="facts",
+        )
+    assert mock.call_count == 1  # the retry was never attempted
+    assert budget.used == 2  # == max_calls: the one real attempt was recorded
+    [record] = pending["judge_orientations"]
+    assert record["evidence"]["judge_retries"] == 0
+    assert record["evidence"]["judge_retry_blocked_by_cap"] == "calls"
+
+def test_run_judge_orientation_uses_exactly_the_remaining_calls_for_retries(monkeypatch):
+    """Off-by-one boundary: with max_calls - 2 used, the first attempt and ONE
+    retry fit (landing exactly on the cap); the second retry does not."""
+    mock = Mock(return_value='{"winner": "A", "per_dimension": {')  # truncated
+    monkeypatch.setattr(model_router, "generate_judge_response", mock)
+    pending = {"judge_orientations": []}
+    budget = cl.CallBudget(max_calls=5)
+    budget.used = 3
+    with pytest.raises(cl.ConversationLabError, match="unparseable output after 1 retry:"):
+        cl._run_judge_orientation(
+            orientation="control_first", pending_pair=pending, budget=budget,
+            judge_model="judge", concept="muffins", stage="monday", recipe_context="anchor",
+            expected_cast=["Margaret"], first_arm="control", first_messages=[],
+            second_arm="variant", second_messages=[], recipe_facts="facts",
+        )
+    assert mock.call_count == 2  # first attempt + exactly one retry
+    assert budget.used == 5  # lands on the cap, never past it
+    [record] = pending["judge_orientations"]
+    assert record["evidence"]["judge_retries"] == 1
+    assert record["evidence"]["judge_retry_blocked_by_cap"] == "calls"
+
+def test_run_judge_orientation_at_cost_cap_skips_retry_and_fails_closed(monkeypatch):
+    mock = Mock(return_value="not json at all")
+    monkeypatch.setattr(model_router, "generate_judge_response", mock)
+    # Plenty of call headroom - only the cost cap should block the retry.
+    monkeypatch.setattr(cl, "_would_exceed_cost", lambda max_cost, baseline=0.0: True)
+    pending = {"judge_orientations": []}
+    budget = cl.CallBudget(max_calls=10)
+    with pytest.raises(cl.ConversationLabError, match="unparseable output after 0 retries"):
+        cl._run_judge_orientation(
+            orientation="control_first", pending_pair=pending, budget=budget,
+            judge_model="judge", concept="muffins", stage="monday", recipe_context="anchor",
+            expected_cast=["Margaret"], first_arm="control", first_messages=[],
+            second_arm="variant", second_messages=[], max_cost=1.0,
+        )
+    assert mock.call_count == 1  # the retry was never attempted
+    assert budget.used == 1
+    [record] = pending["judge_orientations"]
+    assert record["evidence"]["judge_retries"] == 0
+    assert record["evidence"]["judge_retry_blocked_by_cap"] == "cost"
+
+def test_run_judge_orientation_retries_when_caps_have_headroom(monkeypatch):
+    """Existing behavior: with a generous call budget AND cost cap, a
+    truncated first response still gets retried and succeeds - the new
+    per-retry cap check must not interfere when there is room."""
+    good = json.dumps({"winner": "tie", "per_dimension": {d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS}})
+    responses = iter(["not json at all", good])
+    mock = Mock(side_effect=lambda **kwargs: next(responses))
+    monkeypatch.setattr(model_router, "generate_judge_response", mock)
+    monkeypatch.setattr(cl, "_would_exceed_cost", lambda max_cost, baseline=0.0: False)
+    pending = {"judge_orientations": []}
+    budget = cl.CallBudget(max_calls=10)
+    result = cl._run_judge_orientation(
+        orientation="control_first", pending_pair=pending, budget=budget,
+        judge_model="judge", concept="muffins", stage="monday", recipe_context="anchor",
+        expected_cast=["Margaret"], first_arm="control", first_messages=[],
+        second_arm="variant", second_messages=[], max_cost=5.0, baseline=0.0,
+    )
+    assert result["overall"] == "tie"
+    assert mock.call_count == 2  # the retry DID happen
+    assert budget.used == 2
+    [record] = pending["judge_orientations"]
+    assert record["evidence"]["judge_retries"] == 1
+    assert "judge_retry_blocked_by_cap" not in record["evidence"]
+
+def test_judge_orientation_retry_cap_check_uses_the_caller_supplied_baseline(monkeypatch):
+    """`ab --sweep` (`_run_sweep_variant`) checks --max-cost against a PER-
+    VARIANT `baseline_cost`, not an absolute 0.0 - the retry-time check must
+    honor whatever `baseline` its caller passed through, exactly like the
+    sweep call site's own pre-check does."""
+    mock = Mock(return_value="not json at all")
+    monkeypatch.setattr(model_router, "generate_judge_response", mock)
+    cost_spy = Mock(return_value=False)
+    monkeypatch.setattr(cl, "_would_exceed_cost", cost_spy)
+    budget = cl.CallBudget(max_calls=10)
+    with pytest.raises(cl.ConversationLabError, match="unparseable output after 2 retries"):
+        cl._run_judge_orientation(
+            orientation="control_first", pending_pair={"judge_orientations": []}, budget=budget,
+            judge_model="judge", concept="muffins", stage="monday", recipe_context="anchor",
+            expected_cast=["Margaret"], first_arm="control", first_messages=[],
+            second_arm="variant", second_messages=[], max_cost=3.5, baseline=1.25,
+        )
+    assert mock.call_count == 3  # first attempt + 2 retries, none blocked
+    assert cost_spy.call_count == 2  # once before each of the 2 retries
+    for call in cost_spy.call_args_list:
+        args, kwargs = call
+        assert args[0] == 3.5
+        assert kwargs.get("baseline") == 1.25
 
 def test_orientation_diagnostics_separate_disagreement_from_unanimous_tie():
     first = {"overall": "tie", **{d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS}}
