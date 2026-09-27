@@ -63,7 +63,7 @@ Four subcommands:
       (_SHARED_CHARACTER_RULES, _REACTION_DIRECTIVE, DAY_STAGE_DIRECTIONS,
       CHARACTER_DAY_GOALS), the history window HISTORY_DEPTH, the
       output-contract guards (SHAPE_WINDOW, SHAPE_MAX_IN_WINDOW,
-      WORD_BUDGET_TOLERANCE, REWRITE_GUARDS), the wind-down/stop knobs (TICKS_RANGE,
+      WORD_BUDGET_TOLERANCE, REWRITE_GUARDS, WORD_CAPS), the wind-down/stop knobs (TICKS_RANGE,
       WINDDOWN_TRIGGER, STOP_CHECK, OPEN_ENDED_MAX_TICKS), and the director
       knob (DIRECTOR). The patch applies
       to the variant arm's generation call only and is always restored
@@ -245,7 +245,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from math import isfinite, sqrt
-from statistics import mean, stdev
+from statistics import mean, median, stdev
 from typing import Any
 
 import scripts.conversation_heatmap as conversation_heatmap
@@ -323,6 +323,10 @@ ALLOWED_VARIANT_ATTRS: tuple[str, ...] = (
     # subset onto the module default, so the patched module always has all three.
     # A guard set False is not evaluated as a fault, so it cannot trigger a rewrite.
     "REWRITE_GUARDS",
+    # Word-caps knob (#7705 follow-on). False strips every numeric length
+    # constraint from the voice guides/shared rules and suppresses the
+    # word_budget rewrite fault for that arm.
+    "WORD_CAPS",
     # Wind-down/stop knobs (#7680, #7681, #7629). TICKS_RANGE and
     # OPEN_ENDED_MAX_TICKS raise a scene's turn count; WINDDOWN_TRIGGER and
     # STOP_CHECK choose how the scene decides it is done.
@@ -943,12 +947,13 @@ def _load_variant_file(path: Path) -> dict[str, Any]:
     return data
 
 def _clear_prompt_cache(module: Any) -> None:
-    """build_system_prompt caches per-character prompts by name only
-    (scripts/simulate_dialogue_week.py's `_system_prompt_cache`, keyed
-    purely on persona name), so a lever change to e.g.
-    _SHARED_CHARACTER_RULES is silently ignored for any character whose
-    prompt was already built this process, unless the cache is cleared
-    both when applying a variant and when restoring the control."""
+    """build_system_prompt caches per-character prompts by (persona name,
+    WORD_CAPS) — see scripts/simulate_dialogue_week.py's
+    `_system_prompt_cache` — so a lever change to e.g.
+    _SHARED_CHARACTER_RULES or WORD_CAPS is silently ignored for any
+    character whose prompt was already built this process, unless the
+    cache is cleared both when applying a variant and when restoring the
+    control."""
     cache = getattr(module, "_system_prompt_cache", None)
     if isinstance(cache, dict):
         cache.clear()
@@ -1051,6 +1056,12 @@ def _validate_lever_shape(name: str, value: Any) -> None:
         return
     if name == "REWRITE_GUARDS":
         _validate_rewrite_guards_shape(value)
+        return
+    if name == "WORD_CAPS":
+        if not isinstance(value, bool):
+            raise ConversationLabError(
+                f"WORD_CAPS must be a bool, got {value!r}"
+            )
         return
     if name != "HISTORY_DEPTH":
         return
@@ -1374,6 +1385,44 @@ def _rewrite_summary(entries: Any) -> dict[str, Any]:
         "fault_counts": dict(fault_counts),
         "cot_retry": cot_retry,
     }
+
+def _length_stats(messages: Any) -> dict[str, dict[str, float | int | None]]:
+    """mean/median/max words per line, per character, for one arm's transcript.
+
+    Words are counted with `len(line.split())` on each message's `message`
+    field — the same counting the word_budget rewrite guard uses — so the
+    length stats in a lab report speak the same language as the guard.
+    """
+    by_char: dict[str, list[int]] = {}
+    for message in messages or []:
+        if not isinstance(message, dict):
+            continue
+        character = str(message.get("character") or "?")
+        text = str(message.get("message") or "")
+        by_char.setdefault(character, []).append(len(text.split()))
+
+    stats: dict[str, dict[str, float | int | None]] = {}
+    for character, counts in sorted(by_char.items()):
+        stats[character] = {
+            "lines": len(counts),
+            "mean": round(mean(counts), 3) if counts else None,
+            "median": round(median(counts), 3) if counts else None,
+            "max": max(counts) if counts else None,
+        }
+    return stats
+
+
+def _pair_arm_length_stats(pairs: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Per-arm length stats across every completed pair in an `ab` report."""
+    return {
+        "control": _length_stats(
+            [message for pair in pairs for message in (pair.get("control_messages") or [])]
+        ),
+        "variant": _length_stats(
+            [message for pair in pairs for message in (pair.get("variant_messages") or [])]
+        ),
+    }
+
 
 def _pair_arm_rewrite_summaries(pairs: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """The control/variant rewrite_summary block for a set of completed pairs."""
@@ -2484,6 +2533,7 @@ def _build_ab_report(
         "pairs": pairs,
         "partial_pairs": partial_pairs or [],
         "rewrite_summary": _pair_arm_rewrite_summaries(pairs),
+        "length_stats": _pair_arm_length_stats(pairs),
         "results_file": str(result_path),
         **_aggregate_pairs(pairs, args.target, args.dry_run),
     }
@@ -2539,6 +2589,7 @@ def _build_testbed_ab_report(
         "pairs": all_pairs,
         "partial_pairs": partial_pairs or [],
         "rewrite_summary": _pair_arm_rewrite_summaries(all_pairs),
+        "length_stats": _pair_arm_length_stats(all_pairs),
         "results_file": str(result_path),
         **_aggregate_pairs(all_pairs, args.target, args.dry_run),
     }
@@ -3012,6 +3063,7 @@ def _build_sweep_variant_report(
         "pairs": pairs,
         "partial_pairs": partial_pairs or [],
         "rewrite_summary": _pair_arm_rewrite_summaries(pairs),
+        "length_stats": _pair_arm_length_stats(pairs),
         **_aggregate_pairs(pairs, target, dry_run),
     }
 
@@ -3154,6 +3206,13 @@ def _build_sweep_report(
         "control_transcripts_generated": len(control_transcripts),
         "unpaired_control_transcripts": unpaired_control_transcripts,
         "control_top_phrases": _arm_top_phrases(control_transcripts_by_key),
+        "control_length_stats": _length_stats(
+            [
+                message
+                for result in control_transcripts.values()
+                for message in (result.get("messages") or [])
+            ]
+        ),
         "rewrite_summary": {
             "control": _rewrite_summary(
                 [

@@ -575,15 +575,59 @@ def _load_memories(name: str) -> list[dict[str, str]]:
         return []
 
 
-_system_prompt_cache: dict[str, str] = {}
+# Deterministic patterns for WORD_CAPS=False. Each entry is a regex that
+# matches one numeric length constraint and removes it. The list is explicit
+# and covered by tests (tests/test_word_caps.py): a new phrasing in the voice
+# guides or shared rules must be added here deliberately, not discovered by
+# drifting past a catch-all.
+WORD_CAP_PATTERNS: tuple[str, ...] = (
+    # Sentence-count limits, with or without "max": "1-3 sentences max.",
+    # "1-2 sentences.", "1 sentence max."
+    r"\d+(?:\s*-\s*\d+)?\s+sentences?\s+max\.?",
+    r"\d+(?:\s*-\s*\d+)?\s+sentences?\.?",
+    # Average-word ranges: "Average message: 8-15 words."
+    r"Average message:\s*\d+(?:\s*-\s*\d+)?\s+words\.?",
+    # Hard per-character caps: "MAXIMUM 15 words."
+    r"MAXIMUM\s+\d+\s+words\.?",
+    # The shared word-budget bullet.
+    r"- Your word budget is the MAXIMUM stated in HOW YOU SPEAK above, and it "
+    r"is different for every character\. Obey YOUR number, not a number you "
+    r"infer from how others talk\. Going shorter than your budget is always "
+    r"fine; going over it never is\.\n?",
+    # "Be punchy." — a style order whose only job is to police length.
+    r"Be punchy\.",
+)
+
+
+def _strip_word_caps(text: str) -> str:
+    """Remove every numeric length constraint from `text`, leaving the rest.
+
+    Used on _CHARACTER_VOICE_GUIDES and _SHARED_CHARACTER_RULES when
+    WORD_CAPS is False. Deterministic: same input always maps to the same
+    output, and every removed phrase is one of WORD_CAP_PATTERNS above.
+    """
+    for pattern in WORD_CAP_PATTERNS:
+        text = re.sub(pattern, "", text, flags=re.IGNORECASE)
+    # Collapse the holes the removals leave behind.
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r" *\n *", "\n", text)
+    return text.strip()
+
+
+_system_prompt_cache: dict[tuple[str, bool], str] = {}
 
 
 def build_system_prompt(persona: dict[str, Any]) -> str:
     name = persona["name"]
-    if name in _system_prompt_cache:
-        return _system_prompt_cache[name]
+    cache_key = (name, WORD_CAPS)
+    if cache_key in _system_prompt_cache:
+        return _system_prompt_cache[cache_key]
     comm = persona["communication_style"]
     voice_guide = _CHARACTER_VOICE_GUIDES.get(name, "")
+    shared_rules = _SHARED_CHARACTER_RULES
+    if not WORD_CAPS:
+        voice_guide = _strip_word_caps(voice_guide)
+        shared_rules = _strip_word_caps(shared_rules)
 
     # Use bio.md if available, fall back to truncated backstory
     bio = _load_bio(name)
@@ -642,7 +686,7 @@ def build_system_prompt(persona: dict[str, Any]) -> str:
         f"SIGNATURE PHRASES (use as OCCASIONAL spice - once or twice a WEEK, not every message):\n"
         f"{', '.join(comm.get('signature_phrases', []))}\n\n"
         f"TRIGGERS (these make you react strongly): {', '.join(persona.get('triggers', []))}\n\n"
-        f"{_SHARED_CHARACTER_RULES}\n\n"
+        f"{shared_rules}\n\n"
         "CHARACTER-SPECIFIC RULES:\n"
         "- Signature phrases are spice, not default. Use at most once or twice a week.\n"
         "- Email habits (signing with initials, etc.) do NOT apply in group chat.\n"
@@ -650,7 +694,7 @@ def build_system_prompt(persona: dict[str, Any]) -> str:
         "Use plain hyphens and straight apostrophes only.\n"
         "- Conflict is natural. Disagree when your character would disagree. Don't smooth things over artificially."
     )
-    _system_prompt_cache[name] = result
+    _system_prompt_cache[cache_key] = result
     return result
 
 
@@ -811,6 +855,13 @@ WORD_BUDGET_TOLERANCE = 1.3
 # trigger a rewrite. The defaults reproduce today's production behaviour
 # byte-for-byte: every guard runs exactly as before.
 REWRITE_GUARDS: dict = {"repetition": True, "shape": True, "word_budget": True}
+
+# Word-caps knob (#7705 follow-on). True renders every prompt byte-identical
+# to today (the production default). False strips the numeric length
+# constraints from the voice guides and shared rules (see WORD_CAP_PATTERNS)
+# and also suppresses the word_budget rewrite fault, so a caps-off run never
+# tells the model a number.
+WORD_CAPS: bool = True
 
 # One record per generated line (#7705): day, speaker, the fault keys that
 # fired, whether the draft was rewritten, draft/final word counts, the draft
@@ -1205,7 +1256,7 @@ def generate_turn(
                 "messages. Vary the construction, not just the words."
             )
         _fault_keys.append(f"shape:{_shape}")
-    if REWRITE_GUARDS.get("word_budget", True):
+    if REWRITE_GUARDS.get("word_budget", True) and WORD_CAPS:
         _budget = _word_budget_for(persona.get("name", ""))
         if _budget and _over_word_budget(msg, persona.get("name", "")):
             _faults.append(
