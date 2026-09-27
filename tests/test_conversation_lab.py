@@ -1050,6 +1050,77 @@ def test_interrupted_orientation_retains_evidence_before_propagating(monkeypatch
     assert record["evidence"]["prompt"]
     assert record["error"] == "KeyboardInterrupt: synthetic interruption"
 
+# ---------------------------------------------------------------------------
+# _parse_judge_json extracts the first COMPLETE JSON object (#7714) - not
+# "first '{' to last '}'", which a judge's trailing chatter could corrupt.
+# ---------------------------------------------------------------------------
+
+def test_parse_judge_json_ignores_trailing_content_after_closing_brace():
+    payload = {"winner": "A", "per_dimension": {d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS}}
+    raw = "```json\n" + json.dumps(payload) + "\n```\nHope that helps! {stray text}"
+    assert cl._parse_judge_json(raw) == payload
+
+def test_parse_judge_json_handles_braces_inside_string_values():
+    payload = {
+        "winner": "A",
+        "per_dimension": {d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS},
+        "reason": "uses {braces} and a \"quoted\" clause in prose",
+    }
+    raw = json.dumps(payload)
+    assert cl._parse_judge_json(raw) == payload
+
+def test_parse_judge_json_returns_none_for_truncated_object():
+    assert cl._parse_judge_json('{"winner": "A", "per_dimension": {') is None
+    assert cl._parse_judge_json("not json at all") is None
+
+# ---------------------------------------------------------------------------
+# A truncated/unparseable judge response retries the SAME orientation call up
+# to _JUDGE_JSON_MAX_RETRIES times before failing (#7714, 09-27: one truncated
+# Opus verdict aborted a whole paid run). A parseable-but-structurally-invalid
+# response (covered above by test_judge_orientation_rejects_incomplete_or_
+# mistyped_scorecards) is never retried.
+# ---------------------------------------------------------------------------
+
+def test_judge_orientation_retries_truncated_json_then_succeeds(monkeypatch):
+    truncated = '{"winner": "A", "per_dimension": {'
+    good = json.dumps({"winner": "A", "per_dimension": {d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS}})
+    responses = iter([truncated, truncated, good])
+    monkeypatch.setattr(model_router, "generate_judge_response", lambda **kwargs: next(responses))
+    evidence: dict = {}
+    judged = cl._judge_orientation(
+        "judge", "muffins", "monday", None, [], "control", [], "variant", [], evidence=evidence,
+    )
+    assert judged["overall"] == "control"
+    assert evidence["judge_retries"] == 2
+    assert evidence["raw_response"] == good
+
+def test_judge_orientation_fails_after_exhausting_retries(monkeypatch):
+    monkeypatch.setattr(model_router, "generate_judge_response", lambda **kwargs: "not json at all")
+    evidence: dict = {}
+    with pytest.raises(cl.ConversationLabError, match="unparseable output after 2 retries"):
+        cl._judge_orientation(
+            "judge", "muffins", "monday", None, [], "control", [], "variant", [], evidence=evidence,
+        )
+    assert evidence["judge_retries"] == cl._JUDGE_JSON_MAX_RETRIES
+
+def test_run_judge_orientation_records_retry_count_and_charges_budget_for_every_attempt(monkeypatch):
+    good = json.dumps({"winner": "tie", "per_dimension": {d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS}})
+    responses = iter(["garbage", good])
+    monkeypatch.setattr(model_router, "generate_judge_response", lambda **kwargs: next(responses))
+    pending = {"judge_orientations": []}
+    budget = cl.CallBudget(max_calls=5)
+    result = cl._run_judge_orientation(
+        orientation="control_first", pending_pair=pending, budget=budget,
+        judge_model="judge", concept="muffins", stage="monday", recipe_context="anchor",
+        expected_cast=["Margaret"], first_arm="control", first_messages=[],
+        second_arm="variant", second_messages=[],
+    )
+    assert result["overall"] == "tie"
+    assert budget.used == 2  # one failed attempt + one successful attempt
+    [record] = pending["judge_orientations"]
+    assert record["evidence"]["judge_retries"] == 1
+    assert record["status"] == "invoked"
+
 def test_orientation_diagnostics_separate_disagreement_from_unanimous_tie():
     first = {"overall": "tie", **{d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS}}
     second = {**first, "overall": "variant", "turn_taking": "control"}

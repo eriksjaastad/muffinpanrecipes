@@ -297,11 +297,106 @@ DEFAULT_TESTBED_RUNS = 3
 # Erik's standing cost cap for a single conversation-lab invocation, 2026-09-06.
 DEFAULT_MAX_COST_USD = 5.00
 
-# OpenRouter lab models. The provider routes through OpenRouter's OpenAI-
-# compatible API but is pinned to Anthropic's servers (model_router's
-# OPENROUTER_PROVIDER_ROUTE), so these are the same models production uses.
-OPENROUTER_DIALOGUE_MODEL = "openrouter/anthropic/claude-haiku-4.5"
-OPENROUTER_JUDGE_MODEL = "openrouter/anthropic/claude-opus-4.6"
+# ---------------------------------------------------------------------------
+# Swappable lab model sets (#7714). scripts/lab_models.json maps a set name to
+# a {"dialogue": ..., "judge": ...} pair of bare OpenRouter dotted ids
+# (vendor/model, e.g. "anthropic/claude-haiku-4.5"); `ab --models NAME` picks
+# one, defaulting to the file's "default" key. Changing which models the lab
+# uses is then a one-line edit to that file, never a code change here.
+#
+# model_router itself must never read this file (backend/ ships in the Vercel
+# Lambda bundle, scripts/ does not - see .vercelignore) - this module reads it
+# and calls model_router.allow_openrouter_models() to register every set's ids.
+# ---------------------------------------------------------------------------
+LAB_MODELS_PATH = ROOT / "scripts" / "lab_models.json"
+
+# vendor/model - a single slash, no leading/trailing slash, no whitespace.
+_LAB_MODEL_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.:-]+$")
+
+
+@dataclass(frozen=True)
+class LabModelSet:
+    name: str
+    dialogue: str  # bare OpenRouter id, e.g. "anthropic/claude-haiku-4.5"
+    judge: str
+
+
+@dataclass(frozen=True)
+class LabModelsFile:
+    default: str
+    sets: dict[str, "LabModelSet"]
+
+    def get(self, name: str) -> "LabModelSet":
+        try:
+            return self.sets[name]
+        except KeyError:
+            raise SystemExit(
+                f"conversation_lab: --models {name!r} is not defined in {LAB_MODELS_PATH} - "
+                f"defined sets: {', '.join(sorted(self.sets)) or '(none)'}"
+            )
+
+
+def _validate_lab_model_id(path: Path, set_name: str, key: str, value: Any) -> str:
+    if not isinstance(value, str) or not _LAB_MODEL_ID_RE.match(value):
+        raise SystemExit(
+            f"conversation_lab: {path} set {set_name!r} key {key!r} must look like "
+            f"'vendor/model' (e.g. 'anthropic/claude-haiku-4.5'), got {value!r}"
+        )
+    return value
+
+
+def _load_lab_models_file(path: Path = LAB_MODELS_PATH) -> LabModelsFile:
+    """Load and validate a lab_models.json file. Raises SystemExit (never a
+    silent fallback) on anything malformed - a bad model-set file must fail
+    loud before any generation call, the same as every other lab config."""
+    try:
+        raw_text = path.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise SystemExit(f"conversation_lab: model set file not found: {path}") from exc
+    try:
+        raw = json.loads(raw_text)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"conversation_lab: model set file is not valid JSON: {path} ({exc})") from exc
+    if not isinstance(raw, dict):
+        raise SystemExit(f"conversation_lab: model set file must be a JSON object: {path}")
+    default = raw.get("default")
+    sets_raw = raw.get("sets")
+    if not isinstance(default, str) or not default:
+        raise SystemExit(f"conversation_lab: {path} 'default' must be a non-empty string")
+    if not isinstance(sets_raw, dict) or not sets_raw:
+        raise SystemExit(f"conversation_lab: {path} 'sets' must be a non-empty object")
+    sets: dict[str, LabModelSet] = {}
+    for set_name, entry in sets_raw.items():
+        if not isinstance(entry, dict) or set(entry) != {"dialogue", "judge"}:
+            raise SystemExit(
+                f"conversation_lab: {path} set {set_name!r} must be an object with exactly "
+                f"'dialogue' and 'judge' keys, got {entry!r}"
+            )
+        dialogue = _validate_lab_model_id(path, set_name, "dialogue", entry["dialogue"])
+        judge = _validate_lab_model_id(path, set_name, "judge", entry["judge"])
+        sets[set_name] = LabModelSet(name=set_name, dialogue=dialogue, judge=judge)
+    if default not in sets:
+        raise SystemExit(f"conversation_lab: {path} 'default' {default!r} is not one of 'sets': {sorted(sets)}")
+    return LabModelsFile(default=default, sets=sets)
+
+
+# Loaded once at import - scripts/ is not part of the Vercel Lambda bundle, so
+# reading this file here (unlike in backend/utils/model_router.py) is safe.
+_LAB_MODELS = _load_lab_models_file()
+_DEFAULT_LAB_MODEL_SET = _LAB_MODELS.get(_LAB_MODELS.default)
+
+# Register every set's ids with model_router's OpenRouter allowlists (both
+# dialogue and judge) up front - regardless of which set a given invocation
+# picks at runtime via --models.
+for _lab_model_set in _LAB_MODELS.sets.values():
+    model_router.allow_openrouter_models(dialogue=_lab_model_set.dialogue, judge=_lab_model_set.judge)
+del _lab_model_set
+
+# Kept as module attributes (names other tests/code import) - always the
+# DEFAULT set's ids, "openrouter/"-scheme-prefixed the way model_router.
+# parse_model expects (it splits on the FIRST "/" only).
+OPENROUTER_DIALOGUE_MODEL = f"openrouter/{_DEFAULT_LAB_MODEL_SET.dialogue}"
+OPENROUTER_JUDGE_MODEL = f"openrouter/{_DEFAULT_LAB_MODEL_SET.judge}"
 
 _OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
 _OPENROUTER_CREDITS_URL = "https://openrouter.ai/api/v1/credits"
@@ -558,10 +653,78 @@ def _provider_for(args: argparse.Namespace) -> str:
     return getattr(args, "provider", None) or "anthropic"
 
 
-def _provider_route_for(provider: str) -> dict[str, Any] | None:
+def _models_arg_for(args: argparse.Namespace) -> str | None:
+    """The --models value, or None when this subcommand has no such flag
+    (only `ab` gets --models) or it was not passed."""
+    return getattr(args, "models", None)
+
+
+def _resolve_lab_model_set(args: argparse.Namespace) -> "LabModelSet":
+    """The LabModelSet an `ab` invocation uses - always the REAL ids, never
+    collapsed to "template" by --dry-run, so provider_route reporting and the
+    STOP_CHECK/haiku compatibility check both reason about the actual set even
+    under a zero-cost dry run.
+
+    --models is only meaningful with --provider openrouter: --provider
+    anthropic is the production-direct path and always runs the default set.
+    """
+    name = _models_arg_for(args) or _LAB_MODELS.default
+    if name != _LAB_MODELS.default and _provider_for(args) != "openrouter":
+        raise SystemExit(
+            f"conversation_lab: --models {name!r} is only meaningful with --provider "
+            f"openrouter (--provider anthropic always uses the {_LAB_MODELS.default!r} set)"
+        )
+    return _LAB_MODELS.get(name)
+
+
+def _refuse_if_stop_check_conflicts_with_models(
+    args: argparse.Namespace, variant: dict[str, Any] | None,
+) -> None:
+    """STOP_CHECK['provider'] == "haiku" always calls real Anthropic Claude
+    Haiku directly (backend/utils/stop_check.py's HAIKU_MODEL, through
+    model_router with --provider anthropic) - it never routes through
+    --models. Running a non-default model set (e.g. --models deepseek) with a
+    haiku stop check would silently spend on Claude while everything else in
+    the run is billed to a different vendor, so refuse instead of doing that
+    quietly. The lab's own convention is STOP_CHECK provider="jev" (see
+    scripts/simulate_dialogue_week.py); stop_check.py's haiku path stays out
+    of scope for #7714 (it is not swappable via lab_models.json).
+
+    Checks BOTH the control arm (the module's current, unpatched STOP_CHECK -
+    control is never variant-patched) and the variant arm (the variant's own
+    STOP_CHECK override, if any, else the same module default).
+    """
+    if getattr(args, "dry_run", False):
+        return  # zero real calls happen under --dry-run - nothing to silently misroute
+    if _provider_for(args) != "openrouter":
+        return
+    model_set = _resolve_lab_model_set(args)
+    if model_set.name == _LAB_MODELS.default:
+        return
+    control_provider = simulate_module.STOP_CHECK.get("provider")
+    variant_stop_check = variant.get("STOP_CHECK") if isinstance(variant, dict) else None
+    variant_provider = (
+        variant_stop_check.get("provider")
+        if isinstance(variant_stop_check, dict) and "provider" in variant_stop_check
+        else control_provider
+    )
+    if "haiku" in (control_provider, variant_provider):
+        raise SystemExit(
+            f"conversation_lab: --models {model_set.name!r} cannot run with STOP_CHECK "
+            "provider='haiku' - stop_check.py's haiku provider always calls Anthropic "
+            "Claude Haiku directly, never through --models, so this would silently spend "
+            "on Claude while everything else runs on a different model set. Set STOP_CHECK "
+            f"provider to 'jev' in the variant, or drop --models to use the "
+            f"{_LAB_MODELS.default!r} default."
+        )
+
+
+def _provider_route_for(provider: str, model_set: "LabModelSet | None" = None) -> dict[str, Any] | None:
     if provider != "openrouter":
         return None
-    return model_router.OPENROUTER_PROVIDER_ROUTE
+    if model_set is None:
+        model_set = _DEFAULT_LAB_MODEL_SET
+    return model_router.openrouter_provider_route(model_set.dialogue)
 
 
 def _resolve_provider(args: argparse.Namespace, ledger_path: Any) -> str | None:
@@ -773,9 +936,11 @@ def _openrouter_fields_for(
 ) -> dict[str, Any]:
     """The provider_route/cost/key fields added to every OpenRouter report."""
     provider = _provider_for(args)
-    fields: dict[str, Any] = {"provider_route": _provider_route_for(provider)}
+    model_set = _resolve_lab_model_set(args) if provider == "openrouter" else None
+    fields: dict[str, Any] = {"provider_route": _provider_route_for(provider, model_set)}
     if provider != "openrouter":
         return fields
+    fields["models"] = {"set": model_set.name, "dialogue": model_set.dialogue, "judge": model_set.judge}
     fields.update(_openrouter_cost_report(cost_by_model))
     key_report = _openrouter_key_usage_report()
     if key_report is not None:
@@ -1547,24 +1712,71 @@ def _build_pairwise_prompt(
         "Score this pair and return the JSON verdict described in your instructions."
     )
 
-def _parse_judge_json(raw: str) -> dict[str, Any] | None:
-    """Tolerant slice-and-parse: first '{' to last '}'.
+def _extract_first_json_object(raw: str) -> str | None:
+    """Slice out the first BALANCED {...} object in `raw`, honoring quoted
+    string literals (so a brace inside "reason": "uses {braces} in prose"
+    never miscounts) and escapes inside those strings.
 
-    Same approach as backend/admin/cron_routes.py's `_parse_judge_json`
-    (~line 313) - judge models occasionally wrap JSON in a markdown fence
-    or add a sentence of preamble despite being told not to. Reimplemented
+    This is "first complete JSON object", not "first '{' to last '}'" - a
+    judge that keeps talking after the JSON (or wraps it in a markdown fence
+    with commentary after the closing fence) must not corrupt the slice by
+    dragging in trailing braces that aren't part of the verdict. Returns None
+    when there's no '{' at all, or the object never closes (truncated output -
+    #7714, 09-27: one truncated Opus verdict aborted a whole paid run).
+    """
+    start = raw.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(raw)):
+        ch = raw[i]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return raw[start : i + 1]
+    return None
+
+
+def _parse_judge_json(raw: str) -> dict[str, Any] | None:
+    """Tolerant parse: extract the first complete JSON object (see
+    _extract_first_json_object) and parse it. Same intent as
+    backend/admin/cron_routes.py's `_parse_judge_json` (~line 313) - judge
+    models occasionally wrap JSON in a markdown fence or add a sentence of
+    preamble/trailing chatter despite being told not to. Reimplemented
     locally (not imported) so this module does not depend on a private
     helper in a file it is not allowed to edit.
     """
-    start = raw.find("{")
-    end = raw.rfind("}")
-    if start == -1 or end == -1 or end <= start:
+    candidate = _extract_first_json_object(raw)
+    if candidate is None:
         return None
     try:
-        parsed = json.loads(raw[start : end + 1])
+        parsed = json.loads(candidate)
     except json.JSONDecodeError:
         return None
     return parsed if isinstance(parsed, dict) else None
+
+
+# A truncated/unparseable judge response gets this many retries of the SAME
+# orientation call before _judge_orientation gives up (#7714, 09-27: one
+# truncated Opus verdict aborted a whole paid run). A structurally invalid
+# but PARSEABLE response (missing "winner", wrong-typed per_dimension, ...) is
+# never retried - that would loosen validation instead of working around a
+# transport/truncation glitch.
+_JUDGE_JSON_MAX_RETRIES = 2
 
 def _judge_orientation(
     judge_model: str,
@@ -1599,37 +1811,53 @@ def _judge_orientation(
     if evidence is not None:
         evidence["guard_generation_attempts_before"] = before_attempts
         evidence["model_router_invoked"] = True
-    try:
-        raw = model_router.generate_judge_response(
-            prompt=prompt,
-            system_prompt=PAIRWISE_JUDGE_SYSTEM_PROMPT,
-            model=judge_model,
-            temperature=0.2,
-        )
-    except BaseException as original_error:
+
+    raw = ""
+    parsed: dict[str, Any] | None = None
+    retries_used = 0
+    for attempt in range(_JUDGE_JSON_MAX_RETRIES + 1):
+        try:
+            raw = model_router.generate_judge_response(
+                prompt=prompt,
+                system_prompt=PAIRWISE_JUDGE_SYSTEM_PROMPT,
+                model=judge_model,
+                temperature=0.2,
+            )
+        except BaseException as original_error:
+            if evidence is not None:
+                evidence["judge_retries"] = retries_used
+                try:
+                    evidence["guard_generation_attempts_after"] = _budget_generation_attempts()
+                except BaseException as snapshot_error:
+                    evidence["generation_attempt_snapshot_error"] = (
+                        f"{type(snapshot_error).__name__}: {snapshot_error}"
+                    )
+            raise
         if evidence is not None:
-            try:
-                evidence["guard_generation_attempts_after"] = _budget_generation_attempts()
-            except BaseException as snapshot_error:
+            evidence["raw_response"] = raw
+        try:
+            after_attempts = _budget_generation_attempts()
+        except BaseException as snapshot_error:
+            if evidence is not None:
                 evidence["generation_attempt_snapshot_error"] = (
                     f"{type(snapshot_error).__name__}: {snapshot_error}"
                 )
-        raise
-    if evidence is not None:
-        evidence["raw_response"] = raw
-    try:
-        after_attempts = _budget_generation_attempts()
-    except BaseException as snapshot_error:
+            raise
         if evidence is not None:
-            evidence["generation_attempt_snapshot_error"] = (
-                f"{type(snapshot_error).__name__}: {snapshot_error}"
-            )
-        raise
+            evidence["guard_generation_attempts_after"] = after_attempts
+        parsed = _parse_judge_json(raw)
+        if parsed is not None:
+            break
+        if attempt < _JUDGE_JSON_MAX_RETRIES:
+            retries_used += 1
     if evidence is not None:
-        evidence["guard_generation_attempts_after"] = after_attempts
-    parsed = _parse_judge_json(raw)
+        evidence["judge_retries"] = retries_used
+
     if parsed is None:
-        raise ConversationLabError(f"pairwise judge returned unparseable output: {raw[:200]!r}")
+        raise ConversationLabError(
+            f"pairwise judge returned unparseable output after {retries_used} "
+            f"retr{'y' if retries_used == 1 else 'ies'}: {raw[:200]!r}"
+        )
 
     if "winner" not in parsed:
         raise ConversationLabError("pairwise judge response is missing winner")
@@ -1703,6 +1931,12 @@ def _run_judge_orientation(
         original_error = exc
         original_traceback = exc.__traceback__
 
+    # A retried judge call (see _JUDGE_JSON_MAX_RETRIES) makes MORE than one
+    # real generation attempt for this single orientation - the guard delta
+    # below must expect exactly (1 + retries), not a hardcoded 1.
+    judge_retries = evidence.get("judge_retries") or 0
+    expected_attempts = 1 + judge_retries
+
     guard_active = _ACTIVE_BUDGET_GUARD.get() is not None
     if not guard_active:
         # Without a guard, the orientation function directly invoked the
@@ -1717,9 +1951,11 @@ def _run_judge_orientation(
             attempted = None
         else:
             delta = after - before
-            attempted = delta == 1
-            if delta < 0 or delta > 1:
-                evidence["generation_attempt_accounting_error"] = f"unexpected guarded attempt delta: {delta}"
+            attempted = delta == expected_attempts
+            if delta < 0 or delta > expected_attempts:
+                evidence["generation_attempt_accounting_error"] = (
+                    f"unexpected guarded attempt delta: {delta} (expected {expected_attempts})"
+                )
                 attempted = None
 
     # Guard preflight failures (token count, route, reservation, or cap) have
@@ -1728,7 +1964,7 @@ def _run_judge_orientation(
     entry = None
     if attempted is not False:
         if attempted is True:
-            budget.record(1)
+            budget.record(expected_attempts)
         entry = {
             "orientation": orientation,
             "status": "invoked" if attempted else "accounting_unknown",
@@ -2014,36 +2250,37 @@ def _require_openrouter_key() -> None:
         )
 
 
-def _resolve_openrouter_models(dry_run: bool) -> tuple[str, str, str]:
+def _resolve_openrouter_models(dry_run: bool, model_set: "LabModelSet") -> tuple[str, str, str]:
     """Return (mode, dialogue_model, judge_model) for --provider openrouter.
 
-    The model strings are the OpenRouter dotted names for the same models
-    production uses; prompts/temperatures/max_tokens are unchanged. Fails
+    The model strings are the OpenRouter dotted names named by `model_set`
+    (scripts/lab_models.json, "claude" by default - the same models
+    production uses); prompts/temperatures/max_tokens are unchanged. Fails
     loud on a missing OPENROUTER_API_KEY unless --dry-run is passed.
     """
     if dry_run:
         return "template", "template", "template"
     _require_openrouter_key()
-    return "openai", OPENROUTER_DIALOGUE_MODEL, OPENROUTER_JUDGE_MODEL
+    return "openai", f"openrouter/{model_set.dialogue}", f"openrouter/{model_set.judge}"
 
 
-def _resolve_openrouter_judge_model(dry_run: bool) -> str:
+def _resolve_openrouter_judge_model(dry_run: bool, model_set: "LabModelSet") -> str:
     if dry_run:
         return "template"
     _require_openrouter_key()
-    return OPENROUTER_JUDGE_MODEL
+    return f"openrouter/{model_set.judge}"
 
 
 def _resolve_models_for_args(args: argparse.Namespace) -> tuple[str, str, str]:
     provider = _provider_for(args)
     if provider == "openrouter":
-        return _resolve_openrouter_models(args.dry_run)
+        return _resolve_openrouter_models(args.dry_run, _resolve_lab_model_set(args))
     return _resolve_models(args.dry_run)
 
 
 def _resolve_judge_model_for_args(args: argparse.Namespace) -> str:
     if _provider_for(args) == "openrouter":
-        return _resolve_openrouter_judge_model(args.dry_run)
+        return _resolve_openrouter_judge_model(args.dry_run, _resolve_lab_model_set(args))
     return "template" if args.dry_run else _resolve_judge_model()
 
 def _resolve_models(dry_run: bool) -> tuple[str, str, str]:
@@ -2517,6 +2754,13 @@ def cmd_ab(args: argparse.Namespace) -> None:
             "a single --concept run has no scenario to attach frozen days to"
         )
 
+    if _models_arg_for(args) is not None:
+        # Validates the name and refuses --provider anthropic + a non-default
+        # set REGARDLESS of which branch below actually resolves models -
+        # _resolve_models_for_args only calls _resolve_lab_model_set on the
+        # openrouter path, so the anthropic path needs this checked explicitly.
+        _resolve_lab_model_set(args)
+
     mode, default_model, judge_model = _resolve_models_for_args(args)
 
     if args.sweep:
@@ -2525,6 +2769,7 @@ def cmd_ab(args: argparse.Namespace) -> None:
 
     variant_path = Path(args.variant)
     variant = _load_variant_file(variant_path)
+    _refuse_if_stop_check_conflicts_with_models(args, variant)
 
     if args.testbed is not None:
         _cmd_ab_testbed(args, variant_path, variant, mode, default_model, judge_model)
@@ -3617,6 +3862,7 @@ def _cmd_ab_sweep(
             validate_variant(simulate_module, _variant_body)
         except ConversationLabError as exc:
             raise ConversationLabError(f"variant {_variant_name!r}: {exc}") from exc
+        _refuse_if_stop_check_conflicts_with_models(args, _variant_body)
 
     control_budget = CallBudget(max_calls=args.max_calls)
     control_baseline = _total_cost_or_none() or 0.0
@@ -5984,6 +6230,17 @@ def _add_provider_option(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_models_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--models", default=None, choices=tuple(sorted(_LAB_MODELS.sets)),
+        help=(
+            f"Which model set from {LAB_MODELS_PATH} to use for dialogue + judge "
+            f"calls (default: {_LAB_MODELS.default!r}). Only meaningful with "
+            "--provider openrouter - --provider anthropic always uses the default set."
+        ),
+    )
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="conversation_lab",
@@ -6111,6 +6368,7 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     _add_provider_option(ab)
+    _add_models_option(ab)
     _add_budget_guard_options(ab)
 
     bench = sub.add_parser(

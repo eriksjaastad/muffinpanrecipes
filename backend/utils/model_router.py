@@ -13,7 +13,7 @@ from __future__ import annotations
 import os
 import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 from backend.utils.logging import get_logger
 
@@ -116,8 +116,49 @@ OPENROUTER_JUDGE_ALLOWLIST = {
 
 # Pin every OpenRouter call to Anthropic's own servers and never fall back to
 # Vertex/Bedrock. Erik's account guardrail (verified 2026-09-27) means the
-# served model is exactly the one production uses.
+# served model is exactly the one production uses. Kept as a literal alias for
+# the anthropic vendor (equal to openrouter_provider_route("anthropic/...")) -
+# some callers/tests still import this constant directly.
 OPENROUTER_PROVIDER_ROUTE = {"order": ["anthropic"], "allow_fallbacks": False}
+
+
+def openrouter_provider_route(model_id: str) -> dict[str, Any]:
+    """Provider-routing hint for an OpenRouter dotted model id (e.g.
+    ``anthropic/claude-haiku-4.5`` or ``deepseek/deepseek-v4.1-flash``),
+    derived from its vendor prefix - the part before the first ``/`` - rather
+    than a single hardcoded global. For any anthropic id this returns exactly
+    OPENROUTER_PROVIDER_ROUTE. Every route still pins to one vendor and never
+    falls back (#7714 - swappable lab models needed a route per model, not
+    one route for the whole process).
+    """
+    if "/" not in model_id:
+        raise RuntimeError(f"Cannot derive an OpenRouter provider route from model id: {model_id!r}")
+    vendor = model_id.split("/", 1)[0].strip().lower()
+    if not vendor:
+        raise RuntimeError(f"Cannot derive an OpenRouter provider route from model id: {model_id!r}")
+    return {"order": [vendor], "allow_fallbacks": False}
+
+
+# ---------------------------------------------------------------------------
+# Lab-only OpenRouter allowlist registration (#7714)
+#
+# scripts/conversation_lab.py reads scripts/lab_models.json and calls
+# allow_openrouter_models() to register whichever model ids that file names -
+# this module must NEVER read that file itself: backend/ ships in the Vercel
+# Lambda bundle and scripts/lab_models.json does not (see .vercelignore), so a
+# file read here would 404 in production. Registration is additive only -
+# it never removes an id from DEFAULT_OPENROUTER_ALLOWLIST/OPENROUTER_JUDGE_ALLOWLIST.
+# ---------------------------------------------------------------------------
+_EXTRA_OPENROUTER_DIALOGUE_MODELS: set[str] = set()
+_EXTRA_OPENROUTER_JUDGE_MODELS: set[str] = set()
+
+
+def allow_openrouter_models(*, dialogue: str, judge: str) -> None:
+    """Register one lab model set's OpenRouter ids as allowed for dialogue
+    generation and for the judge, in addition to whatever is already allowed.
+    Safe to call more than once (e.g. once per set in lab_models.json)."""
+    _EXTRA_OPENROUTER_DIALOGUE_MODELS.add(dialogue)
+    _EXTRA_OPENROUTER_JUDGE_MODELS.add(judge)
 
 # ---------------------------------------------------------------------------
 # Google model policy (fail-closed)
@@ -335,9 +376,10 @@ def ensure_google_model_allowed(model: str) -> None:
 
 def _allowed_openrouter_models() -> set[str]:
     raw = os.getenv("OPENROUTER_MODEL_ALLOWLIST", "").strip()
-    if not raw:
-        return set(DEFAULT_OPENROUTER_ALLOWLIST)
-    return {m.strip() for m in raw.split(",") if m.strip()}
+    base = {m.strip() for m in raw.split(",") if m.strip()} if raw else set(DEFAULT_OPENROUTER_ALLOWLIST)
+    # Union, not override - a lab model set registered via allow_openrouter_models()
+    # must stay allowed even when OPENROUTER_MODEL_ALLOWLIST is set for something else.
+    return base | _EXTRA_OPENROUTER_DIALOGUE_MODELS
 
 
 def ensure_openrouter_model_allowed(model: str) -> None:
@@ -583,7 +625,7 @@ def _generate_openrouter(
         # the production call shape.
         max_tokens=4096,
         extra_body={
-            "provider": OPENROUTER_PROVIDER_ROUTE,
+            "provider": openrouter_provider_route(model),
             "usage": {"include": True},
         },
     )
@@ -832,10 +874,11 @@ def generate_judge_response(
     """
     routed = parse_model(model)
     if routed.provider == "openrouter":
-        if routed.model not in OPENROUTER_JUDGE_ALLOWLIST:
+        allowed_judge_models = OPENROUTER_JUDGE_ALLOWLIST | _EXTRA_OPENROUTER_JUDGE_MODELS
+        if routed.model not in allowed_judge_models:
             raise RuntimeError(
                 f"OpenRouter model not in judge allowlist: {routed.model}. "
-                f"Allowed: {', '.join(sorted(OPENROUTER_JUDGE_ALLOWLIST))}"
+                f"Allowed: {', '.join(sorted(allowed_judge_models))}"
             )
     elif routed.model not in JUDGE_ALLOWLIST:
         raise RuntimeError(
