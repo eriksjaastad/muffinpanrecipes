@@ -20,6 +20,13 @@ external_resources:
       - GOOGLE_MODEL_ALLOWLIST
     notes: Routed via backend/utils/model_router.py using google-genai SDK.
 
+  - name: OpenRouter
+    purpose: Lab-only routing for Haiku dialogue, Opus judge, and Jev stop checks onto one bill.
+    env_vars:
+      - OPENROUTER_API_KEY
+      - OPENROUTER_MODEL_ALLOWLIST
+    notes: Chat completions via backend/utils/model_router.py (provider pinned to Anthropic; usage.cost requested), Jev decisions via backend/utils/stop_check.py, key limit via https://openrouter.ai/api/v1/key in scripts/conversation_lab.py.
+
   - name: Nano Banana (Gemini image generation)
     purpose: Image generation comparison vs Stability AI.
     env_vars:

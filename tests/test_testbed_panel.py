@@ -268,7 +268,8 @@ def test_testbed_run_hands_the_judge_the_recipe_method(tmp_path, monkeypatch):
     variant.write_text(json.dumps({"_SHARED_CHARACTER_RULES": "VARIANT"}))
 
     cl.main([
-        "ab", "--stage", "tuesday", "--testbed", "--runs", "1",
+        "ab", "--provider", "anthropic",
+        "--stage", "tuesday", "--testbed", "--runs", "1",
         "--variant", str(variant), "--results-dir", str(tmp_path / "r"),
         "--max-calls", "500", "--no-log",
     ])
@@ -288,7 +289,8 @@ def test_sweep_run_hands_the_judge_the_recipe_method(tmp_path, monkeypatch):
     (sweep / "a.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "VARIANT_A"}))
 
     cl.main([
-        "ab", "--stage", "tuesday", "--sweep", str(sweep), "--runs", "1",
+        "ab", "--provider", "anthropic",
+        "--stage", "tuesday", "--sweep", str(sweep), "--runs", "1",
         "--results-dir", str(tmp_path / "r"), "--max-calls", "500", "--no-log",
     ])
 
@@ -306,7 +308,8 @@ def test_the_w38_method_reaches_the_judge_verbatim(tmp_path, monkeypatch):
     variant.write_text(json.dumps({"_SHARED_CHARACTER_RULES": "VARIANT"}))
 
     cl.main([
-        "ab", "--stage", "tuesday", "--testbed", "--runs", "1",
+        "ab", "--provider", "anthropic",
+        "--stage", "tuesday", "--testbed", "--runs", "1",
         "--variant", str(variant), "--results-dir", str(tmp_path / "r"),
         "--max-calls", "500", "--no-log",
     ])

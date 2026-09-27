@@ -117,8 +117,9 @@ def test_check_trigger_sets_goal_met_from_mocked_stop_check(monkeypatch):
         cost_usd=0.000013272,
     )
 
-    def fake_check(lines, provider, *, day, objective):
-        calls.append({"day": day, "lines": list(lines), "objective": objective, "provider": provider})
+    def fake_check(lines, provider, *, day, objective, haiku_model=None):
+        calls.append({"day": day, "lines": list(lines), "objective": objective, "provider": provider,
+                      "haiku_model": haiku_model})
         return verdict
 
     recorded, _result = _scripted_run(

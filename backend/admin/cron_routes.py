@@ -691,6 +691,7 @@ def _judge_dialogue(
     episode: dict,
     recipe_context: str | None = None,
     recipe_facts: str | None = None,
+    judge_model: str | None = None,
 ) -> tuple[bool, str]:
     """Judge today's dialogue with growing context from previous days.
 
@@ -704,8 +705,12 @@ def _judge_dialogue(
     When recipe_context is supplied, the judge enforces recipe fidelity —
     flagging dialogue that drifts off the actual dish (e.g., characters
     debating "butter-to-sugar ratios" for a savory hash-brown recipe).
+
+    ``judge_model`` is an optional override for lab callers that resolve
+    their own judge route (for example OpenRouter). Production callers omit
+    it and keep the direct-Anthropic default from ``config.judge_model``.
     """
-    judge_model = config.judge_model
+    judge_model = judge_model or config.judge_model
 
     # Build context from previous days
     previous_context = []

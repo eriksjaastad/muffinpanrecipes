@@ -236,6 +236,8 @@ import sys
 import time
 import urllib.error
 import urllib.request
+
+import httpx
 from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -274,6 +276,20 @@ DEFAULT_TESTBED_RUNS = 3
 
 # Erik's standing cost cap for a single conversation-lab invocation, 2026-09-06.
 DEFAULT_MAX_COST_USD = 5.00
+
+# OpenRouter lab models. The provider routes through OpenRouter's OpenAI-
+# compatible API but is pinned to Anthropic's servers (model_router's
+# OPENROUTER_PROVIDER_ROUTE), so these are the same models production uses.
+OPENROUTER_DIALOGUE_MODEL = "openrouter/anthropic/claude-haiku-4.5"
+OPENROUTER_JUDGE_MODEL = "openrouter/anthropic/claude-opus-4.6"
+
+_OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
+_OPENROUTER_KEY_TIMEOUT_SECONDS = 30.0
+
+# Key snapshots for one paid OpenRouter run. `before` is captured in main()
+# before dispatch; `after` is fetched lazily by the first report builder.
+_OPENROUTER_KEY_BEFORE: dict[str, Any] | None = None
+_OPENROUTER_KEY_AFTER: dict[str, Any] | None = None
 
 # Public, read-only CDN mirror of published/in-progress episode JSON.
 _CDN_BASE = "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/episodes"
@@ -494,6 +510,200 @@ def _would_exceed_cost(max_cost: float, baseline: float = 0.0) -> bool:
     if total_cost is None:
         return False
     return (total_cost - baseline) >= max_cost
+
+
+# ---------------------------------------------------------------------------
+# OpenRouter (lab-only) key and cost accounting
+# ---------------------------------------------------------------------------
+def _provider_for(args: argparse.Namespace) -> str:
+    """The provider a command invocation is running under.
+
+    argparse always sets `provider` for ab/bench/calibrate; direct calls from
+    tests (or internal callers) that predate the flag default to the
+    production-direct Anthropic path.
+    """
+    return getattr(args, "provider", None) or "anthropic"
+
+
+def _provider_route_for(provider: str) -> dict[str, Any] | None:
+    if provider != "openrouter":
+        return None
+    return model_router.OPENROUTER_PROVIDER_ROUTE
+
+
+def _resolve_provider(args: argparse.Namespace, ledger_path: Any) -> str | None:
+    """Which provider a CLI invocation uses.
+
+    The CLI default is openrouter for ab/bench/calibrate. A --budget-ledger
+    run always uses the production-direct Anthropic path, because the guard
+    only meters the Anthropic SDK.
+    """
+    if args.command not in {"ab", "bench", "calibrate"}:
+        return None
+    explicit = getattr(args, "provider", None)
+    if explicit:
+        return explicit
+    return "anthropic" if ledger_path is not None else "openrouter"
+
+
+def _openrouter_preflight(args: argparse.Namespace) -> None:
+    """Check the OpenRouter key limit before any generation and refuse if it
+    cannot cover --max-cost. Prints limit and limit_remaining."""
+    global _OPENROUTER_KEY_BEFORE
+    _require_openrouter_key()
+    key_info = _openrouter_fetch_key()
+    _OPENROUTER_KEY_BEFORE = key_info
+    print(
+        "[openrouter] key limit: "
+        f"${key_info['limit']:.2f}  limit_remaining: ${key_info['limit_remaining']:.2f}"
+    )
+    if key_info["limit_remaining"] < args.max_cost:
+        raise SystemExit(
+            "conversation_lab: OpenRouter limit_remaining "
+            f"${key_info['limit_remaining']:.2f} is below --max-cost ${args.max_cost:.2f}; "
+            "refusing to start"
+        )
+
+
+def _openrouter_fetch_key() -> dict[str, Any]:
+    """GET OpenRouter's /key endpoint and return limit, remaining and usage."""
+    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if not api_key:
+        raise ConversationLabError("OPENROUTER_API_KEY is not set")
+    try:
+        response = httpx.get(
+            _OPENROUTER_KEY_URL,
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=_OPENROUTER_KEY_TIMEOUT_SECONDS,
+        )
+    except httpx.HTTPError as exc:
+        raise ConversationLabError(f"openrouter key check failed: {exc}") from exc
+    if response.status_code != 200:
+        raise ConversationLabError(f"openrouter key check returned HTTP {response.status_code}")
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise ConversationLabError("openrouter key check returned malformed JSON") from exc
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
+        raise ConversationLabError("openrouter key check response is missing the data object")
+    limit = data.get("limit")
+    limit_remaining = data.get("limit_remaining")
+    usage = data.get("usage")
+    for field, value in (("limit", limit), ("limit_remaining", limit_remaining)):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ConversationLabError(f"openrouter key check {field} is invalid")
+    return {
+        "limit": float(limit),
+        "limit_remaining": float(limit_remaining),
+        "usage": usage if isinstance(usage, (dict, int, float)) else None,
+    }
+
+
+def _openrouter_key_usage_report() -> dict[str, Any] | None:
+    """Before/after OpenRouter key snapshots for the result JSON."""
+    global _OPENROUTER_KEY_AFTER
+    if _OPENROUTER_KEY_BEFORE is None:
+        return None
+    if _OPENROUTER_KEY_AFTER is None:
+        try:
+            _OPENROUTER_KEY_AFTER = _openrouter_fetch_key()
+        except Exception as exc:
+            return {
+                "before": _OPENROUTER_KEY_BEFORE,
+                "after": None,
+                "after_error": f"{type(exc).__name__}: {exc}",
+            }
+    return {"before": _OPENROUTER_KEY_BEFORE, "after": _OPENROUTER_KEY_AFTER}
+
+
+def _openrouter_router_cost_by_model() -> dict[str, float]:
+    """OpenRouter usage.cost totals recorded by the model router."""
+    totals: dict[str, float] = {}
+    try:
+        entries = model_router.get_cost_entries()
+    except Exception:
+        return totals
+    for entry in entries:
+        if not isinstance(entry, dict) or entry.get("provider") != "openrouter":
+            continue
+        actual = entry.get("actual_cost")
+        if isinstance(actual, bool) or not isinstance(actual, (int, float)):
+            continue
+        if not isfinite(actual):
+            continue
+        model = str(entry.get("model") or "unknown")
+        key = f"openrouter/{model}"
+        totals[key] = round(totals.get(key, 0.0) + float(actual), 9)
+    return totals
+
+
+def _jev_cost_by_model_from_log(log: Any) -> dict[str, float]:
+    totals: dict[str, float] = {}
+    for entry in log or []:
+        if not isinstance(entry, dict) or entry.get("provider") != "jev":
+            continue
+        cost = entry.get("cost_usd")
+        if isinstance(cost, bool) or not isinstance(cost, (int, float)):
+            continue
+        if not isfinite(cost):
+            continue
+        model = str(entry.get("model") or "typesafe/jev-1.13")
+        key = f"jev/{model}"
+        totals[key] = round(totals.get(key, 0.0) + float(cost), 9)
+    return totals
+
+
+def _openrouter_cost_by_model_for_pairs(
+    pairs: list[dict[str, Any]],
+    partial_pairs: list[dict[str, Any]] | None = None,
+) -> dict[str, float]:
+    """OpenRouter + Jev stop-check costs across completed and partial pairs."""
+    totals = _openrouter_router_cost_by_model()
+    for pair in [*pairs, *(partial_pairs or [])]:
+        for key in ("control_stop_check_log", "variant_stop_check_log"):
+            for model, cost in _jev_cost_by_model_from_log(pair.get(key)).items():
+                totals[model] = round(totals.get(model, 0.0) + cost, 9)
+    return totals
+
+
+def _openrouter_cost_by_model_for_sweep(
+    control_transcripts: dict[tuple[str, int], dict[str, Any]],
+    variant_reports: dict[str, Any],
+) -> dict[str, float]:
+    totals = _openrouter_router_cost_by_model()
+    for result in control_transcripts.values():
+        for model, cost in _jev_cost_by_model_from_log(result.get("stop_check_log")).items():
+            totals[model] = round(totals.get(model, 0.0) + cost, 9)
+    for variant_report in variant_reports.values():
+        for pair in [*variant_report.get("pairs", []), *variant_report.get("partial_pairs", [])]:
+            for model, cost in _jev_cost_by_model_from_log(pair.get("variant_stop_check_log")).items():
+                totals[model] = round(totals.get(model, 0.0) + cost, 9)
+    return totals
+
+
+def _openrouter_cost_report(cost_by_model: dict[str, float]) -> dict[str, Any]:
+    return {
+        "cost_by_model": cost_by_model,
+        "total_cost_usd": round(sum(cost_by_model.values()), 9),
+    }
+
+
+def _openrouter_fields_for(
+    args: argparse.Namespace,
+    cost_by_model: dict[str, float],
+) -> dict[str, Any]:
+    """The provider_route/cost/key fields added to every OpenRouter report."""
+    provider = _provider_for(args)
+    fields: dict[str, Any] = {"provider_route": _provider_route_for(provider)}
+    if provider != "openrouter":
+        return fields
+    fields.update(_openrouter_cost_report(cost_by_model))
+    key_report = _openrouter_key_usage_report()
+    if key_report is not None:
+        fields["openrouter_key"] = key_report
+    return fields
+
 
 # ---------------------------------------------------------------------------
 # Episode loading (baseline, calibrate, ab --from-episode)
@@ -1537,6 +1747,48 @@ def _resolve_judge_model() -> str:
         )
     return judge_model
 
+
+def _require_openrouter_key() -> None:
+    if not os.environ.get("OPENROUTER_API_KEY", "").strip():
+        raise SystemExit(
+            "conversation_lab: OPENROUTER_API_KEY is not set. Run under "
+            "`doppler run -- uv run ...` so OPENROUTER_API_KEY resolves, or pass "
+            "--provider anthropic / --dry-run for a zero-cost plumbing check."
+        )
+
+
+def _resolve_openrouter_models(dry_run: bool) -> tuple[str, str, str]:
+    """Return (mode, dialogue_model, judge_model) for --provider openrouter.
+
+    The model strings are the OpenRouter dotted names for the same models
+    production uses; prompts/temperatures/max_tokens are unchanged. Fails
+    loud on a missing OPENROUTER_API_KEY unless --dry-run is passed.
+    """
+    if dry_run:
+        return "template", "template", "template"
+    _require_openrouter_key()
+    return "openai", OPENROUTER_DIALOGUE_MODEL, OPENROUTER_JUDGE_MODEL
+
+
+def _resolve_openrouter_judge_model(dry_run: bool) -> str:
+    if dry_run:
+        return "template"
+    _require_openrouter_key()
+    return OPENROUTER_JUDGE_MODEL
+
+
+def _resolve_models_for_args(args: argparse.Namespace) -> tuple[str, str, str]:
+    provider = _provider_for(args)
+    if provider == "openrouter":
+        return _resolve_openrouter_models(args.dry_run)
+    return _resolve_models(args.dry_run)
+
+
+def _resolve_judge_model_for_args(args: argparse.Namespace) -> str:
+    if _provider_for(args) == "openrouter":
+        return _resolve_openrouter_judge_model(args.dry_run)
+    return "template" if args.dry_run else _resolve_judge_model()
+
 def _resolve_models(dry_run: bool) -> tuple[str, str, str]:
     """Return (mode, default_model, judge_model) for `ab`.
 
@@ -1798,7 +2050,7 @@ def cmd_ab(args: argparse.Namespace) -> None:
     if not args.sweep and not args.variant:
         raise SystemExit("conversation_lab ab: --variant is required unless --sweep is passed")
 
-    mode, default_model, judge_model = _resolve_models(args.dry_run)
+    mode, default_model, judge_model = _resolve_models_for_args(args)
 
     if args.sweep:
         _cmd_ab_sweep(args, mode, default_model, judge_model)
@@ -2041,6 +2293,7 @@ def _build_ab_report(
         "decision_rule": DECISION_RULE_TEXT,
         "cost_summary": cost_summary,
         "jev_cost_usd": _jev_cost_usd_from_pairs(pairs, partial_pairs or []),
+        **_openrouter_fields_for(args, _openrouter_cost_by_model_for_pairs(pairs, partial_pairs or [])),
         "pairs": pairs,
         "partial_pairs": partial_pairs or [],
         "results_file": str(result_path),
@@ -2093,6 +2346,7 @@ def _build_testbed_ab_report(
         "decision_rule": DECISION_RULE_TEXT,
         "cost_summary": cost_summary,
         "jev_cost_usd": _jev_cost_usd_from_pairs(all_pairs, partial_pairs or []),
+        **_openrouter_fields_for(args, _openrouter_cost_by_model_for_pairs(all_pairs, partial_pairs or [])),
         "scenarios": scenario_reports,
         "pairs": all_pairs,
         "partial_pairs": partial_pairs or [],
@@ -2122,6 +2376,30 @@ def _print_metric_deltas(
         else:
             print(f"  {key:<32}unavailable{sample_text}")
 
+def _print_openrouter_costs(report: dict[str, Any]) -> None:
+    if "cost_by_model" not in report:
+        return
+    print("openrouter costs by model:")
+    for model in sorted(report["cost_by_model"]):
+        print(f"  {model}: ${report['cost_by_model'][model]:.9f}")
+    print(f"total cost: ${report['total_cost_usd']:.9f}")
+    key_report = report.get("openrouter_key")
+    if key_report:
+        before = key_report.get("before") or {}
+        after = key_report.get("after")
+        print(
+            f"openrouter key before: limit=${before.get('limit', 0.0):.2f} "
+            f"limit_remaining=${before.get('limit_remaining', 0.0):.2f}"
+        )
+        if after:
+            print(
+                f"openrouter key after: limit=${after.get('limit', 0.0):.2f} "
+                f"limit_remaining=${after.get('limit_remaining', 0.0):.2f}"
+            )
+        elif key_report.get("after_error"):
+            print(f"openrouter key after: unavailable ({key_report['after_error']})")
+
+
 def _print_ab_report(report: dict[str, Any]) -> None:
     print(f"\n=== conversation_lab ab: {report['concept']} / {report['stage']} ===")
     print(f"variant: {report['variant_name']} ({report['variant_file']}) keys={report['variant_keys']}")
@@ -2140,6 +2418,7 @@ def _print_ab_report(report: dict[str, Any]) -> None:
     print(f"\nDECISION RULE (informational, not enforced): {report['decision_rule']}")
     print(f"cost summary: {report['cost_summary']}")
     print(f"jev cost: ${report['jev_cost_usd']:.9f}")
+    _print_openrouter_costs(report)
     print(f"\nresults written to: {report['results_file']}")
 
 def _print_testbed_ab_report(report: dict[str, Any]) -> None:
@@ -2173,6 +2452,7 @@ def _print_testbed_ab_report(report: dict[str, Any]) -> None:
     print(f"\nDECISION RULE (informational, not enforced): {report['decision_rule']}")
     print(f"cost summary: {report['cost_summary']}")
     print(f"jev cost: ${report['jev_cost_usd']:.9f}")
+    _print_openrouter_costs(report)
     print(f"\nresults written to: {report['results_file']}")
 
 _EXPERIMENTS_SECTION_HEADING = "## Experiments"
@@ -2674,6 +2954,7 @@ def _build_sweep_report(
         "decision_rule": DECISION_RULE_TEXT,
         "cost_summary": cost_summary,
         "jev_cost_usd": _sweep_jev_cost_usd(control_transcripts, variant_reports),
+        **_openrouter_fields_for(args, _openrouter_cost_by_model_for_sweep(control_transcripts, variant_reports)),
         "variants": variant_reports,
         "ranking": _rank_sweep_variants(variant_reports, args.target),
         "results_file": str(result_path),
@@ -2739,6 +3020,7 @@ def _print_sweep_report(report: dict[str, Any]) -> None:
 
     if report.get("error"):
         print(f"\nERROR: {report['error']}")
+    _print_openrouter_costs(report)
     print(f"\nresults written to: {report['results_file']}")
 
 def _append_sweep_experiments_row(
@@ -3068,6 +3350,7 @@ def _build_calibrate_report(
         "max_calls": args.max_calls,
         "max_cost": args.max_cost,
         "calls_used": budget.used,
+        **_openrouter_fields_for(args, _openrouter_router_cost_by_model()),
         "degradations": degradation_reports,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "results_file": str(result_path),
@@ -3083,7 +3366,7 @@ def _cmd_calibrate_reference_panel(args: argparse.Namespace) -> None:
     panel_path = Path(args.reference_panel)
     panel = _load_reference_panel(panel_path)
     pairs = _reference_pairs(panel)
-    judge_model = "template" if args.dry_run else _resolve_judge_model()
+    judge_model = _resolve_judge_model_for_args(args)
     budget = CallBudget(max_calls=args.max_calls)
     result_path = _results_dir(args) / (
         f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}-calibrate-reference-panel-v0.json"
@@ -3195,6 +3478,7 @@ def _cmd_calibrate_reference_panel(args: argparse.Namespace) -> None:
             "calls_used": budget.used,
             "cost_summary": cost_summary,
             **({"cost_summary_error": cost_summary_error} if cost_summary_error else {}),
+            **_openrouter_fields_for(args, _openrouter_router_cost_by_model()),
             "evaluator": {
                 "prompt_sha256": hashlib.sha256(PAIRWISE_JUDGE_SYSTEM_PROMPT.encode("utf-8")).hexdigest(),
                 "prompt_version": PAIRWISE_JUDGE_PROMPT_VERSION,
@@ -3304,6 +3588,7 @@ def _cmd_calibrate_reference_panel(args: argparse.Namespace) -> None:
     print("consistent-name-permutation: source-based named-fit hypothesis only; no pass/fail gate")
     for name, info in reports.items():
         print(f"  {name}: completed={len(info['completed_pairs'])} partial={len(info['partial_pairs'])} {info['interpretation']}")
+    _print_openrouter_costs(report)
     print(f"\nresults written to: {report['results_file']}")
 
 # ---------------------------------------------------------------------------
@@ -3403,6 +3688,7 @@ def _judge_one_transcript(
     prior_stages: dict[str, Any],
     recipe_context: str | None,
     recipe_facts: str | None,
+    judge_model: str,
 ) -> dict[str, Any]:
     """Score one transcript with the PRODUCTION publish gate, not the lab's
     pairwise judge.
@@ -3413,6 +3699,11 @@ def _judge_one_transcript(
     is handed (see that function's docstring), so each run gets a FRESH
     outer dict - `prior_stages` is shared read-only, the judge_* keys are
     not, and reusing one dict would let run N read run N-1's scores.
+
+    ``judge_model`` is the lab-resolved judge route (direct Anthropic under
+    --provider anthropic, the same model through OpenRouter under
+    --provider openrouter); production callers that invoke `_judge_dialogue`
+    directly still default to ``config.judge_model``.
     """
     episode: dict[str, Any] = {"stages": prior_stages}
     passed, verdict = judge_dialogue(
@@ -3422,6 +3713,7 @@ def _judge_one_transcript(
         episode,
         recipe_context=recipe_context,
         recipe_facts=recipe_facts,
+        judge_model=judge_model,
     )
     _budget_checkpoint()
     return {  # noqa: DOC201 - the caller measures calls separately
@@ -4143,7 +4435,7 @@ def _assert_comparable_scenario(baseline: dict[str, Any], report: dict[str, Any]
 
 def cmd_bench(args: argparse.Namespace) -> None:
     _validate_bench_args(args)
-    mode, default_model, judge_model = _resolve_models(args.dry_run)
+    mode, default_model, judge_model = _resolve_models_for_args(args)
     concept, recipe_context, recipe_facts, prior_stages, photo_inputs = _resolve_bench_scenario(args)
     expected_cast = simulate_module.participants_for_day(args.stage)
 
@@ -4283,6 +4575,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
                         prior_stages=prior_stages,
                         recipe_context=recipe_context,
                         recipe_facts=recipe_facts,
+                        judge_model=judge_model,
                     ),
                 )
     except (Exception, KeyboardInterrupt) as exc:  # noqa: BLE001
@@ -4359,6 +4652,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
         # it the result retains no dollar figure once the command exits and
         # nobody can audit how close a run came to --max-cost (Codex).
         "cost_summary": _cost_summary_or_none(),
+        **_openrouter_fields_for(args, _openrouter_router_cost_by_model()),
     }
 
     comparison = None
@@ -4692,6 +4986,7 @@ def _print_bench_report(report: dict[str, Any]) -> None:
                     )
                 print(f"({note}; unavailable rows remain listed above)")
 
+    _print_openrouter_costs(report)
     print(f"\nresults written to: {report['results_file']}")
 
 def cmd_calibrate(args: argparse.Namespace) -> None:
@@ -4719,10 +5014,7 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
     recipe_context = _build_recipe_context(recipe_data)
     recipe_facts = _build_judge_recipe_facts(recipe_data) or None
 
-    if args.dry_run:
-        judge_model = "template"
-    else:
-        judge_model = _resolve_judge_model()
+    judge_model = _resolve_judge_model_for_args(args)
 
     budget = CallBudget(max_calls=args.max_calls)
     aborted = False
@@ -4850,6 +5142,7 @@ def _print_calibrate_report(report: dict[str, Any]) -> None:
             f"scored={info.get('scored_pairs', info.get('completed_pairs', 0))} "
             f"real_preference_rate={rate_text}  {info['verdict']}"
         )
+    _print_openrouter_costs(report)
     print(f"\nresults written to: {report['results_file']}")
 
 # ---------------------------------------------------------------------------
@@ -5013,6 +5306,17 @@ def _add_budget_guard_options(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_provider_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--provider", choices=("anthropic", "openrouter"), default=None,
+        help=(
+            "Which provider routes paid lab calls. Default: openrouter (the lab's "
+            "OpenRouter bill, pinned to Anthropic's servers). Pass --provider anthropic "
+            "for the production-direct path; --budget-ledger always uses anthropic."
+        ),
+    )
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="conversation_lab",
@@ -5130,6 +5434,7 @@ def _build_parser() -> argparse.ArgumentParser:
     ab.add_argument("--no-log", action="store_true", help="Do not append a row to the experiments log")
     ab.add_argument("--experiments-log", default=None, help=f"Override the EXPERIMENTS.md path (default: {DEFAULT_EXPERIMENTS_LOG})")
     ab.add_argument("--results-dir", default=None)
+    _add_provider_option(ab)
     _add_budget_guard_options(ab)
 
     bench = sub.add_parser(
@@ -5186,6 +5491,7 @@ def _build_parser() -> argparse.ArgumentParser:
     bench.add_argument("--no-log", action="store_true", help="Do not append a row to the experiments log")
     bench.add_argument("--experiments-log", default=None, help=f"Override the EXPERIMENTS.md path (default: {DEFAULT_EXPERIMENTS_LOG})")
     bench.add_argument("--results-dir", default=None)
+    _add_provider_option(bench)
     _add_budget_guard_options(bench)
 
     calibrate = sub.add_parser(
@@ -5213,6 +5519,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     calibrate.add_argument("--dry-run", action="store_true")
     calibrate.add_argument("--results-dir", default=None)
+    _add_provider_option(calibrate)
     _add_budget_guard_options(calibrate)
 
     pairs_cmd = sub.add_parser(
@@ -5280,7 +5587,21 @@ def main(argv: list[str] | None = None) -> None:
     if ledger_path is not None and args.command not in {"ab", "bench", "calibrate"}:
         raise SystemExit("conversation_lab: --budget-ledger is supported only for ab, bench, and calibrate")
 
+    provider = _resolve_provider(args, ledger_path)
+    if provider is not None:
+        args.provider = provider
+
+    global _OPENROUTER_KEY_BEFORE, _OPENROUTER_KEY_AFTER
+    _OPENROUTER_KEY_BEFORE = None
+    _OPENROUTER_KEY_AFTER = None
+
     try:
+        if provider == "openrouter":
+            if ledger_path is not None:
+                raise SystemExit("conversation_lab: --budget-ledger requires --provider anthropic")
+            if not args.dry_run:
+                _openrouter_preflight(args)
+
         if ledger_path is None:
             _dispatch_command(args)
             return

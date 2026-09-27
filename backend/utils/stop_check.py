@@ -146,7 +146,7 @@ def _check_jev(state: str, objective: str) -> StopCheckResult:
     )
 
 
-def _check_haiku(state: str, objective: str) -> StopCheckResult:
+def _check_haiku(state: str, objective: str, haiku_model: str = HAIKU_MODEL) -> StopCheckResult:
     prompt = (
         f"Read this meeting transcript and answer two questions with STRICT JSON only.\n\n"
         f"1. Has the team actually reached a final decision on: {objective}?\n"
@@ -158,7 +158,7 @@ def _check_haiku(state: str, objective: str) -> StopCheckResult:
         raw = generate_response(
             prompt=prompt,
             system_prompt="You answer dialogue-scene questions with strict JSON only.",
-            model=HAIKU_MODEL,
+            model=haiku_model,
             temperature=0.0,
         ).strip()
     except Exception as exc:
@@ -181,7 +181,7 @@ def _check_haiku(state: str, objective: str) -> StopCheckResult:
         decided=decided,
         pushback=pushback,
         provider="haiku",
-        model=HAIKU_MODEL,
+        model=haiku_model,
         cost_usd=None,
     )
 
@@ -192,12 +192,18 @@ def check_scene_done(
     *,
     day: str,
     objective: str,
+    haiku_model: str = HAIKU_MODEL,
 ) -> StopCheckResult:
     """Score whether the scene is done for ``day``'s ``objective``.
 
     ``day`` is part of the call contract so every stop-check site names the
     scene it is scoring (it is also recorded into STOP_CHECK_LOG by the
     caller); the providers themselves score the joined transcript.
+
+    ``haiku_model`` lets the lab's ``haiku`` provider follow the same
+    dialogue model string as the run that spawned the scene (for example
+    ``openrouter/anthropic/claude-haiku-4.5`` under --provider openrouter).
+    Production callers omit it and keep the direct-Anthropic default.
     """
     if not isinstance(lines, list):
         raise StopCheckError(f"lines must be a list of strings, got {type(lines).__name__}")
@@ -205,5 +211,5 @@ def check_scene_done(
     if provider == "jev":
         return _check_jev(state, objective)
     if provider == "haiku":
-        return _check_haiku(state, objective)
+        return _check_haiku(state, objective, haiku_model=haiku_model)
     raise StopCheckError(f"unknown stop check provider: {provider!r}")

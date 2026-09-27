@@ -208,7 +208,8 @@ def test_ab_pairwise_judge_agreement_counts_as_win(tmp_path, monkeypatch):
     results_dir = tmp_path / "results"
 
     cl.main([
-        "ab", "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+        "ab", "--provider", "anthropic",
+        "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
         "--variant", str(variant_path), "--recipe-context", "anchor",
         "--target", "turn_taking", "--results-dir", str(results_dir),
     ])
@@ -244,7 +245,8 @@ def test_ab_pairwise_judge_disagreement_results_in_tie(tmp_path, monkeypatch):
     results_dir = tmp_path / "results"
 
     cl.main([
-        "ab", "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+        "ab", "--provider", "anthropic",
+        "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
         "--variant", str(variant_path), "--recipe-context", "anchor",
         "--results-dir", str(results_dir),
     ])
@@ -493,7 +495,8 @@ def test_ab_without_dry_run_fails_loud_when_dialogue_model_unset(tmp_path, monke
 
     with pytest.raises(SystemExit, match="DIALOGUE_MODEL is not set"):
         cl.main([
-            "ab", "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+            "ab", "--provider", "anthropic",
+            "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
             "--variant", str(variant_path), "--recipe-context", "anchor",
             "--results-dir", str(tmp_path / "results"),
         ])
@@ -628,7 +631,8 @@ def test_calibrate_complete_runs_keep_grader_threshold_and_scored_pair_rate(tmp_
         )
         results = tmp_path / f"results-{expected_verdict.lower().replace(' ', '-')}"
         cl.main([
-            "calibrate", "--from-episode", "snapshot-week", "--stage", "tuesday",
+            "calibrate", "--provider", "anthropic",
+            "--from-episode", "snapshot-week", "--stage", "tuesday",
             "--runs", "1", "--results-dir", str(results),
         ])
         [path] = results.glob("*-calibrate-*.json")
@@ -654,7 +658,8 @@ def test_calibrate_zero_completed_pairs_has_unavailable_rate_and_incomplete_verd
     monkeypatch.setattr(model_router, "generate_judge_response", lambda **_kwargs: _judge_stub())
 
     cl.main([
-        "calibrate", "--from-episode", "snapshot-week", "--stage", "tuesday",
+        "calibrate", "--provider", "anthropic",
+        "--from-episode", "snapshot-week", "--stage", "tuesday",
         "--runs", "2", "--max-calls", "1", "--results-dir", str(tmp_path / "results"),
     ])
 
@@ -687,7 +692,8 @@ def test_calibrate_completed_plus_partial_rate_uses_only_complete_pairs(tmp_path
     )
 
     cl.main([
-        "calibrate", "--from-episode", "snapshot-week", "--stage", "tuesday",
+        "calibrate", "--provider", "anthropic",
+        "--from-episode", "snapshot-week", "--stage", "tuesday",
         "--runs", "2", "--max-calls", "3", "--results-dir", str(tmp_path / "results"),
     ])
 
@@ -746,7 +752,8 @@ def test_ab_uses_one_episode_snapshot_for_anchor_and_every_judge_orientation(tmp
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
 
     cl.main([
-        "ab", "--concept", "Snapshot Spiral Bites", "--stage", "tuesday", "--runs", "2",
+        "ab", "--provider", "anthropic",
+        "--concept", "Snapshot Spiral Bites", "--stage", "tuesday", "--runs", "2",
         "--variant", str(variant_path), "--from-episode", "snapshot-week", "--local",
         "--max-calls", "200", "--no-log", "--results-dir", str(tmp_path / "results"),
     ])
@@ -783,7 +790,8 @@ def test_calibrate_uses_one_snapshot_and_monday_fallback_for_all_judges(tmp_path
     monkeypatch.setenv("JUDGE_MODEL", "test-judge")
 
     cl.main([
-        "calibrate", "--from-episode", "snapshot-week", "--stage", "tuesday", "--runs", "2",
+        "calibrate", "--provider", "anthropic",
+        "--from-episode", "snapshot-week", "--stage", "tuesday", "--runs", "2",
         "--max-calls", "20", "--results-dir", str(tmp_path / "results"),
     ])
 
@@ -814,7 +822,8 @@ def test_manual_recipe_context_does_not_load_or_supply_facts(tmp_path, monkeypat
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
 
     cl.main([
-        "ab", "--concept", "Manual Context", "--stage", "monday", "--runs", "1",
+        "ab", "--provider", "anthropic",
+        "--concept", "Manual Context", "--stage", "monday", "--runs", "1",
         "--variant", str(variant_path), "--recipe-context", "manual anchor",
         "--no-log", "--results-dir", str(tmp_path / "results"),
     ])
@@ -839,7 +848,8 @@ def test_episode_load_failure_propagates_before_generation(tmp_path, monkeypatch
 
     with pytest.raises(RuntimeError, match="snapshot unavailable"):
         cl.main([
-            "ab", "--concept", "Load Failure", "--stage", "monday", "--runs", "1",
+            "ab", "--provider", "anthropic",
+            "--concept", "Load Failure", "--stage", "monday", "--runs", "1",
             "--variant", str(variant_path), "--from-episode", "missing", "--local",
             "--no-log", "--results-dir", str(tmp_path / "results"),
         ])
@@ -856,7 +866,8 @@ def test_ab_without_dry_run_fails_loud_when_judge_model_unset(tmp_path, monkeypa
 
     with pytest.raises(SystemExit, match="JUDGE_MODEL is not set"):
         cl.main([
-            "ab", "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+            "ab", "--provider", "anthropic",
+            "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
             "--variant", str(variant_path), "--recipe-context", "anchor",
             "--results-dir", str(tmp_path / "results"),
         ])
@@ -866,7 +877,8 @@ def test_calibrate_without_dry_run_fails_loud_when_judge_model_unset(tmp_path, m
 
     with pytest.raises(SystemExit, match="JUDGE_MODEL is not set"):
         cl.main([
-            "calibrate", "--from-episode", "2026-W36", "--stage", "monday", "--local",
+            "calibrate", "--provider", "anthropic",
+            "--from-episode", "2026-W36", "--stage", "monday", "--local",
             "--results-dir", str(tmp_path / "results"),
         ])
 
@@ -899,7 +911,8 @@ def test_calibrate_judge_prompt_never_contains_placeholder_concept(tmp_path, mon
     monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
 
     cl.main([
-        "calibrate", "--from-episode", "2026-W32", "--stage", "monday", "--local",
+        "calibrate", "--provider", "anthropic",
+        "--from-episode", "2026-W32", "--stage", "monday", "--local",
         "--runs", "1", "--results-dir", str(tmp_path / "results"),
     ])
 
@@ -925,7 +938,8 @@ def test_calibrate_falls_back_to_monday_recipe_data_for_recipe_context(tmp_path,
     monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
 
     cl.main([
-        "calibrate", "--from-episode", "2026-W32", "--stage", "tuesday", "--local",
+        "calibrate", "--provider", "anthropic",
+        "--from-episode", "2026-W32", "--stage", "tuesday", "--local",
         "--runs", "1", "--results-dir", str(tmp_path / "results"),
     ])
 
@@ -1080,7 +1094,8 @@ def test_ab_writes_partial_result_on_exception_mid_run(tmp_path, monkeypatch):
 
     with pytest.raises(SystemExit):
         cl.main([
-            "ab", "--concept", "Test Muffins", "--stage", "monday", "--runs", "2",
+            "ab", "--provider", "anthropic",
+            "--concept", "Test Muffins", "--stage", "monday", "--runs", "2",
             "--variant", str(variant_path), "--recipe-context", "anchor",
             "--results-dir", str(results_dir),
         ])
@@ -1123,7 +1138,8 @@ def test_second_orientation_failure_persists_both_attempts(
     if command == "ab":
         variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT"})
         cli_args = [
-            "ab", "--concept", "Fixture", "--stage", "monday", "--runs", "1",
+            "ab", "--provider", "anthropic",
+            "--concept", "Fixture", "--stage", "monday", "--runs", "1",
             "--variant", str(variant_path), "--recipe-context", "anchor",
             "--results-dir", str(results_dir),
         ]
@@ -1136,13 +1152,15 @@ def test_second_orientation_failure_persists_both_attempts(
         sweep_dir.mkdir()
         (sweep_dir / "variant.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "VARIANT"}))
         cli_args = [
-            "ab", "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
+            "ab", "--provider", "anthropic",
+            "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
             "--stage", "monday", "--runs", "1", "--results-dir", str(results_dir),
         ]
         result_pattern = "*-ab-sweep-*.json"
     else:
         cli_args = [
-            "calibrate", "--from-episode", "snapshot-week", "--stage", "tuesday",
+            "calibrate", "--provider", "anthropic",
+            "--from-episode", "snapshot-week", "--stage", "tuesday",
             "--runs", "1", "--results-dir", str(results_dir),
         ]
         result_pattern = "*-calibrate-*.json"
@@ -1227,7 +1245,8 @@ def test_calibrate_writes_partial_result_on_exception_mid_run(tmp_path, monkeypa
 
     with pytest.raises(SystemExit):
         cl.main([
-            "calibrate", "--from-episode", "2026-W36", "--stage", "monday", "--local",
+            "calibrate", "--provider", "anthropic",
+            "--from-episode", "2026-W36", "--stage", "monday", "--local",
             "--runs", "2", "--results-dir", str(results_dir),
         ])
 
@@ -1259,7 +1278,8 @@ def test_ab_max_calls_denies_before_generation_when_arm_reservation_cannot_fit(t
     results_dir = tmp_path / "results"
 
     cl.main([
-        "ab", "--concept", "Test Muffins", "--stage", "monday", "--runs", "3",
+        "ab", "--provider", "anthropic",
+        "--concept", "Test Muffins", "--stage", "monday", "--runs", "3",
         "--variant", str(variant_path), "--recipe-context", "anchor",
         "--max-calls", "11", "--results-dir", str(results_dir),
     ])
@@ -1506,7 +1526,8 @@ def test_ab_testbed_runs_every_scenario_and_aggregates(tmp_path, monkeypatch):
     results_dir = tmp_path / "results"
 
     cl.main([
-        "ab", "--stage", "monday", "--variant", str(variant_path),
+        "ab", "--provider", "anthropic",
+        "--stage", "monday", "--variant", str(variant_path),
         "--testbed", str(testbed_path), "--runs", "2", "--target", "turn_taking",
         "--results-dir", str(results_dir),
     ])
@@ -1597,7 +1618,8 @@ def test_ab_testbed_writes_partial_result_on_exception_in_a_later_scenario(tmp_p
 
     with pytest.raises(SystemExit):
         cl.main([
-            "ab", "--stage", "monday", "--variant", str(variant_path),
+            "ab", "--provider", "anthropic",
+            "--stage", "monday", "--variant", str(variant_path),
             "--testbed", str(testbed_path), "--runs", "1",
             "--results-dir", str(results_dir),
         ])
@@ -2029,7 +2051,8 @@ def test_ab_sweep_ranks_three_variants_and_result_schema(tmp_path, monkeypatch):
     results_dir = tmp_path / "results"
 
     cl.main([
-        "ab", "--sweep", str(sweep_dir), "--testbed", str(testbed_path), "--stage", "monday",
+        "ab", "--provider", "anthropic",
+        "--sweep", str(sweep_dir), "--testbed", str(testbed_path), "--stage", "monday",
         "--runs", "1", "--target", "turn_taking", "--results-dir", str(results_dir),
     ])
 

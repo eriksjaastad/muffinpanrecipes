@@ -2251,6 +2251,7 @@ def run_simulation(
                             provider=STOP_CHECK["provider"],
                             day=day,
                             objective=goal["objective"],
+                            haiku_model=default_model,
                         )
                     except StopCheckError as exc:
                         raise StopCheckError(f"stop check failed on {day} tick {tick}: {exc}") from exc

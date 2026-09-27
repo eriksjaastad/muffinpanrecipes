@@ -570,6 +570,7 @@ class AnthropicBudgetGuard:
             for name in (
                 "_generate_openai",
                 "_generate_google",
+                "_generate_openrouter",
                 "_generate_vision_openai",
                 "_generate_vision_google",
                 "_generate_vision_anthropic",

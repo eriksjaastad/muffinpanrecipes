@@ -97,6 +97,29 @@ HARD_BLOCKED_ANTHROPIC_MODELS = {
 }
 
 # ---------------------------------------------------------------------------
+# OpenRouter model policy (fail-closed)
+# ---------------------------------------------------------------------------
+# Lab-only provider: routes lab calls through OpenRouter so per-model and
+# per-test cost lands on one bill. Production model strings stay direct
+# Anthropic; these dotted ids are OpenRouter's names for the same models.
+DEFAULT_OPENROUTER_ALLOWLIST = {
+    "anthropic/claude-haiku-4.5",
+    "anthropic/claude-sonnet-4-6",
+}
+
+HARD_BLOCKED_OPENROUTER_MODELS: set[str] = set()
+
+OPENROUTER_JUDGE_ALLOWLIST = {
+    "anthropic/claude-opus-4.6",
+    "anthropic/claude-sonnet-4-6",
+}
+
+# Pin every OpenRouter call to Anthropic's own servers and never fall back to
+# Vertex/Bedrock. Erik's account guardrail (verified 2026-09-27) means the
+# served model is exactly the one production uses.
+OPENROUTER_PROVIDER_ROUTE = {"order": ["anthropic"], "allow_fallbacks": False}
+
+# ---------------------------------------------------------------------------
 # Google model policy (fail-closed)
 # ---------------------------------------------------------------------------
 DEFAULT_GOOGLE_ALLOWLIST = {
@@ -164,17 +187,24 @@ def _record_cost(
     model: str,
     tokens_in: int,
     tokens_out: int,
+    actual_cost: Optional[float] = None,
+    served_provider: Optional[str] = None,
 ) -> None:
     costs = _COST_PER_M_TOKENS.get(model, (0.0, 0.0))
     estimated = (tokens_in * costs[0] + tokens_out * costs[1]) / 1_000_000
-    _COST_LOG.append({
+    entry = {
         "provider": provider,
         "model": model,
         "tokens_in": tokens_in,
         "tokens_out": tokens_out,
         "estimated_cost": estimated,
         "timestamp": time.time(),
-    })
+    }
+    if actual_cost is not None:
+        entry["actual_cost"] = actual_cost
+    if served_provider is not None:
+        entry["served_provider"] = served_provider
+    _COST_LOG.append(entry)
 
 
 def get_cost_summary() -> dict:
@@ -208,10 +238,20 @@ def reset_cost_log() -> None:
     _COST_LOG.clear()
 
 
+def get_cost_entries() -> list[dict]:
+    """Return a shallow copy of the raw cost log.
+
+    Callers that need per-call fields beyond ``get_cost_summary`` (for
+    example OpenRouter's ``usage.cost`` and the served provider) total them
+    from here instead of re-deriving them from token counts.
+    """
+    return [dict(entry) for entry in _COST_LOG]
+
+
 # ---------------------------------------------------------------------------
 # Routing
 # ---------------------------------------------------------------------------
-SUPPORTED_PROVIDERS = {"openai", "anthropic", "google"}  # extend when adding Gemini etc.
+SUPPORTED_PROVIDERS = {"openai", "anthropic", "google", "openrouter"}
 
 
 @dataclass
@@ -290,6 +330,24 @@ def ensure_google_model_allowed(model: str) -> None:
     if low not in allowed:
         raise RuntimeError(
             f"Google model not allowlisted: {model}. Allowed: {', '.join(sorted(allowed))}"
+        )
+
+
+def _allowed_openrouter_models() -> set[str]:
+    raw = os.getenv("OPENROUTER_MODEL_ALLOWLIST", "").strip()
+    if not raw:
+        return set(DEFAULT_OPENROUTER_ALLOWLIST)
+    return {m.strip() for m in raw.split(",") if m.strip()}
+
+
+def ensure_openrouter_model_allowed(model: str) -> None:
+    low = model.lower().strip()
+    if low in HARD_BLOCKED_OPENROUTER_MODELS:
+        raise RuntimeError(f"OpenRouter model blocked by policy: {model}")
+    allowed = _allowed_openrouter_models()
+    if low not in allowed:
+        raise RuntimeError(
+            f"OpenRouter model not allowlisted: {model}. Allowed: {', '.join(sorted(allowed))}"
         )
 
 
@@ -486,6 +544,70 @@ def _generate_google(
         return text
 
     return str(response).strip()
+
+
+def _generate_openrouter(
+    prompt: str,
+    system_prompt: Optional[str],
+    model: str,
+    temperature: float,
+) -> str:
+    """Generate through OpenRouter's OpenAI-compatible chat-completions API.
+
+    ``model`` is the OpenRouter dotted id (e.g. ``anthropic/claude-haiku-4.5``).
+    Every request is pinned to Anthropic's own servers via
+    OPENROUTER_PROVIDER_ROUTE and asks OpenRouter to include ``usage.cost``
+    so callers can total the exact USD cost of each call.
+    """
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY is not set")
+
+    try:
+        from openai import OpenAI
+    except Exception as e:
+        raise RuntimeError("openai package is not installed") from e
+
+    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        temperature=temperature,
+        # Parity with _generate_anthropic, which always sends 4096. Without it
+        # OpenRouter applies its own default and the lab would not be running
+        # the production call shape.
+        max_tokens=4096,
+        extra_body={
+            "provider": OPENROUTER_PROVIDER_ROUTE,
+            "usage": {"include": True},
+        },
+    )
+
+    usage = getattr(response, "usage", None)
+    raw_cost = getattr(usage, "cost", None) if usage else None
+    actual_cost: Optional[float]
+    if isinstance(raw_cost, bool) or not isinstance(raw_cost, (int, float)):
+        actual_cost = None
+    else:
+        actual_cost = float(raw_cost)
+    served_provider = getattr(response, "provider", None)
+    if not isinstance(served_provider, str) or not served_provider:
+        served_provider = None
+    _record_cost(
+        "openrouter", model,
+        getattr(usage, "prompt_tokens", 0) if usage else 0,
+        getattr(usage, "completion_tokens", 0) if usage else 0,
+        actual_cost=actual_cost,
+        served_provider=served_provider,
+    )
+    _central_track(response, "openrouter", project="muffinpanrecipes", caller="model_router.openrouter")
+
+    return (response.choices[0].message.content or "").strip()
 
 
 # ---------------------------------------------------------------------------
@@ -686,6 +808,13 @@ def generate_response(
             model=routed.model, temperature=temperature,
         )
 
+    if routed.provider == "openrouter":
+        ensure_openrouter_model_allowed(routed.model)
+        return _generate_openrouter(
+            prompt=prompt, system_prompt=system_prompt,
+            model=routed.model, temperature=temperature,
+        )
+
     raise RuntimeError(f"Unsupported provider: {routed.provider}")
 
 
@@ -702,7 +831,13 @@ def generate_judge_response(
     Lower temperature by default for more consistent evaluation.
     """
     routed = parse_model(model)
-    if routed.model not in JUDGE_ALLOWLIST:
+    if routed.provider == "openrouter":
+        if routed.model not in OPENROUTER_JUDGE_ALLOWLIST:
+            raise RuntimeError(
+                f"OpenRouter model not in judge allowlist: {routed.model}. "
+                f"Allowed: {', '.join(sorted(OPENROUTER_JUDGE_ALLOWLIST))}"
+            )
+    elif routed.model not in JUDGE_ALLOWLIST:
         raise RuntimeError(
             f"Model not in judge allowlist: {routed.model}. "
             f"Allowed: {', '.join(sorted(JUDGE_ALLOWLIST))}"
@@ -716,6 +851,11 @@ def generate_judge_response(
         )
     if routed.provider == "anthropic":
         return _generate_anthropic(
+            prompt=prompt, system_prompt=system_prompt,
+            model=routed.model, temperature=temperature,
+        )
+    if routed.provider == "openrouter":
+        return _generate_openrouter(
             prompt=prompt, system_prompt=system_prompt,
             model=routed.model, temperature=temperature,
         )
