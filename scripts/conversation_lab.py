@@ -4,7 +4,7 @@
 See docs/conversation-lab/PROTOCOL.md for the full method this implements;
 this docstring covers the mechanics.
 
-Four subcommands:
+Five subcommands:
 
   baseline <episode_id> [--local]
       Score an already-generated episode's dialogue with
@@ -48,6 +48,14 @@ Four subcommands:
       panel (#7441); v2 and v1 (legacy) are available for historical
       comparison. --concept, --recipe-context, and --from-episode are
       forbidden with --testbed; each scenario already carries its own.
+
+      --prior-days FROZEN_JSON (--testbed/--sweep only) seeds BOTH arms of
+      every pair with that scenario's frozen earlier days from `freeze`,
+      passed as run_simulation's initial_recent_lines (the exact
+      "FirstName: line" entries a full-week run would have accumulated by
+      that day). The frozen file must cover every panel scenario and must
+      not contain --stage or a later day; provenance (path, sha256, days)
+      is recorded in the result JSON as `prior_days`.
 
       Every judged dimension - the production 8 plus two lab-only ones,
       emotional_range and register_naturalness (see
@@ -150,6 +158,17 @@ Four subcommands:
       carries no direction to agree or disagree with. --variant-name picks
       which variant's own pairs to review in an `ab --sweep` result (which
       nests pairs per variant instead of one flat top-level list).
+
+  freeze --from RESULT_JSON --arm {control,variant} --pick {judge,run0}
+         --out FROZEN_JSON [--variant NAME] | --append-to FROZEN_JSON
+      Distill one arm's transcript per scenario_id from an `ab --testbed`
+      or `ab --sweep` result into a frozen prior-days file. --pick judge
+      selects the pair where that arm won the most judge dimensions (ties
+      broken by lowest run_index); --pick run0 selects the lowest run_index
+      (the lab's runs are 1-based, so in practice run 1). --append-to adds
+      a later day onto an existing file so Mon+Tue live in one file, keyed
+      by scenario then day, in week order; it refuses a day that is not
+      after the last frozen day.
 
   Paid experiment commands accept --budget-ledger PATH to share an
   authoritative Anthropic token-usage ledger across ab, bench and calibrate;
@@ -1293,6 +1312,7 @@ def _run_arm(
     default_model: str,
     photography_context: dict[str, Any] | None = None,
     image_paths: list[Any] | None = None,
+    prior_lines: list[str] | None = None,
 ) -> dict[str, Any]:
     """Call run_simulation with the exact production call shape.
 
@@ -1300,6 +1320,14 @@ def _run_arm(
     228) and .scratch/regen_w36.py: mode="openai", prompt_style="scene",
     ticks_per_day=0, plus a recipe_context anchor. --dry-run substitutes
     mode="template" for a zero-API-call plumbing check.
+
+    `prior_lines` (frozen earlier days from `conversation_lab freeze`)
+    seed run_simulation's `initial_recent_lines` so a stage-only run sees
+    exactly the lines a full-week run would have accumulated by that day.
+    `initial_highlights` stays None on purpose: run_simulation only builds
+    week highlights when mode=="llm" (see its `_generate_day_highlights`
+    call site), and production/this lab call with mode="openai" - so a real
+    full-week openai run would carry an empty week-highlights list too.
     """
     return simulate_module.run_simulation(
         concept=concept,
@@ -1314,7 +1342,8 @@ def _run_arm(
         image_paths=copy.deepcopy(image_paths) if image_paths is not None else [],
         photography_context=copy.deepcopy(photography_context),
         recipe_context=recipe_context,
-        initial_recent_lines=None,
+        initial_highlights=None,
+        initial_recent_lines=list(prior_lines) if prior_lines is not None else None,
     )
 
 def _run_arm_and_count(
@@ -1324,6 +1353,7 @@ def _run_arm_and_count(
     recipe_context: str | None,
     mode: str,
     default_model: str,
+    prior_lines: list[str] | None = None,
 ) -> tuple[dict[str, Any], int]:
     """Run one arm and estimate its call cost.
 
@@ -1337,7 +1367,10 @@ def _run_arm_and_count(
         before = model_router.get_cost_summary().get("total_calls", 0)
     except Exception:
         before = 0
-    result = _run_arm(concept, stage, run_index, recipe_context, mode, default_model)
+    result = _run_arm(
+        concept, stage, run_index, recipe_context, mode, default_model,
+        prior_lines=prior_lines,
+    )
     try:
         after = model_router.get_cost_summary().get("total_calls", 0)
     except Exception:
@@ -2034,6 +2067,192 @@ def _resolve_models(dry_run: bool) -> tuple[str, str, str]:
         ) from exc
     return "openai", default_model, _resolve_judge_model()
 
+# ---------------------------------------------------------------------------
+# Frozen prior days (freeze / --prior-days)
+#
+# Erik's one-day-at-a-time method: freeze the best Monday per scenario, run
+# Tuesday with that Monday as context, freeze Tuesday, and so on. `freeze`
+# distills one arm's transcript per scenario from an `ab` result into a
+# frozen file; `ab --prior-days` seeds both arms with that file's earlier
+# days so no tokens are spent regenerating Monday.
+# ---------------------------------------------------------------------------
+
+def _day_index(day: str) -> int:
+    try:
+        return simulate_module.DAY_ORDER.index(day)
+    except ValueError as exc:
+        raise SystemExit(
+            f"conversation_lab: unknown day {day!r} (expected one of {', '.join(simulate_module.DAY_ORDER)})"
+        ) from exc
+
+
+def _frozen_scenario_days(data: dict[str, Any], scenario_id: str) -> list[tuple[str, list[dict[str, Any]]]]:
+    """Return [(day, messages), ...] for one scenario, sorted in week order.
+
+    A fresh `freeze` writes one day directly under the scenario id:
+        {"day": "monday", "messages": [...]}
+    An appended file is keyed by scenario then day (Mon+Tue live in one file):
+        {"monday": {"day": "monday", "messages": [...]}, "tuesday": {...}}
+    This reader accepts both shapes. Returns None when the scenario is absent.
+    """
+    scenarios = data.get("scenarios")
+    if not isinstance(scenarios, dict) or scenario_id not in scenarios:
+        return None
+    entry = scenarios[scenario_id]
+    if not isinstance(entry, dict):
+        raise SystemExit(
+            f"conversation_lab: frozen scenario {scenario_id!r} entry is not a JSON object"
+        )
+    if "messages" in entry:
+        day = entry.get("day")
+        if day not in simulate_module.DAY_ORDER:
+            raise SystemExit(
+                f"conversation_lab: frozen scenario {scenario_id!r} has unknown day {day!r}"
+            )
+        return [(day, entry.get("messages") or [])]
+    entries: list[tuple[str, list[dict[str, Any]]]] = []
+    for day, day_entry in entry.items():
+        if not isinstance(day_entry, dict) or "messages" not in day_entry:
+            raise SystemExit(
+                f"conversation_lab: frozen scenario {scenario_id!r} day {day!r} "
+                "is not a {\"day\": ..., \"messages\": [...]} object"
+            )
+        if day not in simulate_module.DAY_ORDER:
+            raise SystemExit(
+                f"conversation_lab: frozen scenario {scenario_id!r} has unknown day {day!r}"
+            )
+        entries.append((day, day_entry.get("messages") or []))
+    entries.sort(key=lambda item: _day_index(item[0]))
+    return entries
+
+
+def _frozen_days_present(data: dict[str, Any]) -> list[str]:
+    """Every day present anywhere in a frozen file, in week order."""
+    scenarios = data.get("scenarios")
+    if not isinstance(scenarios, dict) or not scenarios:
+        raise SystemExit("conversation_lab: frozen file has no 'scenarios' object")
+    days: set[str] = set()
+    for scenario_id in scenarios:
+        for day, _messages in _frozen_scenario_days(data, scenario_id):
+            days.add(day)
+    return sorted(days, key=_day_index)
+
+
+def _prior_recent_lines(data: dict[str, Any], scenario_id: str, stage: str) -> list[str]:
+    """Frozen earlier days as the exact `recent_lines` entries a full-week run
+    would have accumulated before `stage`.
+
+    run_simulation appends f"{speaker.split()[0]}: {line}" for every message
+    of every day (see its run loop), so the frozen messages are flattened the
+    same way, in week order, and passed as `initial_recent_lines`.
+    """
+    stage_index = _day_index(stage)
+    lines: list[str] = []
+    for day, messages in _frozen_scenario_days(data, scenario_id):
+        if _day_index(day) >= stage_index:
+            continue
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            text = message.get("message")
+            if not text:
+                continue
+            character = str(message.get("character") or "Unknown")
+            lines.append(f"{character.split()[0]}: {text}")
+    return lines
+
+
+def _load_frozen_prior_days(path: Path) -> tuple[dict[str, Any], str]:
+    """Load a frozen prior-days file; return (data, sha256-of-file-bytes)."""
+    if not path.exists():
+        raise SystemExit(f"conversation_lab ab: --prior-days file not found: {path}")
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise SystemExit(f"conversation_lab ab: cannot read --prior-days file {path}: {exc}") from exc
+    digest = hashlib.sha256(raw).hexdigest()
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"conversation_lab ab: --prior-days file is not valid JSON: {path} ({exc})") from exc
+    if not isinstance(data, dict):
+        raise SystemExit(f"conversation_lab ab: --prior-days file must be a JSON object: {path}")
+    if not isinstance(data.get("scenarios"), dict) or not data["scenarios"]:
+        raise SystemExit(f"conversation_lab ab: --prior-days file has no 'scenarios' object: {path}")
+    # Touch every scenario once so a malformed entry fails before any paid work.
+    for scenario_id in data["scenarios"]:
+        _frozen_scenario_days(data, scenario_id)
+    return data, digest
+
+
+def _prepare_prior_days(
+    args: argparse.Namespace, scenario_ids: list[str],
+) -> dict[str, list[str]]:
+    """Validate `--prior-days` against the panel and build per-scenario lines.
+
+    Refuses (before any paid work) when the frozen file lacks a panel
+    scenario, or contains --stage or a later day. Both arms of every pair get
+    the SAME lines: the returned mapping is computed once and reused verbatim.
+    """
+    if not getattr(args, "prior_days", None):
+        return {}
+    path = Path(args.prior_days)
+    data, digest = _load_frozen_prior_days(path)
+    days_present = _frozen_days_present(data)
+    stage_index = _day_index(args.stage)
+    for day in days_present:
+        if _day_index(day) >= stage_index:
+            raise SystemExit(
+                f"conversation_lab ab: --prior-days file {path} contains day {day!r}, "
+                f"which is --stage ({args.stage}) or later"
+            )
+    prior_by_scenario: dict[str, list[str]] = {}
+    for scenario_id in scenario_ids:
+        if scenario_id not in data["scenarios"]:
+            raise SystemExit(
+                f"conversation_lab ab: --prior-days file {path} lacks scenario {scenario_id!r} "
+                "from the panel"
+            )
+        prior_by_scenario[scenario_id] = _prior_recent_lines(data, scenario_id, args.stage)
+    args.prior_days_provenance = {
+        "path": str(path),
+        "sha256": digest,
+        "days": days_present,
+    }
+    return prior_by_scenario
+
+
+def _freeze_pick_pair(
+    pairs: list[dict[str, Any]], arm: str, pick: str,
+) -> dict[str, Any]:
+    """Pick ONE transcript per scenario from its judged pairs.
+
+    pick="run0": the pair with the lowest run_index (the lab's runs are
+    1-based, so in practice run 1; a result that carried run_index 0 would
+    pick that).
+    pick="judge": the pair where `arm` won the most judge dimensions; ties
+    break by lowest run_index (a secondary tie keeps the first pair in the
+    file, which mirrors lowest run_index for well-formed results).
+    """
+    if not pairs:
+        raise SystemExit("conversation_lab freeze: scenario has no completed pairs to pick from")
+
+    def run_key(pair: dict[str, Any]) -> int:
+        run_index = pair.get("run_index")
+        return run_index if isinstance(run_index, int) else 1 << 30
+
+    if pick == "run0":
+        return min(pairs, key=run_key)
+
+    ranked = []
+    for pair in pairs:
+        judge = pair.get("judge") if isinstance(pair.get("judge"), dict) else {}
+        wins = sum(1 for dimension in ALL_JUDGE_DIMENSIONS if judge.get(dimension) == arm)
+        ranked.append((wins, run_key(pair), pair))
+    ranked.sort(key=lambda item: (-item[0], item[1]))
+    return ranked[0][2]
+
+
 def _load_testbed(path: Path) -> list[dict[str, Any]]:
     """Load the frozen scenario panel (docs/conversation-lab/testbed-v3.json by default).
 
@@ -2101,9 +2320,14 @@ def _generate_and_judge_pairs(
     dry_run: bool,
     pairs: list[dict[str, Any]],
     partial_pairs: list[dict[str, Any]] | None = None,
+    prior_lines: list[str] | None = None,
 ) -> bool:
     """Append up to `runs` control/variant pairs to `pairs` in place; return
     whether the run aborted (--max-calls or --max-cost hit).
+
+    `prior_lines` (frozen earlier days) is passed UNCHANGED to both the
+    control and the variant arm, so the two arms of every pair see identical
+    prior context.
 
     `pairs` is mutated in place rather than returned, so that a pair that
     finished before run N+1 raised (a judge parse failure, a generation
@@ -2138,7 +2362,8 @@ def _generate_and_judge_pairs(
                 break
 
             control_result, control_calls = _run_arm_and_count(
-                concept, stage, run_index, recipe_context, mode, default_model
+                concept, stage, run_index, recipe_context, mode, default_model,
+                prior_lines=prior_lines,
             )
             control_stop_check_log = _snapshot_stop_check_log()
             control_director_log = _snapshot_director_log()
@@ -2164,7 +2389,8 @@ def _generate_and_judge_pairs(
             restore_pending = _apply_variant(simulate_module, variant)
             try:
                 variant_result, variant_calls = _run_arm_and_count(
-                    concept, stage, run_index, recipe_context, mode, default_model
+                    concept, stage, run_index, recipe_context, mode, default_model,
+                    prior_lines=prior_lines,
                 )
                 variant_stop_check_log = _snapshot_stop_check_log()
                 variant_director_log = _snapshot_director_log()
@@ -2285,6 +2511,11 @@ def cmd_ab(args: argparse.Namespace) -> None:
         raise SystemExit("conversation_lab ab: pass --variant or --sweep, not both")
     if not args.sweep and not args.variant:
         raise SystemExit("conversation_lab ab: --variant is required unless --sweep is passed")
+    if args.prior_days and not args.sweep and args.testbed is None:
+        raise SystemExit(
+            "conversation_lab ab: --prior-days requires --testbed or --sweep - "
+            "a single --concept run has no scenario to attach frozen days to"
+        )
 
     mode, default_model, judge_model = _resolve_models_for_args(args)
 
@@ -2354,6 +2585,7 @@ def _cmd_ab_testbed(
             "--recipe-context, or --from-episode - each testbed scenario supplies its own"
         )
     scenarios = _load_testbed(Path(args.testbed))
+    prior_by_scenario = _prepare_prior_days(args, [scenario["id"] for scenario in scenarios])
     runs = args.runs if args.runs is not None else DEFAULT_TESTBED_RUNS
     max_calls_derived = args.max_calls is None
     if max_calls_derived:
@@ -2378,6 +2610,7 @@ def _cmd_ab_testbed(
                     runs=runs, variant=variant, mode=mode, default_model=default_model, judge_model=judge_model,
                     expected_cast=expected_cast, budget=budget, max_cost=args.max_cost, dry_run=args.dry_run,
                     pairs=scenario_pairs, partial_pairs=scenario_partial_pairs,
+                    prior_lines=prior_by_scenario.get(scenario["id"]),
                 )
             finally:
                 for pair in scenario_pairs:
@@ -2595,6 +2828,9 @@ def _build_testbed_ab_report(
     }
     if error is not None:
         report["error"] = error
+    prior_days = getattr(args, "prior_days_provenance", None)
+    if prior_days is not None:
+        report["prior_days"] = prior_days
     return report
 
 def _print_dimension_table(per_dimension_counts: dict[str, dict[str, int]]) -> None:
@@ -2847,6 +3083,7 @@ def _generate_sweep_control(
     default_model: str,
     budget: CallBudget,
     transcripts: dict[tuple[str, int], dict[str, Any]],
+    prior_by_scenario: dict[str, list[str]] | None = None,
 ) -> bool:
     """Generate the control transcript for every (scenario, run) pair
     EXACTLY ONCE, into `transcripts` (mutated in place) - every variant in
@@ -2869,6 +3106,7 @@ def _generate_sweep_control(
                 return True
             result, calls = _run_arm_and_count(
                 scenario["concept"], stage, run_index, scenario["recipe_context"], mode, default_model,
+                prior_lines=(prior_by_scenario or {}).get(scenario["id"]),
             )
             budget.record(0 if dry_run else calls)
             # The shared control is generated once, up front; its stop-check,
@@ -2898,6 +3136,7 @@ def _run_sweep_variant(
     dry_run: bool,
     pairs: list[dict[str, Any]],
     partial_pairs: list[dict[str, Any]] | None = None,
+    prior_by_scenario: dict[str, list[str]] | None = None,
 ) -> tuple[bool, int, float | None]:
     """Generate this ONE variant's own transcripts (one per scenario/run)
     and pairwise-judge each against the ALREADY-GENERATED shared control
@@ -2963,6 +3202,7 @@ def _run_sweep_variant(
                 try:
                     variant_result, variant_calls = _run_arm_and_count(
                         scenario["concept"], stage, run_index, scenario["recipe_context"], mode, default_model,
+                        prior_lines=(prior_by_scenario or {}).get(scenario["id"]),
                     )
                     variant_stop_check_log = _snapshot_stop_check_log()
                     variant_director_log = _snapshot_director_log()
@@ -3242,6 +3482,9 @@ def _build_sweep_report(
     }
     if error is not None:
         report["error"] = error
+    prior_days = getattr(args, "prior_days_provenance", None)
+    if prior_days is not None:
+        report["prior_days"] = prior_days
     return report
 
 def _print_sweep_report(report: dict[str, Any]) -> None:
@@ -3355,6 +3598,7 @@ def _cmd_ab_sweep(
 
     testbed_path = Path(args.testbed) if args.testbed else DEFAULT_TESTBED_PATH
     scenarios = _load_testbed(testbed_path)
+    prior_by_scenario = _prepare_prior_days(args, [scenario["id"] for scenario in scenarios])
     runs = args.runs if args.runs is not None else DEFAULT_TESTBED_RUNS
     expected_cast = simulate_module.participants_for_day(args.stage)
 
@@ -3389,6 +3633,7 @@ def _cmd_ab_sweep(
         control_aborted = _generate_sweep_control(
             scenarios=scenarios, stage=args.stage, runs=runs, mode=mode, default_model=default_model,
             budget=control_budget, transcripts=control_transcripts,
+            prior_by_scenario=prior_by_scenario,
         )
         aborted = control_aborted
 
@@ -3403,6 +3648,7 @@ def _cmd_ab_sweep(
                         control_transcripts=control_transcripts, max_calls=args.max_calls, max_cost=args.max_cost,
                         dry_run=args.dry_run, pairs=variant_pairs,
                         partial_pairs=variant_partial_pairs,
+                        prior_by_scenario=prior_by_scenario,
                     )
                 except BaseException as exc:
                     variant_reports[variant_name] = _build_sweep_variant_report(
@@ -5573,6 +5819,146 @@ def cmd_pairs(args: argparse.Namespace) -> None:
         )
 
 # ---------------------------------------------------------------------------
+# freeze - distill one arm's transcript per scenario from an ab result
+# ---------------------------------------------------------------------------
+
+def cmd_freeze(args: argparse.Namespace) -> None:
+    """Write (or append to) a frozen prior-days file from an `ab` result.
+
+    See the "Frozen prior days" section above for the file shapes and the
+    one-day-at-a-time method this supports.
+    """
+    from_path = Path(args.from_result)
+    if not from_path.exists():
+        raise SystemExit(f"conversation_lab freeze: result file not found: {from_path}")
+    try:
+        raw = from_path.read_bytes()
+    except OSError as exc:
+        raise SystemExit(f"conversation_lab freeze: cannot read result file {from_path}: {exc}") from exc
+    digest = hashlib.sha256(raw).hexdigest()
+    try:
+        report = json.loads(raw.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"conversation_lab freeze: result file is not valid JSON: {from_path} ({exc})") from exc
+    if not isinstance(report, dict) or report.get("command") != "ab":
+        raise SystemExit(f"conversation_lab freeze: --from must be an `ab` result JSON: {from_path}")
+
+    mode = report.get("mode")
+    if mode not in ("testbed", "sweep"):
+        raise SystemExit(
+            "conversation_lab freeze: --from must be an `ab --testbed` or `ab --sweep` result - "
+            "a single-concept result has no scenario_id to key frozen days by"
+        )
+    stage = report.get("stage")
+    if stage not in simulate_module.DAY_ORDER:
+        raise SystemExit(f"conversation_lab freeze: result has unknown stage {stage!r}")
+
+    variant_name = args.variant
+    if mode == "sweep":
+        if not variant_name:
+            raise SystemExit("conversation_lab freeze: --variant NAME is required for an `ab --sweep` result")
+        variants = report.get("variants") or {}
+        if variant_name not in variants:
+            raise SystemExit(
+                f"conversation_lab freeze: unknown --variant {variant_name!r} "
+                f"(available: {', '.join(sorted(variants)) or 'none'})"
+            )
+        pairs = variants[variant_name].get("pairs") or []
+    else:
+        if variant_name:
+            raise SystemExit("conversation_lab freeze: --variant is only valid for an `ab --sweep` result")
+        pairs = report.get("pairs") or []
+
+    by_scenario: dict[str, list[dict[str, Any]]] = {}
+    for pair in pairs:
+        scenario_id = pair.get("scenario_id")
+        if not scenario_id:
+            raise SystemExit(
+                "conversation_lab freeze: result pair has no scenario_id - "
+                "freeze supports --testbed/--sweep results only"
+            )
+        by_scenario.setdefault(scenario_id, []).append(pair)
+    if not by_scenario:
+        raise SystemExit("conversation_lab freeze: result has no completed pairs to freeze")
+
+    frozen_scenarios: dict[str, dict[str, Any]] = {}
+    for scenario_id in sorted(by_scenario):
+        chosen = _freeze_pick_pair(by_scenario[scenario_id], args.arm, args.pick)
+        messages = chosen.get(f"{args.arm}_messages")
+        if messages is None:
+            raise SystemExit(
+                f"conversation_lab freeze: chosen pair for scenario {scenario_id!r} "
+                f"has no {args.arm}_messages"
+            )
+        frozen_scenarios[scenario_id] = {"day": stage, "messages": copy.deepcopy(messages)}
+
+    if args.append_to:
+        out_path = Path(args.append_to)
+        if args.out and Path(args.out).resolve() != out_path.resolve():
+            raise SystemExit(
+                "conversation_lab freeze: --out and --append-to disagree - "
+                "pass only --append-to (it is both input and output)"
+            )
+        if not out_path.exists():
+            raise SystemExit(f"conversation_lab freeze: --append-to file not found: {out_path}")
+        try:
+            existing = json.loads(out_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"conversation_lab freeze: --append-to file is not valid JSON: {out_path} ({exc})") from exc
+        if not isinstance(existing, dict) or not isinstance(existing.get("scenarios"), dict):
+            raise SystemExit(f"conversation_lab freeze: --append-to file is not a frozen prior-days file: {out_path}")
+
+        existing_days = _frozen_days_present(existing)
+        if existing_days:
+            last_day = max(existing_days, key=_day_index)
+            if _day_index(stage) <= _day_index(last_day):
+                raise SystemExit(
+                    f"conversation_lab freeze: cannot append {stage!r} - it is not after "
+                    f"the last frozen day {last_day!r} in {out_path}"
+                )
+        existing_ids = set(existing["scenarios"])
+        new_ids = set(frozen_scenarios)
+        if existing_ids != new_ids:
+            raise SystemExit(
+                f"conversation_lab freeze: cannot append - scenario sets differ "
+                f"(existing: {sorted(existing_ids)}, new: {sorted(new_ids)})"
+            )
+
+        merged_scenarios: dict[str, dict[str, Any]] = {}
+        for scenario_id in sorted(existing_ids):
+            merged: dict[str, Any] = {}
+            for day, messages in _frozen_scenario_days(existing, scenario_id):
+                merged[day] = {"day": day, "messages": copy.deepcopy(messages)}
+            merged[stage] = frozen_scenarios[scenario_id]
+            merged_scenarios[scenario_id] = merged
+        output: dict[str, Any] = {
+            "frozen_from": {"path": str(from_path), "sha256": digest},
+            "stage": stage,
+            "arm": args.arm,
+            "pick": args.pick,
+            "scenarios": merged_scenarios,
+        }
+    else:
+        if not args.out:
+            raise SystemExit("conversation_lab freeze: --out is required unless --append-to is passed")
+        out_path = Path(args.out)
+        output = {
+            "frozen_from": {"path": str(from_path), "sha256": digest},
+            "stage": stage,
+            "arm": args.arm,
+            "pick": args.pick,
+            "scenarios": frozen_scenarios,
+        }
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(output, indent=2, default=str), encoding="utf-8")
+    verb = "appended" if args.append_to else "froze"
+    print(
+        f"{verb} {len(frozen_scenarios)} scenario(s) for {stage} "
+        f"({args.arm}, {args.pick}) from {from_path} -> {out_path}"
+    )
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -5715,6 +6101,15 @@ def _build_parser() -> argparse.ArgumentParser:
     ab.add_argument("--no-log", action="store_true", help="Do not append a row to the experiments log")
     ab.add_argument("--experiments-log", default=None, help=f"Override the EXPERIMENTS.md path (default: {DEFAULT_EXPERIMENTS_LOG})")
     ab.add_argument("--results-dir", default=None)
+    ab.add_argument(
+        "--prior-days", default=None,
+        help=(
+            "Frozen prior-day transcript file from `conversation_lab freeze`. "
+            "In --testbed/--sweep mode, both arms of every pair get that scenario's "
+            "frozen earlier days as identical initial context (initial_recent_lines). "
+            "Refuses when the file lacks a panel scenario, or contains --stage or a later day."
+        ),
+    )
     _add_provider_option(ab)
     _add_budget_guard_options(ab)
 
@@ -5841,6 +6236,34 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    freeze_cmd = sub.add_parser(
+        "freeze",
+        help="Freeze one arm's best transcript per scenario from an ab result into a prior-days file.",
+        description=(
+            "Distill an `ab --testbed` or `ab --sweep` result into a frozen "
+            "prior-days file for `ab --prior-days`. Per scenario_id, pick one "
+            "transcript from the --arm arm: --pick judge selects the pair where "
+            "that arm won the most judge dimensions (ties broken by lowest "
+            "run_index); --pick run0 selects the lowest run_index. Writes "
+            '{"frozen_from": {"path", "sha256"}, "stage", "arm", "pick", '
+            '"scenarios": {id: {"day", "messages"}}}. With --append-to, a later '
+            "day is merged into the existing file (scenario -> day -> entry, in "
+            "week order); refuses when the new day is not after the last frozen day."
+        ),
+    )
+    freeze_cmd.add_argument("--from", dest="from_result", required=True, help="Path to an ab result JSON file")
+    freeze_cmd.add_argument("--arm", required=True, choices=("control", "variant"))
+    freeze_cmd.add_argument("--pick", required=True, choices=("judge", "run0"))
+    freeze_cmd.add_argument("--out", default=None, help="Write the frozen file here (unless --append-to)")
+    freeze_cmd.add_argument(
+        "--append-to", default=None,
+        help="Append this result's day to an existing frozen file (input and output in one path)",
+    )
+    freeze_cmd.add_argument(
+        "--variant", dest="variant", default=None,
+        help="For an `ab --sweep` result only: which variant's pairs to freeze",
+    )
+
     return parser
 
 def _dispatch_command(args: argparse.Namespace) -> None:
@@ -5854,6 +6277,8 @@ def _dispatch_command(args: argparse.Namespace) -> None:
         cmd_calibrate(args)
     elif args.command == "pairs":
         cmd_pairs(args)
+    elif args.command == "freeze":
+        cmd_freeze(args)
     else:  # pragma: no cover - argparse enforces valid choices
         raise SystemExit(f"conversation_lab: unknown command {args.command!r}")
 

@@ -4454,3 +4454,293 @@ def test_bench_requires_every_judge_dimension_in_a_non_dry_baseline(tmp_path, mo
     }))
     with pytest.raises(cl.ConversationLabError, match="voice_distinctiveness"):
         cl.cmd_bench(_bench_args(tmp_path, compare=str(partial)))
+
+# ---------------------------------------------------------------------------
+# freeze / --prior-days (#frozen-prior-days)
+# ---------------------------------------------------------------------------
+
+def _frozen_messages(tag: str, day: str = "monday") -> list[dict]:
+    return [
+        {"day": day, "character": "Margaret Chen", "message": f"{tag} one"},
+        {"day": day, "character": "Marcus Reid", "message": f"{tag} two"},
+    ]
+
+
+def _freeze_result(tmp_path, stage: str, pairs: list[dict], mode: str = "testbed") -> "cl.Path":
+    path = tmp_path / f"result-{stage}.json"
+    report = {"command": "ab", "mode": mode, "stage": stage, "pairs": pairs}
+    if mode == "sweep":
+        report = {"command": "ab", "mode": "sweep", "stage": stage,
+                  "variants": {"v": {"pairs": pairs}}}
+    path.write_text(json.dumps(report))
+    return path
+
+
+def _freeze_pairs(scenario_id: str, stage: str) -> list[dict]:
+    return [
+        {
+            "scenario_id": scenario_id, "run_index": 1,
+            "control_messages": _frozen_messages(f"C1-{stage}", stage),
+            "variant_messages": _frozen_messages(f"V1-{stage}", stage),
+            "judge": {"overall": "control", **{d: "control" for d in cl.ALL_JUDGE_DIMENSIONS}},
+        },
+        {
+            "scenario_id": scenario_id, "run_index": 2,
+            "control_messages": _frozen_messages(f"C2-{stage}", stage),
+            "variant_messages": _frozen_messages(f"V2-{stage}", stage),
+            "judge": {"overall": "tie", **{d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS}},
+        },
+    ]
+
+
+def test_freeze_judge_pick_counts_dimension_wins_per_arm():
+    pairs = _freeze_pairs("s1", "monday")
+    assert cl._freeze_pick_pair(pairs, "control", "judge")["run_index"] == 1
+    assert cl._freeze_pick_pair(pairs, "variant", "judge")["run_index"] == 1  # 0 wins for both runs
+    # Second run wins every dimension for the variant arm -> picked over run 1.
+    pairs[1]["judge"] = {"overall": "variant", **{d: "variant" for d in cl.ALL_JUDGE_DIMENSIONS}}
+    assert cl._freeze_pick_pair(pairs, "variant", "judge")["run_index"] == 2
+
+
+def test_freeze_judge_tie_breaks_by_lowest_run_index():
+    pairs = _freeze_pairs("s1", "monday")
+    # Run 1 wins one dimension for control; run 2 also wins one dimension.
+    pairs[0]["judge"] = {"overall": "tie", **{d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS}, "turn_taking": "control"}
+    pairs[1]["judge"] = {"overall": "tie", **{d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS}, "turn_taking": "control"}
+    assert cl._freeze_pick_pair(pairs, "control", "judge")["run_index"] == 1
+
+
+def test_freeze_run0_pick_uses_lowest_run_index():
+    pairs = _freeze_pairs("s1", "monday")
+    assert cl._freeze_pick_pair(pairs, "variant", "run0")["run_index"] == 1
+
+
+def test_freeze_writes_provenance_and_messages(tmp_path):
+    result = _freeze_result(tmp_path, "monday", _freeze_pairs("s1", "monday"))
+    out = tmp_path / "frozen.json"
+    cl.main(["freeze", "--from", str(result), "--arm", "control", "--pick", "judge", "--out", str(out)])
+
+    data = json.loads(out.read_text())
+    assert data["stage"] == "monday"
+    assert data["arm"] == "control"
+    assert data["pick"] == "judge"
+    assert data["frozen_from"]["path"] == str(result)
+    assert data["frozen_from"]["sha256"] == cl.hashlib.sha256(result.read_bytes()).hexdigest()
+    assert data["scenarios"]["s1"]["day"] == "monday"
+    assert [m["message"] for m in data["scenarios"]["s1"]["messages"]] == ["C1-monday one", "C1-monday two"]
+
+
+def test_freeze_append_adds_later_day_keyed_by_scenario_then_day(tmp_path):
+    monday = _freeze_result(tmp_path, "monday", _freeze_pairs("s1", "monday"))
+    out = tmp_path / "frozen.json"
+    cl.main(["freeze", "--from", str(monday), "--arm", "control", "--pick", "judge", "--out", str(out)])
+
+    tuesday = _freeze_result(tmp_path, "tuesday", _freeze_pairs("s1", "tuesday"))
+    cl.main(["freeze", "--from", str(tuesday), "--arm", "variant", "--pick", "run0", "--append-to", str(out)])
+
+    data = json.loads(out.read_text())
+    assert data["stage"] == "tuesday"
+    assert data["arm"] == "variant"
+    assert data["pick"] == "run0"
+    assert list(data["scenarios"]["s1"]) == ["monday", "tuesday"]
+    assert data["scenarios"]["s1"]["monday"]["day"] == "monday"
+    assert data["scenarios"]["s1"]["tuesday"]["day"] == "tuesday"
+
+
+def test_freeze_append_refuses_a_day_not_after_the_last_frozen_day(tmp_path):
+    monday = _freeze_result(tmp_path, "monday", _freeze_pairs("s1", "monday"))
+    out = tmp_path / "frozen.json"
+    cl.main(["freeze", "--from", str(monday), "--arm", "control", "--pick", "judge", "--out", str(out)])
+
+    another_monday = _freeze_result(tmp_path, "monday", _freeze_pairs("s1", "monday"))
+    with pytest.raises(SystemExit, match="not after the last frozen day"):
+        cl.main(["freeze", "--from", str(another_monday), "--arm", "control", "--pick", "run0", "--append-to", str(out)])
+
+    # A later day is fine...
+    tuesday = _freeze_result(tmp_path, "tuesday", _freeze_pairs("s1", "tuesday"))
+    cl.main(["freeze", "--from", str(tuesday), "--arm", "control", "--pick", "run0", "--append-to", str(out)])
+
+    # ...but then an EARLIER day is refused.
+    with pytest.raises(SystemExit, match="not after the last frozen day"):
+        cl.main(["freeze", "--from", str(another_monday), "--arm", "control", "--pick", "run0", "--append-to", str(out)])
+
+
+def test_freeze_append_refuses_mismatched_scenario_sets(tmp_path):
+    monday = _freeze_result(tmp_path, "monday", _freeze_pairs("s1", "monday"))
+    out = tmp_path / "frozen.json"
+    cl.main(["freeze", "--from", str(monday), "--arm", "control", "--pick", "judge", "--out", str(out)])
+
+    tuesday = _freeze_result(
+        tmp_path, "tuesday", _freeze_pairs("s1", "tuesday") + _freeze_pairs("s2", "tuesday"),
+    )
+    with pytest.raises(SystemExit, match="scenario sets differ"):
+        cl.main(["freeze", "--from", str(tuesday), "--arm", "control", "--pick", "run0", "--append-to", str(out)])
+
+
+def _capturing_run_simulation(calls: list):
+    def fake_run_simulation(*, concept, default_model, run_index, stage_only, mode, recipe_context, **kwargs):
+        calls.append({
+            "concept": concept,
+            "stage_only": stage_only,
+            "initial_recent_lines": kwargs.get("initial_recent_lines"),
+            "initial_highlights": kwargs.get("initial_highlights"),
+        })
+        return {"messages": _messages(concept)}
+    return fake_run_simulation
+
+
+def _write_frozen(tmp_path, stage: str, scenario_id: str, day: str = "monday") -> "cl.Path":
+    frozen = tmp_path / f"frozen-{stage}.json"
+    frozen.write_text(json.dumps({
+        "frozen_from": {"path": "some/result.json", "sha256": "abc"},
+        "stage": stage,
+        "arm": "control",
+        "pick": "judge",
+        "scenarios": {
+            scenario_id: {
+                "day": day,
+                "messages": [
+                    {"day": day, "character": "Margaret Chen", "message": "frozen line one"},
+                    {"day": day, "character": "Marcus Reid", "message": "frozen line two"},
+                ],
+            }
+        },
+    }))
+    return frozen
+
+
+def test_ab_testbed_prior_days_passes_identical_context_to_both_arms(tmp_path, monkeypatch):
+    calls: list[dict] = []
+    monkeypatch.setattr(sdw, "run_simulation", _capturing_run_simulation(calls))
+
+    testbed_path = _write_testbed(tmp_path, [
+        {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
+    ])
+    frozen = _write_frozen(tmp_path, "monday", "s1")
+    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    results_dir = tmp_path / "results"
+
+    cl.main([
+        "ab", "--variant", str(variant_path), "--testbed", str(testbed_path),
+        "--stage", "tuesday", "--runs", "2", "--dry-run",
+        "--prior-days", str(frozen), "--results-dir", str(results_dir),
+    ])
+
+    expected = ["Margaret: frozen line one", "Marcus: frozen line two"]
+    assert len(calls) == 4  # control+variant for run 1 and 2
+    assert [call["initial_recent_lines"] for call in calls] == [expected, expected, expected, expected]
+    assert all(call["initial_highlights"] is None for call in calls)
+
+    [result_file] = list(results_dir.glob("*-ab-testbed-*.json"))
+    report = json.loads(result_file.read_text())
+    assert report["prior_days"]["path"] == str(frozen)
+    assert report["prior_days"]["sha256"] == cl.hashlib.sha256(frozen.read_bytes()).hexdigest()
+    assert report["prior_days"]["days"] == ["monday"]
+
+
+def test_ab_testbed_prior_days_refuses_missing_scenario(tmp_path, monkeypatch):
+    monkeypatch.setattr(sdw, "run_simulation", lambda **_kwargs: {"messages": _messages("X")})
+    testbed_path = _write_testbed(tmp_path, [
+        {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
+    ])
+    frozen = _write_frozen(tmp_path, "monday", "some-other-scenario")
+    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+
+    with pytest.raises(SystemExit, match="lacks scenario 's1'"):
+        cl.main([
+            "ab", "--variant", str(variant_path), "--testbed", str(testbed_path),
+            "--stage", "tuesday", "--dry-run", "--prior-days", str(frozen),
+            "--results-dir", str(tmp_path / "results"),
+        ])
+
+
+def test_ab_testbed_prior_days_refuses_stage_or_later_day(tmp_path, monkeypatch):
+    monkeypatch.setattr(sdw, "run_simulation", lambda **_kwargs: {"messages": _messages("X")})
+    testbed_path = _write_testbed(tmp_path, [
+        {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
+    ])
+    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+
+    # Frozen file contains exactly the --stage day.
+    frozen_monday = _write_frozen(tmp_path, "monday", "s1")
+    with pytest.raises(SystemExit, match="contains day 'monday'"):
+        cl.main([
+            "ab", "--variant", str(variant_path), "--testbed", str(testbed_path),
+            "--stage", "monday", "--dry-run", "--prior-days", str(frozen_monday),
+            "--results-dir", str(tmp_path / "results"),
+        ])
+
+    # Frozen file contains a LATER day than --stage.
+    frozen_tuesday = _write_frozen(tmp_path, "tuesday", "s1", day="tuesday")
+    with pytest.raises(SystemExit, match="contains day 'tuesday'"):
+        cl.main([
+            "ab", "--variant", str(variant_path), "--testbed", str(testbed_path),
+            "--stage", "monday", "--dry-run", "--prior-days", str(frozen_tuesday),
+            "--results-dir", str(tmp_path / "results"),
+        ])
+
+
+def test_ab_sweep_prior_days_gives_control_and_variant_the_same_context(tmp_path, monkeypatch):
+    calls: list[dict] = []
+    monkeypatch.setattr(sdw, "run_simulation", _capturing_run_simulation(calls))
+
+    testbed_path = _write_testbed(tmp_path, [
+        {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
+    ])
+    frozen = _write_frozen(tmp_path, "monday", "s1")
+    sweep_dir = tmp_path / "sweep"
+    sweep_dir.mkdir()
+    (sweep_dir / "v.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "VARIANT_RULES"}))
+
+    cl.main([
+        "ab", "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
+        "--stage", "tuesday", "--runs", "1", "--dry-run",
+        "--prior-days", str(frozen), "--results-dir", str(tmp_path / "results"),
+    ])
+
+    expected = ["Margaret: frozen line one", "Marcus: frozen line two"]
+    assert len(calls) == 2  # shared control + one variant arm
+    assert calls[0]["initial_recent_lines"] == expected
+    assert calls[1]["initial_recent_lines"] == expected
+    assert all(call["initial_highlights"] is None for call in calls)
+
+    [result_file] = list((tmp_path / "results").glob("*-ab-sweep-*.json"))
+    report = json.loads(result_file.read_text())
+    assert report["prior_days"]["days"] == ["monday"]
+
+
+def test_ab_single_concept_refuses_prior_days(tmp_path, monkeypatch):
+    monkeypatch.setattr(sdw, "run_simulation", lambda **_kwargs: {"messages": _messages("X")})
+    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    frozen = _write_frozen(tmp_path, "monday", "s1")
+
+    with pytest.raises(SystemExit, match="--prior-days requires --testbed or --sweep"):
+        cl.main([
+            "ab", "--variant", str(variant_path), "--concept", "Test Muffins",
+            "--stage", "tuesday", "--runs", "1", "--dry-run",
+            "--prior-days", str(frozen), "--recipe-context", "anchor",
+            "--results-dir", str(tmp_path / "results"),
+        ])
+
+
+def test_ab_without_prior_days_keeps_initial_recent_lines_none(tmp_path, monkeypatch):
+    calls: list[dict] = []
+    monkeypatch.setattr(sdw, "run_simulation", _capturing_run_simulation(calls))
+
+    testbed_path = _write_testbed(tmp_path, [
+        {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
+    ])
+    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+
+    cl.main([
+        "ab", "--variant", str(variant_path), "--testbed", str(testbed_path),
+        "--stage", "tuesday", "--runs", "1", "--dry-run",
+        "--results-dir", str(tmp_path / "results"),
+    ])
+
+    assert calls
+    assert all(call["initial_recent_lines"] is None for call in calls)
+
+    [result_file] = list((tmp_path / "results").glob("*-ab-testbed-*.json"))
+    report = json.loads(result_file.read_text())
+    assert "prior_days" not in report
