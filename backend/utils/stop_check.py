@@ -18,13 +18,20 @@ fallback to the production regex or to a default value.
 from __future__ import annotations
 
 import json
+import logging
 import os
+import time
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
 from backend.utils.model_router import generate_response
+
+logger = logging.getLogger(__name__)
+
+# Seam so tests can skip the real backoff wait.
+_sleep = time.sleep
 
 # The Haiku model the dialogue itself uses. Provider-prefixed so it can go
 # straight into backend.utils.model_router.generate_response.
@@ -33,6 +40,9 @@ HAIKU_MODEL = "anthropic/claude-haiku-4-5-20251001"
 _JEV_URL = "https://openrouter.ai/api/alpha/decisions"
 _JEV_REQUEST_MODEL = "typesafe/jev-1.13"
 _TIMEOUT_SECONDS = 30.0
+# 1 try + 2 retries, inside the portfolio's 3-attempt cap.
+_JEV_MAX_ATTEMPTS = 3
+_JEV_RETRY_BACKOFF_SECONDS = 2.0
 
 _DECIDED_QUESTION = "Has the team actually reached a final decision on: {objective}?"
 _PUSHBACK_QUESTION = "Before agreeing, did at least one person disagree or push back with a reason?"
@@ -93,16 +103,36 @@ def _check_jev(state: str, objective: str) -> StopCheckResult:
         "state": state,
         "questions": _questions(objective),
     }
-    try:
-        response = httpx.post(
-            _JEV_URL,
-            headers={"Authorization": f"Bearer {api_key}"},
-            json=body,
-            timeout=_TIMEOUT_SECONDS,
-        )
-    except httpx.HTTPError as exc:
-        raise StopCheckError(f"jev request failed: {exc}") from exc
+    # Jev is an alpha endpoint. On 2026-09-27 one HTTP 520 at a single tick
+    # aborted a whole four-arm sweep, so server-side errors and timeouts get a
+    # bounded, logged retry. Client errors (4xx: bad key, no credits, bad
+    # request) are not retried - repeating them cannot help.
+    response = None
+    last_error = ""
+    for attempt in range(_JEV_MAX_ATTEMPTS):
+        if attempt:
+            logger.warning("jev stop check retry %d/%d after %s", attempt, _JEV_MAX_ATTEMPTS - 1, last_error)
+            _sleep(_JEV_RETRY_BACKOFF_SECONDS * attempt)
+        try:
+            response = httpx.post(
+                _JEV_URL,
+                headers={"Authorization": f"Bearer {api_key}"},
+                json=body,
+                timeout=_TIMEOUT_SECONDS,
+            )
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            last_error = f"{type(exc).__name__}: {exc}"
+            response = None
+            continue
+        except httpx.HTTPError as exc:
+            raise StopCheckError(f"jev request failed: {exc}") from exc
+        if response.status_code >= 500:
+            last_error = f"HTTP {response.status_code}"
+            continue
+        break
 
+    if response is None:
+        raise StopCheckError(f"jev request failed after {_JEV_MAX_ATTEMPTS} attempts: {last_error}")
     if response.status_code != 200:
         raise StopCheckError(f"jev returned HTTP {response.status_code}")
 

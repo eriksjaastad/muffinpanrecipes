@@ -333,11 +333,51 @@ def test_jev_missing_keys_raise(monkeypatch, payload):
         check_scene_done(lines=["a"], provider="jev", day="monday", objective="Pick it")
 
 
-def test_jev_non_200_raises(monkeypatch):
+def test_jev_persistent_5xx_raises_after_bounded_retries(monkeypatch):
+    calls = []
     monkeypatch.setattr("backend.utils.stop_check.httpx.post",
-                        lambda *a, **k: _FakeResponse(payload={}, status_code=500))
+                        lambda *a, **k: calls.append(1) or _FakeResponse(payload={}, status_code=500))
+    monkeypatch.setattr("backend.utils.stop_check._sleep", lambda s: None)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
     with pytest.raises(StopCheckError, match="500"):
+        check_scene_done(lines=["a"], provider="jev", day="monday", objective="Pick it")
+    assert len(calls) == 3  # 1 try + 2 retries, never more
+
+
+def test_jev_transient_520_is_retried_then_succeeds(monkeypatch):
+    """2026-09-27: one HTTP 520 aborted a four-arm sweep."""
+    responses = iter([
+        _FakeResponse(payload={}, status_code=520),
+        _FakeResponse(payload=_JEV_VERIFIED_RESPONSE),
+    ])
+    monkeypatch.setattr("backend.utils.stop_check.httpx.post", lambda *a, **k: next(responses))
+    monkeypatch.setattr("backend.utils.stop_check._sleep", lambda s: None)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+    result = check_scene_done(lines=["a"], provider="jev", day="monday", objective="Pick it")
+    assert result.decided == 0.95
+
+
+def test_jev_client_error_is_not_retried(monkeypatch):
+    calls = []
+    monkeypatch.setattr("backend.utils.stop_check.httpx.post",
+                        lambda *a, **k: calls.append(1) or _FakeResponse(payload={}, status_code=402))
+    monkeypatch.setattr("backend.utils.stop_check._sleep", lambda s: None)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+    with pytest.raises(StopCheckError, match="402"):
+        check_scene_done(lines=["a"], provider="jev", day="monday", objective="Pick it")
+    assert len(calls) == 1
+
+
+def test_jev_repeated_timeouts_raise(monkeypatch):
+    import httpx
+
+    def timeout(*a, **k):
+        raise httpx.ReadTimeout("slow")
+
+    monkeypatch.setattr("backend.utils.stop_check.httpx.post", timeout)
+    monkeypatch.setattr("backend.utils.stop_check._sleep", lambda s: None)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+    with pytest.raises(StopCheckError, match="after 3 attempts"):
         check_scene_done(lines=["a"], provider="jev", day="monday", objective="Pick it")
 
 
