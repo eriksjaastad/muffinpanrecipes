@@ -27,6 +27,7 @@ from statistics import mean
 from typing import Any
 
 from backend.config import config
+from backend.utils.director import Direction, direct_day, roll_day
 from backend.utils.model_router import generate_response
 from backend.utils.stop_check import StopCheckError, check_scene_done
 
@@ -302,6 +303,22 @@ OPEN_ENDED_MAX_TICKS: dict = {}
 # model, cost_usd). run_simulation clears it at start; the conversation lab
 # copies it into the result JSON after each arm.
 STOP_CHECK_LOG: list[dict] = []
+
+# Director knob (#7679, absorbs #7677) — module attribute so the conversation
+# lab can sweep it. enabled False (the production default) leaves every prompt
+# byte-identical to today: no rolls, no director call, no extra prompt lines.
+DIRECTOR: dict = {
+    "enabled": False,
+    "probability": 0.5,
+    "intensity": 3,
+    "rng_seed": 0,
+    "no_repeat_window": 14,
+}
+
+# One director record per simulated day (day, rolls, direction, fallback).
+# run_simulation clears it at start; the conversation lab copies it into the
+# result JSON after each arm, next to STOP_CHECK_LOG.
+DIRECTOR_LOG: list[dict] = []
 
 PROMPT_ECHO_PATTERNS = [
     "day:",
@@ -888,6 +905,7 @@ def generate_turn(
     week_highlights: list[str] | None = None,
     highlight_format: str = "plain",
     recipe_context: str | None = None,
+    direction: Direction | None = None,
 ) -> str:
     if mode == "template":
         sig = persona["communication_style"].get("signature_phrases", ["Right."])
@@ -971,8 +989,23 @@ def generate_turn(
 
     no_clock_line = "Do NOT mention specific clock times."
 
+    # Director (#7679): the shared scene and this character's own pre-meeting
+    # line. A fallback direction behaves exactly like today's plain scene, and
+    # an absent direction keeps every prompt byte-identical to today.
+    director_scene_block = ""
+    director_before_block = ""
+    if direction is not None and not direction.fallback:
+        scene = (direction.scene or "").strip()
+        own_line = (direction.characters or {}).get(persona.get("name", ""), "").strip()
+        if scene and day_turn != 1:
+            director_scene_block = f"Scene today: {scene}\n"
+        if own_line:
+            director_before_block = f"Before this meeting: {own_line}\n"
+
     if prompt_style == "scene":
         scene_sentence = DAY_STAGE_DIRECTIONS[day]
+        if direction is not None and not direction.fallback and (direction.scene or "").strip():
+            scene_sentence = direction.scene.strip()
         arc_summary = _build_dynamic_arc(day, concept, photography_context=photography_context)
 
         if day_turn == 1:
@@ -996,6 +1029,7 @@ def generate_turn(
                 f"{char_goal_line}\n"
                 f"{no_clock_line}\n"
                 f"{event_line}\n"
+                f"{director_before_block}"
                 f"{week_context_block}"
                 f"Recent chat:\n{history}\n\n"
                 f"{self_awareness_block}"
@@ -1030,6 +1064,7 @@ def generate_turn(
                 f"{char_goal_line}\n"
                 f"{no_clock_line}\n"
                 f"{event_line}\n"
+                f"{director_scene_block}{director_before_block}"
                 f"{week_context_block}"
                 f"Recent chat:\n{history}\n\n"
                 f"{self_awareness_block}"
@@ -1060,6 +1095,7 @@ def generate_turn(
             f"{char_goal_line}\n"
             f"{no_clock_line}\n"
             f"{event_line}\n"
+            f"{director_scene_block}{director_before_block}"
             f"{week_context_block}"
             f"Recent chat:\n{history}\n\n"
             f"{self_awareness_block}"
@@ -2142,8 +2178,13 @@ def run_simulation(
     messages: list[Message] = []
     recent_lines: list[str] = list(initial_recent_lines) if initial_recent_lines else []
     week_highlights: list[str] = list(initial_highlights) if initial_highlights else []
+    # In-run director history (#7679): later days in the same simulated week
+    # must not repeat an earlier day's (character, category) pairing, summary,
+    # or scene.
+    director_history: list[dict] = []
 
     STOP_CHECK_LOG.clear()
+    DIRECTOR_LOG.clear()
     if WINDDOWN_TRIGGER not in ("regex", "off", "check"):
         raise ValueError(
             f"WINDDOWN_TRIGGER must be 'regex', 'off', or 'check', got {WINDDOWN_TRIGGER!r}"
@@ -2191,6 +2232,61 @@ def run_simulation(
         goal = DAY_MEETING_GOAL[day]
         goal_met = False
 
+        # Director (#7679): roll and direct the scene ONCE per day, before the
+        # first turn. Skipped in template mode so --dry-run stays zero-API.
+        # DirectorError propagates (no silent empty result); a fallback
+        # direction simply runs the day with today's plain scene.
+        direction = None
+        if DIRECTOR["enabled"] and mode != "template":
+            rolls = roll_day(
+                seed_key=concept,
+                characters=names,
+                probability=DIRECTOR["probability"],
+                rng_seed=DIRECTOR["rng_seed"],
+                day=day,
+            )
+            direction = direct_day(
+                day=day,
+                concept=concept,
+                objective=goal["objective"],
+                rolls=rolls,
+                intensity=DIRECTOR["intensity"],
+                history=director_history,
+                model=default_model,
+                no_repeat_window=DIRECTOR["no_repeat_window"],
+            )
+            for roll in rolls:
+                if not roll.has_something:
+                    continue
+                line = (direction.characters or {}).get(roll.character, "").strip()
+                if not line:
+                    continue
+                director_history.append({
+                    "day": day,
+                    "character": roll.character,
+                    "category": roll.category,
+                    "summary": " ".join(line.split()[:10]),
+                    "scene": direction.scene,
+                })
+            DIRECTOR_LOG.append({
+                "day": day,
+                "rolls": [
+                    {
+                        "character": r.character,
+                        "category": r.category,
+                        "u": r.u,
+                        "has_something": r.has_something,
+                    }
+                    for r in rolls
+                ],
+                "direction": (
+                    {"scene": direction.scene, "characters": direction.characters}
+                    if not direction.fallback
+                    else None
+                ),
+                "fallback": direction.fallback,
+            })
+
         for tick in range(day_ticks):
             # In an open-ended day, the tick after goal_met is the closing
             # turn and the day ends after it.
@@ -2232,6 +2328,7 @@ def run_simulation(
                 week_highlights=week_highlights if week_highlights else None,
                 highlight_format=highlight_format,
                 recipe_context=recipe_context,
+                direction=direction,
             )
             day_messages_by_char[speaker].append(line)
             recent_lines.append(f"{speaker.split()[0]}: {line}")

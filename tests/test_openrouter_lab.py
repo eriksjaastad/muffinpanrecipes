@@ -21,6 +21,13 @@ from backend.utils import model_router
 # model_router: openrouter provider
 # ---------------------------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def _funded_account(monkeypatch):
+    """Tests never hit the network; default to an account that can pay.
+    Individual tests override this to exercise the balance refusal."""
+    monkeypatch.setattr(cl, "_openrouter_fetch_account_balance", lambda: 100.0)
+
+
 def test_parse_openrouter_model_splits_on_first_slash_only():
     routed = model_router.parse_model("openrouter/anthropic/claude-haiku-4.5")
     assert routed.provider == "openrouter"
@@ -326,3 +333,54 @@ def test_anthropic_path_does_not_add_openrouter_cost_fields(tmp_path, monkeypatc
     assert "cost_by_model" not in report
     assert "total_cost_usd" not in report
     assert "openrouter_key" not in report
+
+
+def test_openrouter_refuses_when_account_balance_is_below_max_cost(tmp_path, monkeypatch):
+    """2026-09-27: the key had $49.62 of limit left but the ACCOUNT held $0.56,
+    and the first paid run died at its first judge call. The balance check
+    must stop the run before any generation."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+    monkeypatch.setattr(
+        cl, "_openrouter_fetch_key",
+        lambda: {"limit": 50.0, "limit_remaining": 49.62, "usage": 0.38},
+    )
+    monkeypatch.setattr(cl, "_openrouter_fetch_account_balance", lambda: 0.56)
+
+    def fail_generation(**kwargs):
+        raise AssertionError("generation must not start when the account cannot pay")
+
+    monkeypatch.setattr(sdw, "run_simulation", fail_generation)
+    variant_path = _write_variant(tmp_path)
+    with pytest.raises(SystemExit, match="account balance"):
+        cl.main([
+            "ab", "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+            "--variant", str(variant_path), "--recipe-context", "anchor",
+            "--max-cost", "5.0", "--results-dir", str(tmp_path / "results"),
+        ])
+
+
+def test_account_balance_is_credits_minus_usage(monkeypatch):
+    monkeypatch.undo()  # drop the autouse stub for this test only
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+
+    class _Resp:
+        status_code = 200
+        def json(self):
+            return {"data": {"total_credits": 50.0, "total_usage": 49.44}}
+
+    monkeypatch.setattr(cl.httpx, "get", lambda *a, **k: _Resp())
+    assert cl._openrouter_fetch_account_balance() == pytest.approx(0.56)
+
+
+def test_account_balance_rejects_malformed_payload(monkeypatch):
+    monkeypatch.undo()
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+
+    class _Resp:
+        status_code = 200
+        def json(self):
+            return {"data": {"total_credits": None, "total_usage": 1.0}}
+
+    monkeypatch.setattr(cl.httpx, "get", lambda *a, **k: _Resp())
+    with pytest.raises(cl.ConversationLabError, match="total_credits"):
+        cl._openrouter_fetch_account_balance()

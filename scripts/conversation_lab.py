@@ -63,8 +63,9 @@ Four subcommands:
       (_SHARED_CHARACTER_RULES, _REACTION_DIRECTIVE, DAY_STAGE_DIRECTIONS,
       CHARACTER_DAY_GOALS), the history window HISTORY_DEPTH, the
       output-contract guards (SHAPE_WINDOW, SHAPE_MAX_IN_WINDOW,
-      WORD_BUDGET_TOLERANCE), and the wind-down/stop knobs (TICKS_RANGE,
-      WINDDOWN_TRIGGER, STOP_CHECK, OPEN_ENDED_MAX_TICKS). The patch applies
+      WORD_BUDGET_TOLERANCE), the wind-down/stop knobs (TICKS_RANGE,
+      WINDDOWN_TRIGGER, STOP_CHECK, OPEN_ENDED_MAX_TICKS), and the director
+      knob (DIRECTOR). The patch applies
       to the variant arm's generation call only and is always restored
       afterward, even on error.
 
@@ -284,6 +285,7 @@ OPENROUTER_DIALOGUE_MODEL = "openrouter/anthropic/claude-haiku-4.5"
 OPENROUTER_JUDGE_MODEL = "openrouter/anthropic/claude-opus-4.6"
 
 _OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
+_OPENROUTER_CREDITS_URL = "https://openrouter.ai/api/v1/credits"
 _OPENROUTER_KEY_TIMEOUT_SECONDS = 30.0
 
 # Key snapshots for one paid OpenRouter run. `before` is captured in main()
@@ -323,6 +325,9 @@ ALLOWED_VARIANT_ATTRS: tuple[str, ...] = (
     "WINDDOWN_TRIGGER",
     "STOP_CHECK",
     "OPEN_ENDED_MAX_TICKS",
+    # Director knob (#7679, absorbs #7677). When enabled, run_simulation rolls
+    # and directs each scene before the first turn (one Haiku call per day).
+    "DIRECTOR",
 )
 
 # The 8 dimensions the production judge scores (backend/admin/cron_routes.py
@@ -563,6 +568,46 @@ def _openrouter_preflight(args: argparse.Namespace) -> None:
             f"${key_info['limit_remaining']:.2f} is below --max-cost ${args.max_cost:.2f}; "
             "refusing to start"
         )
+    # The key limit is only a ceiling; spend comes out of the ACCOUNT balance.
+    # 2026-09-27 the first paid run passed the key check with $49.62 of limit
+    # remaining and died at its first judge call because the account held $0.56.
+    balance = _openrouter_fetch_account_balance()
+    print(f"[openrouter] account balance: ${balance:.2f}")
+    if balance < args.max_cost:
+        raise SystemExit(
+            f"conversation_lab: OpenRouter account balance ${balance:.2f} is below "
+            f"--max-cost ${args.max_cost:.2f}; add credits before starting"
+        )
+
+
+def _openrouter_fetch_account_balance() -> float:
+    """GET OpenRouter's /credits endpoint; return total_credits - total_usage."""
+    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if not api_key:
+        raise ConversationLabError("OPENROUTER_API_KEY is not set")
+    try:
+        response = httpx.get(
+            _OPENROUTER_CREDITS_URL,
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=_OPENROUTER_KEY_TIMEOUT_SECONDS,
+        )
+    except httpx.HTTPError as exc:
+        raise ConversationLabError(f"openrouter credits check failed: {exc}") from exc
+    if response.status_code != 200:
+        raise ConversationLabError(f"openrouter credits check returned HTTP {response.status_code}")
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise ConversationLabError("openrouter credits check returned malformed JSON") from exc
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
+        raise ConversationLabError("openrouter credits check response is missing the data object")
+    total_credits = data.get("total_credits")
+    total_usage = data.get("total_usage")
+    for field, value in (("total_credits", total_credits), ("total_usage", total_usage)):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ConversationLabError(f"openrouter credits check {field} is invalid")
+    return float(total_credits) - float(total_usage)
 
 
 def _openrouter_fetch_key() -> dict[str, Any]:
@@ -986,6 +1031,9 @@ def _validate_lever_shape(name: str, value: Any) -> None:
     if name == "OPEN_ENDED_MAX_TICKS":
         _validate_open_ended_max_ticks_shape(value)
         return
+    if name == "DIRECTOR":
+        _validate_director_shape(value)
+        return
     if name != "HISTORY_DEPTH":
         return
     if not isinstance(value, dict):
@@ -1093,6 +1141,49 @@ def _validate_open_ended_max_ticks_shape(value: Any) -> None:
             raise ConversationLabError(
                 f"OPEN_ENDED_MAX_TICKS[{day!r}] must be an integer >= 3, got {cap!r}"
             )
+
+def _validate_director_shape(value: Any) -> None:
+    expected_keys = {"enabled", "probability", "intensity", "rng_seed", "no_repeat_window"}
+    if not isinstance(value, dict) or set(value) != expected_keys:
+        missing = sorted(expected_keys - (set(value) if isinstance(value, dict) else set()))
+        extra = sorted((set(value) if isinstance(value, dict) else set()) - expected_keys)
+        raise ConversationLabError(
+            f"DIRECTOR must be a dict with exactly the keys {sorted(expected_keys)}; "
+            f"missing {missing}, unexpected {extra}, got {type(value).__name__}"
+        )
+    enabled = value["enabled"]
+    if not isinstance(enabled, bool):
+        raise ConversationLabError(
+            f"DIRECTOR['enabled'] must be a bool, got {enabled!r}"
+        )
+    probability = value["probability"]
+    if (
+        isinstance(probability, bool)
+        or not isinstance(probability, (int, float))
+        or not 0 <= probability <= 1
+    ):
+        raise ConversationLabError(
+            f"DIRECTOR['probability'] must be a number 0-1, got {probability!r}"
+        )
+    intensity = value["intensity"]
+    if isinstance(intensity, bool) or not isinstance(intensity, int) or not 1 <= intensity <= 5:
+        raise ConversationLabError(
+            f"DIRECTOR['intensity'] must be an integer 1-5, got {intensity!r}"
+        )
+    rng_seed = value["rng_seed"]
+    if isinstance(rng_seed, bool) or not isinstance(rng_seed, int):
+        raise ConversationLabError(
+            f"DIRECTOR['rng_seed'] must be an int, got {rng_seed!r}"
+        )
+    no_repeat_window = value["no_repeat_window"]
+    if (
+        isinstance(no_repeat_window, bool)
+        or not isinstance(no_repeat_window, int)
+        or no_repeat_window < 0
+    ):
+        raise ConversationLabError(
+            f"DIRECTOR['no_repeat_window'] must be an integer >= 0, got {no_repeat_window!r}"
+        )
 
 def _validate_history_depth_invariant(module: Any, variant: dict[str, Any]) -> None:
     """Refuse a variant whose max tick count would swallow the history floor.
@@ -1209,6 +1300,11 @@ def _run_arm_and_count(
 def _snapshot_stop_check_log() -> list[dict[str, Any]]:
     """Copy the simulator's STOP_CHECK_LOG (a list of dicts) after one arm."""
     log = getattr(simulate_module, "STOP_CHECK_LOG", [])
+    return list(log) if isinstance(log, list) else []
+
+def _snapshot_director_log() -> list[dict[str, Any]]:
+    """Copy the simulator's DIRECTOR_LOG (a list of dicts) after one arm."""
+    log = getattr(simulate_module, "DIRECTOR_LOG", [])
     return list(log) if isinstance(log, list) else []
 
 def _jev_cost_usd_from_log(log: Any) -> float:
@@ -1917,12 +2013,14 @@ def _generate_and_judge_pairs(
                 concept, stage, run_index, recipe_context, mode, default_model
             )
             control_stop_check_log = _snapshot_stop_check_log()
+            control_director_log = _snapshot_director_log()
             budget.record(0 if dry_run else control_calls)
             pending_pair: dict[str, Any] = {
                 "run_index": run_index,
                 "status": "control_generated",
                 "control_messages": control_result.get("messages", []),
                 "control_stop_check_log": control_stop_check_log,
+                "control_director_log": control_director_log,
                 "variant_messages": None,
                 "judge_orientations": [],
             }
@@ -1939,6 +2037,7 @@ def _generate_and_judge_pairs(
                     concept, stage, run_index, recipe_context, mode, default_model
                 )
                 variant_stop_check_log = _snapshot_stop_check_log()
+                variant_director_log = _snapshot_director_log()
             finally:
                 _restore_variant(simulate_module, restore_pending)
                 restore_pending = None
@@ -1948,6 +2047,7 @@ def _generate_and_judge_pairs(
             variant_messages = variant_result.get("messages", [])
             pending_pair["variant_messages"] = variant_messages
             pending_pair["variant_stop_check_log"] = variant_stop_check_log
+            pending_pair["variant_director_log"] = variant_director_log
             pending_pair["status"] = "awaiting_judges"
             _budget_checkpoint()
 
@@ -1985,6 +2085,8 @@ def _generate_and_judge_pairs(
                 "variant_messages": variant_messages,
                 "control_stop_check_log": control_stop_check_log,
                 "variant_stop_check_log": variant_stop_check_log,
+                "control_director_log": control_director_log,
+                "variant_director_log": variant_director_log,
                 "control_summary": summarize(control_messages, expected_cast, concept=concept, day=stage),
                 "variant_summary": summarize(variant_messages, expected_cast, concept=concept, day=stage),
                 "judge": combined,
@@ -2632,9 +2734,10 @@ def _generate_sweep_control(
             )
             budget.record(0 if dry_run else calls)
             # The shared control is generated once, up front; its stop-check
-            # log would be long gone from the module by the time its pairs are
-            # judged, so copy it into the stored transcript now.
+            # and director logs would be long gone from the module by the time
+            # its pairs are judged, so copy them into the stored transcript now.
             result["stop_check_log"] = _snapshot_stop_check_log()
+            result["director_log"] = _snapshot_director_log()
             transcripts[(scenario["id"], run_index)] = result
             _budget_checkpoint()
     return False
@@ -2701,12 +2804,14 @@ def _run_sweep_variant(
 
                 control_messages = control_result.get("messages", [])
                 control_stop_check_log = control_result.get("stop_check_log", [])
+                control_director_log = control_result.get("director_log", [])
                 pending_pair: dict[str, Any] = {
                     "scenario_id": scenario["id"],
                     "run_index": run_index,
                     "status": "control_generated",
                     "control_messages": control_messages,
                     "control_stop_check_log": control_stop_check_log,
+                    "control_director_log": control_director_log,
                     "variant_messages": None,
                     "judge_orientations": [],
                 }
@@ -2718,6 +2823,7 @@ def _run_sweep_variant(
                         scenario["concept"], stage, run_index, scenario["recipe_context"], mode, default_model,
                     )
                     variant_stop_check_log = _snapshot_stop_check_log()
+                    variant_director_log = _snapshot_director_log()
                 finally:
                     _restore_variant(simulate_module, restore_pending)
                     restore_pending = None
@@ -2726,6 +2832,7 @@ def _run_sweep_variant(
                 variant_messages = variant_result.get("messages", [])
                 pending_pair["variant_messages"] = variant_messages
                 pending_pair["variant_stop_check_log"] = variant_stop_check_log
+                pending_pair["variant_director_log"] = variant_director_log
                 pending_pair["status"] = "awaiting_judges"
                 _budget_checkpoint()
 
@@ -2764,6 +2871,8 @@ def _run_sweep_variant(
                     "variant_messages": variant_messages,
                     "control_stop_check_log": control_stop_check_log,
                     "variant_stop_check_log": variant_stop_check_log,
+                    "control_director_log": control_director_log,
+                    "variant_director_log": variant_director_log,
                     "control_summary": summarize(control_messages, expected_cast, concept=scenario["concept"], day=stage),
                     "variant_summary": summarize(variant_messages, expected_cast, concept=scenario["concept"], day=stage),
                     "judge": combined,
