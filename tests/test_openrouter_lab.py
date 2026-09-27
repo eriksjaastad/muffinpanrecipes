@@ -384,3 +384,14 @@ def test_account_balance_rejects_malformed_payload(monkeypatch):
     monkeypatch.setattr(cl.httpx, "get", lambda *a, **k: _Resp())
     with pytest.raises(cl.ConversationLabError, match="total_credits"):
         cl._openrouter_fetch_account_balance()
+
+
+def test_cost_by_model_warns_when_a_call_has_no_cost(monkeypatch, capsys):
+    """A call with no usage.cost must not vanish silently from the total."""
+    monkeypatch.setattr(model_router, "get_cost_entries", lambda: [
+        {"provider": "openrouter", "model": "anthropic/claude-haiku-4.5", "actual_cost": 0.01},
+        {"provider": "openrouter", "model": "anthropic/claude-haiku-4.5"},
+    ])
+    totals = cl._openrouter_router_cost_by_model()
+    assert totals == {"openrouter/anthropic/claude-haiku-4.5": 0.01}
+    assert "1 call(s) returned no usage.cost" in capsys.readouterr().err

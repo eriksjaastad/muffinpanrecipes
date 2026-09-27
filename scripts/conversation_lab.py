@@ -665,21 +665,26 @@ def _openrouter_key_usage_report() -> dict[str, Any] | None:
 def _openrouter_router_cost_by_model() -> dict[str, float]:
     """OpenRouter usage.cost totals recorded by the model router."""
     totals: dict[str, float] = {}
-    try:
-        entries = model_router.get_cost_entries()
-    except Exception:
-        return totals
+    # No try/except: get_cost_entries() is a list copy, and a failure here must
+    # not print as "$0 spent" (review of ffbae2c).
+    entries = model_router.get_cost_entries()
+    missing = 0
     for entry in entries:
         if not isinstance(entry, dict) or entry.get("provider") != "openrouter":
             continue
         actual = entry.get("actual_cost")
-        if isinstance(actual, bool) or not isinstance(actual, (int, float)):
-            continue
-        if not isfinite(actual):
+        if isinstance(actual, bool) or not isinstance(actual, (int, float)) or not isfinite(actual):
+            missing += 1
             continue
         model = str(entry.get("model") or "unknown")
         key = f"openrouter/{model}"
         totals[key] = round(totals.get(key, 0.0) + float(actual), 9)
+    if missing:
+        print(
+            f"[openrouter] WARNING: {missing} call(s) returned no usage.cost; "
+            "cost_by_model undercounts them - compare against the key usage before/after",
+            file=sys.stderr,
+        )
     return totals
 
 

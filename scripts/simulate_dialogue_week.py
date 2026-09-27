@@ -2341,7 +2341,9 @@ def run_simulation(
                     if re.search(goal["completion_signal"], combined):
                         goal_met = True
             elif WINDDOWN_TRIGGER == "check":
-                if not goal_met and tick >= 2:
+                # mode="template" is the lab's zero-API dry run; the stop check
+                # is a paid call, so it is skipped there like the director.
+                if not goal_met and tick >= 2 and mode != "template":
                     try:
                         result = check_scene_done(
                             lines=recent_lines,

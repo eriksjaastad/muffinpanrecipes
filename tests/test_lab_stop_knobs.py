@@ -27,7 +27,7 @@ from backend.utils.stop_check import (
 
 
 def _scripted_run(monkeypatch, *, trigger=None, stop_check=None, stop_checks=None,
-                  open_ended=None, ticks=5, line_fn=None):
+                  open_ended=None, ticks=5, line_fn=None, mode="openai"):
     """Drive the real run_simulation day loop with only generate_turn replaced.
 
     Returns (recorded_turn_info, run_simulation_result).
@@ -61,7 +61,10 @@ def _scripted_run(monkeypatch, *, trigger=None, stop_check=None, stop_checks=Non
         stage_only="monday",
         injected_event=None,
         ticks_per_day=ticks,
-        mode="template",
+        # generate_turn is faked above, so a real mode costs nothing here; it
+        # is needed because mode="template" (the lab dry run) skips the paid
+        # stop check by design.
+        mode=mode,
         prompt_style="plain",
         character_models=None,
     )
@@ -513,3 +516,16 @@ def test_ab_result_carries_stop_check_logs_and_jev_cost(tmp_path, monkeypatch):
     assert pair["variant_stop_check_log"][0]["provider"] == "jev"
     assert pair["variant_stop_check_log"][0]["cost_usd"] == 0.000013272
     assert report["jev_cost_usd"] == 0.000013272
+
+
+def test_template_mode_dry_run_never_calls_the_stop_check(monkeypatch):
+    """The lab's --dry-run uses mode="template" and promises zero paid calls;
+    on 2026-09-27 a dry run of the open-ended Jev arm spent $0.012 on Jev."""
+    def must_not_run(**kwargs):
+        raise AssertionError("stop check called in template mode")
+
+    recorded, _ = _scripted_run(
+        monkeypatch, trigger="check", stop_checks=must_not_run,
+        line_fn=lambda turn: "let's do it, locked, agreed", mode="template",
+    )
+    assert recorded  # the day still ran
