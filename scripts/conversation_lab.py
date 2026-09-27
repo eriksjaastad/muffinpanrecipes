@@ -63,7 +63,7 @@ Four subcommands:
       (_SHARED_CHARACTER_RULES, _REACTION_DIRECTIVE, DAY_STAGE_DIRECTIONS,
       CHARACTER_DAY_GOALS), the history window HISTORY_DEPTH, the
       output-contract guards (SHAPE_WINDOW, SHAPE_MAX_IN_WINDOW,
-      WORD_BUDGET_TOLERANCE), the wind-down/stop knobs (TICKS_RANGE,
+      WORD_BUDGET_TOLERANCE, REWRITE_GUARDS), the wind-down/stop knobs (TICKS_RANGE,
       WINDDOWN_TRIGGER, STOP_CHECK, OPEN_ENDED_MAX_TICKS), and the director
       knob (DIRECTOR). The patch applies
       to the variant arm's generation call only and is always restored
@@ -318,6 +318,11 @@ ALLOWED_VARIANT_ATTRS: tuple[str, ...] = (
     "SHAPE_WINDOW",
     "SHAPE_MAX_IN_WINDOW",
     "WORD_BUDGET_TOLERANCE",
+    # Per-line rewrite guards (#7705). A variant may carry a SUBSET of the
+    # {"repetition", "shape", "word_budget"} bool keys; _apply_variant merges the
+    # subset onto the module default, so the patched module always has all three.
+    # A guard set False is not evaluated as a fault, so it cannot trigger a rewrite.
+    "REWRITE_GUARDS",
     # Wind-down/stop knobs (#7680, #7681, #7629). TICKS_RANGE and
     # OPEN_ENDED_MAX_TICKS raise a scene's turn count; WINDDOWN_TRIGGER and
     # STOP_CHECK choose how the scene decides it is done.
@@ -972,6 +977,11 @@ def _apply_variant(module: Any, variant: dict[str, Any]) -> dict[str, Any]:
             # own type is tuples - normalise on the way in so the patched module
             # looks exactly like the default shape.
             value = {day: tuple(pair) for day, pair in value.items()}
+        elif name == "REWRITE_GUARDS":
+            # validate_variant allows a SUBSET of the three bool guards; merge
+            # the subset onto the module default so the patched module always
+            # carries exactly {"repetition", "shape", "word_budget"}.
+            value = {**getattr(module, name), **value}
         setattr(module, name, value)
     _clear_prompt_cache(module)
     return original
@@ -1038,6 +1048,9 @@ def _validate_lever_shape(name: str, value: Any) -> None:
         return
     if name == "DIRECTOR":
         _validate_director_shape(value)
+        return
+    if name == "REWRITE_GUARDS":
+        _validate_rewrite_guards_shape(value)
         return
     if name != "HISTORY_DEPTH":
         return
@@ -1190,6 +1203,27 @@ def _validate_director_shape(value: Any) -> None:
             f"DIRECTOR['no_repeat_window'] must be an integer >= 0, got {no_repeat_window!r}"
         )
 
+def _validate_rewrite_guards_shape(value: Any) -> None:
+    """REWRITE_GUARDS accepts a non-empty SUBSET of the three bool guards.
+
+    A variant file may override only the guards it cares about - the merge in
+    _apply_variant fills in the missing keys from the module default, so the
+    patched module always carries exactly {'repetition', 'shape',
+    'word_budget'} with bool values.
+    """
+    expected_keys = {"repetition", "shape", "word_budget"}
+    if not isinstance(value, dict) or not value or not set(value) <= expected_keys:
+        extra = sorted((set(value) if isinstance(value, dict) else set()) - expected_keys)
+        raise ConversationLabError(
+            f"REWRITE_GUARDS must be a non-empty dict with a subset of keys "
+            f"{sorted(expected_keys)}; unexpected {extra}, got {type(value).__name__}"
+        )
+    for key, flag in value.items():
+        if not isinstance(flag, bool):
+            raise ConversationLabError(
+                f"REWRITE_GUARDS[{key!r}] must be a bool, got {flag!r}"
+            )
+
 def _validate_history_depth_invariant(module: Any, variant: dict[str, Any]) -> None:
     """Refuse a variant whose max tick count would swallow the history floor.
 
@@ -1311,6 +1345,46 @@ def _snapshot_director_log() -> list[dict[str, Any]]:
     """Copy the simulator's DIRECTOR_LOG (a list of dicts) after one arm."""
     log = getattr(simulate_module, "DIRECTOR_LOG", [])
     return list(log) if isinstance(log, list) else []
+
+def _snapshot_rewrite_log() -> list[dict[str, Any]]:
+    """Copy the simulator's REWRITE_LOG (a list of dicts) after one arm."""
+    log = getattr(simulate_module, "REWRITE_LOG", [])
+    return list(log) if isinstance(log, list) else []
+
+def _rewrite_summary(entries: Any) -> dict[str, Any]:
+    """Per-arm rewrite accounting: lines, rewritten count/rate, fault counts,
+    and CoT-guard retry count (#7705)."""
+    entries = [e for e in (entries or []) if isinstance(e, dict)]
+    rewritten = sum(1 for e in entries if e.get("rewritten") is True)
+    fault_counts: Counter[str] = Counter()
+    cot_retry = 0
+    for entry in entries:
+        faults = entry.get("faults")
+        if isinstance(faults, list):
+            for fault in faults:
+                if isinstance(fault, str):
+                    fault_counts[fault] += 1
+        if entry.get("cot_retry") is True:
+            cot_retry += 1
+    n = len(entries)
+    return {
+        "lines": n,
+        "rewritten": rewritten,
+        "rewrite_rate": round(rewritten / n, 4) if n else 0.0,
+        "fault_counts": dict(fault_counts),
+        "cot_retry": cot_retry,
+    }
+
+def _pair_arm_rewrite_summaries(pairs: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """The control/variant rewrite_summary block for a set of completed pairs."""
+    return {
+        "control": _rewrite_summary(
+            [entry for pair in pairs for entry in (pair.get("control_rewrite_log") or [])]
+        ),
+        "variant": _rewrite_summary(
+            [entry for pair in pairs for entry in (pair.get("variant_rewrite_log") or [])]
+        ),
+    }
 
 def _jev_cost_usd_from_log(log: Any) -> float:
     """Sum cost_usd entries recorded for the jev provider in one stop-check log."""
@@ -2019,6 +2093,7 @@ def _generate_and_judge_pairs(
             )
             control_stop_check_log = _snapshot_stop_check_log()
             control_director_log = _snapshot_director_log()
+            control_rewrite_log = _snapshot_rewrite_log()
             budget.record(0 if dry_run else control_calls)
             pending_pair: dict[str, Any] = {
                 "run_index": run_index,
@@ -2026,6 +2101,7 @@ def _generate_and_judge_pairs(
                 "control_messages": control_result.get("messages", []),
                 "control_stop_check_log": control_stop_check_log,
                 "control_director_log": control_director_log,
+                "control_rewrite_log": control_rewrite_log,
                 "variant_messages": None,
                 "judge_orientations": [],
             }
@@ -2043,6 +2119,7 @@ def _generate_and_judge_pairs(
                 )
                 variant_stop_check_log = _snapshot_stop_check_log()
                 variant_director_log = _snapshot_director_log()
+                variant_rewrite_log = _snapshot_rewrite_log()
             finally:
                 _restore_variant(simulate_module, restore_pending)
                 restore_pending = None
@@ -2053,6 +2130,7 @@ def _generate_and_judge_pairs(
             pending_pair["variant_messages"] = variant_messages
             pending_pair["variant_stop_check_log"] = variant_stop_check_log
             pending_pair["variant_director_log"] = variant_director_log
+            pending_pair["variant_rewrite_log"] = variant_rewrite_log
             pending_pair["status"] = "awaiting_judges"
             _budget_checkpoint()
 
@@ -2092,6 +2170,8 @@ def _generate_and_judge_pairs(
                 "variant_stop_check_log": variant_stop_check_log,
                 "control_director_log": control_director_log,
                 "variant_director_log": variant_director_log,
+                "control_rewrite_log": control_rewrite_log,
+                "variant_rewrite_log": variant_rewrite_log,
                 "control_summary": summarize(control_messages, expected_cast, concept=concept, day=stage),
                 "variant_summary": summarize(variant_messages, expected_cast, concept=concept, day=stage),
                 "judge": combined,
@@ -2403,6 +2483,7 @@ def _build_ab_report(
         **_openrouter_fields_for(args, _openrouter_cost_by_model_for_pairs(pairs, partial_pairs or [])),
         "pairs": pairs,
         "partial_pairs": partial_pairs or [],
+        "rewrite_summary": _pair_arm_rewrite_summaries(pairs),
         "results_file": str(result_path),
         **_aggregate_pairs(pairs, args.target, args.dry_run),
     }
@@ -2457,6 +2538,7 @@ def _build_testbed_ab_report(
         "scenarios": scenario_reports,
         "pairs": all_pairs,
         "partial_pairs": partial_pairs or [],
+        "rewrite_summary": _pair_arm_rewrite_summaries(all_pairs),
         "results_file": str(result_path),
         **_aggregate_pairs(all_pairs, args.target, args.dry_run),
     }
@@ -2738,11 +2820,13 @@ def _generate_sweep_control(
                 scenario["concept"], stage, run_index, scenario["recipe_context"], mode, default_model,
             )
             budget.record(0 if dry_run else calls)
-            # The shared control is generated once, up front; its stop-check
-            # and director logs would be long gone from the module by the time
-            # its pairs are judged, so copy them into the stored transcript now.
+            # The shared control is generated once, up front; its stop-check,
+            # director, and rewrite logs would be long gone from the module by
+            # the time its pairs are judged, so copy them into the stored
+            # transcript now.
             result["stop_check_log"] = _snapshot_stop_check_log()
             result["director_log"] = _snapshot_director_log()
+            result["rewrite_log"] = _snapshot_rewrite_log()
             transcripts[(scenario["id"], run_index)] = result
             _budget_checkpoint()
     return False
@@ -2810,6 +2894,7 @@ def _run_sweep_variant(
                 control_messages = control_result.get("messages", [])
                 control_stop_check_log = control_result.get("stop_check_log", [])
                 control_director_log = control_result.get("director_log", [])
+                control_rewrite_log = control_result.get("rewrite_log", [])
                 pending_pair: dict[str, Any] = {
                     "scenario_id": scenario["id"],
                     "run_index": run_index,
@@ -2817,6 +2902,7 @@ def _run_sweep_variant(
                     "control_messages": control_messages,
                     "control_stop_check_log": control_stop_check_log,
                     "control_director_log": control_director_log,
+                    "control_rewrite_log": control_rewrite_log,
                     "variant_messages": None,
                     "judge_orientations": [],
                 }
@@ -2829,6 +2915,7 @@ def _run_sweep_variant(
                     )
                     variant_stop_check_log = _snapshot_stop_check_log()
                     variant_director_log = _snapshot_director_log()
+                    variant_rewrite_log = _snapshot_rewrite_log()
                 finally:
                     _restore_variant(simulate_module, restore_pending)
                     restore_pending = None
@@ -2838,6 +2925,7 @@ def _run_sweep_variant(
                 pending_pair["variant_messages"] = variant_messages
                 pending_pair["variant_stop_check_log"] = variant_stop_check_log
                 pending_pair["variant_director_log"] = variant_director_log
+                pending_pair["variant_rewrite_log"] = variant_rewrite_log
                 pending_pair["status"] = "awaiting_judges"
                 _budget_checkpoint()
 
@@ -2878,6 +2966,8 @@ def _run_sweep_variant(
                     "variant_stop_check_log": variant_stop_check_log,
                     "control_director_log": control_director_log,
                     "variant_director_log": variant_director_log,
+                    "control_rewrite_log": control_rewrite_log,
+                    "variant_rewrite_log": variant_rewrite_log,
                     "control_summary": summarize(control_messages, expected_cast, concept=scenario["concept"], day=stage),
                     "variant_summary": summarize(variant_messages, expected_cast, concept=scenario["concept"], day=stage),
                     "judge": combined,
@@ -2921,6 +3011,7 @@ def _build_sweep_variant_report(
         "cost": cost,
         "pairs": pairs,
         "partial_pairs": partial_pairs or [],
+        "rewrite_summary": _pair_arm_rewrite_summaries(pairs),
         **_aggregate_pairs(pairs, target, dry_run),
     }
 
@@ -3063,6 +3154,23 @@ def _build_sweep_report(
         "control_transcripts_generated": len(control_transcripts),
         "unpaired_control_transcripts": unpaired_control_transcripts,
         "control_top_phrases": _arm_top_phrases(control_transcripts_by_key),
+        "rewrite_summary": {
+            "control": _rewrite_summary(
+                [
+                    entry
+                    for result in control_transcripts.values()
+                    for entry in (result.get("rewrite_log") or [])
+                ]
+            ),
+            "variant": _rewrite_summary(
+                [
+                    entry
+                    for variant_report in variant_reports.values()
+                    for pair in variant_report.get("pairs", [])
+                    for entry in (pair.get("variant_rewrite_log") or [])
+                ]
+            ),
+        },
         "dry_run": bool(args.dry_run),
         "target_dimension": args.target,
         "decision_rule": DECISION_RULE_TEXT,

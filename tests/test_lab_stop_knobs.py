@@ -92,6 +92,7 @@ def test_default_attributes_reproduce_regex_phase_sequence(monkeypatch):
     ]
     assert [r["is_last_turn"] for r in recorded] == [False, False, False, False, True]
     assert sdw.STOP_CHECK_LOG == []
+    assert sdw.REWRITE_LOG == []
 
 
 def test_off_trigger_never_sets_goal_met(monkeypatch):
@@ -394,6 +395,7 @@ def test_jev_timeout_raises(monkeypatch):
         raise httpx.TimeoutException("timed out")
 
     monkeypatch.setattr("backend.utils.stop_check.httpx.post", timeout)
+    monkeypatch.setattr("backend.utils.stop_check._sleep", lambda s: None)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
     with pytest.raises(StopCheckError, match="timed out"):
         check_scene_done(lines=["a"], provider="jev", day="monday", objective="Pick it")
@@ -477,6 +479,11 @@ def test_validate_ticks_range_accepts_json_lists_and_apply_converts_to_tuples():
         {"OPEN_ENDED_MAX_TICKS": {"monday": True}},
         {"OPEN_ENDED_MAX_TICKS": {"monday": "six"}},
         {"OPEN_ENDED_MAX_TICKS": {"notaday": 5}},
+        {"REWRITE_GUARDS": {"repetition": "no"}},
+        {"REWRITE_GUARDS": {"repetition": False, "shape": 1}},
+        {"REWRITE_GUARDS": {"repetition": True, "extra": True}},
+        {"REWRITE_GUARDS": {}},
+        {"REWRITE_GUARDS": True},
     ],
 )
 def test_lab_rejects_malformed_stop_knob_shapes(variant):
@@ -556,6 +563,90 @@ def test_ab_result_carries_stop_check_logs_and_jev_cost(tmp_path, monkeypatch):
     assert pair["variant_stop_check_log"][0]["provider"] == "jev"
     assert pair["variant_stop_check_log"][0]["cost_usd"] == 0.000013272
     assert report["jev_cost_usd"] == 0.000013272
+
+
+def test_rewrite_guards_validation_accepts_subset_and_apply_merges_default():
+    before = sdw.REWRITE_GUARDS
+    cl.validate_variant(sdw, {"REWRITE_GUARDS": {"repetition": False}})
+    original = cl._apply_variant(sdw, {"REWRITE_GUARDS": {"repetition": False}})
+    try:
+        assert sdw.REWRITE_GUARDS == {"repetition": False, "shape": True, "word_budget": True}
+    finally:
+        cl._restore_variant(sdw, original)
+    assert sdw.REWRITE_GUARDS == before
+
+
+def test_rewrite_summary_counts_lines_rewrites_faults_and_cot_retries():
+    entries = [
+        {"faults": ["repetition", "shape:dash_clause"], "rewritten": True, "cot_retry": True},
+        {"faults": ["word_budget"], "rewritten": True, "cot_retry": False},
+        {"faults": [], "rewritten": False, "cot_retry": False},
+    ]
+    summary = cl._rewrite_summary(entries)
+    assert summary["lines"] == 3
+    assert summary["rewritten"] == 2
+    assert summary["rewrite_rate"] == round(2 / 3, 4)
+    assert summary["fault_counts"] == {
+        "repetition": 1,
+        "shape:dash_clause": 1,
+        "word_budget": 1,
+    }
+    assert summary["cot_retry"] == 1
+
+
+def test_ab_result_carries_rewrite_logs_and_rewrite_summary(tmp_path, monkeypatch):
+    """Each arm's REWRITE_LOG is copied into the pair JSON next to the stop-check
+    and director logs, and the report carries a per-arm rewrite_summary."""
+    def fake_run_simulation(*, default_model, **kwargs):
+        arm = "variant" if sdw._SHARED_CHARACTER_RULES == "VARIANT_RULES" else "control"
+        sdw.REWRITE_LOG[:] = [
+            {"day": "monday", "speaker": "Margaret Chen", "faults": ["repetition"],
+             "rewritten": True, "draft_words": 12, "final_words": 9,
+             "draft": "draft text", "cot_retry": True},
+            {"day": "monday", "speaker": "Steph", "faults": [],
+             "rewritten": False, "draft_words": 8, "final_words": 8,
+             "draft": "clean", "cot_retry": False},
+        ]
+        if arm == "variant":
+            sdw.REWRITE_LOG.append(
+                {"day": "monday", "speaker": "Julian", "faults": ["word_budget"],
+                 "rewritten": True, "draft_words": 25, "final_words": 12,
+                 "draft": "too long", "cot_retry": False}
+            )
+        return {"messages": _fake_messages(arm)}
+
+    monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
+
+    variant_path = tmp_path / "variant.json"
+    variant_path.write_text(json.dumps({"_SHARED_CHARACTER_RULES": "VARIANT_RULES"}))
+    results_dir = tmp_path / "results"
+
+    cl.main([
+        "ab", "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+        "--variant", str(variant_path), "--recipe-context", "anchor",
+        "--dry-run", "--no-log", "--results-dir", str(results_dir),
+    ])
+
+    [result_file] = list(results_dir.glob("*-ab-*.json"))
+    report = json.loads(result_file.read_text())
+
+    pair = report["pairs"][0]
+    assert [e["speaker"] for e in pair["control_rewrite_log"]] == ["Margaret Chen", "Steph"]
+    assert [e["speaker"] for e in pair["variant_rewrite_log"]] == ["Margaret Chen", "Steph", "Julian"]
+    assert report["rewrite_summary"]["control"] == {
+        "lines": 2,
+        "rewritten": 1,
+        "rewrite_rate": 0.5,
+        "fault_counts": {"repetition": 1},
+        "cot_retry": 1,
+    }
+    assert report["rewrite_summary"]["variant"] == {
+        "lines": 3,
+        "rewritten": 2,
+        "rewrite_rate": round(2 / 3, 4),
+        "fault_counts": {"repetition": 1, "word_budget": 1},
+        "cot_retry": 1,
+    }
 
 
 def test_template_mode_dry_run_never_calls_the_stop_check(monkeypatch):

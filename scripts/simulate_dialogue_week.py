@@ -806,6 +806,19 @@ SHAPE_MAX_IN_WINDOW = 2   # at most this many of them may share the shape
 # while leaving natural variance alone. A lab lever so it can be swept.
 WORD_BUDGET_TOLERANCE = 1.3
 
+# Per-line rewrite guards (#7705) — module attributes so the conversation lab
+# can sweep them. A guard set False is NOT evaluated as a fault, so it cannot
+# trigger a rewrite. The defaults reproduce today's production behaviour
+# byte-for-byte: every guard runs exactly as before.
+REWRITE_GUARDS: dict = {"repetition": True, "shape": True, "word_budget": True}
+
+# One record per generated line (#7705): day, speaker, the fault keys that
+# fired, whether the draft was rewritten, draft/final word counts, the draft
+# text (truncated to 300 chars), and whether the CoT guard retried. Cleared by
+# run_simulation; the conversation lab copies it into result JSONs next to
+# STOP_CHECK_LOG / DIRECTOR_LOG.
+REWRITE_LOG: list[dict] = []
+
 
 # Must match conversation_metrics.DASH_CLAUSE_RE exactly. Deliberately DUPLICATED
 # rather than imported: this module ships in the Vercel Lambda bundle and
@@ -884,6 +897,28 @@ def _over_word_budget(message: str, name: str) -> bool:
     return len(str(message).split()) > budget * WORD_BUDGET_TOLERANCE
 
 
+def _append_rewrite_log(
+    *,
+    day: str | None,
+    speaker: str | None,
+    faults: list[str],
+    rewritten: bool,
+    draft: str,
+    final: str,
+    cot_retry: bool,
+) -> None:
+    """Append one per-generated-line record to REWRITE_LOG (#7705)."""
+    REWRITE_LOG.append({
+        "day": day,
+        "speaker": speaker,
+        "faults": list(faults),
+        "rewritten": bool(rewritten),
+        "draft_words": len(str(draft).split()),
+        "final_words": len(str(final).split()),
+        "draft": str(draft)[:300],
+        "cot_retry": bool(cot_retry),
+    })
+
 
 def generate_turn(
     persona: dict[str, Any],
@@ -911,7 +946,17 @@ def generate_turn(
         sig = persona["communication_style"].get("signature_phrases", ["Right."])
         pick = random.choice(sig)
         event_bit = f" Also: {event}." if event else ""
-        return f"{pick} {day.title()} is {stage}; deadline is {deadline}. For {concept}, lock one decision now.{event_bit}"[:220]
+        line = f"{pick} {day.title()} is {stage}; deadline is {deadline}. For {concept}, lock one decision now.{event_bit}"[:220]
+        _append_rewrite_log(
+            day=day,
+            speaker=persona.get("name"),
+            faults=[],
+            rewritten=False,
+            draft=line,
+            final=line,
+            cot_retry=False,
+        )
+        return line
 
     # Use deeper context for late-week days that need to reference earlier decisions.
     # Full-context testing showed 12/8 depth + compression highlights outperforms raw dump.
@@ -1115,6 +1160,7 @@ def generate_turn(
             f"Wrap-up context: {_DAY_CLOSER_CONTEXT[day]}"
         )
 
+    cot_retry_flag = [False]
     msg = generate_response(
         prompt=prompt,
         system_prompt=build_system_prompt(persona),
@@ -1126,17 +1172,25 @@ def generate_turn(
         prompt=prompt,
         persona=persona,
         model=model,
+        retry_flag=cot_retry_flag,
     )
+    draft = msg
     # One bounded rewrite, as before - but it now names EVERY failing part of the
     # output contract at once rather than only near-duplicate wording. Same API
-    # cost, more signal.
+    # cost, more signal. REWRITE_GUARDS (#7705) makes each fault a lab knob: a
+    # guard set False is not evaluated, so it cannot trigger a rewrite. Defaults
+    # reproduce today's production behaviour byte-for-byte.
     _faults: list[str] = []
-    if _is_repetitive_candidate(msg, recent_lines) or _shared_trigram_with_recent(msg, recent_lines):
+    _fault_keys: list[str] = []
+    if REWRITE_GUARDS.get("repetition", True) and (
+        _is_repetitive_candidate(msg, recent_lines) or _shared_trigram_with_recent(msg, recent_lines)
+    ):
         _faults.append(
             "It repeats wording already used in this conversation. Use different "
             "phrasing and a new specific detail."
         )
-    if _shape_is_saturated(msg, recent_lines):
+        _fault_keys.append("repetition")
+    if REWRITE_GUARDS.get("shape", True) and _shape_is_saturated(msg, recent_lines):
         _shape = _sentence_shape(msg)
         if _shape == "dash_clause":
             _faults.append(
@@ -1150,13 +1204,16 @@ def generate_turn(
                 f"Its sentence shape ({_shape}) already dominates the last few "
                 "messages. Vary the construction, not just the words."
             )
-    _budget = _word_budget_for(persona.get("name", ""))
-    if _budget and _over_word_budget(msg, persona.get("name", "")):
-        _faults.append(
-            f"It is {len(msg.split())} words. Your MAXIMUM is {_budget}. Cut it to "
-            f"{_budget} words or fewer - keep the one thing that matters and drop the "
-            "rest. Do not pad it back out."
-        )
+        _fault_keys.append(f"shape:{_shape}")
+    if REWRITE_GUARDS.get("word_budget", True):
+        _budget = _word_budget_for(persona.get("name", ""))
+        if _budget and _over_word_budget(msg, persona.get("name", "")):
+            _faults.append(
+                f"It is {len(msg.split())} words. Your MAXIMUM is {_budget}. Cut it to "
+                f"{_budget} words or fewer - keep the one thing that matters and drop the "
+                "rest. Do not pad it back out."
+            )
+            _fault_keys.append("word_budget")
 
     if _faults:
         # Build the rewrite ON TOP of the original prompt, never from scratch.
@@ -1189,6 +1246,7 @@ def generate_turn(
             prompt=rewrite_prompt,
             persona=persona,
             model=model,
+            retry_flag=cot_retry_flag,
         )
 
     msg = sanitize_typographic_tells(msg)
@@ -1197,7 +1255,17 @@ def generate_turn(
     # Strip 24-hour clock references (e.g. "17:42" -> remove the time phrase)
     msg = re.sub(r"\bat\s+\d{2}:\d{2}\b", "", msg)
     msg = re.sub(r"\b[012]\d:\d{2}\b", "", msg)
-    return " ".join(msg.split())
+    final = " ".join(msg.split())
+    _append_rewrite_log(
+        day=day,
+        speaker=persona.get("name"),
+        faults=_fault_keys,
+        rewritten=bool(_faults),
+        draft=draft,
+        final=final,
+        cot_retry=cot_retry_flag[0],
+    )
+    return final
 
 
 # #5919 / #5920 — Chain-of-thought leak guard. Haiku occasionally ignores
@@ -1226,15 +1294,23 @@ def _guard_cot_leak(
     prompt: str,
     persona: dict,
     model: str,
+    retry_flag: list[bool] | None = None,
 ) -> str:
     """Detect interiority leakage and retry once with a stricter instruction.
 
     Raises RuntimeError if the model leaks twice in a row — the caller's
     cron stage will catch it via _run_stage and write a failure record
     instead of shipping contaminated dialogue.
+
+    `retry_flag` is an optional single-element list the caller can pass to
+    learn whether a retry happened; generate_turn uses it to record the CoT
+    retry in REWRITE_LOG (#7705).
     """
     if not _has_cot_leak(msg):
         return msg
+
+    if retry_flag is not None:
+        retry_flag[0] = True
 
     retry_prompt = (
         f"{prompt}\n\n"
@@ -2185,6 +2261,7 @@ def run_simulation(
 
     STOP_CHECK_LOG.clear()
     DIRECTOR_LOG.clear()
+    REWRITE_LOG.clear()
     if WINDDOWN_TRIGGER not in ("regex", "off", "check"):
         raise ValueError(
             f"WINDDOWN_TRIGGER must be 'regex', 'off', or 'check', got {WINDDOWN_TRIGGER!r}"
