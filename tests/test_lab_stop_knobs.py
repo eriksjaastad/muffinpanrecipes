@@ -447,6 +447,31 @@ def test_jev_retried_failure_then_success_records_both_attempts(monkeypatch):
     assert costs == {stop_check_module._JEV_FAILED_ATTEMPT_COST_ESTIMATE_USD, 0.000013272}
 
 
+def test_reported_jev_cost_includes_a_retried_and_failed_attempt(monkeypatch):
+    """#7714 round 2, finding 4: the REPORTED jev_cost_usd (cl._jev_cost_
+    usd_total, sourced from the router ledger) must include the retried
+    520's conservative-estimate charge, not just the eventual success's
+    real cost - the old per-pair STOP_CHECK_LOG-derived total only ever
+    saw the last successful check per tick, so it silently dropped the
+    failed attempt even though --max-cost had already been charged for
+    it."""
+    responses = iter([
+        _FakeResponse(payload={}, status_code=520),
+        _FakeResponse(payload=_JEV_VERIFIED_RESPONSE),
+    ])
+    monkeypatch.setattr("backend.utils.stop_check.httpx.post", lambda *a, **k: next(responses))
+    monkeypatch.setattr("backend.utils.stop_check._sleep", lambda s: None)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+
+    check_scene_done(lines=["a"], provider="jev", day="monday", objective="Pick it")
+
+    expected_total = round(stop_check_module._JEV_FAILED_ATTEMPT_COST_ESTIMATE_USD + 0.000013272, 9)
+    assert cl._jev_cost_usd_total() == expected_total
+    # The reported total must equal what the cap actually saw - both draw
+    # from the SAME ledger via get_cost_entries()/_lab_cost_total.
+    assert cl._lab_cost_total() == pytest.approx(expected_total)
+
+
 def test_jev_persistent_failure_charges_every_attempt_before_raising(monkeypatch):
     """A stop check that never succeeds still made _JEV_MAX_ATTEMPTS real
     HTTP round trips - each one must be charged, not just recorded as a
@@ -636,7 +661,8 @@ def _fake_messages(tag: str) -> list[dict]:
 
 def test_ab_result_carries_stop_check_logs_and_jev_cost(tmp_path, monkeypatch):
     """After each arm the lab copies STOP_CHECK_LOG into the pair JSON, and the
-    report summary totals Jev spend (which never touches the Anthropic ledger)."""
+    report summary totals Jev spend from the router ledger (#7714 finding 4) -
+    the SAME source --max-cost reads, not the per-pair STOP_CHECK_LOG copy."""
     def fake_run_simulation(*, default_model, **kwargs):
         arm = "variant" if sdw._SHARED_CHARACTER_RULES == "VARIANT_RULES" else "control"
         sdw.STOP_CHECK_LOG[:] = [{
@@ -648,6 +674,11 @@ def test_ab_result_carries_stop_check_logs_and_jev_cost(tmp_path, monkeypatch):
             "model": "typesafe/jev-1.13-20260917" if arm == "variant" else HAIKU_MODEL,
             "cost_usd": 0.000013272 if arm == "variant" else None,
         }]
+        if arm == "variant":
+            # A real check_scene_done("jev", ...) call feeds this same
+            # entry into the router ledger via record_external_cost - this
+            # fake run_simulation stands in for that call, so it must too.
+            model_router.record_external_cost("jev", "typesafe/jev-1.13-20260917", 0.000013272)
         return {"messages": _fake_messages(arm)}
 
     monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)

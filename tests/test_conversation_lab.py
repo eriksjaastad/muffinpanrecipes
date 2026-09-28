@@ -651,6 +651,34 @@ def test_calibrate_complete_runs_keep_grader_threshold_and_scored_pair_rate(tmp_
             assert pair["judge_diagnostics"]["turn_taking"]["status"] == "unanimous_tie"
 
 
+def test_calibrate_survives_a_lab_budget_abort_as_a_clean_partial_result(tmp_path, monkeypatch):
+    """#7714 round 2: calibrate's outer `except BaseException as exc: ...;
+    raise` used to re-raise EVERY exception uncaught, including a
+    LabBudgetAbort from the mid-arm guard - which main() does not catch
+    (it only catches ConversationLabError/BudgetGuardError), so it would
+    have surfaced as a raw traceback instead of a clean aborted/partial
+    result, exactly the failure mode --max-calls/--max-cost hitting via
+    the ALREADY-EXISTING coarse pre-check never has."""
+    monkeypatch.setattr(cl, "_load_episode", lambda *_args, **_kwargs: _snapshot_episode())
+    monkeypatch.setenv("JUDGE_MODEL", "test-judge")
+
+    def raises_abort(**kwargs):
+        raise cl.LabBudgetAbort("--max-calls would be exceeded")
+
+    monkeypatch.setattr(model_router, "generate_judge_response", raises_abort)
+    results = tmp_path / "results"
+
+    cl.main([
+        "calibrate", "--provider", "anthropic",
+        "--from-episode", "snapshot-week", "--stage", "tuesday",
+        "--runs", "1", "--results-dir", str(results),
+    ])
+
+    [path] = results.glob("*-calibrate-*.json")
+    report = json.loads(path.read_text())
+    assert report["aborted"] is True
+    assert not report.get("error")
+
 def test_calibrate_zero_completed_pairs_has_unavailable_rate_and_incomplete_verdict(
     tmp_path, monkeypatch, capsys,
 ):
@@ -1589,10 +1617,14 @@ def test_arm_call_reservation_dry_run_is_always_zero():
     assert cl._arm_call_reservation("monday", variant, dry_run=True) == 0
 
 def test_run_arm_and_count_raises_lab_budget_abort_mid_arm(monkeypatch):
-    """The mid-arm guard must stop a runaway arm using a LIVE call-count
-    delta, not budget.used (which the caller only updates AFTER an arm
-    finishes) - otherwise a single arm making far more real calls than
-    --max-calls allows would run to completion before anything noticed."""
+    """#7714 round 2: the guard is installed by the CALLER (see
+    _installed_budget_guard), not by _run_arm_and_count itself - a caller
+    wraps the scope an arm runs inside, and _run_arm_and_count just needs
+    to annotate whatever exception escapes with the real calls made so
+    far, using a LIVE call-count delta, not budget.used (which the caller
+    only updates AFTER an arm finishes) - otherwise a single arm making
+    far more real calls than --max-calls allows would run to completion
+    before anything noticed."""
     call_count = {"n": 0}
 
     def fake_generate_anthropic(**kw):
@@ -1609,12 +1641,95 @@ def test_run_arm_and_count_raises_lab_budget_abort_mid_arm(monkeypatch):
     monkeypatch.setattr(cl, "_run_arm", runaway_run_arm)
     budget = cl.CallBudget(max_calls=3)
 
-    with pytest.raises(cl.LabBudgetAbort):
-        cl._run_arm_and_count(
-            "concept", "monday", 1, "anchor", "openai", "stub",
-            budget=budget, max_cost=5.0,
-        )
+    with cl._installed_budget_guard(budget, 5.0):
+        with pytest.raises(cl.LabBudgetAbort) as excinfo:
+            cl._run_arm_and_count("concept", "monday", 1, "anchor", "openai", "stub")
+
     assert 0 < call_count["n"] < 50, "the guard must interrupt the runaway loop partway through"
+    made = getattr(excinfo.value, "conversation_lab_calls_made", None)
+    assert made == call_count["n"], (
+        "the abort must carry the REAL number of calls made before it fired, "
+        "not zero - the caller's budget.record() never runs on this path"
+    )
+
+def test_lab_budget_abort_is_not_swallowed_by_a_broad_except_exception(monkeypatch):
+    """#7714 round 2, finding 3: LabBudgetAbort must derive from
+    BaseException, not Exception - any ordinary `except Exception` on the
+    arm's call path (director.py, stop_check.py's haiku path, etc.) must
+    let it straight through instead of converting or swallowing it."""
+    assert not issubclass(cl.LabBudgetAbort, Exception)
+    assert issubclass(cl.LabBudgetAbort, BaseException)
+
+    def raises_abort():
+        raise cl.LabBudgetAbort("boom")
+
+    with pytest.raises(cl.LabBudgetAbort):
+        try:
+            raises_abort()
+        except Exception:
+            raise AssertionError("a broad except Exception must never catch LabBudgetAbort")
+
+def test_generate_day_highlights_fallback_lets_lab_budget_abort_through(monkeypatch):
+    """#7714 round 2, finding 3: scripts.simulate_dialogue_week's
+    _generate_day_highlights has an `except Exception: <fallback text>`
+    around its generate_response call - a best-effort degrade that must
+    stay for every OTHER failure, but must NOT catch a LabBudgetAbort from
+    the ambient mid-arm guard. A silent fallback here would let a whole
+    week keep running past the cap using degraded highlight text instead
+    of stopping."""
+    def raises_abort(**kwargs):
+        raise cl.LabBudgetAbort("--max-calls would be exceeded")
+
+    monkeypatch.setattr(sdw, "generate_response", raises_abort)
+    day_messages = [
+        sdw.Message(
+            day="monday", stage="monday", character="Margaret Chen",
+            message="Let's do the jalapeno version.", timestamp="2026-01-01T00:00:00",
+            model="stub",
+        ),
+    ]
+    with pytest.raises(cl.LabBudgetAbort):
+        sdw._generate_day_highlights("monday", day_messages, "Test Muffins", "stub")
+
+def test_ab_survives_a_lab_budget_abort_raised_inside_the_director(tmp_path, monkeypatch):
+    """#7714 round 2: a LabBudgetAbort raised deep inside run_simulation's
+    per-day DIRECTOR call (backend.utils.director.direct_day -> its own
+    `except Exception as exc: raise DirectorError(...)`) must still reach
+    `ab`'s own command-level handling as a clean aborted/partial RESULT -
+    not a crash, not a DirectorError, not a hang. This exercises the real
+    (unmocked) run_simulation/direct_day code, only the model boundary is
+    faked, so it proves the propagation chain end to end rather than just
+    each broad-except site in isolation."""
+    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    monkeypatch.setattr(sdw, "DIRECTOR", {
+        "enabled": True, "probability": 1.0, "intensity": 3,
+        "rng_seed": 0, "no_repeat_window": 14,
+    })
+
+    def raises_abort(**kwargs):
+        raise cl.LabBudgetAbort("--max-calls would be exceeded")
+
+    # The director's own generate_response call is what raises - dialogue
+    # generation is never reached, since the director runs before the
+    # first tick of the day.
+    monkeypatch.setattr("backend.utils.director.generate_response", raises_abort)
+
+    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "V"})
+    results_dir = tmp_path / "results"
+
+    cl.main([
+        "ab", "--provider", "anthropic",
+        "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+        "--variant", str(variant_path), "--recipe-context", "anchor",
+        "--results-dir", str(results_dir),
+    ])
+
+    [result_file] = list(results_dir.glob("*-ab-*.json"))
+    report = json.loads(result_file.read_text())
+    assert report["aborted"] is True
+    assert report["completed_pairs"] == 0
+    assert "error" not in report or report.get("error") is None
 
 def test_run_arm_and_count_with_no_budget_installs_no_guard(monkeypatch):
     """budget=None (every call site that predates #7714's mid-arm guard,
@@ -2467,6 +2582,99 @@ def test_ab_sweep_per_variant_cost_cap_abort_writes_partial(tmp_path, monkeypatc
     assert variant_report["aborted"] is True
     assert variant_report["completed_pairs"] == 1  # only the first scenario finished
 
+def test_ab_sweep_control_mid_arm_guard_stops_a_runaway_run(tmp_path, monkeypatch):
+    """#7714 round 2, finding 1: _generate_sweep_control's loop had NO
+    guard at all - only the coarse would_exceed(arm_call_reservation)
+    check between arms, which cannot stop a single runaway arm
+    mid-flight. --max-calls is set to EXACTLY the reservation so the
+    coarse check clears; only the mid-arm guard can stop the runaway
+    control arm from there."""
+    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    reservation = cl._arm_call_reservation("monday", None, dry_run=False)
+
+    call_count = {"n": 0}
+
+    def fake_generate_anthropic(**kw):
+        call_count["n"] += 1
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    def runaway_run_simulation(**kwargs):
+        for _ in range(reservation * 3):
+            model_router.generate_response(prompt="x", model="anthropic/claude-haiku-4-5-20251001")
+        return {"messages": _messages("X")}
+
+    monkeypatch.setattr(sdw, "run_simulation", runaway_run_simulation)
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+
+    testbed_path = _write_testbed(tmp_path, [
+        {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
+    ])
+    sweep_dir = tmp_path / "sweep"
+    sweep_dir.mkdir()
+    (sweep_dir / "only.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "V"}))
+    results_dir = tmp_path / "results"
+
+    cl.main([
+        "ab", "--provider", "anthropic", "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
+        "--stage", "monday", "--runs", "1", "--max-calls", str(reservation), "--results-dir", str(results_dir),
+    ])
+
+    [result_file] = list(results_dir.glob("*-ab-sweep-*.json"))
+    report = json.loads(result_file.read_text())
+    assert report["aborted"] is True
+    assert report["control_aborted"] is True
+    assert call_count["n"] < reservation * 3, "the mid-arm guard must interrupt the runaway control arm"
+
+def test_ab_sweep_variant_mid_arm_guard_stops_a_runaway_run(tmp_path, monkeypatch):
+    """#7714 round 2, finding 1: _run_sweep_variant's own arm_call_
+    reservation pre-check clears the same way (--max-calls == reservation)
+    - only the mid-arm guard installed for this variant's whole run can
+    stop its runaway arm. The control arm stays cheap so control_aborted
+    is False and the variant's own guard is what fires."""
+    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    variant = {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"}
+    reservation = cl._arm_call_reservation("monday", variant, dry_run=False)
+
+    call_count = {"n": 0}
+
+    def fake_generate_anthropic(**kw):
+        call_count["n"] += 1
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    def maybe_runaway_run_simulation(**kwargs):
+        if sdw._SHARED_CHARACTER_RULES == "VARIANT_RULES":
+            for _ in range(reservation * 3):
+                model_router.generate_response(prompt="x", model="anthropic/claude-haiku-4-5-20251001")
+        return {"messages": _messages("X")}
+
+    monkeypatch.setattr(sdw, "run_simulation", maybe_runaway_run_simulation)
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+
+    testbed_path = _write_testbed(tmp_path, [
+        {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
+    ])
+    sweep_dir = tmp_path / "sweep"
+    sweep_dir.mkdir()
+    (sweep_dir / "only.json").write_text(json.dumps(variant))
+    results_dir = tmp_path / "results"
+
+    cl.main([
+        "ab", "--provider", "anthropic", "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
+        "--stage", "monday", "--runs", "1", "--max-calls", str(reservation), "--results-dir", str(results_dir),
+    ])
+
+    [result_file] = list(results_dir.glob("*-ab-sweep-*.json"))
+    report = json.loads(result_file.read_text())
+    assert report["aborted"] is True
+    assert report["control_aborted"] is False
+    variant_report = report["variants"]["only"]
+    assert variant_report["aborted"] is True
+    assert call_count["n"] < reservation * 3, "the mid-arm guard must interrupt the runaway variant arm"
+
 def test_ab_sweep_dry_run_makes_zero_judge_calls(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
 
@@ -2760,6 +2968,44 @@ def test_bench_runs_n_times_and_aggregates(tmp_path, monkeypatch):
     assert len(report["runs"]) == 5
     assert report["aggregate"]["metrics"]["message_count"]["n"] == 5
     assert report["aggregate"]["metrics"]["message_count"]["mean"] == 4.0
+
+def test_bench_mid_arm_guard_stops_a_runaway_run(tmp_path, monkeypatch):
+    """#7714 round 2, finding 1: cmd_bench's per-run loop had NO mid-arm
+    guard installed at all - a runaway _run_arm here used to run to
+    completion no matter how far past --max-calls it went, since only the
+    coarse pre-arm reservation check (budget.would_exceed(gen_reserve))
+    guarded it, and that only fires BETWEEN runs, never inside one.
+
+    --max-calls is set to EXACTLY the reservation, so the coarse pre-check
+    clears (reservation is not itself exceeded) - only the mid-arm guard,
+    firing on the live call count as the runaway run makes far more real
+    calls than that reservation, can be what stops it."""
+    call_count = {"n": 0}
+    reservation = cl._MAX_CALLS_PER_TURN * cl._max_turns_for_stage("saturday")
+
+    def fake_generate_anthropic(**kw):
+        call_count["n"] += 1
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    def runaway_run_simulation(**kwargs):
+        for _ in range(reservation * 3):
+            model_router.generate_response(prompt="x", model="anthropic/claude-haiku-4-5-20251001")
+        return {"messages": _messages("X")}
+
+    monkeypatch.setattr(sdw, "run_simulation", runaway_run_simulation)
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+    monkeypatch.setattr(
+        cl, "_resolve_models",
+        lambda dry_run: ("openai", "anthropic/claude-haiku-4-5-20251001", "anthropic/claude-sonnet-4-6"),
+    )
+
+    cl.cmd_bench(_bench_args(tmp_path, runs=1, max_calls=reservation))
+
+    report = _read_bench(tmp_path, "saturday-n1")
+    assert report["aborted"] is True
+    assert call_count["n"] < reservation * 3, "the mid-arm guard must interrupt the runaway run"
+    assert report["calls_used"] > 0, "real calls made before the abort must be recorded, not zero"
 
 def test_bench_dry_run_never_calls_the_judge(tmp_path, monkeypatch):
     _patch_bench_generation(monkeypatch, sdw)

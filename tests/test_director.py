@@ -207,6 +207,28 @@ def test_direct_day_model_failure_raises(monkeypatch) -> None:
         )
 
 
+def test_direct_day_lets_lab_budget_abort_straight_through(monkeypatch) -> None:
+    """#7714 round 2, finding 3: `call()`'s `except Exception as exc: raise
+    DirectorError(...) from exc` must NOT catch a LabBudgetAbort raised by
+    the ambient mid-arm guard inside generate_response - LabBudgetAbort
+    derives from BaseException specifically so this broad handler (and
+    every other one on the arm's call path) lets it through unconverted."""
+    def raises_abort(**kwargs):
+        raise cl.LabBudgetAbort("--max-calls would be exceeded")
+
+    monkeypatch.setattr("backend.utils.director.generate_response", raises_abort)
+    with pytest.raises(cl.LabBudgetAbort):
+        direct_day(
+            day="monday",
+            concept="X",
+            objective="Pick it",
+            rolls=[],
+            intensity=3,
+            history=[],
+            model="m",
+        )
+
+
 def test_direct_day_invalid_intensity_raises() -> None:
     with pytest.raises(DirectorError, match="intensity"):
         direct_day(

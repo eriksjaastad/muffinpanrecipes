@@ -989,32 +989,55 @@ def _openrouter_router_cost_by_model() -> dict[str, float]:
     return totals
 
 
-def _jev_cost_by_model_from_log(log: Any) -> dict[str, float]:
+def _jev_router_cost_by_model() -> dict[str, float]:
+    """Jev cost totals from the model router's ledger - EVERY HTTP attempt
+    backend.utils.stop_check._record_jev_attempt recorded via
+    record_external_cost (success, retry, and terminal failure), not just
+    the successful ones scripts.simulate_dialogue_week.STOP_CHECK_LOG
+    holds.
+
+    #7714 round 2, finding 4: the OLD per-pair helper
+    (`_jev_cost_by_model_from_log`, removed) derived cost from
+    STOP_CHECK_LOG snapshots attached to each pair, which only ever
+    contain the LAST successful check per tick - a retried/failed attempt
+    was already charged against --max-cost (see `_lab_cost_total`), but
+    never showed up in the REPORTED total, so the report could read lower
+    than what the cap actually saw. This reads the SAME ledger the cap
+    reads, so the two can never disagree.
+    """
     totals: dict[str, float] = {}
-    for entry in log or []:
+    entries = model_router.get_cost_entries()
+    for entry in entries:
         if not isinstance(entry, dict) or entry.get("provider") != "jev":
             continue
-        cost = entry.get("cost_usd")
-        if isinstance(cost, bool) or not isinstance(cost, (int, float)):
-            continue
-        if not isfinite(cost):
+        actual = entry.get("actual_cost")
+        if isinstance(actual, bool) or not isinstance(actual, (int, float)) or not isfinite(actual):
             continue
         model = str(entry.get("model") or "typesafe/jev-1.13")
         key = f"jev/{model}"
-        totals[key] = round(totals.get(key, 0.0) + float(cost), 9)
+        totals[key] = round(totals.get(key, 0.0) + float(actual), 9)
     return totals
+
+
+def _jev_cost_usd_total() -> float:
+    """Total Jev spend, from the same router ledger --max-cost reads (see
+    `_lab_cost_total`) - so `jev_cost_usd` in a report can never read
+    lower than what the cap actually saw (#7714 finding 4)."""
+    return round(sum(_jev_router_cost_by_model().values()), 9)
 
 
 def _openrouter_cost_by_model_for_pairs(
     pairs: list[dict[str, Any]],
     partial_pairs: list[dict[str, Any]] | None = None,
 ) -> dict[str, float]:
-    """OpenRouter + Jev stop-check costs across completed and partial pairs."""
+    """OpenRouter dialogue/judge cost + Jev stop-check cost, both read from
+    the model router's ledger (#7714 round 2, finding 4). `pairs`/
+    `partial_pairs` are accepted for call-site compatibility but no longer
+    read - Jev cost used to be derived from THEIR per-pair stop-check
+    logs, which undercounted (see `_jev_router_cost_by_model`)."""
+    del pairs, partial_pairs
     totals = _openrouter_router_cost_by_model()
-    for pair in [*pairs, *(partial_pairs or [])]:
-        for key in ("control_stop_check_log", "variant_stop_check_log"):
-            for model, cost in _jev_cost_by_model_from_log(pair.get(key)).items():
-                totals[model] = round(totals.get(model, 0.0) + cost, 9)
+    totals.update(_jev_router_cost_by_model())
     return totals
 
 
@@ -1022,14 +1045,11 @@ def _openrouter_cost_by_model_for_sweep(
     control_transcripts: dict[tuple[str, int], dict[str, Any]],
     variant_reports: dict[str, Any],
 ) -> dict[str, float]:
+    """See `_openrouter_cost_by_model_for_pairs` - same fix, same reason;
+    `control_transcripts`/`variant_reports` are no longer read."""
+    del control_transcripts, variant_reports
     totals = _openrouter_router_cost_by_model()
-    for result in control_transcripts.values():
-        for model, cost in _jev_cost_by_model_from_log(result.get("stop_check_log")).items():
-            totals[model] = round(totals.get(model, 0.0) + cost, 9)
-    for variant_report in variant_reports.values():
-        for pair in [*variant_report.get("pairs", []), *variant_report.get("partial_pairs", [])]:
-            for model, cost in _jev_cost_by_model_from_log(pair.get("variant_stop_check_log")).items():
-                totals[model] = round(totals.get(model, 0.0) + cost, 9)
+    totals.update(_jev_router_cost_by_model())
     return totals
 
 
@@ -1621,7 +1641,7 @@ def _run_arm(
         initial_recent_lines=list(prior_lines) if prior_lines is not None else None,
     )
 
-class LabBudgetAbort(RuntimeError):
+class LabBudgetAbort(BaseException):
     """Raised by the mid-arm budget guard (see `_installed_budget_guard`)
     the moment --max-calls or --max-cost would be exceeded by the very
     next paid call/attempt - checked INSIDE a running arm, not only at the
@@ -1630,13 +1650,31 @@ class LabBudgetAbort(RuntimeError):
     guard. #7714 finding 3: an open-ended arm (OPEN_ENDED_MAX_TICKS) can
     run well past either cap between one boundary check and the next, and
     every Jev stop-check HTTP attempt (#7714 finding 2) never reached
-    either cap at all before this guard existed. Callers catch this
-    exception where they already handle the boundary check hitting -
-    setting aborted=True and keeping whatever partial work was already
-    produced, exactly like those checks."""
+    either cap at all before this guard existed.
+
+    Deliberately derives from BaseException, not Exception (#7714 round 2,
+    finding 3) - the SAME family as KeyboardInterrupt/SystemExit. This
+    abort has to travel out through arbitrary library code on the arm's
+    call path - backend.utils.director's `except Exception as exc: raise
+    DirectorError(...)`, backend.utils.stop_check's `_check_haiku`
+    `except Exception as exc: raise StopCheckError(...)`,
+    scripts.simulate_dialogue_week's best-effort highlight/memory
+    generation `except Exception: continue` - none of which this module
+    is allowed to special-case for a lab-only signal, and any of which
+    silently converted or swallowed the OLD RuntimeError-based abort,
+    which is exactly what happened in the round-1 review. Only a caller
+    that names LabBudgetAbort explicitly can catch it; every ordinary
+    `except Exception`/`except (Exception, ...)` in between now lets it
+    straight through, by construction.
+
+    Every command-level catch that is SUPPOSED to catch this (cmd_ab,
+    cmd_bench, cmd_calibrate, and their sweep/testbed helpers) does so by
+    name - `except LabBudgetAbort` or an explicit tuple entry - and turns
+    it into a clean aborted/partial result, exactly like the existing
+    boundary checks."""
 
 @contextmanager
-def _installed_budget_guard(budget: CallBudget, max_cost: float, baseline_cost: float = 0.0):
+def _installed_budget_guard(budget: CallBudget, max_cost: float | None, baseline_cost: float = 0.0):
     """Install a pre-call hook on backend.utils.model_router and a
     pre-attempt hook on backend.utils.stop_check for the duration of the
     `with` block. Both hooks are the SAME closure: the moment the next
@@ -1644,12 +1682,33 @@ def _installed_budget_guard(budget: CallBudget, max_cost: float, baseline_cost: 
     would push the running call count past --max-calls or the running
     cost past --max-cost (relative to `baseline_cost` - see
     `_would_exceed_cost`), it raises LabBudgetAbort instead of letting the
-    call happen.
+    call happen. `max_cost=None` disables the cost side entirely (used by
+    `_generate_sweep_control`'s shared control loop, which --max-cost
+    never governs - it is a per-variant cap, see `_run_sweep_variant`).
 
-    The call-count side tracks a LIVE delta from `_calls_now()`, not
-    `budget.used` (which `_run_arm_and_count`'s caller only updates AFTER
-    an arm finishes) - otherwise a long-running arm's own calls would be
-    invisible to this guard until it was too late to matter.
+    #7714 round 2: this is now installed ONCE per command-level scope -
+    an entire `_generate_and_judge_pairs`/`_run_sweep_variant` call, an
+    entire sweep control loop, an entire bench/calibrate run - covering
+    EVERY arm inside that scope by construction, rather than needing to
+    be threaded through every individual `_run_arm_and_count`/generation
+    call site (round 1's approach, which is exactly how `_generate_sweep_
+    control` and `cmd_bench` were missed).
+
+    The call-count side tracks a LIVE delta from a baseline (`_calls_now()`)
+    captured ONCE here, at install time, and compares it DIRECTLY against
+    `budget.max_calls` - it never adds `budget.used`. `budget.used` only
+    advances when `budget.record()` runs, between arms; since one guard
+    installation can span MANY arms, adding `budget.used` to a live delta
+    measured from a baseline that predates those same already-recorded
+    arms would double-count every arm that finished before the one
+    currently in flight. The live delta alone, measured from install time,
+    is the exact total spend since this guard was installed, whether or
+    not any of it has been `record()`ed yet.
+
+    Fails OPEN on the calls side when the counter cannot be read at all
+    (`_calls_now()` returns None) - the coarser `budget.would_exceed(...)`
+    boundary checks remain the fallback guard, same philosophy as
+    `_would_exceed_cost`'s own read-failure handling.
 
     Restores whatever hook was installed before (normally None) on exit,
     even on exception, so any code path that never opens this context -
@@ -1659,11 +1718,13 @@ def _installed_budget_guard(budget: CallBudget, max_cost: float, baseline_cost: 
     calls_before = _calls_now()
 
     def _guard() -> None:
-        calls_now = _calls_now()
-        live_delta = 0
-        if calls_before is not None and calls_now is not None and calls_now > calls_before:
-            live_delta = calls_now - calls_before
-        if budget.would_exceed(live_delta + 1) or _would_exceed_cost(max_cost, baseline=baseline_cost):
+        calls_blocked = False
+        if calls_before is not None:
+            calls_now = _calls_now()
+            live_total = calls_now - calls_before if (calls_now is not None and calls_now > calls_before) else 0
+            calls_blocked = live_total + 1 > budget.max_calls
+        cost_blocked = max_cost is not None and _would_exceed_cost(max_cost, baseline=baseline_cost)
+        if calls_blocked or cost_blocked:
             raise LabBudgetAbort(
                 "--max-calls or --max-cost would be exceeded by the next paid call/attempt"
             )
@@ -1684,9 +1745,6 @@ def _run_arm_and_count(
     mode: str,
     default_model: str,
     prior_lines: list[str] | None = None,
-    budget: "CallBudget | None" = None,
-    max_cost: float | None = None,
-    baseline_cost: float = 0.0,
 ) -> tuple[dict[str, Any], int]:
     """Run one arm and estimate its call cost.
 
@@ -1696,30 +1754,35 @@ def _run_arm_and_count(
     lower bound when the cost log did not move (mode="template",
     --dry-run, or a monkeypatched run_simulation in tests).
 
-    `budget`/`max_cost` are OPTIONAL and, when BOTH given, install the
-    mid-arm budget guard (see `_installed_budget_guard`) for the duration
-    of this one arm - LabBudgetAbort propagates to the caller uncaught, to
-    be turned into the same partial/aborted result as the existing
-    boundary checks (see `_generate_and_judge_pairs`/`_run_sweep_variant`).
-    With `budget=None` (the default - every call site that predates
-    #7714's mid-arm guard, and every direct test of this function),
-    nothing is installed and behavior is byte-identical to before.
+    Installs no guard itself (#7714 round 2) - a caller wraps the SCOPE
+    this arm runs inside with `_installed_budget_guard` (see that
+    function's docstring for why one guard per scope, not per arm, is the
+    right granularity). If `_run_arm` raises for ANY reason - most
+    commonly `LabBudgetAbort` from that ambient guard, but any exception
+    after real paid calls happened - the exception is annotated with
+    `conversation_lab_calls_made`: the call delta actually observed
+    before it happened. Callers read this to record real spend instead of
+    silently reporting zero (#7714 finding 2) - `budget.record()`
+    otherwise only happens on normal return, which an abort or any other
+    mid-arm failure never reaches.
     """
     try:
         before = model_router.get_cost_summary().get("total_calls", 0)
     except Exception:
         before = 0
-    if budget is not None and max_cost is not None:
-        with _installed_budget_guard(budget, max_cost, baseline_cost=baseline_cost):
-            result = _run_arm(
-                concept, stage, run_index, recipe_context, mode, default_model,
-                prior_lines=prior_lines,
-            )
-    else:
+    try:
         result = _run_arm(
             concept, stage, run_index, recipe_context, mode, default_model,
             prior_lines=prior_lines,
         )
+    except BaseException as exc:
+        if not hasattr(exc, "conversation_lab_calls_made"):
+            try:
+                after = model_router.get_cost_summary().get("total_calls", 0)
+            except Exception:
+                after = before
+            setattr(exc, "conversation_lab_calls_made", max(after - before, 0))
+        raise
     try:
         after = model_router.get_cost_summary().get("total_calls", 0)
     except Exception:
@@ -1816,48 +1879,6 @@ def _pair_arm_rewrite_summaries(pairs: list[dict[str, Any]]) -> dict[str, dict[s
             [entry for pair in pairs for entry in (pair.get("variant_rewrite_log") or [])]
         ),
     }
-
-def _jev_cost_usd_from_log(log: Any) -> float:
-    """Sum cost_usd entries recorded for the jev provider in one stop-check log."""
-    total = 0.0
-    for entry in log or []:
-        if not isinstance(entry, dict) or entry.get("provider") != "jev":
-            continue
-        cost = entry.get("cost_usd")
-        if isinstance(cost, (int, float)) and not isinstance(cost, bool):
-            total += cost
-    return total
-
-def _jev_cost_usd_from_pairs(
-    pairs: list[dict[str, Any]],
-    partial_pairs: list[dict[str, Any]] | None = None,
-) -> float:
-    """Total Jev spend across completed and partial pair transcripts."""
-    total = 0.0
-    for pair in [*pairs, *(partial_pairs or [])]:
-        for key in ("control_stop_check_log", "variant_stop_check_log"):
-            total += _jev_cost_usd_from_log(pair.get(key))
-    return round(total, 9)
-
-def _sweep_jev_cost_usd(
-    control_transcripts: dict[tuple[str, int], dict[str, Any]],
-    variant_reports: dict[str, Any],
-) -> float:
-    """Total Jev spend for a sweep.
-
-    The control side is counted once, from the stored control transcripts
-    (whose `stop_check_log` was copied at generation time). The variant side
-    is counted from each variant pair's own `variant_stop_check_log` - never
-    from the pair's `control_stop_check_log`, which is a per-pair copy of the
-    same shared control transcript and would double-count.
-    """
-    total = 0.0
-    for result in control_transcripts.values():
-        total += _jev_cost_usd_from_log(result.get("stop_check_log"))
-    for variant_report in variant_reports.values():
-        for pair in [*variant_report.get("pairs", []), *variant_report.get("partial_pairs", [])]:
-            total += _jev_cost_usd_from_log(pair.get("variant_stop_check_log"))
-    return round(total, 9)
 
 # ---------------------------------------------------------------------------
 # Pairwise judge
@@ -2809,6 +2830,12 @@ def _generate_and_judge_pairs(
     # generation for this run index.
     validate_variant(simulate_module, variant)
 
+    # #7714 round 2: ONE guard install for this whole function's run loop -
+    # every control/variant arm and every judge call inside it is covered
+    # by construction, not by threading budget/max_cost through each
+    # individual _run_arm_and_count/generate_judge_response call.
+    guard_ctx = _installed_budget_guard(budget, max_cost)
+    guard_ctx.__enter__()
     try:
         for run_index in range(1, runs + 1):
             if budget.would_exceed(arm_call_reservation) or _would_exceed_cost(max_cost):
@@ -2818,9 +2845,10 @@ def _generate_and_judge_pairs(
             try:
                 control_result, control_calls = _run_arm_and_count(
                     concept, stage, run_index, recipe_context, mode, default_model,
-                    prior_lines=prior_lines, budget=budget, max_cost=max_cost,
+                    prior_lines=prior_lines,
                 )
-            except LabBudgetAbort:
+            except LabBudgetAbort as exc:
+                budget.record(0 if dry_run else getattr(exc, "conversation_lab_calls_made", 0))
                 aborted = True
                 break
             control_stop_check_log = _snapshot_stop_check_log()
@@ -2849,9 +2877,18 @@ def _generate_and_judge_pairs(
                 try:
                     variant_result, variant_calls = _run_arm_and_count(
                         concept, stage, run_index, recipe_context, mode, default_model,
-                        prior_lines=prior_lines, budget=budget, max_cost=max_cost,
+                        prior_lines=prior_lines,
                     )
-                except LabBudgetAbort:
+                except LabBudgetAbort as exc:
+                    # #7714 finding 2: the pending pair already reflects real,
+                    # paid control-arm work - mark it explicitly instead of
+                    # leaving it in an ambiguous "control_generated" status,
+                    # and record what this aborted variant arm actually spent
+                    # instead of silently reporting zero.
+                    made = getattr(exc, "conversation_lab_calls_made", 0)
+                    budget.record(0 if dry_run else made)
+                    pending_pair["status"] = "aborted_mid_arm"
+                    pending_pair["variant_calls_before_abort"] = made
                     aborted = True
                     break
                 variant_stop_check_log = _snapshot_stop_check_log()
@@ -2919,6 +2956,7 @@ def _generate_and_judge_pairs(
             pairs.append(completed_pair)
             partial_pairs.remove(pending_pair)
     finally:
+        guard_ctx.__exit__(None, None, None)
         if restore_pending is not None:
             _restore_variant(simulate_module, restore_pending)
     return aborted
@@ -3311,7 +3349,7 @@ def _build_ab_report(
         "target_dimension": args.target,
         "decision_rule": DECISION_RULE_TEXT,
         "cost_summary": cost_summary,
-        "jev_cost_usd": _jev_cost_usd_from_pairs(pairs, partial_pairs or []),
+        "jev_cost_usd": _jev_cost_usd_total(),
         **_openrouter_fields_for(args, _openrouter_cost_by_model_for_pairs(pairs, partial_pairs or [])),
         "pairs": pairs,
         "partial_pairs": partial_pairs or [],
@@ -3366,7 +3404,7 @@ def _build_testbed_ab_report(
         "target_dimension": args.target,
         "decision_rule": DECISION_RULE_TEXT,
         "cost_summary": cost_summary,
-        "jev_cost_usd": _jev_cost_usd_from_pairs(all_pairs, partial_pairs or []),
+        "jev_cost_usd": _jev_cost_usd_total(),
         **_openrouter_fields_for(args, _openrouter_cost_by_model_for_pairs(all_pairs, partial_pairs or [])),
         "scenarios": scenario_reports,
         "pairs": all_pairs,
@@ -3648,24 +3686,33 @@ def _generate_sweep_control(
     """
     dry_run = mode == "template"
     arm_call_reservation = _arm_call_reservation(stage, None, dry_run=dry_run)
-    for scenario in scenarios:
-        for run_index in range(1, runs + 1):
-            if budget.would_exceed(arm_call_reservation):
-                return True
-            result, calls = _run_arm_and_count(
-                scenario["concept"], stage, run_index, scenario["recipe_context"], mode, default_model,
-                prior_lines=(prior_by_scenario or {}).get(scenario["id"]),
-            )
-            budget.record(0 if dry_run else calls)
-            # The shared control is generated once, up front; its stop-check,
-            # director, and rewrite logs would be long gone from the module by
-            # the time its pairs are judged, so copy them into the stored
-            # transcript now.
-            result["stop_check_log"] = _snapshot_stop_check_log()
-            result["director_log"] = _snapshot_director_log()
-            result["rewrite_log"] = _snapshot_rewrite_log()
-            transcripts[(scenario["id"], run_index)] = result
-            _budget_checkpoint()
+    # #7714 round 2, finding 1: this loop had NO guard at all - max_cost=None
+    # disables the cost side (this loop is calls-only by design, see the
+    # docstring above), but every arm here is still covered for --max-calls
+    # by construction, same as every other arm-running loop in this module.
+    with _installed_budget_guard(budget, None):
+        for scenario in scenarios:
+            for run_index in range(1, runs + 1):
+                if budget.would_exceed(arm_call_reservation):
+                    return True
+                try:
+                    result, calls = _run_arm_and_count(
+                        scenario["concept"], stage, run_index, scenario["recipe_context"], mode, default_model,
+                        prior_lines=(prior_by_scenario or {}).get(scenario["id"]),
+                    )
+                except LabBudgetAbort as exc:
+                    budget.record(0 if dry_run else getattr(exc, "conversation_lab_calls_made", 0))
+                    return True
+                budget.record(0 if dry_run else calls)
+                # The shared control is generated once, up front; its stop-check,
+                # director, and rewrite logs would be long gone from the module by
+                # the time its pairs are judged, so copy them into the stored
+                # transcript now.
+                result["stop_check_log"] = _snapshot_stop_check_log()
+                result["director_log"] = _snapshot_director_log()
+                result["rewrite_log"] = _snapshot_rewrite_log()
+                transcripts[(scenario["id"], run_index)] = result
+                _budget_checkpoint()
     return False
 
 def _run_sweep_variant(
@@ -3711,6 +3758,11 @@ def _run_sweep_variant(
     restore_pending: dict[str, Any] | None = None
     arm_call_reservation = _arm_call_reservation(stage, variant, dry_run=dry_run)
 
+    # #7714 round 2: ONE guard install for this whole variant's run - every
+    # arm and judge call across every (scenario, run) pair it processes is
+    # covered by construction.
+    guard_ctx = _installed_budget_guard(budget, max_cost, baseline_cost=baseline_cost)
+    guard_ctx.__enter__()
     try:
         for scenario in scenarios:
             for run_index in range(1, runs + 1):
@@ -3750,9 +3802,12 @@ def _run_sweep_variant(
                         variant_result, variant_calls = _run_arm_and_count(
                             scenario["concept"], stage, run_index, scenario["recipe_context"], mode, default_model,
                             prior_lines=(prior_by_scenario or {}).get(scenario["id"]),
-                            budget=budget, max_cost=max_cost, baseline_cost=baseline_cost,
                         )
-                    except LabBudgetAbort:
+                    except LabBudgetAbort as exc:
+                        made = getattr(exc, "conversation_lab_calls_made", 0)
+                        budget.record(0 if dry_run else made)
+                        pending_pair["status"] = "aborted_mid_arm"
+                        pending_pair["variant_calls_before_abort"] = made
                         aborted = True
                         break
                     variant_stop_check_log = _snapshot_stop_check_log()
@@ -3829,6 +3884,7 @@ def _run_sweep_variant(
         setattr(exc, "conversation_lab_calls_used", budget.used)
         raise
     finally:
+        guard_ctx.__exit__(None, None, None)
         if restore_pending is not None:
             _restore_variant(simulate_module, restore_pending)
 
@@ -4027,7 +4083,7 @@ def _build_sweep_report(
         "target_dimension": args.target,
         "decision_rule": DECISION_RULE_TEXT,
         "cost_summary": cost_summary,
-        "jev_cost_usd": _sweep_jev_cost_usd(control_transcripts, variant_reports),
+        "jev_cost_usd": _jev_cost_usd_total(),
         **_openrouter_fields_for(args, _openrouter_cost_by_model_for_sweep(control_transcripts, variant_reports)),
         "variants": variant_reports,
         "ranking": _rank_sweep_variants(variant_reports, args.target),
@@ -4576,6 +4632,8 @@ def _cmd_calibrate_reference_panel(args: argparse.Namespace) -> None:
             **({"error": error} if error else {}),
         }
 
+    guard_ctx = _installed_budget_guard(budget, args.max_cost)
+    guard_ctx.__enter__()
     try:
         for case in pairs:
             case_id = case["case_id"]
@@ -4650,11 +4708,26 @@ def _cmd_calibrate_reference_panel(args: argparse.Namespace) -> None:
                 partial_records.remove(pending)
             if aborted:
                 break
+    except LabBudgetAbort:
+        # #7714 round 2: same reasoning as cmd_calibrate's --from-episode
+        # path - a mid-arm budget abort is the SAME event the coarse
+        # would_exceed()/_would_exceed_cost() checks above already handle
+        # inline, and must read the same way: aborted, no `error`, no
+        # re-raise past main() as an uncaught exception.
+        aborted = True
+        report = make_report()
+        _write_json_result(result_path, report)
+        print(f"\n=== conversation_lab calibrate: reference panel {panel['packet_id']} ===")
+        print(f"status: ABORTED  calls used: {report['calls_used']} / max {report['max_calls']}  dry_run={report['dry_run']}")
+        print(f"\nresults written to: {report['results_file']}")
+        return
     except BaseException as exc:
         error = f"{type(exc).__name__}: {exc}"
         aborted = True
         _write_json_result(result_path, make_report())
         raise
+    finally:
+        guard_ctx.__exit__(None, None, None)
 
     report = make_report()
     _write_json_result(result_path, report)
@@ -5601,6 +5674,11 @@ def cmd_bench(args: argparse.Namespace) -> None:
     error: str | None = None
     interrupted = False
 
+    # #7714 round 2, finding 1: this loop had NO mid-arm guard at all -
+    # every arm/judge call here is now covered by construction, same as
+    # every other arm-running loop in this module.
+    guard_ctx = _installed_budget_guard(budget, args.max_cost)
+    guard_ctx.__enter__()
     try:
         for run_index in range(1, args.runs + 1):
             if budget.would_exceed(gen_reserve) or _would_exceed_cost(args.max_cost):
@@ -5660,7 +5738,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
                         judge_model=judge_model,
                     ),
                 )
-    except (Exception, KeyboardInterrupt) as exc:  # noqa: BLE001
+    except (Exception, KeyboardInterrupt, LabBudgetAbort) as exc:  # noqa: BLE001
         # Same contract as _generate_and_judge_pairs: runs that already
         # finished are paid for and must reach disk, so record the failure
         # and fall through to writing the report instead of propagating.
@@ -5671,7 +5749,22 @@ def cmd_bench(args: argparse.Namespace) -> None:
         # spend accounting _spend's finally had just recorded. Interrupting
         # a run you are watching go wrong is a NORMAL thing to do, and it
         # must not be the one path that loses the evidence.
-        error = f"{type(exc).__name__}: {exc}"
+        #
+        # LabBudgetAbort is included deliberately too (#7714 round 2): it
+        # derives from BaseException, same family as KeyboardInterrupt, for
+        # the same reason - a plain `except Exception` must never be able
+        # to swallow it on its way up from a deeply nested paid call.
+        #
+        # It is NOT treated as an `error` (Codex round 2): hitting the cap
+        # via the coarse would_exceed()/_would_exceed_cost() pre-check
+        # never sets `error` or raises SystemExit below - it is the guard
+        # doing its job, and the results up to that point are valid. The
+        # mid-arm guard hitting mid-flight is the SAME event, just caught
+        # later; it must read the same way, not like a bench that crashed.
+        if isinstance(exc, LabBudgetAbort):
+            aborted = True
+        else:
+            error = f"{type(exc).__name__}: {exc}"
         interrupted = isinstance(exc, KeyboardInterrupt)
         if _budget_guard_stopped():
             aborted = True
@@ -5688,8 +5781,10 @@ def cmd_bench(args: argparse.Namespace) -> None:
                     messages, expected_cast, concept=concept, day=args.stage
                 )
             except Exception as summary_exc:
-                error += f"; partial transcript summary failed: {type(summary_exc).__name__}: {summary_exc}"
+                error = (error or "") + f"; partial transcript summary failed: {type(summary_exc).__name__}: {summary_exc}"
             runs.append(partial_record)
+    finally:
+        guard_ctx.__exit__(None, None, None)
 
     aggregate = _bench_aggregate(runs)
     if args.dry_run:
@@ -6114,6 +6209,15 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
     # completed pairs, which would otherwise be dropped because they are
     # only assigned into degradation_reports after the inner loop returns
     # normally.
+    #
+    # #7714 round 2: covered by the mid-arm guard too, for the same
+    # by-construction reason as every other command - every judge call
+    # here is already individually pre-checked, so this is defense in
+    # depth rather than closing a real gap, but it keeps calibrate
+    # consistent with ab/bench instead of being the one command a future
+    # reviewer has to reason about separately.
+    guard_ctx = _installed_budget_guard(budget, args.max_cost)
+    guard_ctx.__enter__()
     try:
         for name, degrade in _DEGRADATIONS:
             pair_records: list[dict[str, Any]] = []
@@ -6196,6 +6300,20 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
                 }
             if aborted:
                 break
+    except LabBudgetAbort:
+        # #7714 round 2: hitting the cap via the mid-arm guard is the SAME
+        # event the coarse would_exceed()/_would_exceed_cost() checks above
+        # already handle inline (aborted=True; break, no exception, no
+        # `error`) - it must read the same way, not like calibrate crashed.
+        # A bare `except BaseException: ...; raise` here would re-raise it
+        # all the way past `main()` (which only catches ConversationLabError/
+        # BudgetGuardError), printing a raw traceback instead of a clean
+        # aborted/partial result.
+        aborted = True
+        report = _build_calibrate_report(args, concept, degradation_reports, True, budget, result_path)
+        _write_json_result(result_path, report)
+        _print_calibrate_report(report)
+        return
     except BaseException as exc:
         report = _build_calibrate_report(
             args, concept, degradation_reports, True, budget, result_path,
@@ -6203,6 +6321,8 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
         )
         _write_json_result(result_path, report)
         raise
+    finally:
+        guard_ctx.__exit__(None, None, None)
 
     report = _build_calibrate_report(args, concept, degradation_reports, aborted, budget, result_path)
     _write_json_result(result_path, report)

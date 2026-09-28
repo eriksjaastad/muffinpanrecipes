@@ -221,6 +221,11 @@ def test_openrouter_dry_run_skips_key_check_and_records_provider_route(tmp_path,
 
 
 def test_openrouter_cost_by_model_totals_router_and_jev_costs():
+    """#7714 finding 4: Jev cost comes from the router LEDGER
+    (record_external_cost), the same source --max-cost reads - not from a
+    pair's stop_check_log, which only ever holds the last SUCCESSFUL check
+    per tick and would miss a retried/failed attempt that was already
+    charged against the cap."""
     model_router.reset_cost_log()
     model_router._record_cost(
         "openrouter", "anthropic/claude-haiku-4.5", 10, 2,
@@ -232,16 +237,11 @@ def test_openrouter_cost_by_model_totals_router_and_jev_costs():
     )
     # A direct-provider entry (no actual_cost) must be ignored.
     model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 2)
+    model_router.record_external_cost("jev", "typesafe/jev-1.13-20260917", 0.000013272)
 
-    pairs = [{
-        "control_stop_check_log": [],
-        "variant_stop_check_log": [{
-            "provider": "jev",
-            "model": "typesafe/jev-1.13-20260917",
-            "cost_usd": 0.000013272,
-        }],
-    }]
-    totals = cl._openrouter_cost_by_model_for_pairs(pairs, [])
+    # pairs/partial_pairs are accepted for call-site compatibility only -
+    # the function no longer reads them for jev cost.
+    totals = cl._openrouter_cost_by_model_for_pairs([{"control_stop_check_log": [], "variant_stop_check_log": []}], [])
     report = cl._openrouter_cost_report(totals)
 
     assert report["cost_by_model"] == {
