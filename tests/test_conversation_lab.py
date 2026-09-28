@@ -1487,44 +1487,71 @@ def test_ab_max_calls_denies_before_generation_when_arm_reservation_cannot_fit(t
 # ---------------------------------------------------------------------------
 
 def test_would_exceed_cost_true_once_at_or_over_cap(monkeypatch):
-    monkeypatch.setattr(model_router, "get_cost_summary", lambda: {"total_cost": 5.0})
+    monkeypatch.setattr(model_router, "get_cost_entries", lambda: [{"estimated_cost": 5.0}])
     assert cl._would_exceed_cost(5.0) is True
     assert cl._would_exceed_cost(5.01) is False
 
 def test_would_exceed_cost_fails_open_on_a_read_error(monkeypatch):
-    def raising_get_cost_summary():
+    def raising_get_cost_entries():
         raise RuntimeError("cost log unavailable")
 
-    monkeypatch.setattr(model_router, "get_cost_summary", raising_get_cost_summary)
+    monkeypatch.setattr(model_router, "get_cost_entries", raising_get_cost_entries)
     assert cl._would_exceed_cost(1.0) is False
 
 def test_would_exceed_cost_respects_a_per_variant_baseline(monkeypatch):
     """ab --sweep's per-variant cap: (total - baseline) >= max_cost, not
     the absolute total - a $6 baseline with a $5 cap and a $9 total should
     NOT trip (delta is only $3), even though $9 alone would."""
-    monkeypatch.setattr(model_router, "get_cost_summary", lambda: {"total_cost": 9.0})
+    monkeypatch.setattr(model_router, "get_cost_entries", lambda: [{"estimated_cost": 9.0}])
     assert cl._would_exceed_cost(5.0) is True  # absolute cap: 9 >= 5
     assert cl._would_exceed_cost(5.0, baseline=6.0) is False  # delta: 9-6=3 < 5
     assert cl._would_exceed_cost(5.0, baseline=3.0) is True  # delta: 9-3=6 >= 5
 
 def test_would_exceed_cost_warns_once_on_stderr_on_first_failure(monkeypatch, capsys):
-    def raising_get_cost_summary():
+    def raising_get_cost_entries():
         raise RuntimeError("cost log unavailable")
 
-    monkeypatch.setattr(model_router, "get_cost_summary", raising_get_cost_summary)
+    monkeypatch.setattr(model_router, "get_cost_entries", raising_get_cost_entries)
 
     assert cl._would_exceed_cost(1.0) is False
     first_err = capsys.readouterr().err
     assert "WARNING" in first_err
-    assert "get_cost_summary" in first_err
+    assert "get_cost_entries" in first_err
 
     assert cl._would_exceed_cost(1.0) is False
     second_err = capsys.readouterr().err
     assert second_err == ""
 
+def test_would_exceed_cost_fails_closed_on_untrusted_openrouter_entry(monkeypatch, capsys):
+    """#7714 finding 1: an OpenRouter entry with no actual_cost AND a zero
+    estimate (get_cost_summary()['total_cost'] has no OpenRouter price-table
+    entry, so it always estimates to $0) must abort the next paid unit
+    rather than silently look like $0 spent."""
+    monkeypatch.setattr(
+        model_router, "get_cost_entries",
+        lambda: [{"provider": "openrouter", "model": "anthropic/claude-haiku-4.5", "estimated_cost": 0.0}],
+    )
+    assert cl._would_exceed_cost(1.0) is True
+    err = capsys.readouterr().err
+    assert "WARNING" in err
+    assert "failed CLOSED" in err
+
+def test_would_exceed_cost_trusts_openrouter_actual_cost(monkeypatch):
+    """An OpenRouter entry WITH a real actual_cost is exactly what --max-cost
+    must see - this is the fix for the bug the two tests above guard
+    against regressing: get_cost_summary()['total_cost'] never carries it."""
+    monkeypatch.setattr(
+        model_router, "get_cost_entries",
+        lambda: [{"provider": "openrouter", "model": "anthropic/claude-haiku-4.5",
+                   "estimated_cost": 0.0, "actual_cost": 1.25}],
+    )
+    assert cl._would_exceed_cost(1.0) is True
+    assert cl._would_exceed_cost(1.25) is True
+    assert cl._would_exceed_cost(1.26) is False
+
 def test_ab_aborts_when_cost_cap_already_reached(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
-    monkeypatch.setattr(model_router, "get_cost_summary", lambda: {"total_cost": 10.0})
+    monkeypatch.setattr(model_router, "get_cost_entries", lambda: [{"estimated_cost": 10.0}])
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
     results_dir = tmp_path / "results"
 
@@ -1539,6 +1566,122 @@ def test_ab_aborts_when_cost_cap_already_reached(tmp_path, monkeypatch):
     assert report["aborted"] is True
     assert report["completed_pairs"] == 0
     assert report["max_cost"] == 5.0
+
+# ---------------------------------------------------------------------------
+# #7714 finding 3: arm_call_reservation must honor a variant's raised
+# TICKS_RANGE/OPEN_ENDED_MAX_TICKS, not just the unpatched module defaults -
+# and a runaway arm must be stoppable mid-flight (the mid-arm budget guard),
+# not only at the next arm/judge boundary.
+# ---------------------------------------------------------------------------
+
+def test_arm_call_reservation_honors_variant_open_ended_max_ticks_above_unpatched():
+    """monday's unpatched TICKS_RANGE upper bound is 10 (== the floor); a
+    variant that raises OPEN_ENDED_MAX_TICKS['monday'] to 25 must make the
+    reservation bigger, not silently keep reserving for 10."""
+    unpatched = cl._arm_call_reservation("monday", None, dry_run=False)
+    variant = {"WINDDOWN_TRIGGER": "check", "OPEN_ENDED_MAX_TICKS": {"monday": 25}}
+    patched = cl._arm_call_reservation("monday", variant, dry_run=False)
+    assert patched > unpatched
+    assert patched == 25 * (cl._MAX_CALLS_PER_TURN + cl._MAX_STOP_CHECK_ATTEMPTS_PER_TICK)
+
+def test_arm_call_reservation_dry_run_is_always_zero():
+    variant = {"WINDDOWN_TRIGGER": "check", "OPEN_ENDED_MAX_TICKS": {"monday": 25}}
+    assert cl._arm_call_reservation("monday", variant, dry_run=True) == 0
+
+def test_run_arm_and_count_raises_lab_budget_abort_mid_arm(monkeypatch):
+    """The mid-arm guard must stop a runaway arm using a LIVE call-count
+    delta, not budget.used (which the caller only updates AFTER an arm
+    finishes) - otherwise a single arm making far more real calls than
+    --max-calls allows would run to completion before anything noticed."""
+    call_count = {"n": 0}
+
+    def fake_generate_anthropic(**kw):
+        call_count["n"] += 1
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    def runaway_run_arm(*a, **k):
+        for _ in range(50):
+            model_router.generate_response(prompt="x", model="anthropic/claude-haiku-4-5-20251001")
+        return {"messages": []}
+
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+    monkeypatch.setattr(cl, "_run_arm", runaway_run_arm)
+    budget = cl.CallBudget(max_calls=3)
+
+    with pytest.raises(cl.LabBudgetAbort):
+        cl._run_arm_and_count(
+            "concept", "monday", 1, "anchor", "openai", "stub",
+            budget=budget, max_cost=5.0,
+        )
+    assert 0 < call_count["n"] < 50, "the guard must interrupt the runaway loop partway through"
+
+def test_run_arm_and_count_with_no_budget_installs_no_guard(monkeypatch):
+    """budget=None (every call site that predates #7714's mid-arm guard,
+    and every direct test of this function) must stay byte-identical: no
+    hook installed, no LabBudgetAbort possible, no matter how many calls
+    an arm makes."""
+    def runaway_run_arm(*a, **k):
+        for _ in range(10):
+            model_router.generate_response(prompt="x", model="anthropic/claude-haiku-4-5-20251001")
+        return {"messages": []}
+
+    monkeypatch.setattr(model_router, "_generate_anthropic", lambda **kw: "ok")
+    monkeypatch.setattr(cl, "_run_arm", runaway_run_arm)
+
+    result, calls = cl._run_arm_and_count("concept", "monday", 1, "anchor", "openai", "stub")
+    assert result == {"messages": []}
+    # _generate_anthropic is mocked without recording any cost, so the cost
+    # log never moves and calls falls back to the message count (0 here) -
+    # confirming this ran the plain, unguarded path, not the mid-arm guard.
+    assert calls == 0
+    # No hook was left installed - set_pre_call_hook(None) must report the
+    # PREVIOUS hook was already None.
+    assert model_router.set_pre_call_hook(None) is None
+
+def test_ab_mid_arm_guard_stops_a_runaway_variant_arm_and_writes_partial(tmp_path, monkeypatch):
+    """#7714 finding 3, end to end: give the fake arm far more real calls
+    than the (correct) reservation reserves, with --max-calls set to
+    EXACTLY that reservation - the coarse pre-arm boundary check clears
+    (reservation is not itself exceeded), so only the mid-arm guard
+    inside the arm can be what stops the runaway loop and produces the
+    partial, aborted `ab` result."""
+    monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
+    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    variant = {"_SHARED_CHARACTER_RULES": "V"}
+    reservation = cl._arm_call_reservation("monday", variant, dry_run=False)
+
+    call_count = {"n": 0}
+
+    def fake_generate_anthropic(**kw):
+        call_count["n"] += 1
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    def runaway_run_arm(*a, **k):
+        for _ in range(reservation * 3):
+            model_router.generate_response(prompt="x", model="anthropic/claude-haiku-4-5-20251001")
+        return {"messages": _messages("X")}
+
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+    monkeypatch.setattr(cl, "_run_arm", runaway_run_arm)
+
+    variant_path = _write_variant(tmp_path, variant)
+    results_dir = tmp_path / "results"
+
+    cl.main([
+        "ab", "--provider", "anthropic",
+        "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+        "--variant", str(variant_path), "--recipe-context", "anchor",
+        "--max-calls", str(reservation), "--results-dir", str(results_dir),
+    ])
+
+    [result_file] = list(results_dir.glob("*-ab-*.json"))
+    report = json.loads(result_file.read_text())
+    assert report["aborted"] is True
+    assert report["completed_pairs"] == 0
+    assert call_count["n"] < reservation * 3, "the mid-arm guard must interrupt the runaway arm"
 
 def test_ab_default_max_cost_is_five_dollars(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
@@ -2288,6 +2431,7 @@ def test_ab_sweep_per_variant_cost_cap_abort_writes_partial(tmp_path, monkeypatc
     # variant starts, then the lone variant's own first call pushes it to
     # $18 (delta so far: $6 >= $5, so its SECOND scenario never runs).
     state = {"total": 0.0}
+    monkeypatch.setattr(model_router, "get_cost_entries", lambda: [{"estimated_cost": state["total"]}])
     monkeypatch.setattr(model_router, "get_cost_summary", lambda: {"total_cost": state["total"], "total_calls": 0})
 
     real_run_arm_and_count = cl._run_arm_and_count

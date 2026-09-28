@@ -22,11 +22,11 @@ import logging
 import os
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable, Optional
 
 import httpx
 
-from backend.utils.model_router import generate_response
+from backend.utils.model_router import generate_response, record_external_cost
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,68 @@ _TIMEOUT_SECONDS = 30.0
 # 1 try + 2 retries, inside the portfolio's 3-attempt cap.
 _JEV_MAX_ATTEMPTS = 3
 _JEV_RETRY_BACKOFF_SECONDS = 2.0
+
+# A successful jev call's real usage.cost, observed in a live logged response
+# (tests/test_lab_stop_knobs.py's fixture): $0.000013272. An attempt that
+# fails before returning a usable usage payload (network error, timeout, a
+# 5xx that gets retried, or a 200 with no usage object) reports no real cost
+# at all - counting it as $0 would let a string of retried failures spend
+# real HTTP/compute time for free against --max-cost (#7714 finding 2), so it
+# is charged a documented, deliberately generous ~10x that one observed real
+# per-call cost instead.
+_JEV_FAILED_ATTEMPT_COST_ESTIMATE_USD = 0.00015
+
+# ---------------------------------------------------------------------------
+# Lab-only pre-attempt guard hook (#7714)
+#
+# A caller (scripts/conversation_lab.py) may install a callback here that
+# fires immediately before every Jev HTTP attempt - including retries - so
+# it can enforce --max-calls/--max-cost INSIDE a running stop check instead
+# of only after it returns. With no hook installed (the production default),
+# this is a no-op and behavior is byte-identical to before #7714.
+# ---------------------------------------------------------------------------
+_PRE_ATTEMPT_HOOK: Optional[Callable[[], None]] = None
+
+
+def set_pre_attempt_hook(hook: Optional[Callable[[], None]]) -> Optional[Callable[[], None]]:
+    """Install (or clear, with None) the pre-attempt hook; returns the
+    previously-installed hook so a caller can restore it."""
+    global _PRE_ATTEMPT_HOOK
+    previous = _PRE_ATTEMPT_HOOK
+    _PRE_ATTEMPT_HOOK = hook
+    return previous
+
+
+def _fire_pre_attempt_hook() -> None:
+    if _PRE_ATTEMPT_HOOK is not None:
+        _PRE_ATTEMPT_HOOK()
+
+
+# Every Jev HTTP attempt - success or failure, first try or retry - appended
+# here for lab-side accounting/debugging. Unlike simulate_dialogue_week.py's
+# STOP_CHECK_LOG (one entry per successful check_scene_done call), this
+# records EVERY attempt _check_jev makes, since a failed/retried attempt
+# still costs an HTTP round trip and, per _JEV_FAILED_ATTEMPT_COST_ESTIMATE_USD
+# above, real (estimated) money.
+JEV_ATTEMPT_LOG: list[dict[str, Any]] = []
+
+
+def _record_jev_attempt(*, ok: bool, cost_usd: float | None, detail: str | None) -> None:
+    """Log one Jev HTTP attempt and feed its cost into model_router's cost
+    log via record_external_cost, so it counts toward
+    get_cost_summary()['total_calls'] and the lab's own cost total
+    (see scripts/conversation_lab.py's _lab_cost_total) exactly like a
+    router call would (#7714 finding 2)."""
+    charged_cost = cost_usd if cost_usd is not None else _JEV_FAILED_ATTEMPT_COST_ESTIMATE_USD
+    JEV_ATTEMPT_LOG.append({
+        "ok": ok,
+        "cost_usd": cost_usd,
+        "charged_cost_usd": charged_cost,
+        "detail": detail,
+        "timestamp": time.time(),
+    })
+    record_external_cost("jev", _JEV_REQUEST_MODEL, charged_cost)
+
 
 _DECIDED_QUESTION = "Has the team actually reached a final decision on: {objective}?"
 _PUSHBACK_QUESTION = "Before agreeing, did at least one person disagree or push back with a reason?"
@@ -110,6 +172,7 @@ def _check_jev(state: str, objective: str) -> StopCheckResult:
     response = None
     last_error = ""
     for attempt in range(_JEV_MAX_ATTEMPTS):
+        _fire_pre_attempt_hook()
         if attempt:
             logger.warning("jev stop check retry %d/%d after %s", attempt, _JEV_MAX_ATTEMPTS - 1, last_error)
             _sleep(_JEV_RETRY_BACKOFF_SECONDS * attempt)
@@ -122,24 +185,47 @@ def _check_jev(state: str, objective: str) -> StopCheckResult:
             )
         except (httpx.TimeoutException, httpx.NetworkError) as exc:
             last_error = f"{type(exc).__name__}: {exc}"
+            _record_jev_attempt(ok=False, cost_usd=None, detail=last_error)
             response = None
             continue
         except httpx.HTTPError as exc:
+            _record_jev_attempt(ok=False, cost_usd=None, detail=str(exc))
             raise StopCheckError(f"jev request failed: {exc}") from exc
         if response.status_code >= 500:
             last_error = f"HTTP {response.status_code}"
+            _record_jev_attempt(ok=False, cost_usd=None, detail=last_error)
             continue
         break
 
     if response is None:
         raise StopCheckError(f"jev request failed after {_JEV_MAX_ATTEMPTS} attempts: {last_error}")
     if response.status_code != 200:
+        # A >=500 response was already recorded inside the retry loop above
+        # (on the `continue` that leads here after the last attempt) - only
+        # a non-5xx failure (a 4xx that broke the loop immediately, without
+        # ever taking that branch) needs recording here.
+        if response.status_code < 500:
+            _record_jev_attempt(ok=False, cost_usd=None, detail=f"HTTP {response.status_code}")
         raise StopCheckError(f"jev returned HTTP {response.status_code}")
 
     try:
         payload = response.json()
     except ValueError as exc:
+        _record_jev_attempt(ok=False, cost_usd=None, detail="malformed JSON")
         raise StopCheckError("jev returned malformed JSON") from exc
+
+    # The HTTP round trip that produced this payload already happened and
+    # already cost money regardless of whether the payload shape below turns
+    # out to be usable - record it now, once, using whatever real usage.cost
+    # it carries (or the conservative estimate when it carries none), before
+    # any of the shape checks below can raise.
+    attempt_cost_usd: float | None = None
+    usage = payload.get("usage") if isinstance(payload, dict) else None
+    if isinstance(usage, dict):
+        raw_attempt_cost = usage.get("cost")
+        if isinstance(raw_attempt_cost, (int, float)) and not isinstance(raw_attempt_cost, bool):
+            attempt_cost_usd = float(raw_attempt_cost)
+    _record_jev_attempt(ok=True, cost_usd=attempt_cost_usd, detail=None)
 
     if not isinstance(payload, dict):
         raise StopCheckError("jev response is not a JSON object")
@@ -161,19 +247,12 @@ def _check_jev(state: str, objective: str) -> StopCheckResult:
         "jev response pushback.noul",
     )
 
-    cost_usd: float | None = None
-    usage = payload.get("usage")
-    if isinstance(usage, dict):
-        raw_cost = usage.get("cost")
-        if isinstance(raw_cost, (int, float)) and not isinstance(raw_cost, bool):
-            cost_usd = float(raw_cost)
-
     return StopCheckResult(
         decided=decided,
         pushback=pushback,
         provider="jev",
         model=model,
-        cost_usd=cost_usd,
+        cost_usd=attempt_cost_usd,
     )
 
 

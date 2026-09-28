@@ -36,6 +36,27 @@ def _no_live_alert_credentials(monkeypatch):
         monkeypatch.delenv(name, raising=False)
 
 
+# backend.utils.model_router._COST_LOG is a module-level global, and several
+# tests (tests/test_lab_models.py's cost-by-model tests in particular) record
+# synthetic entries into it and reset it only at their OWN start, not at
+# their end - previously harmless, because get_cost_summary()['total_cost']
+# sums only estimated_cost and is robust to a garbage entry (it just adds
+# 0.0). #7714's scripts/conversation_lab.py._lab_cost_total() sums
+# get_cost_entries() instead (actual_cost when present, else estimated_cost)
+# and treats an OpenRouter entry with neither as untrusted - fail CLOSED,
+# not $0 - so a leaked entry from an unrelated earlier test can now abort a
+# LATER test's `ab` run that never touches the cost log itself. Resetting
+# the log before AND after every test removes that ordering dependency
+# regardless of which test runs first.
+@pytest.fixture(autouse=True)
+def _reset_model_router_cost_log():
+    from backend.utils import model_router
+
+    model_router.reset_cost_log()
+    yield
+    model_router.reset_cost_log()
+
+
 # Configure hypothesis for property-based testing
 settings.register_profile("default", max_examples=100, verbosity=Verbosity.normal)
 settings.register_profile("ci", max_examples=200, verbosity=Verbosity.verbose)

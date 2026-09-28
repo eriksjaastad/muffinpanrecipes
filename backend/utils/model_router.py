@@ -289,6 +289,51 @@ def get_cost_entries() -> list[dict]:
     return [dict(entry) for entry in _COST_LOG]
 
 
+def record_external_cost(provider: str, model: str, cost: float) -> None:
+    """Record a cost-log entry for a paid unit that never goes through
+    generate_response()/generate_judge_response() - currently only
+    backend.utils.stop_check's Jev HTTP attempts (#7714).
+
+    Stored as ``actual_cost`` with zero tokens, exactly like an OpenRouter
+    call's real ``usage.cost`` - so it counts toward
+    ``get_cost_summary()['total_calls']`` (a lab caller's before/after
+    total_calls delta, e.g. scripts/conversation_lab.py's
+    ``_run_arm_and_count``, naturally includes it) and toward
+    ``get_cost_entries()``'s actual-cost total the same way a router call
+    would.
+    """
+    _record_cost(provider, model, 0, 0, actual_cost=float(cost))
+
+
+# ---------------------------------------------------------------------------
+# Lab-only pre-call guard hook (#7714)
+#
+# A caller (scripts/conversation_lab.py) may install a callback here that
+# fires immediately before every generate_response()/generate_judge_response()
+# call - and, via backend.utils.stop_check's own hook, before every Jev HTTP
+# attempt - so it can enforce --max-calls/--max-cost INSIDE a running arm
+# instead of only at coarser boundaries. With no hook installed (the
+# production default, and every test that never calls set_pre_call_hook),
+# this is a complete no-op and behavior is byte-identical to before #7714.
+# ---------------------------------------------------------------------------
+_PRE_CALL_HOOK: Optional[Any] = None
+
+
+def set_pre_call_hook(hook: Optional[Any]) -> Optional[Any]:
+    """Install (or clear, with None) the pre-call hook; returns the
+    previously-installed hook so a caller can restore it (see
+    scripts/conversation_lab.py's ``_installed_budget_guard``)."""
+    global _PRE_CALL_HOOK
+    previous = _PRE_CALL_HOOK
+    _PRE_CALL_HOOK = hook
+    return previous
+
+
+def _fire_pre_call_hook() -> None:
+    if _PRE_CALL_HOOK is not None:
+        _PRE_CALL_HOOK()
+
+
 # ---------------------------------------------------------------------------
 # Routing
 # ---------------------------------------------------------------------------
@@ -828,6 +873,7 @@ def generate_response(
     """
     routed = parse_model(model)
     logger.debug(f"Model router provider={routed.provider} model={routed.model}")
+    _fire_pre_call_hook()
 
     if routed.provider == "openai":
         ensure_openai_model_allowed(routed.model)
@@ -886,6 +932,7 @@ def generate_judge_response(
             f"Allowed: {', '.join(sorted(JUDGE_ALLOWLIST))}"
         )
     logger.info(f"Judge router provider={routed.provider} model={routed.model}")
+    _fire_pre_call_hook()
 
     if routed.provider == "openai":
         return _generate_openai(

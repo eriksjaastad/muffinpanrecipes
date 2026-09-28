@@ -14,6 +14,8 @@ import pytest
 
 import scripts.conversation_lab as cl
 import scripts.simulate_dialogue_week as sdw
+from backend.utils import model_router
+from backend.utils import stop_check as stop_check_module
 from backend.utils.stop_check import (
     HAIKU_MODEL,
     StopCheckError,
@@ -399,6 +401,111 @@ def test_jev_timeout_raises(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
     with pytest.raises(StopCheckError, match="timed out"):
         check_scene_done(lines=["a"], provider="jev", day="monday", objective="Pick it")
+
+
+# ---------------------------------------------------------------------------
+# #7714 finding 2: every Jev HTTP attempt - success, retry, or terminal
+# failure - counts as a call against --max-calls and costs against
+# --max-cost, by feeding backend.utils.model_router's cost log via
+# record_external_cost(). Previously these attempts never reached the
+# router's call/cost log at all.
+# ---------------------------------------------------------------------------
+
+def test_jev_success_records_one_call_at_its_real_cost(monkeypatch):
+    monkeypatch.setattr("backend.utils.stop_check.httpx.post",
+                        lambda *a, **k: _FakeResponse(payload=_JEV_VERIFIED_RESPONSE))
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+
+    check_scene_done(lines=["a"], provider="jev", day="monday", objective="Pick it")
+
+    entries = model_router.get_cost_entries()
+    assert len(entries) == 1
+    assert entries[0]["provider"] == "jev"
+    assert entries[0]["actual_cost"] == 0.000013272
+    assert model_router.get_cost_summary()["total_calls"] == 1
+
+
+def test_jev_retried_failure_then_success_records_both_attempts(monkeypatch):
+    """A 520 that gets retried, then succeeds, must charge for BOTH HTTP
+    round trips - the failed one at the documented conservative estimate
+    (it reports no real cost), the successful one at its real usage.cost -
+    not just the one that finally returned a usable answer."""
+    responses = iter([
+        _FakeResponse(payload={}, status_code=520),
+        _FakeResponse(payload=_JEV_VERIFIED_RESPONSE),
+    ])
+    monkeypatch.setattr("backend.utils.stop_check.httpx.post", lambda *a, **k: next(responses))
+    monkeypatch.setattr("backend.utils.stop_check._sleep", lambda s: None)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+
+    check_scene_done(lines=["a"], provider="jev", day="monday", objective="Pick it")
+
+    entries = model_router.get_cost_entries()
+    assert len(entries) == 2
+    assert model_router.get_cost_summary()["total_calls"] == 2
+    costs = {e["actual_cost"] for e in entries}
+    assert costs == {stop_check_module._JEV_FAILED_ATTEMPT_COST_ESTIMATE_USD, 0.000013272}
+
+
+def test_jev_persistent_failure_charges_every_attempt_before_raising(monkeypatch):
+    """A stop check that never succeeds still made _JEV_MAX_ATTEMPTS real
+    HTTP round trips - each one must be charged, not just recorded as a
+    single opaque failure (#7714 finding 2: 'failed checks leave no
+    record')."""
+    monkeypatch.setattr("backend.utils.stop_check.httpx.post",
+                        lambda *a, **k: _FakeResponse(payload={}, status_code=500))
+    monkeypatch.setattr("backend.utils.stop_check._sleep", lambda s: None)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+
+    with pytest.raises(StopCheckError):
+        check_scene_done(lines=["a"], provider="jev", day="monday", objective="Pick it")
+
+    entries = model_router.get_cost_entries()
+    assert len(entries) == stop_check_module._JEV_MAX_ATTEMPTS
+    assert model_router.get_cost_summary()["total_calls"] == stop_check_module._JEV_MAX_ATTEMPTS
+    assert all(e["actual_cost"] == stop_check_module._JEV_FAILED_ATTEMPT_COST_ESTIMATE_USD for e in entries)
+
+
+def test_jev_pre_attempt_hook_fires_once_per_attempt_including_retries(monkeypatch):
+    calls = []
+    responses = iter([
+        _FakeResponse(payload={}, status_code=520),
+        _FakeResponse(payload=_JEV_VERIFIED_RESPONSE),
+    ])
+    monkeypatch.setattr("backend.utils.stop_check.httpx.post", lambda *a, **k: next(responses))
+    monkeypatch.setattr("backend.utils.stop_check._sleep", lambda s: None)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+
+    previous = stop_check_module.set_pre_attempt_hook(lambda: calls.append(1))
+    try:
+        check_scene_done(lines=["a"], provider="jev", day="monday", objective="Pick it")
+    finally:
+        stop_check_module.set_pre_attempt_hook(previous)
+
+    assert len(calls) == 2  # one per HTTP attempt, including the retried 520
+
+
+def test_jev_pre_attempt_hook_can_abort_before_any_http_call(monkeypatch):
+    """A hook that raises must stop the attempt BEFORE the network call -
+    this is the seam scripts/conversation_lab.py's mid-arm budget guard
+    uses to abort inside a running stop check."""
+    class _Abort(RuntimeError):
+        pass
+
+    def exploding_post(*a, **k):
+        raise AssertionError("must not reach the network once the hook aborts")
+
+    monkeypatch.setattr("backend.utils.stop_check.httpx.post", exploding_post)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+
+    previous = stop_check_module.set_pre_attempt_hook(lambda: (_ for _ in ()).throw(_Abort()))
+    try:
+        with pytest.raises(_Abort):
+            check_scene_done(lines=["a"], provider="jev", day="monday", objective="Pick it")
+    finally:
+        stop_check_module.set_pre_attempt_hook(previous)
+
+    assert model_router.get_cost_entries() == []
 
 
 def test_haiku_parse(monkeypatch):

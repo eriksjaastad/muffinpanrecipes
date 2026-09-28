@@ -277,6 +277,7 @@ from backend.admin.cron_routes import (
 )
 from backend.config import config
 from backend.utils import model_router
+from backend.utils import stop_check
 from backend.utils.episode_integrity import PLACEHOLDER_CONCEPT, _recipe_title
 from scripts.conversation_metrics import summarize
 from scripts.conversation_budget import AnthropicBudgetGuard, BudgetGuardError
@@ -574,10 +575,10 @@ class CallBudget:
     def record(self, amount: int) -> None:
         self.used += amount
 
-# Set once, the first time backend.utils.model_router.get_cost_summary()
-# raises - see _warn_cost_summary_failure_once - so a broken cost log warns
-# exactly once per process instead of once per checked call (ab/calibrate
-# check it before every single generation and judge call).
+# Set once, the first time the lab's own cost total cannot be read - see
+# _warn_cost_summary_failure_once - so a broken cost log warns exactly once
+# per process instead of once per checked call (ab/calibrate check it
+# before every single generation and judge call).
 _cost_summary_failure_warned = False
 
 def _warn_cost_summary_failure_once(exc: Exception) -> None:
@@ -586,12 +587,29 @@ def _warn_cost_summary_failure_once(exc: Exception) -> None:
         return
     print(
         "WARNING: cost cap check failed open - "
-        f"backend.utils.model_router.get_cost_summary() raised {type(exc).__name__}: {exc} - "
+        f"backend.utils.model_router.get_cost_entries() raised {type(exc).__name__}: {exc} - "
         "--max-cost cannot be enforced until this is fixed; --max-calls remains the "
         "primary, always-available spending guard",
         file=sys.stderr,
     )
     _cost_summary_failure_warned = True
+
+# Set once, the first time _lab_cost_total() hits an untrusted OpenRouter
+# entry (see its docstring) - a separate warning from the read-failure one
+# above, since this path fails CLOSED rather than open and Erik should be
+# able to tell the two apart from stderr alone.
+_untrusted_cost_entry_warned = False
+
+def _warn_untrusted_cost_entry_once(exc: Exception) -> None:
+    global _untrusted_cost_entry_warned
+    if _untrusted_cost_entry_warned:
+        return
+    print(
+        f"WARNING: cost cap check failed CLOSED - {exc} - "
+        "aborting the run rather than treating unmetered OpenRouter spend as $0",
+        file=sys.stderr,
+    )
+    _untrusted_cost_entry_warned = True
 
 def _cost_summary_or_none() -> dict[str, Any] | None:
     """model_router's running totals, or None if the log cannot be read."""
@@ -602,13 +620,65 @@ def _cost_summary_or_none() -> dict[str, Any] | None:
         return None
     return summary if isinstance(summary, dict) else None
 
+class _UntrustedCostEntry(RuntimeError):
+    """Raised by `_lab_cost_total` for an OpenRouter cost-log entry that
+    reports neither a real `actual_cost` nor a nonzero `estimated_cost`.
+
+    #7714 finding 1: `backend.utils.model_router.get_cost_summary()`'s
+    `total_cost` sums ONLY `estimated_cost`, computed from
+    `_COST_PER_M_TOKENS` - a table with no OpenRouter ids in it - so every
+    OpenRouter call estimates to $0 there even though `_generate_openrouter`
+    stores the real `usage.cost` as `actual_cost` right next to it. Treating
+    that shape as $0 spend would let real, unmetered OpenRouter cost run
+    straight past --max-cost, so `_would_exceed_cost` treats this as an
+    immediate, fail-CLOSED cap hit instead of a read failure (which fails
+    open)."""
+
+def _lab_cost_total() -> float:
+    """The lab's own running-cost total: sum, over every entry in
+    `backend.utils.model_router.get_cost_entries()`, of that entry's
+    `actual_cost` when present, else its `estimated_cost` - NOT
+    `get_cost_summary()['total_cost']` (see `_UntrustedCostEntry`'s
+    docstring for why that undercounts OpenRouter spend to $0).
+
+    Raises `_UntrustedCostEntry` for an OpenRouter entry with neither a
+    real `actual_cost` nor a nonzero `estimated_cost` - callers decide
+    whether that fails open or closed (see `_would_exceed_cost` and
+    `_total_cost_or_none`).
+    """
+    total = 0.0
+    for entry in model_router.get_cost_entries():
+        if not isinstance(entry, dict):
+            continue
+        actual = entry.get("actual_cost")
+        if isinstance(actual, (int, float)) and not isinstance(actual, bool):
+            total += float(actual)
+            continue
+        estimated = entry.get("estimated_cost")
+        if isinstance(estimated, (int, float)) and not isinstance(estimated, bool):
+            estimated = float(estimated)
+        else:
+            estimated = 0.0
+        if entry.get("provider") == "openrouter" and estimated == 0.0:
+            raise _UntrustedCostEntry(
+                "openrouter cost entry for model "
+                f"{entry.get('model')!r} reports no actual_cost and a zero "
+                "estimate - refusing to count it as $0 spend"
+            )
+        total += estimated
+    return total
+
 def _total_cost_or_none() -> float | None:
-    """Current backend.utils.model_router.get_cost_summary()['total_cost'],
-    or None on a read failure - after firing the one-time stderr warning
-    above. Shared by `_would_exceed_cost` and `ab --sweep`'s per-variant
-    cost baseline (see `_would_exceed_cost`'s `baseline` parameter)."""
+    """Current lab-wide running cost total (see `_lab_cost_total`), or
+    None on ANY failure to compute it - including an untrusted OpenRouter
+    entry - after firing the one-time stderr warning above. This is the
+    REPORTING-facing total (`ab --sweep`'s per-variant baseline and
+    `cost_spent`), so it fails open to None uniformly rather than raising;
+    `_would_exceed_cost` is the one caller that must tell "unknown" apart
+    from "untrusted", and it calls `_lab_cost_total()` directly instead of
+    going through this function."""
     try:
-        return model_router.get_cost_summary().get("total_cost", 0.0)
+        return _lab_cost_total()
     except Exception as exc:
         _warn_cost_summary_failure_once(exc)
         return None
@@ -628,14 +698,22 @@ def _would_exceed_cost(max_cost: float, baseline: float = 0.0) -> bool:
     in the sweep - rather than one absolute cap racing against everything
     the sweep has already spent.
 
-    A cost-summary read failure does not disable the cap by raising - it
+    A cost-log read failure does not disable the cap by raising - it
     fails open (returns False, i.e. "not yet exceeded") the same way
     _run_arm_and_count already tolerates a failed read, because
     --max-calls remains the primary, always-available spending guard
-    regardless of whether cost tracking itself is working.
+    regardless of whether cost tracking itself is working. An untrusted
+    OpenRouter entry (see `_UntrustedCostEntry`) is NOT a read failure -
+    it fails CLOSED (returns True) instead, since the alternative is
+    silently letting unmetered OpenRouter spend run past --max-cost.
     """
-    total_cost = _total_cost_or_none()
-    if total_cost is None:
+    try:
+        total_cost = _lab_cost_total()
+    except _UntrustedCostEntry as exc:
+        _warn_untrusted_cost_entry_once(exc)
+        return True
+    except Exception as exc:
+        _warn_cost_summary_failure_once(exc)
         return False
     return (total_cost - baseline) >= max_cost
 
@@ -1543,6 +1621,61 @@ def _run_arm(
         initial_recent_lines=list(prior_lines) if prior_lines is not None else None,
     )
 
+class LabBudgetAbort(RuntimeError):
+    """Raised by the mid-arm budget guard (see `_installed_budget_guard`)
+    the moment --max-calls or --max-cost would be exceeded by the very
+    next paid call/attempt - checked INSIDE a running arm, not only at the
+    coarser arm/judge boundaries the existing `budget.would_exceed(
+    arm_call_reservation)`/`_would_exceed_cost(max_cost)` checks already
+    guard. #7714 finding 3: an open-ended arm (OPEN_ENDED_MAX_TICKS) can
+    run well past either cap between one boundary check and the next, and
+    every Jev stop-check HTTP attempt (#7714 finding 2) never reached
+    either cap at all before this guard existed. Callers catch this
+    exception where they already handle the boundary check hitting -
+    setting aborted=True and keeping whatever partial work was already
+    produced, exactly like those checks."""
+
+@contextmanager
+def _installed_budget_guard(budget: CallBudget, max_cost: float, baseline_cost: float = 0.0):
+    """Install a pre-call hook on backend.utils.model_router and a
+    pre-attempt hook on backend.utils.stop_check for the duration of the
+    `with` block. Both hooks are the SAME closure: the moment the next
+    paid unit (a model_router call, or a single Jev HTTP attempt/retry)
+    would push the running call count past --max-calls or the running
+    cost past --max-cost (relative to `baseline_cost` - see
+    `_would_exceed_cost`), it raises LabBudgetAbort instead of letting the
+    call happen.
+
+    The call-count side tracks a LIVE delta from `_calls_now()`, not
+    `budget.used` (which `_run_arm_and_count`'s caller only updates AFTER
+    an arm finishes) - otherwise a long-running arm's own calls would be
+    invisible to this guard until it was too late to matter.
+
+    Restores whatever hook was installed before (normally None) on exit,
+    even on exception, so any code path that never opens this context -
+    every production call, and every existing test that predates #7714's
+    mid-arm guard - stays byte-identical.
+    """
+    calls_before = _calls_now()
+
+    def _guard() -> None:
+        calls_now = _calls_now()
+        live_delta = 0
+        if calls_before is not None and calls_now is not None and calls_now > calls_before:
+            live_delta = calls_now - calls_before
+        if budget.would_exceed(live_delta + 1) or _would_exceed_cost(max_cost, baseline=baseline_cost):
+            raise LabBudgetAbort(
+                "--max-calls or --max-cost would be exceeded by the next paid call/attempt"
+            )
+
+    previous_router_hook = model_router.set_pre_call_hook(_guard)
+    previous_stop_check_hook = stop_check.set_pre_attempt_hook(_guard)
+    try:
+        yield
+    finally:
+        model_router.set_pre_call_hook(previous_router_hook)
+        stop_check.set_pre_attempt_hook(previous_stop_check_hook)
+
 def _run_arm_and_count(
     concept: str,
     stage: str,
@@ -1551,6 +1684,9 @@ def _run_arm_and_count(
     mode: str,
     default_model: str,
     prior_lines: list[str] | None = None,
+    budget: "CallBudget | None" = None,
+    max_cost: float | None = None,
+    baseline_cost: float = 0.0,
 ) -> tuple[dict[str, Any], int]:
     """Run one arm and estimate its call cost.
 
@@ -1559,15 +1695,31 @@ def _run_arm_and_count(
     LLM call happened); falls back to the transcript's message count as a
     lower bound when the cost log did not move (mode="template",
     --dry-run, or a monkeypatched run_simulation in tests).
+
+    `budget`/`max_cost` are OPTIONAL and, when BOTH given, install the
+    mid-arm budget guard (see `_installed_budget_guard`) for the duration
+    of this one arm - LabBudgetAbort propagates to the caller uncaught, to
+    be turned into the same partial/aborted result as the existing
+    boundary checks (see `_generate_and_judge_pairs`/`_run_sweep_variant`).
+    With `budget=None` (the default - every call site that predates
+    #7714's mid-arm guard, and every direct test of this function),
+    nothing is installed and behavior is byte-identical to before.
     """
     try:
         before = model_router.get_cost_summary().get("total_calls", 0)
     except Exception:
         before = 0
-    result = _run_arm(
-        concept, stage, run_index, recipe_context, mode, default_model,
-        prior_lines=prior_lines,
-    )
+    if budget is not None and max_cost is not None:
+        with _installed_budget_guard(budget, max_cost, baseline_cost=baseline_cost):
+            result = _run_arm(
+                concept, stage, run_index, recipe_context, mode, default_model,
+                prior_lines=prior_lines,
+            )
+    else:
+        result = _run_arm(
+            concept, stage, run_index, recipe_context, mode, default_model,
+            prior_lines=prior_lines,
+        )
     try:
         after = model_router.get_cost_summary().get("total_calls", 0)
     except Exception:
@@ -2650,9 +2802,7 @@ def _generate_and_judge_pairs(
     aborted = False
     restore_pending: dict[str, Any] | None = None
     partial_pairs = partial_pairs if partial_pairs is not None else []
-    arm_call_reservation = (
-        0 if dry_run else _MAX_CALLS_PER_TURN * _max_turns_for_stage(stage)
-    )
+    arm_call_reservation = _arm_call_reservation(stage, variant, dry_run=dry_run)
 
     # Before the control arm costs anything (Codex audit): a malformed variant
     # used to surface only when _apply_variant ran, which is after the control
@@ -2665,10 +2815,14 @@ def _generate_and_judge_pairs(
                 aborted = True
                 break
 
-            control_result, control_calls = _run_arm_and_count(
-                concept, stage, run_index, recipe_context, mode, default_model,
-                prior_lines=prior_lines,
-            )
+            try:
+                control_result, control_calls = _run_arm_and_count(
+                    concept, stage, run_index, recipe_context, mode, default_model,
+                    prior_lines=prior_lines, budget=budget, max_cost=max_cost,
+                )
+            except LabBudgetAbort:
+                aborted = True
+                break
             control_stop_check_log = _snapshot_stop_check_log()
             control_director_log = _snapshot_director_log()
             control_rewrite_log = _snapshot_rewrite_log()
@@ -2692,10 +2846,14 @@ def _generate_and_judge_pairs(
 
             restore_pending = _apply_variant(simulate_module, variant)
             try:
-                variant_result, variant_calls = _run_arm_and_count(
-                    concept, stage, run_index, recipe_context, mode, default_model,
-                    prior_lines=prior_lines,
-                )
+                try:
+                    variant_result, variant_calls = _run_arm_and_count(
+                        concept, stage, run_index, recipe_context, mode, default_model,
+                        prior_lines=prior_lines, budget=budget, max_cost=max_cost,
+                    )
+                except LabBudgetAbort:
+                    aborted = True
+                    break
                 variant_stop_check_log = _snapshot_stop_check_log()
                 variant_director_log = _snapshot_director_log()
                 variant_rewrite_log = _snapshot_rewrite_log()
@@ -2789,6 +2947,86 @@ _MIN_MAX_TURNS_FLOOR = 10
 def _max_turns_for_stage(stage: str) -> int:
     upper = simulate_module.TICKS_RANGE.get(stage, (4, 6))[1]
     return max(upper, _MIN_MAX_TURNS_FLOOR)
+
+def _effective_max_turns_for_stage(stage: str, variant: dict[str, Any] | None) -> int:
+    """Like `_max_turns_for_stage`, but also honors whatever a VARIANT
+    raises TICKS_RANGE/OPEN_ENDED_MAX_TICKS to for `stage` (#7714 finding
+    3) - `arm_call_reservation` used to be computed once, from
+    `_max_turns_for_stage` alone, BEFORE `_apply_variant` ever ran for
+    that run, so a variant whose OPEN_ENDED_MAX_TICKS[stage] (or raised
+    TICKS_RANGE[stage] upper bound) exceeded the unpatched module default
+    silently under-reserved: the pre-arm budget check passed using a
+    ceiling the variant arm could - and, per `validate_variant`'s own
+    HISTORY_DEPTH cross-check, was explicitly allowed to - exceed.
+
+    Also honors the CONTROL's own current module attributes (not just
+    their checked-in defaults) - a test or future CLI knob that sets
+    OPEN_ENDED_MAX_TICKS directly on the module without going through a
+    variant must not be under-reserved either.
+    """
+    upper = simulate_module.TICKS_RANGE.get(stage, (4, 6))[1]
+
+    control_open_ended = getattr(simulate_module, "OPEN_ENDED_MAX_TICKS", None)
+    if isinstance(control_open_ended, dict):
+        cap = control_open_ended.get(stage)
+        if isinstance(cap, int) and not isinstance(cap, bool):
+            upper = max(upper, cap)
+
+    if isinstance(variant, dict):
+        variant_ticks_range = variant.get("TICKS_RANGE")
+        if isinstance(variant_ticks_range, dict):
+            pair = variant_ticks_range.get(stage)
+            if isinstance(pair, (list, tuple)) and len(pair) == 2:
+                try:
+                    upper = max(upper, int(pair[1]))
+                except (TypeError, ValueError):
+                    pass
+        variant_open_ended = variant.get("OPEN_ENDED_MAX_TICKS")
+        if isinstance(variant_open_ended, dict):
+            cap = variant_open_ended.get(stage)
+            if isinstance(cap, int) and not isinstance(cap, bool):
+                upper = max(upper, cap)
+
+    return max(upper, _MIN_MAX_TURNS_FLOOR)
+
+def _effective_stop_check_active(variant: dict[str, Any] | None) -> bool:
+    """True when EITHER arm's effective WINDDOWN_TRIGGER is "check" - the
+    only trigger under which `check_scene_done` (and therefore Jev HTTP
+    attempts) runs per tick (see
+    `_refuse_if_stop_check_conflicts_with_models`, which reasons about the
+    same two effective triggers)."""
+    control_trigger = simulate_module.WINDDOWN_TRIGGER
+    is_dict = isinstance(variant, dict)
+    variant_trigger = (
+        variant.get("WINDDOWN_TRIGGER")
+        if is_dict and "WINDDOWN_TRIGGER" in variant
+        else control_trigger
+    )
+    return control_trigger == "check" or variant_trigger == "check"
+
+# backend.utils.stop_check._JEV_MAX_ATTEMPTS: the worst case number of Jev
+# HTTP attempts (first try + retries) ONE stop check can make in a single
+# tick - reserved per tick, on top of _MAX_CALLS_PER_TURN's four generation
+# requests, whenever the effective WINDDOWN_TRIGGER is "check" (#7714
+# finding 2/3: those attempts are real paid calls that used to run entirely
+# outside this reservation).
+_MAX_STOP_CHECK_ATTEMPTS_PER_TICK = stop_check._JEV_MAX_ATTEMPTS
+
+def _arm_call_reservation(stage: str, variant: dict[str, Any] | None, *, dry_run: bool) -> int:
+    """Structural worst-case call reservation for ONE control+variant pair
+    at `stage`: four paid generation requests per turn (the initial
+    request, its CoT retry, a fault rewrite, and the rewrite's CoT retry)
+    across `_effective_max_turns_for_stage`'s ceiling (#7714 finding 3),
+    PLUS - when a stop check can actually run - up to
+    `_MAX_STOP_CHECK_ATTEMPTS_PER_TICK` Jev HTTP attempts per tick (#7714
+    finding 2)."""
+    if dry_run:
+        return 0
+    max_turns = _effective_max_turns_for_stage(stage, variant)
+    reservation = _MAX_CALLS_PER_TURN * max_turns
+    if _effective_stop_check_active(variant):
+        reservation += _MAX_STOP_CHECK_ATTEMPTS_PER_TICK * max_turns
+    return reservation
 
 def _derive_max_calls(mode: str, *, scenario_count: int, runs: int, stage: str) -> int:
     """The --max-calls default when the flag itself is omitted (None).
@@ -3409,9 +3647,7 @@ def _generate_sweep_control(
     every (scenario, run) pair got a control transcript.
     """
     dry_run = mode == "template"
-    arm_call_reservation = (
-        0 if dry_run else _MAX_CALLS_PER_TURN * _max_turns_for_stage(stage)
-    )
+    arm_call_reservation = _arm_call_reservation(stage, None, dry_run=dry_run)
     for scenario in scenarios:
         for run_index in range(1, runs + 1):
             if budget.would_exceed(arm_call_reservation):
@@ -3473,9 +3709,7 @@ def _run_sweep_variant(
     baseline_cost = _total_cost_or_none() or 0.0
     aborted = False
     restore_pending: dict[str, Any] | None = None
-    arm_call_reservation = (
-        0 if dry_run else _MAX_CALLS_PER_TURN * _max_turns_for_stage(stage)
-    )
+    arm_call_reservation = _arm_call_reservation(stage, variant, dry_run=dry_run)
 
     try:
         for scenario in scenarios:
@@ -3512,10 +3746,15 @@ def _run_sweep_variant(
 
                 restore_pending = _apply_variant(simulate_module, variant)
                 try:
-                    variant_result, variant_calls = _run_arm_and_count(
-                        scenario["concept"], stage, run_index, scenario["recipe_context"], mode, default_model,
-                        prior_lines=(prior_by_scenario or {}).get(scenario["id"]),
-                    )
+                    try:
+                        variant_result, variant_calls = _run_arm_and_count(
+                            scenario["concept"], stage, run_index, scenario["recipe_context"], mode, default_model,
+                            prior_lines=(prior_by_scenario or {}).get(scenario["id"]),
+                            budget=budget, max_cost=max_cost, baseline_cost=baseline_cost,
+                        )
+                    except LabBudgetAbort:
+                        aborted = True
+                        break
                     variant_stop_check_log = _snapshot_stop_check_log()
                     variant_director_log = _snapshot_director_log()
                     variant_rewrite_log = _snapshot_rewrite_log()
