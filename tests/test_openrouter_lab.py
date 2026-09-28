@@ -109,6 +109,59 @@ def test_openrouter_request_shape_and_cost_capture(monkeypatch):
     assert entry["served_provider"] == "Anthropic"
 
 
+def _fake_openrouter(monkeypatch, *, content, finish_reason="stop", completion_tokens=3):
+    captured: dict = {}
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+    monkeypatch.setattr(model_router, "_central_track", lambda response, provider, **kwargs: response)
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            captured["create_kwargs"] = kwargs
+            return SimpleNamespace(
+                choices=[SimpleNamespace(
+                    message=SimpleNamespace(content=content), finish_reason=finish_reason,
+                )],
+                usage=SimpleNamespace(prompt_tokens=10, completion_tokens=completion_tokens, cost=0.0087),
+                provider="DeepSeek",
+            )
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+    monkeypatch.setattr("openai.OpenAI", FakeOpenAI)
+    # Fresh sets so the registration below does not leak into later tests.
+    monkeypatch.setattr(model_router, "_EXTRA_OPENROUTER_DIALOGUE_MODELS", set())
+    monkeypatch.setattr(model_router, "_EXTRA_OPENROUTER_JUDGE_MODELS", set())
+    model_router.allow_openrouter_models(
+        dialogue="deepseek/deepseek-v4.1-flash", judge="deepseek/deepseek-v4-pro-0813",
+    )
+    return captured
+
+
+def test_openrouter_non_anthropic_model_gets_reasoning_headroom(monkeypatch):
+    captured = _fake_openrouter(monkeypatch, content="a line")
+    text = model_router.generate_response(
+        prompt="x", model="openrouter/deepseek/deepseek-v4.1-flash", temperature=0.2,
+    )
+    assert text == "a line"
+    assert captured["create_kwargs"]["max_tokens"] == 32768
+    assert model_router.openrouter_max_tokens("anthropic/claude-haiku-4.5") == 4096
+
+
+def test_openrouter_empty_content_raises_and_still_records_cost(monkeypatch):
+    """Reasoning exhausted max_tokens: empty content must not pass as a
+    successful "" - and the paid call must still reach the cost log."""
+    _fake_openrouter(monkeypatch, content="", finish_reason="length", completion_tokens=32768)
+    with pytest.raises(RuntimeError, match="empty content.*finish_reason='length'"):
+        model_router.generate_response(
+            prompt="x", model="openrouter/deepseek/deepseek-v4.1-flash", temperature=0.2,
+        )
+    [entry] = model_router.get_cost_entries()
+    assert entry["actual_cost"] == 0.0087
+    assert entry["tokens_out"] == 32768
+
+
 def test_openrouter_judge_uses_openrouter_judge_allowlist(monkeypatch):
     model_router.reset_cost_log()
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")

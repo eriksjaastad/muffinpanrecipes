@@ -633,6 +633,26 @@ def _generate_google(
     return str(response).strip()
 
 
+_OPENROUTER_ANTHROPIC_MAX_TOKENS = 4096
+_OPENROUTER_REASONING_MAX_TOKENS = 32768
+
+
+def openrouter_max_tokens(model_id: str) -> int:
+    """Output ceiling for one OpenRouter call.
+
+    Anthropic ids keep 4096 - parity with _generate_anthropic, the production
+    call shape. Other vendors' lab models (the DeepSeek set) reason before
+    answering and count that reasoning against max_tokens: at 4096 the judge
+    used every token thinking and returned nothing (12288 tokens over three
+    calls, smoke run 2026-09-28). 32768 leaves room to reason and still answer;
+    OpenRouter bills tokens actually generated, not the ceiling.
+    """
+    vendor = model_id.split("/", 1)[0].strip().lower()
+    if vendor == "anthropic":
+        return _OPENROUTER_ANTHROPIC_MAX_TOKENS
+    return _OPENROUTER_REASONING_MAX_TOKENS
+
+
 def _generate_openrouter(
     prompt: str,
     system_prompt: Optional[str],
@@ -665,10 +685,7 @@ def _generate_openrouter(
         model=model,
         messages=messages,
         temperature=temperature,
-        # Parity with _generate_anthropic, which always sends 4096. Without it
-        # OpenRouter applies its own default and the lab would not be running
-        # the production call shape.
-        max_tokens=4096,
+        max_tokens=openrouter_max_tokens(model),
         extra_body={
             "provider": openrouter_provider_route(model),
             "usage": {"include": True},
@@ -694,7 +711,18 @@ def _generate_openrouter(
     )
     _central_track(response, "openrouter", project="muffinpanrecipes", caller="model_router.openrouter")
 
-    return (response.choices[0].message.content or "").strip()
+    choice = response.choices[0]
+    text = (choice.message.content or "").strip()
+    if not text:
+        # A reasoning model that spends its whole max_tokens thinking returns
+        # empty content with finish_reason "length". Returning "" let the lab
+        # judge burn its parse retries on nothing (smoke run 2026-09-28).
+        raise RuntimeError(
+            f"OpenRouter {model} returned empty content "
+            f"(finish_reason={getattr(choice, 'finish_reason', None)!r}, "
+            f"completion_tokens={getattr(usage, 'completion_tokens', None) if usage else None})"
+        )
+    return text
 
 
 # ---------------------------------------------------------------------------
