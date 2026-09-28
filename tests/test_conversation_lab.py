@@ -1935,8 +1935,9 @@ def test_ab_sweep_control_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypa
     assert len(unpaired["messages"]) == reservation
 
 def test_bench_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatch):
-    """Same proof for bench: the saved run entry holds exactly the N
-    turns generated before the guard fired, marked aborted_mid_arm."""
+    """Same proof for bench: the saved aborted run holds exactly the N
+    turns generated before the guard fired, marked aborted_mid_arm, and
+    stays out of `runs`, the aggregate and completed_runs."""
     reservation = cl._MAX_CALLS_PER_TURN * cl._max_turns_for_stage("saturday")
 
     def fake_generate_anthropic(**kw):
@@ -1959,9 +1960,13 @@ def test_bench_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatch):
 
     report = _read_bench(tmp_path, "saturday-n1")
     assert report["aborted"] is True
-    [run] = report["runs"]
+    [run] = report["aborted_runs"]
     assert run["status"] == "aborted_mid_arm"
     assert len(run["transcript"]) == reservation
+    assert "summary" not in run and "judge" not in run
+    assert report["runs"] == []
+    assert report["completed_runs"] == 0
+    assert report["aggregate"] == cl._bench_aggregate([])
 
 def test_run_simulation_without_a_sink_returns_the_same_result_as_before(monkeypatch):
     """#7714 round 3: message_sink is additive - production (and every

@@ -5749,6 +5749,9 @@ def cmd_bench(args: argparse.Namespace) -> None:
     budget = CallBudget(max_calls=max_calls)
 
     runs: list[dict[str, Any]] = []
+    # Turns from a run the mid-arm guard cut short: paid for, so saved, but
+    # never summarized, judged, aggregated or counted as completed (#7714).
+    aborted_runs: list[dict[str, Any]] = []
     aborted = False
     error: str | None = None
     interrupted = False
@@ -5870,19 +5873,12 @@ def cmd_bench(args: argparse.Namespace) -> None:
         # not save it again).
         if not generation_recorded and sink:
             partial_messages = [m.__dict__ for m in sink]
-            partial_record: dict[str, Any] = {
+            aborted_runs.append({
                 "run_index": len(runs) + 1,
                 "message_count": len(partial_messages),
                 "transcript": partial_messages,
                 "status": "aborted_mid_arm",
-            }
-            try:
-                partial_record["summary"] = summarize(
-                    partial_messages, expected_cast, concept=concept, day=args.stage
-                )
-            except Exception as summary_exc:
-                error = (error or "") + f"; partial transcript summary failed: {type(summary_exc).__name__}: {summary_exc}"
-            runs.append(partial_record)
+            })
     finally:
         guard_ctx.__exit__(None, None, None)
 
@@ -5923,6 +5919,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
         "aggregate": aggregate,
         "recurring_phrases_across_runs": corpus,
         "runs": runs,
+        "aborted_runs": aborted_runs,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         # PROTOCOL.md says every experiment logs calls AND cost, and `ab`
         # already snapshots this. The cost log is process-local, so without
