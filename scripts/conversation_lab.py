@@ -401,12 +401,23 @@ OPENROUTER_JUDGE_MODEL = f"openrouter/{_DEFAULT_LAB_MODEL_SET.judge}"
 
 _OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
 _OPENROUTER_CREDITS_URL = "https://openrouter.ai/api/v1/credits"
+_OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 _OPENROUTER_KEY_TIMEOUT_SECONDS = 30.0
 
 # Key snapshots for one paid OpenRouter run. `before` is captured in main()
 # before dispatch; `after` is fetched lazily by the first report builder.
 _OPENROUTER_KEY_BEFORE: dict[str, Any] | None = None
 _OPENROUTER_KEY_AFTER: dict[str, Any] | None = None
+
+# {model_id: (prompt_price_per_token_usd, completion_price_per_token_usd)},
+# fetched ONCE by _openrouter_preflight (#7714 finding 2) - never under
+# --dry-run, since _openrouter_preflight itself is only called when not
+# args.dry_run. None until then; the mid-arm guard's worst-case reservation
+# (_openrouter_worst_case_call_cost) fails CLOSED (treats the model as
+# infinitely expensive) when a price is missing, rather than silently
+# reading this as "$0 remaining prices," but the real fail-closed moment is
+# _openrouter_preflight refusing to start the run at all.
+_OPENROUTER_MODEL_PRICES: dict[str, tuple[float, float]] | None = None
 
 # Public, read-only CDN mirror of published/in-progress episode JSON.
 _CDN_BASE = "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/episodes"
@@ -854,8 +865,17 @@ def _resolve_provider(args: argparse.Namespace, ledger_path: Any) -> str | None:
 
 def _openrouter_preflight(args: argparse.Namespace) -> None:
     """Check the OpenRouter key limit before any generation and refuse if it
-    cannot cover --max-cost. Prints limit and limit_remaining."""
-    global _OPENROUTER_KEY_BEFORE
+    cannot cover --max-cost. Prints limit and limit_remaining.
+
+    Also fetches OpenRouter's per-token model prices ONCE (#7714 finding
+    2) and refuses to start if a model this run will actually use has no
+    published price - the mid-arm guard's --max-cost check reserves the
+    NEXT call's worst-case cost for an OpenRouter model (see
+    `_openrouter_worst_case_call_cost`), and a model with no price has no
+    worst case to reserve. Never reached under --dry-run: `main()` only
+    calls this when `not args.dry_run`.
+    """
+    global _OPENROUTER_KEY_BEFORE, _OPENROUTER_MODEL_PRICES
     _require_openrouter_key()
     key_info = _openrouter_fetch_key()
     _OPENROUTER_KEY_BEFORE = key_info
@@ -879,6 +899,89 @@ def _openrouter_preflight(args: argparse.Namespace) -> None:
             f"conversation_lab: OpenRouter account balance ${balance:.2f} is below "
             f"--max-cost ${args.max_cost:.2f}; add credits before starting"
         )
+
+    _OPENROUTER_MODEL_PRICES = _fetch_openrouter_model_prices()
+    model_set = _resolve_lab_model_set(args)
+    missing = sorted({m for m in (model_set.dialogue, model_set.judge) if m not in _OPENROUTER_MODEL_PRICES})
+    if missing:
+        raise SystemExit(
+            "conversation_lab: OpenRouter has no published price for "
+            f"{', '.join(missing)} - --max-cost cannot reserve this model's "
+            "worst-case call cost; refusing to start"
+        )
+
+
+def _fetch_openrouter_model_prices() -> dict[str, tuple[float, float]]:
+    """GET OpenRouter's /models endpoint; return {model_id: (prompt_price,
+    completion_price)} in USD per token, parsed from each entry's
+    `pricing.prompt`/`pricing.completion` (OpenRouter publishes these as
+    strings). An entry missing either field, or with a non-numeric price,
+    is left out - `_openrouter_preflight` treats an absent id as "no
+    price" and fails closed."""
+    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if not api_key:
+        raise ConversationLabError("OPENROUTER_API_KEY is not set")
+    try:
+        response = httpx.get(
+            _OPENROUTER_MODELS_URL,
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=_OPENROUTER_KEY_TIMEOUT_SECONDS,
+        )
+    except httpx.HTTPError as exc:
+        raise ConversationLabError(f"openrouter models check failed: {exc}") from exc
+    if response.status_code != 200:
+        raise ConversationLabError(f"openrouter models check returned HTTP {response.status_code}")
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise ConversationLabError("openrouter models check returned malformed JSON") from exc
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, list):
+        raise ConversationLabError("openrouter models check response is missing the data list")
+
+    prices: dict[str, tuple[float, float]] = {}
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        model_id = entry.get("id")
+        pricing = entry.get("pricing")
+        if not isinstance(model_id, str) or not model_id or not isinstance(pricing, dict):
+            continue
+        try:
+            prompt_price = float(pricing.get("prompt"))
+            completion_price = float(pricing.get("completion"))
+        except (TypeError, ValueError):
+            continue
+        prices[model_id] = (prompt_price, completion_price)
+    return prices
+
+
+def _openrouter_worst_case_call_cost(model: str, prompt_chars: int) -> float:
+    """Conservative worst-case USD cost of ONE OpenRouter call to `model`
+    with a `prompt_chars`-character prompt (#7714 finding 2).
+
+    prompt_chars / 2 (a conservative ~2 chars/token estimate - never
+    UNDER-counts a real tokenizer) at the model's per-token prompt price,
+    plus `backend.utils.model_router.openrouter_max_tokens(model)` tokens
+    (the full output ceiling, not an expected length - OpenRouter bills
+    tokens actually generated, but a reasoning model can spend the WHOLE
+    ceiling reasoning; see that function's docstring) at its per-token
+    completion price.
+
+    Returns float('inf') - an unconditional block - when `model` has no
+    cached price: `_openrouter_preflight` already fails closed by
+    refusing to START a run with an unpriced model in use, but this is
+    the defense-in-depth fallback if the guard is ever asked about a
+    model that check didn't cover.
+    """
+    prices = _OPENROUTER_MODEL_PRICES or {}
+    price = prices.get(model)
+    if price is None:
+        return float("inf")
+    prompt_price, completion_price = price
+    prompt_tokens_estimate = prompt_chars / 2
+    max_tokens = model_router.openrouter_max_tokens(model)
+    return prompt_tokens_estimate * prompt_price + max_tokens * completion_price
 
 
 def _openrouter_fetch_account_balance() -> float:
@@ -1732,13 +1835,50 @@ def _installed_budget_guard(budget: CallBudget, max_cost: float | None, baseline
     # delta, so reading `budget.used` live would double-count it.
     used_before = budget.used
 
-    def _guard() -> None:
+    def _guard(provider: str | None = None, model: str | None = None, prompt_chars: int | None = None) -> None:
+        """`provider`/`model`/`prompt_chars` describe the NEXT call about
+        to be made (#7714 finding 2): `model_router.set_pre_call_hook`
+        passes the real triple for every generation/judge call;
+        `stop_check.set_pre_attempt_hook` calls with no arguments (a Jev
+        HTTP attempt has no model_router provider/model of its own), which
+        is exactly how the branches below tell a Jev attempt apart from an
+        OpenRouter/direct-provider call without needing a separate flag.
+        """
         calls_blocked = False
         if calls_before is not None:
             calls_now = _calls_now()
             live_total = calls_now - calls_before if (calls_now is not None and calls_now > calls_before) else 0
             calls_blocked = used_before + live_total + 1 > budget.max_calls
-        cost_blocked = max_cost is not None and _would_exceed_cost(max_cost, baseline=baseline_cost)
+        cost_blocked = False
+        if max_cost is not None:
+            if provider == "openrouter":
+                # #7714 finding 2: --max-cost used to admit a call whenever
+                # ANY money remained, regardless of that call's possible
+                # cost - with a 32768-token completion ceiling
+                # (openrouter_max_tokens), one call can overshoot the cap
+                # materially. Reserve its worst case instead of just
+                # checking the running total.
+                worst_case = _openrouter_worst_case_call_cost(model or "", prompt_chars or 0)
+                total = _total_cost_or_none()
+                cost_blocked = total is not None and (total - baseline_cost) + worst_case > max_cost
+            elif provider is None:
+                # A Jev HTTP attempt (stop_check's hook call) - no
+                # per-model price to look up, so reserve the same
+                # documented conservative per-attempt estimate the cost
+                # log itself charges a failed/unmetered attempt (see
+                # backend.utils.stop_check._JEV_FAILED_ATTEMPT_COST_ESTIMATE_USD).
+                total = _total_cost_or_none()
+                cost_blocked = (
+                    total is not None
+                    and (total - baseline_cost) + stop_check._JEV_FAILED_ATTEMPT_COST_ESTIMATE_USD > max_cost
+                )
+            else:
+                # Non-OpenRouter direct providers (anthropic/openai/google):
+                # unchanged - the estimated-cost table's absolute running
+                # total, no worst-case reservation (#7714 finding 2 scopes
+                # the reservation fix to OpenRouter, whose reasoning-model
+                # output ceiling is what let a single call overshoot).
+                cost_blocked = _would_exceed_cost(max_cost, baseline=baseline_cost)
         if calls_blocked or cost_blocked:
             raise LabBudgetAbort(
                 "--max-calls or --max-cost would be exceeded by the next paid call/attempt"
@@ -2883,17 +3023,22 @@ def _generate_and_judge_pairs(
                     concept, stage, run_index, recipe_context, mode, default_model,
                     prior_lines=prior_lines,
                 )
-            except LabBudgetAbort as exc:
-                # #7714 round 3: the control arm's turns generated before
-                # the abort are real, paid work - saved as a partial pair
-                # (never judged, see the docstring above) instead of
-                # discarded, exactly like a variant-arm abort already
-                # preserves the control side.
+            except BaseException as exc:
+                # #7714 round 3 / round 4 finding 1: the control arm's
+                # turns generated before ANY exception - a LabBudgetAbort
+                # from the guard, or any other mid-arm error (dialogue,
+                # rewrite, director, the Haiku stop-check path, an empty-
+                # content RuntimeError from an OpenRouter reasoning model)
+                # - are real, paid work, saved as a partial pair (never
+                # judged, see the docstring above) instead of discarded.
+                # A budget abort still reads as a clean aborted result; any
+                # other exception still propagates as a truthful error -
+                # only the accounting changes, not the control flow.
                 made = getattr(exc, "conversation_lab_calls_made", 0)
                 budget.record(0 if dry_run else made)
                 partial_pairs.append({
                     "run_index": run_index,
-                    "status": "aborted_mid_arm",
+                    "status": "aborted_mid_arm" if isinstance(exc, LabBudgetAbort) else "error_mid_arm",
                     "control_messages": getattr(exc, "conversation_lab_partial_messages", []),
                     "control_stop_check_log": _snapshot_stop_check_log(),
                     "control_director_log": _snapshot_director_log(),
@@ -2902,6 +3047,8 @@ def _generate_and_judge_pairs(
                     "variant_messages": None,
                     "judge_orientations": [],
                 })
+                if not isinstance(exc, LabBudgetAbort):
+                    raise
                 aborted = True
                 break
             control_stop_check_log = _snapshot_stop_check_log()
@@ -2932,19 +3079,22 @@ def _generate_and_judge_pairs(
                         concept, stage, run_index, recipe_context, mode, default_model,
                         prior_lines=prior_lines,
                     )
-                except LabBudgetAbort as exc:
-                    # #7714 finding 2 / round 3: the pending pair already
-                    # reflects real, paid control-arm work - mark it
-                    # explicitly instead of leaving it in an ambiguous
-                    # "control_generated" status, record what this aborted
-                    # variant arm actually spent instead of silently
+                except BaseException as exc:
+                    # #7714 finding 2 / round 3 / round 4 finding 1: the
+                    # pending pair already reflects real, paid control-arm
+                    # work - mark it explicitly instead of leaving it in an
+                    # ambiguous "control_generated" status, record what
+                    # this variant arm actually spent instead of silently
                     # reporting zero, and save whatever variant turns it
-                    # generated before the abort instead of discarding them.
+                    # generated before ANY exception - not just a budget
+                    # abort - instead of discarding them.
                     made = getattr(exc, "conversation_lab_calls_made", 0)
                     budget.record(0 if dry_run else made)
-                    pending_pair["status"] = "aborted_mid_arm"
+                    pending_pair["status"] = "aborted_mid_arm" if isinstance(exc, LabBudgetAbort) else "error_mid_arm"
                     pending_pair["variant_calls_before_abort"] = made
                     pending_pair["variant_messages"] = getattr(exc, "conversation_lab_partial_messages", [])
+                    if not isinstance(exc, LabBudgetAbort):
+                        raise
                     aborted = True
                     break
                 variant_stop_check_log = _snapshot_stop_check_log()
@@ -3756,26 +3906,33 @@ def _generate_sweep_control(
                         scenario["concept"], stage, run_index, scenario["recipe_context"], mode, default_model,
                         prior_lines=(prior_by_scenario or {}).get(scenario["id"]),
                     )
-                except LabBudgetAbort as exc:
-                    # #7714 round 3: the aborted (scenario, run)'s turns
-                    # generated before the abort are real, paid work - saved
-                    # into `transcripts` at this key (the same "messages"
-                    # shape a completed entry has, so _build_sweep_report's
-                    # existing control_transcripts_by_key/unpaired_control_
-                    # transcripts machinery picks it up with no further
-                    # changes) instead of discarded. Never judged: control
-                    # aborting here means no variant ever runs this key (see
-                    # _cmd_ab_sweep's `if not control_aborted:` guard).
+                except BaseException as exc:
+                    # #7714 round 3 / round 4 finding 1: the aborted
+                    # (scenario, run)'s turns generated before ANY
+                    # exception - not just a budget abort - are real, paid
+                    # work, saved into `transcripts` at this key (the same
+                    # "messages" shape a completed entry has, so
+                    # _build_sweep_report's existing control_transcripts_
+                    # by_key/unpaired_control_transcripts machinery picks it
+                    # up with no further changes) instead of discarded.
+                    # Never judged: control aborting/erroring here means no
+                    # variant ever runs this key (see _cmd_ab_sweep's `if
+                    # not control_aborted:` guard, and this re-raises for a
+                    # non-budget error so the sweep's own outer handler
+                    # writes a truthful error report instead of a clean
+                    # "aborted" one).
                     made = getattr(exc, "conversation_lab_calls_made", 0)
                     budget.record(0 if dry_run else made)
                     transcripts[(scenario["id"], run_index)] = {
-                        "status": "aborted_mid_arm",
+                        "status": "aborted_mid_arm" if isinstance(exc, LabBudgetAbort) else "error_mid_arm",
                         "messages": getattr(exc, "conversation_lab_partial_messages", []),
                         "stop_check_log": _snapshot_stop_check_log(),
                         "director_log": _snapshot_director_log(),
                         "rewrite_log": _snapshot_rewrite_log(),
                         "calls_before_abort": made,
                     }
+                    if not isinstance(exc, LabBudgetAbort):
+                        raise
                     return True
                 budget.record(0 if dry_run else calls)
                 # The shared control is generated once, up front; its stop-check,
@@ -3877,16 +4034,21 @@ def _run_sweep_variant(
                             scenario["concept"], stage, run_index, scenario["recipe_context"], mode, default_model,
                             prior_lines=(prior_by_scenario or {}).get(scenario["id"]),
                         )
-                    except LabBudgetAbort as exc:
-                        # #7714 finding 2 / round 3: save whatever variant
-                        # turns were generated before the abort instead of
-                        # discarding them, mirroring _generate_and_judge_
-                        # pairs' same fix.
+                    except BaseException as exc:
+                        # #7714 finding 2 / round 3 / round 4 finding 1:
+                        # save whatever variant turns were generated before
+                        # ANY exception - not just a budget abort - instead
+                        # of discarding them, mirroring _generate_and_
+                        # judge_pairs' same fix. A non-budget error still
+                        # re-raises so the sweep's outer handler writes a
+                        # truthful error report.
                         made = getattr(exc, "conversation_lab_calls_made", 0)
                         budget.record(0 if dry_run else made)
-                        pending_pair["status"] = "aborted_mid_arm"
+                        pending_pair["status"] = "aborted_mid_arm" if isinstance(exc, LabBudgetAbort) else "error_mid_arm"
                         pending_pair["variant_calls_before_abort"] = made
                         pending_pair["variant_messages"] = getattr(exc, "conversation_lab_partial_messages", [])
+                        if not isinstance(exc, LabBudgetAbort):
+                            raise
                         aborted = True
                         break
                     variant_stop_check_log = _snapshot_stop_check_log()
@@ -5865,8 +6027,9 @@ def cmd_bench(args: argparse.Namespace) -> None:
         interrupted = isinstance(exc, KeyboardInterrupt)
         if _budget_guard_stopped():
             aborted = True
-        # #7714 round 3: `sink` holds whatever turns run_simulation had
-        # already generated - real, paid work - before this exception,
+        # #7714 round 3 / round 4 finding 1: `sink` holds whatever turns
+        # run_simulation had already generated - real, paid work - before
+        # ANY exception (a LabBudgetAbort, or any other mid-arm error),
         # unless the CURRENT run's transcript already made it into `runs`
         # (generation_recorded=True means the failure was in summarize()/
         # judging instead, and `sink` is stale from a completed run - do
@@ -5877,7 +6040,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
                 "run_index": len(runs) + 1,
                 "message_count": len(partial_messages),
                 "transcript": partial_messages,
-                "status": "aborted_mid_arm",
+                "status": "aborted_mid_arm" if isinstance(exc, LabBudgetAbort) else "error_mid_arm",
             })
     finally:
         guard_ctx.__exit__(None, None, None)

@@ -162,6 +162,95 @@ def test_openrouter_empty_content_raises_and_still_records_cost(monkeypatch):
     assert entry["tokens_out"] == 32768
 
 
+def test_guard_refuses_openrouter_call_whose_worst_case_exceeds_remaining_budget(monkeypatch):
+    """#7714 finding 2: --max-cost used to admit a call whenever ANY
+    money remained, regardless of that call's possible cost. The
+    mid-arm guard must now reserve the NEXT OpenRouter call's worst
+    case - prompt_chars/2 tokens at the model's prompt price, plus
+    openrouter_max_tokens(model) tokens (the full completion ceiling,
+    since a reasoning model can spend the whole thing) at its
+    completion price - and refuse BEFORE the network call, not after."""
+    _fake_openrouter(monkeypatch, content="a line")
+    model = "deepseek/deepseek-v4.1-flash"
+    monkeypatch.setattr(cl, "_OPENROUTER_MODEL_PRICES", {model: (0.0000003, 0.0000003)})
+    # openrouter_max_tokens is 32768 for a non-anthropic id, so worst-case
+    # completion cost alone is 32768 * 0.0000003 = $0.0098304 - already
+    # over a $0.005 cap before the prompt side is even added.
+    budget = cl.CallBudget(max_calls=1000)
+
+    with cl._installed_budget_guard(budget, 0.005):
+        with pytest.raises(cl.LabBudgetAbort):
+            model_router.generate_response(prompt="x" * 100, model=f"openrouter/{model}", temperature=0.2)
+
+
+def test_guard_allows_openrouter_call_whose_worst_case_fits_remaining_budget(monkeypatch):
+    """Same worst-case math as above, with a cap comfortably large enough
+    that the reservation clears - the call must go through normally."""
+    captured = _fake_openrouter(monkeypatch, content="a line")
+    model = "deepseek/deepseek-v4.1-flash"
+    monkeypatch.setattr(cl, "_OPENROUTER_MODEL_PRICES", {model: (0.0000003, 0.0000003)})
+    budget = cl.CallBudget(max_calls=1000)
+
+    with cl._installed_budget_guard(budget, 1.0):
+        text = model_router.generate_response(prompt="x" * 100, model=f"openrouter/{model}", temperature=0.2)
+
+    assert text == "a line"
+    assert "create_kwargs" in captured
+
+
+def test_openrouter_preflight_refuses_when_a_model_in_use_has_no_price(tmp_path, monkeypatch):
+    """#7714 finding 2: the mid-arm guard's reservation needs a per-token
+    price for every OpenRouter model this run will use. A model in use
+    (the resolved lab set's dialogue or judge id) with no published price
+    must refuse the WHOLE RUN before any generation call, rather than
+    silently treating an unpriced call as free."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+    monkeypatch.setattr(
+        cl, "_openrouter_fetch_key",
+        lambda: {"limit": 10.0, "limit_remaining": 10.0, "usage": 0.0},
+    )
+    monkeypatch.setattr(
+        cl, "_fetch_openrouter_model_prices",
+        # Default "claude" set is dialogue=anthropic/claude-haiku-4.5,
+        # judge=anthropic/claude-opus-4.6 - the judge id is missing here.
+        lambda: {"anthropic/claude-haiku-4.5": (0.0000008, 0.000004)},
+    )
+
+    def fail_generation(**kwargs):
+        raise AssertionError("generation must not start when a model price is missing")
+
+    monkeypatch.setattr(sdw, "run_simulation", fail_generation)
+    variant_path = _write_variant(tmp_path)
+    results_dir = tmp_path / "results"
+
+    with pytest.raises(SystemExit, match="no published price"):
+        cl.main([
+            "ab", "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+            "--variant", str(variant_path), "--recipe-context", "anchor",
+            "--max-cost", "5.0", "--no-log", "--results-dir", str(results_dir),
+        ])
+
+
+def test_openrouter_dry_run_never_fetches_model_prices(tmp_path, monkeypatch):
+    """#7714 finding 2: a --dry-run makes zero network calls of any kind -
+    the price fetch must not run either. main() already gates the whole
+    of _openrouter_preflight on `not args.dry_run`; this locks that in
+    for the price fetch specifically."""
+    monkeypatch.setattr(
+        cl, "_fetch_openrouter_model_prices",
+        lambda: (_ for _ in ()).throw(AssertionError("model prices must not be fetched under --dry-run")),
+    )
+    monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages()})
+    variant_path = _write_variant(tmp_path)
+    results_dir = tmp_path / "results"
+
+    cl.main([
+        "ab", "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+        "--variant", str(variant_path), "--recipe-context", "anchor",
+        "--dry-run", "--no-log", "--results-dir", str(results_dir),
+    ])
+
+
 def test_openrouter_judge_uses_openrouter_judge_allowlist(monkeypatch):
     model_router.reset_cost_log()
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")

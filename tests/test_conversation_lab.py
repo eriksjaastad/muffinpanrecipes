@@ -1811,6 +1811,21 @@ def _runaway_turn_generator(sink, *, model="anthropic/claude-haiku-4-5-20251001"
             message=f"Turn {i}", timestamp="2026-01-01T00:00:00", model="stub",
         ))
 
+def _erroring_turn_generator(sink, n, *, model="anthropic/claude-haiku-4-5-20251001"):
+    """Generate exactly `n` real turns, then raise a plain RuntimeError -
+    standing in for any NON-budget mid-arm failure (the empty-content
+    RuntimeError from an OpenRouter reasoning model, a CoT-leak retry
+    that still leaks, a DirectorError, a Haiku stop-check failure).
+    #7714 round 4 finding 1: partial-work recovery must cover these too,
+    not just LabBudgetAbort."""
+    for i in range(n):
+        model_router.generate_response(prompt="x", model=model)
+        sink.append(sdw.Message(
+            day="monday", stage="monday", character="Margaret Chen",
+            message=f"Turn {i}", timestamp="2026-01-01T00:00:00", model="stub",
+        ))
+    raise RuntimeError("simulated non-budget mid-arm failure")
+
 def test_ab_control_arm_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatch):
     """#7714 round 3: run_simulation keeps `messages` local and only
     returns it at the end, so a mid-arm abort used to discard every turn
@@ -1853,6 +1868,47 @@ def test_ab_control_arm_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatc
     assert len(pending["control_messages"]) == reservation
     assert pending.get("variant_messages") is None
 
+def test_ab_control_arm_non_budget_error_saves_partial_turns_and_reports_error(tmp_path, monkeypatch):
+    """#7714 round 4 finding 1: a non-budget mid-arm failure (empty-
+    content RuntimeError, CoT-leak, DirectorError, ...) must ALSO save
+    the turns generated before it - not just LabBudgetAbort - AND still
+    propagate as a truthful error (not silently become a clean abort)."""
+    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    variant = {"_SHARED_CHARACTER_RULES": "V"}
+    n = 3
+
+    def fake_generate_anthropic(**kw):
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    def fake_run_simulation(*, message_sink=None, **kwargs):
+        sink = message_sink if message_sink is not None else []
+        _erroring_turn_generator(sink, n)
+        return {"messages": [m.__dict__ for m in sink]}  # unreached
+
+    monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+
+    variant_path = _write_variant(tmp_path, variant)
+    results_dir = tmp_path / "results"
+
+    with pytest.raises(RuntimeError, match="simulated non-budget mid-arm failure"):
+        cl.main([
+            "ab", "--provider", "anthropic",
+            "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+            "--variant", str(variant_path), "--recipe-context", "anchor",
+            "--results-dir", str(results_dir),
+        ])
+
+    [result_file] = list(results_dir.glob("*-ab-*.json"))
+    report = json.loads(result_file.read_text())
+    assert "simulated non-budget mid-arm failure" in report["error"]
+    assert report["calls_used"] == n
+    [pending] = report["partial_pairs"]
+    assert pending["status"] == "error_mid_arm"
+    assert len(pending["control_messages"]) == n
+
 def test_ab_variant_arm_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatch):
     """Same proof as the control-arm test above, for the VARIANT arm: the
     control side stays cheap (zero real calls), so the shared guard's
@@ -1894,6 +1950,48 @@ def test_ab_variant_arm_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatc
     assert len(pending["control_messages"]) == 0
     assert len(pending["variant_messages"]) == reservation
 
+def test_ab_variant_arm_non_budget_error_saves_partial_turns_and_reports_error(tmp_path, monkeypatch):
+    """#7714 round 4 finding 1, variant side: control stays cheap (zero
+    real calls); the variant arm's non-budget failure must save its own
+    partial turns and propagate as a truthful error."""
+    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    variant = {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"}
+    n = 3
+
+    def fake_generate_anthropic(**kw):
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    def fake_run_simulation(*, message_sink=None, **kwargs):
+        sink = message_sink if message_sink is not None else []
+        if sdw._SHARED_CHARACTER_RULES == "VARIANT_RULES":
+            _erroring_turn_generator(sink, n)
+        return {"messages": [m.__dict__ for m in sink]}
+
+    monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+
+    variant_path = _write_variant(tmp_path, variant)
+    results_dir = tmp_path / "results"
+
+    with pytest.raises(RuntimeError, match="simulated non-budget mid-arm failure"):
+        cl.main([
+            "ab", "--provider", "anthropic",
+            "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+            "--variant", str(variant_path), "--recipe-context", "anchor",
+            "--results-dir", str(results_dir),
+        ])
+
+    [result_file] = list(results_dir.glob("*-ab-*.json"))
+    report = json.loads(result_file.read_text())
+    assert "simulated non-budget mid-arm failure" in report["error"]
+    assert report["calls_used"] == n
+    [pending] = report["partial_pairs"]
+    assert pending["status"] == "error_mid_arm"
+    assert len(pending["control_messages"]) == 0
+    assert len(pending["variant_messages"]) == n
+
 def test_ab_sweep_control_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatch):
     """Same proof for the sweep's shared control loop: the aborted
     (scenario, run) key's stored transcript holds exactly the N turns
@@ -1934,6 +2032,48 @@ def test_ab_sweep_control_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypa
     [unpaired] = report["unpaired_control_transcripts"]
     assert len(unpaired["messages"]) == reservation
 
+def test_ab_sweep_control_non_budget_error_saves_partial_turns_and_reports_error(tmp_path, monkeypatch):
+    """#7714 round 4 finding 1, sweep control side: a non-budget failure
+    must save the control's partial turns at the aborted key AND
+    propagate as a truthful error - not become a clean "control_aborted"
+    result."""
+    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    n = 3
+
+    def fake_generate_anthropic(**kw):
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    def fake_run_simulation(*, message_sink=None, **kwargs):
+        sink = message_sink if message_sink is not None else []
+        _erroring_turn_generator(sink, n)
+        return {"messages": [m.__dict__ for m in sink]}
+
+    monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+
+    testbed_path = _write_testbed(tmp_path, [
+        {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
+    ])
+    sweep_dir = tmp_path / "sweep"
+    sweep_dir.mkdir()
+    (sweep_dir / "only.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "V"}))
+    results_dir = tmp_path / "results"
+
+    with pytest.raises(RuntimeError, match="simulated non-budget mid-arm failure"):
+        cl.main([
+            "ab", "--provider", "anthropic", "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
+            "--stage", "monday", "--runs", "1", "--results-dir", str(results_dir),
+        ])
+
+    [result_file] = list(results_dir.glob("*-ab-sweep-*.json"))
+    report = json.loads(result_file.read_text())
+    assert "simulated non-budget mid-arm failure" in report["error"]
+    assert report["control_calls_used"] == n
+    [unpaired] = report["unpaired_control_transcripts"]
+    assert len(unpaired["messages"]) == n
+
 def test_bench_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatch):
     """Same proof for bench: the saved aborted run holds exactly the N
     turns generated before the guard fired, marked aborted_mid_arm, and
@@ -1967,6 +2107,41 @@ def test_bench_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatch):
     assert report["runs"] == []
     assert report["completed_runs"] == 0
     assert report["aggregate"] == cl._bench_aggregate([])
+
+def test_bench_non_budget_error_saves_partial_turns_and_reports_error(tmp_path, monkeypatch):
+    """#7714 round 4 finding 1, bench side: a non-budget failure must
+    save the run's partial turns (marked error_mid_arm, out of `runs`/
+    the aggregate, same as a budget abort) AND still surface as a
+    truthful error - cmd_bench's own SystemExit contract, unchanged."""
+    n = 3
+
+    def fake_generate_anthropic(**kw):
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    def fake_run_simulation(*, message_sink=None, **kwargs):
+        sink = message_sink if message_sink is not None else []
+        _erroring_turn_generator(sink, n)
+        return {"messages": [m.__dict__ for m in sink]}  # unreached
+
+    monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+    monkeypatch.setattr(
+        cl, "_resolve_models",
+        lambda dry_run: ("openai", "anthropic/claude-haiku-4-5-20251001", "anthropic/claude-sonnet-4-6"),
+    )
+
+    with pytest.raises(SystemExit, match="simulated non-budget mid-arm failure"):
+        cl.cmd_bench(_bench_args(tmp_path, runs=1))
+
+    report = _read_bench(tmp_path, "saturday-n1")
+    assert "simulated non-budget mid-arm failure" in report["error"]
+    [run] = report["aborted_runs"]
+    assert run["status"] == "error_mid_arm"
+    assert len(run["transcript"]) == n
+    assert report["calls_used"] == n
+    assert report["runs"] == []
+    assert report["completed_runs"] == 0
 
 def test_run_simulation_without_a_sink_returns_the_same_result_as_before(monkeypatch):
     """#7714 round 3: message_sink is additive - production (and every
@@ -2889,6 +3064,51 @@ def test_ab_sweep_variant_mid_arm_guard_stops_a_runaway_run(tmp_path, monkeypatc
     variant_report = report["variants"]["only"]
     assert variant_report["aborted"] is True
     assert call_count["n"] < reservation * 3, "the mid-arm guard must interrupt the runaway variant arm"
+
+def test_ab_sweep_variant_non_budget_error_saves_partial_turns_and_reports_error(tmp_path, monkeypatch):
+    """#7714 round 4 finding 1, sweep variant side: control stays cheap;
+    the variant's own non-budget failure must save its partial turns AND
+    propagate as a truthful error, not become a clean aborted variant."""
+    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    variant = {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"}
+    n = 3
+
+    def fake_generate_anthropic(**kw):
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    def fake_run_simulation(*, message_sink=None, **kwargs):
+        sink = message_sink if message_sink is not None else []
+        if sdw._SHARED_CHARACTER_RULES == "VARIANT_RULES":
+            _erroring_turn_generator(sink, n)
+        return {"messages": [m.__dict__ for m in sink]}
+
+    monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+
+    testbed_path = _write_testbed(tmp_path, [
+        {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
+    ])
+    sweep_dir = tmp_path / "sweep"
+    sweep_dir.mkdir()
+    (sweep_dir / "only.json").write_text(json.dumps(variant))
+    results_dir = tmp_path / "results"
+
+    with pytest.raises(RuntimeError, match="simulated non-budget mid-arm failure"):
+        cl.main([
+            "ab", "--provider", "anthropic", "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
+            "--stage", "monday", "--runs", "1", "--results-dir", str(results_dir),
+        ])
+
+    [result_file] = list(results_dir.glob("*-ab-sweep-*.json"))
+    report = json.loads(result_file.read_text())
+    assert "simulated non-budget mid-arm failure" in report["error"]
+    variant_report = report["variants"]["only"]
+    assert variant_report["calls_used"] == n
+    [pending] = variant_report["partial_pairs"]
+    assert pending["status"] == "error_mid_arm"
+    assert len(pending["variant_messages"]) == n
 
 def test_ab_sweep_dry_run_makes_zero_judge_calls(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})

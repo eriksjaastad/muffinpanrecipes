@@ -329,9 +329,14 @@ def set_pre_call_hook(hook: Optional[Any]) -> Optional[Any]:
     return previous
 
 
-def _fire_pre_call_hook() -> None:
+def _fire_pre_call_hook(provider: str, model: str, prompt_chars: int) -> None:
+    """`provider`/`model`/`prompt_chars` describe the call about to be
+    made (#7714 finding 2) - a caller-installed hook can use them to
+    reserve that call's worst-case cost (e.g. an OpenRouter reasoning
+    model's output ceiling) instead of only checking the running total.
+    A no-op when unset, same as before this signature existed."""
     if _PRE_CALL_HOOK is not None:
-        _PRE_CALL_HOOK()
+        _PRE_CALL_HOOK(provider, model, prompt_chars)
 
 
 # ---------------------------------------------------------------------------
@@ -901,7 +906,7 @@ def generate_response(
     """
     routed = parse_model(model)
     logger.debug(f"Model router provider={routed.provider} model={routed.model}")
-    _fire_pre_call_hook()
+    _fire_pre_call_hook(routed.provider, routed.model, len(prompt) + len(system_prompt or ""))
 
     if routed.provider == "openai":
         ensure_openai_model_allowed(routed.model)
@@ -960,7 +965,7 @@ def generate_judge_response(
             f"Allowed: {', '.join(sorted(JUDGE_ALLOWLIST))}"
         )
     logger.info(f"Judge router provider={routed.provider} model={routed.model}")
-    _fire_pre_call_hook()
+    _fire_pre_call_hook(routed.provider, routed.model, len(prompt) + len(system_prompt or ""))
 
     if routed.provider == "openai":
         return _generate_openai(
