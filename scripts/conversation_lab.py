@@ -956,12 +956,20 @@ def _fetch_openrouter_model_prices() -> dict[str, tuple[float, float]]:
     return prices
 
 
-def _openrouter_worst_case_call_cost(model: str, prompt_chars: int) -> float:
-    """Conservative worst-case USD cost of ONE OpenRouter call to `model`
-    with a `prompt_chars`-character prompt (#7714 finding 2).
+# Role markers and special tokens the chat template adds around the
+# system and user messages - a generous allowance, not a measured value.
+_OPENROUTER_PROMPT_OVERHEAD_TOKENS = 256
 
-    prompt_chars / 2 (a conservative ~2 chars/token estimate - never
-    UNDER-counts a real tokenizer) at the model's per-token prompt price,
+
+def _openrouter_worst_case_call_cost(model: str, prompt_bytes: int) -> float:
+    """Conservative worst-case USD cost of ONE OpenRouter call to `model`
+    whose prompt is `prompt_bytes` bytes of UTF-8 (#7714 finding 2).
+
+    Input bound: one token per UTF-8 byte plus _OPENROUTER_PROMPT_OVERHEAD_TOKENS
+    for the chat template. Byte-level BPE tokens cover at least one byte
+    each, so a byte count is a true upper bound for any text - a
+    characters/2 estimate undercounted non-ASCII prompts. That, at the
+    model's per-token prompt price,
     plus `backend.utils.model_router.openrouter_max_tokens(model)` tokens
     (the full output ceiling, not an expected length - OpenRouter bills
     tokens actually generated, but a reasoning model can spend the WHOLE
@@ -979,9 +987,9 @@ def _openrouter_worst_case_call_cost(model: str, prompt_chars: int) -> float:
     if price is None:
         return float("inf")
     prompt_price, completion_price = price
-    prompt_tokens_estimate = prompt_chars / 2
+    prompt_tokens_bound = prompt_bytes + _OPENROUTER_PROMPT_OVERHEAD_TOKENS
     max_tokens = model_router.openrouter_max_tokens(model)
-    return prompt_tokens_estimate * prompt_price + max_tokens * completion_price
+    return prompt_tokens_bound * prompt_price + max_tokens * completion_price
 
 
 def _openrouter_fetch_account_balance() -> float:
@@ -1835,8 +1843,8 @@ def _installed_budget_guard(budget: CallBudget, max_cost: float | None, baseline
     # delta, so reading `budget.used` live would double-count it.
     used_before = budget.used
 
-    def _guard(provider: str | None = None, model: str | None = None, prompt_chars: int | None = None) -> None:
-        """`provider`/`model`/`prompt_chars` describe the NEXT call about
+    def _guard(provider: str | None = None, model: str | None = None, prompt_bytes: int | None = None) -> None:
+        """`provider`/`model`/`prompt_bytes` describe the NEXT call about
         to be made (#7714 finding 2): `model_router.set_pre_call_hook`
         passes the real triple for every generation/judge call;
         `stop_check.set_pre_attempt_hook` calls with no arguments (a Jev
@@ -1858,9 +1866,12 @@ def _installed_budget_guard(budget: CallBudget, max_cost: float | None, baseline
                 # (openrouter_max_tokens), one call can overshoot the cap
                 # materially. Reserve its worst case instead of just
                 # checking the running total.
-                worst_case = _openrouter_worst_case_call_cost(model or "", prompt_chars or 0)
+                worst_case = _openrouter_worst_case_call_cost(model or "", prompt_bytes or 0)
+                # An unreadable total (e.g. an earlier OpenRouter entry with
+                # no usage.cost) blocks: admitting the call would spend
+                # against a cap nobody can check.
                 total = _total_cost_or_none()
-                cost_blocked = total is not None and (total - baseline_cost) + worst_case > max_cost
+                cost_blocked = total is None or (total - baseline_cost) + worst_case > max_cost
             elif provider is None:
                 # A Jev HTTP attempt (stop_check's hook call) - no
                 # per-model price to look up, so reserve the same
@@ -1869,8 +1880,8 @@ def _installed_budget_guard(budget: CallBudget, max_cost: float | None, baseline
                 # backend.utils.stop_check._JEV_FAILED_ATTEMPT_COST_ESTIMATE_USD).
                 total = _total_cost_or_none()
                 cost_blocked = (
-                    total is not None
-                    and (total - baseline_cost) + stop_check._JEV_FAILED_ATTEMPT_COST_ESTIMATE_USD > max_cost
+                    total is None
+                    or (total - baseline_cost) + stop_check._JEV_FAILED_ATTEMPT_COST_ESTIMATE_USD > max_cost
                 )
             else:
                 # Non-OpenRouter direct providers (anthropic/openai/google):

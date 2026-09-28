@@ -166,7 +166,7 @@ def test_guard_refuses_openrouter_call_whose_worst_case_exceeds_remaining_budget
     """#7714 finding 2: --max-cost used to admit a call whenever ANY
     money remained, regardless of that call's possible cost. The
     mid-arm guard must now reserve the NEXT OpenRouter call's worst
-    case - prompt_chars/2 tokens at the model's prompt price, plus
+    case - one token per prompt byte (plus template overhead) at the model's prompt price, plus
     openrouter_max_tokens(model) tokens (the full completion ceiling,
     since a reasoning model can spend the whole thing) at its
     completion price - and refuse BEFORE the network call, not after."""
@@ -196,6 +196,39 @@ def test_guard_allows_openrouter_call_whose_worst_case_fits_remaining_budget(mon
 
     assert text == "a line"
     assert "create_kwargs" in captured
+
+
+def test_guard_refuses_next_openrouter_call_after_an_unmetered_one(monkeypatch):
+    """An earlier OpenRouter entry with no usage.cost makes the running
+    total unreadable; the guard must refuse the next call, not admit it."""
+    _fake_openrouter(monkeypatch, content="a line")
+    model = "deepseek/deepseek-v4.1-flash"
+    monkeypatch.setattr(cl, "_OPENROUTER_MODEL_PRICES", {model: (0.0000003, 0.0000003)})
+    model_router._record_cost("openrouter", model, 100, 20)  # no actual_cost, unpriced in the table
+    budget = cl.CallBudget(max_calls=1000)
+
+    with cl._installed_budget_guard(budget, 100.0):
+        with pytest.raises(cl.LabBudgetAbort):
+            model_router.generate_response(prompt="x", model=f"openrouter/{model}", temperature=0.2)
+
+
+def test_worst_case_prompt_bound_counts_utf8_bytes_not_characters(monkeypatch):
+    """Non-ASCII text can tokenize at more than one token per two
+    characters; the reservation must bound input by UTF-8 bytes."""
+    _fake_openrouter(monkeypatch, content="ok")
+    model = "deepseek/deepseek-v4.1-flash"
+    monkeypatch.setattr(cl, "_OPENROUTER_MODEL_PRICES", {model: (0.001, 0.0)})
+    prompt = "é" * 1000  # 1000 characters, 2000 UTF-8 bytes
+    seen: dict = {}
+    model_router.set_pre_call_hook(lambda provider, m, prompt_bytes: seen.setdefault("bytes", prompt_bytes))
+    try:
+        model_router.generate_response(prompt=prompt, model=f"openrouter/{model}", temperature=0.2)
+    finally:
+        model_router.set_pre_call_hook(None)
+
+    assert seen["bytes"] == 2000
+    expected = (2000 + cl._OPENROUTER_PROMPT_OVERHEAD_TOKENS) * 0.001
+    assert cl._openrouter_worst_case_call_cost(model, seen["bytes"]) == pytest.approx(expected)
 
 
 def test_openrouter_preflight_refuses_when_a_model_in_use_has_no_price(tmp_path, monkeypatch):
