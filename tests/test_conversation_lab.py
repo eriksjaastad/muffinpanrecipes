@@ -1798,6 +1798,198 @@ def test_ab_mid_arm_guard_stops_a_runaway_variant_arm_and_writes_partial(tmp_pat
     assert report["completed_pairs"] == 0
     assert call_count["n"] < reservation * 3, "the mid-arm guard must interrupt the runaway arm"
 
+def _runaway_turn_generator(sink, *, model="anthropic/claude-haiku-4-5-20251001"):
+    """Keep making real (mocked) generate_response calls and appending one
+    sdw.Message per successful call to `sink` - used to prove a mid-arm
+    abort saves EXACTLY the turns generated before it fired, never zero
+    and never the full unbounded set. Never returns on its own; a
+    LabBudgetAbort from the ambient guard is what stops it."""
+    for i in range(10_000):
+        model_router.generate_response(prompt="x", model=model)
+        sink.append(sdw.Message(
+            day="monday", stage="monday", character="Margaret Chen",
+            message=f"Turn {i}", timestamp="2026-01-01T00:00:00", model="stub",
+        ))
+
+def test_ab_control_arm_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatch):
+    """#7714 round 3: run_simulation keeps `messages` local and only
+    returns it at the end, so a mid-arm abort used to discard every turn
+    already generated (real, paid work). message_sink fixes that - this
+    proves the CONTROL arm's saved partial pair holds exactly the N turns
+    generated before the guard fired, not zero and not all of them."""
+    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    variant = {"_SHARED_CHARACTER_RULES": "V"}
+    reservation = cl._arm_call_reservation("monday", variant, dry_run=False)
+
+    def fake_generate_anthropic(**kw):
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    def fake_run_simulation(*, message_sink=None, **kwargs):
+        sink = message_sink if message_sink is not None else []
+        _runaway_turn_generator(sink)
+        return {"messages": [m.__dict__ for m in sink]}
+
+    monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+
+    variant_path = _write_variant(tmp_path, variant)
+    results_dir = tmp_path / "results"
+
+    cl.main([
+        "ab", "--provider", "anthropic",
+        "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+        "--variant", str(variant_path), "--recipe-context", "anchor",
+        "--max-calls", str(reservation), "--results-dir", str(results_dir),
+    ])
+
+    [result_file] = list(results_dir.glob("*-ab-*.json"))
+    report = json.loads(result_file.read_text())
+    assert report["aborted"] is True
+    assert report["completed_pairs"] == 0
+    [pending] = report["partial_pairs"]
+    assert pending["status"] == "aborted_mid_arm"
+    assert len(pending["control_messages"]) == reservation
+    assert pending.get("variant_messages") is None
+
+def test_ab_variant_arm_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatch):
+    """Same proof as the control-arm test above, for the VARIANT arm: the
+    control side stays cheap (zero real calls), so the shared guard's
+    live count is entirely the variant's own turns when it fires."""
+    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    variant = {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"}
+    reservation = cl._arm_call_reservation("monday", variant, dry_run=False)
+
+    def fake_generate_anthropic(**kw):
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    def fake_run_simulation(*, message_sink=None, **kwargs):
+        sink = message_sink if message_sink is not None else []
+        if sdw._SHARED_CHARACTER_RULES == "VARIANT_RULES":
+            _runaway_turn_generator(sink)
+        return {"messages": [m.__dict__ for m in sink]}
+
+    monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+
+    variant_path = _write_variant(tmp_path, variant)
+    results_dir = tmp_path / "results"
+
+    cl.main([
+        "ab", "--provider", "anthropic",
+        "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+        "--variant", str(variant_path), "--recipe-context", "anchor",
+        "--max-calls", str(reservation), "--results-dir", str(results_dir),
+    ])
+
+    [result_file] = list(results_dir.glob("*-ab-*.json"))
+    report = json.loads(result_file.read_text())
+    assert report["aborted"] is True
+    assert report["completed_pairs"] == 0
+    [pending] = report["partial_pairs"]
+    assert pending["status"] == "aborted_mid_arm"
+    assert len(pending["control_messages"]) == 0
+    assert len(pending["variant_messages"]) == reservation
+
+def test_ab_sweep_control_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatch):
+    """Same proof for the sweep's shared control loop: the aborted
+    (scenario, run) key's stored transcript holds exactly the N turns
+    generated before the guard fired."""
+    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    reservation = cl._arm_call_reservation("monday", None, dry_run=False)
+
+    def fake_generate_anthropic(**kw):
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    def fake_run_simulation(*, message_sink=None, **kwargs):
+        sink = message_sink if message_sink is not None else []
+        _runaway_turn_generator(sink)
+        return {"messages": [m.__dict__ for m in sink]}
+
+    monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+
+    testbed_path = _write_testbed(tmp_path, [
+        {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
+    ])
+    sweep_dir = tmp_path / "sweep"
+    sweep_dir.mkdir()
+    (sweep_dir / "only.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "V"}))
+    results_dir = tmp_path / "results"
+
+    cl.main([
+        "ab", "--provider", "anthropic", "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
+        "--stage", "monday", "--runs", "1", "--max-calls", str(reservation), "--results-dir", str(results_dir),
+    ])
+
+    [result_file] = list(results_dir.glob("*-ab-sweep-*.json"))
+    report = json.loads(result_file.read_text())
+    assert report["aborted"] is True
+    assert report["control_aborted"] is True
+    [unpaired] = report["unpaired_control_transcripts"]
+    assert len(unpaired["messages"]) == reservation
+
+def test_bench_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatch):
+    """Same proof for bench: the saved run entry holds exactly the N
+    turns generated before the guard fired, marked aborted_mid_arm."""
+    reservation = cl._MAX_CALLS_PER_TURN * cl._max_turns_for_stage("saturday")
+
+    def fake_generate_anthropic(**kw):
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    def fake_run_simulation(*, message_sink=None, **kwargs):
+        sink = message_sink if message_sink is not None else []
+        _runaway_turn_generator(sink)
+        return {"messages": [m.__dict__ for m in sink]}
+
+    monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+    monkeypatch.setattr(
+        cl, "_resolve_models",
+        lambda dry_run: ("openai", "anthropic/claude-haiku-4-5-20251001", "anthropic/claude-sonnet-4-6"),
+    )
+
+    cl.cmd_bench(_bench_args(tmp_path, runs=1, max_calls=reservation))
+
+    report = _read_bench(tmp_path, "saturday-n1")
+    assert report["aborted"] is True
+    [run] = report["runs"]
+    assert run["status"] == "aborted_mid_arm"
+    assert len(run["transcript"]) == reservation
+
+def test_run_simulation_without_a_sink_returns_the_same_result_as_before(monkeypatch):
+    """#7714 round 3: message_sink is additive - production (and every
+    call that omits it) must get byte-identical behavior to before it
+    existed."""
+    monkeypatch.setattr(sdw, "generate_turn", lambda **kwargs: "Line.")
+
+    kwargs = dict(
+        concept="Jalapeno Corn Dog Bites",
+        default_model="stub",
+        run_index=0,
+        stage_only="monday",
+        injected_event=None,
+        ticks_per_day=3,
+        mode="llm",
+        prompt_style="scene",
+        character_models=None,
+    )
+    # Speaker selection uses module-level `random` state - seed identically
+    # before each call so the only variable between them is message_sink.
+    sdw.random.seed(0)
+    with_sink_result = sdw.run_simulation(**kwargs, message_sink=[])
+    sdw.random.seed(0)
+    without_sink_result = sdw.run_simulation(**kwargs)
+
+    assert with_sink_result["messages"] == without_sink_result["messages"]
+    assert with_sink_result["metrics"] == without_sink_result["metrics"]
+
 def test_budget_guard_counts_calls_recorded_before_install(monkeypatch):
     """`ab --testbed` shares one CallBudget across scenarios but installs a
     fresh guard per scenario: a later scenario's guard must start from what

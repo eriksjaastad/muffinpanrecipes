@@ -1608,6 +1608,7 @@ def _run_arm(
     photography_context: dict[str, Any] | None = None,
     image_paths: list[Any] | None = None,
     prior_lines: list[str] | None = None,
+    message_sink: list | None = None,
 ) -> dict[str, Any]:
     """Call run_simulation with the exact production call shape.
 
@@ -1623,6 +1624,13 @@ def _run_arm(
     week highlights when mode=="llm" (see its `_generate_day_highlights`
     call site), and production/this lab call with mode="openai" - so a real
     full-week openai run would carry an empty week-highlights list too.
+
+    `message_sink`, when given, is forwarded UNCHANGED to
+    `run_simulation`'s own `message_sink` (#7714) - see that function's
+    docstring. `_run_arm_and_count` passes one so it can recover whatever
+    turns were already generated (and paid for) if this call raises
+    partway through, most commonly a LabBudgetAbort from the ambient
+    mid-arm guard.
     """
     return simulate_module.run_simulation(
         concept=concept,
@@ -1639,6 +1647,7 @@ def _run_arm(
         recipe_context=recipe_context,
         initial_highlights=None,
         initial_recent_lines=list(prior_lines) if prior_lines is not None else None,
+        message_sink=message_sink,
     )
 
 class LabBudgetAbort(BaseException):
@@ -1765,21 +1774,37 @@ def _run_arm_and_count(
     function's docstring for why one guard per scope, not per arm, is the
     right granularity). If `_run_arm` raises for ANY reason - most
     commonly `LabBudgetAbort` from that ambient guard, but any exception
-    after real paid calls happened - the exception is annotated with
-    `conversation_lab_calls_made`: the call delta actually observed
-    before it happened. Callers read this to record real spend instead of
-    silently reporting zero (#7714 finding 2) - `budget.record()`
-    otherwise only happens on normal return, which an abort or any other
-    mid-arm failure never reaches.
+    after real paid calls happened - the exception is annotated with:
+
+    - `conversation_lab_calls_made`: the call delta actually observed
+      before it happened. Callers read this to record real spend instead
+      of silently reporting zero (#7714 finding 2) - `budget.record()`
+      otherwise only happens on normal return, which an abort or any
+      other mid-arm failure never reaches.
+    - `conversation_lab_partial_messages` (#7714 round 3): whatever turns
+      `run_simulation` had already generated - real, paid work - before
+      it raised, in the SAME `[m.__dict__ for m in messages]` shape its
+      own "messages" field uses on a normal return. `run_simulation`
+      keeps its `messages` list local and only returns it at the very
+      end, so recovering it on a mid-run exception requires handing it a
+      pre-created list (`message_sink`) it appends into as it goes -
+      that list is still readable here even though `_run_arm` itself
+      never got a return value.
+
+    Neither attribute is overwritten if a deeper frame already set it
+    (e.g. a nested arm invocation this module doesn't currently have, but
+    kept defensive to match the existing `conversation_lab_calls_used`/
+    `conversation_lab_calls_made` convention elsewhere in this file).
     """
     try:
         before = model_router.get_cost_summary().get("total_calls", 0)
     except Exception:
         before = 0
+    sink: list = []
     try:
         result = _run_arm(
             concept, stage, run_index, recipe_context, mode, default_model,
-            prior_lines=prior_lines,
+            prior_lines=prior_lines, message_sink=sink,
         )
     except BaseException as exc:
         if not hasattr(exc, "conversation_lab_calls_made"):
@@ -1788,6 +1813,11 @@ def _run_arm_and_count(
             except Exception:
                 after = before
             setattr(exc, "conversation_lab_calls_made", max(after - before, 0))
+        if not hasattr(exc, "conversation_lab_partial_messages"):
+            try:
+                setattr(exc, "conversation_lab_partial_messages", [m.__dict__ for m in sink])
+            except Exception:
+                setattr(exc, "conversation_lab_partial_messages", [])
         raise
     try:
         after = model_router.get_cost_summary().get("total_calls", 0)
@@ -2854,7 +2884,24 @@ def _generate_and_judge_pairs(
                     prior_lines=prior_lines,
                 )
             except LabBudgetAbort as exc:
-                budget.record(0 if dry_run else getattr(exc, "conversation_lab_calls_made", 0))
+                # #7714 round 3: the control arm's turns generated before
+                # the abort are real, paid work - saved as a partial pair
+                # (never judged, see the docstring above) instead of
+                # discarded, exactly like a variant-arm abort already
+                # preserves the control side.
+                made = getattr(exc, "conversation_lab_calls_made", 0)
+                budget.record(0 if dry_run else made)
+                partial_pairs.append({
+                    "run_index": run_index,
+                    "status": "aborted_mid_arm",
+                    "control_messages": getattr(exc, "conversation_lab_partial_messages", []),
+                    "control_stop_check_log": _snapshot_stop_check_log(),
+                    "control_director_log": _snapshot_director_log(),
+                    "control_rewrite_log": _snapshot_rewrite_log(),
+                    "control_calls_before_abort": made,
+                    "variant_messages": None,
+                    "judge_orientations": [],
+                })
                 aborted = True
                 break
             control_stop_check_log = _snapshot_stop_check_log()
@@ -2886,15 +2933,18 @@ def _generate_and_judge_pairs(
                         prior_lines=prior_lines,
                     )
                 except LabBudgetAbort as exc:
-                    # #7714 finding 2: the pending pair already reflects real,
-                    # paid control-arm work - mark it explicitly instead of
-                    # leaving it in an ambiguous "control_generated" status,
-                    # and record what this aborted variant arm actually spent
-                    # instead of silently reporting zero.
+                    # #7714 finding 2 / round 3: the pending pair already
+                    # reflects real, paid control-arm work - mark it
+                    # explicitly instead of leaving it in an ambiguous
+                    # "control_generated" status, record what this aborted
+                    # variant arm actually spent instead of silently
+                    # reporting zero, and save whatever variant turns it
+                    # generated before the abort instead of discarding them.
                     made = getattr(exc, "conversation_lab_calls_made", 0)
                     budget.record(0 if dry_run else made)
                     pending_pair["status"] = "aborted_mid_arm"
                     pending_pair["variant_calls_before_abort"] = made
+                    pending_pair["variant_messages"] = getattr(exc, "conversation_lab_partial_messages", [])
                     aborted = True
                     break
                 variant_stop_check_log = _snapshot_stop_check_log()
@@ -3707,7 +3757,25 @@ def _generate_sweep_control(
                         prior_lines=(prior_by_scenario or {}).get(scenario["id"]),
                     )
                 except LabBudgetAbort as exc:
-                    budget.record(0 if dry_run else getattr(exc, "conversation_lab_calls_made", 0))
+                    # #7714 round 3: the aborted (scenario, run)'s turns
+                    # generated before the abort are real, paid work - saved
+                    # into `transcripts` at this key (the same "messages"
+                    # shape a completed entry has, so _build_sweep_report's
+                    # existing control_transcripts_by_key/unpaired_control_
+                    # transcripts machinery picks it up with no further
+                    # changes) instead of discarded. Never judged: control
+                    # aborting here means no variant ever runs this key (see
+                    # _cmd_ab_sweep's `if not control_aborted:` guard).
+                    made = getattr(exc, "conversation_lab_calls_made", 0)
+                    budget.record(0 if dry_run else made)
+                    transcripts[(scenario["id"], run_index)] = {
+                        "status": "aborted_mid_arm",
+                        "messages": getattr(exc, "conversation_lab_partial_messages", []),
+                        "stop_check_log": _snapshot_stop_check_log(),
+                        "director_log": _snapshot_director_log(),
+                        "rewrite_log": _snapshot_rewrite_log(),
+                        "calls_before_abort": made,
+                    }
                     return True
                 budget.record(0 if dry_run else calls)
                 # The shared control is generated once, up front; its stop-check,
@@ -3810,10 +3878,15 @@ def _run_sweep_variant(
                             prior_lines=(prior_by_scenario or {}).get(scenario["id"]),
                         )
                     except LabBudgetAbort as exc:
+                        # #7714 finding 2 / round 3: save whatever variant
+                        # turns were generated before the abort instead of
+                        # discarding them, mirroring _generate_and_judge_
+                        # pairs' same fix.
                         made = getattr(exc, "conversation_lab_calls_made", 0)
                         budget.record(0 if dry_run else made)
                         pending_pair["status"] = "aborted_mid_arm"
                         pending_pair["variant_calls_before_abort"] = made
+                        pending_pair["variant_messages"] = getattr(exc, "conversation_lab_partial_messages", [])
                         aborted = True
                         break
                     variant_stop_check_log = _snapshot_stop_check_log()
@@ -5685,11 +5758,24 @@ def cmd_bench(args: argparse.Namespace) -> None:
     # every other arm-running loop in this module.
     guard_ctx = _installed_budget_guard(budget, args.max_cost)
     guard_ctx.__enter__()
+    # #7714 round 3: a fresh list per run_index, passed to _run_arm as
+    # message_sink - run_simulation appends into it as turns are
+    # generated, so whatever it holds is recoverable even if _run_arm
+    # raises before returning (most commonly a mid-arm LabBudgetAbort).
+    # `generation_recorded` distinguishes "the exception happened before
+    # this run's transcript ever reached `runs`" (sink holds a real
+    # partial transcript worth saving) from "generation finished and the
+    # exception came from summarize()/judging instead" (the run is
+    # already in `runs`; sink is stale and must not be saved again).
+    sink: list = []
+    generation_recorded = True
     try:
         for run_index in range(1, args.runs + 1):
             if budget.would_exceed(gen_reserve) or _would_exceed_cost(args.max_cost):
                 aborted = True
                 break
+            sink = []
+            generation_recorded = False
             result = _spend(
                 budget,
                 lambda: _run_arm(
@@ -5701,6 +5787,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
                     default_model,
                     photography_context=photo_inputs["photography_context"],
                     image_paths=photo_inputs["image_paths"],
+                    message_sink=sink,
                 ),
                 fallback=0 if args.dry_run else _max_turns_for_stage(args.stage),
                 reservation=gen_reserve,
@@ -5718,6 +5805,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
                 "transcript": messages,
             }
             runs.append(record)
+            generation_recorded = True
             # The transcript is durable partial evidence before we consult
             # the ledger again. A denied or unreadable ledger must stop here,
             # before summary/judge work or another paid generation request.
@@ -5774,17 +5862,23 @@ def cmd_bench(args: argparse.Namespace) -> None:
         interrupted = isinstance(exc, KeyboardInterrupt)
         if _budget_guard_stopped():
             aborted = True
-        partial_arm = getattr(exc, "conversation_lab_partial_arm", None)
-        if partial_arm is not None:
-            messages = partial_arm.get("messages", [])
+        # #7714 round 3: `sink` holds whatever turns run_simulation had
+        # already generated - real, paid work - before this exception,
+        # unless the CURRENT run's transcript already made it into `runs`
+        # (generation_recorded=True means the failure was in summarize()/
+        # judging instead, and `sink` is stale from a completed run - do
+        # not save it again).
+        if not generation_recorded and sink:
+            partial_messages = [m.__dict__ for m in sink]
             partial_record: dict[str, Any] = {
                 "run_index": len(runs) + 1,
-                "message_count": len(messages),
-                "transcript": messages,
+                "message_count": len(partial_messages),
+                "transcript": partial_messages,
+                "status": "aborted_mid_arm",
             }
             try:
                 partial_record["summary"] = summarize(
-                    messages, expected_cast, concept=concept, day=args.stage
+                    partial_messages, expected_cast, concept=concept, day=args.stage
                 )
             except Exception as summary_exc:
                 error = (error or "") + f"; partial transcript summary failed: {type(summary_exc).__name__}: {summary_exc}"

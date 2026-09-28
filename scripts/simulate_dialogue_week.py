@@ -2299,10 +2299,14 @@ def run_simulation(
     initial_recent_lines: list[str] | None = None,  # seed recent_lines (e.g. Saturday msgs for Sunday-only runs)
     highlight_format: str = "plain",  # "plain" or "xml" — controls how week context is injected
     recipe_context: str | None = None,  # one-line recipe summary; anchors dialogue to the actual dish
+    message_sink: list | None = None,  # #7714: when given, IS the messages list - turns land here as
+    # they are generated, so a caller that holds a reference to it can recover whatever was paid for
+    # even if this function never returns (e.g. an exception mid-run). Production never passes it -
+    # this parameter and the branch below are the only difference from before it existed.
 ) -> dict[str, Any]:
     personas = load_personas()
     start = datetime.now(timezone.utc).replace(hour=9, minute=0, second=0, microsecond=0)
-    messages: list[Message] = []
+    messages: list[Message] = message_sink if message_sink is not None else []
     recent_lines: list[str] = list(initial_recent_lines) if initial_recent_lines else []
     week_highlights: list[str] = list(initial_highlights) if initial_highlights else []
     # In-run director history (#7679): later days in the same simulated week
