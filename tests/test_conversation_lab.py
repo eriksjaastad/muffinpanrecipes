@@ -1798,6 +1798,24 @@ def test_ab_mid_arm_guard_stops_a_runaway_variant_arm_and_writes_partial(tmp_pat
     assert report["completed_pairs"] == 0
     assert call_count["n"] < reservation * 3, "the mid-arm guard must interrupt the runaway arm"
 
+def test_budget_guard_counts_calls_recorded_before_install(monkeypatch):
+    """`ab --testbed` shares one CallBudget across scenarios but installs a
+    fresh guard per scenario: a later scenario's guard must start from what
+    earlier scenarios already spent, not from zero."""
+    def fake_generate_anthropic(**kw):
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+    budget = cl.CallBudget(max_calls=10, used=8)
+    made = 0
+    with pytest.raises(cl.LabBudgetAbort):
+        with cl._installed_budget_guard(budget, None):
+            for _ in range(10):
+                model_router.generate_response(prompt="x", model="anthropic/claude-haiku-4-5-20251001")
+                made += 1
+    assert made == 2, "8 already used of 10: exactly 2 more calls fit"
+
 def test_ab_default_max_cost_is_five_dollars(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})

@@ -1716,13 +1716,19 @@ def _installed_budget_guard(budget: CallBudget, max_cost: float | None, baseline
     mid-arm guard - stays byte-identical.
     """
     calls_before = _calls_now()
+    # Calls this budget already recorded before the guard went in - e.g.
+    # earlier scenarios of an `ab --testbed` run, which shares one budget
+    # across every scenario but installs a fresh guard per scenario. Snapshot
+    # once: anything recorded later inside this scope is already in the live
+    # delta, so reading `budget.used` live would double-count it.
+    used_before = budget.used
 
     def _guard() -> None:
         calls_blocked = False
         if calls_before is not None:
             calls_now = _calls_now()
             live_total = calls_now - calls_before if (calls_now is not None and calls_now > calls_before) else 0
-            calls_blocked = live_total + 1 > budget.max_calls
+            calls_blocked = used_before + live_total + 1 > budget.max_calls
         cost_blocked = max_cost is not None and _would_exceed_cost(max_cost, baseline=baseline_cost)
         if calls_blocked or cost_blocked:
             raise LabBudgetAbort(
