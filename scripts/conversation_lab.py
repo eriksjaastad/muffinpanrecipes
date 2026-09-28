@@ -690,25 +690,57 @@ def _refuse_if_stop_check_conflicts_with_models(
     scripts/simulate_dialogue_week.py); stop_check.py's haiku path stays out
     of scope for #7714 (it is not swappable via lab_models.json).
 
-    Checks BOTH the control arm (the module's current, unpatched STOP_CHECK -
-    control is never variant-patched) and the variant arm (the variant's own
-    STOP_CHECK override, if any, else the same module default).
+    STOP_CHECK is only ever consulted when WINDDOWN_TRIGGER == "check" -
+    scripts/simulate_dialogue_week.py's run_simulation calls check_scene_done
+    (which reads STOP_CHECK['provider']) inside the `elif WINDDOWN_TRIGGER ==
+    "check":` branch of its per-tick loop, and nowhere else in the codebase.
+    The "regex" (production default) and "off" triggers never call it, so an
+    arm whose effective WINDDOWN_TRIGGER isn't "check" cannot spend on Claude
+    no matter what STOP_CHECK says - refusing that arm was over-strict and
+    blocked every WINDDOWN_TRIGGER="check" + STOP_CHECK provider="jev" variant
+    from running with a non-default model set, since the unpatched control
+    module default (WINDDOWN_TRIGGER="regex", STOP_CHECK provider="haiku")
+    always looked like a conflict.
+
+    Checks BOTH the control arm (the module's current, unpatched
+    WINDDOWN_TRIGGER/STOP_CHECK - control is never variant-patched) and the
+    variant arm (the variant's own WINDDOWN_TRIGGER/STOP_CHECK overrides, if
+    any, else the same module defaults) - each arm's *effective* pairing.
+
+    Runs under --dry-run too (unlike the OpenRouter key/balance preflight,
+    which needs the network): this check only reads the lab-models registry
+    and module attributes already loaded in memory, no network call and no
+    credential read, so there is no cost reason to skip it. #7680's bug was
+    found in a real run, not a dry run, specifically because this used to
+    return early here - a --dry-run of the exact same variant/--models combo
+    could not have caught it.
     """
-    if getattr(args, "dry_run", False):
-        return  # zero real calls happen under --dry-run - nothing to silently misroute
     if _provider_for(args) != "openrouter":
         return
     model_set = _resolve_lab_model_set(args)
     if model_set.name == _LAB_MODELS.default:
         return
+
+    control_trigger = simulate_module.WINDDOWN_TRIGGER
     control_provider = simulate_module.STOP_CHECK.get("provider")
-    variant_stop_check = variant.get("STOP_CHECK") if isinstance(variant, dict) else None
+
+    is_dict = isinstance(variant, dict)
+    variant_trigger = (
+        variant.get("WINDDOWN_TRIGGER")
+        if is_dict and "WINDDOWN_TRIGGER" in variant
+        else control_trigger
+    )
+    variant_stop_check = variant.get("STOP_CHECK") if is_dict else None
     variant_provider = (
         variant_stop_check.get("provider")
         if isinstance(variant_stop_check, dict) and "provider" in variant_stop_check
         else control_provider
     )
-    if "haiku" in (control_provider, variant_provider):
+
+    control_conflict = control_trigger == "check" and control_provider == "haiku"
+    variant_conflict = variant_trigger == "check" and variant_provider == "haiku"
+
+    if control_conflict or variant_conflict:
         raise SystemExit(
             f"conversation_lab: --models {model_set.name!r} cannot run with STOP_CHECK "
             "provider='haiku' - stop_check.py's haiku provider always calls Anthropic "
