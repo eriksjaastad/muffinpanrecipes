@@ -110,16 +110,20 @@ def test_openrouter_request_shape_and_cost_capture(monkeypatch):
 
 
 def _fake_openrouter(monkeypatch, *, content, finish_reason="stop", completion_tokens=3):
-    captured: dict = {}
+    """`content` may be a list: one entry per successive request (the last repeats)."""
+    captured: dict = {"requests": 0}
+    contents = content if isinstance(content, list) else [content]
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
     monkeypatch.setattr(model_router, "_central_track", lambda response, provider, **kwargs: response)
 
     class FakeCompletions:
         def create(self, **kwargs):
             captured["create_kwargs"] = kwargs
+            this = contents[min(captured["requests"], len(contents) - 1)]
+            captured["requests"] += 1
             return SimpleNamespace(
                 choices=[SimpleNamespace(
-                    message=SimpleNamespace(content=content), finish_reason=finish_reason,
+                    message=SimpleNamespace(content=this), finish_reason=finish_reason,
                 )],
                 usage=SimpleNamespace(prompt_tokens=10, completion_tokens=completion_tokens, cost=0.0087),
                 provider="DeepSeek",
@@ -160,6 +164,52 @@ def test_openrouter_empty_content_raises_and_still_records_cost(monkeypatch):
     [entry] = model_router.get_cost_entries()
     assert entry["actual_cost"] == 0.0087
     assert entry["tokens_out"] == 32768
+
+
+def test_openrouter_empty_stop_is_retried_and_every_attempt_is_charged_and_guarded(monkeypatch):
+    captured = _fake_openrouter(monkeypatch, content=["", "a line"], finish_reason="stop")
+    hook_calls: list = []
+    model_router.set_pre_call_hook(lambda provider, model, prompt_bytes: hook_calls.append(model))
+    try:
+        text = model_router.generate_response(
+            prompt="x", model="openrouter/deepseek/deepseek-v4.1-flash", temperature=0.2,
+        )
+    finally:
+        model_router.set_pre_call_hook(None)
+    assert text == "a line"
+    assert captured["requests"] == 2
+    assert len(model_router.get_cost_entries()) == 2
+    assert len(hook_calls) == 2, "the retry must pass the caller's pre-call guard too"
+
+
+def test_openrouter_persistent_empty_stop_raises_after_bounded_attempts(monkeypatch):
+    captured = _fake_openrouter(monkeypatch, content="", finish_reason="stop")
+    with pytest.raises(RuntimeError, match="empty content.*finish_reason='stop'"):
+        model_router.generate_response(
+            prompt="x", model="openrouter/deepseek/deepseek-v4.1-flash", temperature=0.2,
+        )
+    assert captured["requests"] == model_router._OPENROUTER_EMPTY_STOP_MAX_ATTEMPTS == 3
+    assert len(model_router.get_cost_entries()) == 3
+
+
+def test_openrouter_empty_length_is_not_retried(monkeypatch):
+    captured = _fake_openrouter(monkeypatch, content="", finish_reason="length")
+    with pytest.raises(RuntimeError, match="finish_reason='length'"):
+        model_router.generate_response(
+            prompt="x", model="openrouter/deepseek/deepseek-v4.1-flash", temperature=0.2,
+        )
+    assert captured["requests"] == 1
+
+
+def test_openrouter_retry_stops_when_the_guard_refuses(monkeypatch):
+    captured = _fake_openrouter(monkeypatch, content="", finish_reason="stop")
+    budget = cl.CallBudget(max_calls=1)
+    with pytest.raises(cl.LabBudgetAbort):
+        with cl._installed_budget_guard(budget, None):
+            model_router.generate_response(
+                prompt="x", model="openrouter/deepseek/deepseek-v4.1-flash", temperature=0.2,
+            )
+    assert captured["requests"] == 1, "one call allowed; the retry must be refused before it is sent"
 
 
 def test_guard_refuses_openrouter_call_whose_worst_case_exceeds_remaining_budget(monkeypatch):

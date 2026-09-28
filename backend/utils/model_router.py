@@ -658,6 +658,12 @@ def openrouter_max_tokens(model_id: str) -> int:
     return _OPENROUTER_REASONING_MAX_TOKENS
 
 
+# deepseek-v4.1-flash occasionally ends a turn with finish_reason "stop" and
+# no content after reasoning (3 in ~3000 calls, 2026-09-28); each one used to
+# end the whole lab run. Bounded: first try plus two retries.
+_OPENROUTER_EMPTY_STOP_MAX_ATTEMPTS = 3
+
+
 def _generate_openrouter(
     prompt: str,
     system_prompt: Optional[str],
@@ -686,6 +692,30 @@ def _generate_openrouter(
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": prompt})
 
+    prompt_bytes = len(prompt.encode("utf-8")) + len((system_prompt or "").encode("utf-8"))
+    finish_reason: Any = None
+    completion_tokens: Any = None
+    for attempt in range(_OPENROUTER_EMPTY_STOP_MAX_ATTEMPTS):
+        if attempt:
+            # A retry is another paid call: it passes the caller's guard too.
+            _fire_pre_call_hook("openrouter", model, prompt_bytes)
+            logger.warning("openrouter %s empty content with finish_reason=stop; retry %d", model, attempt)
+        text, finish_reason, completion_tokens = _openrouter_attempt(client, model, messages, temperature)
+        if text:
+            return text
+        if finish_reason != "stop":
+            break
+    # Empty content is never a successful result. finish_reason "length" (a
+    # reasoning model spent the whole ceiling thinking) is not retried - the
+    # same ceiling would fail the same way.
+    raise RuntimeError(
+        f"OpenRouter {model} returned empty content "
+        f"(finish_reason={finish_reason!r}, completion_tokens={completion_tokens})"
+    )
+
+
+def _openrouter_attempt(client: Any, model: str, messages: list, temperature: float) -> tuple[str, Any, Any]:
+    """One OpenRouter request; records its cost. Returns (text, finish_reason, completion_tokens)."""
     response = client.chat.completions.create(
         model=model,
         messages=messages,
@@ -717,17 +747,11 @@ def _generate_openrouter(
     _central_track(response, "openrouter", project="muffinpanrecipes", caller="model_router.openrouter")
 
     choice = response.choices[0]
-    text = (choice.message.content or "").strip()
-    if not text:
-        # A reasoning model that spends its whole max_tokens thinking returns
-        # empty content with finish_reason "length". Returning "" let the lab
-        # judge burn its parse retries on nothing (smoke run 2026-09-28).
-        raise RuntimeError(
-            f"OpenRouter {model} returned empty content "
-            f"(finish_reason={getattr(choice, 'finish_reason', None)!r}, "
-            f"completion_tokens={getattr(usage, 'completion_tokens', None) if usage else None})"
-        )
-    return text
+    return (
+        (choice.message.content or "").strip(),
+        getattr(choice, "finish_reason", None),
+        getattr(usage, "completion_tokens", None) if usage else None,
+    )
 
 
 # ---------------------------------------------------------------------------
