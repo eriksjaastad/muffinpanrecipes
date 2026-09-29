@@ -129,8 +129,10 @@ independent of the judge. The targets are DIALS.md section 3:
      of 0.75, 0.64 at 0.72 and 0.54 at 0.70. So confirmation reliably detects about 0.75 and
      up. Smaller effects are out of reach at this budget, and the report must say so rather
      than claim a null.
-   - These figures assume independent pairs. They are optimistic, because six runs of the
-     same recipe share inputs (rule 4).
+   - These figures assume the rule 4 framing: the seven recipes are fixed and pairs are
+     independent given the recipe. They are the power to detect the average win rate across
+     those seven recipes. They say nothing about recipes outside the testbed, which rule 4
+     does not claim.
 4. **Inference.**
    - **What a claim covers:** the seven fixed testbed-v3 recipes, treated as fixed effects.
      Given a recipe, each run is an independent generation, so pairs are conditionally
