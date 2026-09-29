@@ -82,7 +82,7 @@ The lab as it stands cannot run all of this. The following is the minimum, kept 
 | P2 | a re-judge command: re-run the judge on a saved `ab` result without regenerating | V3 test-retest | small |
 | P3 | offline metrics script: `conversation_metrics` on both arms of every saved `ab` result, per recipe | S1 absolute benchmarks at zero API cost | analysis script |
 | P4 | a variant key that appends the scenario's `judge_recipe_facts` to the speakers' recipe context | R3; the variant mechanism changes simulator attributes, not scenario inputs | small |
-| P5 (optional) | head-to-head mode (a variant as the control arm) | S2's second question: does removing a change help (see S2, limitation) | medium; build only if S2 needs it |
+| P5 | head-to-head mode (a variant as the control arm) | required before S3, whose arms are compared against the S2 winner, not production; also answers S2's second question (see S2, limitation) | medium; not needed for S0-S2 |
 
 ## 4. Outcomes
 
@@ -132,17 +132,23 @@ independent of the judge. The targets are DIALS.md section 3:
    - These figures assume independent pairs. They are optimistic, because six runs of the
      same recipe share inputs (rule 4).
 4. **Inference.**
+   - **What a claim covers:** the seven fixed testbed-v3 recipes, treated as fixed effects.
+     Given a recipe, each run is an independent generation, so pairs are conditionally
+     independent and a pair-level test is valid for the claim "this change wins on this
+     testbed". A statistical claim about recipes outside the testbed is *not* made. The
+     recipe-level test below would need all 7 recipes in favour (the smallest achievable
+     two-sided p with 7 clusters is 0.016). Generalization is addressed by the out-of-sample
+     live week (rule 5) and by growing the testbed.
    - **Primary test:** exact two-sided sign test on decisive pairs, Holm-Bonferroni-adjusted
      across the arms of the study.
    - **Estimate:** win rate with a 95% Wilson interval, reported alongside and never used as
      the test.
-   - **Recipe clustering (robustness, required to ship):**
-     - a cluster bootstrap over recipes (resample the 7 recipes with replacement, 10,000
-       draws) must give a 95% lower bound on the win rate above 0.5;
-     - the variant must be favoured in at least 5 of 7 recipes;
-     - the design effect estimated from the data is reported.
-   - A recipe-level sign test alone is too weak to be the primary test (6 of 7 recipes gives
-     p = 0.125).
+   - **Heterogeneity checks, required to ship:**
+     - the variant must be favoured in at least 5 of 7 recipes, so a result carried by one or
+       two recipes does not ship;
+     - a cluster bootstrap over recipes (10,000 draws) 95% interval is reported, as a
+       descriptive measure of how much the result depends on which recipes are in the panel;
+     - the design effect is reported.
 5. **Decision rule for "ships".** All of the following:
    - a confirmation with a Holm-adjusted sign-test p < 0.05 and a win rate >= 65%;
    - the rule 4 clustering checks pass;
@@ -210,7 +216,8 @@ setting:
 
 ### S3. Register without losing the argument
 The open problem: limits-off gives real pushback in speeches, and numeric caps give chat
-length with no pushback. Each lever is one arm against the S2 winner, screened then confirmed:
+length with no pushback. Each lever is one arm compared head-to-head against the S2 winner
+(needs P5), screened then confirmed:
 
 | Arm | Lever | Predicted movement | Guard |
 |---|---|---|---|
@@ -253,12 +260,12 @@ EXPERIMENTS.md.
 
 | ID | Question | Model | Arms | N (screen / confirm) | Primary outcome | Decision rule | Status | Result | Cost |
 |---|---|---|---|---|---|---|---|---|---|
-| P | Lab prerequisites P0-P4 | - | - | - | - | tests pass, independent review | planned | - | - |
+| P | Lab prerequisites P0-P4 (before S0a); P5 (before S3) | - | - | - | - | tests pass, independent review | planned | - | - |
 | S0a | Is Opus 5.5 a valid judge? (gate) | Haiku, DeepSeek | V1-V4, V6, V7 + two 14-pair pilots | 28 pilot pairs | thresholds in 3.1 | all pass | planned | - | - |
 | S0b | Is the judge biased toward length? (running) | all | V5, ongoing V6 | every judged pair | 3.1 | 3.1 | planned | - | - |
 | S1 | Where are baseline and bundle in absolute terms? | all | both arms of every ab result | no API calls | section 4 metrics | descriptive | planned | - | $0 |
 | S2 | Which of the five changes matter? | Haiku | B + A1-A5 | 14 / 42 | win rate vs baseline | section 5.5, Holm | planned | - | - |
-| S3 | Can we keep pushback at chat length? | Haiku | R1-R4 | 14 / 42 | win rate vs S2 winner | section 5.5 | planned | - | - |
+| S3 | Can we keep pushback at chat length? | Haiku | R1-R4, head-to-head (P5) | 14 / 42 | win rate vs S2 winner | section 5.5 | planned | - | - |
 | S4 | Best config, full week | Haiku | chained | 14 per day / 42 per day that changes | win rate per day | screen; 5.5 per shipped day | planned | - | - |
 | S5-DS | Replication | DeepSeek v4.1 Flash | S1, S2 screen, S4 | as above | as above | as above | planned | - | - |
 | S5-GM | Replication | Gemini | as above | as above | as above | as above | future | - | - |
@@ -276,7 +283,7 @@ evidence that motivated this plan. They are not results under it.
 | Judge prefers its own model family | V7; a second-family judge subset if V7 fails |
 | Small N | two-stage design, exact sign test, stated minimum detectable effect; no "no effect" claims from screens |
 | 7 recipes are not every recipe | fixed testbed v3 for comparability; one out-of-sample live week before shipping (DIALS section 7) |
-| Correlated runs of the same recipe | cluster bootstrap over recipes, 5-of-7 recipe rule and design effect (5.4) are required to ship; per-recipe W/T/L reported |
+| Correlated runs of the same recipe | claims scoped to the fixed 7-recipe testbed, where runs are conditionally independent (5.4); 5-of-7 recipe rule required to ship; cluster bootstrap and design effect reported; per-recipe W/T/L reported |
 | Frozen prior days differ between models | per-day tests on a shared canonical history (5.6a) |
 | Provider drift or outage (the 09-29 OpenRouter 404 window) | served provider logged; whole-arm rerun policy (5.7) |
 | Model version drift | model ids and served provider logged; a changed snapshot is a new model |
@@ -284,20 +291,28 @@ evidence that motivated this plan. They are not results under it.
 
 ## 9. Budget
 
-| Block | Estimate |
-|---|---|
-| Prerequisites P0-P4 | engineering time, no API cost |
-| S0a (incl. two pilots) | $5-7 |
-| S1 | $0 |
-| S2 screen + confirm 2-3 arms | about $25 |
-| S3 screen + confirm 1-2 arms | about $20 |
-| S4 | about $10 |
-| S5-DS | about $12 |
-| **Program to S5-DS** | **about $75-80** |
-| S5-GM, S5-GPT | about $15-40 each, depending on tier |
+**Unit costs,** measured on 09-27 and 09-29 with the Opus 4.6 judge and scaled to Opus 5.5
+($4/$20 per M vs $5/$25):
+- a Haiku pair costs about $0.16 (both arms plus two judge orientations);
+- a DeepSeek pair costs about $0.07.
 
-The OpenRouter key has $32.81 left (09-29). That covers S0-S2. The rest needs a top-up before
-S3. `--max-cost` stays a runaway guard per run, not the budget.
+A head-to-head pair costs the same as a normal pair.
+
+| Block | Arithmetic | Estimate |
+|---|---|---|
+| Prerequisites P0-P5 | engineering time | no API cost |
+| S0a | Haiku pilot 14 x $0.16 + DeepSeek pilot 14 x $0.07 + smoke, calibrate and re-judge of 28 pairs (judge only) | about $6 |
+| S1 | offline | $0 |
+| S2 | screen A1-A5: 70 x $0.16 = $11; confirm B + 2-3 arms: 126-168 x $0.16 = $20-27 | $31-38 |
+| S3 | screen R1-R4: 56 x $0.16 = $9; confirm 1-2 arms: 42-84 x $0.16 = $7-13 | $16-22 |
+| S4 | screen 7 days x 14 = 98 x $0.16 = $16; confirm each changed day 42 x $0.16 = $6.70 (0-7 days; planning assumption 4) | $16-63, plan $43 |
+| S5-DS | S2 screen 84 x $0.07 = $6; S4 screen 98 x $0.07 = $7; 2-4 confirmations x 42 x $0.07 = $6-12 | $19-25 |
+| **Program to S5-DS** | | **$88-154; plan about $120** |
+| S5-GM, S5-GPT | same blocks as S5-DS at each model's price | estimated once their tier is chosen |
+
+The OpenRouter key has $32.81 left (09-29). That covers S0a and the S2 screen, with room for
+one S2 confirmation. A top-up is needed before the rest of S2. `--max-cost` stays a runaway
+guard per run, not the budget.
 
 ## 10. Decisions this plan needs from Erik
 
