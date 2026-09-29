@@ -45,20 +45,44 @@ The judge is a measuring instrument. It is held fixed for every study in this pl
 - **Production is not affected.** The live Sunday gate keeps its own judge. Moving production
   to Opus 5.5 is a separate decision.
 
-### 3.1 Instrument validation (Study S0), run before any other study
+### 3.1 Instrument validation (Study S0)
 
 A study result means nothing if the instrument has not been checked. Each check has a
-threshold fixed now, in advance.
+threshold fixed now, in advance. S0 has two parts.
+
+**S0a, the gate. Nothing else runs until it passes.** It includes two pilot screens: the
+limits-off bundle vs baseline, 14 pairs each on Haiku and on DeepSeek, both judged by Opus
+5.5. Those 28 pairs are the data for V4, V6 and V7, and the Haiku screen doubles as S2's
+screen of the reference arm B.
 
 | Check | How | Pass threshold |
 |---|---|---|
 | V1 Works | 5 smoke pairs; parseable verdicts, no empty output (Opus 5.5 may reason within the 4096 ceiling) | 10/10 orientations valid |
-| V2 Separates good from broken | `calibrate` (shuffled-order and rotated-speaker degradations) on 3 transcripts | real preferred >= 0.8 on both |
-| V3 Test-retest | re-judge the same 30 pairs a second time | same verdict on >= 80% |
-| V4 Position bias | share of orientation disagreements across V3 | <= 20% |
-| V5 Length bias | across all S0-S2 pairs, logistic regression of "judge picked A" on the difference in word count, and the human-agreement rate split by "the longer transcript won" vs not | reported; if human agreement on longer-won pairs is below 60%, the judge prompt gets a length-neutrality line (a new instrument) and V1-V6 repeat |
-| V6 Human agreement | Erik reads 30 pairs blind with `pairs --pick`, stratified across models and days | agreement >= 70% on non-tie pairs, with Cohen's kappa reported |
-| V7 Self-preference | V6 split by dialogue model (a Claude judge may favour Claude text) | agreement gap between models <= 15 points; otherwise add a second-family judge (GPT) on a 30-pair subset for every cross-model claim |
+| V2 Separates good from broken | `calibrate` (shuffled-order and rotated-speaker degradations) on 3 transcripts, judged by Opus 5.5 (needs P1) | real preferred >= 0.8 on both |
+| V3 Test-retest | re-judge the 28 pilot pairs a second time from the saved transcripts (needs P2) | same verdict on >= 80% |
+| V4 Position bias | share of pilot pairs whose two orientations disagree, computed from the saved `judge_orientations` | <= 20% |
+| V6 Human agreement | Erik reads the 28 pilot pairs blind with `pairs --pick` | agreement >= 70% on non-tie pairs, with Cohen's kappa reported |
+| V7 Self-preference | V6 split by dialogue model (a Claude judge may favour Claude text) | agreement gap between models <= 15 points; otherwise a second-family judge (GPT) is added on a 30-pair subset for every cross-model claim |
+
+**S0b, running checks. Re-evaluated before any confirmatory claim.**
+
+| Check | How | Threshold |
+|---|---|---|
+| V5 Length bias | across all judged pairs so far, logistic regression of "judge picked A" on the difference in word count; plus human agreement split by "the longer transcript won" vs not, from every blind-read batch | if human agreement on longer-won pairs is below 60%, the judge prompt gets a length-neutrality line (a new instrument), S0a repeats, and results judged under the old prompt are marked superseded |
+| V6 (ongoing) | Erik blind-reads a 10-pair sample of every confirmation | agreement >= 70% |
+
+### 3.2 Prerequisites (lab work before S0a)
+
+The lab as it stands cannot run all of this. The following is the minimum, kept as one PR:
+
+| ID | What | Why | Size |
+|---|---|---|---|
+| P0 | `scripts/lab_models.json` sets pairing each dialogue model with the Opus 5.5 judge | the instrument | data only |
+| P1 | `calibrate --models` | V2 with the Opus 5.5 judge; `calibrate` has no model-set option today | small |
+| P2 | a re-judge command: re-run the judge on a saved `ab` result without regenerating | V3 test-retest | small |
+| P3 | offline metrics script: `conversation_metrics` on both arms of every saved `ab` result, per recipe | S1 absolute benchmarks at zero API cost | analysis script |
+| P4 | a variant key that appends the scenario's `judge_recipe_facts` to the speakers' recipe context | R3; the variant mechanism changes simulator attributes, not scenario inputs | small |
+| P5 (optional) | head-to-head mode (a variant as the control arm) | S2's second question: does removing a change help (see S2, limitation) | medium; build only if S2 needs it |
 
 ## 4. Outcomes
 
@@ -70,9 +94,9 @@ decisive pairs.
 **Guard outcomes.** The ten judge dimensions. A variant fails if it loses any dimension in
 more than 50% of pairs (the PROTOCOL.md rule).
 
-**Absolute benchmarks.** Deterministic, from `scripts/conversation_metrics.py`, measured with
-`bench`. These are the "is it good yet" numbers, independent of the judge. The targets are
-DIALS.md section 3:
+**Absolute benchmarks.** Deterministic, from `scripts/conversation_metrics.py`, computed
+offline on both arms of every saved `ab` result (P3). These are the "is it good yet" numbers,
+independent of the judge. The targets are DIALS.md section 3:
 
 | Metric | Production today | Target | Too far when |
 |---|---|---|---|
@@ -99,18 +123,36 @@ DIALS.md section 3:
    - **Screen:** 14 pairs (7 recipes x 2 runs), labelled *exploratory*. Its only job is to
      decide what earns confirmation.
    - **Confirm:** 42 pairs (7 recipes x 6 runs). Only confirmed results can ship.
-   - Power (two-sided alpha 0.05, 80% power, decisive pairs): a true win rate of 0.75 needs
-     29 pairs, 0.70 needs 47, 0.65 needs 85. At about 25% ties, 42 pairs give about 31
-     decisive pairs. The exact sign test's power there is 0.77 at a true win rate of 0.75,
-     0.64 at 0.72 and 0.54 at 0.70. So confirmation reliably detects about 0.75 and up.
-     Smaller effects are out of reach at this budget, and the report must say so rather than
-     claim a null.
-4. **Multiple comparisons.** Within a study, Holm-Bonferroni across its arms on the primary
-   outcome.
-5. **Decision rule for "ships".** Confirmed win rate >= 65% with the Wilson lower bound
-   > 50%, no guard dimension lost > 50%, register benchmarks not worse than the reference, and
-   Erik's blind read agreeing (V6 standard). Then one live week and the DIALS.md section 7
-   dial-back check.
+   - Power (exact two-sided sign test, alpha 0.05, 80% power, counted in decisive pairs): a
+     true win rate of 0.75 needs 30 decisive pairs, 0.70 needs 49, 0.65 needs 90. At about
+     25% ties, 42 pairs give about 31 decisive pairs. Power there is 0.77 at a true win rate
+     of 0.75, 0.64 at 0.72 and 0.54 at 0.70. So confirmation reliably detects about 0.75 and
+     up. Smaller effects are out of reach at this budget, and the report must say so rather
+     than claim a null.
+   - These figures assume independent pairs. They are optimistic, because six runs of the
+     same recipe share inputs (rule 4).
+4. **Inference.**
+   - **Primary test:** exact two-sided sign test on decisive pairs, Holm-Bonferroni-adjusted
+     across the arms of the study.
+   - **Estimate:** win rate with a 95% Wilson interval, reported alongside and never used as
+     the test.
+   - **Recipe clustering (robustness, required to ship):**
+     - a cluster bootstrap over recipes (resample the 7 recipes with replacement, 10,000
+       draws) must give a 95% lower bound on the win rate above 0.5;
+     - the variant must be favoured in at least 5 of 7 recipes;
+     - the design effect estimated from the data is reported.
+   - A recipe-level sign test alone is too weak to be the primary test (6 of 7 recipes gives
+     p = 0.125).
+5. **Decision rule for "ships".** All of the following:
+   - a confirmation with a Holm-adjusted sign-test p < 0.05 and a win rate >= 65%;
+   - the rule 4 clustering checks pass;
+   - no guard dimension lost > 50%;
+   - register benchmarks not worse than the reference;
+   - Erik's blind read agreeing (V6 standard).
+
+   Then one live week and the DIALS.md section 7 dial-back check. (A Wilson lower bound above
+   50% is not enough on its own: 21 of 31 decisive pairs clears it at 50.1%, but the sign
+   test gives p = 0.071.)
 6. **Days.**
    - Monday is the primary test day, because it has no prior-day dependency.
    - Later days are tested two ways:
@@ -131,12 +173,15 @@ DIALS.md section 3:
 ## 6. Studies
 
 ### S0. Instrument validation
-Section 3.1. Reference model: Haiku. Estimated cost $4-6 plus about 1 hour of Erik's reading.
+Section 3.1. S0a runs after the prerequisites (3.2); S0b runs alongside every later study.
+Estimated cost: S0a $5-7, including the two pilot screens, plus about 1.5 hours of Erik's
+reading.
 
 ### S1. Absolute baseline
-`bench` Monday, 10 runs each, on (a) the production baseline and (b) the limits-off bundle.
-Produces the benchmark table in section 4 for both, so every later result can be read in
-absolute terms, not only as "beat baseline". Estimated cost $4.
+The section 4 benchmarks computed by P3 on both arms of every `ab` result, starting with the
+S0a pilots (baseline and bundle, Haiku and DeepSeek). Every later result is read in absolute
+terms, not only as "beat baseline". No API cost. `bench` is not used: it takes no variant or
+testbed and scores with the production judge, not the fixed lab instrument.
 
 ### S2. Ablation of the limits-off bundle (Erik, 09-29)
 The bundle is locked as the reference arm B. Each of five arms puts back one production
@@ -159,7 +204,8 @@ setting:
   does not have yet. That is a small lab change, carded if S2 needs it.
 - Model: Haiku first. It is production, and PROTOCOL.md 703-706 notes prompt sensitivity is
   model-specific.
-- Screen: 6 arms x 14 pairs. Confirm the arms that move.
+- Screen: A1-A5 at 14 pairs each. B's screen is the S0a Haiku pilot. Confirm B plus the arms
+  that move.
 - Estimated cost: screen about $12 on Haiku; confirmation about $6 per arm.
 
 ### S3. Register without losing the argument
@@ -170,7 +216,7 @@ length with no pushback. Each lever is one arm against the S2 winner, screened t
 |---|---|---|---|
 | R1 | non-numeric length guidance ("most turns a sentence or two; longer only when you are arguing a point") replacing the HARD LIMIT line (DIALS 2a, line 370) | mean words to 10-30, length_stdev up, pushback kept | arc_resolution, qa_rate |
 | R2 | turn floor = cast size + 1 on open-ended days | cast coverage up on Fri-Sun | turn_taking |
-| R3 | recipe visible to the characters (the W39 gap) | technical_credibility up | title_fidelity |
+| R3 | the speakers also see the scenario's `judge_recipe_facts`, the amounts and details the judge scores against. Testbed v3 already gives them the ingredient names and boundaries (PROTOCOL.md 247), so this is the rest of the W39 gap. Baseline arm unchanged; needs P4. | technical_credibility up | title_fidelity |
 | R4 | director scene-setting (#7679, RNG plus no-repeat log; Erik 09-27) | Fri-Sun natural_progression up | no-repeat check |
 
 The order is R1, R2, R3, R4. A lever that is not in this table needs its own registry row
@@ -178,8 +224,13 @@ before it runs.
 
 ### S4. End-to-end week
 The best confirmed configuration, run as Erik's chained week (Monday first, freeze, carry
-forward) on the fixed protocol. This is the result that decides what ships. Shipping chained
-days needs production to carry prior days forward (currently carded; cron_routes has none).
+forward) on the fixed protocol.
+- Each day is screened at 14 pairs. This is an end-to-end screen: it finds the days where the
+  configuration helps, hurts or does nothing.
+- A day only ships a non-baseline configuration after its own 42-pair confirmation under rule
+  5 (5.5). Days that don't confirm keep baseline.
+- Shipping chained days needs production to carry prior days forward (currently carded;
+  cron_routes has none).
 
 ### S5. Model replication
 S1, S2 (screen) and S4, repeated per dialogue model, same instrument, same testbed:
@@ -202,11 +253,13 @@ EXPERIMENTS.md.
 
 | ID | Question | Model | Arms | N (screen / confirm) | Primary outcome | Decision rule | Status | Result | Cost |
 |---|---|---|---|---|---|---|---|---|---|
-| S0 | Is Opus 5.5 a valid judge? | Haiku, DeepSeek | V1-V7 | see 3.1 | thresholds in 3.1 | all pass | planned | - | - |
-| S1 | Where are baseline and bundle in absolute terms? | Haiku | 2 | 10 runs each | section 4 metrics | descriptive | planned | - | - |
+| P | Lab prerequisites P0-P4 | - | - | - | - | tests pass, independent review | planned | - | - |
+| S0a | Is Opus 5.5 a valid judge? (gate) | Haiku, DeepSeek | V1-V4, V6, V7 + two 14-pair pilots | 28 pilot pairs | thresholds in 3.1 | all pass | planned | - | - |
+| S0b | Is the judge biased toward length? (running) | all | V5, ongoing V6 | every judged pair | 3.1 | 3.1 | planned | - | - |
+| S1 | Where are baseline and bundle in absolute terms? | all | both arms of every ab result | no API calls | section 4 metrics | descriptive | planned | - | $0 |
 | S2 | Which of the five changes matter? | Haiku | B + A1-A5 | 14 / 42 | win rate vs baseline | section 5.5, Holm | planned | - | - |
 | S3 | Can we keep pushback at chat length? | Haiku | R1-R4 | 14 / 42 | win rate vs S2 winner | section 5.5 | planned | - | - |
-| S4 | Best config, full week | Haiku | chained | 14 per day | win rate per day | section 5.5 per day | planned | - | - |
+| S4 | Best config, full week | Haiku | chained | 14 per day / 42 per day that changes | win rate per day | screen; 5.5 per shipped day | planned | - | - |
 | S5-DS | Replication | DeepSeek v4.1 Flash | S1, S2 screen, S4 | as above | as above | as above | planned | - | - |
 | S5-GM | Replication | Gemini | as above | as above | as above | as above | future | - | - |
 | S5-GPT | Replication | GPT | as above | as above | as above | as above | future | - | - |
@@ -221,9 +274,9 @@ evidence that motivated this plan. They are not results under it.
 |---|---|
 | Judge prefers length | V5; length-matched reads in V6; register benchmarks as guards |
 | Judge prefers its own model family | V7; a second-family judge subset if V7 fails |
-| Small N | two-stage design, Wilson intervals, stated minimum detectable effect; no "no effect" claims from screens |
+| Small N | two-stage design, exact sign test, stated minimum detectable effect; no "no effect" claims from screens |
 | 7 recipes are not every recipe | fixed testbed v3 for comparability; one out-of-sample live week before shipping (DIALS section 7) |
-| Correlated runs of the same recipe | report per-recipe W/T/L; a result carried by one recipe is flagged |
+| Correlated runs of the same recipe | cluster bootstrap over recipes, 5-of-7 recipe rule and design effect (5.4) are required to ship; per-recipe W/T/L reported |
 | Frozen prior days differ between models | per-day tests on a shared canonical history (5.6a) |
 | Provider drift or outage (the 09-29 OpenRouter 404 window) | served provider logged; whole-arm rerun policy (5.7) |
 | Model version drift | model ids and served provider logged; a changed snapshot is a new model |
@@ -233,8 +286,9 @@ evidence that motivated this plan. They are not results under it.
 
 | Block | Estimate |
 |---|---|
-| S0 | $4-6 |
-| S1 | about $4 |
+| Prerequisites P0-P4 | engineering time, no API cost |
+| S0a (incl. two pilots) | $5-7 |
+| S1 | $0 |
 | S2 screen + confirm 2-3 arms | about $25 |
 | S3 screen + confirm 1-2 arms | about $20 |
 | S4 | about $10 |
@@ -248,6 +302,7 @@ S3. `--max-cost` stays a runaway guard per run, not the budget.
 ## 10. Decisions this plan needs from Erik
 
 1. Approve Opus 5.5 as the fixed lab judge (section 3). Production's gate is unchanged.
+   This includes the prerequisite lab work (3.2): one small PR before S0a can run.
 2. Approve the two-stage N (14 screen / 42 confirm) and the ship rule in 5.5.
 3. The top-up timing for S3 onward.
 4. For S5: like-for-like tier as the primary cross-model comparison.
