@@ -319,5 +319,6 @@ guard per run, not the budget.
 1. Approve Opus 5.5 as the fixed lab judge (section 3). Production's gate is unchanged.
    This includes the prerequisite lab work (3.2): one small PR before S0a can run.
 2. Approve the two-stage N (14 screen / 42 confirm) and the ship rule in 5.5.
-3. The top-up timing for S3 onward.
+3. A top-up of about $90 (plan total about $120 against the $32.81 left), needed before the
+   S2 confirmations beyond the first.
 4. For S5: like-for-like tier as the primary cross-model comparison.
