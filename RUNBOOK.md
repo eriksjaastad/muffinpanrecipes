@@ -369,7 +369,7 @@ First confirm the episode is already published in Vercel Blob. This reads the ep
 ```bash
 cd "$HOME/projects/muffinpanrecipes"
 WEEK=2026-W20 doppler run --project muffinpanrecipes --config prd -- \
-  uv run python -c 'import os; from backend.storage import storage; ep = storage.load_episode(os.environ["WEEK"]) or {}; print("episode:", os.environ["WEEK"]); print("published_at_present:", bool(ep.get("published_at"))); print("sunday_status:", ep.get("stages", {}).get("sunday", {}).get("status")); print("events_tail:", ep.get("events", [])[-5:])'
+  uv run python -c 'import os; from backend.storage import storage; ep = storage.load_episode(os.environ["WEEK"]) or {}; print("episode:", os.environ["WEEK"]); print("published_at_present:", bool(ep.get("published_at"))); print("sunday_status:", ep.get("stages", {}).get("sunday", {}).get("status")); print("events_tail:", ep.get("events", [])[-5:]); print("static_deploy.status:", ep.get("static_deploy", {}).get("status")); print("judge_advisory.sunday.announce_pending:", ep.get("judge_advisory", {}).get("sunday", {}).get("announce_pending"))'
 ```
 
 Expected:
