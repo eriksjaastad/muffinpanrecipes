@@ -432,6 +432,36 @@ class TestCloudBackendImageSiblings:
         assert result == "https://cdn.example.com/images/recipe/hero.png"
 
 
+class TestCanonicalPngKey:
+    """_canonical_png_key strips Vercel's legacy random-hash suffix (#7185 review).
+
+    The single shared function _webp_variant_key, _jpeg_fallback_key, and
+    episode_renderer's URL rewriters all route through, so a historical
+    suffixed PNG can never make the probe and the rendered URL disagree.
+    """
+
+    def test_strips_suffix(self):
+        from backend.storage import _canonical_png_key
+
+        assert _canonical_png_key("images/abc-9VSOT4SGhaUDoAUDM3kZPqxd3.png") == (
+            "images/abc.png"
+        )
+
+    def test_clean_key_is_a_no_op(self):
+        from backend.storage import _canonical_png_key
+
+        assert _canonical_png_key("images/recipe/hero.png") == "images/recipe/hero.png"
+
+    def test_short_hyphenated_segment_is_not_mistaken_for_a_suffix(self):
+        """A real deterministic key can contain short hyphenated segments
+        (recipe slugs, round-N variants) — only a 20+ char hash must strip."""
+        from backend.storage import _canonical_png_key
+
+        assert _canonical_png_key("images/2068c0cc/round_1/hero-closeup.png") == (
+            "images/2068c0cc/round_1/hero-closeup.png"
+        )
+
+
 class TestWebpVariantKey:
     """Deterministic width-variant key naming (#6755)."""
 
@@ -450,6 +480,17 @@ class TestWebpVariantKey:
 
         with pytest.raises(ValueError):
             _webp_variant_key("images/recipe/hero.webp", 400)
+
+    def test_strips_vercel_random_suffix_before_building_the_variant_key(self):
+        """#7185 review, HIGH: a historical suffixed PNG key must resolve to
+        the SAME variant key the renderer's stripped URL rewrite expects —
+        otherwise a backfilled/probed variant lives at a key the page never
+        points at."""
+        from backend.storage import _webp_variant_key
+
+        assert _webp_variant_key(
+            "images/abc-9VSOT4SGhaUDoAUDM3kZPqxd3.png", 400
+        ) == "images/abc-400w.webp"
 
 
 class TestEncodeWebpVariant:
@@ -589,6 +630,19 @@ class TestJpegFallbackKey:
             "images/recipe/hero.png"
         )
 
+    def test_strips_vercel_random_suffix_before_building_the_fallback_key(self):
+        """#7185 review, HIGH: for a historical suffixed PNG, the key this
+        function returns is what the uploader, the backfill script, AND the
+        renderer's existence probe all use — it must be the canonical
+        (stripped) key, matching episode_renderer._to_jpeg_fallback_url's
+        rendered URL, or a backfilled sibling lives at a key nothing ever
+        requests."""
+        from backend.storage import JPEG_FALLBACK_WIDTH, _jpeg_fallback_key
+
+        assert _jpeg_fallback_key("images/abc-9VSOT4SGhaUDoAUDM3kZPqxd3.png") == (
+            f"images/abc-{JPEG_FALLBACK_WIDTH}w.jpg"
+        )
+
 
 class TestEncodeJpegFallback:
     """_encode_jpeg_fallback resizing (#7185)."""
@@ -647,6 +701,26 @@ class TestCloudBackendJpegFallbackAvailable:
             f"images/recipe/hero-{JPEG_FALLBACK_WIDTH}w.jpg"
         )
         assert "headers" not in mock_head.call_args_list[0].kwargs, "public probe must not send the token"
+
+    def test_suffixed_historical_key_probes_the_canonical_sibling(self, cloud_backend):
+        """#7185 review, HIGH: a pre-#5251 PNG's lookup key still carries
+        Vercel's random-hash suffix (episode_renderer._variant_lookup_key
+        never strips it) — the probe must still check the canonical
+        (stripped) sibling key, the same one _to_jpeg_fallback_url renders,
+        not a suffixed key nothing ever uploads to."""
+        from backend.storage import JPEG_FALLBACK_WIDTH
+
+        response = MagicMock()
+        response.status_code = 200
+        with patch("requests.head", return_value=response) as mock_head:
+            assert cloud_backend.jpeg_fallback_available(
+                "recipe/hero-9VSOT4SGhaUDoAUDM3kZPqxd3.png"
+            ) is True
+
+        assert mock_head.call_args_list[0].args[0] == (
+            "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/"
+            f"images/recipe/hero-{JPEG_FALLBACK_WIDTH}w.jpg"
+        )
 
     def test_false_when_fallback_blob_missing(self, cloud_backend):
         response = MagicMock()

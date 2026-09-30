@@ -25,6 +25,8 @@ from backend.storage import (
     JPEG_FALLBACK_WIDTH,
     SOCIAL_IMAGE_SUFFIX,
     WEBP_VARIANT_WIDTHS,
+    _canonical_png_key,
+    _jpeg_fallback_key,
     storage,
 )
 from backend.utils.logging import get_logger
@@ -86,10 +88,39 @@ def _image_dimensions(image_url: str) -> tuple[int, int]:
     return _GENERATED_IMAGE_DIMENSIONS
 
 
+def _format_dimension_attrs(width: int, height: int) -> str:
+    """Format a pixel size as ``width``/``height`` attributes for an ``img``."""
+    return f'width="{width}" height="{height}"'
+
+
 def _intrinsic_image_attributes(image_url: str) -> str:
     """Format true pixel dimensions for an ``img`` element."""
     width, height = _image_dimensions(image_url)
-    return f'width="{width}" height="{height}"'
+    return _format_dimension_attrs(width, height)
+
+
+def _jpeg_fallback_dimensions(png_url: str) -> tuple[int, int]:
+    """Real pixel dimensions of the sized JPEG <img>-fallback sibling (#7185 review).
+
+    storage._encode_jpeg_fallback resizes to JPEG_FALLBACK_WIDTH, aspect
+    ratio preserved from the source PNG (same LANCZOS width-only resize as
+    the WebP width variants) — it never inherits the source's own
+    dimensions. _image_dimensions(image_url) on the JPEG's own URL would
+    still report the source PNG's intrinsic size (1536x1536 for generated
+    photography, since dimensions are keyed by path shape, not by decoding
+    the actual sibling), so an <img> pointed at the 1200w JPEG must compute
+    its width/height from the SOURCE's aspect ratio scaled to the fallback
+    width, not reuse the source's raw dimensions. A wrong width/height here
+    reserves the wrong aspect ratio and the image jumps on load — a real
+    layout-shift regression, not just an inaccurate attribute (MEDIUM
+    finding on #7185).
+    """
+    orig_width, orig_height = _image_dimensions(png_url)
+    if orig_width <= 0:
+        return (JPEG_FALLBACK_WIDTH, JPEG_FALLBACK_WIDTH)
+    height = max(1, round(orig_height * (JPEG_FALLBACK_WIDTH / orig_width)))
+    return (JPEG_FALLBACK_WIDTH, height)
+
 
 def _step_name(text: str, index: int) -> str:
     """Concise label for a recipe HowToStep.
@@ -128,10 +159,12 @@ def _to_webp_url(image_url: str) -> str:
         path, sep, tail = image_url.partition("#")
     if not path.lower().endswith(".png"):
         return image_url
-    # Drop Vercel's random-hash suffix if present (historical uploads
-    # before the deterministic-pathname fix still have it). Deterministic
-    # uploads land at the clean base name and the regex simply no-ops.
-    stripped = _VERCEL_RANDOM_SUFFIX_RE.sub(".png", path)
+    # storage._canonical_png_key drops Vercel's random-hash suffix if present
+    # (historical uploads before the deterministic-pathname fix still have
+    # it; deterministic uploads land at the clean base name and this no-ops)
+    # — the SAME function storage._webp_variant_key uses, so the full-size
+    # sibling and the width-limited variants never disagree about the key.
+    stripped = _canonical_png_key(path)
     webp_path = stripped[:-4] + ".webp"
     return webp_path + (sep + tail if sep else "")
 
@@ -179,10 +212,16 @@ def _variants_available(png_url: str, variant_cache: dict[str, bool] | None = No
 def _to_jpeg_fallback_url(image_url: str) -> str:
     """Return the sized-JPEG fallback sibling URL for a PNG image URL (#7185).
 
-    Mirrors _to_webp_url: same deterministic-pathname contract and same
-    Vercel-random-suffix stripping, but the '<stem>-{width}w.jpg' naming from
-    storage._jpeg_fallback_key. A non-PNG URL (already a WebP/JPEG sibling,
-    or a seed asset) passes through unchanged.
+    Delegates the key computation to storage._jpeg_fallback_key — the SAME
+    function the uploader (_upload_jpeg_fallback), the backfill script, and
+    the existence probe (_jpeg_fallback_available -> storage.
+    jpeg_fallback_available) all call — rather than re-deriving the naming
+    convention here. Before this, the probe checked an unstripped (suffixed)
+    key while this function stripped the Vercel random-suffix independently;
+    a historical PNG could pass the probe and still 404 in the browser
+    (review finding on #7185). Routing all four through one function makes
+    that impossible by construction. A non-PNG URL (already a WebP/JPEG
+    sibling, or a seed asset) passes through unchanged.
     """
     if not image_url:
         return image_url
@@ -191,8 +230,7 @@ def _to_jpeg_fallback_url(image_url: str) -> str:
         path, sep, tail = image_url.partition("#")
     if not path.lower().endswith(".png"):
         return image_url
-    stripped = _VERCEL_RANDOM_SUFFIX_RE.sub(".png", path)
-    jpeg_path = stripped[:-4] + f"-{JPEG_FALLBACK_WIDTH}w.jpg"
+    jpeg_path = _jpeg_fallback_key(path)
     return jpeg_path + (sep + tail if sep else "")
 
 
@@ -713,13 +751,21 @@ def render_episode_page(
     # images remain lazy in _render_chat_message.
     if has_image:
         fallback_url = image_url
-        if _jpeg_fallback_available(image_url, variant_cache):
+        using_jpeg_fallback = _jpeg_fallback_available(image_url, variant_cache)
+        if using_jpeg_fallback:
             fallback_url = _to_jpeg_fallback_url(image_url)
         escaped_fallback = html.escape(fallback_url)
+        # The JPEG fallback is a real 1200w-wide resize of the source, not a
+        # copy of its dimensions (#7185 review) — width/height must reflect
+        # the sibling's own pixels or the reserved aspect ratio is wrong.
+        dimensions = (
+            _format_dimension_attrs(*_jpeg_fallback_dimensions(image_url))
+            if using_jpeg_fallback
+            else _intrinsic_image_attributes(fallback_url)
+        )
         webp_srcset = _to_webp_srcset(image_url, variant_cache)
         if webp_srcset and webp_srcset != image_url:
             escaped_webp = html.escape(webp_srcset)
-            dimensions = _intrinsic_image_attributes(fallback_url)
             # Hero fills .site-main (max-width 768px, 1.5rem side padding —
             # site.css) at every viewport, so sizes mirrors that container.
             image_block = (
@@ -732,7 +778,6 @@ def render_episode_page(
                 f'</picture>'
             )
         else:
-            dimensions = _intrinsic_image_attributes(fallback_url)
             image_block = (
                 f'<img src="{escaped_fallback}" '
                 f'{dimensions} loading="eager" fetchpriority="high" decoding="async" '

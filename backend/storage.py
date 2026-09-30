@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, Optional
@@ -70,6 +71,27 @@ JPEG_FALLBACK_WIDTH: int = 1200
 # presence probe. Same host the catalog and title readers hardcode.
 BLOB_PUBLIC_BASE = "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com"
 
+# Historical uploads from before the deterministic-pathname fix (#5251) landed
+# at Vercel's auto-appended `<stem>-<20+ char hash>.png`, while every sibling
+# (WebP, JPEG fallback) is always keyed off the clean `<stem>.png` identity.
+_VERCEL_RANDOM_SUFFIX_RE = re.compile(r"-[A-Za-z0-9]{20,}\.png$", re.IGNORECASE)
+
+
+def _canonical_png_key(png_key: str) -> str:
+    """Strip Vercel's legacy random-hash suffix from a PNG path or key (#7185 review).
+
+    The ONE place that decides what "clean" means for a PNG identity, so
+    every sibling-key builder below (and episode_renderer's URL rewriters,
+    which import this) always agree on the same key for the same photo —
+    whether the caller is the upload path (already clean, x-add-random-
+    suffix=0), a backfill script walking historical episode JSON (which can
+    still carry the suffix), or the renderer's own existence probe. Before
+    this was centralized, the probe (unstripped) and the rendered <img> src
+    (stripped) could disagree about which JPEG-fallback key existed —
+    HIGH-severity review finding on #7185.
+    """
+    return _VERCEL_RANDOM_SUFFIX_RE.sub(".png", png_key)
+
 
 def _social_jpeg_key(png_key: str) -> str:
     """Return the deterministic social-image sibling key for a PNG key."""
@@ -85,11 +107,15 @@ def _webp_variant_key(png_key: str, width: int) -> str:
     suffix (#6755) so the renderer can construct srcset URLs by string
     rewrite alone — same deterministic-pathname contract as #5251
     (x-add-random-suffix=0 / x-allow-overwrite=1, see the comment at
-    save_image's headers below).
+    save_image's headers below). Canonicalizes the input first (#7185
+    review) so a historical suffixed png_key (e.g. from the backfill script
+    walking old episode JSON) still lands on the same key the renderer's
+    stripped rewrite expects.
     """
     if not png_key.lower().endswith(".png"):
         raise ValueError(f"WebP variants require a PNG key: {png_key!r}")
-    return f"{png_key[:-4]}-{width}w.webp"
+    canonical = _canonical_png_key(png_key)
+    return f"{canonical[:-4]}-{width}w.webp"
 
 
 def _jpeg_fallback_key(png_key: str) -> str:
@@ -100,10 +126,17 @@ def _jpeg_fallback_key(png_key: str) -> str:
     same resize semantics as the WebP width variants above — so it is a
     faithful, smaller stand-in for the full photo, suitable as the <picture>
     <img> fallback. Mirrors _webp_variant_key's naming: '<stem>-{width}w.jpg'.
+    Canonicalizes the input first — this is the single function the uploader
+    (_upload_jpeg_fallback), the backfill script, the renderer's existence
+    probe (via jpeg_fallback_available), AND the renderer's rendered URL
+    (episode_renderer._to_jpeg_fallback_url calls this directly) all share,
+    so none of the four can ever disagree about the key for a suffixed
+    historical PNG (review finding on #7185).
     """
     if not png_key.lower().endswith(".png"):
         raise ValueError(f"JPEG fallback variant requires a PNG key: {png_key!r}")
-    return f"{png_key[:-4]}-{JPEG_FALLBACK_WIDTH}w.jpg"
+    canonical = _canonical_png_key(png_key)
+    return f"{canonical[:-4]}-{JPEG_FALLBACK_WIDTH}w.jpg"
 
 
 def _encode_webp(png_bytes: bytes, width: int | None = None) -> bytes:

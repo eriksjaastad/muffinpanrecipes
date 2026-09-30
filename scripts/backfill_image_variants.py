@@ -212,6 +212,26 @@ def collect_published_png_keys(token: str) -> list[str]:
         if featured.lower().endswith(".png"):
             keys.add(featured.removeprefix("src/").removeprefix("assets/").lstrip("/"))
 
+        # A PINNED hero (#7185 review finding 3) takes priority over BOTH of
+        # the above in episode_renderer._hero_image_url — it is checked
+        # FIRST, before confirmed_winner or image_urls[0] — written by
+        # scripts/pin_published_heroes.py and the Sunday cron as a full CDN
+        # URL (same shape as image_urls). A pin can name a photo that
+        # differs from confirmed_winner/image_urls entirely (that is the
+        # whole point of pinning a page's hero once it is published), so it
+        # must be walked explicitly rather than assumed to already be
+        # covered by the two collections above.
+        hero_url = str(episode.get("hero_image_url") or "").strip()
+        if hero_url:
+            hero_key = _blob_key_from_url(hero_url)
+            if hero_key.lower().endswith(".png"):
+                keys.add(hero_key)
+            elif hero_url.lower().endswith(".png"):
+                # Defensive: same repo-relative normalization as
+                # confirmed_winner.featured_image above, in case hero_image_url
+                # is ever set to a raw path instead of a resolved CDN URL.
+                keys.add(hero_url.removeprefix("src/").removeprefix("assets/").lstrip("/"))
+
     return sorted(keys)
 
 

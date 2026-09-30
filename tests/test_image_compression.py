@@ -472,6 +472,18 @@ class TestToJpegFallbackUrl:
         url = "images/20d49356-9VSOT4SGhaUDoAUDM3kZPqxd3Hpeyu.png"
         assert _to_jpeg_fallback_url(url) == "images/20d49356-1200w.jpg"
 
+    def test_delegates_to_storage_jpeg_fallback_key(self):
+        """#7185 review, HIGH: this must call storage._jpeg_fallback_key
+        directly rather than re-deriving the naming convention locally —
+        that is the ONE function the uploader, the backfill script, and the
+        existence probe all also call, so all four can never disagree."""
+        from backend.publishing.episode_renderer import _to_jpeg_fallback_url
+        from backend.storage import _jpeg_fallback_key
+
+        assert _to_jpeg_fallback_url("/blob-images/abc/hero.png") == (
+            "/blob-images/" + _jpeg_fallback_key("abc/hero.png")
+        )
+
 
 class TestJpegFallbackAvailable:
     """_jpeg_fallback_available (#7185): gates the <img> fallback rewrite on
@@ -532,6 +544,35 @@ class TestJpegFallbackAvailable:
         mock_jpeg.assert_called_once()
         mock_webp.assert_called_once()
 
+    def test_probe_and_rendered_url_agree_for_a_suffixed_historical_png(self):
+        """#7185 review, HIGH, the core regression test: for a pre-#5251 PNG
+        whose URL still carries Vercel's random-hash suffix,
+        _variant_lookup_key does NOT strip it — so whatever key the probe
+        ends up checking in storage must still name the SAME sibling
+        _to_jpeg_fallback_url renders, or a page can point <img> at a JPEG
+        that was never uploaded (storage checked a different, suffixed key
+        and reported it as available)."""
+        from backend.publishing.episode_renderer import (
+            _to_jpeg_fallback_url,
+            _variant_lookup_key,
+        )
+        from backend.storage import _jpeg_fallback_key
+
+        suffixed_url = "/blob-images/recipe/hero-9VSOT4SGhaUDoAUDM3kZPqxd3.png"
+
+        # What _jpeg_fallback_available actually asks storage to check.
+        lookup_key = _variant_lookup_key(suffixed_url)
+        probed_variant_key = _jpeg_fallback_key(f"images/{lookup_key}")
+
+        # What the rendered <img src> actually becomes.
+        rendered_url = _to_jpeg_fallback_url(suffixed_url)
+
+        assert probed_variant_key == "images/recipe/hero-1200w.jpg"
+        assert rendered_url == "/blob-images/recipe/hero-1200w.jpg"
+        assert probed_variant_key.removeprefix("images/") == rendered_url.removeprefix(
+            "/blob-images/"
+        ), "probe and rendered URL must name the identical sibling"
+
 
 class TestHeroJpegFallback:
     """End-to-end: render_episode_page's hero <img> fallback (#7185)."""
@@ -580,6 +621,95 @@ class TestHeroJpegFallback:
 
         assert 'src="/blob-images/foo/hero.png"' in html
         assert "-1200w.jpg" not in html
+
+    def test_img_dimensions_reflect_the_jpeg_siblings_real_size_not_the_source(self):
+        """#7185 review, MEDIUM: the source is treated as 1536x1536 (the
+        generated-photography default), but the JPEG sibling is 1200 wide —
+        width/height must say 1200x1200, not the source's 1536x1536, or the
+        browser reserves the wrong box and the image jumps on load."""
+        from backend.publishing import episode_renderer
+
+        with patch.object(
+            episode_renderer.storage, "jpeg_fallback_available", return_value=True
+        ):
+            html = episode_renderer.render_episode_page(
+                self._episode(), image_url="/blob-images/foo/hero.png",
+            )
+
+        assert 'src="/blob-images/foo/hero-1200w.jpg" width="1200" height="1200"' in html
+        assert 'width="1536"' not in html
+
+    def test_suffixed_historical_hero_gets_a_working_jpeg_fallback(self):
+        """End-to-end version of the probe/render agreement regression test:
+        a pre-#5251 hero URL with a random suffix must still resolve to a
+        JPEG sibling URL that storage was actually asked (and confirmed) to
+        exist."""
+        from backend.publishing import episode_renderer
+
+        ep = self._episode()
+        ep["image_urls"] = [
+            "https://example.com/images/foo/hero-9VSOT4SGhaUDoAUDM3kZPqxd3.png"
+        ]
+        checked_keys = []
+
+        def _fake_available(image_key):
+            checked_keys.append(image_key)
+            return True
+
+        with patch.object(
+            episode_renderer.storage,
+            "jpeg_fallback_available",
+            side_effect=_fake_available,
+        ):
+            html = episode_renderer.render_episode_page(
+                ep, image_url="/blob-images/foo/hero-9VSOT4SGhaUDoAUDM3kZPqxd3.png",
+            )
+
+        assert 'src="/blob-images/foo/hero-1200w.jpg"' in html
+        # The probe was asked about the suffixed identity; storage's own
+        # _jpeg_fallback_key canonicalizes it to the same key the rendered
+        # URL uses (verified directly in TestJpegFallbackAvailable above).
+        assert checked_keys == ["foo/hero-9VSOT4SGhaUDoAUDM3kZPqxd3.png"]
+
+
+class TestJpegFallbackDimensions:
+    """_jpeg_fallback_dimensions (#7185 review, MEDIUM) — real pixel size of
+    the sized JPEG sibling, derived from the source's aspect ratio."""
+
+    def test_square_source_scales_to_fallback_width(self):
+        from backend.publishing.episode_renderer import (
+            JPEG_FALLBACK_WIDTH,
+            _jpeg_fallback_dimensions,
+        )
+
+        assert _jpeg_fallback_dimensions("/blob-images/abc/hero.png") == (
+            JPEG_FALLBACK_WIDTH,
+            JPEG_FALLBACK_WIDTH,
+        )
+
+    def test_non_square_source_aspect_ratio_preserved(self):
+        from backend.publishing.episode_renderer import _jpeg_fallback_dimensions
+
+        with patch(
+            "backend.publishing.episode_renderer._image_dimensions",
+            return_value=(1600, 800),
+        ):
+            assert _jpeg_fallback_dimensions("/blob-images/abc/hero.png") == (1200, 600)
+
+    def test_zero_width_source_falls_back_to_a_square(self):
+        from backend.publishing.episode_renderer import (
+            JPEG_FALLBACK_WIDTH,
+            _jpeg_fallback_dimensions,
+        )
+
+        with patch(
+            "backend.publishing.episode_renderer._image_dimensions",
+            return_value=(0, 500),
+        ):
+            assert _jpeg_fallback_dimensions("/blob-images/abc/hero.png") == (
+                JPEG_FALLBACK_WIDTH,
+                JPEG_FALLBACK_WIDTH,
+            )
 
 
 class TestGallerySrcsetWithVariantsAvailable:
@@ -802,6 +932,48 @@ def test_backfill_collects_the_confirmed_winner_hero_key():
         keys = backfill.collect_published_png_keys("fake-token")
 
     assert keys == ["images/2068c0cc.png", "images/2068c0cc/round_1/macro_closeup.png"]
+
+
+def test_backfill_collects_a_pinned_hero_that_differs_from_winner_and_image_urls():
+    """#7185 review finding 3: episode_renderer._hero_image_url checks
+    hero_image_url FIRST, before confirmed_winner or image_urls[0] — a
+    pinned hero (scripts/pin_published_heroes.py, or the Sunday cron) can
+    name a completely different photo than either of those, so a backfill
+    that only walks image_urls/confirmed_winner misses the actual rendered
+    hero entirely."""
+    import scripts.backfill_image_variants as backfill
+
+    catalog = {"recipes": [{"slug": "spanakopita-phyllo-cups", "episode_id": "2026-W28"}]}
+    episode = {
+        "hero_image_url": (
+            "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/"
+            "images/2068c0cc/round_1/hero_threequarter.png"
+        ),
+        "image_urls": [
+            "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/images/2068c0cc/round_1/macro_closeup.png",
+        ],
+        "stages": {
+            "wednesday": {
+                "image_urls": [],
+                "confirmed_winner": {
+                    "featured_image": "src/assets/images/2068c0cc.png",
+                },
+            }
+        },
+    }
+
+    def fake_fetch(_token, pathname):
+        return catalog if pathname == "pages/recipes.json" else episode
+
+    with patch("scripts.backfill_image_variants.fetch_json_blob", side_effect=fake_fetch), \
+         patch("scripts.backfill_image_variants.list_blobs", return_value=[]):
+        keys = backfill.collect_published_png_keys("fake-token")
+
+    assert keys == [
+        "images/2068c0cc.png",
+        "images/2068c0cc/round_1/hero_threequarter.png",
+        "images/2068c0cc/round_1/macro_closeup.png",
+    ]
 
 
 def test_backfill_walks_published_episodes_the_catalog_does_not_name():
