@@ -21,13 +21,24 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from backend.publishing.analytics import GA4_TAG
 from backend.publishing.static_renderer import render_recipes_index, render_sitemap
 from backend.storage import storage
-from backend.utils.episode_integrity import current_episode_id, episode_page_is_due
+from backend.utils.episode_integrity import (
+    current_episode_id,
+    episode_page_is_due,
+    sunday_window_closed,
+    week_off_note_due,
+)
 from backend.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
 # Two routers: one for the public page, one for the API
 router = APIRouter(tags=["episodes"])
+
+# Homepage-only, in-character note for a week that never published (#7630).
+# Never a standalone page and never a new route — see week_off_note_due for
+# exactly when this fires. Message text lives here (presentation), not in
+# episode_integrity (pure logic, no strings meant for readers).
+WEEK_OFF_MESSAGE = "The kitchen took the week off — back next Sunday."
 
 
 @router.get("/this-week")
@@ -98,7 +109,29 @@ async def get_episode_teaser():
     here at read time. This is the authoritative check — keeping it
     on the read side means a code deploy is enough to fix prod even
     if a stale `pages/latest.json` blob still says `stage: sunday`.
+
+    Before any of that: once this ISO week's Sunday cron window has closed,
+    check whether it ever published (#7630). If not, the homepage owes a
+    "kitchen took the week off" note instead of whatever `pages/latest.json`
+    still holds — a stale mid-week teaser from a stalled week, or nothing at
+    all — because neither of those tells a reader "no recipe this week".
+    `sunday_window_closed()` is a pure time check with no I/O, so the extra
+    Blob read for the episode only happens in the one window a week it can
+    matter, not on every homepage view.
     """
+    episode_id = current_episode_id()
+    if sunday_window_closed():
+        episode = storage.load_episode(episode_id)
+        if week_off_note_due(episode):
+            return JSONResponse(
+                content={
+                    "status": "week_off",
+                    "episode_id": episode_id,
+                    "message": WEEK_OFF_MESSAGE,
+                },
+                status_code=200,
+            )
+
     teaser_json = storage.load_page("pages/latest.json")
     if teaser_json:
         try:

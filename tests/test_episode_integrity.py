@@ -25,6 +25,8 @@ from backend.utils.episode_integrity import (
     parse_episode_id,
     stage_deadline,
     stages_due,
+    sunday_window_closed,
+    week_off_note_due,
 )
 
 # Saturday 2026-09-05, 17:00 UTC — the moment the W36 duplicate was found by
@@ -315,6 +317,53 @@ def test_episode_page_is_due(episode, expected):
 def test_episode_page_is_due_never_raises_on_junk(episode):
     """It reads blob JSON that a failed write can leave in any shape."""
     assert episode_page_is_due(episode) is False
+
+
+# ---------------------------------------------------------------------------
+# week_off_note_due — the homepage "kitchen took the week off" note (#7630)
+# ---------------------------------------------------------------------------
+
+# W36's Sunday cron fires 2026-09-06 00:00 UTC; STAGE_GRACE_MINUTES is 45.
+SUNDAY_W36_INSIDE_GRACE = datetime(2026, 9, 6, 0, 30, tzinfo=timezone.utc)
+SUNDAY_W36_WINDOW_CLOSED = datetime(2026, 9, 6, 1, 0, tzinfo=timezone.utc)
+
+
+def test_sunday_window_closed_false_mid_week() -> None:
+    assert sunday_window_closed(now=SATURDAY_W36) is False
+
+
+def test_sunday_window_closed_false_inside_the_grace_period() -> None:
+    assert sunday_window_closed(now=SUNDAY_W36_INSIDE_GRACE) is False
+
+
+def test_sunday_window_closed_true_once_grace_elapses() -> None:
+    assert sunday_window_closed(now=SUNDAY_W36_WINDOW_CLOSED) is True
+
+
+def test_week_off_note_not_due_before_window_closes_even_if_unpublished() -> None:
+    assert week_off_note_due(None, now=SATURDAY_W36) is False
+    assert week_off_note_due({"episode_id": "2026-W36"}, now=SATURDAY_W36) is False
+
+
+def test_week_off_note_due_after_window_closes_when_unpublished() -> None:
+    assert week_off_note_due(None, now=SUNDAY_W36_WINDOW_CLOSED) is True
+    assert week_off_note_due(
+        {"episode_id": "2026-W36"}, now=SUNDAY_W36_WINDOW_CLOSED
+    ) is True
+
+
+def test_week_off_note_not_due_once_published() -> None:
+    published = {
+        "episode_id": "2026-W36",
+        "published_at": "2026-09-06T00:10:00+00:00",
+    }
+    assert week_off_note_due(published, now=SUNDAY_W36_WINDOW_CLOSED) is False
+
+
+@pytest.mark.parametrize("episode", [[], "nope", 7])
+def test_week_off_note_due_never_raises_on_junk(episode) -> None:
+    """It reads the same blob JSON episode_page_is_due does — any shape."""
+    assert week_off_note_due(episode, now=SUNDAY_W36_WINDOW_CLOSED) is True
 
 
 def test_route_and_monitor_read_the_same_predicate():

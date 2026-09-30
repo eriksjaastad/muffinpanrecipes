@@ -867,6 +867,24 @@ button { font-family: inherit; }
 }
 .teaser__bubble p { font-size: 0.875rem; color: var(--gray-600); line-height: 1.625; margin: 0; }
 
+/* "Kitchen took the week off" homepage note (#7630) — the sibling of
+   .teaser shown instead of it when the current week's Sunday window closed
+   without a publish. Not a link: there is nothing new to see yet. */
+.week-off-note { margin-bottom: 5rem; }
+.week-off-note[hidden] { display: none; }
+.week-off-note__card {
+    border: 1px dashed var(--gray-100);
+    border-radius: 0.5rem;
+    padding: 2rem;
+    text-align: center;
+}
+.week-off-note__card p {
+    font-family: var(--serif);
+    font-size: 1.25rem;
+    color: var(--gray-600);
+    margin: 0;
+}
+
 /* Editorial recipe grid. */
 .recipes-heading {
     font-family: var(--serif);

@@ -447,6 +447,16 @@ def render_home(recipes: list[dict]) -> str:
             </a>
         </section>
 
+        <!-- "Kitchen took the week off" note (#7630) — filled in by the live
+             /api/episodes/teaser call below only when the current week's
+             Sunday window closed without a publish. Homepage note only:
+             no href, no standalone page, nothing for a crawler to index. -->
+        <section id="week-off-note" class="week-off-note" hidden>
+            <div class="week-off-note__card">
+                <p id="week-off-message"></p>
+            </div>
+        </section>
+
         <!-- Editorial Grid — server-rendered from the build catalog (#6821);
              the JS below repaints this on load from the live /recipes.json,
              replacing (not appending to) these cards. -->
@@ -667,6 +677,14 @@ def render_home(recipes: list[dict]) -> str:
                 const resp = await fetch('/api/episodes/teaser');
                 if (!resp.ok) return;
                 const data = await resp.json();
+
+                if (data.status === 'week_off') {{
+                    document.getElementById('week-off-message').textContent =
+                        data.message || 'The kitchen took the week off — back next Sunday.';
+                    document.getElementById('week-off-note').hidden = false;
+                    return;
+                }}
+
                 if (data.status === 'no_episode' || !data.title) return;
 
                 document.getElementById('teaser-stage').innerHTML = data.stage_label || 'This Week';

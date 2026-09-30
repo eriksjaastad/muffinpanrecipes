@@ -87,6 +87,39 @@ def stages_due(
     return [d for d in DAY_ORDER if now >= stage_deadline(episode_id, d) + grace]
 
 
+def sunday_window_closed(now: datetime | None = None) -> bool:
+    """True once the CURRENT ISO week's Sunday cron window has passed.
+
+    "Passed" means the same thing it means everywhere else in this module:
+    the scheduled cron time plus STAGE_GRACE_MINUTES, so a Sunday publish
+    that is merely running long (dialogue + the editorial QA retry loop can
+    take several minutes) isn't declared missing before it's actually
+    overdue.
+
+    Pure and I/O-free on purpose (#7630): the homepage teaser endpoint is hit
+    on every page view, and callers gate an episode Blob fetch behind this
+    check so that read only happens in the one window a week it might matter,
+    not on every request all week.
+    """
+    now = now or datetime.now(timezone.utc)
+    episode_id = current_episode_id(now)
+    return now >= stage_deadline(episode_id, "sunday") + timedelta(minutes=STAGE_GRACE_MINUTES)
+
+
+def week_off_note_due(episode: object, now: datetime | None = None) -> bool:
+    """True when the homepage owes the "kitchen took the week off" note (#7630).
+
+    Both directions are decided from real data, never a manual flag: the note
+    is due once the current ISO week's Sunday cron window has closed AND that
+    week's episode has no `published_at`, and it stops being due the instant
+    `published_at` is set — whichever request notices that first just stops
+    returning it, with nothing to remember to flip back.
+    """
+    if not sunday_window_closed(now=now):
+        return False
+    return not (isinstance(episode, dict) and episode.get("published_at"))
+
+
 def episode_page_is_due(episode: object) -> bool:
     """True when a stored `/this-week` page SHOULD already exist for this episode.
 
