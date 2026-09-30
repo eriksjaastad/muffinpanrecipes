@@ -6168,3 +6168,16 @@ def test_ab_without_prior_days_keeps_initial_recent_lines_none(tmp_path, monkeyp
     [result_file] = list((tmp_path / "results").glob("*-ab-testbed-*.json"))
     report = json.loads(result_file.read_text())
     assert "prior_days" not in report
+
+
+def test_claim_markers_are_gitignored_in_the_committed_results_dir():
+    """Codex review of 8ea3a8f: .claims/ markers live next to committed
+    results in docs/conversation-lab/results/ and must never be committed."""
+    import subprocess
+
+    root = Path(__file__).resolve().parents[1]
+    marker = "docs/conversation-lab/results/.claims/20260930T000000Z-ab-testbed-claude-o55-x.json"
+    proc = subprocess.run(
+        ["git", "check-ignore", "-q", marker], cwd=root, capture_output=True, timeout=30,
+    )
+    assert proc.returncode == 0, "claim markers must be ignored by .gitignore"
