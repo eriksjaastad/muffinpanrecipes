@@ -18,10 +18,12 @@ with `glob.glob`); a pattern that matches nothing, or a literal path that does
 not exist, is a hard error - this script never silently skips a file the
 caller named.
 
-For each result file, pairs are grouped by recipe: `ab --testbed`/`--sweep`-
-shaped results carry `scenario_id` per pair and a `scenarios` list naming each
-one's concept; single-concept `ab` results are one recipe (the file's own
-`concept`). Within a recipe, `conversation_metrics.summarize()` is computed
+For each result file, pairs are grouped by recipe: `ab --testbed` results
+carry `scenario_id` per pair and a `scenarios` list naming each one's concept;
+single-concept `ab` results are one recipe (the file's own `concept`). An
+`ab --sweep` result is refused: it nests pairs per variant around one shared
+control, so pooling it here would count that control once per variant. A
+result with no pairs is refused too, rather than reported as empty metrics. Within a recipe, `conversation_metrics.summarize()` is computed
 per pair per arm, then averaged across that recipe's pairs ("per recipe") and
 across every recipe in the file ("pooled") - never by concatenating raw
 messages across pairs, which would fabricate a turn-to-turn adjacency link
@@ -99,12 +101,19 @@ def _load_ab_result(path: Path) -> dict[str, Any]:
         raise SystemExit(
             f"lab_offline_metrics: {path} is not an `ab` result (command={data.get('command')!r})"
         )
+    if data.get("mode") == "sweep":
+        raise SystemExit(
+            f"lab_offline_metrics: {path} is an `ab --sweep` result (pairs nested per variant around "
+            "one shared control) - not supported; pass single-concept or --testbed results"
+        )
+    if not isinstance(data.get("pairs"), list) or not data["pairs"]:
+        raise SystemExit(f"lab_offline_metrics: {path} has no pairs - nothing to measure")
     return data
 
 
 def _recipe_groups(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """{recipe_id: {"concept": str, "pairs": [pair, ...]}} - one entry per
-    scenario for a --testbed/--sweep-shaped result, or a single entry keyed
+    scenario for a --testbed result, or a single entry keyed
     by the file's own concept for a single-concept ab result."""
     pairs = data.get("pairs") or []
     scenarios = {s["id"]: s for s in (data.get("scenarios") or []) if isinstance(s, dict) and "id" in s}

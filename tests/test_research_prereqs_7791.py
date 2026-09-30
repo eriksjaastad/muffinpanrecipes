@@ -56,7 +56,7 @@ def _fake_pair(
         "evidence": {
             "prompt": f"PROMPT control_first fixture pair {run_index}",
             "system_prompt": cl.PAIRWISE_JUDGE_SYSTEM_PROMPT,
-            "model": "openrouter/anthropic/claude-opus-4.6",
+            "model": "openrouter/anthropic/claude-opus-5.5",
             "temperature": 0.2,
             "mapping": {"A": "control", "B": "variant", "tie": "tie"},
             "first_arm": "control",
@@ -70,7 +70,7 @@ def _fake_pair(
         "evidence": {
             "prompt": f"PROMPT variant_first fixture pair {run_index}",
             "system_prompt": cl.PAIRWISE_JUDGE_SYSTEM_PROMPT,
-            "model": "openrouter/anthropic/claude-opus-4.6",
+            "model": "openrouter/anthropic/claude-opus-5.5",
             "temperature": 0.2,
             "mapping": {"A": "variant", "B": "control", "tie": "tie"},
             "first_arm": "variant",
@@ -403,7 +403,8 @@ def test_rejudge_aborts_and_writes_partial_report_when_max_calls_is_too_low(tmp_
     results_dir = tmp_path / "results"
 
     cl.main([
-        "rejudge", str(source_path), "--max-calls", "1", "--results-dir", str(results_dir),
+        "rejudge", str(source_path), "--models", "claude-o55", "--max-calls", "1",
+        "--results-dir", str(results_dir),
     ])
 
     [result_file] = list(results_dir.glob("*-rejudge-*.json"))

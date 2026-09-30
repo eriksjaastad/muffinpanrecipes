@@ -117,7 +117,7 @@ def test_rejudge_passes_each_saved_arm_order_to_the_judge(tmp_path, monkeypatch)
         }),
     )
     path = _fake_ab_result(tmp_path)
-    cl.main(["rejudge", str(path), "--results-dir", str(tmp_path)])
+    cl.main(["rejudge", str(path), "--models", "claude-o55", "--results-dir", str(tmp_path / "out")])
     assert seen == [("control", "variant"), ("variant", "control")]
 
 
@@ -205,3 +205,135 @@ def test_atomic_pick_writer_success_leaves_no_temp_file(tmp_path):
     cl._write_pairs_report_atomic(target, {"picked": 1})
     assert json.loads(target.read_text()) == {"picked": 1}
     assert [p.name for p in tmp_path.iterdir()] == ["result.json"]
+
+
+# ---------------------------------------------------------------------------
+# Round 2 (Codex FAIL 4e4217e): the whole instrument, sweep input, balances
+# ---------------------------------------------------------------------------
+
+def _verdict_json(winner: str = "A") -> str:
+    return json.dumps({
+        "winner": winner, "per_dimension": {d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS}, "reason": "x",
+    })
+
+
+def test_rejudge_refuses_a_default_judge_that_differs_from_the_source_judge(tmp_path, monkeypatch):
+    # The fixture was scored by Opus 5.5; with no --models the CLI default set
+    # judges with Opus 4.6. That is a different instrument, refused before any call.
+    _mock_openrouter_preflight(monkeypatch)
+    _no_judge_calls(monkeypatch)
+    path = _fake_ab_result(tmp_path)
+    with pytest.raises(SystemExit, match="--cross-judge"):
+        cl.main(["rejudge", str(path)])
+
+
+def test_rejudge_same_judge_is_reported_as_v3_retest(tmp_path, monkeypatch, capsys):
+    _mock_openrouter_preflight(monkeypatch)
+    monkeypatch.setattr(model_router, "generate_judge_response", lambda **_k: _verdict_json())
+    out = tmp_path / "out"
+    cl.main(["rejudge", str(_fake_ab_result(tmp_path)), "--models", "claude-o55", "--results-dir", str(out)])
+    [report_path] = list(out.glob("*-rejudge-*.json"))
+    report = json.loads(report_path.read_text())
+    assert report["rejudge_mode"] == "retest"
+    assert report["source_judge_model"] == report["judge_model"] == "openrouter/anthropic/claude-opus-5.5"
+    assert "V3 test-retest agreement" in capsys.readouterr().out
+
+
+def test_rejudge_cross_judge_opt_in_runs_and_is_never_labelled_v3(tmp_path, monkeypatch, capsys):
+    _mock_openrouter_preflight(monkeypatch)
+    models_seen: list[str] = []
+
+    def judge(*, model, **_k):
+        models_seen.append(model)
+        return _verdict_json()
+
+    monkeypatch.setattr(model_router, "generate_judge_response", judge)
+    out = tmp_path / "out"
+    cl.main(["rejudge", str(_fake_ab_result(tmp_path)), "--cross-judge", "--results-dir", str(out)])
+    report = json.loads(next(out.glob("*-rejudge-*.json")).read_text())
+    assert report["rejudge_mode"] == "cross_judge"
+    assert set(models_seen) == {report["judge_model"]} != {report["source_judge_model"]}
+    printed = capsys.readouterr().out
+    assert "CROSS-JUDGE" in printed and "V3 test-retest agreement" not in printed
+
+
+def test_rejudge_refuses_a_source_judged_at_another_temperature(tmp_path, monkeypatch):
+    _mock_openrouter_preflight(monkeypatch)
+    _no_judge_calls(monkeypatch)
+    pair = _fake_pair()
+    pair["judge_orientations"][0]["evidence"]["temperature"] = 0.7
+    with pytest.raises(SystemExit, match="temperature"):
+        cl.main(["rejudge", str(_fake_ab_result(tmp_path, pairs=[pair])), "--models", "claude-o55"])
+
+
+def test_rejudge_refuses_a_source_scored_by_two_judge_models(tmp_path, monkeypatch):
+    _mock_openrouter_preflight(monkeypatch)
+    _no_judge_calls(monkeypatch)
+    second = _fake_pair(run_index=2)
+    for orientation in second["judge_orientations"]:
+        orientation["evidence"]["model"] = "openrouter/anthropic/claude-opus-4.6"
+    path = _fake_ab_result(tmp_path, pairs=[_fake_pair(), second])
+    with pytest.raises(SystemExit, match="more than one judge model"):
+        cl.main(["rejudge", str(path), "--models", "claude-o55"])
+
+
+def test_rejudge_refuses_a_source_that_does_not_record_its_judge_model(tmp_path, monkeypatch):
+    _mock_openrouter_preflight(monkeypatch)
+    _no_judge_calls(monkeypatch)
+    pair = _fake_pair()
+    del pair["judge_orientations"][1]["evidence"]["model"]
+    with pytest.raises(SystemExit, match="which judge model"):
+        cl.main(["rejudge", str(_fake_ab_result(tmp_path, pairs=[pair])), "--models", "claude-o55"])
+
+
+def test_offline_metrics_refuses_a_sweep_result(tmp_path):
+    import scripts.lab_offline_metrics as lom
+    path = _fake_ab_result(tmp_path, mode="sweep", pairs=[])
+    data = json.loads(path.read_text())
+    data["variants"] = {"v1": {"pairs": [_fake_pair()]}}
+    path.write_text(json.dumps(data))
+    with pytest.raises(SystemExit, match="sweep"):
+        lom.compute([path])
+
+
+def test_offline_metrics_refuses_a_result_with_no_pairs(tmp_path):
+    import scripts.lab_offline_metrics as lom
+    with pytest.raises(SystemExit, match="no pairs"):
+        lom.compute([_fake_ab_result(tmp_path, pairs=[])])
+
+
+def _fake_http(monkeypatch, payload):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: SimpleNamespace(status_code=200, json=lambda: payload))
+
+
+@pytest.mark.parametrize("field", ["total_credits", "total_usage"])
+@pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+def test_account_balance_rejects_non_finite_amounts(monkeypatch, field, bad):
+    data = {"total_credits": 150.0, "total_usage": 116.0}
+    data[field] = bad
+    _fake_http(monkeypatch, {"data": data})
+    with pytest.raises(cl.ConversationLabError, match=field):
+        cl._openrouter_fetch_account_balance()
+
+
+@pytest.mark.parametrize("field", ["limit", "limit_remaining"])
+def test_key_check_rejects_non_finite_amounts(monkeypatch, field):
+    data = {"limit": 100.0, "limit_remaining": 32.7, "usage": 67.3}
+    data[field] = float("nan")
+    _fake_http(monkeypatch, {"data": data})
+    with pytest.raises(cl.ConversationLabError, match=field):
+        cl._openrouter_fetch_key()
+
+
+def test_balance_fetch_still_returns_a_normal_balance(monkeypatch):
+    _fake_http(monkeypatch, {"data": {"total_credits": 150, "total_usage": 116.36}})
+    assert cl._openrouter_fetch_account_balance() == pytest.approx(33.64)
+
+
+@pytest.mark.parametrize("bad", ["nan", "inf", "0", "-1"])
+def test_cli_refuses_an_unenforceable_max_cost(tmp_path, monkeypatch, bad):
+    _mock_openrouter_preflight(monkeypatch)
+    _no_judge_calls(monkeypatch)
+    with pytest.raises(SystemExit, match="--max-cost must be a positive finite amount"):
+        cl.main(["rejudge", str(_fake_ab_result(tmp_path)), "--models", "claude-o55", "--max-cost", bad])

@@ -511,6 +511,8 @@ ALL_JUDGE_DIMENSIONS: tuple[str, ...] = JUDGE_DIMENSIONS + LAB_ONLY_JUDGE_DIMENS
 # LAB_ONLY_JUDGE_DIMENSIONS above (lab-only - never fed back into the
 # production judge prompt).
 PAIRWISE_JUDGE_PROMPT_VERSION = "pairwise-v2-candidate-versions-character-rules"
+# Part of the judge instrument alongside the model and the system prompt.
+PAIRWISE_JUDGE_TEMPERATURE = 0.2
 PAIRWISE_JUDGE_SYSTEM_PROMPT = (
     "You are a senior editorial judge for a food content site comparing TWO "
     "candidate dialogue transcripts for the SAME day, recipe concept, and "
@@ -896,7 +898,7 @@ def _openrouter_preflight(args: argparse.Namespace) -> None:
         "[openrouter] key limit: "
         f"${key_info['limit']:.2f}  limit_remaining: ${key_info['limit_remaining']:.2f}"
     )
-    if key_info["limit_remaining"] < args.max_cost:
+    if not (key_info["limit_remaining"] >= args.max_cost):
         raise SystemExit(
             "conversation_lab: OpenRouter limit_remaining "
             f"${key_info['limit_remaining']:.2f} is below --max-cost ${args.max_cost:.2f}; "
@@ -907,7 +909,7 @@ def _openrouter_preflight(args: argparse.Namespace) -> None:
     # remaining and died at its first judge call because the account held $0.56.
     balance = _openrouter_fetch_account_balance()
     print(f"[openrouter] account balance: ${balance:.2f}")
-    if balance < args.max_cost:
+    if not (balance >= args.max_cost):
         raise SystemExit(
             f"conversation_lab: OpenRouter account balance ${balance:.2f} is below "
             f"--max-cost ${args.max_cost:.2f}; add credits before starting"
@@ -1036,7 +1038,9 @@ def _openrouter_fetch_account_balance() -> float:
     total_credits = data.get("total_credits")
     total_usage = data.get("total_usage")
     for field, value in (("total_credits", total_credits), ("total_usage", total_usage)):
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
+        # json.loads accepts NaN/Infinity; a non-finite amount must not reach
+        # the preflight comparison, where it would compare False and pass.
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(value):
             raise ConversationLabError(f"openrouter credits check {field} is invalid")
     return float(total_credits) - float(total_usage)
 
@@ -1067,7 +1071,7 @@ def _openrouter_fetch_key() -> dict[str, Any]:
     limit_remaining = data.get("limit_remaining")
     usage = data.get("usage")
     for field, value in (("limit", limit), ("limit_remaining", limit_remaining)):
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(value):
             raise ConversationLabError(f"openrouter key check {field} is invalid")
     return {
         "limit": float(limit),
@@ -2254,7 +2258,7 @@ def _judge_orientation(
             "prompt": prompt,
             "system_prompt": PAIRWISE_JUDGE_SYSTEM_PROMPT,
             "model": judge_model,
-            "temperature": 0.2,
+            "temperature": PAIRWISE_JUDGE_TEMPERATURE,
             "mapping": mapping,
             "first_arm": first_arm,
             "second_arm": second_arm,
@@ -2275,7 +2279,7 @@ def _judge_orientation(
                 prompt=prompt,
                 system_prompt=PAIRWISE_JUDGE_SYSTEM_PROMPT,
                 model=judge_model,
-                temperature=0.2,
+                temperature=PAIRWISE_JUDGE_TEMPERATURE,
             )
         except BaseException as original_error:
             if evidence is not None:
@@ -6792,12 +6796,54 @@ def _load_rejudge_source(result_path: Path) -> dict[str, Any]:
     return data
 
 
+def _rejudge_source_judge_model(result_path: Path, pairs: list[dict[str, Any]]) -> str:
+    """The one judge model every saved orientation was scored by, with the
+    same temperature this command uses. The instrument is (judge model,
+    system prompt, temperature); `_load_rejudge_source` checks the prompt,
+    this checks the other two so `cmd_rejudge` can compare the model."""
+    models: set[str] = set()
+    for i, pair in enumerate(pairs, start=1):
+        for orientation in pair["judge_orientations"]:
+            evidence = orientation["evidence"]
+            model = evidence.get("model")
+            if not isinstance(model, str) or not model:
+                raise SystemExit(
+                    f"conversation_lab rejudge: {result_path} pair {i} does not record which judge model "
+                    "scored it - cannot show the instrument is unchanged"
+                )
+            if evidence.get("temperature") != PAIRWISE_JUDGE_TEMPERATURE:
+                raise SystemExit(
+                    f"conversation_lab rejudge: {result_path} pair {i} was judged at temperature "
+                    f"{evidence.get('temperature')!r}, not {PAIRWISE_JUDGE_TEMPERATURE} - a re-judge would "
+                    "change the instrument"
+                )
+            models.add(model)
+    if len(models) != 1:
+        raise SystemExit(
+            f"conversation_lab rejudge: {result_path} was scored by more than one judge model "
+            f"({', '.join(sorted(models))}) - there is no single instrument to retest"
+        )
+    return models.pop()
+
+
 def cmd_rejudge(args: argparse.Namespace) -> None:
     result_path = Path(args.result_file)
     data = _load_rejudge_source(result_path)
     pairs: list[dict[str, Any]] = data["pairs"]
 
     judge_model = _resolve_judge_model_for_args(args)
+    source_judge_model = _rejudge_source_judge_model(result_path, pairs)
+    # V3 test-retest means the SAME judge scores the pairs again. A different
+    # judge is a cross-judge comparison: allowed only when asked for, and
+    # reported as such, never as V3 agreement. (Under --dry-run the judge
+    # resolves to "template" and nothing is paid for, so no check.)
+    cross_judge = not args.dry_run and judge_model != source_judge_model
+    if cross_judge and not args.cross_judge:
+        raise SystemExit(
+            f"conversation_lab rejudge: {result_path} was scored by {source_judge_model}, but this "
+            f"invocation would judge with {judge_model}. For V3 test-retest pass the --models set "
+            "whose judge is the source's; to compare two judges on purpose, pass --cross-judge"
+        )
     target = args.target or data.get("target_dimension") or "turn_taking"
 
     total_orientations = len(pairs) * 2
@@ -6906,6 +6952,13 @@ def _build_rejudge_report(
     max_calls_derived: bool,
     error: str | None = None,
 ) -> dict[str, Any]:
+    source_judge_model = _rejudge_source_judge_model(source_path, source.get("pairs") or [])
+    if args.dry_run:
+        rejudge_mode = "dry_run"
+    elif judge_model == source_judge_model:
+        rejudge_mode = "retest"
+    else:
+        rejudge_mode = "cross_judge"
     report: dict[str, Any] = {
         "command": "rejudge",
         **_pairwise_evaluator_metadata(),
@@ -6914,7 +6967,9 @@ def _build_rejudge_report(
         "source_command": source.get("command"),
         "source_evaluator_prompt_sha256": source.get("evaluator_prompt_sha256"),
         "source_models": source.get("models"),
+        "source_judge_model": source_judge_model,
         "judge_model": judge_model,
+        "rejudge_mode": rejudge_mode,
         "concept": source.get("concept"),
         "stage": source.get("stage"),
         "requested_pairs": len(source.get("pairs") or []),
@@ -6954,7 +7009,12 @@ def _print_rejudge_report(report: dict[str, Any]) -> None:
     agreement = report["agreement"]
     overall_rate = agreement["rates"].get("overall")
     rate_text = "n/a" if overall_rate is None else f"{overall_rate:.2%}"
-    print(f"\nV3 test-retest agreement (overall, vs original verdicts): {rate_text} over {agreement['pairs_compared']} pairs")
+    label = {
+        "retest": "V3 test-retest agreement",
+        "cross_judge": f"CROSS-JUDGE agreement ({report['source_judge_model']} -> {report['judge_model']}; NOT V3 test-retest)",
+        "dry_run": "dry-run agreement (template verdicts; not a measurement)",
+    }[report["rejudge_mode"]]
+    print(f"\n{label} (overall, vs original verdicts): {rate_text} over {agreement['pairs_compared']} pairs")
     _print_openrouter_costs(report)
     print(f"\nresults written to: {report['results_file']}")
 
@@ -7980,7 +8040,8 @@ def _build_parser() -> argparse.ArgumentParser:
             "the judge prompt itself is never changed by this command), using --models' judge (or "
             "--provider anthropic). No dialogue is regenerated - this is a judge-only re-score, for "
             "RESEARCH_PLAN.md's V3 test-retest (re-judge a pilot's saved pairs with the SAME judge a "
-            "second time) or for comparing verdicts across two judge models. Refuses (nonzero exit, "
+            "second time; a different judge model is refused unless --cross-judge is passed, and is "
+            "then reported as cross_judge, never V3). Refuses (nonzero exit, "
             "no result written) on a source file that is aborted, has any partial pair, or is missing "
             "a transcript or a saved prompt - there is nothing safe to re-judge in a partial run. "
             "Writes a new result file recording the source file, the new verdicts, the new "
@@ -8005,6 +8066,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help=f"USD cap on total_cost for this invocation (default ${DEFAULT_MAX_COST_USD:.2f}); see `ab --help`.",
     )
     rejudge.add_argument("--dry-run", action="store_true", help="Zero paid calls - every re-judged verdict is 'tie'")
+    rejudge.add_argument(
+        "--cross-judge", action="store_true",
+        help=(
+            "Allow a judge model different from the one that scored the source. Without it, rejudge "
+            "refuses a model mismatch, because V3 test-retest needs the same instrument; with it, the "
+            "report is labelled cross_judge, never V3."
+        ),
+    )
     rejudge.add_argument("--results-dir", default=None)
     _add_provider_option(rejudge)
     _add_models_option(rejudge)
@@ -8130,6 +8199,12 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit("conversation_lab: --create-budget-ledger requires --budget-ledger PATH")
     if ledger_path is not None and args.command not in {"ab", "bench", "calibrate"}:
         raise SystemExit("conversation_lab: --budget-ledger is supported only for ab, bench, and calibrate")
+
+    # argparse's float accepts "nan"/"inf"; a non-finite or non-positive cap
+    # cannot be enforced, so refuse it before anything is spent.
+    max_cost_arg = getattr(args, "max_cost", None)
+    if max_cost_arg is not None and not (isfinite(max_cost_arg) and max_cost_arg > 0):
+        raise SystemExit(f"conversation_lab: --max-cost must be a positive finite amount, got {max_cost_arg!r}")
 
     provider = _resolve_provider(args, ledger_path)
     if provider is not None:
