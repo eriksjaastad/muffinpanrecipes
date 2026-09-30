@@ -463,6 +463,11 @@ ALLOWED_VARIANT_ATTRS: tuple[str, ...] = (
     # Director knob (#7679, absorbs #7677). When enabled, run_simulation rolls
     # and directs each scene before the first turn (one Haiku call per day).
     "DIRECTOR",
+    # #7791 P4 / RESEARCH_PLAN.md S3 R3. False (default) is production-identical:
+    # speakers see only the recipe_context anchor. True appends the scenario's
+    # judge_recipe_facts to that anchor so speakers argue from the same facts
+    # the judge scores against.
+    "SPEAKERS_SEE_JUDGE_RECIPE_FACTS",
 )
 
 # The 8 dimensions the production judge scores (backend/admin/cron_routes.py
@@ -851,11 +856,15 @@ def _provider_route_for(provider: str, model_set: "LabModelSet | None" = None) -
 def _resolve_provider(args: argparse.Namespace, ledger_path: Any) -> str | None:
     """Which provider a CLI invocation uses.
 
-    The CLI default is openrouter for ab/bench/calibrate. A --budget-ledger
-    run always uses the production-direct Anthropic path, because the guard
-    only meters the Anthropic SDK.
+    The CLI default is openrouter for ab/bench/calibrate/rejudge. A
+    --budget-ledger run always uses the production-direct Anthropic path,
+    because the guard only meters the Anthropic SDK - rejudge does not
+    expose --budget-ledger (see `_add_budget_guard_options` call sites), so
+    ledger_path is always None for it, but it still needs a default
+    provider so `_openrouter_preflight` runs the same OpenRouter key/price
+    checks every other paid command gets.
     """
-    if args.command not in {"ab", "bench", "calibrate"}:
+    if args.command not in {"ab", "bench", "calibrate", "rejudge"}:
         return None
     explicit = getattr(args, "provider", None)
     if explicit:
@@ -1488,6 +1497,12 @@ def _validate_lever_shape(name: str, value: Any) -> None:
                 f"WORD_CAPS must be a bool, got {value!r}"
             )
         return
+    if name == "SPEAKERS_SEE_JUDGE_RECIPE_FACTS":
+        if not isinstance(value, bool):
+            raise ConversationLabError(
+                f"SPEAKERS_SEE_JUDGE_RECIPE_FACTS must be a bool, got {value!r}"
+            )
+        return
     if name != "HISTORY_DEPTH":
         return
     if not isinstance(value, dict):
@@ -1720,6 +1735,7 @@ def _run_arm(
     image_paths: list[Any] | None = None,
     prior_lines: list[str] | None = None,
     message_sink: list | None = None,
+    recipe_facts: str | None = None,
 ) -> dict[str, Any]:
     """Call run_simulation with the exact production call shape.
 
@@ -1742,6 +1758,12 @@ def _run_arm(
     turns were already generated (and paid for) if this call raises
     partway through, most commonly a LabBudgetAbort from the ambient
     mid-arm guard.
+
+    `recipe_facts` (#7791 P4), when given, is forwarded UNCHANGED to
+    `run_simulation`'s own `recipe_facts` - it only reaches a speaker prompt
+    when the SPEAKERS_SEE_JUDGE_RECIPE_FACTS variant lever is True (default
+    False, production-identical); passing it here costs nothing when the
+    lever is off.
     """
     return simulate_module.run_simulation(
         concept=concept,
@@ -1756,6 +1778,7 @@ def _run_arm(
         image_paths=copy.deepcopy(image_paths) if image_paths is not None else [],
         photography_context=copy.deepcopy(photography_context),
         recipe_context=recipe_context,
+        recipe_facts=recipe_facts,
         initial_highlights=None,
         initial_recent_lines=list(prior_lines) if prior_lines is not None else None,
         message_sink=message_sink,
@@ -1911,6 +1934,7 @@ def _run_arm_and_count(
     mode: str,
     default_model: str,
     prior_lines: list[str] | None = None,
+    recipe_facts: str | None = None,
 ) -> tuple[dict[str, Any], int]:
     """Run one arm and estimate its call cost.
 
@@ -1955,7 +1979,7 @@ def _run_arm_and_count(
     try:
         result = _run_arm(
             concept, stage, run_index, recipe_context, mode, default_model,
-            prior_lines=prior_lines, message_sink=sink,
+            prior_lines=prior_lines, message_sink=sink, recipe_facts=recipe_facts,
         )
     except BaseException as exc:
         if not hasattr(exc, "conversation_lab_calls_made"):
@@ -2185,6 +2209,7 @@ def _judge_orientation(
     budget: "CallBudget | None" = None,
     max_cost: float | None = None,
     baseline: float = 0.0,
+    prebuilt_prompt: str | None = None,
 ) -> dict[str, str]:
     """Judge once with A=first_arm, B=second_arm; map the A/B verdict back to arm labels.
 
@@ -2194,8 +2219,19 @@ def _judge_orientation(
     orientation` call site checks `budget.would_exceed(1)` and
     `_would_exceed_cost` before invoking this orientation at all). Passing
     `None` for either disables that dimension's retry cap (used by direct
-    unit-test calls that don't exercise budget/cost enforcement)."""
-    prompt = _build_pairwise_prompt(
+    unit-test calls that don't exercise budget/cost enforcement).
+
+    `prebuilt_prompt` (#7791 P2, `rejudge`) skips `_build_pairwise_prompt`
+    entirely and sends this exact text instead - used to re-judge a saved
+    `ab`/`calibrate` result's ALREADY-BUILT prompt (stored verbatim in that
+    orientation's `evidence["prompt"]`) under a different judge model,
+    without needing to reconstruct concept/stage/recipe_context/
+    expected_cast/recipe_facts, which single-concept `ab` results do not
+    even persist at the top level. `concept`/`stage`/`recipe_context`/
+    `expected_cast`/`recipe_facts`/`first_messages`/`second_messages` are
+    then unused for prompt-building (still accepted so `_run_judge_
+    orientation`'s call shape stays uniform across every caller)."""
+    prompt = prebuilt_prompt if prebuilt_prompt is not None else _build_pairwise_prompt(
         concept, stage, recipe_context, expected_cast, first_messages, second_messages,
         recipe_facts=recipe_facts,
     )
@@ -3032,7 +3068,7 @@ def _generate_and_judge_pairs(
             try:
                 control_result, control_calls = _run_arm_and_count(
                     concept, stage, run_index, recipe_context, mode, default_model,
-                    prior_lines=prior_lines,
+                    prior_lines=prior_lines, recipe_facts=recipe_facts,
                 )
             except BaseException as exc:
                 # #7714 round 3 / round 4 finding 1: the control arm's
@@ -3088,7 +3124,7 @@ def _generate_and_judge_pairs(
                 try:
                     variant_result, variant_calls = _run_arm_and_count(
                         concept, stage, run_index, recipe_context, mode, default_model,
-                        prior_lines=prior_lines,
+                        prior_lines=prior_lines, recipe_facts=recipe_facts,
                     )
                 except BaseException as exc:
                     # #7714 finding 2 / round 3 / round 4 finding 1: the
@@ -3916,6 +3952,7 @@ def _generate_sweep_control(
                     result, calls = _run_arm_and_count(
                         scenario["concept"], stage, run_index, scenario["recipe_context"], mode, default_model,
                         prior_lines=(prior_by_scenario or {}).get(scenario["id"]),
+                        recipe_facts=scenario.get("judge_recipe_facts"),
                     )
                 except BaseException as exc:
                     # #7714 round 3 / round 4 finding 1: the aborted
@@ -4044,6 +4081,7 @@ def _run_sweep_variant(
                         variant_result, variant_calls = _run_arm_and_count(
                             scenario["concept"], stage, run_index, scenario["recipe_context"], mode, default_model,
                             prior_lines=(prior_by_scenario or {}).get(scenario["id"]),
+                            recipe_facts=scenario.get("judge_recipe_facts"),
                         )
                     except BaseException as exc:
                         # #7714 finding 2 / round 3 / round 4 finding 1:
@@ -5964,6 +6002,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
                     photography_context=photo_inputs["photography_context"],
                     image_paths=photo_inputs["image_paths"],
                     message_sink=sink,
+                    recipe_facts=recipe_facts,
                 ),
                 fallback=0 if args.dry_run else _max_turns_for_stage(args.stage),
                 reservation=gen_reserve,
@@ -6619,6 +6658,253 @@ def _print_calibrate_report(report: dict[str, Any]) -> None:
     print(f"\nresults written to: {report['results_file']}")
 
 # ---------------------------------------------------------------------------
+# rejudge (#7791 P2: RESEARCH_PLAN.md S0a V3 test-retest)
+# ---------------------------------------------------------------------------
+
+_REJUDGE_ORIENTATION_KEYS = ("orientation", "status", "evidence", "result")
+
+
+def _load_rejudge_source(result_path: Path) -> dict[str, Any]:
+    """Load and validate an `ab` result file for `rejudge`. Raises SystemExit
+    (never a silent skip) on anything that means the file cannot be safely
+    re-judged - an aborted run, a partial arm, a missing transcript, or a
+    missing saved prompt/mapping (dropping into a code path that would have
+    to reconstruct one instead)."""
+    try:
+        raw_text = result_path.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise SystemExit(f"conversation_lab rejudge: result file not found: {result_path}") from exc
+    try:
+        data = json.loads(raw_text)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"conversation_lab rejudge: {result_path} is not valid JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise SystemExit(f"conversation_lab rejudge: {result_path} is not a JSON object")
+    if data.get("command") != "ab":
+        raise SystemExit(
+            f"conversation_lab rejudge: {result_path} is a {data.get('command')!r} result, not an "
+            "`ab` result - rejudge only re-scores an ab result's saved transcripts"
+        )
+    if data.get("mode") == "sweep":
+        raise SystemExit(
+            f"conversation_lab rejudge: {result_path} is an `ab --sweep` result (pairs nested per "
+            "variant) - rejudge does not support --sweep results; pass a single-variant or --testbed result"
+        )
+    if data.get("dry_run"):
+        raise SystemExit(
+            f"conversation_lab rejudge: {result_path} is a --dry-run result - it has no real judge "
+            "calls to redo"
+        )
+    if data.get("aborted"):
+        raise SystemExit(
+            f"conversation_lab rejudge: {result_path} is an ABORTED ab result (--max-calls/--max-cost "
+            "hit mid-run) - refusing to re-judge a partial run"
+        )
+    partial_pairs = data.get("partial_pairs") or []
+    if partial_pairs:
+        raise SystemExit(
+            f"conversation_lab rejudge: {result_path} has {len(partial_pairs)} partial pair(s) (a "
+            "control/variant arm that never finished) - refusing to re-judge a partial run"
+        )
+    pairs = data.get("pairs")
+    if not isinstance(pairs, list) or not pairs:
+        raise SystemExit(f"conversation_lab rejudge: {result_path} has no pairs to re-judge")
+
+    for i, pair in enumerate(pairs, start=1):
+        if not pair.get("control_messages") or not pair.get("variant_messages"):
+            raise SystemExit(
+                f"conversation_lab rejudge: {result_path} pair {i} is missing a transcript "
+                "(control_messages/variant_messages) - refusing to re-judge a partial run"
+            )
+        orientations = pair.get("judge_orientations")
+        if not isinstance(orientations, list) or len(orientations) != 2:
+            found = len(orientations) if isinstance(orientations, list) else 0
+            raise SystemExit(
+                f"conversation_lab rejudge: {result_path} pair {i} does not have exactly 2 recorded "
+                f"judge orientations (found {found}) - refusing to re-judge a partial run"
+            )
+        for orientation in orientations:
+            if not isinstance(orientation, dict) or orientation.get("status") != "invoked" or "result" not in orientation:
+                raise SystemExit(
+                    f"conversation_lab rejudge: {result_path} pair {i} has an orientation that never "
+                    "completed - refusing to re-judge a partial run"
+                )
+            evidence = orientation.get("evidence") or {}
+            if not evidence.get("prompt") or not isinstance(evidence.get("mapping"), dict):
+                raise SystemExit(
+                    f"conversation_lab rejudge: {result_path} pair {i} orientation is missing its "
+                    "saved prompt/mapping - cannot re-judge without regenerating"
+                )
+    return data
+
+
+def cmd_rejudge(args: argparse.Namespace) -> None:
+    result_path = Path(args.result_file)
+    data = _load_rejudge_source(result_path)
+    pairs: list[dict[str, Any]] = data["pairs"]
+
+    judge_model = _resolve_judge_model_for_args(args)
+    target = args.target or data.get("target_dimension") or "turn_taking"
+
+    total_orientations = len(pairs) * 2
+    max_calls_derived = args.max_calls is None
+    max_calls = args.max_calls if args.max_calls is not None else total_orientations * (1 + _JUDGE_JSON_MAX_RETRIES)
+    budget = CallBudget(max_calls=max_calls)
+    aborted = False
+    error: str | None = None
+    new_pairs: list[dict[str, Any]] = []
+    result_path_out = _results_dir(args) / (
+        f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-rejudge-{result_path.stem}.json"
+    )
+
+    guard_ctx = _installed_budget_guard(budget, args.max_cost)
+    guard_ctx.__enter__()
+    try:
+        for pair in pairs:
+            if budget.would_exceed(2) or _would_exceed_cost(args.max_cost):
+                aborted = True
+                break
+            if args.dry_run:
+                combined = _dry_run_combined()
+                new_orientations: list[dict[str, Any]] = []
+            else:
+                new_results: list[dict[str, str]] = []
+                new_orientations = []
+                for orientation in pair["judge_orientations"]:
+                    if budget.would_exceed(1) or _would_exceed_cost(args.max_cost):
+                        aborted = True
+                        break
+                    evidence = orientation["evidence"]
+                    pending_pair: dict[str, Any] = {"judge_orientations": []}
+                    result = _run_judge_orientation(
+                        orientation=orientation["orientation"], pending_pair=pending_pair, budget=budget,
+                        judge_model=judge_model, concept=data.get("concept") or "", stage=data.get("stage") or "",
+                        recipe_context=None, expected_cast=[],
+                        first_arm=evidence.get("first_arm", "control"), first_messages=[],
+                        second_arm=evidence.get("second_arm", "variant"), second_messages=[],
+                        recipe_facts=None, max_cost=args.max_cost,
+                        prebuilt_prompt=evidence["prompt"],
+                    )
+                    new_results.append(result)
+                    new_orientations.extend(pending_pair["judge_orientations"])
+                if aborted or len(new_results) < 2:
+                    aborted = True
+                    break
+                combined = _combine_orientations(new_results[0], new_results[1])
+            new_pair = dict(pair)
+            new_pair["judge"] = combined
+            new_pair["judge_orientations"] = new_orientations
+            new_pair["previous_judge"] = pair.get("judge")
+            new_pair["previous_judge_orientations"] = pair.get("judge_orientations")
+            new_pairs.append(new_pair)
+            _budget_checkpoint()
+    except LabBudgetAbort:
+        aborted = True
+    except BaseException as exc:
+        error = f"{type(exc).__name__}: {exc}"
+        aborted = True
+        raise
+    finally:
+        guard_ctx.__exit__(None, None, None)
+        if error is not None:
+            report = _build_rejudge_report(
+                args, data, result_path, judge_model, target, new_pairs, True, budget,
+                result_path_out, max_calls, max_calls_derived, error=error,
+            )
+            _write_json_result(result_path_out, report)
+
+    report = _build_rejudge_report(
+        args, data, result_path, judge_model, target, new_pairs, aborted, budget,
+        result_path_out, max_calls, max_calls_derived,
+    )
+    _write_json_result(result_path_out, report)
+    _print_rejudge_report(report)
+
+
+def _rejudge_agreement(old_pairs: list[dict[str, Any]], new_pairs: list[dict[str, Any]]) -> dict[str, Any]:
+    """V3 test-retest: per-key agreement between the ORIGINAL saved verdict
+    and the just-recomputed one, for every pair that was actually re-judged
+    (a pair dropped by a mid-run abort has no new verdict to compare)."""
+    keys = ("overall", *ALL_JUDGE_DIMENSIONS)
+    matches = {key: 0 for key in keys}
+    n = min(len(old_pairs), len(new_pairs))
+    for old_pair, new_pair in zip(old_pairs[:n], new_pairs[:n]):
+        for key in keys:
+            if old_pair["judge"][key] == new_pair["judge"][key]:
+                matches[key] += 1
+    return {
+        "pairs_compared": n,
+        "rates": {key: (round(matches[key] / n, 4) if n else None) for key in keys},
+    }
+
+
+def _build_rejudge_report(
+    args: argparse.Namespace,
+    source: dict[str, Any],
+    source_path: Path,
+    judge_model: str,
+    target: str,
+    new_pairs: list[dict[str, Any]],
+    aborted: bool,
+    budget: CallBudget,
+    result_path: Path,
+    max_calls: int,
+    max_calls_derived: bool,
+    error: str | None = None,
+) -> dict[str, Any]:
+    report: dict[str, Any] = {
+        "command": "rejudge",
+        **_pairwise_evaluator_metadata(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "source_result_file": str(source_path),
+        "source_command": source.get("command"),
+        "source_evaluator_prompt_sha256": source.get("evaluator_prompt_sha256"),
+        "source_models": source.get("models"),
+        "judge_model": judge_model,
+        "concept": source.get("concept"),
+        "stage": source.get("stage"),
+        "requested_pairs": len(source.get("pairs") or []),
+        "rejudged_pairs_count": len(new_pairs),
+        "aborted": aborted,
+        "max_calls": max_calls,
+        "max_calls_derived": max_calls_derived,
+        "max_cost": args.max_cost,
+        "calls_used": budget.used,
+        "dry_run": bool(args.dry_run),
+        "target_dimension": target,
+        **_openrouter_fields_for(args, _openrouter_router_cost_by_model()),
+        "pairs": new_pairs,
+        "agreement": _rejudge_agreement(source.get("pairs") or [], new_pairs),
+        "results_file": str(result_path),
+    }
+    if new_pairs:
+        report.update(_aggregate_pairs(new_pairs, target, bool(args.dry_run)))
+    if error is not None:
+        report["error"] = error
+    return report
+
+
+def _print_rejudge_report(report: dict[str, Any]) -> None:
+    print(f"\n=== conversation_lab rejudge: {report['source_result_file']} ===")
+    print(f"judge_model: {report['judge_model']}")
+    abort_note = "  [ABORTED: max-calls/max-cost hit]" if report["aborted"] else ""
+    print(
+        f"pairs re-judged: {report['rejudged_pairs_count']} / requested {report['requested_pairs']}{abort_note}"
+    )
+    print(
+        f"calls used: {report['calls_used']} / max {report['max_calls']}  "
+        f"cost cap: ${report['max_cost']:.2f}  dry_run={report['dry_run']}"
+    )
+    if "overall_counts" in report:
+        print(f"\noverall (new verdicts): {dict(report['overall_counts'])}")
+    agreement = report["agreement"]
+    overall_rate = agreement["rates"].get("overall")
+    rate_text = "n/a" if overall_rate is None else f"{overall_rate:.2%}"
+    print(f"\nV3 test-retest agreement (overall, vs original verdicts): {rate_text} over {agreement['pairs_compared']} pairs")
+    _print_openrouter_costs(report)
+    print(f"\nresults written to: {report['results_file']}")
+
+# ---------------------------------------------------------------------------
 # pairs (blind human read)
 # ---------------------------------------------------------------------------
 
@@ -7154,7 +7440,47 @@ def _build_parser() -> argparse.ArgumentParser:
     calibrate.add_argument("--dry-run", action="store_true")
     calibrate.add_argument("--results-dir", default=None)
     _add_provider_option(calibrate)
+    _add_models_option(calibrate)
     _add_budget_guard_options(calibrate)
+
+    rejudge = sub.add_parser(
+        "rejudge",
+        help="Re-run the judge on an ab result's SAVED transcripts, without regenerating dialogue.",
+        description=(
+            "Load an `ab` result JSON (single-concept or --testbed mode; --sweep results are not "
+            "supported) and re-judge every pair's two already-completed orientations from their "
+            "saved prompts (evidence.prompt, byte-identical to what the original judge call sent - "
+            "the judge prompt itself is never changed by this command), using --models' judge (or "
+            "--provider anthropic). No dialogue is regenerated - this is a judge-only re-score, for "
+            "RESEARCH_PLAN.md's V3 test-retest (re-judge a pilot's saved pairs with the SAME judge a "
+            "second time) or for comparing verdicts across two judge models. Refuses (nonzero exit, "
+            "no result written) on a source file that is aborted, has any partial pair, or is missing "
+            "a transcript or a saved prompt - there is nothing safe to re-judge in a partial run. "
+            "Writes a new result file recording the source file, the new verdicts, the new "
+            "judge_orientations, the judge model, evaluator_prompt_sha256, and a per-dimension "
+            "agreement summary against the ORIGINAL verdicts."
+        ),
+    )
+    rejudge.add_argument("result_file", help="Path to an ab result JSON file (single-concept or --testbed mode)")
+    rejudge.add_argument(
+        "--target", default=None, choices=(*ALL_JUDGE_DIMENSIONS, "overall"),
+        help="Target dimension for the re-judged aggregate report (default: the source result's own target_dimension)",
+    )
+    rejudge.add_argument(
+        "--max-calls", type=int, default=None,
+        help=(
+            "Defaults to 2 * pair_count * (1 + retry cap) when omitted (each pair replays exactly 2 "
+            "orientations, each retried up to _JUDGE_JSON_MAX_RETRIES times on an unparseable verdict)."
+        ),
+    )
+    rejudge.add_argument(
+        "--max-cost", type=float, default=DEFAULT_MAX_COST_USD,
+        help=f"USD cap on total_cost for this invocation (default ${DEFAULT_MAX_COST_USD:.2f}); see `ab --help`.",
+    )
+    rejudge.add_argument("--dry-run", action="store_true", help="Zero paid calls - every re-judged verdict is 'tie'")
+    rejudge.add_argument("--results-dir", default=None)
+    _add_provider_option(rejudge)
+    _add_models_option(rejudge)
 
     pairs_cmd = sub.add_parser(
         "pairs",
@@ -7233,6 +7559,8 @@ def _dispatch_command(args: argparse.Namespace) -> None:
         cmd_bench(args)
     elif args.command == "calibrate":
         cmd_calibrate(args)
+    elif args.command == "rejudge":
+        cmd_rejudge(args)
     elif args.command == "pairs":
         cmd_pairs(args)
     elif args.command == "freeze":
