@@ -638,21 +638,31 @@ def test_a_clean_retry_clears_the_record_on_the_gated_stages_too():
 
 
 def test_the_sunday_route_sends_no_alert_when_the_retry_passes():
-    """End to end: the stale record must not survive into the publish."""
+    """End to end: the stale record must not survive into the publish.
+
+    #7404: the original version of this test replaced
+    _generate_and_judge_dialogue wholesale with a fake whose side_effect did
+    `ep.get("judge_advisory", {}).pop(stage, None)` itself — the exact line
+    this test exists to protect, duplicated into the mock instead of
+    exercised. It passed even with that real line reverted to a no-op,
+    because the real function never ran. This version only fakes the
+    judge's two collaborators (_generate_dialogue, _judge_dialogue), so the
+    real _generate_and_judge_dialogue — including its real clear-on-pass
+    pop — is what executes.
+    """
     episode = _sunday_episode()
     episode["judge_advisory"] = {"sunday": _stale_record()}
     body = cron_routes.StageRequest(episode_id="2026-W99", force=True)
-
-    def _judged(stage, concept, ep, **kwargs):
-        ep.get("judge_advisory", {}).pop(stage, None)
-        return [{"character": "Devon Park", "message": "live"}], "PASS"
 
     with patch.object(cron_routes, "_verify_cron_secret"), \
          patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=body)), \
          patch.object(cron_routes, "_verify_day_of_week"), \
          patch.object(cron_routes.storage, "load_episode", return_value=episode), \
          patch.object(cron_routes.storage, "save_episode"), \
-         patch.object(cron_routes, "_generate_and_judge_dialogue", side_effect=_judged), \
+         patch.object(cron_routes, "_generate_dialogue",
+                      lambda stage, concept, **kw: _dialogue("clean")), \
+         patch.object(cron_routes, "_judge_dialogue", lambda *a, **kw: (True, "PASS")), \
+         patch.object(cron_routes, "_score_dialogue_qa", lambda *a, **kw: {}), \
          patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "clean")), \
          patch.object(cron_routes, "_hero_image_url", return_value="https://x/hero.png"), \
          patch.object(cron_routes, "_generate_episode_memories"), \
