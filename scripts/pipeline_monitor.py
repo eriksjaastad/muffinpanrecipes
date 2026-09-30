@@ -233,7 +233,9 @@ def _utc_now_iso() -> str:
 def _normalize_failure(text: str) -> str:
     """Strip date/time text so an id built from a failure is stable across
     runs even if a message ever embeds a timestamp or a ticking count."""
-    return _TIMESTAMP_RE.sub("<TS>", text)
+    # The id separator can never appear inside the text segment, so a stored
+    # id always splits into exactly (group, episode_id, text) (round 6).
+    return _TIMESTAMP_RE.sub("<TS>", text).replace(_ID_SEP, " ")
 
 
 def _failure_id(group: str, episode_id: str, text: str) -> str:
@@ -377,10 +379,10 @@ def _is_current_schema(state: object) -> bool:
     # known group. An id with an unknown group could never clear, pinning
     # the monitor to degraded with no recovery (round 5).
     for failure_id, text in state["alerted_failures"].items():
-        parts = failure_id.split(_ID_SEP) if isinstance(failure_id, str) else []
+        parts = failure_id.split(_ID_SEP, 2) if isinstance(failure_id, str) else []
         if len(parts) != 3 or parts[0] not in _CHECK_GROUPS or not parts[1] or not isinstance(text, str):
             return False
-    return all(group in _CHECK_GROUPS for group in state["checks_ran"])
+    return all(isinstance(group, str) and group in _CHECK_GROUPS for group in state["checks_ran"])
 
 
 def _discard_unusable_state(path: Path, reason: str) -> None:

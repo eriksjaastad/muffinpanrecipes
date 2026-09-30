@@ -1003,3 +1003,19 @@ def test_valid_failure_ids_are_current_schema():
         "checks_ran": ["catalog", "episode"],
     }
     assert pm._is_current_schema(state) is True
+
+
+
+def test_failure_text_containing_the_separator_round_trips_through_validation():
+    """Codex round 6: a real failure whose text contains the separator was
+    saved, then discarded as invalid on the next run and alerted again."""
+    fid = pm._failure_id("episode", "2026-W40", "stage error: bad\x1fbyte in title")
+    state = {"alerted_failures": {fid: "stage error"}, "checks_ran": ["episode"]}
+    assert pm._is_current_schema(state) is True
+    assert pm._failure_id_group(fid) == "episode"
+
+
+@pytest.mark.parametrize("checks_ran", [[{}], [["episode"]], [None], [3]])
+def test_non_string_checks_ran_is_discarded_not_raised(checks_ran):
+    state = {"alerted_failures": {}, "checks_ran": checks_ran}
+    assert pm._is_current_schema(state) is False
