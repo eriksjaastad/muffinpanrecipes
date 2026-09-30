@@ -11,6 +11,7 @@ docs/conversation-lab/.
 from __future__ import annotations
 
 import copy
+import inspect
 import json
 import math
 import os
@@ -4676,6 +4677,125 @@ def test_bench_result_is_published_atomically(tmp_path, monkeypatch):
 
     cl._publish_json_atomically(target, {"command": "bench"})
     assert json.loads(target.read_text()) == {"command": "bench"}
+
+# ---------------------------------------------------------------------------
+# #7800: two parallel `ab`/`calibrate`/`rejudge` runs over DIFFERENT
+# `--models` sets used to resolve to the identical result filename - a
+# Haiku pilot and a DeepSeek pilot launched in parallel both wrote
+# "20260930T183723Z-ab-testbed-monday-limits-off.json", and the later
+# finisher silently overwrote a $2.68 paid result. Every fresh result path
+# now embeds the lab model-set name AND is claimed via `_unique_result_path`
+# (bench's existing #7793/#7714 mechanism, extended past bench itself).
+# ---------------------------------------------------------------------------
+
+class _FrozenClock(cl.datetime):
+    """A fixed `datetime.now(tz)` so two `_ab_result_path` calls land in the
+    SAME UTC second on purpose - the exact condition #7800 was found under."""
+
+    _FIXED = (2026, 9, 30, 18, 37, 23)
+
+    @classmethod
+    def now(cls, tz=None):
+        return cl.datetime(*cls._FIXED, tzinfo=tz)
+
+def test_ab_result_path_embeds_model_set_so_parallel_models_never_collide(tmp_path, monkeypatch):
+    """The exact #7800 scenario: same slug/variant, same UTC second, but a
+    Haiku set and a DeepSeek set - these must never resolve to the same
+    filename."""
+    monkeypatch.setattr(cl, "datetime", _FrozenClock)
+    results = tmp_path / "results"
+    variant_path = tmp_path / "limits-off.json"
+    variant_path.write_text("{}")
+
+    haiku_path = cl._ab_result_path(results, "testbed", variant_path, "claude-o55")
+    deepseek_path = cl._ab_result_path(results, "testbed", variant_path, "deepseek-o55")
+
+    assert haiku_path != deepseek_path
+    assert "claude-o55" in haiku_path.name
+    assert "deepseek-o55" in deepseek_path.name
+    # The leading timestamp and the "-ab-testbed-" prefix survive unchanged,
+    # so sorting by name and any existing `*-ab-testbed-*.json` glob still work.
+    assert haiku_path.name.startswith("20260930T183723Z-ab-testbed-")
+    assert deepseek_path.name.startswith("20260930T183723Z-ab-testbed-")
+
+def test_ab_result_path_collision_gets_a_numeric_suffix_never_an_overwrite(tmp_path, monkeypatch):
+    """Two runs that would resolve to the IDENTICAL name (same model set,
+    same slug, same variant, same UTC second) must each get their own file -
+    the second claims a `-2` suffix, and the first writer's paid result is
+    left byte-for-byte untouched."""
+    monkeypatch.setattr(cl, "datetime", _FrozenClock)
+    results = tmp_path / "results"
+    variant_path = tmp_path / "limits-off.json"
+    variant_path.write_text("{}")
+
+    first_path = cl._ab_result_path(results, "testbed", variant_path, "claude-o55")
+    cl._publish_json_atomically(first_path, {"who": "first", "cost": 2.68})
+    original_bytes = first_path.read_bytes()
+
+    second_path = cl._ab_result_path(results, "testbed", variant_path, "claude-o55")
+    assert second_path != first_path
+    assert second_path.name == first_path.name.replace(".json", "-2.json")
+
+    cl._publish_json_atomically(second_path, {"who": "second"})
+
+    assert first_path.read_bytes() == original_bytes, (
+        "the first writer's paid result must survive byte-identical"
+    )
+    assert json.loads(first_path.read_text())["who"] == "first"
+    assert json.loads(second_path.read_text())["who"] == "second"
+
+def test_calibrate_and_rejudge_result_paths_also_embed_the_model_set(tmp_path, monkeypatch):
+    """The `ab` family is not the only writer with a `--models` set -
+    `calibrate` and `rejudge` claim their result names the same way."""
+    monkeypatch.setattr(cl, "datetime", _FrozenClock)
+    results = tmp_path / "results"
+
+    calibrate_path = cl._unique_result_path(
+        results, f"20260930T183723Z-calibrate-claude-o55-2026-W36-monday"
+    )
+    rejudge_path = cl._unique_result_path(
+        results, f"20260930T183723Z-rejudge-deepseek-o55-some-source-stem"
+    )
+    assert "claude-o55" in calibrate_path.name
+    assert "deepseek-o55" in rejudge_path.name
+    assert calibrate_path.name.startswith("20260930T183723Z-calibrate-")
+    assert rejudge_path.name.startswith("20260930T183723Z-rejudge-")
+
+def test_a_run_can_overwrite_its_own_claimed_path_partial_then_final(tmp_path):
+    """A run legitimately republishes to a path IT already claimed more than
+    once - e.g. a partial/aborted write followed by a final one. That must
+    keep working: the collision protection is about a DIFFERENT run claiming
+    the same name, never about the owning run rewriting its own file."""
+    results = tmp_path / "results"
+    path = cl._unique_result_path(results, "20260930T183723Z-ab-testbed-claude-o55-limits-off")
+
+    cl._publish_json_atomically(path, {"status": "partial", "completed_pairs": 1})
+    assert json.loads(path.read_text())["status"] == "partial"
+
+    cl._publish_json_atomically(path, {"status": "final", "completed_pairs": 4})
+    assert json.loads(path.read_text()) == {"status": "final", "completed_pairs": 4}
+
+@pytest.mark.parametrize("fn_name", [
+    "cmd_ab", "_cmd_ab_testbed", "_cmd_ab_sweep",
+    "cmd_calibrate", "_cmd_calibrate_reference_panel", "cmd_rejudge",
+    "cmd_bench",
+])
+def test_result_writers_use_the_shared_atomic_publish_helper(fn_name):
+    """#7800: every command that writes a fresh, timestamp-named result file
+    must claim it (via `_unique_result_path`, or `_ab_result_path` which
+    wraps it) and publish through `_publish_json_atomically` - never the
+    older `_write_json_result`, which neither claims a name nor writes
+    atomically. A future writer that reverts to `_write_json_result` for a
+    fresh result path reintroduces the exact overwrite this card fixed.
+    `baseline` is deliberately NOT in this list: it is deterministic and
+    makes zero paid calls, so `_write_json_result` there is correct."""
+    source = inspect.getsource(getattr(cl, fn_name))
+    assert "_write_json_result(" not in source, (
+        f"{fn_name} calls _write_json_result directly - a fresh result path "
+        "must be claimed with _unique_result_path/_ab_result_path and "
+        "published with _publish_json_atomically"
+    )
+    assert "_publish_json_atomically(" in source
 
 def test_bench_log_append_preserves_both_rows_under_a_lock(tmp_path, monkeypatch):
     """Codex: the audit append is a read-modify-write; a lost row means a

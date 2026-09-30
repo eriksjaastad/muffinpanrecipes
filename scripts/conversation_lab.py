@@ -1380,6 +1380,18 @@ def _experiments_log_path(args: argparse.Namespace) -> Path:
     return Path(raw) if raw else DEFAULT_EXPERIMENTS_LOG
 
 def _write_json_result(path: Path, payload: dict[str, Any]) -> Path:
+    """Plain (non-atomic, non-claiming) JSON write - `baseline` ONLY (#7800).
+
+    `baseline` makes zero paid calls and its path is deterministic
+    (`{episode_id}-baseline.json`, no timestamp): re-running it for the same
+    episode is meant to update the same file in place, not race a
+    concurrent writer over a shared name. Every OTHER command builds a
+    fresh, timestamp-named result file for a PAID run and must claim it
+    with `_unique_result_path` (or `_ab_result_path`, which wraps it) and
+    publish through `_publish_json_atomically` instead - see #7800, where
+    two parallel `ab` runs on different `--models` sets both resolved to
+    the same name and the later one silently overwrote a paid result.
+    """
     _annotate_budget_report(path, payload)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
@@ -3250,10 +3262,26 @@ def _generate_and_judge_pairs(
             _restore_variant(simulate_module, restore_pending)
     return aborted
 
-def _ab_result_path(results_dir: Path, slug: str, variant_path: Path) -> Path:
-    return results_dir / (
-        f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-ab-{slug}-{variant_path.stem}.json"
-    )
+def _ab_result_path(results_dir: Path, slug: str, variant_path: Path, model_set: str) -> Path:
+    """Claim a unique result filename for one `ab` run (single/testbed/sweep).
+
+    #7800: a Haiku pilot and a DeepSeek pilot launched in parallel against
+    the same testbed/variant both resolved to
+    "20260930T183723Z-ab-testbed-monday-limits-off.json" - the timestamp has
+    only second granularity, and slug/variant were the only other
+    ingredients, so two different `--models` sets produced the SAME name and
+    the later finisher silently overwrote a $2.68 paid result. `model_set`
+    (`_resolve_lab_model_set(args).name`, e.g. "claude-o55") is now part of
+    the stem - inserted AFTER `slug` (not right after "ab") so
+    "-ab-testbed-" and "-ab-sweep-" stay intact for anything already
+    matching on that prefix - so parallel runs over different model sets
+    never share a name. `_unique_result_path` additionally claims whatever
+    name it returns (a zero-byte `.partial` sidecar) and suffixes (`-2`,
+    `-3`, ...) on a collision, so even two runs on the IDENTICAL model
+    set/slug/variant in the same UTC second still each get their own file.
+    """
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return _unique_result_path(results_dir, f"{stamp}-ab-{slug}-{model_set}-{variant_path.stem}")
 
 # Floor under a stage's TICKS_RANGE upper bound when deriving --max-calls
 # for --testbed/--sweep (below). Some stages can run MORE turns than their
@@ -3442,7 +3470,10 @@ def cmd_ab(args: argparse.Namespace) -> None:
 
     recipe_context, recipe_facts = _resolve_recipe_context_and_facts(args)
     expected_cast = simulate_module.participants_for_day(args.stage)
-    result_path = _ab_result_path(_results_dir(args), _slugify(args.concept), variant_path)
+    result_path = _ab_result_path(
+        _results_dir(args), _slugify(args.concept), variant_path,
+        _resolve_lab_model_set(args).name,
+    )
 
     pairs: list[dict[str, Any]] = []
     partial_pairs: list[dict[str, Any]] = []
@@ -3460,14 +3491,14 @@ def cmd_ab(args: argparse.Namespace) -> None:
             partial_pairs=partial_pairs,
             error=f"{type(exc).__name__}: {exc}",
         )
-        _write_json_result(result_path, report)
+        _publish_json_atomically(result_path, report)
         raise
 
     report = _build_ab_report(
         args, variant_path, variant, pairs, aborted, budget, result_path,
         partial_pairs=partial_pairs,
     )
-    _write_json_result(result_path, report)
+    _publish_json_atomically(result_path, report)
     if not args.no_log:
         _append_experiments_row(args, report, variant, result_path)
     _print_ab_report(report)
@@ -3495,7 +3526,9 @@ def _cmd_ab_testbed(
         )
     budget = CallBudget(max_calls=args.max_calls)
     expected_cast = simulate_module.participants_for_day(args.stage)
-    result_path = _ab_result_path(_results_dir(args), "testbed", variant_path)
+    result_path = _ab_result_path(
+        _results_dir(args), "testbed", variant_path, _resolve_lab_model_set(args).name,
+    )
 
     scenario_reports: list[dict[str, Any]] = []
     all_pairs: list[dict[str, Any]] = []
@@ -3540,14 +3573,14 @@ def _cmd_ab_testbed(
             max_calls_derived, partial_pairs=all_partial_pairs,
             error=f"{type(exc).__name__}: {exc}",
         )
-        _write_json_result(result_path, report)
+        _publish_json_atomically(result_path, report)
         raise
 
     report = _build_testbed_ab_report(
         args, variant_path, variant, scenario_reports, all_pairs, aborted, budget, result_path, max_calls_derived,
         partial_pairs=all_partial_pairs,
     )
-    _write_json_result(result_path, report)
+    _publish_json_atomically(result_path, report)
     if not args.no_log:
         _append_experiments_row(args, report, variant, result_path)
     _print_testbed_ab_report(report)
@@ -4570,7 +4603,9 @@ def _cmd_ab_sweep(
             sweep_variants=list(variants.values()),
         )
 
-    result_path = _ab_result_path(_results_dir(args), "sweep", sweep_dir)
+    result_path = _ab_result_path(
+        _results_dir(args), "sweep", sweep_dir, _resolve_lab_model_set(args).name,
+    )
 
     # Validate EVERY variant before the shared control is generated (Codex audit).
     # The shared control is generated once, up front, and paid for; a malformed
@@ -4635,14 +4670,14 @@ def _cmd_ab_sweep(
             control_budget, variant_reports, True, result_path, max_calls_derived,
             error=f"{type(exc).__name__}: {exc}",
         )
-        _write_json_result(result_path, report)
+        _publish_json_atomically(result_path, report)
         raise
 
     report = _build_sweep_report(
         args, sweep_dir, variants, scenarios, runs, control_transcripts, control_aborted, _control_cost(),
         control_budget, variant_reports, aborted, result_path, max_calls_derived,
     )
-    _write_json_result(result_path, report)
+    _publish_json_atomically(result_path, report)
     if not args.no_log:
         for variant_name, variant_report in variant_reports.items():
             _append_sweep_experiments_row(args, report, variant_name, variant_report, variants[variant_name], result_path)
@@ -4860,8 +4895,10 @@ def _cmd_calibrate_reference_panel(args: argparse.Namespace) -> None:
     pairs = _reference_pairs(panel)
     judge_model = _resolve_judge_model_for_args(args)
     budget = CallBudget(max_calls=args.max_calls)
-    result_path = _results_dir(args) / (
-        f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}-calibrate-reference-panel-v0.json"
+    model_set_name = _resolve_lab_model_set(args).name
+    result_path = _unique_result_path(
+        _results_dir(args),
+        f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}-calibrate-{model_set_name}-reference-panel-v0",
     )
     reports: dict[str, Any] = {}
     aborted = False
@@ -5071,7 +5108,7 @@ def _cmd_calibrate_reference_panel(args: argparse.Namespace) -> None:
         # re-raise past main() as an uncaught exception.
         aborted = True
         report = make_report()
-        _write_json_result(result_path, report)
+        _publish_json_atomically(result_path, report)
         print(f"\n=== conversation_lab calibrate: reference panel {panel['packet_id']} ===")
         print(f"status: ABORTED  calls used: {report['calls_used']} / max {report['max_calls']}  dry_run={report['dry_run']}")
         print(f"\nresults written to: {report['results_file']}")
@@ -5079,13 +5116,13 @@ def _cmd_calibrate_reference_panel(args: argparse.Namespace) -> None:
     except BaseException as exc:
         error = f"{type(exc).__name__}: {exc}"
         aborted = True
-        _write_json_result(result_path, make_report())
+        _publish_json_atomically(result_path, make_report())
         raise
     finally:
         guard_ctx.__exit__(None, None, None)
 
     report = make_report()
-    _write_json_result(result_path, report)
+    _publish_json_atomically(result_path, report)
     print(f"\n=== conversation_lab calibrate: reference panel {panel['packet_id']} ===")
     run_status = "ABORTED" if report["aborted"] else "COMPLETE"
     print(f"status: {run_status}  calls used: {report['calls_used']} / max {report['max_calls']}  dry_run={report['dry_run']}")
@@ -5646,11 +5683,18 @@ def _unique_result_path(directory: Path, stem: str) -> Path:
     """A path that does not already exist, so no paid result is overwritten.
 
     A UTC timestamp alone is not enough: it has second granularity, and two
-    benches can finish inside the same second (a dry run, a short N, a
-    test). Codex's finding allowed either a unique identifier or an outright
-    refusal to overwrite; this does both, falling back to a counter suffix
-    when the stamped name is taken.
+    runs (bench, ab, calibrate, rejudge - #7800 extended this past bench to
+    every result writer) can finish inside the same second (a dry run, a
+    short N, a test, or two `--models` sets launched in parallel). Codex's
+    finding allowed either a unique identifier or an outright refusal to
+    overwrite; this does both, falling back to a counter suffix when the
+    stamped name is taken.
+
+    Creates `directory` if needed: callers claim a name (this function)
+    before any paid work starts, well before `_write_json_result`'s old
+    parent.mkdir would have run.
     """
+    directory.mkdir(parents=True, exist_ok=True)
     for n in range(1, 1000):
         candidate = directory / (f"{stem}.json" if n == 1 else f"{stem}-{n}.json")
         if candidate.exists():
@@ -6571,9 +6615,11 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
     budget = CallBudget(max_calls=args.max_calls)
     aborted = False
     degradation_reports: dict[str, Any] = {}
-    result_path = _results_dir(args) / (
+    model_set_name = _resolve_lab_model_set(args).name
+    result_path = _unique_result_path(
+        _results_dir(args),
         f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-calibrate-"
-        f"{args.from_episode}-{args.stage}.json"
+        f"{model_set_name}-{args.from_episode}-{args.stage}",
     )
 
     # Any exception below (a judge parse failure mid-degradation, say)
@@ -6686,7 +6732,7 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
         # aborted/partial result.
         aborted = True
         report = _build_calibrate_report(args, concept, degradation_reports, True, budget, result_path)
-        _write_json_result(result_path, report)
+        _publish_json_atomically(result_path, report)
         _print_calibrate_report(report)
         return
     except BaseException as exc:
@@ -6694,13 +6740,13 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
             args, concept, degradation_reports, True, budget, result_path,
             error=f"{type(exc).__name__}: {exc}",
         )
-        _write_json_result(result_path, report)
+        _publish_json_atomically(result_path, report)
         raise
     finally:
         guard_ctx.__exit__(None, None, None)
 
     report = _build_calibrate_report(args, concept, degradation_reports, aborted, budget, result_path)
-    _write_json_result(result_path, report)
+    _publish_json_atomically(result_path, report)
     _print_calibrate_report(report)
 
 def _print_calibrate_report(report: dict[str, Any]) -> None:
@@ -6910,8 +6956,10 @@ def cmd_rejudge(args: argparse.Namespace) -> None:
     aborted = False
     error: str | None = None
     new_pairs: list[dict[str, Any]] = []
-    result_path_out = _results_dir(args) / (
-        f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-rejudge-{result_path.stem}.json"
+    model_set_name = _resolve_lab_model_set(args).name
+    result_path_out = _unique_result_path(
+        _results_dir(args),
+        f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-rejudge-{model_set_name}-{result_path.stem}",
     )
 
     guard_ctx = _installed_budget_guard(budget, args.max_cost)
@@ -6968,13 +7016,13 @@ def cmd_rejudge(args: argparse.Namespace) -> None:
                 args, data, result_path, judge_model, target, new_pairs, True, budget,
                 result_path_out, max_calls, max_calls_derived, error=error,
             )
-            _write_json_result(result_path_out, report)
+            _publish_json_atomically(result_path_out, report)
 
     report = _build_rejudge_report(
         args, data, result_path, judge_model, target, new_pairs, aborted, budget,
         result_path_out, max_calls, max_calls_derived,
     )
-    _write_json_result(result_path_out, report)
+    _publish_json_atomically(result_path_out, report)
     _print_rejudge_report(report)
 
 
