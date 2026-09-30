@@ -30,6 +30,10 @@
             "continue": true
         },
         {
+            "src": "/BingSiteAuth\\.xml",
+            "dest": "/src/BingSiteAuth.xml"
+        },
+        {
             "src": "/(.*)",
             "headers": {
                 "Location": "https://muffinpanrecipes.com/$1"
