@@ -122,6 +122,20 @@ planned, needed before S3. Usage for each:
   `echo '{"SPEAKERS_SEE_JUDGE_RECIPE_FACTS": true}' > variant.json`
   `uv run scripts/conversation_lab.py ab --testbed --stage monday --runs 3 --variant variant.json`
 
+**V6 blind reads use `pairs-ui` (card #7793), shipped 2026-09-30.** It replaces
+the terminal `pairs --show`/`--pick` flow with a local, stdlib-only web UI
+(one pair per screen, hotkeys A/B/T to pick and auto-advance, Left/Right/J/K
+to navigate) bound to `127.0.0.1` only. Picks are written straight to the
+result file through the same recording function `pairs --pick` uses, so the
+two are interchangeable on the same file; reloading resumes at the first
+unpicked pair. The arm names, the A/B mapping, and every judge field are
+never sent to the browser - a finish screen appears once every pair is
+picked, showing the count and the human/judge agreement stats. Each pick also
+records `human_pick_meta[position].longer_arm`/`picked_longer` (by word
+count) for the S0b V5 length-bias split.
+
+`uv run scripts/conversation_lab.py pairs-ui --from docs/conversation-lab/results/PILOT.json`
+
 ## 4. Outcomes
 
 **Primary outcome.** The judge's overall pairwise verdict, variant vs baseline (current
