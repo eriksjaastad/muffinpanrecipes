@@ -21,7 +21,15 @@ from pathlib import Path
 from typing import Optional
 
 from backend.publishing.analytics import GA4_TAG
-from backend.storage import SOCIAL_IMAGE_SUFFIX, WEBP_VARIANT_WIDTHS, storage
+from backend.storage import (
+    JPEG_FALLBACK_HEIGHT,
+    JPEG_FALLBACK_WIDTH,
+    SOCIAL_IMAGE_SUFFIX,
+    WEBP_VARIANT_WIDTHS,
+    _canonical_png_key,
+    _jpeg_fallback_key,
+    storage,
+)
 from backend.utils.logging import get_logger
 from backend.utils.text_sanitize import sanitize_text
 
@@ -81,10 +89,33 @@ def _image_dimensions(image_url: str) -> tuple[int, int]:
     return _GENERATED_IMAGE_DIMENSIONS
 
 
+def _format_dimension_attrs(width: int, height: int) -> str:
+    """Format a pixel size as ``width``/``height`` attributes for an ``img``."""
+    return f'width="{width}" height="{height}"'
+
+
 def _intrinsic_image_attributes(image_url: str) -> str:
     """Format true pixel dimensions for an ``img`` element."""
     width, height = _image_dimensions(image_url)
-    return f'width="{width}" height="{height}"'
+    return _format_dimension_attrs(width, height)
+
+
+# storage._encode_jpeg_fallback center-crops every JPEG <img>-fallback
+# sibling to exactly this HERO_ASPECT-shaped (16:9) size (#7185 review round
+# 4) — TRUE BY CONSTRUCTION, not measured or guessed, so the renderer can
+# always state both width and height without reading the source at all.
+# Three earlier attempts got this wrong: round 1 reused the source's own
+# (guessed) dimensions unscaled; round 2 tried a real scaled height and
+# omitted it when unknowable, which failed scripts/health_check.py's
+# requirement that every <img> carry both width and height; round 3 fixed
+# THAT with a fixed 1200x1200 SQUARE crop, which was true-by-construction
+# but visually wrong — it discards real content before the hero box's own
+# `object-fit: cover` crops again, for any source whose aspect ratio isn't
+# already square. 1200x675 (HERO_ASPECT's 16:9) matches the hero box exactly
+# — see storage._encode_jpeg_fallback's docstring for why that crops nothing
+# further, and storage.HERO_ASPECT for the site.css rule it must track.
+JPEG_FALLBACK_DIMENSIONS: tuple[int, int] = (JPEG_FALLBACK_WIDTH, JPEG_FALLBACK_HEIGHT)
+
 
 def _step_name(text: str, index: int) -> str:
     """Concise label for a recipe HowToStep.
@@ -123,10 +154,12 @@ def _to_webp_url(image_url: str) -> str:
         path, sep, tail = image_url.partition("#")
     if not path.lower().endswith(".png"):
         return image_url
-    # Drop Vercel's random-hash suffix if present (historical uploads
-    # before the deterministic-pathname fix still have it). Deterministic
-    # uploads land at the clean base name and the regex simply no-ops.
-    stripped = _VERCEL_RANDOM_SUFFIX_RE.sub(".png", path)
+    # storage._canonical_png_key drops Vercel's random-hash suffix if present
+    # (historical uploads before the deterministic-pathname fix still have
+    # it; deterministic uploads land at the clean base name and this no-ops)
+    # — the SAME function storage._webp_variant_key uses, so the full-size
+    # sibling and the width-limited variants never disagree about the key.
+    stripped = _canonical_png_key(path)
     webp_path = stripped[:-4] + ".webp"
     return webp_path + (sep + tail if sep else "")
 
@@ -168,6 +201,53 @@ def _variants_available(png_url: str, variant_cache: dict[str, bool] | None = No
     available = storage.image_variants_available(lookup_key)
     if variant_cache is not None:
         variant_cache[lookup_key] = available
+    return available
+
+
+def _to_jpeg_fallback_url(image_url: str) -> str:
+    """Return the sized-JPEG fallback sibling URL for a PNG image URL (#7185).
+
+    Delegates the key computation to storage._jpeg_fallback_key — the SAME
+    function the uploader (_upload_jpeg_fallback), the backfill script, and
+    the existence probe (_jpeg_fallback_available -> storage.
+    jpeg_fallback_available) all call — rather than re-deriving the naming
+    convention here. Before this, the probe checked an unstripped (suffixed)
+    key while this function stripped the Vercel random-suffix independently;
+    a historical PNG could pass the probe and still 404 in the browser
+    (review finding on #7185). Routing all four through one function makes
+    that impossible by construction. A non-PNG URL (already a WebP/JPEG
+    sibling, or a seed asset) passes through unchanged.
+    """
+    if not image_url:
+        return image_url
+    path, sep, tail = image_url.partition("?")
+    if not sep:
+        path, sep, tail = image_url.partition("#")
+    if not path.lower().endswith(".png"):
+        return image_url
+    jpeg_path = _jpeg_fallback_key(path)
+    return jpeg_path + (sep + tail if sep else "")
+
+
+def _jpeg_fallback_available(png_url: str, variant_cache: dict[str, bool] | None = None) -> bool:
+    """Whether the sized JPEG <img> fallback exists for png_url's PNG (#7185).
+
+    Shares variant_cache with _variants_available (same lifetime: once per
+    image per render_episode_page call) but under a distinct key so the two
+    existence checks never collide in the same dict. Unlike the WebP srcset's
+    ORDERING HAZARD, a missing JPEG fallback has a safe, cheap answer: keep
+    serving the raw PNG src rather than ever pointing <img> at a URL that
+    hasn't been backfilled yet (scripts/backfill_image_variants.py).
+    """
+    lookup_key = _variant_lookup_key(png_url)
+    if not lookup_key.lower().endswith(".png"):
+        return False
+    cache_key = f"jpeg-fallback:{lookup_key}"
+    if variant_cache is not None and cache_key in variant_cache:
+        return variant_cache[cache_key]
+    available = storage.jpeg_fallback_available(lookup_key)
+    if variant_cache is not None:
+        variant_cache[cache_key] = available
     return available
 
 
@@ -657,18 +737,30 @@ def render_episode_page(
             f'<span>{html.escape(sanitize_text(step_text))}</span></li>\n'
         )
 
-    # Image block — WebP is the preferred source, while the compressed JPEG
-    # sibling is the fallback for browsers that cannot decode WebP. The
-    # recipe hero is the one above-the-fold image: load it eagerly and give it
-    # high fetch priority. Gallery/chat images remain lazy in
-    # _render_chat_message.
+    # Image block — WebP is the preferred source, while a sized JPEG sibling
+    # (#7185) is the fallback for browsers that cannot decode WebP at all —
+    # once storage confirms it exists (scripts/backfill_image_variants.py
+    # for already-published images); otherwise the raw PNG remains the
+    # fallback exactly as before. The recipe hero is the one above-the-fold
+    # image: load it eagerly and give it high fetch priority. Gallery/chat
+    # images remain lazy in _render_chat_message.
     if has_image:
         fallback_url = image_url
+        using_jpeg_fallback = _jpeg_fallback_available(image_url, variant_cache)
+        if using_jpeg_fallback:
+            fallback_url = _to_jpeg_fallback_url(image_url)
         escaped_fallback = html.escape(fallback_url)
+        # The JPEG fallback is always encoded to JPEG_FALLBACK_DIMENSIONS
+        # exactly (#7185 review round 3) — true by construction, so no
+        # per-source computation, guess, or omission is needed here.
+        dimensions = (
+            _format_dimension_attrs(*JPEG_FALLBACK_DIMENSIONS)
+            if using_jpeg_fallback
+            else _intrinsic_image_attributes(fallback_url)
+        )
         webp_srcset = _to_webp_srcset(image_url, variant_cache)
         if webp_srcset and webp_srcset != image_url:
             escaped_webp = html.escape(webp_srcset)
-            dimensions = _intrinsic_image_attributes(fallback_url)
             # Hero fills .site-main (max-width 768px, 1.5rem side padding —
             # site.css) at every viewport, so sizes mirrors that container.
             image_block = (
@@ -681,7 +773,6 @@ def render_episode_page(
                 f'</picture>'
             )
         else:
-            dimensions = _intrinsic_image_attributes(fallback_url)
             image_block = (
                 f'<img src="{escaped_fallback}" '
                 f'{dimensions} loading="eager" fetchpriority="high" decoding="async" '
