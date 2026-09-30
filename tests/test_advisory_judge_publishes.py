@@ -877,6 +877,19 @@ def test_a_failed_marker_save_after_delivery_does_not_raise():
          patch.object(cron_routes.storage, "save_episode", side_effect=OSError("blob down")):
         cron_routes._announce_advisory_publication("2026-W99", episode, "sunday", "C")
     alert.assert_called_once()
+    # Codex review of 89430c3: the live object is what a warm process's
+    # storage cache hands back on the next load, so it must still say the
+    # alert is owed, exactly as storage does.
+    record = episode["judge_advisory"]["sunday"]
+    assert record["announce_pending"] is True and "announced_at" not in record
+
+    with patch.object(cron_routes, "notify_judge_advisory", return_value=True) as alert, \
+         patch.object(cron_routes.storage, "save_episode") as save:
+        cron_routes._announce_advisory_publication("2026-W99", episode, "sunday", "C")
+    alert.assert_called_once()
+    saved = save.call_args.args[1]
+    assert saved["judge_advisory"]["sunday"]["announce_pending"] is False
+    assert record["announce_pending"] is False and record["announced_at"]
 
 
 def test_fast_path_finishes_a_pending_handoff_then_announces_once():

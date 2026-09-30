@@ -31,6 +31,7 @@ Usage:
 """
 
 from __future__ import annotations
+import copy
 import hmac
 import json
 import os
@@ -941,16 +942,25 @@ def _announce_advisory_publication(episode_id: str, episode: dict, stage: str, c
             "left pending for the next Sunday invocation"
         )
         return
-    record["announce_pending"] = False
-    record["announced_at"] = datetime.now(timezone.utc).isoformat()
+    # Mark a copy and save it; apply the marker to the live episode only once
+    # the save succeeds. Cloud storage caches the loaded episode object by
+    # reference, so marking it first would let a warm-process retry read
+    # "announced" from memory while storage still says the alert is owed.
+    announced_at = datetime.now(timezone.utc).isoformat()
+    updated = copy.deepcopy(episode)
+    updated["judge_advisory"][stage]["announce_pending"] = False
+    updated["judge_advisory"][stage]["announced_at"] = announced_at
     try:
-        storage.save_episode(episode_id, episode)
+        storage.save_episode(episode_id, updated)
     except Exception as exc:  # noqa: BLE001 - the publish already succeeded
         logger.error(
             f"Advisory alert for {episode_id}/{stage} was delivered but its announced marker "
-            f"could not be saved ({type(exc).__name__}: {exc}); a later invocation may send "
-            "one duplicate"
+            f"could not be saved ({type(exc).__name__}: {exc}); it stays owed, so a later "
+            "invocation may send one duplicate"
         )
+        return
+    record["announce_pending"] = False
+    record["announced_at"] = announced_at
 
 
 class JudgeFailedError(Exception):
