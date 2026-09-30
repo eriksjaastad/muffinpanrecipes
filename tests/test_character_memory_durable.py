@@ -6,6 +6,16 @@ read-only-bundle-causes-no-local-write contract, per-character
 success/absence/failure visibility, the removed false first-week fallback,
 system-prompt-cache invalidation across runs, and the repair/backfill
 command.
+
+Also covers the 2026-09-30 Codex review of 29d89bb (three findings, all
+fixed in this file's companion commit):
+  1. A failed durable-memory READ (not a genuine not-found) must never be
+     treated as "seed from the legacy file" — CharacterMemoryUnavailable.
+  2. Cloud-mode reads/writes must never fall back to or mirror onto the
+     prefix-blind local filesystem path; filesystem-mode itself must scope
+     its path by prefix.
+  3. Retention and display order by the week key, not write order — an
+     out-of-order repair of an older week must not evict a newer one.
 """
 
 from __future__ import annotations
@@ -17,7 +27,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from backend.admin import cron_routes
-from backend.storage import merge_character_memory
+from backend.storage import CharacterMemoryUnavailable, merge_character_memory
 
 
 # ---------------------------------------------------------------------------
@@ -48,6 +58,54 @@ def test_merge_character_memory_requires_week_key():
         merge_character_memory(None, {"summary": "no week key"})
 
 
+def test_merge_character_memory_orders_by_week_not_insertion_order():
+    """Review finding 3: retention/order is by the week key, not write order."""
+    data = None
+    for week in ("2026-W39", "2026-W37", "2026-W40", "2026-W38"):
+        data = merge_character_memory(data, {"week": week, "summary": f"summary for {week}"})
+
+    weeks = [e["week"] for e in data["episodes"]]
+    # Only 3 are retained, and they are the 3 chronologically newest, in
+    # chronological order - not the last 3 inserted.
+    assert weeks == ["2026-W38", "2026-W39", "2026-W40"]
+    assert data["last_updated"] == "2026-W40"
+
+
+def test_merge_character_memory_repair_of_older_week_does_not_evict_newer(tmp_path):
+    """Review finding 3, worked example: store W38-W40, repair W11.
+
+    W11 must not displace any of the three newer weeks, and must not become
+    last_updated even though it was the entry just written.
+    """
+    data = None
+    for week in ("2026-W38", "2026-W39", "2026-W40"):
+        data = merge_character_memory(data, {"week": week, "summary": f"summary for {week}"})
+
+    repaired = merge_character_memory(data, {"week": "2026-W11", "summary": "backfilled ancient week"})
+
+    weeks = [e["week"] for e in repaired["episodes"]]
+    assert weeks == ["2026-W38", "2026-W39", "2026-W40"]
+    assert "2026-W11" not in weeks
+    assert repaired["last_updated"] == "2026-W40"
+
+
+def test_merge_character_memory_repair_of_middle_week_is_kept_and_shown_third():
+    """Review finding 3, worked example: only W39-W40 exist, repair W37.
+
+    W37 is older than both but must be kept (only 2 slots occupied) and
+    take its chronological place (shown third when there is a third slot).
+    """
+    data = None
+    for week in ("2026-W39", "2026-W40"):
+        data = merge_character_memory(data, {"week": week, "summary": f"summary for {week}"})
+
+    repaired = merge_character_memory(data, {"week": "2026-W37", "summary": "backfilled W37"})
+
+    weeks = [e["week"] for e in repaired["episodes"]]
+    assert weeks == ["2026-W37", "2026-W39", "2026-W40"]
+    assert repaired["last_updated"] == "2026-W40"
+
+
 # ---------------------------------------------------------------------------
 # Filesystem backend round-trip + read-only-bundle isolation
 # ---------------------------------------------------------------------------
@@ -69,6 +127,41 @@ def test_filesystem_backend_character_memory_roundtrip(tmp_path, monkeypatch):
     bundled = storage_module.ROOT / "backend" / "data" / "characters" / "margaret-chen" / "memory.json"
     original = bundled.read_text()
     assert "2026-W40" not in original
+
+
+def test_filesystem_backend_scopes_character_memory_by_prefix(tmp_path, monkeypatch):
+    """Review finding 2: prod and test-prefix data must not cross, filesystem mode."""
+    import backend.storage as storage_module
+
+    monkeypatch.setattr(storage_module, "CHARACTER_MEMORY_DIR", tmp_path / "character_memory")
+    backend = storage_module._FilesystemBackend()
+
+    backend.save_character_memory("margaret-chen", {"episodes": [{"week": "2026-W40"}], "last_updated": "2026-W40"})
+    with backend.prefix_scope("test/"):
+        # Saved under prod ("") is not visible under test/.
+        assert backend.load_character_memory("margaret-chen") is None
+        backend.save_character_memory("margaret-chen", {"episodes": [{"week": "test-week"}], "last_updated": "test-week"})
+        assert backend.load_character_memory("margaret-chen")["last_updated"] == "test-week"
+
+    # Back under prod scope, the test-prefix write is not visible, and the
+    # original prod data is unchanged.
+    prod_data = backend.load_character_memory("margaret-chen")
+    assert prod_data["last_updated"] == "2026-W40"
+
+
+def test_filesystem_backend_read_failure_raises_not_none(tmp_path, monkeypatch):
+    """Review finding 1: a corrupted local file is a read failure, not "not found"."""
+    import backend.storage as storage_module
+
+    mem_dir = tmp_path / "character_memory"
+    monkeypatch.setattr(storage_module, "CHARACTER_MEMORY_DIR", mem_dir)
+    backend = storage_module._FilesystemBackend()
+
+    mem_dir.mkdir(parents=True)
+    (mem_dir / "margaret-chen.json").write_text("{not valid json")
+
+    with pytest.raises(storage_module.CharacterMemoryUnavailable):
+        backend.load_character_memory("margaret-chen")
 
 
 def test_cron_routes_never_writes_bundled_memory_file(tmp_path, monkeypatch):
@@ -169,6 +262,101 @@ def test_cloud_character_memory_save_raises_on_failure_never_claims_success(clou
     with patch("requests.put", return_value=mock_resp):
         with pytest.raises(Exception, match="500 Server Error"):
             cloud_backend.save_character_memory("ria-castillo", {"episodes": []})
+
+
+def test_cloud_character_memory_genuine_not_found_returns_none_no_fs_fallback(cloud_backend):
+    """Review finding 1 + 2: an empty blob list is a genuine not-found, and
+    must not touch the prefix-blind local filesystem at all."""
+    mock_list = MagicMock()
+    mock_list.json.return_value = {"blobs": []}
+    mock_list.raise_for_status = MagicMock()
+
+    with patch("requests.get", return_value=mock_list), \
+         patch.object(cloud_backend._fs, "load_character_memory") as fs_load:
+        result = cloud_backend.load_character_memory("ria-castillo")
+
+    assert result is None
+    fs_load.assert_not_called()
+
+
+def test_cloud_character_memory_list_failure_raises_unavailable_no_fs_fallback(cloud_backend):
+    """Review finding 1: a list-API failure is CharacterMemoryUnavailable,
+    never silently downgraded to "not found" via a filesystem fallback."""
+    from backend.storage import CharacterMemoryUnavailable
+
+    with patch("requests.get", side_effect=ConnectionError("blob API unreachable")), \
+         patch.object(cloud_backend._fs, "load_character_memory") as fs_load:
+        with pytest.raises(CharacterMemoryUnavailable):
+            cloud_backend.load_character_memory("margaret-chen")
+
+    fs_load.assert_not_called()
+
+
+def test_cloud_character_memory_content_fetch_failure_raises_unavailable(cloud_backend):
+    """Review finding 1: the blob exists per the list call, but fetching its
+    content fails — still a read failure, never a "not found"."""
+    mock_list = MagicMock()
+    mock_list.json.return_value = {"blobs": [{"url": "https://cdn.example.com/margaret.json"}]}
+    mock_list.raise_for_status = MagicMock()
+    mock_content = MagicMock()
+    mock_content.raise_for_status.side_effect = Exception("503 Service Unavailable")
+
+    with patch("requests.get", side_effect=[mock_list, mock_content]), \
+         patch.object(cloud_backend._fs, "load_character_memory") as fs_load:
+        with pytest.raises(CharacterMemoryUnavailable):
+            cloud_backend.load_character_memory("margaret-chen")
+
+    fs_load.assert_not_called()
+
+
+def test_cloud_character_memory_save_does_not_mirror_to_filesystem(cloud_backend):
+    """Review finding 2: a cloud save must not also write the prefix-blind
+    local file — that mirror is what let test/prod data cross before."""
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"url": "https://example.com/character_memory/margaret-chen.json"}
+    mock_resp.raise_for_status = MagicMock()
+
+    with patch("requests.put", return_value=mock_resp), \
+         patch.object(cloud_backend._fs, "save_character_memory") as fs_save:
+        cloud_backend.save_character_memory("margaret-chen", {"episodes": [{"week": "2026-W40"}]})
+
+    fs_save.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Caller-level effect of a read failure (#6968 review finding 1)
+# ---------------------------------------------------------------------------
+
+
+def test_generate_episode_memories_read_failure_skips_write_and_preserves_existing(tmp_path, monkeypatch):
+    """A durable-store read failure must land in "failed", and must NEVER
+    write a merge built on the missing read (that would silently regress
+    good durable memory back to the legacy seed plus one new week)."""
+    import backend.storage as storage_module
+
+    monkeypatch.setattr(storage_module, "CHARACTER_MEMORY_DIR", tmp_path / "character_memory")
+    # Seed durable storage with real, current memory for Margaret.
+    storage_module.storage.save_character_memory(
+        "margaret-chen",
+        {"episodes": [{"week": "2026-W39", "summary": "The real, current memory."}], "last_updated": "2026-W39"},
+    )
+
+    episode = _episode_with_dialogue("2026-W40", {"monday": ["Margaret Chen"]})
+
+    with patch.object(cron_routes, "generate_response", return_value="A calm week. Nice."), \
+         patch.object(
+             storage_module.storage, "load_character_memory",
+             side_effect=storage_module.CharacterMemoryUnavailable("simulated Blob outage"),
+         ):
+        outcome = cron_routes._generate_episode_memories(episode, "Test Concept")
+
+    assert "Margaret Chen" in outcome["failed"]
+    assert "Margaret Chen" not in outcome["saved"]
+
+    # And the durable record is untouched — no merge was written on top of
+    # the failed read.
+    still_there = storage_module.storage.load_character_memory("margaret-chen")
+    assert still_there["episodes"] == [{"week": "2026-W39", "summary": "The real, current memory."}]
 
 
 # ---------------------------------------------------------------------------
@@ -385,6 +573,49 @@ def test_load_memories_shows_latest_two_of_three_retained(tmp_path, monkeypatch)
     shown = sdw._load_memories("Ria Castillo")
 
     assert [m["week"] for m in shown] == ["2026-W39", "2026-W40"]
+
+
+def test_load_memories_shows_two_most_recent_by_week_out_of_insertion_order(tmp_path, monkeypatch):
+    """Review finding 3: display order is by week key, independent of the
+    order episodes happen to sit in storage (e.g. a stale legacy seed file
+    written by the old, unsorted appender)."""
+    import scripts.simulate_dialogue_week as sdw
+    import backend.storage as storage_module
+
+    monkeypatch.setattr(storage_module, "CHARACTER_MEMORY_DIR", tmp_path / "character_memory")
+    # Stored out of chronological order, as the pre-#6968 writer could leave
+    # it (no sort on write).
+    storage_module.storage.save_character_memory(
+        "ria-castillo",
+        {
+            "episodes": [
+                {"week": "2026-W40", "summary": "latest"},
+                {"week": "2026-W11", "summary": "ancient"},
+                {"week": "2026-W39", "summary": "second latest"},
+            ],
+            "last_updated": "2026-W39",
+        },
+    )
+
+    shown = sdw._load_memories("Ria Castillo")
+
+    assert [m["week"] for m in shown] == ["2026-W39", "2026-W40"]
+
+
+def test_load_memories_read_failure_falls_back_to_known_coworker(tmp_path, monkeypatch):
+    """Review finding 1: a durable-store read failure must degrade to the
+    known-coworker prompt fallback, never raise into build_system_prompt and
+    never seed from the legacy file."""
+    import scripts.simulate_dialogue_week as sdw
+    import backend.storage as storage_module
+
+    with patch.object(
+        storage_module.storage, "load_character_memory",
+        side_effect=storage_module.CharacterMemoryUnavailable("simulated Blob outage"),
+    ):
+        shown = sdw._load_memories("Margaret Chen")
+
+    assert shown == []
 
 
 # ---------------------------------------------------------------------------

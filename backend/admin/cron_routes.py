@@ -46,7 +46,7 @@ from pydantic import BaseModel
 
 from backend.config import config
 from backend.publishing.episode_renderer import _hero_image_url, regenerate_and_upload
-from backend.storage import merge_character_memory, storage
+from backend.storage import CharacterMemoryUnavailable, merge_character_memory, storage
 from backend.utils import episode_integrity
 from backend.utils.catalog import (
     VALID_CATEGORIES,
@@ -1647,10 +1647,18 @@ def _load_character_memory_seeded(slug: str) -> Optional[dict]:
 
     backend/data/characters/<slug>/memory.json is the read-only file that
     shipped inside the Vercel Lambda bundle before this card; it remains in
-    place as the initial seed for a character with nothing in durable
-    storage yet (card #6968, item 7). Once durable storage holds anything
-    for a character it is authoritative, and the legacy file is never
-    consulted again for that character.
+    place as the initial seed ONLY for a character with a genuine
+    not-found in durable storage (card #6968, item 7). Once durable storage
+    holds anything for a character it is authoritative, and the legacy
+    file is never consulted again for that character.
+
+    Deliberately does NOT catch CharacterMemoryUnavailable — a durable-store
+    READ failure (a transient Blob error, a corrupted local file) must
+    propagate to the caller rather than being treated as "no memory yet",
+    which would seed from the stale legacy file and let the caller write a
+    merge that regresses good durable memory to seed-plus-one-week (#6968
+    review finding 1). The caller's per-character try/except records this
+    as a failure and skips the write for this run.
     """
     existing = storage.load_character_memory(slug)
     if existing is not None:
@@ -1774,6 +1782,14 @@ def _generate_episode_memories(episode: dict, concept: str, *, dry_run: bool = F
                 storage.save_character_memory(slug, merged)
             logger.info(f"{'Would save' if dry_run else 'Saved'} memory for {char_name}: {summary[:80]}")
             outcome["saved"].append(char_name)
+        except CharacterMemoryUnavailable as e:
+            # A durable-store READ failure (#6968 review finding 1): never
+            # seed from the legacy file or write a merge on top of a
+            # missing read — that would regress good durable memory to
+            # seed-plus-this-week. The summary above succeeded but is
+            # discarded; existing memory is left exactly as it was.
+            logger.error(f"Memory read failed for {char_name}, write skipped: {type(e).__name__}: {e}")
+            outcome["failed"].append(char_name)
         except Exception as e:
             # A write failure must never claim success (#6968) — recorded as
             # failed even though the summary above succeeded.

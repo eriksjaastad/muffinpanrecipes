@@ -27,7 +27,7 @@ from statistics import mean
 from typing import Any
 
 from backend.config import config
-from backend.storage import merge_character_memory, storage
+from backend.storage import CharacterMemoryUnavailable, merge_character_memory, storage
 from backend.utils.director import Direction, direct_day, roll_day
 from backend.utils.logging import get_logger
 from backend.utils.model_router import generate_response
@@ -570,11 +570,18 @@ def _load_character_memory_seeded(slug: str) -> dict[str, Any] | None:
     """Durable memory for `slug`, seeded from the legacy bundled file (#6968).
 
     backend/data/characters/<slug>/memory.json is the read-only file that
-    predates durable storage; it remains in place as the initial seed for a
-    character with nothing in durable storage yet (card #6968, item 7).
-    Once durable storage holds anything for a character it is authoritative
-    and the legacy file is never consulted again for that character. Mirrors
+    predates durable storage; it remains in place as the initial seed ONLY
+    for a genuine not-found in durable storage (card #6968, item 7). Once
+    durable storage holds anything for a character it is authoritative and
+    the legacy file is never consulted again for that character. Mirrors
     backend.admin.cron_routes._load_character_memory_seeded.
+
+    Deliberately does NOT catch CharacterMemoryUnavailable — a durable-store
+    READ failure must propagate rather than being treated as "no memory
+    yet" (#6968 review finding 1); _load_memories below converts that into
+    the truthful known-coworker prompt fallback instead of silently seeding
+    stale legacy data, and _generate_episode_memories' per-character write
+    skips the write entirely on this path.
     """
     existing = storage.load_character_memory(slug)
     if existing is not None:
@@ -589,16 +596,32 @@ def _load_character_memory_seeded(slug: str) -> dict[str, Any] | None:
 
 
 def _load_memories(name: str) -> list[dict[str, str]]:
-    """Load episode memories for a character (last 2 episodes), from durable
-    storage with the legacy bundled file as an initial seed (#6968)."""
-    data = _load_character_memory_seeded(_char_dir_slug(name))
+    """Load episode memories for a character (2 most recent by week), from
+    durable storage with the legacy bundled file as an initial seed (#6968).
+
+    A durable-store read failure degrades to "no memories" (the
+    known-coworker prompt fallback in build_system_prompt) rather than
+    raising or seeding from the stale legacy file (#6968 review finding 1).
+    Ordered by the "week" key rather than list/write order, so the 2 shown
+    are always the chronologically most recent regardless of how they were
+    inserted (#6968 review finding 3).
+    """
+    try:
+        data = _load_character_memory_seeded(_char_dir_slug(name))
+    except CharacterMemoryUnavailable as e:
+        logger.warning(f"Character memory read failed for {name}, using fallback: {type(e).__name__}: {e}")
+        return []
     if not data:
         return []
     try:
         episodes = data.get("episodes", [])
-        return episodes[-2:]  # last 2 episodes
-    except (AttributeError, KeyError):
+    except AttributeError:
         return []
+    ordered = sorted(
+        (e for e in episodes if isinstance(e, dict)),
+        key=lambda e: e.get("week", ""),
+    )
+    return ordered[-2:]  # 2 most recent by week
 
 
 # Deterministic patterns for WORD_CAPS=False. Each entry is a regex that
@@ -2375,7 +2398,11 @@ def _generate_episode_memories(
 
         # Durable storage, seeded from the legacy bundled file, merged and
         # replaced by week label (#6968) — never a direct write to the
-        # tracked backend/data/characters/<slug>/memory.json source.
+        # tracked backend/data/characters/<slug>/memory.json source. A read
+        # failure (CharacterMemoryUnavailable) raises out of
+        # _load_character_memory_seeded before merge/save run, so this
+        # never writes a merge built on a missing read (#6968 review
+        # finding 1) — it is caught here only to log and move on.
         slug = _char_dir_slug(char_name)
         try:
             existing = _load_character_memory_seeded(slug)

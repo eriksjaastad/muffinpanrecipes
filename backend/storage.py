@@ -167,14 +167,35 @@ def _encode_social_jpeg(png_bytes: bytes) -> bytes:
     return _encode_jpeg(png_bytes, SOCIAL_IMAGE_SIZE)
 
 
+class CharacterMemoryUnavailable(Exception):
+    """A character-memory READ could not be completed (#6968 review finding 1).
+
+    Distinct from a genuine "no memory has ever been written" (which is
+    `None`, not an exception): this means the read attempt itself failed —
+    a transient Blob error, a network timeout, a corrupted local file. A
+    caller must never treat this the same as "not found": seeding from the
+    legacy bundled file, or writing a merge built on top of a missing read,
+    would silently regress good durable memory to the stale seed plus one
+    new week. Callers should record the character's memory step as failed
+    and skip the write for this run instead.
+    """
+
+
 def merge_character_memory(existing: Optional[dict], entry: dict) -> dict:
     """Merge one completed week's memory entry into existing character memory (#6968).
 
     ``entry`` must carry a ``"week"`` key — the episode ID (e.g.
-    "2026-W40"). Any existing entry already recorded for that week is
-    replaced rather than duplicated, so re-running the same week's Sunday
-    publish, or the repair/backfill command, is idempotent. Keeps at most
-    ``MAX_CHARACTER_MEMORY_WEEKS`` distinct weeks, most recent last.
+    "2026-W40"), an ISO week string that sorts chronologically as plain
+    text. Any existing entry already recorded for that week is replaced
+    rather than duplicated, so re-running the same week's Sunday publish,
+    or the repair/backfill command, is idempotent.
+
+    Retention and ``last_updated`` are keyed by the week value itself, not
+    by write order (#6968 review finding 3): repairing an older week can
+    never evict a newer one just because it was written more recently, and
+    the ``MAX_CHARACTER_MEMORY_WEEKS`` entries kept (and the 2 shown by
+    scripts.simulate_dialogue_week._load_memories) are always the
+    chronologically most recent, in chronological order.
 
     Pure function, no I/O — callers load, merge, then save.
     """
@@ -184,9 +205,10 @@ def merge_character_memory(existing: Optional[dict], entry: dict) -> dict:
     data: dict = dict(existing) if existing else {}
     episodes = [e for e in data.get("episodes", []) if e.get("week") != week]
     episodes.append(entry)
+    episodes.sort(key=lambda e: e.get("week", ""))
     episodes = episodes[-MAX_CHARACTER_MEMORY_WEEKS:]
     data["episodes"] = episodes
-    data["last_updated"] = week
+    data["last_updated"] = episodes[-1]["week"] if episodes else week
     return data
 
 
@@ -274,16 +296,28 @@ class _FilesystemBackend:
         return results
 
     def load_character_memory(self, slug: str) -> Optional[dict]:
-        """Load durable per-character memory (#6968). Returns None if absent."""
-        path = CHARACTER_MEMORY_DIR / f"{slug}.json"
+        """Load durable per-character memory (#6968).
+
+        Scoped by `self.prefix` the same way the cloud backend's blob key
+        is (#6968 review finding 2) — "test/" and "" resolve to different
+        files on disk, so test-mode data can never cross into production
+        memory through this path. Returns None only when genuinely absent;
+        raises CharacterMemoryUnavailable on a read/parse failure so a
+        caller never confuses "never written" with "failed to read"
+        (finding 1).
+        """
+        path = CHARACTER_MEMORY_DIR / f"{self.prefix}{slug}.json"
         if not path.exists():
             return None
-        return json.loads(path.read_text())
+        try:
+            return json.loads(path.read_text())
+        except (json.JSONDecodeError, OSError) as e:
+            raise CharacterMemoryUnavailable(f"local read failed for {slug!r}: {e}") from e
 
     def save_character_memory(self, slug: str, data: dict) -> None:
-        """Persist durable per-character memory (#6968)."""
-        CHARACTER_MEMORY_DIR.mkdir(parents=True, exist_ok=True)
-        path = CHARACTER_MEMORY_DIR / f"{slug}.json"
+        """Persist durable per-character memory (#6968), scoped by prefix (see load_character_memory)."""
+        path = CHARACTER_MEMORY_DIR / f"{self.prefix}{slug}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(data, indent=2))
 
     def save_page(self, pathname: str, html_content: str) -> str:
@@ -660,11 +694,21 @@ class _CloudBackend:
     def load_character_memory(self, slug: str) -> Optional[dict]:
         """Load durable per-character memory from Vercel Blob.
 
-        Mirrors load_episode's shape: same-invocation cache, CDN read
-        through the list API, filesystem fallback on any cloud failure so a
-        transient Blob error degrades to "no memory found" rather than
-        raising (a per-character memory gap must never block a publish or
-        misreport a real coworker as failed to load).
+        Same-invocation cache, CDN read through the list API — but, unlike
+        load_episode, this deliberately does NOT fall back to the local
+        filesystem on a "not found" or on any error (#6968 review finding
+        2): the local character-memory path has no prefix of its own in a
+        cloud-backed environment, so a fallback here could silently read or
+        (via save's old mirror write) leak memory across the test/
+        production boundary that `prefix` exists to enforce.
+
+        Returns None only for a genuine not-found (the list API succeeded
+        and returned no blob under this prefix — i.e. nothing has ever been
+        written for this character here). Raises CharacterMemoryUnavailable
+        on any other failure (network error, non-2xx status, bad JSON) so a
+        caller can tell "never written" from "failed to read" (finding 1)
+        and never seed from the legacy bundled file, or write a merge built
+        on a missing read, in response to a merely transient error.
         """
         if not self._has_cloud():
             return self._fs.load_character_memory(slug)
@@ -685,25 +729,34 @@ class _CloudBackend:
             )
             resp.raise_for_status()
             blobs = resp.json().get("blobs", [])
-            if not blobs:
-                return self._fs.load_character_memory(slug)
+        except Exception as e:
+            logger.error(f"Blob load_character_memory list failed for {slug}: {type(e).__name__}: {e}")
+            raise CharacterMemoryUnavailable(f"list failed for {slug!r}: {e}") from e
 
-            blob_url = blobs[0]["url"]
-            content_resp = _requests.get(blob_url, timeout=15)
+        if not blobs:
+            return None  # genuine not-found: nothing written for this character under this prefix
+
+        try:
+            content_resp = _requests.get(blobs[0]["url"], timeout=15)
             content_resp.raise_for_status()
             data = content_resp.json()
-            self._character_memory_cache[cache_key] = data
-            return data
         except Exception as e:
-            logger.warning(f"Blob load_character_memory failed for {slug}, falling back to filesystem: {e}")
-            return self._fs.load_character_memory(slug)
+            logger.error(f"Blob load_character_memory content fetch failed for {slug}: {type(e).__name__}: {e}")
+            raise CharacterMemoryUnavailable(f"content fetch failed for {slug!r}: {e}") from e
+
+        self._character_memory_cache[cache_key] = data
+        return data
 
     def save_character_memory(self, slug: str, data: dict) -> None:
         """Persist durable per-character memory to Vercel Blob.
 
         Raises on cloud failure — same contract as save_episode — so a
         caller can record the write as failed instead of silently claiming
-        success (#6968).
+        success (#6968). Unlike save_episode, this does NOT mirror to the
+        local filesystem: the local character-memory path has no prefix
+        scoping of its own, so mirroring here would let a test-mode write
+        overwrite (or be silently read back as) production memory, or vice
+        versa (#6968 review finding 2).
         """
         if not self._has_cloud():
             self._fs.save_character_memory(slug, data)
@@ -735,12 +788,6 @@ class _CloudBackend:
         except Exception as e:
             logger.error(f"Blob save_character_memory failed for {slug}: {e}")
             raise
-
-        # Best-effort local cache mirror, same rationale as save_episode.
-        try:
-            self._fs.save_character_memory(slug, data)
-        except OSError as exc:
-            logger.debug("Local character-memory cache unavailable for %s: %s", slug, exc)
 
     # --- Simulations ---
 
