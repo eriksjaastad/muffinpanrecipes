@@ -230,7 +230,7 @@ def test_guarded_reference_panel_denies_second_orientation_and_keeps_first_evide
     state = _ledger(ledger)
     assert state["totals"]["generation_attempts"] == 1
     assert state["phases"]["calibration"]["generation_attempts"] == 1
-    [result_path] = results.glob("*-calibrate-reference-panel-v0.json")
+    [result_path] = results.glob("*-calibrate-*-reference-panel-v0.json")
     report = json.loads(result_path.read_text())
     assert report["aborted"] is True
     assert report["calls_used"] == 1
