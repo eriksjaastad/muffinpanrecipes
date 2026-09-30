@@ -904,3 +904,165 @@ def test_ab_dry_run_has_zero_call_reservations_even_with_tiny_call_cap(monkeypat
     assert len(generated) == 2
     assert budget.used == 0
     assert len(pairs) == 1
+
+
+# ---------------------------------------------------------------------------
+# rewrite_summary/length_stats wiring in the three report builders (#7711) -
+# PR #139 review of 704af63 (T1): these fields were added but only the
+# single-ab path (which reuses the same helpers) was integration-tested;
+# nothing asserted a non-trivial value came out the other end.
+# ---------------------------------------------------------------------------
+
+_TIE_JUDGE = {"overall": "tie", **{dim: "tie" for dim in cl.ALL_JUDGE_DIMENSIONS}}
+
+
+def _pair(scenario_id, run_index, control_messages, variant_messages, control_rewrite_log, variant_rewrite_log):
+    return {
+        "scenario_id": scenario_id,
+        "run_index": run_index,
+        "control_messages": control_messages,
+        "variant_messages": variant_messages,
+        "control_rewrite_log": control_rewrite_log,
+        "variant_rewrite_log": variant_rewrite_log,
+        "judge": _TIE_JUDGE,
+        "control_summary": {},
+        "variant_summary": {},
+    }
+
+
+def test_build_testbed_ab_report_computes_real_rewrite_and_length_stats(tmp_path):
+    variant_path = tmp_path / "variant.json"
+    variant_path.write_text(json.dumps({"_SHARED_CHARACTER_RULES": "fixture"}))
+    testbed_path = tmp_path / "testbed.json"
+
+    all_pairs = [
+        _pair(
+            "s1", 1,
+            control_messages=[
+                {"character": "Margaret Chen", "message": "one two three"},
+                {"character": "Margaret Chen", "message": "four five"},
+            ],
+            variant_messages=[{"character": "Margaret Chen", "message": "one"}],
+            control_rewrite_log=[{"rewritten": True, "faults": ["length"], "cot_retry": False}],
+            variant_rewrite_log=[{"rewritten": True, "faults": ["tone"], "cot_retry": True}],
+        ),
+        _pair(
+            "s1", 2,
+            control_messages=[{"character": "Margaret Chen", "message": "six"}],
+            variant_messages=[{"character": "Margaret Chen", "message": "seven eight"}],
+            control_rewrite_log=[{"rewritten": False, "faults": [], "cot_retry": True}],
+            variant_rewrite_log=[{"rewritten": False, "faults": ["length"], "cot_retry": False}],
+        ),
+    ]
+
+    args = cl._build_parser().parse_args([
+        "ab", "--testbed", str(testbed_path), "--stage", "monday",
+        "--variant", str(variant_path), "--runs", "1", "--no-log",
+        "--results-dir", str(tmp_path / "results"),
+    ])
+
+    report = cl._build_testbed_ab_report(
+        args, variant_path, {"_SHARED_CHARACTER_RULES": "fixture"},
+        scenario_reports=[{"id": "s1", "completed_pairs": 2, "pairs": all_pairs, "partial_pairs": []}],
+        all_pairs=all_pairs, aborted=False, budget=cl.CallBudget(max_calls=40),
+        result_path=tmp_path / "report.json", max_calls_derived=False,
+    )
+
+    # length_stats: word counts pooled across BOTH pairs, per character.
+    assert report["length_stats"]["control"]["Margaret Chen"] == {
+        "lines": 3, "mean": 2.0, "median": 2.0, "max": 3,
+    }
+    assert report["length_stats"]["variant"]["Margaret Chen"] == {
+        "lines": 2, "mean": 1.5, "median": 1.5, "max": 2,
+    }
+
+    # rewrite_summary: rewrite/fault/cot_retry counts pooled the same way.
+    assert report["rewrite_summary"]["control"] == {
+        "lines": 2, "rewritten": 1, "rewrite_rate": 0.5,
+        "fault_counts": {"length": 1}, "cot_retry": 1,
+    }
+    assert report["rewrite_summary"]["variant"] == {
+        "lines": 2, "rewritten": 1, "rewrite_rate": 0.5,
+        "fault_counts": {"tone": 1, "length": 1}, "cot_retry": 1,
+    }
+
+
+def test_build_sweep_variant_report_computes_real_rewrite_and_length_stats():
+    pairs = [
+        _pair(
+            "s1", 1,
+            control_messages=[{"character": "Devon Park", "message": "two words"}],
+            variant_messages=[
+                {"character": "Devon Park", "message": "a"},
+                {"character": "Devon Park", "message": "three word line"},
+            ],
+            control_rewrite_log=[{"rewritten": False, "faults": ["tone"], "cot_retry": False}],
+            variant_rewrite_log=[{"rewritten": True, "faults": ["length", "tone"], "cot_retry": True}],
+        ),
+    ]
+
+    report = cl._build_sweep_variant_report(
+        variant_name="sample", variant={"_SHARED_CHARACTER_RULES": "fixture"},
+        pairs=pairs, aborted=False, calls_used=4, cost=0.01, target="overall", dry_run=False,
+    )
+
+    assert report["length_stats"]["control"]["Devon Park"] == {
+        "lines": 1, "mean": 2.0, "median": 2.0, "max": 2,
+    }
+    assert report["length_stats"]["variant"]["Devon Park"] == {
+        "lines": 2, "mean": 2.0, "median": 2.0, "max": 3,
+    }
+    assert report["rewrite_summary"]["control"] == {
+        "lines": 1, "rewritten": 0, "rewrite_rate": 0.0,
+        "fault_counts": {"tone": 1}, "cot_retry": 0,
+    }
+    assert report["rewrite_summary"]["variant"] == {
+        "lines": 1, "rewritten": 1, "rewrite_rate": 1.0,
+        "fault_counts": {"length": 1, "tone": 1}, "cot_retry": 1,
+    }
+
+
+def test_build_sweep_report_computes_real_control_length_stats_and_rewrite_summary(tmp_path):
+    control_transcripts = {
+        ("s1", 1): {
+            "messages": [
+                {"character": "Margaret Chen", "message": "alpha beta gamma"},
+                {"character": "Margaret Chen", "message": "delta"},
+            ],
+            "rewrite_log": [{"rewritten": True, "faults": ["length"], "cot_retry": True}],
+        },
+    }
+    variant_reports = {
+        "sample": {
+            "pairs": [
+                {
+                    "scenario_id": "s1", "run_index": 1,
+                    "variant_messages": [{"character": "Margaret Chen", "message": "epsilon zeta"}],
+                    "variant_rewrite_log": [{"rewritten": False, "faults": ["tone"], "cot_retry": False}],
+                },
+            ],
+            "partial_pairs": [],
+        },
+    }
+
+    args = cl._build_parser().parse_args([
+        "ab", "--sweep", str(tmp_path), "--stage", "monday", "--no-log",
+    ])
+
+    report = cl._build_sweep_report(
+        args, tmp_path, {"sample": {"_SHARED_CHARACTER_RULES": "fixture"}}, [{"id": "s1"}], 1,
+        control_transcripts, False, None, cl.CallBudget(max_calls=40), variant_reports, False,
+        tmp_path / "report.json", False,
+    )
+
+    assert report["control_length_stats"]["Margaret Chen"] == {
+        "lines": 2, "mean": 2.0, "median": 2.0, "max": 3,
+    }
+    assert report["rewrite_summary"]["control"] == {
+        "lines": 1, "rewritten": 1, "rewrite_rate": 1.0,
+        "fault_counts": {"length": 1}, "cot_retry": 1,
+    }
+    assert report["rewrite_summary"]["variant"] == {
+        "lines": 1, "rewritten": 0, "rewrite_rate": 0.0,
+        "fault_counts": {"tone": 1}, "cot_retry": 0,
+    }
