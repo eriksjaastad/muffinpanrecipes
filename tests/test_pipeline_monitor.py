@@ -1079,3 +1079,99 @@ def test_mismatched_state_entry_cannot_suppress_a_real_alert(tmp_path, monkeypat
     assert trashed == [str(state)]
     assert len(posts) == 1
     assert json.loads(state.read_text())["alerted_failures"] == {fid: "stage A"}
+
+
+# ---------------------------------------------------------------------------
+# Round 8: a state file that exists but can be neither read nor moved aside
+# must never be treated as "no prior state" — that re-sent alerts and then
+# overwrote the history the monitor could not see.
+# ---------------------------------------------------------------------------
+
+
+def _unreadable(state, monkeypatch):
+    real_read_text = pm.Path.read_text
+
+    def _read_text(self, *args, **kwargs):
+        if self == state:
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(pm.Path, "read_text", _read_text)
+
+
+def _prior_state_bytes(state):
+    fid = pm._failure_id("episode", "2026-W40", "stage A")
+    state.write_text(json.dumps({
+        "status": "degraded",
+        "alerted_failures": {fid: "stage A"},
+        "checks_ran": ["episode"],
+        "alerted_at": "2026-09-30T00:00:00Z",
+    }))
+    return state.read_bytes()
+
+
+def test_unreadable_state_defers_the_transition(tmp_path, monkeypatch, capsys):
+    state = tmp_path / "pipeline_status.json"
+    before = _prior_state_bytes(state)
+    _unreadable(state, monkeypatch)
+    trashed = []
+    monkeypatch.setattr(pm, "send2trash", lambda path: trashed.append(path))
+    posts = _captured_alerts(monkeypatch)
+    _install_pipeline(monkeypatch, episode_only_failures=["stage A", "stage B"])
+
+    assert pm.run(state) == 0
+    assert posts.attempts == 0          # no duplicate alert
+    assert trashed == []                # not moved
+    assert state.read_bytes() == before  # not overwritten
+    assert "state left untouched" in capsys.readouterr().err
+
+
+def test_unreadable_state_on_unknown_verdict_is_not_overwritten(tmp_path, monkeypatch):
+    state = tmp_path / "pipeline_status.json"
+    before = _prior_state_bytes(state)
+    _unreadable(state, monkeypatch)
+    posts = _captured_alerts(monkeypatch)
+    _install_pipeline(monkeypatch, episode_ok=False)
+
+    assert pm.run(state) == 0
+    assert posts.attempts == 0
+    assert state.read_bytes() == before
+
+
+def test_unusable_state_that_cannot_be_trashed_defers_the_transition(tmp_path, monkeypatch, capsys):
+    state = tmp_path / "pipeline_status.json"
+    state.write_text("{not json")
+    before = state.read_bytes()
+
+    def _trash_fails(path):
+        raise OSError("trash unavailable")
+
+    monkeypatch.setattr(pm, "send2trash", _trash_fails)
+    posts = _captured_alerts(monkeypatch)
+    _install_pipeline(monkeypatch, episode_only_failures=["stage A"])
+
+    assert pm.run(state) == 0
+    assert posts.attempts == 0
+    assert state.read_bytes() == before
+    assert "could not move unusable state file" in capsys.readouterr().err
+
+
+def test_unusable_state_moved_aside_still_starts_fresh(tmp_path, monkeypatch):
+    """The legitimate path is unchanged: once the bad file is moved aside,
+    the run proceeds like a first run and alerts once."""
+    state = tmp_path / "pipeline_status.json"
+    state.write_text("{not json")
+    trashed = []
+
+    def _trash(path):
+        trashed.append(path)
+        pm.Path(path).rename(tmp_path / "trashed.json")
+
+    monkeypatch.setattr(pm, "send2trash", _trash)
+    posts = _captured_alerts(monkeypatch)
+    _install_pipeline(monkeypatch, episode_only_failures=["stage A"])
+
+    assert pm.run(state) == 0
+    assert trashed == [str(state)]
+    assert len(posts) == 1
+    assert list(json.loads(state.read_text())["alerted_failures"].values()) == ["stage A"]

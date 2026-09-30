@@ -140,7 +140,8 @@ didn't cover:
      nothing while LOOKING like it succeeded. `read_state` now validates the
      loaded value against the current schema; anything else is logged to
      stderr and moved aside with `send2trash` (never deleted), and the run
-     proceeds as if there were no prior state at all. This monitor has never
+     proceeds as if there were no prior state at all (only once the move
+     succeeds; see `StateUnavailable` otherwise). This monitor has never
      been installed, so there is no real history to protect — a fresh start
      may alert once for a currently-failing pipeline, which is an accepted,
      one-time cost (see ops/launchd/README.md), not a bug.
@@ -404,39 +405,57 @@ def _is_current_schema(state: object) -> bool:
     return all(isinstance(group, str) and group in _CHECK_GROUPS for group in state["checks_ran"])
 
 
+class StateUnavailable(Exception):
+    """The state file exists but can be neither read nor moved aside.
+
+    Treating that as "no prior state" would re-send every current alert and
+    then overwrite the file with a replacement, losing the history that was
+    in it (round 8). The caller skips the whole state transition instead:
+    no alert, no write, the file left exactly where it is.
+    """
+
+
 def _discard_unusable_state(path: Path, reason: str) -> None:
     """Log and move an unusable state file aside — never delete it outright
     (AGENTS.md). Called for both invalid JSON and a recognized-but-wrong
     schema, so a garbage or stale file is only ever warned about once: the
     next run sees no file at all and proceeds like any other first-ever run.
+
+    Raises `StateUnavailable` when the move fails: the file is still there,
+    so this run must not start fresh on top of it.
     """
     print(
-        f"{LABEL}: state file {path} is unusable ({reason}) — starting fresh "
-        "and moving it aside",
+        f"{LABEL}: state file {path} is unusable ({reason}) — moving it aside",
         file=sys.stderr,
     )
     try:
         send2trash(str(path))
     except Exception as trash_exc:
-        print(
-            f"{LABEL}: could not trash unusable state file {path} "
-            f"({type(trash_exc).__name__}: {trash_exc})",
-            file=sys.stderr,
-        )
+        raise StateUnavailable(
+            f"could not move unusable state file {path} aside "
+            f"({type(trash_exc).__name__}: {trash_exc})"
+        ) from trash_exc
 
 
 def read_state(path: Path) -> dict | None:
+    """The trusted prior state, or None when there is none (no file, or an
+    unusable one that was successfully moved aside).
+
+    Raises `StateUnavailable` when the file exists but can be neither read
+    nor moved aside (round 8).
+    """
     try:
         raw_text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
         return None
     except Exception as e:
         # An unreadable (not merely unparsable) state file — a permissions
-        # error, for instance — is treated as "no prior state" rather than
-        # crashing the job, but is NOT trashed: this monitor may simply lack
-        # permission to touch it, and trying to move it would just fail too.
-        print(f"{LABEL}: state read failed ({type(e).__name__}: {e})", file=sys.stderr)
-        return None
+        # error, for instance — is NOT "no prior state": it may hold alert
+        # history this run cannot see. It is not trashed either (this monitor
+        # may simply lack permission to touch it).
+        raise StateUnavailable(
+            f"state read failed ({type(e).__name__}: {e})"
+        ) from e
 
     try:
         state = json.loads(raw_text)
@@ -577,7 +596,23 @@ def _alert_recovered(verdict: dict) -> bool:
 
 
 def _run_locked(state_path: Path, episode_id: str | None) -> int:
-    """The actual read-decide-alert-write body, run under `run()`'s lock."""
+    """The read-decide-alert-write body, run under `run()`'s lock.
+
+    An existing state file that can be neither read nor moved aside defers
+    the whole transition: no alert, no write, the file left in place, and
+    the reason on stderr (the launchd log) every run until it is fixed.
+    """
+    try:
+        return _transition(state_path, episode_id)
+    except StateUnavailable as exc:
+        print(
+            f"{LABEL}: {exc} — no alert sent and state left untouched this run",
+            file=sys.stderr,
+        )
+        return 0
+
+
+def _transition(state_path: Path, episode_id: str | None) -> int:
     verdict = compute_verdict(episode_id)
 
     if verdict["kind"] == "unknown":

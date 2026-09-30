@@ -129,6 +129,12 @@ Trash via `trash` — never `rm`, per this repo's hygiene rules.
   compare against. That is a one-time cost, not a bug, and not something to
   "fix" by trying to guess at a stale file's meaning instead of discarding it.
 
+  **A state file that exists but cannot be read, or cannot be moved aside,
+  is never replaced.** The run sends no alert, writes nothing, and logs the
+  reason to `~/Library/Logs/muffinpan-pipeline-monitor/stderr.log`; every later run does the same until the
+  file is readable (or you move it aside yourself). Starting fresh on top of
+  it would re-send alerts and overwrite history the monitor could not see.
+
 - **Logs**: `~/Library/Logs/muffinpan-pipeline-monitor/{stdout,stderr}.log`.
 
 - **launchd agent**: `~/Library/LaunchAgents/com.eriksjaastad.muffinpan-pipeline-monitor.plist`.
