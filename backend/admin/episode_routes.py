@@ -24,7 +24,7 @@ from backend.storage import storage
 from backend.utils.episode_integrity import (
     current_episode_id,
     episode_page_is_due,
-    sunday_window_closed,
+    relevant_week_id,
     week_off_note_due,
 )
 from backend.utils.logging import get_logger
@@ -100,6 +100,17 @@ async def this_week_page():
     )
 
 
+def _week_off_response(episode_id: str) -> JSONResponse:
+    return JSONResponse(
+        content={
+            "status": "week_off",
+            "episode_id": episode_id,
+            "message": WEEK_OFF_MESSAGE,
+        },
+        status_code=200,
+    )
+
+
 @router.get("/api/episodes/teaser")
 async def get_episode_teaser():
     """Return the latest episode teaser JSON for the main page.
@@ -110,27 +121,29 @@ async def get_episode_teaser():
     on the read side means a code deploy is enough to fix prod even
     if a stale `pages/latest.json` blob still says `stage: sunday`.
 
-    Before any of that: once this ISO week's Sunday cron window has closed,
-    check whether it ever published (#7630). If not, the homepage owes a
-    "kitchen took the week off" note instead of whatever `pages/latest.json`
-    still holds — a stale mid-week teaser from a stalled week, or nothing at
-    all — because neither of those tells a reader "no recipe this week".
-    `sunday_window_closed()` is a pure time check with no I/O, so the extra
-    Blob read for the episode only happens in the one window a week it can
-    matter, not on every homepage view.
+    "Kitchen took the week off" note (#7630): owed when the most recently
+    CLOSED ISO week — relevant_week_id(), NOT current_episode_id() — never
+    published. current_episode_id() alone rolls over at Monday 00:00 UTC,
+    which would hide a failed week's note for the ~159 remaining hours of
+    the week it's meant to cover (an earlier version of this endpoint had
+    exactly that bug). relevant_week_id() stays on a failed week straight
+    through the Monday rollover until ITS successor's own Sunday closes.
+
+    Cost: `pages/latest.json` is already read on every call, below. When
+    that blob is unambiguously ABOUT the relevant week (its episode_id
+    matches) and never reached "sunday", the note is decided for free from
+    data already in hand — no extra read. That covers the failure's own
+    Sunday evening through the rest of that day. The rest of the time —
+    ordinary Monday-Saturday progress on a NEWER week has since overwritten
+    the blob, it holds an anonymous `{"status":"published"}` marker, or
+    there's no blob at all — this blob doesn't say either way, so this
+    falls back to `storage.load_episode(relevant_id)`. That call's existing
+    per-warm-Lambda in-memory cache means the real network read happens at
+    most once per (prefix, relevant week) per warm instance, not once per
+    request — relevant_id is a single fixed value for the whole ~6.5-day
+    span it covers.
     """
-    episode_id = current_episode_id()
-    if sunday_window_closed():
-        episode = storage.load_episode(episode_id)
-        if week_off_note_due(episode):
-            return JSONResponse(
-                content={
-                    "status": "week_off",
-                    "episode_id": episode_id,
-                    "message": WEEK_OFF_MESSAGE,
-                },
-                status_code=200,
-            )
+    relevant_id = relevant_week_id()
 
     teaser_json = storage.load_page("pages/latest.json")
     if teaser_json:
@@ -138,10 +151,31 @@ async def get_episode_teaser():
             data = json.loads(teaser_json)
         except (ValueError, TypeError):
             data = None
-        if isinstance(data, dict) and data.get("stage") == "sunday":
+
+        if not isinstance(data, dict):
+            # Not valid JSON (or valid JSON that isn't an object) — surface
+            # it to the client rather than mask it behind a guess about the
+            # relevant week.
+            return Response(content=teaser_json, media_type="application/json")
+
+        if data.get("stage") == "sunday":
             return JSONResponse(content={"status": "published"}, status_code=200)
+
+        if data.get("episode_id") == relevant_id:
+            # This blob IS about the relevant week and it never reached
+            # "sunday" above: that week's Sunday closed without a publish.
+            return _week_off_response(relevant_id)
+
+        # This blob doesn't say either way (see docstring) — check the
+        # relevant week's own record.
+        episode = storage.load_episode(relevant_id)
+        if week_off_note_due(episode):
+            return _week_off_response(relevant_id)
         return Response(content=teaser_json, media_type="application/json")
 
+    episode = storage.load_episode(relevant_id)
+    if week_off_note_due(episode):
+        return _week_off_response(relevant_id)
     return JSONResponse(content={"status": "no_episode"}, status_code=200)
 
 

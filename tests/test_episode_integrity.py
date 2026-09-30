@@ -23,6 +23,7 @@ from backend.utils.episode_integrity import (
     episode_page_is_due,
     episode_summary,
     parse_episode_id,
+    relevant_week_id,
     stage_deadline,
     stages_due,
     sunday_window_closed,
@@ -320,36 +321,57 @@ def test_episode_page_is_due_never_raises_on_junk(episode):
 
 
 # ---------------------------------------------------------------------------
-# week_off_note_due — the homepage "kitchen took the week off" note (#7630)
+# relevant_week_id / week_off_note_due — the homepage "kitchen took the
+# week off" note (#7630)
 # ---------------------------------------------------------------------------
 
-# W36's Sunday cron fires 2026-09-06 00:00 UTC; STAGE_GRACE_MINUTES is 45.
+# W36 spans 2026-08-31 (Mon) through 2026-09-06 (Sun); its Sunday cron fires
+# 2026-09-06 00:00 UTC and STAGE_GRACE_MINUTES is 45. W35 (2026-08-24 through
+# 2026-08-30) is the week immediately before it; W37 (2026-09-07 through
+# 2026-09-13) immediately after.
 SUNDAY_W36_INSIDE_GRACE = datetime(2026, 9, 6, 0, 30, tzinfo=timezone.utc)
 SUNDAY_W36_WINDOW_CLOSED = datetime(2026, 9, 6, 1, 0, tzinfo=timezone.utc)
+MONDAY_W37_JUST_AFTER_ROLLOVER = datetime(2026, 9, 7, 0, 30, tzinfo=timezone.utc)
+FRIDAY_W37 = datetime(2026, 9, 11, 12, 0, tzinfo=timezone.utc)
 
 
 def test_sunday_window_closed_false_mid_week() -> None:
-    assert sunday_window_closed(now=SATURDAY_W36) is False
+    assert sunday_window_closed("2026-W36", now=SATURDAY_W36) is False
 
 
 def test_sunday_window_closed_false_inside_the_grace_period() -> None:
-    assert sunday_window_closed(now=SUNDAY_W36_INSIDE_GRACE) is False
+    assert sunday_window_closed("2026-W36", now=SUNDAY_W36_INSIDE_GRACE) is False
 
 
 def test_sunday_window_closed_true_once_grace_elapses() -> None:
-    assert sunday_window_closed(now=SUNDAY_W36_WINDOW_CLOSED) is True
+    assert sunday_window_closed("2026-W36", now=SUNDAY_W36_WINDOW_CLOSED) is True
 
 
-def test_week_off_note_not_due_before_window_closes_even_if_unpublished() -> None:
-    assert week_off_note_due(None, now=SATURDAY_W36) is False
-    assert week_off_note_due({"episode_id": "2026-W36"}, now=SATURDAY_W36) is False
+def test_relevant_week_id_is_previous_week_mid_week() -> None:
+    """Monday through Saturday (and the first grace minutes of Sunday): THIS
+    week's own Sunday hasn't closed yet, so the relevant week — the most
+    recent one whose Sunday window HAS closed — is the one before it."""
+    assert relevant_week_id(now=SATURDAY_W36) == "2026-W35"
+    assert relevant_week_id(now=SUNDAY_W36_INSIDE_GRACE) == "2026-W35"
 
 
-def test_week_off_note_due_after_window_closes_when_unpublished() -> None:
-    assert week_off_note_due(None, now=SUNDAY_W36_WINDOW_CLOSED) is True
-    assert week_off_note_due(
-        {"episode_id": "2026-W36"}, now=SUNDAY_W36_WINDOW_CLOSED
-    ) is True
+def test_relevant_week_id_is_current_week_once_its_own_sunday_closes() -> None:
+    assert relevant_week_id(now=SUNDAY_W36_WINDOW_CLOSED) == "2026-W36"
+
+
+def test_relevant_week_id_survives_the_monday_rollover() -> None:
+    """The bug this fixes: current_episode_id() alone rolls to W37 the
+    instant the calendar hits Monday 00:00 UTC, which would hide W36's
+    failure to publish for the rest of the week. relevant_week_id() must
+    keep answering W36 straight through the rollover, all the way until
+    W37's OWN Sunday window closes in turn."""
+    assert relevant_week_id(now=MONDAY_W37_JUST_AFTER_ROLLOVER) == "2026-W36"
+    assert relevant_week_id(now=FRIDAY_W37) == "2026-W36"
+
+
+def test_week_off_note_due_when_unpublished() -> None:
+    assert week_off_note_due(None) is True
+    assert week_off_note_due({"episode_id": "2026-W36"}) is True
 
 
 def test_week_off_note_not_due_once_published() -> None:
@@ -357,13 +379,13 @@ def test_week_off_note_not_due_once_published() -> None:
         "episode_id": "2026-W36",
         "published_at": "2026-09-06T00:10:00+00:00",
     }
-    assert week_off_note_due(published, now=SUNDAY_W36_WINDOW_CLOSED) is False
+    assert week_off_note_due(published) is False
 
 
 @pytest.mark.parametrize("episode", [[], "nope", 7])
 def test_week_off_note_due_never_raises_on_junk(episode) -> None:
     """It reads the same blob JSON episode_page_is_due does — any shape."""
-    assert week_off_note_due(episode, now=SUNDAY_W36_WINDOW_CLOSED) is True
+    assert week_off_note_due(episode) is True
 
 
 def test_route_and_monitor_read_the_same_predicate():

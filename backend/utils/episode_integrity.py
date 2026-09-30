@@ -87,36 +87,53 @@ def stages_due(
     return [d for d in DAY_ORDER if now >= stage_deadline(episode_id, d) + grace]
 
 
-def sunday_window_closed(now: datetime | None = None) -> bool:
-    """True once the CURRENT ISO week's Sunday cron window has passed.
+def sunday_window_closed(episode_id: str, now: datetime | None = None) -> bool:
+    """True once `episode_id`'s ISO week's Sunday cron window has passed.
 
     "Passed" means the same thing it means everywhere else in this module:
     the scheduled cron time plus STAGE_GRACE_MINUTES, so a Sunday publish
     that is merely running long (dialogue + the editorial QA retry loop can
     take several minutes) isn't declared missing before it's actually
     overdue.
-
-    Pure and I/O-free on purpose (#7630): the homepage teaser endpoint is hit
-    on every page view, and callers gate an episode Blob fetch behind this
-    check so that read only happens in the one window a week it might matter,
-    not on every request all week.
     """
     now = now or datetime.now(timezone.utc)
-    episode_id = current_episode_id(now)
     return now >= stage_deadline(episode_id, "sunday") + timedelta(minutes=STAGE_GRACE_MINUTES)
 
 
-def week_off_note_due(episode: object, now: datetime | None = None) -> bool:
-    """True when the homepage owes the "kitchen took the week off" note (#7630).
+def relevant_week_id(now: datetime | None = None) -> str:
+    """ISO week id of the most recently CLOSED Sunday cron window (#7630).
 
-    Both directions are decided from real data, never a manual flag: the note
-    is due once the current ISO week's Sunday cron window has closed AND that
-    week's episode has no `published_at`, and it stops being due the instant
-    `published_at` is set — whichever request notices that first just stops
-    returning it, with nothing to remember to flip back.
+    NOT simply `current_episode_id()`: ISO weeks roll over at Monday 00:00
+    UTC, but a week's failure to publish is still the most recent news for
+    the rest of the following week. Using the current week alone would make
+    the "kitchen took the week off" note vanish the instant the calendar
+    flips to Monday — showing for the ~9 hours between Sunday's cron window
+    closing and midnight, then going silent for the other ~159 hours of the
+    week it's meant to cover. This returns the CURRENT ISO week once ITS OWN
+    Sunday window has closed (the rest of Sunday), and the PREVIOUS ISO week
+    the rest of the time (Monday through Saturday, and the first
+    STAGE_GRACE_MINUTES of Sunday) — so a failed week keeps being "the
+    relevant week" straight through the Monday rollover until its own
+    successor's Sunday closes in turn.
     """
-    if not sunday_window_closed(now=now):
-        return False
+    now = now or datetime.now(timezone.utc)
+    current_id = current_episode_id(now)
+    if sunday_window_closed(current_id, now=now):
+        return current_id
+    return current_episode_id(now - timedelta(days=7))
+
+
+def week_off_note_due(episode: object) -> bool:
+    """True when the homepage owes the "kitchen took the week off" note (#7630)
+    for the relevant week (see `relevant_week_id`): `episode` — the caller's
+    own `storage.load_episode(relevant_week_id())` read — is missing or has
+    no `published_at`.
+
+    Decided from real data both ways, never a manual flag: the note stops
+    being due the instant `published_at` is set on that week's episode —
+    whichever request notices that first just stops returning it, with
+    nothing to remember to flip back.
+    """
     return not (isinstance(episode, dict) and episode.get("published_at"))
 
 
