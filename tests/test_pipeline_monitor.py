@@ -65,6 +65,10 @@ def _install_pipeline(
         not a list.
       - "list_of_non_dicts": a top-level list whose items aren't dicts.
       - "dict_missing_recipes": a dict with unrelated keys and no "recipes".
+      - "entry_missing_title" / "entry_blank_title" / "entry_non_string_title"
+        / "recipes_entry_missing_title": dict entries without a usable title
+        (round 7) — the title check skips them, so it would "run" against too
+        few titles.
       All four malformed-but-PRESENT variants (as opposed to "down", a fetch
       failure) must behave identically to "down": the catalog group did not
       run this cycle.
@@ -84,6 +88,10 @@ def _install_pipeline(
         "recipes_not_list": {"recipes": "invalid"},
         "list_of_non_dicts": ["a", "b", "c"],
         "dict_missing_recipes": {"foo": "bar"},
+        "entry_missing_title": [{}],
+        "entry_blank_title": [{"slug": "x", "title": "   "}],
+        "entry_non_string_title": [{"slug": "x", "title": 5}],
+        "recipes_entry_missing_title": {"recipes": [{"title": "ok"}, {"slug": "x"}]},
     }
 
     def _get_json(url):
@@ -426,7 +434,11 @@ def test_stage_failure_then_recovers_while_catalog_stays_down(tmp_path, monkeypa
 
 @pytest.mark.parametrize(
     "catalog_state",
-    ["error_dict", "recipes_not_list", "list_of_non_dicts", "dict_missing_recipes"],
+    [
+        "error_dict", "recipes_not_list", "list_of_non_dicts", "dict_missing_recipes",
+        "entry_missing_title", "entry_blank_title", "entry_non_string_title",
+        "recipes_entry_missing_title",
+    ],
 )
 def test_malformed_but_present_catalog_shape_does_not_repeat_alert(
     tmp_path, monkeypatch, catalog_state
@@ -494,6 +506,14 @@ def test_valid_catalog_rejects_every_malformed_shape():
     assert pm._valid_catalog(["a", "b"]) is None
     assert pm._valid_catalog({"foo": "bar"}) is None
     assert pm._valid_catalog([{"title": "ok"}, "bad"]) is None  # partial malformation
+    # Round 7: an entry without a usable title is skipped by the title check,
+    # so a catalog containing one cannot count as the check having run.
+    assert pm._valid_catalog([{}]) is None
+    assert pm._valid_catalog([{"title": "ok"}, {"slug": "no-title"}]) is None
+    assert pm._valid_catalog([{"title": ""}]) is None
+    assert pm._valid_catalog([{"title": "  "}]) is None
+    assert pm._valid_catalog([{"title": None}]) is None
+    assert pm._valid_catalog({"recipes": [{"title": 7}]}) is None
 
 
 # ---------------------------------------------------------------------------
@@ -876,7 +896,7 @@ def test_compute_verdict_uses_sps_current_episode_id(monkeypatch):
 def test_compute_verdict_marks_catalog_group_when_catalog_usable(monkeypatch):
     def _get_json(url):
         if url.endswith("recipes.json"):
-            return [{"slug": "a"}]
+            return [{"slug": "a", "title": "A"}]
         return {"episode_id": "2026-W40"}
 
     seen = {}
@@ -892,7 +912,7 @@ def test_compute_verdict_marks_catalog_group_when_catalog_usable(monkeypatch):
     verdict = pm.compute_verdict(episode_id="2026-W40")
     assert verdict["kind"] == "observed"
     assert set(verdict["checks_ran"]) == {"episode", "catalog"}
-    assert seen["catalog"] == [{"slug": "a"}]
+    assert seen["catalog"] == [{"slug": "a", "title": "A"}]
 
 
 def test_compute_verdict_omits_catalog_group_when_fetch_fails(monkeypatch):
@@ -1009,8 +1029,9 @@ def test_valid_failure_ids_are_current_schema():
 def test_failure_text_containing_the_separator_round_trips_through_validation():
     """Codex round 6: a real failure whose text contains the separator was
     saved, then discarded as invalid on the next run and alerted again."""
-    fid = pm._failure_id("episode", "2026-W40", "stage error: bad\x1fbyte in title")
-    state = {"alerted_failures": {fid: "stage error"}, "checks_ran": ["episode"]}
+    text = "stage error: bad\x1fbyte in title"
+    fid = pm._failure_id("episode", "2026-W40", text)
+    state = {"alerted_failures": {fid: text}, "checks_ran": ["episode"]}
     assert pm._is_current_schema(state) is True
     assert pm._failure_id_group(fid) == "episode"
 
@@ -1019,3 +1040,42 @@ def test_failure_text_containing_the_separator_round_trips_through_validation():
 def test_non_string_checks_ran_is_discarded_not_raised(checks_ran):
     state = {"alerted_failures": {}, "checks_ran": checks_ran}
     assert pm._is_current_schema(state) is False
+
+
+@pytest.mark.parametrize("failure_id, text", [
+    # Empty or blank text for an otherwise well-formed id.
+    ("episode\x1f2026-W40\x1ftuesday failed", ""),
+    ("episode\x1f2026-W40\x1f", ""),
+    ("episode\x1f2026-W40\x1ftuesday failed", "   "),
+    # Text that does not produce the id's text segment.
+    ("episode\x1f2026-W40\x1ftuesday failed", "wednesday failed"),
+    # An extra separator inside the text segment.
+    ("episode\x1f2026-W40\x1ftuesday\x1ffailed", "tuesday\x1ffailed"),
+    # Un-normalized timestamp in the id.
+    ("episode\x1f2026-W40\x1fdue 2026-09-29 14:30 UTC", "due 2026-09-29 14:30 UTC"),
+])
+def test_stored_id_must_match_its_own_text(failure_id, text):
+    """Codex round 7: {<current failure id>: ""} validated, so the next run
+    saw a real failure as already alerted and sent nothing."""
+    state = {"alerted_failures": {failure_id: text}, "checks_ran": ["episode"]}
+    assert pm._is_current_schema(state) is False
+
+
+def test_mismatched_state_entry_cannot_suppress_a_real_alert(tmp_path, monkeypatch):
+    """End to end: a state file that maps the current failure's id to an
+    empty text is set aside, and the failure alerts."""
+    state = tmp_path / "pipeline_status.json"
+    fid = pm._failure_id("episode", "2026-W40", "stage A")
+    state.write_text(json.dumps({
+        "status": "degraded",
+        "alerted_failures": {fid: ""},
+        "checks_ran": ["episode"],
+    }))
+    trashed = []
+    monkeypatch.setattr(pm, "send2trash", lambda path: trashed.append(path))
+    posts = _captured_alerts(monkeypatch)
+    _install_pipeline(monkeypatch, episode_only_failures=["stage A"])
+    pm.run(state)
+    assert trashed == [str(state)]
+    assert len(posts) == 1
+    assert json.loads(state.read_text())["alerted_failures"] == {fid: "stage A"}

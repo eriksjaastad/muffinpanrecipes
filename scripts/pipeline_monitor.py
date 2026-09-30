@@ -284,7 +284,15 @@ def _valid_catalog(raw_catalog: object) -> list[dict] | None:
         return None
     if not isinstance(candidate, list):
         return None
-    if not all(isinstance(item, dict) for item in candidate):
+    # Every entry must carry a usable title. The title check skips an entry
+    # without one, so `[{}]` would otherwise "run" the check against zero
+    # titles and falsely clear an alerted collision (round 7).
+    if not all(
+        isinstance(item, dict)
+        and isinstance(item.get("title"), str)
+        and item["title"].strip()
+        for item in candidate
+    ):
         return None
     return candidate
 
@@ -301,7 +309,7 @@ def compute_verdict(episode_id: str | None = None) -> dict:
        "observed_failures": {"<failure id>": "<failure text>", ...}}
         — the episode fetch succeeded; the catalog-dependent check
           (title-collision) additionally ran iff the catalog fetch produced
-          a usable list or dict. `_get_json`, `current_episode_id`,
+          a usable catalog (`_valid_catalog`). `_get_json`, `current_episode_id`,
           `BLOB_CDN`, `episode_integrity_failures`, and `episode_summary`
           are the SAME functions session_pipeline_status.py runs — nothing
           here refetches or re-derives a verdict independently.
@@ -378,9 +386,20 @@ def _is_current_schema(state: object) -> bool:
     # one a future run can clear: "<group>\x1f<episode_id>\x1f<text>" with a
     # known group. An id with an unknown group could never clear, pinning
     # the monitor to degraded with no recovery (round 5).
+    # The id must also be the one its own stored text produces: a non-empty
+    # text whose normalized form is exactly the id's text segment. Otherwise
+    # an entry like {<current failure id>: ""} would validate, and the next
+    # run would treat a real failure as already alerted (round 7).
     for failure_id, text in state["alerted_failures"].items():
         parts = failure_id.split(_ID_SEP, 2) if isinstance(failure_id, str) else []
-        if len(parts) != 3 or parts[0] not in _CHECK_GROUPS or not parts[1] or not isinstance(text, str):
+        if (
+            len(parts) != 3
+            or parts[0] not in _CHECK_GROUPS
+            or not parts[1]
+            or not isinstance(text, str)
+            or not text.strip()
+            or parts[2] != _normalize_failure(text)
+        ):
             return False
     return all(isinstance(group, str) and group in _CHECK_GROUPS for group in state["checks_ran"])
 
