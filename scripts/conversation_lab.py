@@ -246,6 +246,7 @@ import contextvars
 import copy
 import fcntl
 import hashlib
+import http.server
 import json
 import math
 import os
@@ -255,6 +256,7 @@ import re
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import httpx
@@ -6949,6 +6951,143 @@ def _parse_pick_spec(spec: str) -> dict[int, str]:
         picks[idx] = "tie" if normalized == "TIE" else normalized
     return picks
 
+def _resolve_pairs_container(report: dict[str, Any], variant_name: str | None) -> dict[str, Any]:
+    """Resolve the pairs container: `report` itself for a normal ab/testbed
+    result, or one variant's own sub-dict for an `ab --sweep` result (it
+    nests every variant's own pairs under report["variants"][name]["pairs"]
+    instead of a flat top-level "pairs" list, since one sweep judges N
+    variants against the SAME shared control - there is no single "the
+    pairs" to default to). Shared by `pairs --pick`/`--show` and `pairs-ui`
+    (#7793) so both pick apart a --sweep result identically."""
+    container = report
+    if report.get("mode") == "sweep":
+        variants = report.get("variants") or {}
+        if not variant_name:
+            raise SystemExit(
+                "conversation_lab pairs: this is an `ab --sweep` result - it nests pairs "
+                f"per variant, so pass --variant-name (available: {', '.join(sorted(variants)) or 'none'})"
+            )
+        if variant_name not in variants:
+            raise SystemExit(
+                f"conversation_lab pairs: unknown --variant-name {variant_name!r} "
+                f"(available: {', '.join(sorted(variants))})"
+            )
+        container = variants[variant_name]
+    return container
+
+
+def _total_word_count(messages: list[dict[str, Any]] | None) -> int:
+    return sum(len(str(m.get("message") or "").split()) for m in (messages or []) if isinstance(m, dict))
+
+
+def _longer_arm(pair: dict[str, Any]) -> str:
+    """"control" | "variant" | "tie" by total word count across the whole
+    arm (#7793) - the S0b V5 length-bias split ("human agreement when the
+    longer transcript won") needs to know which arm was actually longer,
+    independent of which one the human or the judge picked."""
+    control_words = _total_word_count(pair.get("control_messages"))
+    variant_words = _total_word_count(pair.get("variant_messages"))
+    if control_words == variant_words:
+        return "tie"
+    return "control" if control_words > variant_words else "variant"
+
+
+def _apply_human_picks(
+    container: dict[str, Any],
+    pairs: list[dict[str, Any]],
+    order_by_position: dict[int, tuple[str, str]],
+    picks: dict[int, str],
+) -> dict[str, Any]:
+    """Merge `picks` ({position: "A"|"B"|"tie"}) into `container` IN PLACE:
+    `human_picks` (arm labels, mapped through `order_by_position` exactly
+    like the old inline `pairs --pick` code did), `human_review_order`,
+    `human_pick_meta` (#7793 - per-pick longer-arm bookkeeping for the S0b
+    V5 split), and the `human_judge_*` agreement stats.
+
+    The agreement stats are recomputed from the FULL current `human_picks`
+    on every call, not just the picks just added - so `pairs --pick` (which
+    can record several positions in one call) and the review UI (which
+    records exactly one position per HTTP request) always leave `container`
+    in the identical state, and picking an already-picked position simply
+    overwrites it.
+
+    Returns the stats dict (already written into `container`) so a caller
+    - the CLI's own print, or the UI's finish screen - can report it
+    directly without re-deriving it.
+    """
+    human_picks: dict[str, str] = dict(container.get("human_picks") or {})
+    human_pick_meta: dict[str, Any] = dict(container.get("human_pick_meta") or {})
+    for position, label in picks.items():
+        first_arm, second_arm = order_by_position[position]
+        mapped = "tie" if label == "tie" else (first_arm if label == "A" else second_arm)
+        human_picks[str(position)] = mapped
+        pair = pairs[position - 1]
+        longer_arm = _longer_arm(pair)
+        human_pick_meta[str(position)] = {
+            "longer_arm": longer_arm,
+            "picked_longer": bool(mapped != "tie" and longer_arm != "tie" and mapped == longer_arm),
+        }
+    container["human_picks"] = human_picks
+    container["human_pick_meta"] = human_pick_meta
+    container["human_review_order"] = {
+        str(position): {"A": order[0], "B": order[1]} for position, order in order_by_position.items()
+    }
+
+    # Agreement is computed over pairs where the judge reached a
+    # non-tie verdict only - a judge "tie" carries no directional
+    # signal for a human pick to agree or disagree with, so folding it
+    # into either bucket (or into the denominator at all) would water
+    # down what the rate actually measures. judge-tie pairs are still
+    # reported, just kept separate.
+    judge_by_position = {i: pair["judge"]["overall"] for i, pair in enumerate(pairs, start=1)}
+    agreed = 0
+    disagreed = 0
+    judge_tie = 0
+    for position_str, mapped in human_picks.items():
+        judge_overall = judge_by_position.get(int(position_str))
+        if judge_overall is None:
+            continue
+        if judge_overall == "tie":
+            judge_tie += 1
+            continue
+        if judge_overall == mapped:
+            agreed += 1
+        else:
+            disagreed += 1
+    compared = agreed + disagreed
+    agreement_rate = round(agreed / compared, 4) if compared else 0.0
+    container["human_judge_agreement_rate"] = agreement_rate
+    container["human_judge_agreed_count"] = agreed
+    container["human_judge_disagreed_count"] = disagreed
+    container["human_judge_tie_count"] = judge_tie
+    return {
+        "agreement_rate": agreement_rate,
+        "agreed": agreed,
+        "disagreed": disagreed,
+        "judge_tie": judge_tie,
+        "picked_count": len(human_picks),
+    }
+
+
+def _write_pairs_report_atomic(path: Path, report: dict[str, Any]) -> None:
+    """Write a pairs-review result file atomically (temp file + os.replace,
+    #7793) so a crash or a concurrent read mid-write never sees a truncated
+    file. Both `pairs --pick` and the review UI call this - the UI writes on
+    every single pick, so this is on the hot path for it."""
+    payload = json.dumps(report, indent=2, default=str)
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(payload)
+        os.replace(tmp_name, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+
+
 def cmd_pairs(args: argparse.Namespace) -> None:
     if not args.show and not args.pick:
         raise SystemExit("conversation_lab pairs: pass --show, --pick, or both")
@@ -6957,28 +7096,7 @@ def cmd_pairs(args: argparse.Namespace) -> None:
     if not result_path.exists():
         raise SystemExit(f"conversation_lab pairs: result file not found: {result_path}")
     report = json.loads(result_path.read_text(encoding="utf-8"))
-
-    # An `ab --sweep` result nests every variant's own pairs under
-    # report["variants"][name]["pairs"] instead of a flat top-level
-    # "pairs" list (one sweep run judges N variants against the SAME
-    # shared control, so there is no single "the pairs" to default to) -
-    # --variant-name picks which variant's arm to review; human_picks and
-    # the agreement stats below are recorded into that variant's own
-    # sub-dict, not the sweep report's top level.
-    container = report
-    if report.get("mode") == "sweep":
-        variants = report.get("variants") or {}
-        if not args.variant_name:
-            raise SystemExit(
-                "conversation_lab pairs: this is an `ab --sweep` result - it nests pairs "
-                f"per variant, so pass --variant-name (available: {', '.join(sorted(variants)) or 'none'})"
-            )
-        if args.variant_name not in variants:
-            raise SystemExit(
-                f"conversation_lab pairs: unknown --variant-name {args.variant_name!r} "
-                f"(available: {', '.join(sorted(variants))})"
-            )
-        container = variants[args.variant_name]
+    container = _resolve_pairs_container(report, args.variant_name)
 
     pairs = container.get("pairs") or []
     if not pairs:
@@ -7005,50 +7123,407 @@ def cmd_pairs(args: argparse.Namespace) -> None:
                 f"(valid: 1-{len(pairs)})"
             )
 
-        human_picks: dict[str, str] = dict(container.get("human_picks") or {})
-        for position, label in picks.items():
-            first_arm, second_arm = order_by_position[position]
-            mapped = "tie" if label == "tie" else (first_arm if label == "A" else second_arm)
-            human_picks[str(position)] = mapped
-        container["human_picks"] = human_picks
-        container["human_review_order"] = {
-            str(position): {"A": order[0], "B": order[1]} for position, order in order_by_position.items()
-        }
-
-        # Agreement is computed over pairs where the judge reached a
-        # non-tie verdict only - a judge "tie" carries no directional
-        # signal for a human pick to agree or disagree with, so folding it
-        # into either bucket (or into the denominator at all) would water
-        # down what the rate actually measures. judge-tie pairs are still
-        # reported, just kept separate.
-        judge_by_position = {i: pair["judge"]["overall"] for i, pair in enumerate(pairs, start=1)}
-        agreed = 0
-        disagreed = 0
-        judge_tie = 0
-        for position_str, mapped in human_picks.items():
-            judge_overall = judge_by_position.get(int(position_str))
-            if judge_overall is None:
-                continue
-            if judge_overall == "tie":
-                judge_tie += 1
-                continue
-            if judge_overall == mapped:
-                agreed += 1
-            else:
-                disagreed += 1
-        compared = agreed + disagreed
-        agreement_rate = round(agreed / compared, 4) if compared else 0.0
-        container["human_judge_agreement_rate"] = agreement_rate
-        container["human_judge_agreed_count"] = agreed
-        container["human_judge_disagreed_count"] = disagreed
-        container["human_judge_tie_count"] = judge_tie
-
-        result_path.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
+        stats = _apply_human_picks(container, pairs, order_by_position, picks)
+        _write_pairs_report_atomic(result_path, report)
         print(f"\nrecorded {len(picks)} human pick(s) into {result_path}")
         print(
-            f"human/judge agreement rate: {agreement_rate:.2%} ({agreed} agreed / {disagreed} disagreed"
-            f" / {judge_tie} judge-tie - judge ties are excluded from the agreement rate)"
+            f"human/judge agreement rate: {stats['agreement_rate']:.2%} "
+            f"({stats['agreed']} agreed / {stats['disagreed']} disagreed"
+            f" / {stats['judge_tie']} judge-tie - judge ties are excluded from the agreement rate)"
         )
+
+# ---------------------------------------------------------------------------
+# pairs-ui (#7793) - a local, stdlib-only web UI replacing the terminal
+# `pairs --show` / `pairs --pick` flow for a blind human read (V6).
+#
+# Blindness contract: the HTTP JSON responses below NEVER include an arm
+# name ("control"/"variant"), the A/B mapping itself, or any judge field
+# (`pair["judge"]`, `judge_orientations`, ...) - only "transcript_a"/
+# "transcript_b" (whichever the seeded `_blind_order` assigned), a "picked"
+# label already re-mapped back to "A"/"B"/"tie", and the aggregate agreement
+# stats, which are revealed only once every pair is picked (the finish
+# screen). The browser never sees which side is real; only this process,
+# writing straight to the result file, does.
+# ---------------------------------------------------------------------------
+
+
+class PairsReviewState:
+    """One `ab` result's pairs, loaded once, re-read from disk on `refresh`.
+
+    Every mutation (a pick) is written straight back to `result_path` via
+    `_apply_human_picks`/`_write_pairs_report_atomic` - the SAME functions
+    `pairs --pick` uses - so a pick made in the UI and a pick made on the
+    command line for the same file are indistinguishable in the result JSON.
+    """
+
+    def __init__(self, result_path: Path, variant_name: str | None):
+        self.result_path = result_path
+        self.variant_name = variant_name
+        self.refresh()
+
+    def refresh(self) -> None:
+        self.report = json.loads(self.result_path.read_text(encoding="utf-8"))
+        self.container = _resolve_pairs_container(self.report, self.variant_name)
+        self.pairs: list[dict[str, Any]] = self.container.get("pairs") or []
+        if not self.pairs:
+            raise SystemExit(f"conversation_lab pairs-ui: {self.result_path} has no pairs to review")
+        self.order_by_position: dict[int, tuple[str, str]] = {
+            i: _blind_order(i) for i in range(1, len(self.pairs) + 1)
+        }
+
+    @property
+    def total(self) -> int:
+        return len(self.pairs)
+
+    def _human_picks(self) -> dict[str, str]:
+        return self.container.get("human_picks") or {}
+
+    def _picked_label(self, position: int) -> str | None:
+        """The stored arm label for `position`, translated back to what the
+        browser is allowed to see: "A", "B", "tie", or None (never picked)."""
+        stored = self._human_picks().get(str(position))
+        if stored is None:
+            return None
+        if stored == "tie":
+            return "tie"
+        first_arm, _second_arm = self.order_by_position[position]
+        return "A" if stored == first_arm else "B"
+
+    def first_unpicked(self) -> int | None:
+        picked = self._human_picks()
+        for position in range(1, self.total + 1):
+            if str(position) not in picked:
+                return position
+        return None
+
+    def state(self) -> dict[str, Any]:
+        picked_count = len(self._human_picks())
+        finished = picked_count >= self.total
+        payload: dict[str, Any] = {
+            "total": self.total,
+            "picked_count": picked_count,
+            "finished": finished,
+            "first_unpicked": self.first_unpicked(),
+        }
+        if finished:
+            payload["stats"] = {
+                "agreement_rate": self.container.get("human_judge_agreement_rate"),
+                "agreed": self.container.get("human_judge_agreed_count"),
+                "disagreed": self.container.get("human_judge_disagreed_count"),
+                "judge_tie": self.container.get("human_judge_tie_count"),
+            }
+        return payload
+
+    def pair_payload(self, position: int) -> dict[str, Any]:
+        if position < 1 or position > self.total:
+            raise ValueError(f"position {position} out of range 1-{self.total}")
+        pair = self.pairs[position - 1]
+        first_arm, second_arm = self.order_by_position[position]
+        first_messages = pair.get(f"{first_arm}_messages") or []
+        second_messages = pair.get(f"{second_arm}_messages") or []
+
+        def _as_turns(messages: list[dict[str, Any]]) -> list[dict[str, str]]:
+            return [
+                {
+                    "speaker": (m.get("character") or "?").split()[0],
+                    "message": " ".join((m.get("message") or "").split()),
+                }
+                for m in messages
+            ]
+
+        return {
+            "position": position,
+            "total": self.total,
+            "scenario": pair.get("scenario_id"),
+            "concept": self.container.get("concept") or pair.get("concept"),
+            "picked": self._picked_label(position),
+            "transcript_a": _as_turns(first_messages),
+            "transcript_b": _as_turns(second_messages),
+        }
+
+    def apply_pick(self, position: int, label: str) -> dict[str, Any]:
+        if position < 1 or position > self.total:
+            raise ValueError(f"position {position} out of range 1-{self.total}")
+        if label not in ("A", "B", "tie"):
+            raise ValueError(f"label {label!r} must be A, B, or tie")
+        _apply_human_picks(self.container, self.pairs, self.order_by_position, {position: label})
+        _write_pairs_report_atomic(self.result_path, self.report)
+        return self.state()
+
+
+# One self-contained page: no external requests, no build step - stdlib
+# `http.server` is the entire dependency. Hotkeys A/B/T record and
+# auto-advance to the next unpicked pair; Left/Right and J/K navigate
+# without recording. Picking an already-picked pair overwrites it.
+_PAIRS_UI_HTML = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blind pair review</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; padding: 1.25rem;
+         max-width: 1100px; margin-inline: auto; line-height: 1.5; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.5rem; margin-bottom: 1rem; }
+  h1 { font-size: 1.1rem; margin: 0; }
+  #meta { color: #777; font-size: 0.9rem; }
+  .columns { display: flex; gap: 1rem; flex-wrap: wrap; }
+  .column { flex: 1 1 320px; min-width: 280px; border: 1px solid #999; border-radius: 8px; padding: 0.75rem 1rem;
+            max-height: 65vh; overflow-y: auto; }
+  .column h2 { font-size: 0.95rem; margin: 0 0 0.5rem 0; }
+  .turn { margin: 0 0 0.6rem 0; }
+  .speaker { font-weight: 600; }
+  .picked { outline: 3px solid #2a7; }
+  .controls { display: flex; gap: 0.6rem; margin: 1rem 0; flex-wrap: wrap; }
+  button { font-size: 1rem; padding: 0.5rem 1.1rem; border-radius: 6px; border: 1px solid #888; cursor: pointer; }
+  button.pick-a, button.pick-b, button.pick-tie { font-weight: 600; }
+  .nav { display: flex; gap: 0.4rem; }
+  #status { font-size: 0.85rem; color: #777; min-height: 1.2em; }
+  #finish { display: none; text-align: center; margin-top: 3rem; }
+  #finish h2 { font-size: 1.3rem; }
+  .hint { font-size: 0.8rem; color: #888; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="pair-title">Pair - of -</h1>
+  <span id="meta"></span>
+</header>
+<div id="review">
+  <div class="columns">
+    <div class="column" id="col-a"><h2>A</h2><div id="turns-a"></div></div>
+    <div class="column" id="col-b"><h2>B</h2><div id="turns-b"></div></div>
+  </div>
+  <div class="controls">
+    <button class="pick-a" data-label="A">A - pick left (A)</button>
+    <button class="pick-tie" data-label="tie">Tie (T)</button>
+    <button class="pick-b" data-label="B">B - pick right (B)</button>
+    <span class="nav">
+      <button id="prev">&larr; prev (J)</button>
+      <button id="next">next (K) &rarr;</button>
+    </span>
+  </div>
+  <div id="status"></div>
+  <p class="hint">Hotkeys: A / B / T to pick and advance; Left/Right or J/K to navigate without picking.</p>
+</div>
+<div id="finish">
+  <h2>Done</h2>
+  <p id="finish-count"></p>
+  <p id="finish-stats"></p>
+</div>
+<script>
+let position = null;
+let total = null;
+
+async function getJSON(url, opts) {
+  const res = await fetch(url, opts);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || ("HTTP " + res.status));
+  }
+  return res.json();
+}
+
+function renderTurns(el, turns) {
+  el.innerHTML = "";
+  for (const t of turns) {
+    const div = document.createElement("div");
+    div.className = "turn";
+    const speaker = document.createElement("span");
+    speaker.className = "speaker";
+    speaker.textContent = t.speaker + ": ";
+    div.appendChild(speaker);
+    div.appendChild(document.createTextNode(t.message));
+    el.appendChild(div);
+  }
+}
+
+function setPickedHighlight(label) {
+  document.getElementById("col-a").classList.toggle("picked", label === "A");
+  document.getElementById("col-b").classList.toggle("picked", label === "B");
+}
+
+async function loadPair(pos) {
+  const pair = await getJSON("/api/pair/" + pos);
+  position = pair.position;
+  total = pair.total;
+  const scenario = pair.scenario ? (" - " + pair.scenario) : "";
+  document.getElementById("pair-title").textContent = "Pair " + pair.position + " of " + pair.total + scenario;
+  document.getElementById("meta").textContent = pair.concept ? pair.concept : "";
+  renderTurns(document.getElementById("turns-a"), pair.transcript_a);
+  renderTurns(document.getElementById("turns-b"), pair.transcript_b);
+  setPickedHighlight(pair.picked);
+  document.getElementById("status").textContent = pair.picked ? ("Picked: " + pair.picked) : "";
+}
+
+async function refreshState() {
+  const state = await getJSON("/api/state");
+  if (state.finished) {
+    document.getElementById("review").style.display = "none";
+    document.getElementById("finish").style.display = "block";
+    document.getElementById("finish-count").textContent = state.picked_count + " of " + state.total + " picked.";
+    const s = state.stats || {};
+    document.getElementById("finish-stats").textContent =
+      "Human/judge agreement: " + (s.agreement_rate != null ? (Math.round(s.agreement_rate * 10000) / 100) + "%" : "n/a") +
+      " (" + s.agreed + " agreed / " + s.disagreed + " disagreed / " + s.judge_tie + " judge-tie)";
+    return true;
+  }
+  document.getElementById("review").style.display = "block";
+  document.getElementById("finish").style.display = "none";
+  return false;
+}
+
+async function start() {
+  const state = await getJSON("/api/state");
+  if (await refreshState()) return;
+  await loadPair(state.first_unpicked || 1);
+}
+
+async function pick(label) {
+  if (position === null) return;
+  try {
+    await getJSON("/api/pick", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({position: position, label: label}),
+    });
+  } catch (e) {
+    document.getElementById("status").textContent = "Error: " + e.message;
+    return;
+  }
+  const state = await getJSON("/api/state");
+  if (await refreshState()) return;
+  const next = state.first_unpicked || Math.min(position + 1, total);
+  await loadPair(next);
+}
+
+async function navigate(delta) {
+  if (position === null) return;
+  const next = Math.max(1, Math.min(total, position + delta));
+  if (next !== position) await loadPair(next);
+}
+
+document.querySelectorAll("button[data-label]").forEach(btn => {
+  btn.addEventListener("click", () => pick(btn.dataset.label));
+});
+document.getElementById("prev").addEventListener("click", () => navigate(-1));
+document.getElementById("next").addEventListener("click", () => navigate(1));
+
+window.addEventListener("keydown", (ev) => {
+  const key = ev.key.toLowerCase();
+  if (key === "a") pick("A");
+  else if (key === "b") pick("B");
+  else if (key === "t") pick("tie");
+  else if (key === "arrowleft" || key === "j") navigate(-1);
+  else if (key === "arrowright" || key === "k") navigate(1);
+});
+
+start();
+</script>
+</body>
+</html>
+"""
+
+
+class _PairsUIHandler(http.server.BaseHTTPRequestHandler):
+    """Routes:
+    GET  /                -> the page (_PAIRS_UI_HTML)
+    GET  /api/state        -> {total, picked_count, finished, first_unpicked, stats?}
+    GET  /api/pair/<n>      -> blind pair payload (see PairsReviewState.pair_payload)
+    POST /api/pick          -> {"position": int, "label": "A"|"B"|"tie"} -> new state
+    """
+
+    server_version = "ConversationLabPairsUI/1"
+
+    def log_message(self, fmt: str, *fmt_args: Any) -> None:  # noqa: A003 - stdlib signature
+        pass  # keep stdout to the one startup URL line; nothing here reveals review content anyway
+
+    def _send_json(self, payload: dict[str, Any], status: int = 200) -> None:
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_html(self, html: str) -> None:
+        body = html.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self) -> None:  # noqa: N802 - stdlib method name
+        parsed = urllib.parse.urlsplit(self.path)
+        path = parsed.path
+        state: PairsReviewState = self.server.review_state  # type: ignore[attr-defined]
+        if path in ("/", "/index.html"):
+            self._send_html(_PAIRS_UI_HTML)
+            return
+        if path == "/api/state":
+            self._send_json(state.state())
+            return
+        if path.startswith("/api/pair/"):
+            raw = path[len("/api/pair/"):]
+            try:
+                position = int(raw)
+                payload = state.pair_payload(position)
+            except (ValueError, IndexError) as exc:
+                self._send_json({"error": str(exc)}, status=400)
+                return
+            self._send_json(payload)
+            return
+        self._send_json({"error": "not found"}, status=404)
+
+    def do_POST(self) -> None:  # noqa: N802 - stdlib method name
+        parsed = urllib.parse.urlsplit(self.path)
+        if parsed.path != "/api/pick":
+            self._send_json({"error": "not found"}, status=404)
+            return
+        state: PairsReviewState = self.server.review_state  # type: ignore[attr-defined]
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            raw_body = self.rfile.read(length) if length else b""
+            body = json.loads(raw_body or b"{}")
+            position = body["position"]
+            label = body["label"]
+            if not isinstance(position, int) or not isinstance(label, str):
+                raise ValueError("position must be an int and label must be a string")
+            new_state = state.apply_pick(position, label)
+        except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+            self._send_json({"error": str(exc)}, status=400)
+            return
+        self._send_json(new_state)
+
+
+class _PairsUIServer(http.server.HTTPServer):
+    """Binds to 127.0.0.1 only (never 0.0.0.0) - this is a local review tool
+    over unauthenticated HTTP; it must never be reachable off the machine."""
+
+    allow_reuse_address = True
+
+    def __init__(self, port: int, review_state: PairsReviewState):
+        super().__init__(("127.0.0.1", port), _PairsUIHandler)
+        self.review_state = review_state
+
+
+def cmd_pairs_ui(args: argparse.Namespace) -> None:
+    result_path = Path(args.from_result)
+    if not result_path.exists():
+        raise SystemExit(f"conversation_lab pairs-ui: result file not found: {result_path}")
+    state = PairsReviewState(result_path, args.variant_name)
+    server = _PairsUIServer(args.port, state)
+    host, port = server.server_address[:2]
+    print(f"conversation_lab pairs-ui: serving {result_path} at http://{host}:{port}/  (Ctrl-C to stop)")
+    print(f"{state.total} pairs, {len(state._human_picks())} already picked")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
 
 # ---------------------------------------------------------------------------
 # freeze - distill one arm's transcript per scenario from an ab result
@@ -7520,6 +7995,29 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    pairs_ui_cmd = sub.add_parser(
+        "pairs-ui",
+        help="Local web UI for the same blind human read `pairs --show`/`--pick` does (#7793).",
+        description=(
+            "Serve a one-pair-per-screen web UI (stdlib http.server, 127.0.0.1 only) over an ab "
+            "result's transcripts - replaces the terminal pairs --show/--pick flow for a V6 blind "
+            "read. Hotkeys A/B/T record a pick and auto-advance to the next unpicked pair; "
+            "Left/Right or J/K navigate without recording; picking an already-picked pair "
+            "overwrites it. Every pick is written straight to the result file (via the SAME "
+            "_apply_human_picks/_write_pairs_report_atomic functions `pairs --pick` uses, so the "
+            "two are interchangeable on the same file) - reloading the page resumes at the first "
+            "unpicked pair. The arm names, the A/B mapping, and every judge field are never sent "
+            "to the browser; a finish screen appears once every pair is picked, showing the count "
+            "and the human/judge agreement stats."
+        ),
+    )
+    pairs_ui_cmd.add_argument("--from", dest="from_result", required=True, help="Path to an ab result JSON file")
+    pairs_ui_cmd.add_argument(
+        "--variant-name", default=None,
+        help="For an `ab --sweep` result only - see `pairs --help`.",
+    )
+    pairs_ui_cmd.add_argument("--port", type=int, default=8765, help="Port to bind on 127.0.0.1 (default 8765; 0 picks a free port)")
+
     freeze_cmd = sub.add_parser(
         "freeze",
         help="Freeze one arm's best transcript per scenario from an ab result into a prior-days file.",
@@ -7563,6 +8061,8 @@ def _dispatch_command(args: argparse.Namespace) -> None:
         cmd_rejudge(args)
     elif args.command == "pairs":
         cmd_pairs(args)
+    elif args.command == "pairs-ui":
+        cmd_pairs_ui(args)
     elif args.command == "freeze":
         cmd_freeze(args)
     else:  # pragma: no cover - argparse enforces valid choices
