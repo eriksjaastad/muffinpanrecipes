@@ -513,12 +513,12 @@ decision rule, then a live week.
 choice, not a default): roughly 80 Haiku 4.5 turns (dialogue generation for
 5 pairs x 2 variants x ~8 turns/day x however many days are in scope) plus
 10 judge calls (5 pairs x 2 judge orders for the position swap). Every
-mode derives its default call cap from N: a single-concept run uses
-`runs * (2 * arm reservation + 2)`, where the arm reservation reflects the
-variant's own turn count and stop check (#7732; it was a flat 120 until
-2026-09-30, below one open-ended arm). `--testbed`, `--sweep` and `bench`
-scale the same shape by their scenario count (see each one's
-`--max-calls` help).
+`ab` mode derives its default call cap from N by summing one worst-case
+reservation per judged pair: the control arm plus the variant arm (each
+reflecting its own turn count and stop check) plus both judge orientations
+with their retries, times panel size and runs (#7732; single-concept runs
+used a flat 120 until 2026-09-30, below one open-ended arm). `bench`
+derives its own (see its `--max-calls` help).
 
 **Amended 2026-09-19 (#7314).** The 120 figure was written when N=5 was
 the working size, and it forbade the N=20-40 this protocol now expects for

@@ -2220,12 +2220,12 @@ def test_max_turns_for_stage_floors_at_ten():
 def test_ab_single_concept_default_max_calls_is_derived_from_arm_reservation(tmp_path, monkeypatch):
     """#7732: a single --concept/--recipe-context run's default used to be a
     flat 120 regardless of the variant - below one open-ended variant arm's
-    own reservation (see the next test). It is now `runs * (2 *
-    arm_call_reservation + 2)`, the same per-arm formula _generate_and_judge_
-    pairs checks against before every arm. For a plain variant (no
-    TICKS_RANGE/OPEN_ENDED_MAX_TICKS/WINDDOWN_TRIGGER override) on "monday"
-    (max_turns 10, no stop-check), arm_call_reservation is 4 * 10 = 40, so
-    runs=50 derives 50 * (2*40 + 2) = 4100."""
+    own reservation (see the next test). It is now one worst-case
+    reservation per pair: control arm + variant arm (each the per-arm
+    reservation _generate_and_judge_pairs checks before every arm) + both
+    judge orientations with their JSON retries. For a plain variant on
+    "monday" (max_turns 10, no stop check) each arm is 4 * 10 = 40 and the
+    judge allowance is 2 * (1 + 2) = 6, so runs=50 derives 50 * 86 = 4300."""
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "V"})
     results_dir = tmp_path / "results"
@@ -2238,7 +2238,7 @@ def test_ab_single_concept_default_max_calls_is_derived_from_arm_reservation(tmp
 
     [result_file] = list(results_dir.glob("*-ab-*.json"))
     report = json.loads(result_file.read_text())
-    assert report["max_calls"] == 4100
+    assert report["max_calls"] == 50 * (40 + 40 + 2 * (1 + cl._JUDGE_JSON_MAX_RETRIES))
 
 def test_ab_single_concept_default_max_calls_covers_open_ended_variant_reservation(tmp_path, monkeypatch):
     """The bug this fixes: a variant that opens WINDDOWN_TRIGGER to "check"
@@ -2265,9 +2265,10 @@ def test_ab_single_concept_default_max_calls_covers_open_ended_variant_reservati
 
     [result_file] = list(results_dir.glob("*-ab-*.json"))
     report = json.loads(result_file.read_text())
-    arm_reservation = 175
-    assert report["max_calls"] == 1 * (2 * arm_reservation + 2)
-    assert report["max_calls"] > arm_reservation
+    variant_arm, control_arm = 175, 40
+    judge = 2 * (1 + cl._JUDGE_JSON_MAX_RETRIES)
+    assert report["max_calls"] == 1 * (control_arm + variant_arm + judge)
+    assert report["max_calls"] > variant_arm
 
 def test_ab_single_concept_explicit_max_calls_is_not_rederived(tmp_path, monkeypatch):
     """Fail-safe: an explicit --max-calls still wins over the derived
@@ -2308,11 +2309,81 @@ def test_ab_testbed_default_max_calls_is_derived_from_panel_size_and_runs(tmp_pa
 
     [result_file] = list(results_dir.glob("*-ab-testbed-*.json"))
     report = json.loads(result_file.read_text())
-    # monday's max_turns is 10 -> 2 scenarios * 2 runs * (2*4*10 + 2) = 328
-    # (control + variant, four request attempts per turn, plus two judges).
-    assert report["max_calls"] == 328
+    # monday's max_turns is 10 -> 2 scenarios * 2 runs * (40 + 40 + 6) = 344
+    # (control arm + variant arm at four request attempts per turn, plus both
+    # judge orientations with their two JSON retries each).
+    assert report["max_calls"] == 2 * 2 * (40 + 40 + 2 * (1 + cl._JUDGE_JSON_MAX_RETRIES))
     assert report["max_calls_derived"] is True
     assert report["panel_size"] == 2
+
+def test_ab_testbed_default_max_calls_honours_an_open_ended_variant(tmp_path, monkeypatch):
+    """Codex review of a887a20: --testbed used to size every arm from the
+    module default (4 * max_turns = 40 on Monday), so an open-ended variant's
+    175-call arm was under-reserved. Each pair now reserves its own arms."""
+    monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
+    testbed_path = _write_testbed(tmp_path, [
+        {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
+    ])
+    variant_path = _write_variant(tmp_path, {
+        "WINDDOWN_TRIGGER": "check",
+        "OPEN_ENDED_MAX_TICKS": {"monday": 25},
+        "HISTORY_DEPTH": {"early": [30, 30], "late": [20, 16]},
+    })
+    results_dir = tmp_path / "results"
+    cl.main([
+        "ab", "--stage", "monday", "--variant", str(variant_path),
+        "--testbed", str(testbed_path), "--runs", "2", "--dry-run",
+        "--results-dir", str(results_dir),
+    ])
+    report = json.loads(next(results_dir.glob("*-ab-testbed-*.json")).read_text())
+    assert report["max_calls"] == 1 * 2 * (40 + 175 + 2 * (1 + cl._JUDGE_JSON_MAX_RETRIES))
+
+
+def test_derive_max_calls_sweep_counts_the_shared_control_once():
+    plain = {"_SHARED_CHARACTER_RULES": "V"}
+    open_ended = {"WINDDOWN_TRIGGER": "check", "OPEN_ENDED_MAX_TICKS": {"monday": 25}}
+    judge = 2 * (1 + cl._JUDGE_JSON_MAX_RETRIES)
+    got = cl._derive_max_calls(
+        "sweep", scenario_count=3, runs=2, stage="monday", sweep_variants=[plain, open_ended],
+    )
+    assert got == 3 * 2 * (40 + (40 + judge) + (175 + judge))
+
+
+def test_default_cap_lets_a_pair_finish_when_every_judge_orientation_needs_its_retries(tmp_path, monkeypatch):
+    """Codex review of a887a20: with only two judge calls reserved, a single
+    unparseable judge response could hit --max-calls before the pair was
+    judged. With the derived default, a pair whose two orientations each use
+    every allowed retry must still complete."""
+    def full_arm(**_kw):
+        # Spend this arm's entire worst-case reservation (Monday: 4 * 10),
+        # recorded the way real generation calls are counted.
+        for _ in range(40):
+            cl.model_router._record_cost("anthropic", "claude-haiku-4-5", 0, 0)
+        return {"messages": _messages("X")}
+
+    monkeypatch.setattr(sdw, "run_simulation", full_arm)
+    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "V"})
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "openai/dialogue", "openai/judge"))
+    calls = {"n": 0}
+    good = json.dumps({"winner": "A", "per_dimension": {d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS}, "reason": "r"})
+
+    def judge(**_kw):
+        calls["n"] += 1
+        # Each orientation: unparseable, unparseable, then valid.
+        return good if calls["n"] % (1 + cl._JUDGE_JSON_MAX_RETRIES) == 0 else "not json"
+
+    monkeypatch.setattr(cl.model_router, "generate_judge_response", judge)
+    results_dir = tmp_path / "results"
+    cl.main([
+        "ab", "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+        "--variant", str(variant_path), "--recipe-context", "anchor",
+        "--provider", "anthropic", "--results-dir", str(results_dir),
+    ])
+    report = json.loads(next(results_dir.glob("*-ab-*.json")).read_text())
+    assert report["aborted"] is False
+    assert calls["n"] == 2 * (1 + cl._JUDGE_JSON_MAX_RETRIES)
+    assert len(report["pairs"]) == 1
+
 
 def test_ab_testbed_explicit_max_calls_is_not_rederived(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
