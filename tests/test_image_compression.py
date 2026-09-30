@@ -6,6 +6,7 @@ import os
 from io import BytesIO
 from unittest.mock import MagicMock, patch
 
+import pytest
 from PIL import Image
 
 
@@ -622,15 +623,17 @@ class TestHeroJpegFallback:
         assert 'src="/blob-images/foo/hero.png"' in html
         assert "-1200w.jpg" not in html
 
-    def test_img_dimensions_are_the_fixed_fallback_square_regardless_of_source_shape(self):
-        """#7185 review round 3, HIGH (dimensions, third time — the approach
-        changed instead of patching again): storage._encode_jpeg_fallback
-        now center-crops every JPEG fallback to a fixed
-        JPEG_FALLBACK_WIDTH-square, TRUE BY CONSTRUCTION, so the renderer
-        states width AND height exactly with no per-source guess or
-        omission — satisfying scripts/health_check.py's intrinsic-
-        dimensions check, which requires both attributes on every <img>
-        (round 2's height-omission approach failed exactly that check)."""
+    def test_img_dimensions_are_the_fixed_fallback_16_9_regardless_of_source_shape(self):
+        """#7185 review round 4, HIGH (dimensions, fourth time — round 3's
+        square was ALSO wrong, just in a new way: true by construction, but
+        a real crop of visible content, since the hero box itself is 16:9
+        with object-fit:cover, not square). storage._encode_jpeg_fallback
+        now center-crops every JPEG fallback to 1200x675 (HERO_ASPECT's
+        16:9) — matching the hero box exactly, so `object-fit: cover` crops
+        nothing further — while still being TRUE BY CONSTRUCTION, so the
+        renderer states width AND height exactly with no per-source guess
+        or omission (satisfying scripts/health_check.py's intrinsic-
+        dimensions check, which round 2's height-omission approach failed)."""
         from backend.publishing import episode_renderer
 
         with patch.object(
@@ -640,8 +643,9 @@ class TestHeroJpegFallback:
                 self._episode(), image_url="/blob-images/foo/hero.png",
             )
 
-        assert 'src="/blob-images/foo/hero-1200w.jpg" width="1200" height="1200"' in html
+        assert 'src="/blob-images/foo/hero-1200w.jpg" width="1200" height="675"' in html
         assert 'width="1536"' not in html
+        assert 'height="1200"' not in html
 
     def test_rendered_fallback_passes_health_checks_intrinsic_dimensions_check(self):
         """Calls the actual health_check function against the rendered page
@@ -691,26 +695,99 @@ class TestHeroJpegFallback:
         assert checked_keys == ["foo/hero-9VSOT4SGhaUDoAUDM3kZPqxd3.png"]
 
 
-class TestJpegFallbackDimensionsConstant:
-    """JPEG_FALLBACK_DIMENSIONS (#7185 review round 3) — the fixed square
-    storage._encode_jpeg_fallback always produces, TRUE BY CONSTRUCTION.
+class TestHealthCheckReachesTheHeroImgFallback:
+    """scripts.health_check._check_hero_image (#7185 review round 4, MEDIUM).
 
-    Rounds 1 and 2 both tried to compute a per-source dimension (round 1
-    reused the source's own guessed size unscaled; round 2 tried a real
-    scaled height and omitted it when unknowable, which failed
-    scripts/health_check.py's requirement that every <img> carry both width
-    AND height). This constant replaces both attempts: since the encoder
-    now center-crops every source to the same fixed square, there is
-    nothing left to compute or guess.
-    """
+    _image_references walks every <source> tag (in document order) before
+    any <img>, so a page with 2+ <source> candidates ahead of the hero's own
+    <img> fallback could pass the old [:2] probe without ever requesting the
+    fallback — the exact file a browser that can't decode the <source>'s
+    format actually loads."""
 
-    def test_is_the_fallback_width_squared(self):
-        from backend.publishing.episode_renderer import (
-            JPEG_FALLBACK_DIMENSIONS,
-            JPEG_FALLBACK_WIDTH,
+    @staticmethod
+    def _page(hero_img_src: str) -> str:
+        return (
+            "<html><body>"
+            '<div class="recipe-hero__image"><picture>'
+            '<source srcset="/blob-images/foo/hero.webp" type="image/webp">'
+            f'<img src="{hero_img_src}" width="1200" height="675">'
+            "</picture></div>"
+            "</body></html>"
         )
 
-        assert JPEG_FALLBACK_DIMENSIONS == (JPEG_FALLBACK_WIDTH, JPEG_FALLBACK_WIDTH)
+    def test_hero_img_src_extracted_from_the_hero_container(self):
+        from scripts.health_check import _hero_img_src
+
+        html = self._page("/blob-images/foo/hero-1200w.jpg")
+        assert _hero_img_src(html) == "/blob-images/foo/hero-1200w.jpg"
+
+    def test_none_when_page_has_no_hero_container(self):
+        from scripts.health_check import _hero_img_src
+
+        assert _hero_img_src("<html><body>no hero here</body></html>") is None
+
+    def test_passes_when_source_and_img_fallback_both_load(self):
+        from scripts.health_check import _check_hero_image
+
+        html = self._page("/blob-images/foo/hero-1200w.jpg")
+        ok = MagicMock(status_code=200)
+        with patch("scripts.health_check.requests.head", return_value=ok):
+            _check_hero_image(html, "https://example.com", required=True)  # no raise
+
+    def test_fails_when_the_hero_img_fallback_404s_even_though_the_source_loads(self):
+        """The core round-4 regression case: the <source> WebP is reachable,
+        but the <img> fallback 404s. The check must fail — not pass because
+        the [:2] probe was satisfied entirely by <source> candidates."""
+        from scripts.health_check import _check_hero_image
+
+        html = self._page("/blob-images/foo/hero-1200w.jpg")
+
+        def _fake_head(url, timeout=None, allow_redirects=None):
+            resp = MagicMock()
+            resp.status_code = 404 if url.endswith("hero-1200w.jpg") else 200
+            return resp
+
+        with patch("scripts.health_check.requests.head", side_effect=_fake_head):
+            with pytest.raises(AssertionError, match="hero-1200w.jpg"):
+                _check_hero_image(html, "https://example.com", required=True)
+
+    def test_does_not_add_a_request_when_the_fallback_is_already_checked(self):
+        """Keeps the extra cost to at most one request per page: when the
+        <img> IS the first reference already (no <source> ahead of it),
+        it must not be probed a second time."""
+        from scripts.health_check import _check_hero_image
+
+        html = (
+            '<div class="recipe-hero__image">'
+            '<img src="/blob-images/foo/hero.png" width="1536" height="1536">'
+            "</div>"
+        )
+        ok = MagicMock(status_code=200)
+        with patch("scripts.health_check.requests.head", return_value=ok) as mock_head:
+            _check_hero_image(html, "https://example.com", required=True)
+        assert mock_head.call_count == 1
+
+
+class TestJpegFallbackDimensionsConstant:
+    """JPEG_FALLBACK_DIMENSIONS (#7185 review round 4) — the fixed 16:9
+    (HERO_ASPECT) size storage._encode_jpeg_fallback always produces, TRUE
+    BY CONSTRUCTION. Rounds 1-3 each tried something different (a guessed
+    source dimension; a real-or-omitted scaled height; a fixed SQUARE) and
+    each was wrong for a different reason — see episode_renderer's
+    docstring above this constant for the full history.
+    """
+
+    def test_matches_hero_aspect_at_the_fallback_width(self):
+        from backend.publishing.episode_renderer import (
+            JPEG_FALLBACK_DIMENSIONS,
+            JPEG_FALLBACK_HEIGHT,
+            JPEG_FALLBACK_WIDTH,
+        )
+        from backend.storage import HERO_ASPECT
+
+        assert JPEG_FALLBACK_DIMENSIONS == (JPEG_FALLBACK_WIDTH, JPEG_FALLBACK_HEIGHT)
+        assert JPEG_FALLBACK_DIMENSIONS == (1200, 675)
+        assert JPEG_FALLBACK_WIDTH * HERO_ASPECT[1] == JPEG_FALLBACK_HEIGHT * HERO_ASPECT[0]
 
 
 class TestFormatDimensionAttrs:

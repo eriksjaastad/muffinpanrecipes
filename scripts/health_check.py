@@ -598,6 +598,28 @@ def _image_references(body: str) -> list[str]:
     return references
 
 
+_HERO_IMG_SRC_RE = re.compile(r'recipe-hero__image.*?<img\b[^>]*\ssrc="([^"]*)"', re.S)
+
+
+def _hero_img_src(body: str) -> str | None:
+    """The recipe hero's own <img src> — the <picture> fallback, whatever
+    format it currently is (#7185 review round 4, MEDIUM).
+
+    _image_references above walks EVERY <source> tag on the page before any
+    <img>, in document order — a page with two or more <source> tags (the
+    hero's own WebP srcset, plus any BTS gallery <picture> that happens to
+    come first in a re-ordered render) can fill _check_hero_image's [:2]
+    probe entirely with <source> candidates and never touch the hero's <img>
+    fallback at all. That fallback is exactly the file a browser which
+    cannot decode the <source> format actually loads, so a health check that
+    never requests it can pass while that file 404s. This targets the hero
+    specifically (not just any <img> on the page), the same container match
+    scripts/pin_published_heroes.py's hero_src_from_page uses.
+    """
+    match = _HERO_IMG_SRC_RE.search(body)
+    return match.group(1) if match else None
+
+
 def _check_hero_image(body: str, base_url: str, *, required: bool) -> None:
     references = _image_references(body)
     if not references:
@@ -605,8 +627,18 @@ def _check_hero_image(body: str, base_url: str, *, required: bool) -> None:
             raise AssertionError("page has no hero image URL")
         return
 
+    # #7185 review round 4: the hero's actual <img src> (the fallback) is
+    # appended explicitly, deduplicated against what [:2] already covers, so
+    # this never costs more than one extra request per checked page even
+    # when the fallback happens to already be one of the first two
+    # candidates.
+    checked = list(references[:2])
+    hero_src = _hero_img_src(body)
+    if hero_src and hero_src not in checked:
+        checked.append(hero_src)
+
     broken: list[str] = []
-    for source in references[:2]:
+    for source in checked:
         image_url = _resolve_image_url(source, base_url)
         try:
             status = requests.head(

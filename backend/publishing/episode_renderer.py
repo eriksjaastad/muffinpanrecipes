@@ -22,6 +22,7 @@ from typing import Optional
 
 from backend.publishing.analytics import GA4_TAG
 from backend.storage import (
+    JPEG_FALLBACK_HEIGHT,
     JPEG_FALLBACK_WIDTH,
     SOCIAL_IMAGE_SUFFIX,
     WEBP_VARIANT_WIDTHS,
@@ -100,17 +101,20 @@ def _intrinsic_image_attributes(image_url: str) -> str:
 
 
 # storage._encode_jpeg_fallback center-crops every JPEG <img>-fallback
-# sibling to this exact square (#7185 review round 3) — TRUE BY
-# CONSTRUCTION, not measured or guessed, so the renderer can always state
-# both width and height without reading the source at all. Two earlier
-# attempts got this wrong: round 1 reused the source's own (guessed)
-# dimensions unscaled; round 2 tried to compute a real scaled height from
-# the source's aspect ratio and omitted it when that wasn't knowable, which
-# fails scripts/health_check.py's intrinsic-dimensions check (requires both
-# width AND height on every <img>). A fixed encode makes both checks and
-# reality agree by construction — see storage._encode_jpeg_fallback's
-# docstring for why a square crop loses nothing the page actually shows.
-JPEG_FALLBACK_DIMENSIONS: tuple[int, int] = (JPEG_FALLBACK_WIDTH, JPEG_FALLBACK_WIDTH)
+# sibling to exactly this HERO_ASPECT-shaped (16:9) size (#7185 review round
+# 4) — TRUE BY CONSTRUCTION, not measured or guessed, so the renderer can
+# always state both width and height without reading the source at all.
+# Three earlier attempts got this wrong: round 1 reused the source's own
+# (guessed) dimensions unscaled; round 2 tried a real scaled height and
+# omitted it when unknowable, which failed scripts/health_check.py's
+# requirement that every <img> carry both width and height; round 3 fixed
+# THAT with a fixed 1200x1200 SQUARE crop, which was true-by-construction
+# but visually wrong — it discards real content before the hero box's own
+# `object-fit: cover` crops again, for any source whose aspect ratio isn't
+# already square. 1200x675 (HERO_ASPECT's 16:9) matches the hero box exactly
+# — see storage._encode_jpeg_fallback's docstring for why that crops nothing
+# further, and storage.HERO_ASPECT for the site.css rule it must track.
+JPEG_FALLBACK_DIMENSIONS: tuple[int, int] = (JPEG_FALLBACK_WIDTH, JPEG_FALLBACK_HEIGHT)
 
 
 def _step_name(text: str, index: int) -> str:

@@ -64,6 +64,23 @@ WEBP_VARIANT_WIDTHS: tuple[int, ...] = (400, 800)
 # re-running scripts/backfill_image_variants.py for already-published images.
 JPEG_FALLBACK_WIDTH: int = 1200
 
+# The hero's own display shape (#7185 review round 4) — MUST match
+# `.recipe-hero__image { aspect-ratio: 16 / 9; ... overflow: hidden }` /
+# `.recipe-hero__image img { object-fit: cover }` in src/assets/site.css.
+# The fallback is encoded to exactly this aspect ratio (see
+# _encode_jpeg_fallback) so `object-fit: cover` into that box crops NOTHING
+# further — a square (or any other) crop would discard real content for a
+# source whose own aspect ratio differs from the box's (round 3 got this
+# wrong: a 1200x1200 crop of a 1600x800 source throws away half its width
+# before the browser crops again). tests/test_image_compression.py parses
+# site.css's actual rule and fails if it ever drifts from this constant.
+HERO_ASPECT: tuple[int, int] = (16, 9)
+
+# The fallback's height, derived from HERO_ASPECT so it can never disagree
+# with JPEG_FALLBACK_WIDTH's own aspect ratio. round() is defensive — with
+# today's values (1200, (16, 9)) this is already an exact 675.
+JPEG_FALLBACK_HEIGHT: int = round(JPEG_FALLBACK_WIDTH * HERO_ASPECT[1] / HERO_ASPECT[0])
+
 # Public, prefix-free base of the (public) blob store. Existence checks HEAD
 # this host: a HEAD against the API host (https://blob.vercel-storage.com/<key>)
 # returns 404 even for blobs that exist — verified 2026-09-05 against a live
@@ -269,28 +286,34 @@ def _encode_social_jpeg(png_bytes: bytes) -> bytes:
 
 
 def _encode_jpeg_fallback(png_bytes: bytes) -> bytes:
-    """Encode PNG bytes as a fixed JPEG_FALLBACK_WIDTH-square JPEG (#7185 review round 3).
+    """Encode PNG bytes as a fixed HERO_ASPECT-shaped JPEG (#7185 review round 4).
 
     TRUE BY CONSTRUCTION, not a guess: every fallback is exactly
-    JPEG_FALLBACK_WIDTH x JPEG_FALLBACK_WIDTH (1200x1200), center-cropped
-    with ImageOps.fit — the same fixed-size crop _encode_social_jpeg already
-    uses for the OG/Twitter sibling, just square instead of 1200x630 — so
-    the renderer can always state the <img>'s width/height exactly, with no
-    per-source aspect-ratio computation, guess, or omission (round 1 assumed
-    the source's own 1536x1536 dimensions; round 2 tried to compute a real
-    scaled height and, failing that, omit it — both wrong, the second one
-    also failing scripts/health_check.py's intrinsic-dimensions check, which
-    requires width AND height on every <img>).
+    JPEG_FALLBACK_WIDTH x JPEG_FALLBACK_HEIGHT (1200x675 — HERO_ASPECT's
+    16:9, not a square), center-cropped with ImageOps.fit — the same
+    fixed-size crop _encode_social_jpeg already uses for the OG/Twitter
+    sibling, just a different ratio — so the renderer can always state the
+    <img>'s width/height exactly, with no per-source aspect-ratio
+    computation, guess, or omission (round 1 assumed the source's own
+    1536x1536 dimensions; round 2 computed a real scaled height and, failing
+    that, omitted it, which broke scripts/health_check.py's requirement that
+    every <img> carry both width and height; round 3 fixed THAT by cropping
+    to a fixed 1200x1200 SQUARE — true by construction, but WRONG: cropping
+    a 1600x800 source to a square first, then having the browser's
+    `object-fit: cover` crop that square again to fit the hero's real 16:9
+    box, throws away roughly half the source's width before the visible
+    crop even happens — real content disappears for any browser that ends
+    up on this fallback).
 
-    Cropping to a square loses nothing the page actually shows: the hero is
-    rendered inside `.recipe-hero__image` (src/assets/site.css), which fixes
-    the CONTAINER to `aspect-ratio: 16/9; overflow: hidden` and forces the
-    `<img>` itself to `width: 100%; height: 100%; object-fit: cover` — i.e.
-    the browser already crops whatever aspect ratio it's given to fit that
-    16:9 box. A 1200x1200 center crop is simply a different (also-cropped)
-    input to that same cover/crop, not a new loss of content.
+    HERO_ASPECT matches `.recipe-hero__image { aspect-ratio: 16 / 9; ...
+    overflow: hidden }` / `.recipe-hero__image img { object-fit: cover }` in
+    src/assets/site.css exactly, so `cover`-ing a 16:9 image into a 16:9 box
+    crops NOTHING further — this fallback is pixel-for-pixel what that box
+    already displays, not a second, lossy crop of it. If that CSS rule's
+    ratio ever changes, HERO_ASPECT must change with it (a test parses the
+    rule and fails on drift).
     """
-    return _encode_jpeg(png_bytes, (JPEG_FALLBACK_WIDTH, JPEG_FALLBACK_WIDTH))
+    return _encode_jpeg(png_bytes, (JPEG_FALLBACK_WIDTH, JPEG_FALLBACK_HEIGHT))
 
 
 class _FilesystemBackend:

@@ -704,11 +704,13 @@ class TestSourcePngKey:
 
 
 class TestEncodeJpegFallback:
-    """_encode_jpeg_fallback (#7185 review round 3) — a fixed
-    JPEG_FALLBACK_WIDTH-square center crop, TRUE BY CONSTRUCTION regardless
-    of the source's own aspect ratio (rounds 1 and 2 tried to reflect the
-    source's real dimensions instead, and both were wrong in different
-    ways — see the function's docstring)."""
+    """_encode_jpeg_fallback (#7185 review round 4) — a fixed
+    JPEG_FALLBACK_WIDTH x JPEG_FALLBACK_HEIGHT (16:9, HERO_ASPECT) center
+    crop, TRUE BY CONSTRUCTION regardless of the source's own aspect ratio.
+    Round 3 used a fixed SQUARE crop instead — also true by construction,
+    but visually wrong: cropping a wide source to a square first, then
+    having the hero box's own `object-fit: cover` crop that square again to
+    16:9, throws away real content (see the function's docstring)."""
 
     @staticmethod
     def _png_bytes(size=(1536, 1536)) -> bytes:
@@ -717,25 +719,43 @@ class TestEncodeJpegFallback:
         image.save(output, format="PNG")
         return output.getvalue()
 
-    def test_square_source_encodes_to_the_fallback_square(self):
-        from backend.storage import JPEG_FALLBACK_WIDTH, _encode_jpeg_fallback
+    def test_square_source_encodes_to_the_fallback_16_9(self):
+        from backend.storage import (
+            JPEG_FALLBACK_HEIGHT,
+            JPEG_FALLBACK_WIDTH,
+            _encode_jpeg_fallback,
+        )
 
         result = _encode_jpeg_fallback(self._png_bytes(size=(1536, 1536)))
         with Image.open(BytesIO(result)) as image:
             assert image.format == "JPEG"
-            assert image.size == (JPEG_FALLBACK_WIDTH, JPEG_FALLBACK_WIDTH)
+            assert image.size == (JPEG_FALLBACK_WIDTH, JPEG_FALLBACK_HEIGHT)
             assert image.mode == "RGB"
 
-    def test_non_square_source_is_center_cropped_to_the_same_fixed_square(self):
-        """The core round-3 regression case: a real, non-square 2:1 source
-        must STILL come out exactly JPEG_FALLBACK_WIDTH square — never a
-        proportionally-scaled non-square result — so the renderer can state
-        width/height without ever looking at the source."""
-        from backend.storage import JPEG_FALLBACK_WIDTH, _encode_jpeg_fallback
+    def test_wide_2_to_1_source_is_center_cropped_to_the_same_fixed_16_9(self):
+        """The core round-4 regression case: a real, wide 2:1 source must
+        STILL come out exactly 1200x675 — matching the hero box's own 16:9
+        exactly, not a square that the browser would have to crop AGAIN."""
+        from backend.storage import (
+            JPEG_FALLBACK_HEIGHT,
+            JPEG_FALLBACK_WIDTH,
+            _encode_jpeg_fallback,
+        )
 
         result = _encode_jpeg_fallback(self._png_bytes(size=(1600, 800)))
         with Image.open(BytesIO(result)) as image:
-            assert image.size == (JPEG_FALLBACK_WIDTH, JPEG_FALLBACK_WIDTH)
+            assert image.size == (JPEG_FALLBACK_WIDTH, JPEG_FALLBACK_HEIGHT)
+
+    def test_tall_3_to_4_source_is_center_cropped_to_the_same_fixed_16_9(self):
+        from backend.storage import (
+            JPEG_FALLBACK_HEIGHT,
+            JPEG_FALLBACK_WIDTH,
+            _encode_jpeg_fallback,
+        )
+
+        result = _encode_jpeg_fallback(self._png_bytes(size=(900, 1200)))
+        with Image.open(BytesIO(result)) as image:
+            assert image.size == (JPEG_FALLBACK_WIDTH, JPEG_FALLBACK_HEIGHT)
 
     def test_transparency_composited_onto_white(self):
         from backend.storage import _encode_jpeg_fallback
@@ -747,6 +767,49 @@ class TestEncodeJpegFallback:
         result = _encode_jpeg_fallback(buf.getvalue())
         with Image.open(BytesIO(result)) as decoded:
             assert decoded.convert("RGB").getpixel((0, 0)) == (255, 255, 255)
+
+
+class TestHeroAspectMatchesCss:
+    """storage.HERO_ASPECT must track src/assets/site.css's actual rule
+    (#7185 review round 4) — the whole point of _encode_jpeg_fallback's
+    fixed-crop fix is that the fallback's shape matches the hero box's real
+    CSS shape exactly. If the CSS ratio ever changes without this constant
+    changing too, the fallback silently goes back to being a second, lossy
+    crop inside `object-fit: cover` — this test is the tripwire."""
+
+    def test_recipe_hero_image_aspect_ratio_matches_hero_aspect(self):
+        import re
+        from pathlib import Path
+
+        from backend.storage import HERO_ASPECT
+
+        css_path = (
+            Path(__file__).resolve().parents[1] / "src" / "assets" / "site.css"
+        )
+        css = css_path.read_text()
+
+        rule_match = re.search(
+            r"\.recipe-hero__image\s*\{([^}]*)\}", css, flags=re.DOTALL
+        )
+        assert rule_match, "could not find the .recipe-hero__image rule in site.css"
+
+        ratio_match = re.search(
+            r"aspect-ratio\s*:\s*(\d+)\s*/\s*(\d+)\s*;", rule_match.group(1)
+        )
+        assert ratio_match, ".recipe-hero__image has no aspect-ratio declaration"
+
+        css_ratio = (int(ratio_match.group(1)), int(ratio_match.group(2)))
+        assert css_ratio == HERO_ASPECT, (
+            f"site.css's hero aspect-ratio is {css_ratio}, but "
+            f"storage.HERO_ASPECT is {HERO_ASPECT} — the JPEG fallback's "
+            "fixed crop no longer matches what the hero box actually shows; "
+            "update HERO_ASPECT (and re-run scripts/backfill_image_variants.py)."
+        )
+
+        assert (
+            "object-fit: cover" in css[rule_match.end() : rule_match.end() + 400]
+            or "object-fit:cover" in css[rule_match.end() : rule_match.end() + 400]
+        ), "the adjacent img object-fit:cover rule moved or was removed — re-check this test's assumptions"
 
 
 class TestCloudBackendJpegFallbackAvailable:
