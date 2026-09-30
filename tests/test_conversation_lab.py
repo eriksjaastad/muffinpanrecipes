@@ -11,11 +11,14 @@ docs/conversation-lab/.
 from __future__ import annotations
 
 import copy
+import glob
 import inspect
 import json
 import math
 import os
 import re
+import subprocess
+import sys
 import urllib.error
 from pathlib import Path
 from unittest.mock import Mock
@@ -4612,10 +4615,12 @@ def test_bench_claims_its_result_filename_atomically(tmp_path, monkeypatch):
     assert first != second
     assert first.name == "bench-x-20260919T000000Z.json"
     assert second.name == "bench-x-20260919T000000Z-2.json"
-    # The claim is staked on a sidecar, so the name is reserved against a
-    # concurrent caller WITHOUT a zero-byte .json ever becoming visible - a
-    # later glob or --compare would have read that as a real result.
-    assert first.with_name(first.name + ".partial").exists()
+    # The claim is staked on a NEVER-REMOVED marker in .claims/ (#7800 P1),
+    # so the name is reserved against a concurrent caller WITHOUT a
+    # zero-byte .json ever becoming visible - a later glob or --compare
+    # would have read that as a real result.
+    assert (results / ".claims" / first.name).exists()
+    assert (results / ".claims" / second.name).exists()
     assert not first.exists(), "no empty .json may be visible before the write"
     assert not second.exists()
 
@@ -4796,6 +4801,127 @@ def test_result_writers_use_the_shared_atomic_publish_helper(fn_name):
         "published with _publish_json_atomically"
     )
     assert "_publish_json_atomically(" in source
+
+# ---------------------------------------------------------------------------
+# #7800 P1 (Codex, review of 086c0cf): the original claim staked itself on a
+# `.partial` sidecar that `_publish_json_atomically`'s `os.replace` CONSUMES
+# (renames away) on every publish - so the claim was released the instant a
+# run published, and a second claimant could observe the now-"free" sidecar
+# and grab the same final name a first run had already published to. The fix
+# claims through a marker in `.claims/` that is NEVER removed.
+# ---------------------------------------------------------------------------
+
+def test_claim_survives_a_second_claimant_between_the_first_claim_and_its_publish(tmp_path):
+    """Codex's interleaving, part 1: B claims the SAME stem while A's claim
+    is outstanding but A has not published yet. B must land on a different
+    name, and A's later publish must be completely unaffected by B."""
+    results = tmp_path / "results"
+
+    path_a = cl._unique_result_path(results, "shared-stem")
+    # B's claim runs here - strictly between A's claim and A's publish.
+    path_b = cl._unique_result_path(results, "shared-stem")
+
+    assert path_a != path_b
+    assert path_a.name == "shared-stem.json"
+    assert path_b.name == "shared-stem-2.json"
+
+    cl._publish_json_atomically(path_a, {"who": "a", "cost": 2.68})
+    cl._publish_json_atomically(path_b, {"who": "b"})
+
+    assert json.loads(path_a.read_text()) == {"who": "a", "cost": 2.68}
+    assert json.loads(path_b.read_text()) == {"who": "b"}
+
+def test_claim_survives_a_second_claimant_after_the_first_has_already_published(tmp_path):
+    """Codex's interleaving, part 2 - the exact P1: A claims AND fully
+    publishes (under the pre-fix scheme this FREED the sidecar). B then
+    claims the identical stem. B must NOT be handed A's now-published name -
+    that would let B's own publish overwrite A's paid result - it must get
+    a fresh suffix, and A's file must be untouched afterward."""
+    results = tmp_path / "results"
+
+    path_a = cl._unique_result_path(results, "shared-stem")
+    cl._publish_json_atomically(path_a, {"who": "a", "cost": 2.68})
+    original_bytes = path_a.read_bytes()
+
+    # B's claim runs here - strictly after A's publish completed.
+    path_b = cl._unique_result_path(results, "shared-stem")
+
+    assert path_b != path_a
+    assert path_b.name == "shared-stem-2.json"
+
+    cl._publish_json_atomically(path_b, {"who": "b"})
+
+    assert path_a.read_bytes() == original_bytes, (
+        "A's already-published paid result must survive byte-identical"
+    )
+    assert json.loads(path_b.read_text()) == {"who": "b"}
+
+def test_unique_result_path_claims_are_safe_across_real_os_processes(tmp_path):
+    """#7800 P1: the claim must be atomic at the OS level, not merely
+    serialized by one Python process's GIL. N independent processes racing
+    the IDENTICAL stem, started as close to simultaneously as possible, must
+    each win a distinct name - never two processes returning the same path."""
+    results = tmp_path / "results"
+    results.mkdir()
+    repo_root = str(Path(cl.__file__).resolve().parents[1])
+    worker_script = (
+        "import sys; sys.path.insert(0, sys.argv[3]); "
+        "import scripts.conversation_lab as cl; from pathlib import Path; "
+        "print(cl._unique_result_path(Path(sys.argv[1]), sys.argv[2]))"
+    )
+    n = 8
+    procs = [
+        subprocess.Popen(
+            [sys.executable, "-c", worker_script, str(results), "race-stem", repo_root],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        for _ in range(n)
+    ]
+    claimed = []
+    for proc in procs:
+        out, err = proc.communicate(timeout=30)
+        assert proc.returncode == 0, err
+        claimed.append(out.strip())
+
+    assert len(set(claimed)) == n, f"expected {n} distinct claims, got: {claimed}"
+
+def test_unique_result_path_never_hands_out_a_pre_existing_unclaimed_final_file(tmp_path):
+    """A `.json` already sitting in the results dir with NO claim marker - a
+    result written before this scheme existed, or by something outside it -
+    must never be reused, even though nothing currently holds its name."""
+    results = tmp_path / "results"
+    results.mkdir()
+    legacy = results / "legacy-stem.json"
+    legacy.write_text('{"who": "legacy, written before #7800"}')
+
+    claimed = cl._unique_result_path(results, "legacy-stem")
+
+    assert claimed.name == "legacy-stem-2.json"
+    assert legacy.read_text() == '{"who": "legacy, written before #7800"}', (
+        "the pre-existing legacy file must be untouched"
+    )
+
+def test_claim_markers_are_invisible_to_every_result_glob(tmp_path):
+    """`.claims/` must never surface as a result to any glob this module (or
+    lab_offline_metrics.py, via plain glob.glob) uses to find real results -
+    both because it is a subdirectory (non-recursive `*.json` globs never
+    descend into it) and because it is dotted (a leading `*` does not match
+    a leading dot)."""
+    results = tmp_path / "results"
+
+    cl._unique_result_path(results, "20260930T183723Z-ab-testbed-claude-o55-limits-off")
+    cl._unique_result_path(results, "20260930T183723Z-rejudge-claude-o55-source")
+
+    assert list(results.glob("*.json")) == [], "nothing has been published yet"
+    assert list(results.glob("*-ab-*.json")) == []
+    assert list(results.glob("*-rejudge-*.json")) == []
+    # lab_offline_metrics.py resolves user-supplied patterns with glob.glob,
+    # not Path.glob - both must agree that .claims/ is invisible.
+    assert glob.glob(str(results / "*.json")) == []
+    assert glob.glob(str(results / "*-ab-*.json")) == []
+
+    assert (results / ".claims").is_dir()
+    assert len(list((results / ".claims").iterdir())) == 2
 
 def test_bench_log_append_preserves_both_rows_under_a_lock(tmp_path, monkeypatch):
     """Codex: the audit append is a read-modify-write; a lost row means a

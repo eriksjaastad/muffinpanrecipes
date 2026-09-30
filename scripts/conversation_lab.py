@@ -5658,21 +5658,25 @@ def _validate_bench_args(args: argparse.Namespace) -> None:
 _MAX_CALLS_PER_TURN = 4
 
 def _publish_json_atomically(path: Path, payload: dict[str, Any]) -> None:
-    """Serialize to a sibling `.partial`, then rename onto `path`.
+    """Serialize to a sibling `.partial` WRITE BUFFER, then rename onto `path`.
 
-    `_unique_result_path` claims the name by creating a zero-byte file, so
-    writing straight into it means a serialization error, a full disk or a
-    kill leaves an empty or truncated .json where a later glob or
-    `--compare` will find it and read it as a real result (Codex).
-    `os.replace` is atomic within a directory, so the claimed name only
-    ever holds a complete document.
+    #7800 P1 (Codex): this temp file is a write buffer ONLY. The durable
+    claim on `path`'s name lives in `.claims/` (see `_unique_result_path`)
+    and publication never touches or removes it - unlike the pre-fix
+    scheme, where this same `.partial` name WAS the claim, so `os.replace`
+    (which renames it away) released the claim the instant a run
+    published, letting a second claimant grab the now-"free" name and
+    overwrite the just-published result.
 
-    A failed write deliberately leaves the `.partial` file behind rather
-    than deleting it: it does not match the `*.json` glob that finds
-    results, `--compare` against it fails loudly with a JSON error, and it
-    is evidence that a write failed. Deleting agent-created files is also
-    hook-blocked in this workspace, and reaching for trash tooling to tidy
-    a temp file would be the wrong trade.
+    `os.replace` is still atomic within a directory, so `path` only ever
+    holds a complete document: a serialization error, a full disk, or a
+    kill leaves the `.partial` buffer behind rather than an empty or
+    truncated `path`. It is left in place deliberately rather than deleted:
+    it does not match the `*.json` glob that finds results, `--compare`
+    against it fails loudly with a JSON error, and it is evidence that a
+    write failed. Deleting agent-created files is also hook-blocked in this
+    workspace, and reaching for trash tooling to tidy a temp file would be
+    the wrong trade.
     """
     _annotate_budget_report(path, payload)
     tmp = path.with_name(path.name + ".partial")
@@ -5680,36 +5684,72 @@ def _publish_json_atomically(path: Path, payload: dict[str, Any]) -> None:
     os.replace(tmp, path)
 
 def _unique_result_path(directory: Path, stem: str) -> Path:
-    """A path that does not already exist, so no paid result is overwritten.
+    """Durably CLAIM a result filename, so no paid result is ever overwritten
+    - not even by a same-scheme race between two concurrent runs.
+
+    #7800 P1 (Codex): the original scheme checked that the final `.json`
+    was absent, then staked its claim on a SEPARATE `.partial` sidecar - but
+    `_publish_json_atomically`'s `os.replace` consumes (renames away) that
+    exact sidecar, so the claim was released the instant a run published.
+    Two runs on the same name could interleave exactly like this: B checks
+    the final `.json` and finds it absent -> A creates its sidecar, writes,
+    and replaces (sidecar gone, `.json` now A's paid result) -> B creates
+    the now-unclaimed sidecar and believes it owns the name -> B's own
+    publish overwrites A's result. Checking one thing (the final path) and
+    then claiming a DIFFERENT thing (a sidecar that publication later
+    frees) is not one atomic operation, no matter how atomic each half is
+    on its own.
+
+    The claim now lives in `directory/.claims/<name>` and is created with
+    `os.O_CREAT | os.O_EXCL` - the OS makes that single call atomic - and is
+    NEVER removed, by this function or by `_publish_json_atomically`. There
+    is no separate "does the final file exist" check driving the loop: the
+    marker create's success or `FileExistsError` is the only signal, so
+    there is nothing left for a second claimant to observe as "free" after
+    the first has already claimed it. `.claims/` is a dotted subdirectory,
+    invisible to every non-recursive `*.json` glob this module or
+    `lab_offline_metrics.py` uses to find real results (plain `*` does not
+    match a leading dot, and none of those globs recurse).
+
+    A pre-existing final `.json` with NO claim marker (a result written
+    before this scheme existed, or by something outside it) is still never
+    overwritten: after winning the marker for a candidate name, this checks
+    whether that candidate already has content and, if so, treats the name
+    as permanently taken and moves on - the marker it just created retires
+    that name for good rather than leaving it available for a future
+    claimant to reuse and collide with the pre-existing file.
 
     A UTC timestamp alone is not enough: it has second granularity, and two
     runs (bench, ab, calibrate, rejudge - #7800 extended this past bench to
     every result writer) can finish inside the same second (a dry run, a
-    short N, a test, or two `--models` sets launched in parallel). Codex's
-    finding allowed either a unique identifier or an outright refusal to
-    overwrite; this does both, falling back to a counter suffix when the
-    stamped name is taken.
+    short N, a test, or two `--models` sets launched in parallel). Falls
+    back to a counter suffix (`-2`, `-3`, ...) whenever a name is already
+    claimed or already has unclaimed content.
 
     Creates `directory` if needed: callers claim a name (this function)
     before any paid work starts, well before `_write_json_result`'s old
     parent.mkdir would have run.
     """
     directory.mkdir(parents=True, exist_ok=True)
+    claims_dir = directory / ".claims"
+    claims_dir.mkdir(parents=True, exist_ok=True)
     for n in range(1, 1000):
-        candidate = directory / (f"{stem}.json" if n == 1 else f"{stem}-{n}.json")
-        if candidate.exists():
-            continue
+        name = f"{stem}.json" if n == 1 else f"{stem}-{n}.json"
+        candidate = directory / name
         try:
-            # The claim is staked on the SIDECAR, never on the .json itself
-            # (Codex): claiming the result name directly left a visible
-            # zero-byte .json if publishing then failed, which a later glob
-            # or --compare would read as a result. Creating the sidecar with
-            # exist_ok=False is still atomic, so two benches finishing in
-            # the same UTC second get different names, and the .json only
-            # ever appears via the os.replace in _publish_json_atomically -
-            # complete, or not at all.
-            candidate.with_name(candidate.name + ".partial").touch(exist_ok=False)
+            fd = os.open(claims_dir / name, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
+            # Someone (this run or another) already holds this name. The
+            # marker is never removed, so this is a permanent, unambiguous
+            # "taken" - never a stale signal from a run that has since
+            # published and "freed" it.
+            continue
+        os.close(fd)
+        if candidate.exists():
+            # No marker existed a moment ago (we just won the exclusive
+            # create), yet the final file is already there: a pre-existing
+            # result from before this scheme, or from outside it. The
+            # marker we just created retires this name; try the next one.
             continue
         return candidate
     raise ConversationLabError(
