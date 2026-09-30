@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, Optional
@@ -43,6 +44,37 @@ ROOT = Path(__file__).resolve().parents[1]
 EPISODES_DIR = ROOT / "data" / "episodes"
 SIMULATIONS_DIR = ROOT / "data" / "simulations"
 IMAGES_DIR = ROOT / "src" / "assets" / "images"
+
+# Durable per-character memory (#6968, redesigned in review round 3). This
+# lives at repo-root `data/`, same family as EPISODES_DIR/SIMULATIONS_DIR
+# above and deliberately NOT under backend/data/characters/ — that
+# directory ships inside the Vercel Lambda bundle read-only, which is why
+# the original writer there (backend/data/characters/<slug>/memory.json)
+# silently stopped persisting in production.
+#
+# One blob per character PER WEEK: character_memory/<slug>/<YYYY-Www>.json.
+# There is no read-modify-write and no merge: a write is always a single,
+# complete week's body, PUT to its own key. Re-running the same week
+# overwrites only that key — never another week's blob — so a stale read
+# can never cause data loss (round-3 review finding 1: the prior single-
+# file-per-character design read-then-merged-then-wrote, and Vercel's CDN
+# can serve an overwritten blob's stale body for up to 60s, letting a
+# repair's write get silently undone by a merge racing against that
+# staleness). Nothing is ever deleted (retention/"show the latest 2" is a
+# READ-time choice — see scripts.simulate_dialogue_week._load_memories —
+# never a write-time eviction).
+#
+# The legacy bundled backend/data/characters/<slug>/memory.json files
+# remain in place, read-only, as a DISPLAY-ONLY fallback for a character
+# with zero weeks in durable storage — never written to, never merged
+# into durable storage, and never deduped: round-3 review finding 2 is
+# that those files' 3 same-labelled "week" entries are actually 3
+# DIFFERENT recipes the old buggy writer mislabelled with the same week,
+# so deduping them (as an earlier round of this fix did) permanently
+# destroyed 2 of 3 real histories. See
+# backend.admin.cron_routes._load_legacy_memory_entries and
+# scripts.simulate_dialogue_week's equivalent.
+CHARACTER_MEMORY_DIR = ROOT / "data" / "character_memory"
 
 SOCIAL_IMAGE_SIZE = (1200, 630)
 SOCIAL_IMAGE_SUFFIX = ".social.jpg"
@@ -151,6 +183,91 @@ def _encode_social_jpeg(png_bytes: bytes) -> bytes:
     return _encode_jpeg(png_bytes, SOCIAL_IMAGE_SIZE)
 
 
+_CHARACTER_MEMORY_MAX_LIST_PAGES = 20
+
+
+class CharacterMemoryUnavailable(Exception):
+    """A character-memory READ could not be completed (#6968).
+
+    Distinct from a genuine "no weeks written yet" (which is an empty list
+    from list_character_memory_weeks, not an exception): this means the
+    attempt itself failed or returned something unusable — a transient
+    Blob error, a network timeout, a corrupted local file, a listed name
+    the list API itself couldn't be trusted for, or a fetched body that
+    fails schema validation. A caller must never treat this the same as
+    "not found": it must record the character's memory step as failed (or,
+    for a prompt read, fall back to the truthful known-coworker text) and
+    never silently substitute the legacy seed or emptiness for real,
+    merely-unreadable data.
+    """
+
+
+_ISO_WEEK_RE = re.compile(r"^(\d{4})-W(\d{2})$")
+
+
+def parse_iso_week(week: str) -> tuple[int, int]:
+    """Parse a "YYYY-Www" ISO week string into a ``(year, week)`` sort key.
+
+    Raises ValueError if ``week`` is not exactly this zero-padded shape or
+    the week number is out of the 1-53 range — a synthetic/test label such
+    as "test-week" is never a valid ISO week. Deliberately strict: this is
+    the sort key that decides which weeks are shown as most recent, so an
+    unparsed label must never silently participate in that ordering as if
+    it were real.
+    """
+    match = _ISO_WEEK_RE.match(week or "")
+    if not match:
+        raise ValueError(f"not a valid ISO week string (expected 'YYYY-Www'): {week!r}")
+    year, week_num = int(match.group(1)), int(match.group(2))
+    if not (1 <= week_num <= 53):
+        raise ValueError(f"ISO week number out of range 1-53: {week!r}")
+    return (year, week_num)
+
+
+def is_valid_iso_week(week: object) -> bool:
+    """True if ``week`` parses as a real ISO week string (see parse_iso_week)."""
+    if not isinstance(week, str):
+        return False
+    try:
+        parse_iso_week(week)
+        return True
+    except ValueError:
+        return False
+
+
+# The schema every per-week memory blob body must satisfy (#6968 round-3
+# review finding 3: a valid-JSON-but-wrong-shape body, e.g. `{}`, must never
+# be accepted as usable history). "week" and "episode_id" are the same
+# value in this pipeline (the ISO week IS the episode ID) but both are
+# required so the body is self-describing without needing its own blob key.
+_REQUIRED_CHARACTER_MEMORY_FIELDS = ("week", "episode_id", "summary")
+
+
+def validate_character_memory_entry(entry: object) -> dict:
+    """Validate one per-week character-memory blob body.
+
+    Required: ``week`` (a real ISO week string), ``episode_id`` and
+    ``summary`` (non-empty strings). Optional fields (``concept``,
+    ``key_moment``, ``recipe``, ``written_at``, ...) pass through
+    unvalidated. Raises ValueError on any violation.
+
+    This is the single schema gate for both directions: save_character_
+    memory_week calls it before writing (a write can never put a bad shape
+    into durable storage), and load_character_memory_week calls it after
+    fetching (a read can never mistake a malformed or wrong-shaped body —
+    including well-formed JSON like ``{}`` — for real history).
+    """
+    if not isinstance(entry, dict):
+        raise ValueError(f"memory entry must be a dict, got {type(entry).__name__}")
+    for field in _REQUIRED_CHARACTER_MEMORY_FIELDS:
+        value = entry.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"memory entry missing required non-empty string field {field!r}: {entry!r}")
+    if not is_valid_iso_week(entry["week"]):
+        raise ValueError(f"memory entry 'week' is not a valid ISO week: {entry['week']!r}")
+    return entry
+
+
 class _FilesystemBackend:
     """Local filesystem storage — used for LOCAL_DEV."""
 
@@ -246,6 +363,70 @@ class _FilesystemBackend:
             except Exception as exc:
                 logger.warning(f"Skipping invalid simulation file {p.name}: {exc}")
         return results
+
+    def _character_memory_dir(self, slug: str) -> Path:
+        """Prefix-scoped directory for one character's per-week blobs.
+
+        Scoped by `self.prefix` the same way the cloud backend's blob key
+        is — "test/" and "" resolve to different directories on disk, so
+        test-mode data can never cross into production memory through this
+        path.
+        """
+        return CHARACTER_MEMORY_DIR / f"{self.prefix}{slug}"
+
+    def list_character_memory_weeks(self, slug: str) -> list[str]:
+        """List the valid ISO week keys with a durable memory file (#6968).
+
+        A filename that isn't a real ISO week (see parse_iso_week) is
+        logged and ignored, never treated as evidence of absence for a
+        real week. Returns weeks sorted ascending (oldest first). An empty
+        result is a genuine "no weeks written yet" — filesystem globbing
+        cannot fail the way a network list call can, so there is no
+        CharacterMemoryUnavailable case here.
+        """
+        directory = self._character_memory_dir(slug)
+        if not directory.exists():
+            return []
+        weeks: list[str] = []
+        for p in directory.glob("*.json"):
+            if is_valid_iso_week(p.stem):
+                weeks.append(p.stem)
+            else:
+                logger.warning(f"Ignoring non-ISO-week memory filename for {slug}: {p.name!r}")
+        weeks.sort(key=parse_iso_week)
+        return weeks
+
+    def load_character_memory_week(self, slug: str, week: str) -> dict:
+        """Fetch and validate one week's memory blob body (#6968).
+
+        Raises CharacterMemoryUnavailable on a read/parse failure OR a
+        schema violation (validate_character_memory_entry) — a caller must
+        never mistake a missing/corrupted/malformed body for real history.
+        """
+        path = self._character_memory_dir(slug) / f"{week}.json"
+        try:
+            data = json.loads(path.read_text())
+        except (json.JSONDecodeError, OSError) as e:
+            raise CharacterMemoryUnavailable(f"local read failed for {slug!r}/{week!r}: {e}") from e
+        try:
+            return validate_character_memory_entry(data)
+        except ValueError as e:
+            raise CharacterMemoryUnavailable(f"malformed memory body for {slug!r}/{week!r}: {e}") from e
+
+    def save_character_memory_week(self, slug: str, week: str, entry: dict) -> None:
+        """Persist one week's memory blob body (#6968), scoped by prefix.
+
+        Validates `entry` first (validate_character_memory_entry) so a
+        malformed body can never be written. A single PUT of this week's
+        own key — no read, no merge — so re-running the same week is an
+        idempotent overwrite and can never touch any other week's blob.
+        """
+        validate_character_memory_entry(entry)
+        if entry["week"] != week:
+            raise ValueError(f"entry week {entry['week']!r} does not match target week {week!r}")
+        path = self._character_memory_dir(slug) / f"{week}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(entry, indent=2))
 
     def save_page(self, pathname: str, html_content: str) -> str:
         """Save an HTML page locally and return its URL path."""
@@ -362,6 +543,12 @@ class _CloudBackend:
         # for seconds).
         self._episode_cache: dict[tuple[str, str], dict] = {}
         self._page_cache: dict[str, str] = {}
+        # Character memory (#6968) deliberately has NO cache: each write is
+        # a single PUT of one week's own key with no preceding read, so
+        # there is nothing for a cache to make stale in a way that could
+        # cause data loss (round-3 review finding 1) — see
+        # list_character_memory_weeks/load_character_memory_week/
+        # save_character_memory_week below.
         if not self._blob_token and os.environ.get("VERCEL_ENV"):
             raise RuntimeError(
                 "FATAL: Running on Vercel without BLOB_READ_WRITE_TOKEN. "
@@ -622,6 +809,185 @@ class _CloudBackend:
 
         results.sort(key=lambda x: x.get("created_at", ""), reverse=True)
         return results
+
+    # --- Character memory (#6968, redesigned in review round 3) ---
+
+    def list_character_memory_weeks(self, slug: str) -> list[str]:
+        """List the valid ISO week keys with a durable memory blob for `slug`.
+
+        Uses the Blob LIST API — authoritative for which keys exist, unlike
+        a blob's own body, which the CDN can serve stale for up to 60s
+        after an overwrite (round-3 review finding 1). A listed pathname
+        that doesn't parse as a real ISO week is logged and ignored, never
+        treated as evidence of absence for a real week. Returns weeks
+        sorted ascending (oldest first).
+
+        Raises CharacterMemoryUnavailable if the list call itself fails or
+        returns a malformed payload (round-3 review finding 3 extends the
+        round-2 malformed-payload guard to this call too) — that is
+        "unavailable", never "not found". A well-formed response with no
+        matching blobs is the only genuine not-found, returned as `[]`.
+        """
+        if not self._has_cloud():
+            return self._fs.list_character_memory_weeks(slug)
+
+        import requests as _requests
+
+        prefix = f"{self.prefix}character_memory/{slug}/"
+        weeks: list[str] = []
+        cursor: Optional[str] = None
+        seen_cursors: set[str] = set()
+        # A character gains one blob a week, so a handful of pages covers
+        # years of history; the cap only stops a malformed paginated
+        # response from looping forever inside a live cron.
+        for _page in range(_CHARACTER_MEMORY_MAX_LIST_PAGES):
+            params: dict = {"prefix": prefix, "limit": "100"}
+            if cursor:
+                params["cursor"] = cursor
+            try:
+                resp = _requests.get(
+                    self._BLOB_API, params=params, headers=self._auth_headers(), timeout=15
+                )
+                resp.raise_for_status()
+                payload = resp.json()
+            except Exception as e:
+                logger.error(f"Blob list_character_memory_weeks failed for {slug}: {type(e).__name__}: {e}")
+                raise CharacterMemoryUnavailable(f"list failed for {slug!r}: {e}") from e
+
+            if not isinstance(payload, dict) or not isinstance(payload.get("blobs"), list):
+                logger.error(f"Blob list_character_memory_weeks malformed payload for {slug}: {payload!r}")
+                raise CharacterMemoryUnavailable(f"malformed list payload for {slug!r}: {payload!r}")
+
+            for blob in payload["blobs"]:
+                pathname = blob.get("pathname", "") if isinstance(blob, dict) else ""
+                if not pathname.endswith(".json"):
+                    continue
+                week = pathname.removeprefix(prefix).removesuffix(".json")
+                if is_valid_iso_week(week):
+                    weeks.append(week)
+                else:
+                    logger.warning(f"Ignoring non-ISO-week memory blob for {slug}: {pathname!r}")
+
+            if not payload.get("hasMore"):
+                break
+            next_cursor = payload.get("cursor")
+            if not isinstance(next_cursor, str) or not next_cursor or next_cursor in seen_cursors:
+                logger.error(
+                    f"Blob list_character_memory_weeks for {slug}: hasMore without a new cursor "
+                    f"({next_cursor!r})"
+                )
+                raise CharacterMemoryUnavailable(f"malformed pagination for {slug!r}")
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
+        else:
+            logger.error(f"Blob list_character_memory_weeks for {slug}: more than "
+                         f"{_CHARACTER_MEMORY_MAX_LIST_PAGES} pages")
+            raise CharacterMemoryUnavailable(f"too many list pages for {slug!r}")
+
+        weeks.sort(key=parse_iso_week)
+        return weeks
+
+    def load_character_memory_week(self, slug: str, week: str) -> dict:
+        """Fetch and validate one week's memory blob body from Vercel Blob.
+
+        Fetched via the CDN URL the list API returns — the only way to
+        read blob content — which can serve a stale body for up to 60s
+        after an overwrite. That staleness is no longer a data-loss risk
+        (round-3 review finding 1 fixed the WRITE side: there is no
+        read-modify-write, so a stale read here can at worst show slightly
+        outdated prompt content for a short window, never cause a write to
+        silently drop another week).
+
+        Raises CharacterMemoryUnavailable on a "not found" (the specific
+        week's blob doesn't exist — a caller that got this week from
+        list_character_memory_weeks and then fails to fetch it has hit a
+        genuine unavailability, not an absence), any other fetch/parse
+        failure, or a schema violation (round-3 review finding 3: a
+        well-formed-but-wrong-shape body like ``{}`` must never be treated
+        as usable history).
+        """
+        if not self._has_cloud():
+            return self._fs.load_character_memory_week(slug, week)
+
+        import requests as _requests
+
+        pathname = f"{self.prefix}character_memory/{slug}/{week}.json"
+        try:
+            resp = _requests.get(
+                self._BLOB_API,
+                params={"prefix": pathname, "limit": "1"},
+                headers=self._auth_headers(),
+                timeout=15,
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+        except Exception as e:
+            logger.error(f"Blob load_character_memory_week list failed for {slug}/{week}: {type(e).__name__}: {e}")
+            raise CharacterMemoryUnavailable(f"list failed for {slug!r}/{week!r}: {e}") from e
+
+        if not isinstance(payload, dict) or not isinstance(payload.get("blobs"), list) or not payload["blobs"]:
+            logger.error(f"Blob load_character_memory_week: {slug}/{week} not found or malformed: {payload!r}")
+            raise CharacterMemoryUnavailable(f"blob not found for {slug!r}/{week!r}")
+
+        try:
+            content_resp = _requests.get(payload["blobs"][0]["url"], timeout=15)
+            content_resp.raise_for_status()
+            data = content_resp.json()
+        except Exception as e:
+            logger.error(
+                f"Blob load_character_memory_week content fetch failed for {slug}/{week}: {type(e).__name__}: {e}"
+            )
+            raise CharacterMemoryUnavailable(f"content fetch failed for {slug!r}/{week!r}: {e}") from e
+
+        try:
+            return validate_character_memory_entry(data)
+        except ValueError as e:
+            raise CharacterMemoryUnavailable(f"malformed memory body for {slug!r}/{week!r}: {e}") from e
+
+    def save_character_memory_week(self, slug: str, week: str, entry: dict) -> None:
+        """Persist one week's memory blob body to Vercel Blob.
+
+        Validates `entry` first (validate_character_memory_entry) so a
+        malformed body can never be written. A single PUT of this week's
+        own key — no read, no merge (round-3 review finding 1) — so
+        re-running the same week is an idempotent overwrite that can never
+        touch or lose any other week's blob. Raises on cloud failure — same
+        contract as save_episode — so a caller can record the write as
+        failed instead of silently claiming success.
+        """
+        validate_character_memory_entry(entry)
+        if entry["week"] != week:
+            raise ValueError(f"entry week {entry['week']!r} does not match target week {week!r}")
+
+        if not self._has_cloud():
+            self._fs.save_character_memory_week(slug, week, entry)
+            return
+
+        import requests as _requests
+
+        pathname = f"{self.prefix}character_memory/{slug}/{week}.json"
+        body = json.dumps(entry, indent=2)
+        headers = {
+            **self._auth_headers(),
+            "Content-Type": "application/json",
+            "x-api-version": "7",
+            "x-content-type": "application/json",
+            "x-add-random-suffix": "0",
+            "x-allow-overwrite": "1",
+        }
+        try:
+            resp = _requests.put(
+                f"{self._BLOB_API}/{pathname}",
+                data=body.encode("utf-8"),
+                headers=headers,
+                timeout=30,
+            )
+            resp.raise_for_status()
+            blob_url = resp.json().get("url", "")
+            logger.info(f"Saved character memory week to Vercel Blob: {blob_url}")
+        except Exception as e:
+            logger.error(f"Blob save_character_memory_week failed for {slug!r}/{week!r}: {e}")
+            raise
 
     # --- Simulations ---
 
