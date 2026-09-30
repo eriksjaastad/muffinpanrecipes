@@ -645,10 +645,13 @@ class _CloudBackend:
         here must be distinguishable from a genuine "no episode for that
         week" — ``load_episode``'s fallback-on-any-exception behavior would
         turn a transient Blob outage into a false "the week never published"
-        note. Not found (an empty ``blobs`` list from a SUCCESSFUL API call)
-        returns ``None``; any read/network/API failure raises instead of
-        returning ``None``, so callers that need that distinction get it for
-        free by calling this instead of ``load_episode``.
+        note. Not found (an empty ``blobs`` list from a SUCCESSFUL API call
+        with a well-formed body) returns ``None``; any read/network/API
+        failure, OR a malformed 200 body (not a dict, ``blobs`` not a list,
+        or a non-dict item in it — e.g. ``{}`` or ``{"blobs": "x"}``) raises
+        instead of returning ``None``, so callers that need the not-found
+        vs. error distinction get it for free by calling this instead of
+        ``load_episode``.
         """
         if not self._has_cloud():
             return self._fs.load_episode(episode_id)
@@ -667,7 +670,16 @@ class _CloudBackend:
             timeout=15,
         )
         resp.raise_for_status()
-        blobs = resp.json().get("blobs", [])
+        payload = resp.json()
+        # A malformed 200 body (e.g. {} or {"blobs": "x"}) is not a genuine
+        # not-found — round-4 review (#7630) found the old `.get("blobs",
+        # [])` treated it as one, which stamps a false week-off note. Same
+        # shape check list_character_memory_weeks uses (#6968/#148): blobs
+        # must be a list of dicts, or this is a malformed-payload error, not
+        # "no episode".
+        blobs = payload.get("blobs") if isinstance(payload, dict) else None
+        if not isinstance(blobs, list) or not all(isinstance(b, dict) for b in blobs):
+            raise ValueError(f"malformed list payload for episode {episode_id!r}: {payload!r}")
         if not blobs:
             return None
         content_resp = _requests.get(blobs[0]["url"], timeout=15)

@@ -210,6 +210,28 @@ class TestCloudBackendLoadEpisode:
         assert result is None
         mock_fs.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "malformed_payload",
+        [{}, {"blobs": "x"}, {"blobs": [1]}],
+        ids=["missing-blobs-key", "blobs-not-a-list", "blobs-item-not-a-dict"],
+    )
+    def test_strict_load_raises_on_a_malformed_200_body(self, cloud_backend, malformed_payload):
+        """Round-4 review (#7630): a malformed 200 body — {}, blobs not a
+        list, or a non-dict item in it — is not a genuine not-found (the old
+        `.get("blobs", [])` treated it as one, which stamps a false
+        week-off note). It must raise, and must not fall back to the
+        filesystem (unlike the non-strict load_episode)."""
+        mock_list = MagicMock()
+        mock_list.json.return_value = malformed_payload
+        mock_list.raise_for_status = MagicMock()
+
+        with patch("requests.get", return_value=mock_list), \
+             patch.object(cloud_backend._fs, "load_episode") as mock_fs:
+            with pytest.raises(ValueError, match="malformed"):
+                cloud_backend.load_episode_strict("ep-malformed")
+
+        mock_fs.assert_not_called()
+
 
 class TestCloudBackendListEpisodes:
     def test_list_returns_sorted_episodes(self, cloud_backend):

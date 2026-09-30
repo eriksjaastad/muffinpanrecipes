@@ -261,6 +261,48 @@ def _apply_week_off_note(episode_id: str, ep: dict) -> None:
         ep.pop("week_off_note", None)
 
 
+def _clear_stale_week_off_note_after_late_publish(published_episode_id: str) -> None:
+    """After `published_episode_id` (X) successfully publishes, clear a
+    week_off_note on X's SUCCESSOR's episode if it was blaming X (#7630).
+
+    Handles a late/recovered Sunday publish: if Monday's cron already ran
+    for the week after X and stamped it "the kitchen took the week off"
+    because X hadn't published YET at that point, X's late publish here
+    must clear that note on the successor's own episode — the writer's
+    current-week gate already stops X's OWN late publish from touching the
+    live pages/latest.json (that belongs to whatever IS the current week),
+    but nothing else would ever go back and fix the successor's stale note.
+    Calling regenerate_and_upload on the successor re-derives whatever it
+    should currently be showing; its own gate decides whether that reaches
+    pages/latest.json (it does, when the successor is still the current
+    week — the ordinary case a "late" publish is recovering for).
+
+    For an ON-TIME publish (X's own Sunday, before the week after X has
+    even started) this is a safe, cheap no-op: that episode doesn't exist
+    yet, so there's nothing to look up.
+
+    Best-effort and called AFTER X's own publish has already succeeded and
+    persisted: any failure here is logged and swallowed. It must never turn
+    a successful publish into a failed request.
+    """
+    try:
+        next_id = episode_integrity.week_after(published_episode_id)
+        next_episode = storage.load_episode(next_id)
+        if not next_episode:
+            return
+        note = next_episode.get("week_off_note")
+        if not isinstance(note, dict) or note.get("missed_week") != published_episode_id:
+            return
+        next_episode.pop("week_off_note", None)
+        storage.save_episode(next_id, next_episode)
+        regenerate_and_upload(next_episode)
+    except Exception as exc:  # noqa: BLE001 - best-effort, must not fail the publish
+        logger.warning(
+            f"week-off note clear-after-late-publish skipped for "
+            f"{published_episode_id}: {type(exc).__name__}: {exc}"
+        )
+
+
 # Cap for the texture/identity anchor in _build_recipe_context (#7104). Long
 # enough for the recipe's whole description, short enough that it cannot become
 # the recitation the summary exists to prevent.
@@ -2984,6 +3026,12 @@ async def cron_sunday(request: Request):
         # announce_pending and the handoff reached source_ready, so this is a
         # no-op once delivered and for records older code already announced.
         _announce_advisory_publication(episode_id, ep, "sunday", concept)
+        # #7630: bounded catch-up, same spirit as the two calls above — if
+        # the one-shot clear below (on the original successful publish)
+        # itself failed transiently, a retry through this idempotent branch
+        # gets another chance. A no-op once the successor's note is already
+        # clear (or was never about this episode).
+        _clear_stale_week_off_note_after_late_publish(episode_id)
         sunday_stage = ep.get("stages", {}).get("sunday", {})
         return _stage_response("sunday", episode_id, concept, {
             "published": True,
@@ -3229,6 +3277,12 @@ async def cron_sunday(request: Request):
         # same inbox. Skipping the advisory alert on that path loses it —
         # carded — which is the lesser harm of the two.
         _announce_advisory_publication(episode_id, ep, "sunday", concept)
+        # A late/recovered publish of THIS week may have left a stale
+        # "kitchen took the week off" note on the week after it, stamped by
+        # a Monday that ran before this publish happened (#7630). Clear it
+        # now that the truth has changed; a safe no-op for an on-time
+        # publish, since that successor episode doesn't exist yet.
+        _clear_stale_week_off_note_after_late_publish(episode_id)
 
     return _stage_response("sunday", episode_id, concept, {
         "published": True,
