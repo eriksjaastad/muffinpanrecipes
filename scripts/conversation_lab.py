@@ -187,27 +187,16 @@ control/variant generation, or a judge call), whichever hits first:
   --max-calls: DERIVED when omitted (None) rather than one flat number -
   the printed report always shows the value used and whether it was
   derived or explicitly passed:
-    - a single --concept/--recipe-context `ab` run: a flat 120
-      (_SINGLE_CONCEPT_MAX_CALLS, per docs/conversation-lab/PROTOCOL.md's
-      cost budget); `calibrate` keeps its own flat default of 40.
-    - `ab --testbed`/`ab --sweep`: `panel_size * runs * (2 * 4 * max_turns +
-      2)`, reserving four generation requests per turn for each arm, where max_turns is the upper bound of
-      scripts.simulate_dialogue_week.TICKS_RANGE for --stage, floored at
-      _MIN_MAX_TURNS_FLOOR (10) - some stages can run more turns than
-      their static range says (Wednesday with photography context bumps
-      to a 7-10 turn minimum in simulate_dialogue_week.py) - a deliberately
-      generous ceiling, not a tight budget, especially for --sweep, whose
-      shared control makes the true call count lower than this formula in
-      practice.
-  Once resolved (derived or explicit), the SAME per-call check applies:
-  aborts once the next unit's estimated call count - taken from the LAST
-  OBSERVED control/variant call count of the same kind, or the last judge
-  call's flat 1 - would push the running total over it. Generation cost is
-  counted via backend.utils.model_router.get_cost_summary()'s
-  "total_calls" delta across the call when it moved (a real LLM call
-  happened); otherwise the transcript's message count is used as the
-  lower bound (mode="template"/--dry-run, or a test double that never
-  touches the cost log).
+    - every `ab` mode (single --concept/--recipe-context, --testbed,
+      --sweep) sums one worst-case reservation per unit of work (#7732):
+      per judged pair, the control arm + the variant arm (each
+      `_arm_call_reservation`: four generation requests per turn across the
+      stage's turn ceiling, plus per-tick stop-check attempts when the
+      effective WINDDOWN_TRIGGER is "check"; a variant that widens
+      TICKS_RANGE/OPEN_ENDED_MAX_TICKS raises it) + both judge orientations
+      with their JSON retries; times panel_size * runs. A --sweep counts
+      its shared control once per scenario-run. `calibrate` keeps its own
+      flat default of 40.
 
   --max-cost (default $5.00 - Erik's standing cap, 2026-09-06) aborts once
   backend.utils.model_router.get_cost_summary()['total_cost'] has already
@@ -3266,11 +3255,6 @@ def _ab_result_path(results_dir: Path, slug: str, variant_path: Path) -> Path:
         f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-ab-{slug}-{variant_path.stem}.json"
     )
 
-# Flat --max-calls default for a single --concept run, unchanged from the
-# original slice's hardcoded argparse default - a single concept/recipe
-# doesn't have a "panel size" to derive a formula from.
-_SINGLE_CONCEPT_MAX_CALLS = 120
-
 # Floor under a stage's TICKS_RANGE upper bound when deriving --max-calls
 # for --testbed/--sweep (below). Some stages can run MORE turns than their
 # static TICKS_RANGE says: scripts/simulate_dialogue_week.py bumps
@@ -3351,8 +3335,8 @@ def _effective_stop_check_active(variant: dict[str, Any] | None) -> bool:
 _MAX_STOP_CHECK_ATTEMPTS_PER_TICK = stop_check._JEV_MAX_ATTEMPTS
 
 def _arm_call_reservation(stage: str, variant: dict[str, Any] | None, *, dry_run: bool) -> int:
-    """Structural worst-case call reservation for ONE control+variant pair
-    at `stage`: four paid generation requests per turn (the initial
+    """Structural worst-case call reservation for ONE arm (one generated
+    conversation) at `stage` under `variant`: four paid generation requests per turn (the initial
     request, its CoT retry, a fault rewrite, and the rewrite's CoT retry)
     across `_effective_max_turns_for_stage`'s ceiling (#7714 finding 3),
     PLUS - when a stop check can actually run - up to
@@ -3366,25 +3350,52 @@ def _arm_call_reservation(stage: str, variant: dict[str, Any] | None, *, dry_run
         reservation += _MAX_STOP_CHECK_ATTEMPTS_PER_TICK * max_turns
     return reservation
 
-def _derive_max_calls(mode: str, *, scenario_count: int, runs: int, stage: str) -> int:
+def _judge_call_reservation() -> int:
+    """Worst-case judge calls for ONE pair: two position-swapped
+    orientations, each allowed its first attempt plus _JUDGE_JSON_MAX_RETRIES
+    retries on an unparseable response."""
+    return 2 * (1 + _JUDGE_JSON_MAX_RETRIES)
+
+
+def _derive_max_calls(
+    mode: str,
+    *,
+    scenario_count: int,
+    runs: int,
+    stage: str,
+    variant: dict[str, Any] | None = None,
+    sweep_variants: list[dict[str, Any]] | None = None,
+) -> int:
     """The --max-calls default when the flag itself is omitted (None).
 
-    "single": a flat 120 (docs/conversation-lab/PROTOCOL.md's cost
-    budget) - a lone --concept/--recipe-context run has no panel size to
-    derive a formula from.
+    Built from one worst-case reservation per unit of work, so the default
+    can never stop a run that stays within its own structural worst case
+    (#7732: a flat 120 once sat below a single open-ended arm's 175-call
+    reservation; the per-pair judge allowance also ignored judge retries).
 
-    "testbed"/"sweep": `scenario_count * runs * (2 * _MAX_CALLS_PER_TURN * max_turns + 2)`.
-    This reserves four generation requests per turn for each arm, plus the
-    two position-swapped judge calls.
-    Both modes use this same formula; a --sweep's shared control makes
-    the true call count lower than this in practice (the control is
-    generated once, not once per variant), so the derived cap is a
-    deliberately generous ceiling, not a tight budget.
+    - "single" / "testbed": per pair, the control arm
+      (`_arm_call_reservation(stage, None)`) + the variant arm
+      (`_arm_call_reservation(stage, variant)`, which honours the variant's
+      TICKS_RANGE / OPEN_ENDED_MAX_TICKS / stop check) + both judge
+      orientations with their retries (`_judge_call_reservation()`), times
+      `scenario_count * runs` (scenario_count is 1 for "single").
+    - "sweep": the shared control is generated once per scenario-run, and
+      each variant adds its own arm plus a judged pair:
+      `scenario_count * runs * (control + sum over variants of (variant arm
+      + judge))`.
+
+    A call cap is a runaway guard, not a budget (PROTOCOL.md "Cost budget");
+    --max-cost is enforced separately by the pre-call guard.
     """
-    if mode == "single":
-        return _SINGLE_CONCEPT_MAX_CALLS
-    max_turns = _max_turns_for_stage(stage)
-    return scenario_count * runs * (2 * _MAX_CALLS_PER_TURN * max_turns + 2)
+    control = _arm_call_reservation(stage, None, dry_run=False)
+    judge = _judge_call_reservation()
+    if mode == "sweep":
+        per_unit = control + sum(
+            _arm_call_reservation(stage, v, dry_run=False) + judge for v in (sweep_variants or [])
+        )
+    else:
+        per_unit = control + _arm_call_reservation(stage, variant, dry_run=False) + judge
+    return scenario_count * runs * per_unit
 
 def cmd_ab(args: argparse.Namespace) -> None:
     if args.sweep and args.variant:
@@ -3424,7 +3435,9 @@ def cmd_ab(args: argparse.Namespace) -> None:
         raise SystemExit("conversation_lab ab: --runs is required unless --testbed or --sweep is passed")
 
     if args.max_calls is None:
-        args.max_calls = _derive_max_calls("single", scenario_count=1, runs=args.runs, stage=args.stage)
+        args.max_calls = _derive_max_calls(
+            "single", scenario_count=1, runs=args.runs, stage=args.stage, variant=variant
+        )
     budget = CallBudget(max_calls=args.max_calls)
 
     recipe_context, recipe_facts = _resolve_recipe_context_and_facts(args)
@@ -3477,7 +3490,9 @@ def _cmd_ab_testbed(
     runs = args.runs if args.runs is not None else DEFAULT_TESTBED_RUNS
     max_calls_derived = args.max_calls is None
     if max_calls_derived:
-        args.max_calls = _derive_max_calls("testbed", scenario_count=len(scenarios), runs=runs, stage=args.stage)
+        args.max_calls = _derive_max_calls(
+            "testbed", scenario_count=len(scenarios), runs=runs, stage=args.stage, variant=variant
+        )
     budget = CallBudget(max_calls=args.max_calls)
     expected_cast = simulate_module.participants_for_day(args.stage)
     result_path = _ab_result_path(_results_dir(args), "testbed", variant_path)
@@ -4550,7 +4565,10 @@ def _cmd_ab_sweep(
 
     max_calls_derived = args.max_calls is None
     if max_calls_derived:
-        args.max_calls = _derive_max_calls("sweep", scenario_count=len(scenarios), runs=runs, stage=args.stage)
+        args.max_calls = _derive_max_calls(
+            "sweep", scenario_count=len(scenarios), runs=runs, stage=args.stage,
+            sweep_variants=list(variants.values()),
+        )
 
     result_path = _ab_result_path(_results_dir(args), "sweep", sweep_dir)
 
@@ -7952,12 +7970,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--max-calls", type=int, default=None,
         help=(
             "Defaults to a value DERIVED from the mode when omitted (printed in the report): "
-            f"a single --concept/--recipe-context run gets a flat {_SINGLE_CONCEPT_MAX_CALLS}; "
-            "--testbed and --sweep reserve four calls/turn for each generation arm, plus two judges: "
-            "`panel_size * runs * (2 * 4 * max_turns + 2)`, where "
-            "max_turns is the upper bound of scripts.simulate_dialogue_week.TICKS_RANGE for "
-            f"--stage (floored at {_MIN_MAX_TURNS_FLOOR} - Wednesday with photography context "
-            "can run more turns than its static range says). Pass an explicit value to override."
+            "every mode sums one worst-case reservation per judged pair - the control arm plus the "
+            "variant arm (four calls/turn across the stage's turn ceiling, plus per-tick stop-check "
+            "attempts when the effective WINDDOWN_TRIGGER is \"check\"; a --variant that widens "
+            "TICKS_RANGE or OPEN_ENDED_MAX_TICKS raises it) plus both judge orientations with their "
+            "retries - times panel_size * runs (a --sweep counts its shared control once). "
+            "Pass an explicit value to override."
         ),
     )
     ab.add_argument(
