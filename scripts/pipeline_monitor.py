@@ -28,7 +28,7 @@ Alerting goes through backend/utils/alerts.py::send_alert, the one door
 every operational alert in this project uses (Discord + email, both on
 every severity per #7097) — no new channel is invented here.
 
-Three corrections made after Codex review of fb3fb3c (#7006):
+Corrections made after Codex review round 1 of fb3fb3c (#7006):
 
   A. `status` (what was just OBSERVED) and `alerted` (the status + failure
      signature of the last CONFIRMED delivery) are now separate fields.
@@ -50,6 +50,29 @@ Three corrections made after Codex review of fb3fb3c (#7006):
      A run that cannot get the lock logs it and exits 0 immediately, sending
      nothing. `write_state` replaces the file atomically via a unique
      `tempfile.mkstemp` name in the same directory.
+
+Corrections made after Codex review round 2 of bb4b313 (#7006):
+
+  D. A catalog fetch that flickers (succeeds, then times out, then succeeds
+     again) used to change WHICH checks ran between runs — the title-
+     collision check silently drops out whenever the catalog GET fails,
+     per session_pipeline_status.py's own design (KEEP) — which changed the
+     failure SIGNATURE even though nothing about the pipeline itself
+     changed, re-alerting for the same underlying problem. `compute_verdict`
+     now treats a failed catalog fetch (`_get_json` returned `None`) the
+     same as a failed episode fetch: the whole run is "unknown", not a
+     partial verdict. This is the simpler of the two options Codex offered
+     (rather than computing a signature only from "checks that ran"): a
+     catalog-fetch failure is exactly the network-blip case constraint 3
+     already covers, so folding it into "unknown" costs nothing new and the
+     existing "unknown never alerts, never clobbers a known verdict" rule
+     handles it for free.
+  E. `write_state`'s orphaned-temp-file cleanup used `os.unlink`, which is
+     permanent deletion (AGENTS.md forbids it outside literal /tmp paths).
+     It now uses `send2trash`, same as `scripts/conversation_lab.py`'s
+     `_write_pairs_report_atomic`; a trash failure is logged, not raised
+     (constraint 1 — a cleanup failure on an already-failed write must not
+     be the reason this monitor stops).
 
 Usage:
     uv run python scripts/pipeline_monitor.py
@@ -91,6 +114,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from send2trash import send2trash  # noqa: E402
 
 from backend.utils.alerts import send_alert  # noqa: E402
 from scripts import session_pipeline_status as sps  # noqa: E402
@@ -147,13 +172,32 @@ def compute_verdict(episode_id: str | None = None) -> dict:
         }
 
     raw_catalog = sps._get_json(f"{sps.BLOB_CDN}/pages/recipes.json")
+    if raw_catalog is None:
+        # `_get_json` returns None ONLY on a fetch failure (exception), never
+        # for a legitimately empty catalog ("[]"/"{}" are falsy but not
+        # None) — see module docstring, correction D. A failed sub-fetch
+        # makes this a partial verdict, not a real one: report "unknown"
+        # rather than silently computing a verdict with the title-collision
+        # check missing, which would manufacture a different failure
+        # signature (and a repeat alert) purely from network flakiness.
+        return {
+            "status": "unknown",
+            "episode_id": eid,
+            "summary": f"could not read catalog for {eid} from blob",
+            "failures": [],
+        }
+
     catalog: list[dict] | None
     if isinstance(raw_catalog, list):
         catalog = raw_catalog
     elif isinstance(raw_catalog, dict):
         catalog = raw_catalog.get("recipes", [])
     else:
-        catalog = None  # skips only the title-collision assertion, same as sps.main
+        # Fetch succeeded (raw_catalog is not None) but returned an
+        # unexpected shape — not a failure, just malformed data. Same as
+        # sps.main(): skip only the title-collision assertion, same as
+        # before this correction; this branch is NOT the flicker case above.
+        catalog = None
 
     failures = list(sps.episode_integrity_failures(episode, catalog=catalog))
     summary = sps.episode_summary(episode)
@@ -215,9 +259,21 @@ def write_state(path: Path, state: dict) -> None:
     except Exception as e:
         print(f"{LABEL}: state write failed ({type(e).__name__}: {e})", file=sys.stderr)
     finally:
-        if tmp_name is not None:
-            with contextlib.suppress(OSError):
-                os.unlink(tmp_name)
+        # The repo forbids permanent deletion (AGENTS.md) even for an
+        # orphaned temp file — trash it instead, same as
+        # scripts/conversation_lab.py's _write_pairs_report_atomic. A trash
+        # failure is logged, not raised: constraint 1 wins even here, a
+        # failed cleanup after an already-failed write must not be the
+        # reason this monitor stops.
+        if tmp_name is not None and os.path.exists(tmp_name):
+            try:
+                send2trash(tmp_name)
+            except Exception as trash_exc:
+                print(
+                    f"{LABEL}: could not trash orphaned temp file {tmp_name} "
+                    f"({type(trash_exc).__name__}: {trash_exc})",
+                    file=sys.stderr,
+                )
 
 
 @contextlib.contextmanager

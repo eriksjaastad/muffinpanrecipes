@@ -559,3 +559,152 @@ def test_compute_verdict_passes_catalog_list_through(monkeypatch):
     monkeypatch.setattr(pm.sps, "episode_summary", lambda episode: "ok")
     pm.compute_verdict()
     assert seen["catalog"] == [{"slug": "a"}]
+
+
+def test_compute_verdict_unknown_when_catalog_fetch_fails(monkeypatch):
+    """Correction D: a failed catalog GET (_get_json returns None — that
+    return value means the fetch itself failed, never a legitimately empty
+    catalog, which would be `[]`/`{}`) must not fall through to computing a
+    partial verdict with the title-collision check silently missing."""
+    called = {"failures": False}
+
+    def _get_json(url):
+        if url.endswith("recipes.json"):
+            return None
+        return {"episode_id": "2026-W40"}
+
+    def _failures(episode, catalog=None):
+        called["failures"] = True
+        return []
+
+    monkeypatch.setattr(pm.sps, "_get_json", _get_json)
+    monkeypatch.setattr(pm.sps, "episode_integrity_failures", _failures)
+
+    verdict = pm.compute_verdict(episode_id="2026-W40")
+
+    assert verdict["status"] == "unknown"
+    assert verdict["failures"] == []
+    assert called["failures"] is False  # short-circuited, never computed a partial verdict
+
+
+def test_compute_verdict_malformed_but_present_catalog_still_skips_title_check_only(monkeypatch):
+    """The OTHER branch — catalog fetched successfully but in an unexpected
+    shape (not None) — is not the flicker case correction D targets, and
+    keeps its original behavior: skip only the title-collision check."""
+    seen = {}
+
+    def _get_json(url):
+        if url.endswith("recipes.json"):
+            return "not a list or dict"  # fetched fine, just malformed
+        return {"episode_id": "2026-W40"}
+
+    def _failures(episode, catalog=None):
+        seen["catalog"] = catalog
+        return []
+
+    monkeypatch.setattr(pm.sps, "_get_json", _get_json)
+    monkeypatch.setattr(pm.sps, "episode_integrity_failures", _failures)
+    monkeypatch.setattr(pm.sps, "episode_summary", lambda episode: "ok")
+
+    verdict = pm.compute_verdict(episode_id="2026-W40")
+
+    assert verdict["status"] == "ok"
+    assert seen["catalog"] is None
+
+
+# ---------------------------------------------------------------------------
+# Correction D: a flickering catalog fetch must not manufacture a new
+# signature (round 2 Codex review)
+# ---------------------------------------------------------------------------
+
+
+def test_flickering_catalog_fetch_does_not_repeat_alert(tmp_path, monkeypatch):
+    """The exact scenario from round 2: a persistent stage failure (A) plus a
+    title collision (B, only detectable when the catalog fetch succeeds),
+    with the catalog fetch alternating success/failure across three runs.
+    Before correction D this produced signatures A+B, A, A+B — three alerts
+    for the same two problems. After it: one alert, total."""
+    state = tmp_path / "pipeline_status.json"
+    posts = _captured_alerts(monkeypatch)
+
+    monkeypatch.setattr(pm.sps, "current_episode_id", lambda: "2026-W40")
+    monkeypatch.setattr(pm.sps, "episode_summary", lambda episode: "2026-W40: degraded")
+
+    def _failures(episode, catalog=None):
+        failures = ["monday stage is 'missing'"]
+        if catalog is not None:
+            failures.append("recipe title collides with the published catalog: X")
+        return failures
+
+    monkeypatch.setattr(pm.sps, "episode_integrity_failures", _failures)
+
+    catalog_up = True
+
+    def _get_json(url):
+        if url.endswith("recipes.json"):
+            return [{"slug": "x"}] if catalog_up else None
+        return {"episode_id": "2026-W40"}
+
+    monkeypatch.setattr(pm.sps, "_get_json", _get_json)
+
+    # Run 1: catalog up -> both failures (A+B) -> the first-ever DEGRADED alert.
+    catalog_up = True
+    pm.run(state)
+    assert len(posts) == 1
+    signature_ab = json.loads(state.read_text())["alerted"]["signature"]
+
+    # Run 2: catalog fetch fails -> must be "unknown", not a smaller "A-only"
+    # degraded verdict that would look like a new (different) signature.
+    catalog_up = False
+    pm.run(state)
+    assert len(posts) == 1  # still just the one alert
+    saved = json.loads(state.read_text())
+    assert saved["status"] == "degraded"  # untouched from run 1 (unknown never clobbers)
+    assert saved["failures"] == [
+        "monday stage is 'missing'",
+        "recipe title collides with the published catalog: X",
+    ]
+    assert saved["alerted"]["signature"] == signature_ab
+
+    # Run 3: catalog recovers -> A+B again, same signature as run 1 -> silent.
+    catalog_up = True
+    pm.run(state)
+    assert len(posts) == 1
+    assert json.loads(state.read_text())["alerted"]["signature"] == signature_ab
+
+
+# ---------------------------------------------------------------------------
+# Correction E: temp-file cleanup trashes, never permanently deletes
+# ---------------------------------------------------------------------------
+
+
+def test_write_state_trashes_orphaned_temp_file_on_failure(tmp_path, monkeypatch):
+    state = tmp_path / "pipeline_status.json"
+    trashed = []
+
+    monkeypatch.setattr(pm, "send2trash", lambda path: trashed.append(path))
+
+    real_fdopen = pm.os.fdopen
+
+    def _boom_fdopen(fd, *args, **kwargs):
+        f = real_fdopen(fd, *args, **kwargs)
+        f.close()
+        raise RuntimeError("simulated write failure")
+
+    monkeypatch.setattr(pm.os, "fdopen", _boom_fdopen)
+
+    pm.write_state(state, {"status": "ok"})
+
+    assert not state.exists()
+    # send2trash (not os.unlink/os.remove) was handed the orphaned temp file.
+    assert len(trashed) == 1
+    assert str(trashed[0]).startswith(str(tmp_path))
+    assert trashed[0].endswith(".tmp")
+
+
+def test_write_state_never_calls_os_unlink():
+    import inspect
+
+    source = inspect.getsource(pm.write_state)
+    assert "os.unlink" not in source
+    assert "os.remove" not in source

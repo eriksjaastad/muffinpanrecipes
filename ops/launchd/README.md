@@ -82,8 +82,16 @@ Trash via `trash` — never `rm`, per this repo's hygiene rules.
 
   A lock file sits beside the state file at the same path plus `.lock`
   (e.g. `pipeline_status.json.lock`) — it holds no data, and its only job is
-  to serialize concurrent runs (see "Never blocks" below). It's safe to
-  ignore or delete.
+  to serialize concurrent runs (see "Never blocks" below). **Never delete
+  it, including after a crash.** Deleting it while a run holds the lock on
+  its inode lets a second, concurrent run create and lock a NEW file at the
+  same path — the two runs would then hold locks on two different inodes
+  and neither would see the other, defeating the whole guard. This is
+  never necessary: `fcntl.flock` releases automatically when the holding
+  process exits for any reason (normal exit, crash, kill), so a stale
+  lock from a dead process is not a real state — the very next invocation
+  acquires it immediately. If you ever need to confirm nothing is
+  actually holding it, use `lsof <path>.lock` rather than removing the file.
 
 - **Logs**: `~/Library/Logs/muffinpan-pipeline-monitor/{stdout,stderr}.log`.
 
