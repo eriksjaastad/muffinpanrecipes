@@ -81,3 +81,7 @@ EVIDENCE.md
 # Session handoff note — machine-local by design, never committed (#6864)
 PROGRESS.md
 .claude
+
+# conversation_lab result-name claim markers (#7800): permanent zero-byte
+# bookkeeping files next to committed results; never commit them.
+.claims/

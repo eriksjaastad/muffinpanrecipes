@@ -36,7 +36,7 @@ def test_reference_panel_dry_run_validates_controls_without_judge_calls(tmp_path
         "--results-dir", str(results_dir),
     ])
 
-    [result_path] = results_dir.glob("*-calibrate-reference-panel-v0.json")
+    [result_path] = results_dir.glob("*-calibrate-*-reference-panel-v0.json")
     report = json.loads(result_path.read_text())
     assert report["dry_run"] is True
     assert report["planned_pairs"] == 8
@@ -75,7 +75,7 @@ def test_reference_report_hashes_loaded_snapshot_and_uses_unique_result_names(tm
         "--results-dir", str(results_dir),
     ]
     cl.main(command)
-    [first_path] = results_dir.glob("*-calibrate-reference-panel-v0.json")
+    [first_path] = results_dir.glob("*-calibrate-*-reference-panel-v0.json")
     first_report = json.loads(first_path.read_text())
     assert first_report["panel_sha256"] == expected_hash
     assert hashlib.sha256(panel_path.read_bytes()).hexdigest() != expected_hash
@@ -84,7 +84,7 @@ def test_reference_report_hashes_loaded_snapshot_and_uses_unique_result_names(tm
     panel_path.write_bytes(original)
     monkeypatch.setattr(cl, "_dry_run_combined", base_dry_run)
     cl.main(command)
-    result_paths = list(results_dir.glob("*-calibrate-reference-panel-v0.json"))
+    result_paths = list(results_dir.glob("*-calibrate-*-reference-panel-v0.json"))
     assert len(result_paths) == 2
     assert len({path.name for path in result_paths}) == 2
 
@@ -178,7 +178,7 @@ def test_reference_panel_paid_path_uses_versioned_prompt_and_swapped_raw_evidenc
         "--results-dir", str(results_dir),
     ])
 
-    [result_path] = results_dir.glob("*-calibrate-reference-panel-v0.json")
+    [result_path] = results_dir.glob("*-calibrate-*-reference-panel-v0.json")
     report = json.loads(result_path.read_text())
     assert report["calls_used"] == 8
     assert len(calls) == 8
@@ -217,7 +217,7 @@ def test_reference_panel_abort_keeps_first_orientation_as_partial_evidence(tmp_p
         "--results-dir", str(results_dir),
     ])
 
-    [result_path] = results_dir.glob("*-calibrate-reference-panel-v0.json")
+    [result_path] = results_dir.glob("*-calibrate-*-reference-panel-v0.json")
     report = json.loads(result_path.read_text())
     assert "status: ABORTED" in capsys.readouterr().out
     assert report["aborted"] is True
@@ -244,7 +244,7 @@ def test_reference_panel_coverage_counts_attempted_malformed_orientation(tmp_pat
             "--results-dir", str(results_dir),
         ])
 
-    [result_path] = results_dir.glob("*-calibrate-reference-panel-v0.json")
+    [result_path] = results_dir.glob("*-calibrate-*-reference-panel-v0.json")
     report = json.loads(result_path.read_text())
     evidence = report["evidence_summary"]
     assert report["aborted"] is True
