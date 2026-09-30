@@ -978,3 +978,28 @@ def test_failure_id_stable_using_real_episode_integrity_shape():
     ids_a = {pm._failure_id("episode", "2026-W40", f) for f in failures_a}
     ids_b = {pm._failure_id("episode", "2026-W40", f) for f in failures_b}
     assert ids_a == ids_b
+
+
+
+@pytest.mark.parametrize("state", [
+    {"alerted_failures": {"bad-id": "old failure"}, "checks_ran": []},
+    {"alerted_failures": {"nope\x1f2026-W40\x1ftext": "t"}, "checks_ran": ["episode"]},
+    {"alerted_failures": {"episode\x1f\x1ftext": "t"}, "checks_ran": ["episode"]},
+    {"alerted_failures": {"episode\x1f2026-W40\x1ftext": 5}, "checks_ran": ["episode"]},
+    {"alerted_failures": {}, "checks_ran": ["mystery"]},
+])
+def test_state_with_unclearable_or_unknown_entries_is_not_current_schema(state):
+    """Codex round 5: an alerted id whose group no check runs could never
+    clear, pinning the monitor to degraded with no recovery."""
+    assert pm._is_current_schema(state) is False
+
+
+def test_valid_failure_ids_are_current_schema():
+    state = {
+        "alerted_failures": {
+            "episode\x1f2026-W40\x1ftuesday failed": "tuesday failed",
+            "catalog\x1f2026-W40\x1ftitle collides": "title collides",
+        },
+        "checks_ran": ["catalog", "episode"],
+    }
+    assert pm._is_current_schema(state) is True
