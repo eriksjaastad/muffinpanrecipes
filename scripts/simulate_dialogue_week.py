@@ -795,6 +795,27 @@ def _normalize_time_notation(text: str, deadline: str) -> str:
     return text
 
 
+def _strip_24h_clock_references(msg: str) -> str:
+    """Remove 24-hour clock references (e.g. "17:42" or "at 05:00") from a
+    generated line, including any adjacent meridiem so stripping the time
+    never strands a trailing "pm"/"am" (card #7198).
+
+    _normalize_time_notation runs before this and can itself manufacture a
+    two-digit-hour clock string that looks 24-hour-shaped (e.g. "12 pm" ->
+    "12:00 pm"), so the meridiem-consuming pattern has to cover its output
+    too, not just raw model text.
+    """
+    meridiem = r"(?:\s*[aApP]\.?[mM]\.?)?"
+    msg = re.sub(rf"\bat\s+\d{{2}}:\d{{2}}{meridiem}\b", "", msg)
+    msg = re.sub(rf"\b[012]\d:\d{{2}}{meridiem}\b", "", msg)
+    # The removal above can leave a leftover space directly before
+    # punctuation (e.g. "scrolling ." after "scrolling at 17:00 pm." loses
+    # the time phrase but not the space that preceded it) - collapse that
+    # too rather than shipping the artifact to readers.
+    msg = re.sub(r"\s+([,.;:!?])", r"\1", msg)
+    return " ".join(msg.split())
+
+
 def _canonicalize_flour_ricotta_ratios(text: str) -> str:
     """Canonicalize ratio wording to flour:ricotta to avoid contradictory phrasing."""
     number = r"\d+(?:\.\d+)?"
@@ -1378,9 +1399,7 @@ def generate_turn(
     msg = sanitize_typographic_tells(msg)
     msg = _normalize_time_notation(msg, deadline)
     msg = _canonicalize_flour_ricotta_ratios(msg)
-    # Strip 24-hour clock references (e.g. "17:42" -> remove the time phrase)
-    msg = re.sub(r"\bat\s+\d{2}:\d{2}\b", "", msg)
-    msg = re.sub(r"\b[012]\d:\d{2}\b", "", msg)
+    msg = _strip_24h_clock_references(msg)
     final = " ".join(msg.split())
     _append_rewrite_log(
         day=day,

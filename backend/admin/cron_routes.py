@@ -31,6 +31,7 @@ Usage:
 """
 
 from __future__ import annotations
+import copy
 import hmac
 import json
 import os
@@ -890,26 +891,76 @@ def _judge_meta_fields(episode: dict, stage: str) -> dict:
     }
 
 
-def _announce_advisory_publication(episode: dict, stage: str, concept: str) -> None:
-    """Send the advisory alert once the page it describes actually exists.
+def _announce_advisory_publication(episode_id: str, episode: dict, stage: str, concept: str) -> None:
+    """Send the advisory alert once the page it describes actually exists,
+    and keep retrying on later Sunday invocations until it is delivered
+    (#7403).
 
     _generate_and_judge_dialogue records that it SELECTED a below-bar
     dialogue; only the publish path knows whether the recipe went live. The
-    record is flipped and persisted by the caller before this fires, so a
-    delivery failure cannot leave the episode claiming an unsent alert.
+    publish path sets ``published`` and ``announce_pending`` in the same
+    save, before the static source handoff. This function sends only while
+    ``announce_pending`` is set AND the handoff has reached ``source_ready``
+    (the reader pages were written), so it never announces a page that was
+    not written. It is called from the publish path and again from
+    cron_sunday's already-published fast path, so a crash between the
+    publish save and the alert is retried on the next invocation.
+
+    Guarantees, stated exactly:
+    - A delivery that ``notify_judge_advisory`` reports as failed (it returns
+      False without raising when every channel is down) leaves the record
+      pending, so the next invocation tries again. Only a confirmed delivery
+      clears it.
+    - Records published before ``announce_pending`` existed never carry it,
+      so this never re-sends an advisory that older code already announced.
+    - Sequential invocations send at most once per delivery confirmed and
+      saved. If the send succeeds but saving the cleared flag fails, the
+      error is logged and the stage is not failed (the recipe did publish);
+      the next invocation may send one duplicate. Two invocations running
+      at the same moment can both send: there is no storage-level lock, so
+      this is at-least-once under concurrency, not exactly-once.
     """
     record = episode.get("judge_advisory", {}).get(stage)
-    if not record or not record.get("published"):
+    if not record or not record.get("published") or not record.get("announce_pending"):
         return
-    notify_judge_advisory(
+    if _static_deploy_state(episode).get("status") != "source_ready":
+        # Pages not confirmed written; the handoff raises its own alert on
+        # failure. Stay pending so a later invocation announces after it.
+        return
+    delivered = notify_judge_advisory(
         concept=concept,
         stage=stage,
         verdict=record.get("verdict", ""),
-        episode_id=episode.get("episode_id", "unknown"),
+        episode_id=episode_id,
         attempts=record.get("attempts", 0),
         scores=record.get("scores") or {},
         weakest=record.get("weakest") or [],
     )
+    if not delivered:
+        logger.error(
+            f"Advisory alert for {episode_id}/{stage} was not delivered on any channel; "
+            "left pending for the next Sunday invocation"
+        )
+        return
+    # Mark a copy and save it; apply the marker to the live episode only once
+    # the save succeeds. Cloud storage caches the loaded episode object by
+    # reference, so marking it first would let a warm-process retry read
+    # "announced" from memory while storage still says the alert is owed.
+    announced_at = datetime.now(timezone.utc).isoformat()
+    updated = copy.deepcopy(episode)
+    updated["judge_advisory"][stage]["announce_pending"] = False
+    updated["judge_advisory"][stage]["announced_at"] = announced_at
+    try:
+        storage.save_episode(episode_id, updated)
+    except Exception as exc:  # noqa: BLE001 - the publish already succeeded
+        logger.error(
+            f"Advisory alert for {episode_id}/{stage} was delivered but its announced marker "
+            f"could not be saved ({type(exc).__name__}: {exc}); it stays owed, so a later "
+            "invocation may send one duplicate"
+        )
+        return
+    record["announce_pending"] = False
+    record["announced_at"] = announced_at
 
 
 class JudgeFailedError(Exception):
@@ -2889,6 +2940,12 @@ async def cron_sunday(request: Request):
             and _static_deploy_state(ep).get("phase") == "sources"
         ):
             _complete_static_source_handoff(episode_id, ep)
+        # A crash between saving published=True and sending the advisory
+        # alert used to lose the alert forever, because this fast path never
+        # retried it (#7403). The helper only sends while the record is
+        # announce_pending and the handoff reached source_ready, so this is a
+        # no-op once delivered and for records older code already announced.
+        _announce_advisory_publication(episode_id, ep, "sunday", concept)
         sunday_stage = ep.get("stages", {}).get("sunday", {})
         return _stage_response("sunday", episode_id, concept, {
             "published": True,
@@ -3095,6 +3152,9 @@ async def cron_sunday(request: Request):
         if advisory and not advisory.get("published"):
             advisory["published"] = True
             advisory["published_at"] = ep["published_at"]
+            # Saved in the same write as `published` (#7403): the alert is
+            # owed from here until a delivery is confirmed.
+            advisory["announce_pending"] = True
 
         # Persist the published episode before writing the catalog so a crash
         # between authoritative writes and the manual deployment handoff is
@@ -3109,7 +3169,7 @@ async def cron_sunday(request: Request):
         # put "the recipe is live" and "the pages were not written" in the
         # same inbox. Skipping the advisory alert on that path loses it —
         # carded — which is the lesser harm of the two.
-        _announce_advisory_publication(ep, "sunday", concept)
+        _announce_advisory_publication(episode_id, ep, "sunday", concept)
 
     return _stage_response("sunday", episode_id, concept, {
         "published": True,
