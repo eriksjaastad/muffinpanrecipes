@@ -36,6 +36,30 @@ def _no_live_alert_credentials(monkeypatch):
         monkeypatch.delenv(name, raising=False)
 
 
+# IndexNow's key (#7806) is a PUBLIC constant, not a credential — there is no
+# env var to strip the way _no_live_alert_credentials does above, so that
+# pattern can't protect this one. Every Sunday-publish test that reaches
+# `_submit_sunday_indexnow` has to mock `cron_routes._indexnow_submit_urls`
+# itself (missing that once already sent a real POST from a memory-events
+# test that had nothing to do with IndexNow). This fixture is the backstop
+# for the next one that forgets: it turns a silent real network call into a
+# loud, specific test failure instead. A test that wants to exercise the
+# actual HTTP call (tests/test_indexnow.py) patches
+# `backend.utils.indexnow.requests.post` itself, which shadows this for the
+# duration of that `with` block.
+@pytest.fixture(autouse=True)
+def _no_live_indexnow_submission(monkeypatch):
+    def _blocked(*_args, **_kwargs):
+        raise RuntimeError(
+            "backend.utils.indexnow.requests.post was called without being "
+            "mocked. IndexNow submissions must never touch the network in "
+            "tests — patch backend.utils.indexnow.requests.post (to test the "
+            "client itself) or cron_routes._indexnow_submit_urls (to test a "
+            "caller)."
+        )
+    monkeypatch.setattr("backend.utils.indexnow.requests.post", _blocked)
+
+
 # backend.utils.model_router._COST_LOG is a module-level global, and several
 # tests (tests/test_lab_models.py's cost-by-model tests in particular) record
 # synthetic entries into it and reset it only at their OWN start, not at

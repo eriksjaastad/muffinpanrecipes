@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from backend.admin import cron_routes
+from backend.utils.indexnow import IndexNowResult
 
 
 def _request() -> SimpleNamespace:
@@ -124,6 +125,10 @@ def test_cron_sunday_still_publishes_unpublished_episode(monkeypatch):
          patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "STATUS: PASS")), \
          patch.object(cron_routes, "_generate_episode_memories"), \
          patch.object(cron_routes, "regenerate_and_upload"), \
+         patch.object(
+             cron_routes, "_indexnow_submit_urls",
+             return_value=IndexNowResult(ok=True, status_code=200, detail="submitted"),
+         ) as indexnow_submit, \
          patch("backend.publishing.episode_renderer.publish_recipe_to_catalog") as publish_catalog, \
          patch("backend.publishing.episode_renderer.render_episode_page", return_value="<html></html>"):
         result = asyncio.run(cron_routes.cron_sunday(_request()))
@@ -132,9 +137,17 @@ def test_cron_sunday_still_publishes_unpublished_episode(monkeypatch):
     assert "already_published" not in result
     assert episode["published_at"]
     generate_dialogue.assert_called_once()
-    assert save_episode.call_count == 2
-    assert saved_states == ["pending", "source_ready"]
+    # pending -> source_ready (the publish handoff) -> source_ready again
+    # (the indexnow-outcome save in _submit_sunday_indexnow).
+    assert save_episode.call_count == 3
+    assert saved_states == ["pending", "source_ready", "source_ready"]
     assert episode["static_deploy"]["status"] == "source_ready"
     assert episode["static_deploy"]["phase"] == "manual_deploy"
     publish_catalog.assert_called_once()
     save_page.assert_called_once()
+    indexnow_submit.assert_called_once_with([
+        "https://muffinpanrecipes.com/recipes/herbed-sausage-sunrise-cups",
+        "https://muffinpanrecipes.com/",
+        "https://muffinpanrecipes.com/recipes/",
+    ])
+    assert any("indexnow submitted" in event for event in episode["events"])

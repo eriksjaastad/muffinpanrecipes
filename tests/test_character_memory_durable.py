@@ -678,7 +678,8 @@ def test_cron_sunday_records_memory_events(monkeypatch):
              cron_routes,
              "_generate_episode_memories",
              return_value={"saved": ["Margaret Chen"], "absent": ["Devon Park"], "failed": ["Marcus Reid"]},
-         ):
+         ), \
+         patch.object(cron_routes, "_indexnow_submit_urls"):  # #7806: no network in tests
         asyncio.run(cron_routes.cron_sunday(_request()))
 
     events = " | ".join(episode["events"])

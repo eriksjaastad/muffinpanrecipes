@@ -48,6 +48,7 @@ from backend.config import config
 from backend.publishing.episode_renderer import _hero_image_url, regenerate_and_upload
 from backend.storage import storage
 from backend.utils import episode_integrity
+from backend.utils.indexnow import submit_urls as _indexnow_submit_urls
 from backend.utils.catalog import (
     VALID_CATEGORIES,
     catalog_recipes as _catalog_recipes,
@@ -2896,6 +2897,53 @@ async def cron_saturday(request: Request):
     return _stage_response("saturday", episode_id, concept, {"dialogue_messages": len(dialogue)})
 
 
+def _submit_sunday_indexnow(ep: dict, episode_id: str, concept: str) -> None:
+    """Tell IndexNow the published recipe page (and the pages that list it)
+    changed, so participating search engines don't wait for their next crawl.
+
+    TRIAGE (#7806): GENUINELY NON-FATAL, logged and recorded. This runs after
+    ``published_at`` is set and the reader pages are confirmed written — the
+    recipe is already live and correct without this. IndexNow submission is a
+    courtesy to the crawler, never a publish requirement, so a failure here
+    must never raise into the publish path (see backend/utils/indexnow.py:
+    ``submit_urls`` already reports rather than raises; this wrapper just
+    decides what to do with that report).
+    """
+    monday = ep.get("stages", {}).get("monday", {})
+    recipe_title = monday.get("recipe_data", {}).get("title", "")
+    if not recipe_title:
+        return
+
+    from backend.publishing.episode_renderer import _slugify
+
+    slug = _slugify(recipe_title)
+    urls = [
+        f"https://muffinpanrecipes.com/recipes/{slug}",
+        "https://muffinpanrecipes.com/",
+        "https://muffinpanrecipes.com/recipes/",
+    ]
+    try:
+        result = _indexnow_submit_urls(urls)
+    except Exception as exc:  # noqa: BLE001 - the publish already succeeded
+        logger.error(f"IndexNow submission raised unexpectedly (non-fatal): {type(exc).__name__}: {exc}")
+        ep["events"].append(f"sunday: indexnow submission failed ({type(exc).__name__})")
+        return
+
+    if result.ok:
+        ep["events"].append(f"sunday: indexnow submitted ({len(urls)} urls)")
+    else:
+        logger.warning(f"IndexNow submission for {episode_id} failed: {result.detail}")
+        ep["events"].append(f"sunday: indexnow submission failed ({result.detail})")
+
+    try:
+        storage.save_episode(episode_id, ep)
+    except Exception as exc:  # noqa: BLE001 - recording the outcome, not the publish
+        logger.error(
+            f"Could not persist indexnow event for {episode_id} "
+            f"(error_type={type(exc).__name__})"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Sunday — Publish
 # ---------------------------------------------------------------------------
@@ -3150,6 +3198,15 @@ async def cron_sunday(request: Request):
         # same inbox. Skipping the advisory alert on that path loses it —
         # carded — which is the lesser harm of the two.
         _announce_advisory_publication(episode_id, ep, "sunday", concept)
+
+        # Last of all: IndexNow is a crawler courtesy, never a publish
+        # requirement, and must never fire against test data (RUNBOOK
+        # Incident 1 was exactly this shape of leak — test-mode data reaching
+        # a real destination). Both `body.test` and the storage prefix are
+        # checked because they are set together by `_test_mode_scope` above,
+        # but the prefix is the structural guarantee; this is belt-and-braces.
+        if not body.test and not storage.prefix:
+            _submit_sunday_indexnow(ep, episode_id, concept)
 
     return _stage_response("sunday", episode_id, concept, {
         "published": True,
