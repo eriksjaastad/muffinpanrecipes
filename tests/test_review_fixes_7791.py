@@ -29,39 +29,35 @@ from tests.test_research_prereqs_7791 import (
 # 1. rejudge instrument integrity
 # ---------------------------------------------------------------------------
 
-def test_rejudge_refuses_source_judged_under_a_different_prompt_sha(tmp_path, monkeypatch):
-    _mock_openrouter_preflight(monkeypatch)
-    _no_judge_calls(monkeypatch)
-    path = _fake_ab_result(tmp_path)
-    data = json.loads(path.read_text())
-    data["evaluator_prompt_sha256"] = "0" * 64
-    path.write_text(json.dumps(data))
-    with pytest.raises(SystemExit, match="change the instrument"):
-        cl.main(["rejudge", str(path)])
-
-
-def test_rejudge_refuses_orientation_saved_with_a_different_system_prompt(tmp_path, monkeypatch):
-    _mock_openrouter_preflight(monkeypatch)
-    _no_judge_calls(monkeypatch)
-    pair = _fake_pair()
-    pair["judge_orientations"][1]["evidence"]["system_prompt"] = "an older judge prompt"
-    path = _fake_ab_result(tmp_path, pairs=[pair])
-    with pytest.raises(SystemExit, match="different system prompt"):
-        cl.main(["rejudge", str(path)])
-
-
-def test_rejudge_refuses_when_neither_system_prompt_nor_sha_is_recorded(tmp_path, monkeypatch):
-    _mock_openrouter_preflight(monkeypatch)
-    _no_judge_calls(monkeypatch)
-    pair = _fake_pair()
+def _with_old_prompt_sha(pair: dict) -> dict:
+    """A pair whose saved instrument records an earlier judge prompt."""
     for orientation in pair["judge_orientations"]:
-        del orientation["evidence"]["system_prompt"]
-    path = _fake_ab_result(tmp_path, pairs=[pair])
-    data = json.loads(path.read_text())
-    del data["evaluator_prompt_sha256"]
-    path.write_text(json.dumps(data))
-    with pytest.raises(SystemExit, match="neither its judge system prompt"):
-        cl.main(["rejudge", str(path)])
+        orientation["evidence"]["judge_instrument"] = {
+            **orientation["evidence"]["judge_instrument"], "evaluator_prompt_sha256": "0" * 64,
+        }
+    return pair
+
+
+def test_rejudge_refuses_a_source_judged_under_an_earlier_prompt(tmp_path, monkeypatch):
+    _mock_openrouter_preflight(monkeypatch)
+    _no_judge_calls(monkeypatch)
+    path = _fake_ab_result(tmp_path, pairs=[_with_old_prompt_sha(_fake_pair())])
+    with pytest.raises(SystemExit, match=r"differ from the source's: evaluator_prompt_sha256\."):
+        cl.main(["rejudge", str(path), "--models", "claude-o55"])
+
+
+def test_allow_instrument_change_runs_a_deliberate_prompt_revision_comparison(tmp_path, monkeypatch, capsys):
+    """Codex round 4 P2: the opt-in must reach a changed prompt, not be
+    pre-empted by the loader."""
+    _mock_openrouter_preflight(monkeypatch)
+    monkeypatch.setattr(model_router, "generate_judge_response", lambda **_k: _verdict_json())
+    path = _fake_ab_result(tmp_path, pairs=[_with_old_prompt_sha(_fake_pair())])
+    out = tmp_path / "out"
+    cl.main(["rejudge", str(path), "--models", "claude-o55", "--allow-instrument-change", "--results-dir", str(out)])
+    report = json.loads(next(out.glob("*-rejudge-*.json")).read_text())
+    assert report["rejudge_mode"] == "instrument_changed"
+    assert report["instrument_changed_fields"] == ["evaluator_prompt_sha256"]
+    assert "V3 test-retest agreement" not in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("missing", ["first_arm", "second_arm"])
@@ -243,7 +239,7 @@ def test_rejudge_same_instrument_is_reported_as_v3_retest(tmp_path, monkeypatch,
     [
         # Each is a judge setting that is not the model, prompt or temperature.
         ("max_tokens", "_OPENROUTER_ANTHROPIC_MAX_TOKENS", 8192),
-        ("provider_route", "openrouter_provider_route", lambda _m: {"order": ["anthropic"], "allow_fallbacks": True}),
+        ("extra_body", "openrouter_provider_route", lambda _m: {"order": ["anthropic"], "allow_fallbacks": True}),
         ("empty_stop_max_attempts", "_OPENROUTER_EMPTY_STOP_MAX_ATTEMPTS", 5),
     ],
 )
@@ -348,8 +344,9 @@ def test_new_judge_calls_save_the_full_instrument_in_evidence():
     inst = evidence["judge_instrument"]
     assert inst == cl._judge_instrument("openrouter/anthropic/claude-opus-5.5")
     assert inst["model"] == "anthropic/claude-opus-5.5"
-    assert inst["provider_route"] == {"order": ["anthropic"], "allow_fallbacks": False}
+    assert inst["extra_body"]["provider"] == {"order": ["anthropic"], "allow_fallbacks": False}
     assert inst["max_tokens"] == 4096 and inst["temperature"] == 0.2
+    assert inst["request_shape"] == "fixed"
     assert inst["evaluator_prompt_sha256"] and inst["json_max_retries"] == cl._JUDGE_JSON_MAX_RETRIES
 
 
@@ -430,3 +427,48 @@ def test_cli_refuses_an_unenforceable_max_cost(tmp_path, monkeypatch, bad):
     _no_judge_calls(monkeypatch)
     with pytest.raises(SystemExit, match="--max-cost must be a positive finite amount"):
         cl.main(["rejudge", str(_fake_ab_result(tmp_path)), "--models", "claude-o55", "--max-cost", bad])
+
+
+# ---------------------------------------------------------------------------
+# Round 4 (Codex FAIL 58580c7): the description IS the request
+# ---------------------------------------------------------------------------
+
+def test_openrouter_instrument_equals_the_kwargs_actually_sent(monkeypatch):
+    """The recorded settings are built by the same function the send path
+    uses; prove it against what the SDK actually receives."""
+    captured = _fake_openrouter(monkeypatch, content="ok")
+    model = "anthropic/claude-opus-5.5"
+    model_router.allow_openrouter_models(dialogue="anthropic/claude-haiku-4.5", judge=model)
+    model_router.generate_judge_response(prompt="p", system_prompt="s", model=f"openrouter/{model}", temperature=0.2)
+    sent = {k: v for k, v in captured["create_kwargs"].items() if k != "messages"}
+    settings = model_router.judge_request_settings(f"openrouter/{model}", 0.2)
+    assert {k: settings[k] for k in sent} == sent
+
+
+def test_anthropic_instrument_equals_the_kwargs_actually_sent(monkeypatch):
+    captured: dict = {}
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(model_router, "_central_track", lambda response, provider, **kwargs: response)
+
+    class FakeMessages:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(content=[SimpleNamespace(text="ok")], usage=None)
+
+    monkeypatch.setattr("anthropic.Anthropic", lambda **_k: SimpleNamespace(messages=FakeMessages()))
+    model = next(iter(model_router.JUDGE_ALLOWLIST))
+    model_router.generate_judge_response(prompt="p", system_prompt="s", model=f"anthropic/{model}", temperature=0.2)
+    sent = {k: v for k, v in captured.items() if k not in {"messages", "system"}}
+    settings = model_router.judge_request_settings(f"anthropic/{model}", 0.2)
+    assert {k: settings[k] for k in sent} == sent
+
+
+def test_a_variable_shape_judge_is_never_a_verified_retest(tmp_path, monkeypatch):
+    """OpenAI's request can change at run time (endpoint fallback, dropped
+    temperature), so an openai judge instrument is unverifiable by design."""
+    assert model_router.judge_request_settings("openai/gpt-5.1", 0.2)["request_shape"] == "variable"
+    variable = {**cl._judge_instrument("openai/gpt-5.1")}
+    mode, _ = cl._rejudge_mode(False, "openai/gpt-5.1", variable)
+    assert mode == "instrument_unverified"
+    fixed = cl._judge_instrument("openrouter/anthropic/claude-opus-5.5")
+    assert cl._rejudge_mode(False, "openrouter/anthropic/claude-opus-5.5", fixed) == ("retest", [])

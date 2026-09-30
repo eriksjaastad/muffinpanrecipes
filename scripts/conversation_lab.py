@@ -6757,18 +6757,6 @@ def _load_rejudge_source(result_path: Path) -> dict[str, Any]:
     if not isinstance(pairs, list) or not pairs:
         raise SystemExit(f"conversation_lab rejudge: {result_path} has no pairs to re-judge")
 
-    # The judge prompt is the instrument (RESEARCH_PLAN.md section 3): a
-    # re-judge under a different system prompt is a new instrument, not a
-    # test-retest, so refuse rather than report it as V3 agreement.
-    current_sha = _pairwise_evaluator_metadata()["evaluator_prompt_sha256"]
-    source_sha = data.get("evaluator_prompt_sha256")
-    if source_sha is not None and source_sha != current_sha:
-        raise SystemExit(
-            f"conversation_lab rejudge: {result_path} was judged under evaluator_prompt_sha256 "
-            f"{source_sha}, but the current judge prompt is {current_sha} - a re-judge would "
-            "change the instrument, not retest it"
-        )
-
     for i, pair in enumerate(pairs, start=1):
         if not pair.get("control_messages") or not pair.get("variant_messages"):
             raise SystemExit(
@@ -6793,17 +6781,6 @@ def _load_rejudge_source(result_path: Path) -> dict[str, Any]:
                 raise SystemExit(
                     f"conversation_lab rejudge: {result_path} pair {i} orientation is missing its "
                     "saved prompt/mapping - cannot re-judge without regenerating"
-                )
-            saved_system = evidence.get("system_prompt")
-            if saved_system is None and source_sha is None:
-                raise SystemExit(
-                    f"conversation_lab rejudge: {result_path} pair {i} records neither its judge "
-                    "system prompt nor an evaluator_prompt_sha256 - cannot show the instrument is unchanged"
-                )
-            if saved_system is not None and saved_system != PAIRWISE_JUDGE_SYSTEM_PROMPT:
-                raise SystemExit(
-                    f"conversation_lab rejudge: {result_path} pair {i} was judged under a different "
-                    "system prompt than the current one - a re-judge would change the instrument"
                 )
             first_arm = evidence.get("first_arm")
             second_arm = evidence.get("second_arm")
@@ -6873,9 +6850,13 @@ def _rejudge_mode(
     names of the instrument fields that differ). Only "retest" is V3."""
     if dry_run:
         return "dry_run", []
-    if source_instrument is None:
-        return "instrument_unverified", []
     current = _judge_instrument(judge_model)
+    # A path whose request changes at run time (model_router's openai
+    # fallbacks) has no fixed instrument to compare, on either side.
+    if source_instrument is None or "variable" in {
+        source_instrument.get("request_shape"), current.get("request_shape"),
+    }:
+        return "instrument_unverified", []
     changed = sorted(k for k in set(current) | set(source_instrument) if current.get(k) != source_instrument.get(k))
     return ("retest", []) if not changed else ("instrument_changed", changed)
 
