@@ -5,19 +5,75 @@ Feature: ai-creative-team
 """
 
 import os
+from pathlib import Path
+from unittest import mock
 
 from hypothesis import given, strategies as st, settings
-from pathlib import Path
 import pytest
 
+import backend.agents.baker as baker_module
 from backend.agents.factory import create_agent
 from backend.core.task import Task
 from backend.memory.agent_memory import AgentMemory
+from backend.utils import model_router
 
 _requires_api_keys = pytest.mark.skipif(
     os.getenv("RUN_LIVE_PROVIDER_TESTS", "").lower() != "true",
     reason="Requires API keys. Set RUN_LIVE_PROVIDER_TESTS=true to run.",
 )
+
+
+def _fake_recipe_data(concept: str) -> dict:
+    """Stand-in for backend.utils.recipe_prompts.generate_recipe's real LLM
+    output - shaped so the property assertions below (ingredients with
+    amounts, muffin-tin-appropriate instructions) hold without a live call.
+    """
+    return {
+        "title": concept,
+        "description": f"A muffin-tin build for {concept}.",
+        "servings": 12,
+        "prep_time": 15,
+        "cook_time": 20,
+        "difficulty": "easy",
+        "category": "sweet",
+        "ingredients": [
+            {"item": "flour", "amount": "2 cups", "notes": "all-purpose"},
+            {"item": "sugar", "amount": "1 cup", "notes": ""},
+            {"item": "eggs", "amount": "2 large", "notes": "room temperature"},
+        ],
+        "instructions": [
+            "Preheat the oven and grease the muffin tin cups.",
+            "Mix the batter and divide it evenly among the muffin cavities.",
+            "Bake until golden and a toothpick comes out clean.",
+        ],
+        "chef_notes": "Let the muffins rest in the pan before removing.",
+    }
+
+
+@pytest.fixture
+def mock_generate_recipe(monkeypatch):
+    """Mock the LLM boundary Baker.process_task calls through, so ordinary
+    agent-behavior tests never make a live provider request (#7214)."""
+
+    def fake_generate_recipe(concept, personality_context=None, target_category=None, recent_cuisines=None):
+        return _fake_recipe_data(concept)
+
+    monkeypatch.setattr(baker_module, "generate_recipe", fake_generate_recipe)
+    return fake_generate_recipe
+
+
+@pytest.fixture
+def mock_generate_response(monkeypatch):
+    """Mock backend.utils.model_router.generate_response, the LLM boundary
+    every other legacy agent (creative_director, copywriter, art_director)
+    calls through, so ordinary agent-behavior tests never make a live
+    provider request (#7214)."""
+
+    def fake_generate_response(*, prompt, system_prompt, model, temperature):
+        return "That looks good to me. VERDICT: APPROVED"
+
+    monkeypatch.setattr(model_router, "generate_response", fake_generate_response)
+    return fake_generate_response
 
 
 # Strategy for recipe concepts - realistic food names, not random Unicode
@@ -39,25 +95,29 @@ recipe_concepts = st.sampled_from([
 def test_baker_recipe_creation(recipe_concept: str) -> None:
     """
     Property 4: Baker Recipe Creation
-    
+
     For any recipe creation task assigned to the Baker, the output should include
     a recipe concept, ingredient list with quantities, and cooking instructions
     appropriate for muffin tin format.
-    
+
     Validates: Requirements 2.2
     """
     # Create Baker agent
     baker = create_agent("baker")
-    
+
     # Create recipe creation task
     task = Task(
         type="create_recipe",
         content=f"Create a muffin tin recipe for: {recipe_concept}",
         default_strategy="standard",
     )
-    
-    # Process task
-    result = baker.process_task(task)
+
+    # Process task - patch.object (not the monkeypatch fixture) so mocking
+    # never becomes a hypothesis function-scoped-fixture health check (#7214).
+    with mock.patch.object(
+        baker_module, "generate_recipe", side_effect=lambda concept, **_kwargs: _fake_recipe_data(concept),
+    ):
+        result = baker.process_task(task)
     
     # Verify task succeeded
     assert result.success, "Baker should successfully create recipes"
@@ -89,7 +149,7 @@ def test_baker_recipe_creation(recipe_concept: str) -> None:
     ), "Instructions should reference muffin tin format"
 
 
-def test_baker_personality_affects_trigger_response(tmp_path: Path) -> None:
+def test_baker_personality_affects_trigger_response(tmp_path: Path, mock_generate_recipe) -> None:
     """
     Test that Baker's personality triggers affect emotional responses.
     
@@ -144,7 +204,7 @@ def test_all_agents_can_be_created() -> None:
         assert len(agent.personality.core_traits) > 0
 
 
-def test_creative_director_indecisiveness() -> None:
+def test_creative_director_indecisiveness(mock_generate_response) -> None:
     """Test that Steph's anxiety affects her decision-making."""
     cd = create_agent("creative_director")
     
