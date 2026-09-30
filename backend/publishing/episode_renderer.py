@@ -64,14 +64,13 @@ _SOCIAL_IMAGE_SAFE_EXTENSIONS = (".png", ".jpg", ".jpeg")
 _GENERATED_IMAGE_DIMENSIONS = (1536, 1536)
 
 
-def _known_image_dimensions(image_url: str) -> tuple[int, int] | None:
-    """Real intrinsic dimensions when they can be measured, else None.
+def _image_dimensions(image_url: str) -> tuple[int, int]:
+    """Return the intrinsic dimensions for a rendered image.
 
-    Only a local seed/generated asset under /assets/ can actually be opened
-    and measured — a genuine Blob CDN path has no local file to read, so its
-    true pixel size is not knowable here without downloading the image.
-    Returns None in that case rather than a guess; _image_dimensions below
-    is the guessing wrapper for callers that need SOME number regardless.
+    Seed images are checked from the repository so the attributes stay true if
+    an asset is replaced. Generated photography lives in Blob and is produced
+    at 1536x1536 by the Nano Banana path; that measured production dimension is
+    the safe fallback when only a public URL is available to the renderer.
     """
     path = image_url.split("?", 1)[0].split("#", 1)[0]
     if path.startswith("/assets/"):
@@ -86,29 +85,11 @@ def _known_image_dimensions(image_url: str) -> tuple[int, int] | None:
                 logger.warning("Could not read intrinsic dimensions for %s", asset_path)
         else:
             logger.warning("Local asset for intrinsic dimensions was not found: %s", asset_path)
-    return None
+    return _GENERATED_IMAGE_DIMENSIONS
 
 
-def _image_dimensions(image_url: str) -> tuple[int, int]:
-    """Return the intrinsic dimensions for a rendered image.
-
-    Seed images are checked from the repository so the attributes stay true if
-    an asset is replaced. Generated photography lives in Blob and is produced
-    at 1536x1536 by the Nano Banana path; that measured production dimension is
-    the safe fallback when only a public URL is available to the renderer.
-    """
-    return _known_image_dimensions(image_url) or _GENERATED_IMAGE_DIMENSIONS
-
-
-def _format_dimension_attrs(width: int, height: int | None) -> str:
-    """Format a pixel size as ``width``/``height`` attributes for an ``img``.
-
-    ``height`` is omitted entirely when the caller could not determine the
-    real value (#7185 review) — an omitted attribute is honest; a guessed
-    one that turns out wrong is a layout-shift bug wearing a passing test.
-    """
-    if height is None:
-        return f'width="{width}"'
+def _format_dimension_attrs(width: int, height: int) -> str:
+    """Format a pixel size as ``width``/``height`` attributes for an ``img``."""
     return f'width="{width}" height="{height}"'
 
 
@@ -118,31 +99,18 @@ def _intrinsic_image_attributes(image_url: str) -> str:
     return _format_dimension_attrs(width, height)
 
 
-def _jpeg_fallback_dimensions(png_url: str) -> tuple[int, int | None]:
-    """Real pixel dimensions of the sized JPEG <img>-fallback sibling (#7185 review).
-
-    storage._encode_jpeg_fallback resizes to JPEG_FALLBACK_WIDTH, aspect
-    ratio preserved from the source PNG (same LANCZOS width-only resize as
-    the WebP width variants) — it never inherits the source's own
-    dimensions, so the width is always exactly JPEG_FALLBACK_WIDTH (that part
-    is certain). The height depends on the SOURCE's real aspect ratio, which
-    _image_dimensions can only measure for a local /assets/ file; for a
-    genuine Blob CDN source (the common case — generated photography, not a
-    seed asset) _image_dimensions falls back to a 1536x1536 GUESS, and
-    scaling a guess produces a height that can be flatly wrong for any
-    source that isn't actually square (MEDIUM finding on #7185 review round
-    2). So this uses _known_image_dimensions instead: when the real aspect
-    ratio is measurable, compute the real scaled height; when it is not,
-    return None rather than a fabricated number — see _format_dimension_attrs.
-    """
-    known = _known_image_dimensions(png_url)
-    if known is None:
-        return (JPEG_FALLBACK_WIDTH, None)
-    orig_width, orig_height = known
-    if orig_width <= 0:
-        return (JPEG_FALLBACK_WIDTH, None)
-    height = max(1, round(orig_height * (JPEG_FALLBACK_WIDTH / orig_width)))
-    return (JPEG_FALLBACK_WIDTH, height)
+# storage._encode_jpeg_fallback center-crops every JPEG <img>-fallback
+# sibling to this exact square (#7185 review round 3) — TRUE BY
+# CONSTRUCTION, not measured or guessed, so the renderer can always state
+# both width and height without reading the source at all. Two earlier
+# attempts got this wrong: round 1 reused the source's own (guessed)
+# dimensions unscaled; round 2 tried to compute a real scaled height from
+# the source's aspect ratio and omitted it when that wasn't knowable, which
+# fails scripts/health_check.py's intrinsic-dimensions check (requires both
+# width AND height on every <img>). A fixed encode makes both checks and
+# reality agree by construction — see storage._encode_jpeg_fallback's
+# docstring for why a square crop loses nothing the page actually shows.
+JPEG_FALLBACK_DIMENSIONS: tuple[int, int] = (JPEG_FALLBACK_WIDTH, JPEG_FALLBACK_WIDTH)
 
 
 def _step_name(text: str, index: int) -> str:
@@ -778,11 +746,11 @@ def render_episode_page(
         if using_jpeg_fallback:
             fallback_url = _to_jpeg_fallback_url(image_url)
         escaped_fallback = html.escape(fallback_url)
-        # The JPEG fallback is a real 1200w-wide resize of the source, not a
-        # copy of its dimensions (#7185 review) — width/height must reflect
-        # the sibling's own pixels or the reserved aspect ratio is wrong.
+        # The JPEG fallback is always encoded to JPEG_FALLBACK_DIMENSIONS
+        # exactly (#7185 review round 3) — true by construction, so no
+        # per-source computation, guess, or omission is needed here.
         dimensions = (
-            _format_dimension_attrs(*_jpeg_fallback_dimensions(image_url))
+            _format_dimension_attrs(*JPEG_FALLBACK_DIMENSIONS)
             if using_jpeg_fallback
             else _intrinsic_image_attributes(fallback_url)
         )

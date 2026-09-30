@@ -664,10 +664,17 @@ class TestSourcePngKey:
         assert _source_png_key("images/recipe/hero-400w.webp") == "images/recipe/hero.png"
         assert _source_png_key("images/recipe/hero-800w.webp") == "images/recipe/hero.png"
 
-    def test_full_size_webp_inverts_to_source_png(self):
+    def test_bare_full_size_webp_is_left_ambiguous_not_inverted(self):
+        """#7185 review round 3, MEDIUM: a width-less '.webp' is what
+        _upload_webp_sibling names the derived full-size sibling, but a
+        filename alone cannot prove THIS one is that sibling rather than an
+        original, hand-authored webp with no PNG behind it. Resolving that
+        ambiguity needs real I/O (an existence check), which does not belong
+        in this pure storage-layer function — see
+        scripts/pin_published_heroes.py's _webp_source_png_if_it_exists."""
         from backend.storage import _source_png_key
 
-        assert _source_png_key("images/recipe/hero.webp") == "images/recipe/hero.png"
+        assert _source_png_key("images/recipe/hero.webp") == "images/recipe/hero.webp"
 
     def test_social_jpeg_inverts_to_source_png(self):
         from backend.storage import _source_png_key
@@ -697,7 +704,11 @@ class TestSourcePngKey:
 
 
 class TestEncodeJpegFallback:
-    """_encode_jpeg_fallback resizing (#7185)."""
+    """_encode_jpeg_fallback (#7185 review round 3) — a fixed
+    JPEG_FALLBACK_WIDTH-square center crop, TRUE BY CONSTRUCTION regardless
+    of the source's own aspect ratio (rounds 1 and 2 tried to reflect the
+    source's real dimensions instead, and both were wrong in different
+    ways — see the function's docstring)."""
 
     @staticmethod
     def _png_bytes(size=(1536, 1536)) -> bytes:
@@ -706,7 +717,7 @@ class TestEncodeJpegFallback:
         image.save(output, format="PNG")
         return output.getvalue()
 
-    def test_downscales_to_fallback_width_preserving_aspect_ratio(self):
+    def test_square_source_encodes_to_the_fallback_square(self):
         from backend.storage import JPEG_FALLBACK_WIDTH, _encode_jpeg_fallback
 
         result = _encode_jpeg_fallback(self._png_bytes(size=(1536, 1536)))
@@ -715,13 +726,16 @@ class TestEncodeJpegFallback:
             assert image.size == (JPEG_FALLBACK_WIDTH, JPEG_FALLBACK_WIDTH)
             assert image.mode == "RGB"
 
-    def test_non_square_aspect_ratio_preserved_no_crop(self):
-        """Distinct from the social sibling: this resizes, it never crops."""
+    def test_non_square_source_is_center_cropped_to_the_same_fixed_square(self):
+        """The core round-3 regression case: a real, non-square 2:1 source
+        must STILL come out exactly JPEG_FALLBACK_WIDTH square — never a
+        proportionally-scaled non-square result — so the renderer can state
+        width/height without ever looking at the source."""
         from backend.storage import JPEG_FALLBACK_WIDTH, _encode_jpeg_fallback
 
         result = _encode_jpeg_fallback(self._png_bytes(size=(1600, 800)))
         with Image.open(BytesIO(result)) as image:
-            assert image.size == (JPEG_FALLBACK_WIDTH, 600)
+            assert image.size == (JPEG_FALLBACK_WIDTH, JPEG_FALLBACK_WIDTH)
 
     def test_transparency_composited_onto_white(self):
         from backend.storage import _encode_jpeg_fallback

@@ -148,28 +148,38 @@ _JPEG_FALLBACK_SUFFIX_RE = re.compile(r"-\d+w\.jpg$", re.IGNORECASE)
 
 
 def _source_png_key(sibling_key: str) -> str:
-    """Return the canonical source-PNG key for any of its upload-time siblings (#7185 review).
+    """Return the canonical source-PNG key for any UNAMBIGUOUS upload-time sibling.
 
-    The inverse of _webp_variant_key / _jpeg_fallback_key / the full-size
-    '.webp' sibling / _social_jpeg_key: whichever format a caller found a
-    generated photo served as — the full WebP, a width-limited WebP variant,
-    the sized JPEG <img> fallback, or the social crop — this resolves back
-    to the one PNG every sibling was derived FROM. A key that is already a
-    '.png' passes through unchanged (nothing to invert); a key matching none
-    of the known sibling suffixes also passes through unchanged (nothing
-    this module knows how to invert, e.g. a seed .webp with no PNG sibling
-    at all).
+    The inverse of _webp_variant_key / _jpeg_fallback_key / _social_jpeg_key:
+    a width-limited WebP variant ('-{N}w.webp'), the sized JPEG <img>
+    fallback ('-{N}w.jpg'), or the social crop ('.social.jpg') can ONLY be
+    one of this module's derived siblings — that exact suffix shape is never
+    used for anything else — so each resolves unambiguously back to the one
+    PNG it was derived FROM. A key that is already a '.png' passes through
+    unchanged (nothing to invert).
+
+    A bare, width-less '.webp' is deliberately NOT inverted here (#7185
+    review round 3, MEDIUM): _upload_webp_sibling names the full-size
+    derived sibling exactly '<stem>.webp', but a filename alone cannot prove
+    a given '.webp' IS that derived sibling rather than an original,
+    hand-authored 'custom.webp' hero with no PNG behind it at all — inverting
+    it unconditionally would pin a hero to a PNG that was never uploaded.
+    scripts/pin_published_heroes.py resolves that one ambiguous case itself,
+    by HEADing the public Blob URL to confirm the candidate PNG actually
+    exists before treating a bare '.webp' as a generated sibling. Any other
+    key (a genuinely unrelated format, or a seed image with no PNG sibling
+    at all) passes through unchanged — nothing here knows how to invert it.
 
     Anything that reads a hero's identity back out of RENDERED HTML — e.g.
-    scripts/pin_published_heroes.py, which reads the live page's <img src>
-    and writes it into episode.hero_image_url — must route through this
-    before storing that value. Since #7185 shipped, that <img src> can be
-    the sized JPEG fallback instead of the raw PNG; storing it verbatim
-    would permanently swap the hero's source of truth from the canonical
-    PNG to a lossy 1200px-wide JPEG, and every future render would then
-    derive the WebP <source> and the JPEG fallback FROM that JPEG's own
-    (nonexistent) '.png'-shaped sibling names, silently losing all of them
-    (HIGH finding on #7185 review round 2).
+    pin_published_heroes.py, which reads the live page's <img src> and
+    writes it into episode.hero_image_url — must route through this before
+    storing that value. Since #7185 shipped, that <img src> can be the sized
+    JPEG fallback instead of the raw PNG; storing it verbatim would
+    permanently swap the hero's source of truth from the canonical PNG to a
+    lossy JPEG, and every future render would then derive the WebP <source>
+    and the JPEG fallback FROM that JPEG's own (nonexistent) '.png'-shaped
+    sibling names, silently losing all of them (HIGH finding on #7185
+    review round 2).
     """
     lowered = sibling_key.lower()
     if lowered.endswith(".png"):
@@ -178,7 +188,11 @@ def _source_png_key(sibling_key: str) -> str:
         return sibling_key[: -len(SOCIAL_IMAGE_SUFFIX)] + ".png"
     if lowered.endswith(".webp"):
         stripped = _WEBP_SIBLING_SUFFIX_RE.sub(".png", sibling_key)
-        return stripped if stripped != sibling_key else sibling_key[:-5] + ".png"
+        if stripped != sibling_key:
+            return stripped
+        # Bare full-size '.webp' — ambiguous, see docstring above. Left
+        # un-inverted; the caller decides (existence-check, etc.).
+        return sibling_key
     if lowered.endswith(".jpg") or lowered.endswith(".jpeg"):
         stripped = _JPEG_FALLBACK_SUFFIX_RE.sub(".png", sibling_key)
         if stripped != sibling_key:
@@ -255,35 +269,28 @@ def _encode_social_jpeg(png_bytes: bytes) -> bytes:
 
 
 def _encode_jpeg_fallback(png_bytes: bytes) -> bytes:
-    """Encode PNG bytes as a width-limited JPEG, aspect preserved (#7185).
+    """Encode PNG bytes as a fixed JPEG_FALLBACK_WIDTH-square JPEG (#7185 review round 3).
 
-    Same LANCZOS width-only resize as _encode_webp (no cropping — this is a
-    smaller sibling of the whole photo, not a fixed-aspect social crop like
-    _encode_social_jpeg above). JPEG has no alpha channel, so transparency is
-    composited onto white, matching _encode_jpeg's approach.
+    TRUE BY CONSTRUCTION, not a guess: every fallback is exactly
+    JPEG_FALLBACK_WIDTH x JPEG_FALLBACK_WIDTH (1200x1200), center-cropped
+    with ImageOps.fit — the same fixed-size crop _encode_social_jpeg already
+    uses for the OG/Twitter sibling, just square instead of 1200x630 — so
+    the renderer can always state the <img>'s width/height exactly, with no
+    per-source aspect-ratio computation, guess, or omission (round 1 assumed
+    the source's own 1536x1536 dimensions; round 2 tried to compute a real
+    scaled height and, failing that, omit it — both wrong, the second one
+    also failing scripts/health_check.py's intrinsic-dimensions check, which
+    requires width AND height on every <img>).
+
+    Cropping to a square loses nothing the page actually shows: the hero is
+    rendered inside `.recipe-hero__image` (src/assets/site.css), which fixes
+    the CONTAINER to `aspect-ratio: 16/9; overflow: hidden` and forces the
+    `<img>` itself to `width: 100%; height: 100%; object-fit: cover` — i.e.
+    the browser already crops whatever aspect ratio it's given to fit that
+    16:9 box. A 1200x1200 center crop is simply a different (also-cropped)
+    input to that same cover/crop, not a new loss of content.
     """
-    from io import BytesIO
-
-    from PIL import Image
-
-    with Image.open(BytesIO(png_bytes)) as source:
-        orig_width, orig_height = source.size
-        if orig_width <= 0:
-            raise ValueError("Cannot resize image with zero width")
-        target_height = max(1, round(orig_height * (JPEG_FALLBACK_WIDTH / orig_width)))
-        rgba = source.convert("RGBA")
-        resized = rgba.resize((JPEG_FALLBACK_WIDTH, target_height), Image.Resampling.LANCZOS)
-        background = Image.new("RGB", resized.size, (255, 255, 255))
-        background.paste(resized, mask=resized.getchannel("A"))
-        output = BytesIO()
-        background.save(
-            output,
-            format="JPEG",
-            quality=85,
-            optimize=True,
-            progressive=True,
-        )
-        return output.getvalue()
+    return _encode_jpeg(png_bytes, (JPEG_FALLBACK_WIDTH, JPEG_FALLBACK_WIDTH))
 
 
 class _FilesystemBackend:
