@@ -183,6 +183,9 @@ def _encode_social_jpeg(png_bytes: bytes) -> bytes:
     return _encode_jpeg(png_bytes, SOCIAL_IMAGE_SIZE)
 
 
+_CHARACTER_MEMORY_MAX_LIST_PAGES = 20
+
+
 class CharacterMemoryUnavailable(Exception):
     """A character-memory READ could not be completed (#6968).
 
@@ -811,7 +814,11 @@ class _CloudBackend:
         prefix = f"{self.prefix}character_memory/{slug}/"
         weeks: list[str] = []
         cursor: Optional[str] = None
-        while True:
+        seen_cursors: set[str] = set()
+        # A character gains one blob a week, so a handful of pages covers
+        # years of history; the cap only stops a malformed paginated
+        # response from looping forever inside a live cron.
+        for _page in range(_CHARACTER_MEMORY_MAX_LIST_PAGES):
             params: dict = {"prefix": prefix, "limit": "100"}
             if cursor:
                 params["cursor"] = cursor
@@ -841,7 +848,19 @@ class _CloudBackend:
 
             if not payload.get("hasMore"):
                 break
-            cursor = payload.get("cursor")
+            next_cursor = payload.get("cursor")
+            if not isinstance(next_cursor, str) or not next_cursor or next_cursor in seen_cursors:
+                logger.error(
+                    f"Blob list_character_memory_weeks for {slug}: hasMore without a new cursor "
+                    f"({next_cursor!r})"
+                )
+                raise CharacterMemoryUnavailable(f"malformed pagination for {slug!r}")
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
+        else:
+            logger.error(f"Blob list_character_memory_weeks for {slug}: more than "
+                         f"{_CHARACTER_MEMORY_MAX_LIST_PAGES} pages")
+            raise CharacterMemoryUnavailable(f"too many list pages for {slug!r}")
 
         weeks.sort(key=parse_iso_week)
         return weeks

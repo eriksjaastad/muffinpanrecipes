@@ -47,7 +47,7 @@ data/message_history/
 data/pipeline_state/
 data/image_generation_jobs.json
 data/episodes/*.json
-data/character_memory/*.json
+data/character_memory/
 
 # OS
 .DS_Store

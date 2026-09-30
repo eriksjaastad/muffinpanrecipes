@@ -38,6 +38,7 @@ import os
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pathlib import Path
 
 from backend.admin import cron_routes
 from backend.storage import (
@@ -360,6 +361,53 @@ def test_cloud_list_character_memory_weeks_malformed_payload_raises_unavailable(
     with patch("requests.get", return_value=mock_resp):
         with pytest.raises(CharacterMemoryUnavailable):
             cloud_backend.list_character_memory_weeks("margaret-chen")
+
+
+def _list_page(blobs, has_more, cursor=None):
+    resp = MagicMock()
+    payload = {"blobs": blobs, "hasMore": has_more}
+    if cursor is not None:
+        payload["cursor"] = cursor
+    resp.json.return_value = payload
+    resp.raise_for_status = MagicMock()
+    return resp
+
+
+@pytest.mark.parametrize("bad_cursor", [None, "", 7])
+def test_cloud_list_has_more_without_a_usable_cursor_raises_not_loops(cloud_backend, bad_cursor):
+    """Codex round 4: hasMore with no new cursor used to re-request page one
+    forever inside a live cron."""
+    page = _list_page([{"pathname": "character_memory/margaret-chen/2026-W40.json"}], True, bad_cursor)
+    with patch("requests.get", return_value=page) as get:
+        with pytest.raises(CharacterMemoryUnavailable):
+            cloud_backend.list_character_memory_weeks("margaret-chen")
+    assert get.call_count == 1
+
+
+def test_cloud_list_repeated_cursor_raises_not_loops(cloud_backend):
+    page = _list_page([], True, "same")
+    with patch("requests.get", return_value=page) as get:
+        with pytest.raises(CharacterMemoryUnavailable):
+            cloud_backend.list_character_memory_weeks("margaret-chen")
+    assert get.call_count == 2
+
+
+def test_cloud_list_follows_a_real_cursor_across_pages(cloud_backend):
+    pages = [
+        _list_page([{"pathname": "character_memory/margaret-chen/2026-W39.json"}], True, "c1"),
+        _list_page([{"pathname": "character_memory/margaret-chen/2026-W40.json"}], False),
+    ]
+    with patch("requests.get", side_effect=pages):
+        assert cloud_backend.list_character_memory_weeks("margaret-chen") == ["2026-W39", "2026-W40"]
+
+
+def test_local_memory_files_are_gitignored():
+    import subprocess
+    root = Path(__file__).resolve().parents[1]
+    for path in ("data/character_memory/margaret-chen/2026-W40.json",
+                 "data/character_memory/test/margaret-chen/2026-W40.json"):
+        proc = subprocess.run(["git", "check-ignore", "-q", path], cwd=root, capture_output=True, timeout=30)
+        assert proc.returncode == 0, path
 
 
 def test_cloud_list_character_memory_weeks_network_failure_raises_unavailable(cloud_backend):
