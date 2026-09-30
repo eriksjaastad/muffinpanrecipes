@@ -112,9 +112,38 @@ also said the `.lock` file was safe to delete (wrong: see
 ops/launchd/README.md) and used `os.unlink` for orphaned-temp-file cleanup
 instead of `send2trash` (AGENTS.md forbids permanent deletion).
 
-Round 3 (this version) replaces the single whole-set signature with the
-per-check, per-failure-id model described above, and fixes the lock-file
-guidance and `send2trash` usage from round 2's own review.
+Round 3 replaced the single whole-set signature with the per-check,
+per-failure-id model described above, and fixed the lock-file guidance and
+`send2trash` usage from round 2's own review.
+
+Round 4 (this version) found two edge cases the per-check model itself
+didn't cover:
+  F. The catalog-shape check was too permissive: `isinstance(raw_catalog,
+     dict)` plus `raw_catalog.get("recipes", [])` treats `{"error": "..."}`,
+     `{"recipes": "invalid"}`, and a dict missing `"recipes"` entirely as a
+     usable (if empty) catalog — same for `isinstance(raw_catalog, list)`
+     with a list of non-dict items. `_catalog_titles_excluding_self` then
+     iterates to zero titles for all of these (it skips non-dict entries),
+     so the catalog group "ran" and "found no collision" purely because the
+     payload was garbage: a real alerted title-collision failure would
+     silently clear (a false recovery), then re-alert once the real catalog
+     came back. `_valid_catalog()` now validates the actual shape the
+     title-collision check reads; anything that doesn't match means the
+     catalog group did not run this cycle, exactly like a fetch failure.
+  G. `read_state` trusted ANY dict it parsed. A pre-round-3 state file
+     (`{"alerted": {...}}` instead of `{"alerted_failures": {...}}`) read as
+     "nothing has ever been alerted," making an unchanged failure look brand
+     new and alert once for no real reason; a non-object JSON value (an
+     array, a bare string or number) made `.get()` raise on every run —
+     `_safe_main`'s guard kept the exit code at 0, but the monitor could
+     never proceed past that exception, so it was permanently stuck doing
+     nothing while LOOKING like it succeeded. `read_state` now validates the
+     loaded value against the current schema; anything else is logged to
+     stderr and moved aside with `send2trash` (never deleted), and the run
+     proceeds as if there were no prior state at all. This monitor has never
+     been installed, so there is no real history to protect — a fresh start
+     may alert once for a currently-failing pipeline, which is an accepted,
+     one-time cost (see ops/launchd/README.md), not a bug.
 
 Usage:
     uv run python scripts/pipeline_monitor.py
@@ -140,6 +169,11 @@ network hiccup leaves the last known status in place untouched (constraint
 `alerted_failures` is the superset that includes ids from a check that
 didn't run this cycle and so couldn't be confirmed cleared — comparing the
 two tells a reader whether something "still owed" is currently unverified.
+
+A state file that doesn't match this schema (an old pre-round-3 shape, or
+non-JSON-object garbage) is treated as if it didn't exist: logged to stderr,
+moved aside via `send2trash`, and the run proceeds as a fresh start (round
+4) — see `_is_current_schema`/`_discard_unusable_state`.
 """
 
 from __future__ import annotations
@@ -212,6 +246,45 @@ def _failure_id_group(failure_id: str) -> str:
     return failure_id.split(_ID_SEP, 1)[0]
 
 
+def _valid_catalog(raw_catalog: object) -> list[dict] | None:
+    """Validate the catalog payload against exactly what the title-collision
+    check reads (`_catalog_titles_excluding_self` in
+    backend/utils/episode_integrity.py): a JSON list of dict entries with a
+    `title` field, or a dict wrapping such a list under `"recipes"`.
+
+    Returns the concrete list (possibly empty — a genuinely empty published
+    catalog is a legitimate, if degenerate, state the title check can run
+    against) when the shape checks out, or `None` when it doesn't — `None`
+    means the catalog GROUP did not run this cycle, exactly like a fetch
+    failure (see `compute_verdict`).
+
+    Round 4 found the previous `isinstance(raw_catalog, list/dict)` check
+    too permissive: `{"error": "temporary failure"}` and `{"recipes":
+    "invalid"}` both satisfy `isinstance(raw_catalog, dict)`, and
+    `raw_catalog.get("recipes", [])` silently coerces either into `[]`. A
+    list of non-dict items passes `isinstance(raw_catalog, list)` the same
+    way. In every one of those cases, `_catalog_titles_excluding_self`
+    iterates to zero titles (`if not isinstance(entry, dict): continue`
+    skips every entry), so the title check "ran" and "found no collision"
+    purely because the payload was garbage — clearing a real alerted title-
+    collision failure and then re-alerting once the real catalog returned.
+    Validating the actual shape here means a malformed-but-present response
+    is treated exactly like a fetch failure: the catalog group simply did
+    not run.
+    """
+    if isinstance(raw_catalog, list):
+        candidate = raw_catalog
+    elif isinstance(raw_catalog, dict):
+        candidate = raw_catalog.get("recipes")
+    else:
+        return None
+    if not isinstance(candidate, list):
+        return None
+    if not all(isinstance(item, dict) for item in candidate):
+        return None
+    return candidate
+
+
 def compute_verdict(episode_id: str | None = None) -> dict:
     """Reuse session_pipeline_status.py's fetch + verdict logic, structured
     per-check so the caller can tell which checks ran this time.
@@ -247,18 +320,11 @@ def compute_verdict(episode_id: str | None = None) -> dict:
     episode_only = list(sps.episode_integrity_failures(episode, catalog=None, now=now))
 
     raw_catalog = sps._get_json(f"{sps.BLOB_CDN}/pages/recipes.json")
-    catalog: list[dict] | None
-    if isinstance(raw_catalog, list):
-        catalog = raw_catalog
-    elif isinstance(raw_catalog, dict):
-        catalog = raw_catalog.get("recipes", [])
-    else:
-        # Covers BOTH a failed fetch (raw_catalog is None) and a fetched-but-
-        # malformed response alike: either way the catalog-dependent check
-        # simply does not run this cycle. This used to be two different
-        # code paths (round 2 special-cased None into a whole-verdict
-        # "unknown"); per-check tracking makes them the same thing.
-        catalog = None
+    # Covers a failed fetch (raw_catalog is None) AND a fetched-but-malformed
+    # response (wrong shape, or present but not actually a list of recipe
+    # dicts — see `_valid_catalog`, round 4) identically: either way the
+    # catalog-dependent check simply does not run this cycle.
+    catalog = _valid_catalog(raw_catalog)
 
     if catalog is not None:
         full = list(sps.episode_integrity_failures(episode, catalog=catalog, now=now))
@@ -286,16 +352,76 @@ def compute_verdict(episode_id: str | None = None) -> dict:
     }
 
 
+def _is_current_schema(state: object) -> bool:
+    """True iff `state` matches the CURRENT (round 3+) schema closely enough
+    to trust its `alerted_failures`/`checks_ran` fields.
+
+    Deliberately simple: this monitor has never been installed for real
+    (#7006), so there is no real migration to support — only "don't crash on
+    a non-object JSON value" and "don't silently misread a pre-round-3
+    `{"alerted": {...}}` shape as if `alerted_failures` were merely empty."
+    Both a bare non-dict value and an old-schema dict lack a dict
+    `alerted_failures` and a list `checks_ran`, so this one check catches
+    both (round 4).
+    """
+    return isinstance(state, dict) and isinstance(
+        state.get("alerted_failures"), dict
+    ) and isinstance(state.get("checks_ran"), list)
+
+
+def _discard_unusable_state(path: Path, reason: str) -> None:
+    """Log and move an unusable state file aside — never delete it outright
+    (AGENTS.md). Called for both invalid JSON and a recognized-but-wrong
+    schema, so a garbage or stale file is only ever warned about once: the
+    next run sees no file at all and proceeds like any other first-ever run.
+    """
+    print(
+        f"{LABEL}: state file {path} is unusable ({reason}) — starting fresh "
+        "and moving it aside",
+        file=sys.stderr,
+    )
+    try:
+        send2trash(str(path))
+    except Exception as trash_exc:
+        print(
+            f"{LABEL}: could not trash unusable state file {path} "
+            f"({type(trash_exc).__name__}: {trash_exc})",
+            file=sys.stderr,
+        )
+
+
 def read_state(path: Path) -> dict | None:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        raw_text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
         return None
     except Exception as e:
-        # A corrupt or unreadable state file is treated as "no prior state"
-        # rather than crashing the job — see module docstring, constraint 1.
+        # An unreadable (not merely unparsable) state file — a permissions
+        # error, for instance — is treated as "no prior state" rather than
+        # crashing the job, but is NOT trashed: this monitor may simply lack
+        # permission to touch it, and trying to move it would just fail too.
         print(f"{LABEL}: state read failed ({type(e).__name__}: {e})", file=sys.stderr)
         return None
+
+    try:
+        state = json.loads(raw_text)
+    except Exception as e:
+        _discard_unusable_state(path, f"invalid JSON: {type(e).__name__}: {e}")
+        return None
+
+    if _is_current_schema(state):
+        return state
+
+    # Either a non-object JSON value (an array, a string, a bare number —
+    # `previous.get(...)` on any of those raises, which used to mean this
+    # monitor ran forever without ever successfully alerting or recovering,
+    # "stuck" behind an exit-0 exception every single run — constraint 1
+    # forbids that even though _safe_main's guard technically kept the exit
+    # code at 0) or a pre-round-3 `{"alerted": {...}}` schema (which would
+    # otherwise be silently read as "alerted_failures is empty," making an
+    # UNCHANGED failure look brand new and re-alert once for no real reason).
+    _discard_unusable_state(path, "not a recognized schema (pre-round-3 or non-object)")
+    return None
 
 
 def write_state(path: Path, state: dict) -> None:

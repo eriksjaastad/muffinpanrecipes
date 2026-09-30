@@ -78,12 +78,20 @@ Trash via `trash` — never `rm`, per this repo's hygiene rules.
   itself (the **"episode" group**, which runs whenever the episode fetch
   succeeds) — the title-collision check additionally needs the separately-
   fetched catalog (the **"catalog" group**, which runs only when that fetch
-  returns a usable list or dict). `checks_ran` records which groups actually
-  ran THIS cycle; `failures` is only what those checks actually observed.
-  A catalog fetch that failed OR came back in an unexpected shape means the
-  catalog group simply didn't run — it never blocks the episode group from
-  alerting on something new, and it never manufactures a "new" or "cleared"
-  failure purely from that flakiness (see "Alerting" below).
+  returns a payload matching EXACTLY the shape that check reads — a JSON
+  list of dict entries (each with a `title` field), or a dict wrapping such
+  a list under `"recipes"` — validated by `_valid_catalog()`). A response
+  that is present but the wrong shape — `{"error": "..."}`,
+  `{"recipes": "invalid"}`, a list of non-dict items, a dict with no
+  `"recipes"` key at all — is treated exactly like a fetch failure, not like
+  a usable empty catalog: round 4 found that a looser
+  `isinstance(..., list/dict)` check let every one of those coerce to `[]`
+  and "confirm" no title collision purely because the garbage payload
+  iterated to nothing. `checks_ran` records which groups
+  actually ran THIS cycle; `failures` is only what those checks actually
+  observed. A catalog group that didn't run never blocks the episode group
+  from alerting on something new, and never manufactures a "new" or
+  "cleared" failure purely from that flakiness (see "Alerting" below).
 
   `alerted_failures` is a `{failure id: failure text}` map of every failure
   covered by the last **confirmed** delivery (`send_alert` returned `True`).
@@ -107,6 +115,19 @@ Trash via `trash` — never `rm`, per this repo's hygiene rules.
   lock from a dead process is not a real state — the very next invocation
   acquires it immediately. If you ever need to confirm nothing is
   actually holding it, use `lsof <path>.lock` rather than removing the file.
+
+  **A state file that doesn't match the current schema is discarded, not
+  trusted.** `read_state` validates the loaded value: a dict with a dict
+  `alerted_failures` and a list `checks_ran` is trusted as-is; anything else
+  — non-JSON garbage, a bare JSON array/string/number, or a pre-round-3
+  `{"alerted": {...}}` shape — is logged to stderr and moved aside via
+  `send2trash` (never deleted), and the run proceeds exactly like a
+  fresh install with no prior state. This monitor has never been installed
+  for real, so there is no history worth protecting here; the one accepted
+  cost is that a fresh start may fire **one** alert for a pipeline that is
+  ALREADY degraded when that happens, since there is nothing on disk yet to
+  compare against. That is a one-time cost, not a bug, and not something to
+  "fix" by trying to guess at a stale file's meaning instead of discarding it.
 
 - **Logs**: `~/Library/Logs/muffinpan-pipeline-monitor/{stdout,stderr}.log`.
 
