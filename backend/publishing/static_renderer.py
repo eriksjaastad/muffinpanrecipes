@@ -678,11 +678,12 @@ def render_home(recipes: list[dict]) -> str:
                 if (!resp.ok) return;
                 const data = await resp.json();
 
-                if (data.status === 'week_off') {{
-                    document.getElementById('week-off-message').textContent =
-                        data.message || 'The kitchen took the week off — back next Sunday.';
+                // "Kitchen took the week off" note (#7630) — independent of
+                // whatever else this response carries. The cron already
+                // decided whether it's owed; this just shows it when present.
+                if (data.week_off_note && data.week_off_note.message) {{
+                    document.getElementById('week-off-message').textContent = data.week_off_note.message;
                     document.getElementById('week-off-note').hidden = false;
-                    return;
                 }}
 
                 if (data.status === 'no_episode' || !data.title) return;

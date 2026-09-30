@@ -12,7 +12,7 @@ the channel. The "healthy" cases below are the ones that keep it credible.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -23,10 +23,9 @@ from backend.utils.episode_integrity import (
     episode_page_is_due,
     episode_summary,
     parse_episode_id,
-    relevant_week_id,
+    previous_episode_id,
     stage_deadline,
     stages_due,
-    sunday_window_closed,
     week_off_note_due,
 )
 
@@ -321,52 +320,34 @@ def test_episode_page_is_due_never_raises_on_junk(episode):
 
 
 # ---------------------------------------------------------------------------
-# relevant_week_id / week_off_note_due — the homepage "kitchen took the
+# previous_episode_id / week_off_note_due — the homepage "kitchen took the
 # week off" note (#7630)
+#
+# Both are now cron-time-only helpers (see cron_routes._apply_week_off_note
+# and cron_sunday's own refuse-to-publish path): the note is decided once
+# when a cron runs and carried in whatever it writes to pages/latest.json,
+# never recomputed per homepage request. An earlier version of this feature
+# put a time-window check (`sunday_window_closed`/`relevant_week_id`) on the
+# READ path instead; that required an extra Blob read on most homepage views
+# to answer a question the cron already knows the answer to for free, so it
+# was removed along with these tests.
 # ---------------------------------------------------------------------------
 
-# W36 spans 2026-08-31 (Mon) through 2026-09-06 (Sun); its Sunday cron fires
-# 2026-09-06 00:00 UTC and STAGE_GRACE_MINUTES is 45. W35 (2026-08-24 through
-# 2026-08-30) is the week immediately before it; W37 (2026-09-07 through
-# 2026-09-13) immediately after.
-SUNDAY_W36_INSIDE_GRACE = datetime(2026, 9, 6, 0, 30, tzinfo=timezone.utc)
-SUNDAY_W36_WINDOW_CLOSED = datetime(2026, 9, 6, 1, 0, tzinfo=timezone.utc)
-MONDAY_W37_JUST_AFTER_ROLLOVER = datetime(2026, 9, 7, 0, 30, tzinfo=timezone.utc)
-FRIDAY_W37 = datetime(2026, 9, 11, 12, 0, tzinfo=timezone.utc)
+# W36 spans 2026-08-31 (Mon) through 2026-09-06 (Sun). W35 (2026-08-24
+# through 2026-08-30) is the week immediately before it.
+MONDAY_W36 = datetime(2026, 8, 31, 14, 30, tzinfo=timezone.utc)
 
 
-def test_sunday_window_closed_false_mid_week() -> None:
-    assert sunday_window_closed("2026-W36", now=SATURDAY_W36) is False
+def test_previous_episode_id_is_the_week_before() -> None:
+    assert previous_episode_id(now=MONDAY_W36) == "2026-W35"
+    assert previous_episode_id(now=SATURDAY_W36) == "2026-W35"
 
 
-def test_sunday_window_closed_false_inside_the_grace_period() -> None:
-    assert sunday_window_closed("2026-W36", now=SUNDAY_W36_INSIDE_GRACE) is False
-
-
-def test_sunday_window_closed_true_once_grace_elapses() -> None:
-    assert sunday_window_closed("2026-W36", now=SUNDAY_W36_WINDOW_CLOSED) is True
-
-
-def test_relevant_week_id_is_previous_week_mid_week() -> None:
-    """Monday through Saturday (and the first grace minutes of Sunday): THIS
-    week's own Sunday hasn't closed yet, so the relevant week — the most
-    recent one whose Sunday window HAS closed — is the one before it."""
-    assert relevant_week_id(now=SATURDAY_W36) == "2026-W35"
-    assert relevant_week_id(now=SUNDAY_W36_INSIDE_GRACE) == "2026-W35"
-
-
-def test_relevant_week_id_is_current_week_once_its_own_sunday_closes() -> None:
-    assert relevant_week_id(now=SUNDAY_W36_WINDOW_CLOSED) == "2026-W36"
-
-
-def test_relevant_week_id_survives_the_monday_rollover() -> None:
-    """The bug this fixes: current_episode_id() alone rolls to W37 the
-    instant the calendar hits Monday 00:00 UTC, which would hide W36's
-    failure to publish for the rest of the week. relevant_week_id() must
-    keep answering W36 straight through the rollover, all the way until
-    W37's OWN Sunday window closes in turn."""
-    assert relevant_week_id(now=MONDAY_W37_JUST_AFTER_ROLLOVER) == "2026-W36"
-    assert relevant_week_id(now=FRIDAY_W37) == "2026-W36"
+def test_previous_episode_id_rolls_forward_with_current_episode_id() -> None:
+    """Exactly one ISO week later, previous_episode_id must agree with what
+    current_episode_id said about the earlier date."""
+    one_week_later = SATURDAY_W36 + timedelta(days=7)
+    assert previous_episode_id(now=one_week_later) == current_episode_id(SATURDAY_W36)
 
 
 def test_week_off_note_due_when_unpublished() -> None:

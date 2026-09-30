@@ -21,24 +21,13 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from backend.publishing.analytics import GA4_TAG
 from backend.publishing.static_renderer import render_recipes_index, render_sitemap
 from backend.storage import storage
-from backend.utils.episode_integrity import (
-    current_episode_id,
-    episode_page_is_due,
-    relevant_week_id,
-    week_off_note_due,
-)
+from backend.utils.episode_integrity import current_episode_id, episode_page_is_due
 from backend.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
 # Two routers: one for the public page, one for the API
 router = APIRouter(tags=["episodes"])
-
-# Homepage-only, in-character note for a week that never published (#7630).
-# Never a standalone page and never a new route — see week_off_note_due for
-# exactly when this fires. Message text lives here (presentation), not in
-# episode_integrity (pure logic, no strings meant for readers).
-WEEK_OFF_MESSAGE = "The kitchen took the week off — back next Sunday."
 
 
 @router.get("/this-week")
@@ -100,17 +89,6 @@ async def this_week_page():
     )
 
 
-def _week_off_response(episode_id: str) -> JSONResponse:
-    return JSONResponse(
-        content={
-            "status": "week_off",
-            "episode_id": episode_id,
-            "message": WEEK_OFF_MESSAGE,
-        },
-        status_code=200,
-    )
-
-
 @router.get("/api/episodes/teaser")
 async def get_episode_teaser():
     """Return the latest episode teaser JSON for the main page.
@@ -121,61 +99,32 @@ async def get_episode_teaser():
     on the read side means a code deploy is enough to fix prod even
     if a stale `pages/latest.json` blob still says `stage: sunday`.
 
-    "Kitchen took the week off" note (#7630): owed when the most recently
-    CLOSED ISO week — relevant_week_id(), NOT current_episode_id() — never
-    published. current_episode_id() alone rolls over at Monday 00:00 UTC,
-    which would hide a failed week's note for the ~159 remaining hours of
-    the week it's meant to cover (an earlier version of this endpoint had
-    exactly that bug). relevant_week_id() stays on a failed week straight
-    through the Monday rollover until ITS successor's own Sunday closes.
-
-    Cost: `pages/latest.json` is already read on every call, below. When
-    that blob is unambiguously ABOUT the relevant week (its episode_id
-    matches) and never reached "sunday", the note is decided for free from
-    data already in hand — no extra read. That covers the failure's own
-    Sunday evening through the rest of that day. The rest of the time —
-    ordinary Monday-Saturday progress on a NEWER week has since overwritten
-    the blob, it holds an anonymous `{"status":"published"}` marker, or
-    there's no blob at all — this blob doesn't say either way, so this
-    falls back to `storage.load_episode(relevant_id)`. That call's existing
-    per-warm-Lambda in-memory cache means the real network read happens at
-    most once per (prefix, relevant week) per warm instance, not once per
-    request — relevant_id is a single fixed value for the whole ~6.5-day
-    span it covers.
+    "Kitchen took the week off" note (#7630): decided at CRON time, not
+    here. cron_routes._apply_week_off_note (Monday) and cron_sunday's own
+    refuse-to-publish path stamp a `week_off_note` field into whatever they
+    write to `pages/latest.json` when the previous week never published; a
+    successful Sunday publish's bare `{"status": "published"}` write never
+    carries it, which is what clears the note. This endpoint does zero
+    extra work and zero extra Blob reads to decide the note — an earlier
+    version tried to compute it here per request and needed a second Blob
+    read to do it correctly, which is both the wrong cost trade-off (a read
+    on every homepage view) and the wrong place to decide it (the read
+    path can't know things the cron already knows for free). It just
+    passes `week_off_note` through unchanged, exactly like every other
+    field in this blob, and `episode_id` stays whatever the current
+    episode's own teaser already carries — unchanged in every state, so
+    health_check's teaser check needs no special-casing for this feature.
     """
-    relevant_id = relevant_week_id()
-
     teaser_json = storage.load_page("pages/latest.json")
     if teaser_json:
         try:
             data = json.loads(teaser_json)
         except (ValueError, TypeError):
             data = None
-
-        if not isinstance(data, dict):
-            # Not valid JSON (or valid JSON that isn't an object) — surface
-            # it to the client rather than mask it behind a guess about the
-            # relevant week.
-            return Response(content=teaser_json, media_type="application/json")
-
-        if data.get("stage") == "sunday":
+        if isinstance(data, dict) and data.get("stage") == "sunday":
             return JSONResponse(content={"status": "published"}, status_code=200)
-
-        if data.get("episode_id") == relevant_id:
-            # This blob IS about the relevant week and it never reached
-            # "sunday" above: that week's Sunday closed without a publish.
-            return _week_off_response(relevant_id)
-
-        # This blob doesn't say either way (see docstring) — check the
-        # relevant week's own record.
-        episode = storage.load_episode(relevant_id)
-        if week_off_note_due(episode):
-            return _week_off_response(relevant_id)
         return Response(content=teaser_json, media_type="application/json")
 
-    episode = storage.load_episode(relevant_id)
-    if week_off_note_due(episode):
-        return _week_off_response(relevant_id)
     return JSONResponse(content={"status": "no_episode"}, status_code=200)
 
 

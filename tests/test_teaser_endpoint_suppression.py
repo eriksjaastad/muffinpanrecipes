@@ -1,19 +1,17 @@
-"""Read-side suppression of the Sunday teaser, and the #7630 "kitchen took
-the week off" homepage note.
+"""Read-side suppression of the Sunday teaser.
 
 The /api/episodes/teaser endpoint must hide the teaser whenever the loaded
 blob payload represents a Sunday-published episode. This is the authoritative
 check — read-side suppression means a code deploy alone fixes prod, even when
 `pages/latest.json` still has stale Sunday data from before the writer fix.
 
-It must also decide, from real data, whether the RELEVANT week (the most
-recently CLOSED Sunday window — see relevant_week_id in episode_integrity.py,
-NOT necessarily the current ISO week) ever published, and show the
-"kitchen took the week off" note when it didn't — without adding an
-unconditional extra Blob read to every homepage view. Route-level tests below
-patch `relevant_week_id` directly rather than reconstructing it from a real
-clock; its own time arithmetic (including surviving the Monday rollover) is
-unit-tested in test_episode_integrity.py.
+The #7630 "kitchen took the week off" note is decided at CRON time (see
+tests/test_cron_week_off_note.py and the week_off_note-forwarding tests in
+tests/test_teaser_suppression.py) and simply passes through here like any
+other field in the blob — this endpoint does no extra work and no extra Blob
+reads to decide it, so it has no tests of its own beyond confirming the
+passthrough is unconditional (see test_week_off_note_field_passes_through
+below).
 """
 
 import asyncio
@@ -33,8 +31,6 @@ def _body(response) -> dict:
 
 
 def test_sunday_stage_blob_is_suppressed():
-    """The legacy pre-#7403 writer format still gets suppressed, regardless
-    of the relevant week — this check runs before anything week-off related."""
     sunday_blob = json.dumps({
         "episode_id": "2026-W18",
         "title": "Maple Hash Brown Nests",
@@ -48,9 +44,6 @@ def test_sunday_stage_blob_is_suppressed():
 
 
 def test_pre_sunday_stage_blob_passes_through():
-    """A normal mid-week teaser for the CURRENT week (episode_id 2026-W18,
-    Saturday stage) passes through unchanged when the RELEVANT (previous,
-    already-closed) week published fine — the common, healthy case."""
     saturday_blob = json.dumps({
         "episode_id": "2026-W18",
         "title": "Maple Hash Brown Nests",
@@ -58,12 +51,7 @@ def test_pre_sunday_stage_blob_passes_through():
         "stage_label": "Saturday &middot; Deployment",
         "character": "Devon Park",
     })
-    with patch.object(episode_routes, "relevant_week_id", return_value="2026-W17"), \
-         patch.object(
-             episode_routes.storage, "load_episode",
-             return_value={"published_at": "2026-08-30T00:10:00+00:00"},
-         ), \
-         patch.object(episode_routes.storage, "load_page", return_value=saturday_blob):
+    with patch.object(episode_routes.storage, "load_page", return_value=saturday_blob):
         response = _call()
     body = _body(response)
     assert body["title"] == "Maple Hash Brown Nests"
@@ -72,129 +60,51 @@ def test_pre_sunday_stage_blob_passes_through():
 
 def test_published_status_blob_passes_through():
     """Once the writer-side fix runs, the blob holds {"status":"published"}.
-    That carries no episode_id, so it can't be matched to the relevant week
-    directly; when the relevant week's own record confirms it published, the
-    reader passes the blob through unchanged — frontend already hides on
-    missing title."""
+    The reader should pass that through unchanged — frontend already hides
+    on missing title."""
     published_blob = json.dumps({"status": "published"})
-    with patch.object(episode_routes, "relevant_week_id", return_value="2026-W17"), \
-         patch.object(
-             episode_routes.storage, "load_episode",
-             return_value={"published_at": "2026-08-30T00:10:00+00:00"},
-         ), \
-         patch.object(episode_routes.storage, "load_page", return_value=published_blob):
+    with patch.object(episode_routes.storage, "load_page", return_value=published_blob):
         response = _call()
     assert _body(response) == {"status": "published"}
 
 
-def test_missing_blob_with_relevant_week_published_returns_no_episode():
-    """Route-wiring coverage for the no_episode branch: no pages/latest.json
-    at all, but the relevant week's own record says it published. (In
-    practice a publish always writes latest.json, so this combination is
-    hypothetical — this exercises the explicit else branch.)"""
-    with patch.object(
-        episode_routes.storage, "load_episode",
-        return_value={"published_at": "2026-08-30T00:10:00+00:00"},
-    ), patch.object(episode_routes.storage, "load_page", return_value=None):
+def test_missing_blob_returns_no_episode():
+    with patch.object(episode_routes.storage, "load_page", return_value=None):
         response = _call()
     assert _body(response) == {"status": "no_episode"}
 
 
 def test_malformed_blob_passes_through_to_client():
-    """If the blob isn't valid JSON, don't suppress and don't guess about the
-    relevant week — let the client see the raw bytes and surface the problem
-    rather than silently hiding it. No episode Blob read is needed or made."""
-    with patch.object(episode_routes.storage, "load_episode") as load_episode, \
-         patch.object(episode_routes.storage, "load_page", return_value="not-json{"):
+    """If the blob isn't valid JSON, don't suppress — let the client see the
+    raw bytes and surface the problem rather than silently hiding it."""
+    with patch.object(episode_routes.storage, "load_page", return_value="not-json{"):
         response = _call()
-    load_episode.assert_not_called()
     assert response.body == b"not-json{"
 
 
-# ---------------------------------------------------------------------------
-# "Kitchen took the week off" homepage note (#7630)
-# ---------------------------------------------------------------------------
-
-def test_week_off_note_shown_from_latest_json_alone_with_no_extra_read():
-    """When pages/latest.json is unambiguously ABOUT the relevant week (its
-    episode_id matches) and never reached "sunday", the note is decided for
-    free from data already in hand — this is the Sunday-evening-of-a-failed-
-    week case, and it costs zero extra Blob reads."""
+def test_week_off_note_field_passes_through_unconditionally():
+    """#7630: the note is decided at cron time and merely forwarded here.
+    No extra Blob read: storage.load_episode is never called by this route
+    at all any more."""
     stalled_blob = json.dumps({
-        "episode_id": "2026-W40",
-        "title": "Placeholder",
-        "stage": "tuesday",
+        "episode_id": "2026-W41",
+        "title": "Next Week's Recipe",
+        "stage": "monday",
+        "week_off_note": {
+            "message": "The kitchen took the week off — back next Sunday.",
+            "missed_week": "2026-W40",
+        },
     })
-    with patch.object(episode_routes, "relevant_week_id", return_value="2026-W40"), \
-         patch.object(episode_routes.storage, "load_episode") as load_episode, \
+    with patch.object(episode_routes.storage, "load_episode") as load_episode, \
          patch.object(episode_routes.storage, "load_page", return_value=stalled_blob):
         response = _call()
     load_episode.assert_not_called()
-    assert _body(response) == {
-        "status": "week_off",
-        "episode_id": "2026-W40",
-        "message": episode_routes.WEEK_OFF_MESSAGE,
-    }
-
-
-def test_week_off_note_shown_via_relevant_week_fallback_when_unpublished():
-    """The bug this fixes: pages/latest.json has already moved on to a NEWER
-    week's own progress (Monday of the week after the failure), but the
-    RELEVANT (most recently closed) week's own record says it never
-    published. The note must still show — not the newer week's teaser, and
-    not silence — proving the Monday rollover doesn't hide a failed week."""
-    newer_week_blob = json.dumps({
-        "episode_id": "2026-W41",
-        "title": "Next Week's Recipe",
-        "stage": "monday",
-    })
-    with patch.object(episode_routes, "relevant_week_id", return_value="2026-W40"), \
-         patch.object(episode_routes.storage, "load_episode", return_value=None) as load_episode, \
-         patch.object(episode_routes.storage, "load_page", return_value=newer_week_blob):
-        response = _call()
-    load_episode.assert_called_once_with("2026-W40")
-    assert _body(response) == {
-        "status": "week_off",
-        "episode_id": "2026-W40",
-        "message": episode_routes.WEEK_OFF_MESSAGE,
-    }
-
-
-def test_week_off_note_shown_for_a_fully_paused_week_with_no_episode_file():
-    """No pages/latest.json at all AND the relevant week's episode record
-    doesn't exist either — a week that never even got as far as Monday's
-    cron creating it. The homepage still owes the note, not a bare
-    no_episode."""
-    with patch.object(episode_routes, "relevant_week_id", return_value="2026-W40"), \
-         patch.object(episode_routes.storage, "load_episode", return_value=None), \
-         patch.object(episode_routes.storage, "load_page", return_value=None):
-        response = _call()
-    assert _body(response) == {
-        "status": "week_off",
-        "episode_id": "2026-W40",
-        "message": episode_routes.WEEK_OFF_MESSAGE,
-    }
-
-
-def test_week_off_note_hidden_once_the_relevant_week_publishes():
-    """The relevant week's own record shows it DID publish — the note must
-    not show, and a newer week's own in-progress teaser passes through
-    unchanged. The note disappears automatically; nothing to flip back."""
-    newer_week_blob = json.dumps({
-        "episode_id": "2026-W41",
-        "title": "Next Week's Recipe",
-        "stage": "monday",
-    })
-    with patch.object(episode_routes, "relevant_week_id", return_value="2026-W40"), \
-         patch.object(
-             episode_routes.storage, "load_episode",
-             return_value={"published_at": "2026-10-04T00:10:00+00:00"},
-         ), \
-         patch.object(episode_routes.storage, "load_page", return_value=newer_week_blob):
-        response = _call()
     body = _body(response)
+    assert body["week_off_note"] == {
+        "message": "The kitchen took the week off — back next Sunday.",
+        "missed_week": "2026-W40",
+    }
     assert body["episode_id"] == "2026-W41"
-    assert body["stage"] == "monday"
 
 
 def test_week_off_note_adds_no_new_route():

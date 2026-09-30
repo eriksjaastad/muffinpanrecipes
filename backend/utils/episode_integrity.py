@@ -25,6 +25,13 @@ from datetime import date, datetime, timedelta, timezone
 # defense. cron_routes imports this so there is exactly one copy.
 PLACEHOLDER_CONCEPT = "Weekly Muffin Pan Recipe"
 
+# In-character homepage note for a week that never published (#7630). Set at
+# CRON time (see cron_routes._apply_week_off_note) and carried in whatever
+# the cron writes to pages/latest.json — never computed per homepage
+# request. cron_routes and episode_routes both import this so there is
+# exactly one copy.
+WEEK_OFF_MESSAGE = "The kitchen took the week off — back next Sunday."
+
 DAY_ORDER = [
     "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
 ]
@@ -87,52 +94,31 @@ def stages_due(
     return [d for d in DAY_ORDER if now >= stage_deadline(episode_id, d) + grace]
 
 
-def sunday_window_closed(episode_id: str, now: datetime | None = None) -> bool:
-    """True once `episode_id`'s ISO week's Sunday cron window has passed.
+def previous_episode_id(now: datetime | None = None) -> str:
+    """ISO week id of the week immediately before the current one.
 
-    "Passed" means the same thing it means everywhere else in this module:
-    the scheduled cron time plus STAGE_GRACE_MINUTES, so a Sunday publish
-    that is merely running long (dialogue + the editorial QA retry loop can
-    take several minutes) isn't declared missing before it's actually
-    overdue.
+    Subtracting exactly 7 days always lands in the previous Monday-Sunday
+    ISO week, since ISO weeks are fixed 7-day blocks. Used at Monday cron
+    time (#7630) to check whether the week that just ended published: by the
+    time Monday's cron fires, that week's own Sunday window has necessarily
+    already closed, so no separate "is the window closed" check is needed —
+    unlike a homepage request, which can land at any moment mid-week.
     """
     now = now or datetime.now(timezone.utc)
-    return now >= stage_deadline(episode_id, "sunday") + timedelta(minutes=STAGE_GRACE_MINUTES)
-
-
-def relevant_week_id(now: datetime | None = None) -> str:
-    """ISO week id of the most recently CLOSED Sunday cron window (#7630).
-
-    NOT simply `current_episode_id()`: ISO weeks roll over at Monday 00:00
-    UTC, but a week's failure to publish is still the most recent news for
-    the rest of the following week. Using the current week alone would make
-    the "kitchen took the week off" note vanish the instant the calendar
-    flips to Monday — showing for the ~9 hours between Sunday's cron window
-    closing and midnight, then going silent for the other ~159 hours of the
-    week it's meant to cover. This returns the CURRENT ISO week once ITS OWN
-    Sunday window has closed (the rest of Sunday), and the PREVIOUS ISO week
-    the rest of the time (Monday through Saturday, and the first
-    STAGE_GRACE_MINUTES of Sunday) — so a failed week keeps being "the
-    relevant week" straight through the Monday rollover until its own
-    successor's Sunday closes in turn.
-    """
-    now = now or datetime.now(timezone.utc)
-    current_id = current_episode_id(now)
-    if sunday_window_closed(current_id, now=now):
-        return current_id
     return current_episode_id(now - timedelta(days=7))
 
 
 def week_off_note_due(episode: object) -> bool:
-    """True when the homepage owes the "kitchen took the week off" note (#7630)
-    for the relevant week (see `relevant_week_id`): `episode` — the caller's
-    own `storage.load_episode(relevant_week_id())` read — is missing or has
-    no `published_at`.
+    """True when a week owes the "kitchen took the week off" note (#7630):
+    `episode` is missing or has no `published_at`.
 
-    Decided from real data both ways, never a manual flag: the note stops
-    being due the instant `published_at` is set on that week's episode —
-    whichever request notices that first just stops returning it, with
-    nothing to remember to flip back.
+    Pure and cheap on purpose — this used to also decide WHEN to ask the
+    question (a time-window check against the homepage request clock), which
+    meant the answer had to be recomputed on every homepage view. It is now
+    decided once, at cron time (cron_routes._apply_week_off_note, and
+    cron_sunday's own refuse-to-publish path), and carried in whatever the
+    cron writes to pages/latest.json — this function is only ever called
+    from cron code now, not from the read path.
     """
     return not (isinstance(episode, dict) and episode.get("published_at"))
 

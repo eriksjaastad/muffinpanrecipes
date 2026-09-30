@@ -1313,7 +1313,17 @@ def regenerate_and_upload(episode: dict, *, strict: bool = False) -> str | None:
         # Once Sunday publishes, the recipe becomes the homepage Featured hero
         # (top of recipes.json), so the teaser must step aside to avoid the
         # same recipe appearing twice. Frontend hides on missing title.
+        #
+        # week_off_note (#7630): a "kitchen took the week off" note that
+        # cron_routes._apply_week_off_note (Monday) or cron_sunday's own
+        # refuse-to-publish path stamps onto `episode` when the PREVIOUS
+        # week never published. It is decided at cron time, never here or
+        # on the read path — this just forwards whatever is already on
+        # `episode` into whichever pages/latest.json shape this call
+        # writes. The published branch below never looks at it, which is
+        # what clears the note the moment a week actually publishes.
         sunday_complete = episode.get("stages", {}).get("sunday", {}).get("status") == "complete"
+        week_off_note = episode.get("week_off_note")
         if sunday_complete:
             storage.save_page("pages/latest.json", json.dumps({"status": "published"}))
             logger.info("Cleared teaser: Sunday published, recipe is now Featured hero")
@@ -1321,9 +1331,23 @@ def regenerate_and_upload(episode: dict, *, strict: bool = False) -> str | None:
             teaser = get_latest_teaser(episode)
             if teaser:
                 teaser["page_url"] = "/this-week"
+                if week_off_note:
+                    teaser["week_off_note"] = week_off_note
                 teaser_json = json.dumps(teaser)
                 storage.save_page("pages/latest.json", teaser_json)
                 logger.info(f"Uploaded teaser: {teaser.get('title', '?')}")
+            elif week_off_note:
+                # No dialogue yet to build a normal teaser from (e.g. right
+                # after Sunday's own refuse-to-publish path fires before any
+                # dialogue exists for a brand new week), but the note itself
+                # must still reach the homepage. episode_id keeps this
+                # consistent with health_check's teaser check, which expects
+                # it in every non-"published" state.
+                storage.save_page(
+                    "pages/latest.json",
+                    json.dumps({"episode_id": episode_id, "week_off_note": week_off_note}),
+                )
+                logger.info("Uploaded week_off_note with no teaser content available")
 
         return url
     except Exception as e:

@@ -139,6 +139,11 @@ def _verify_cron_secret(request: Request) -> None:
 # literal this module writes.
 PLACEHOLDER_CONCEPT = episode_integrity.PLACEHOLDER_CONCEPT
 
+# In-character homepage note for a week that never published (#7630).
+# Defined in episode_integrity so episode_routes' read path and this
+# module's write path share exactly one copy of the text.
+WEEK_OFF_MESSAGE = episode_integrity.WEEK_OFF_MESSAGE
+
 # Temporary containment for the remainder of W39. This applies only to
 # authenticated scheduled GETs; manual POST recovery remains available.
 _SCHEDULED_PAUSE_EPISODE_ID = "2026-W39"
@@ -202,6 +207,38 @@ def _load_or_create_episode(episode_id: str, concept: str) -> dict:
         "events": [],
         "recipe_id": None,
     }
+
+
+def _apply_week_off_note(ep: dict, *, now: datetime | None = None) -> None:
+    """Stamp `ep` with a "kitchen took the week off" note when the week
+    that just ended never published (#7630).
+
+    Decided ONCE, at the start of Monday's cron — by then the previous
+    week's Sunday window has necessarily already closed (see
+    episode_integrity.previous_episode_id), so this is a plain
+    `published_at` check, no time-window arithmetic. Stored on the CURRENT
+    week's episode itself, not written straight to pages/latest.json:
+    every later stage this week that calls regenerate_and_upload reads it
+    off this same `ep` (reloaded from storage each time), so it carries
+    forward through Tuesday-Saturday for free, and through a Monday retry
+    on a warm Lambda for the same reason. A successful Sunday publish never
+    looks at this field at all (its write is a bare
+    ``{"status": "published"}``), which is what clears the note.
+
+    Only ever called from inside a cron handler's `_test_mode_scope(body)`
+    block, so it reads and writes through whatever prefix (`""` or
+    `"test/"`) that handler already established — a test-mode Monday can
+    only ever see test-prefixed data here, never the prod previous week.
+
+    `now` is test-only (defaults to the real clock); production callers
+    never pass it.
+    """
+    previous_id = episode_integrity.previous_episode_id(now=now)
+    previous_episode = storage.load_episode(previous_id)
+    if episode_integrity.week_off_note_due(previous_episode):
+        ep["week_off_note"] = {"message": WEEK_OFF_MESSAGE, "missed_week": previous_id}
+    else:
+        ep.pop("week_off_note", None)
 
 
 # Cap for the texture/identity anchor in _build_recipe_context (#7104). Long
@@ -2450,6 +2487,7 @@ async def cron_monday(request: Request):
     with _test_mode_scope(body):
       episode_id = body.episode_id or _current_episode_id()
       ep = _load_or_create_episode(episode_id, body.concept or PLACEHOLDER_CONCEPT)
+      _apply_week_off_note(ep)
 
       # W15 narrative injection: characters discover the "Party" category
       injected_event: str | None = None
@@ -2915,6 +2953,20 @@ async def cron_sunday(request: Request):
         for day in required_stages:
             stage_status = ep.get("stages", {}).get(day, {}).get("status")
             if stage_status != "complete":
+                # #7630: this IS the week's Sunday window closing without a
+                # publish — the card's own motivating case — so set the
+                # "kitchen took the week off" note right here rather than
+                # waiting for next Monday's cron to notice it. Every OTHER
+                # way Sunday can fail to publish (an uncaught exception
+                # later in this stage, after this check passes) is instead
+                # picked up by next Monday's _apply_week_off_note, same as
+                # any other failure mode — duplicating this for every
+                # failure surface inside the stage would not be simple.
+                ep["week_off_note"] = {
+                    "message": WEEK_OFF_MESSAGE, "missed_week": episode_id,
+                }
+                storage.save_episode(episode_id, ep)
+                regenerate_and_upload(ep)
                 raise HTTPException(
                     status_code=400,
                     detail=f"Cannot publish: {day} stage incomplete (status={stage_status!r})",
