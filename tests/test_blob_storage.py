@@ -644,6 +644,58 @@ class TestJpegFallbackKey:
         )
 
 
+class TestSourcePngKey:
+    """_source_png_key (#7185 review round 2, HIGH) — the inverse of every
+    sibling-key builder above. Anything reading a hero identity back out of
+    rendered HTML (scripts/pin_published_heroes.py) must route through this
+    before storing it, or a JPEG/WebP URL can get permanently pinned as the
+    hero's "source PNG"."""
+
+    def test_jpeg_fallback_inverts_to_source_png(self):
+        from backend.storage import JPEG_FALLBACK_WIDTH, _source_png_key
+
+        assert _source_png_key(f"images/recipe/hero-{JPEG_FALLBACK_WIDTH}w.jpg") == (
+            "images/recipe/hero.png"
+        )
+
+    def test_webp_width_variant_inverts_to_source_png(self):
+        from backend.storage import _source_png_key
+
+        assert _source_png_key("images/recipe/hero-400w.webp") == "images/recipe/hero.png"
+        assert _source_png_key("images/recipe/hero-800w.webp") == "images/recipe/hero.png"
+
+    def test_full_size_webp_inverts_to_source_png(self):
+        from backend.storage import _source_png_key
+
+        assert _source_png_key("images/recipe/hero.webp") == "images/recipe/hero.png"
+
+    def test_social_jpeg_inverts_to_source_png(self):
+        from backend.storage import _source_png_key
+
+        assert _source_png_key("images/recipe/hero.social.jpg") == "images/recipe/hero.png"
+
+    def test_png_key_passes_through_unchanged(self):
+        """Deliberately does NOT also canonicalize a Vercel suffix here —
+        this is the inverse of the sibling-key builders, not a second copy
+        of _canonical_png_key's job, and scripts/pin_published_heroes.py
+        already round-trips a suffixed PNG unchanged."""
+        from backend.storage import _source_png_key
+
+        assert _source_png_key("images/recipe/hero.png") == "images/recipe/hero.png"
+        assert _source_png_key("images/abc-9VSOT4SGhaUDoAUDM3kZPqxd3.png") == (
+            "images/abc-9VSOT4SGhaUDoAUDM3kZPqxd3.png"
+        )
+
+    def test_unrecognized_format_passes_through_unchanged(self):
+        """A seed .webp with no PNG sibling at all must not be rewritten to
+        a PNG key that was never uploaded."""
+        from backend.storage import _source_png_key
+
+        assert _source_png_key("classic-blueberry-muffins.jpeg") == (
+            "classic-blueberry-muffins.jpeg"
+        )
+
+
 class TestEncodeJpegFallback:
     """_encode_jpeg_fallback resizing (#7185)."""
 

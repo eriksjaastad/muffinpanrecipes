@@ -622,11 +622,15 @@ class TestHeroJpegFallback:
         assert 'src="/blob-images/foo/hero.png"' in html
         assert "-1200w.jpg" not in html
 
-    def test_img_dimensions_reflect_the_jpeg_siblings_real_size_not_the_source(self):
-        """#7185 review, MEDIUM: the source is treated as 1536x1536 (the
-        generated-photography default), but the JPEG sibling is 1200 wide —
-        width/height must say 1200x1200, not the source's 1536x1536, or the
-        browser reserves the wrong box and the image jumps on load."""
+    def test_img_dimensions_omit_height_when_the_real_source_size_is_unknown(self):
+        """#7185 review round 2, MEDIUM: a genuine Blob CDN source has no
+        local file to measure, so its real aspect ratio is NOT knowable at
+        render time — _image_dimensions' 1536x1536 generated-photography
+        default is a guess, not a measurement, and scaling a guess produces
+        a height that is flatly wrong for any source that isn't actually
+        square. The <img> must omit height rather than assert one that
+        might be false; width alone (1200, exact — the JPEG's real width by
+        construction) is still emitted."""
         from backend.publishing import episode_renderer
 
         with patch.object(
@@ -636,8 +640,32 @@ class TestHeroJpegFallback:
                 self._episode(), image_url="/blob-images/foo/hero.png",
             )
 
-        assert 'src="/blob-images/foo/hero-1200w.jpg" width="1200" height="1200"' in html
+        assert 'src="/blob-images/foo/hero-1200w.jpg" width="1200"' in html
         assert 'width="1536"' not in html
+        assert 'height="1200"' not in html
+        assert 'height="1536"' not in html
+
+    def test_img_dimensions_use_the_real_aspect_ratio_when_it_is_known(self):
+        """A source whose true pixel size CAN be measured (a local asset,
+        not a Blob CDN guess) must get the real, non-square scaled height —
+        proving the fix is "use real dimensions when available", not just
+        "never emit a height" (#7185 review round 2, MEDIUM)."""
+        from backend.publishing import episode_renderer
+
+        with (
+            patch.object(
+                episode_renderer.storage, "jpeg_fallback_available", return_value=True
+            ),
+            patch(
+                "backend.publishing.episode_renderer._known_image_dimensions",
+                return_value=(1600, 800),
+            ),
+        ):
+            html = episode_renderer.render_episode_page(
+                self._episode(), image_url="/blob-images/foo/hero.png",
+            )
+
+        assert 'src="/blob-images/foo/hero-1200w.jpg" width="1200" height="600"' in html
 
     def test_suffixed_historical_hero_gets_a_working_jpeg_fallback(self):
         """End-to-end version of the probe/render agreement regression test:
@@ -673,10 +701,16 @@ class TestHeroJpegFallback:
 
 
 class TestJpegFallbackDimensions:
-    """_jpeg_fallback_dimensions (#7185 review, MEDIUM) — real pixel size of
-    the sized JPEG sibling, derived from the source's aspect ratio."""
+    """_jpeg_fallback_dimensions (#7185 review round 2, MEDIUM) — real pixel
+    size of the sized JPEG sibling when the source's true aspect ratio is
+    knowable, else no fabricated height."""
 
-    def test_square_source_scales_to_fallback_width(self):
+    def test_unknowable_blob_source_omits_height(self):
+        """A genuine Blob CDN path (the common case — generated photography,
+        not a seed asset) has no local file to measure. _image_dimensions'
+        1536x1536 default for that case is a GUESS, not a measurement, so
+        scaling it would be flatly wrong for any source that isn't actually
+        square — height must be omitted instead."""
         from backend.publishing.episode_renderer import (
             JPEG_FALLBACK_WIDTH,
             _jpeg_fallback_dimensions,
@@ -684,32 +718,67 @@ class TestJpegFallbackDimensions:
 
         assert _jpeg_fallback_dimensions("/blob-images/abc/hero.png") == (
             JPEG_FALLBACK_WIDTH,
-            JPEG_FALLBACK_WIDTH,
+            None,
         )
 
-    def test_non_square_source_aspect_ratio_preserved(self):
-        from backend.publishing.episode_renderer import _jpeg_fallback_dimensions
-
-        with patch(
-            "backend.publishing.episode_renderer._image_dimensions",
-            return_value=(1600, 800),
-        ):
-            assert _jpeg_fallback_dimensions("/blob-images/abc/hero.png") == (1200, 600)
-
-    def test_zero_width_source_falls_back_to_a_square(self):
+    def test_known_square_source_scales_to_fallback_width(self):
         from backend.publishing.episode_renderer import (
             JPEG_FALLBACK_WIDTH,
             _jpeg_fallback_dimensions,
         )
 
         with patch(
-            "backend.publishing.episode_renderer._image_dimensions",
-            return_value=(0, 500),
+            "backend.publishing.episode_renderer._known_image_dimensions",
+            return_value=(1536, 1536),
         ):
-            assert _jpeg_fallback_dimensions("/blob-images/abc/hero.png") == (
+            assert _jpeg_fallback_dimensions("/assets/images/hero.png") == (
                 JPEG_FALLBACK_WIDTH,
                 JPEG_FALLBACK_WIDTH,
             )
+
+    def test_known_non_square_source_aspect_ratio_preserved(self):
+        """The core round-2 regression case: a real, measurable 2:1 source
+        must produce a real, non-square scaled height (1200x600), not the
+        1200x1200 the old guess-based implementation emitted for EVERY
+        source regardless of its actual shape."""
+        from backend.publishing.episode_renderer import _jpeg_fallback_dimensions
+
+        with patch(
+            "backend.publishing.episode_renderer._known_image_dimensions",
+            return_value=(1600, 800),
+        ):
+            assert _jpeg_fallback_dimensions("/assets/images/hero.png") == (1200, 600)
+
+    def test_known_zero_width_source_omits_height(self):
+        from backend.publishing.episode_renderer import (
+            JPEG_FALLBACK_WIDTH,
+            _jpeg_fallback_dimensions,
+        )
+
+        with patch(
+            "backend.publishing.episode_renderer._known_image_dimensions",
+            return_value=(0, 500),
+        ):
+            assert _jpeg_fallback_dimensions("/assets/images/hero.png") == (
+                JPEG_FALLBACK_WIDTH,
+                None,
+            )
+
+
+class TestFormatDimensionAttrs:
+    """_format_dimension_attrs (#7185 review round 2) — height is omitted,
+    not guessed, when the caller could not determine the real value."""
+
+    def test_both_present(self):
+        from backend.publishing.episode_renderer import _format_dimension_attrs
+
+        assert _format_dimension_attrs(1200, 900) == 'width="1200" height="900"'
+
+    def test_none_height_omits_the_attribute_entirely(self):
+        from backend.publishing.episode_renderer import _format_dimension_attrs
+
+        assert _format_dimension_attrs(1200, None) == 'width="1200"'
+        assert "height" not in _format_dimension_attrs(1200, None)
 
 
 class TestGallerySrcsetWithVariantsAvailable:

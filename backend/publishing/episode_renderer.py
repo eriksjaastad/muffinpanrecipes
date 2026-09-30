@@ -64,13 +64,14 @@ _SOCIAL_IMAGE_SAFE_EXTENSIONS = (".png", ".jpg", ".jpeg")
 _GENERATED_IMAGE_DIMENSIONS = (1536, 1536)
 
 
-def _image_dimensions(image_url: str) -> tuple[int, int]:
-    """Return the intrinsic dimensions for a rendered image.
+def _known_image_dimensions(image_url: str) -> tuple[int, int] | None:
+    """Real intrinsic dimensions when they can be measured, else None.
 
-    Seed images are checked from the repository so the attributes stay true if
-    an asset is replaced. Generated photography lives in Blob and is produced
-    at 1536x1536 by the Nano Banana path; that measured production dimension is
-    the safe fallback when only a public URL is available to the renderer.
+    Only a local seed/generated asset under /assets/ can actually be opened
+    and measured — a genuine Blob CDN path has no local file to read, so its
+    true pixel size is not knowable here without downloading the image.
+    Returns None in that case rather than a guess; _image_dimensions below
+    is the guessing wrapper for callers that need SOME number regardless.
     """
     path = image_url.split("?", 1)[0].split("#", 1)[0]
     if path.startswith("/assets/"):
@@ -85,11 +86,29 @@ def _image_dimensions(image_url: str) -> tuple[int, int]:
                 logger.warning("Could not read intrinsic dimensions for %s", asset_path)
         else:
             logger.warning("Local asset for intrinsic dimensions was not found: %s", asset_path)
-    return _GENERATED_IMAGE_DIMENSIONS
+    return None
 
 
-def _format_dimension_attrs(width: int, height: int) -> str:
-    """Format a pixel size as ``width``/``height`` attributes for an ``img``."""
+def _image_dimensions(image_url: str) -> tuple[int, int]:
+    """Return the intrinsic dimensions for a rendered image.
+
+    Seed images are checked from the repository so the attributes stay true if
+    an asset is replaced. Generated photography lives in Blob and is produced
+    at 1536x1536 by the Nano Banana path; that measured production dimension is
+    the safe fallback when only a public URL is available to the renderer.
+    """
+    return _known_image_dimensions(image_url) or _GENERATED_IMAGE_DIMENSIONS
+
+
+def _format_dimension_attrs(width: int, height: int | None) -> str:
+    """Format a pixel size as ``width``/``height`` attributes for an ``img``.
+
+    ``height`` is omitted entirely when the caller could not determine the
+    real value (#7185 review) — an omitted attribute is honest; a guessed
+    one that turns out wrong is a layout-shift bug wearing a passing test.
+    """
+    if height is None:
+        return f'width="{width}"'
     return f'width="{width}" height="{height}"'
 
 
@@ -99,25 +118,29 @@ def _intrinsic_image_attributes(image_url: str) -> str:
     return _format_dimension_attrs(width, height)
 
 
-def _jpeg_fallback_dimensions(png_url: str) -> tuple[int, int]:
+def _jpeg_fallback_dimensions(png_url: str) -> tuple[int, int | None]:
     """Real pixel dimensions of the sized JPEG <img>-fallback sibling (#7185 review).
 
     storage._encode_jpeg_fallback resizes to JPEG_FALLBACK_WIDTH, aspect
     ratio preserved from the source PNG (same LANCZOS width-only resize as
     the WebP width variants) — it never inherits the source's own
-    dimensions. _image_dimensions(image_url) on the JPEG's own URL would
-    still report the source PNG's intrinsic size (1536x1536 for generated
-    photography, since dimensions are keyed by path shape, not by decoding
-    the actual sibling), so an <img> pointed at the 1200w JPEG must compute
-    its width/height from the SOURCE's aspect ratio scaled to the fallback
-    width, not reuse the source's raw dimensions. A wrong width/height here
-    reserves the wrong aspect ratio and the image jumps on load — a real
-    layout-shift regression, not just an inaccurate attribute (MEDIUM
-    finding on #7185).
+    dimensions, so the width is always exactly JPEG_FALLBACK_WIDTH (that part
+    is certain). The height depends on the SOURCE's real aspect ratio, which
+    _image_dimensions can only measure for a local /assets/ file; for a
+    genuine Blob CDN source (the common case — generated photography, not a
+    seed asset) _image_dimensions falls back to a 1536x1536 GUESS, and
+    scaling a guess produces a height that can be flatly wrong for any
+    source that isn't actually square (MEDIUM finding on #7185 review round
+    2). So this uses _known_image_dimensions instead: when the real aspect
+    ratio is measurable, compute the real scaled height; when it is not,
+    return None rather than a fabricated number — see _format_dimension_attrs.
     """
-    orig_width, orig_height = _image_dimensions(png_url)
+    known = _known_image_dimensions(png_url)
+    if known is None:
+        return (JPEG_FALLBACK_WIDTH, None)
+    orig_width, orig_height = known
     if orig_width <= 0:
-        return (JPEG_FALLBACK_WIDTH, JPEG_FALLBACK_WIDTH)
+        return (JPEG_FALLBACK_WIDTH, None)
     height = max(1, round(orig_height * (JPEG_FALLBACK_WIDTH / orig_width)))
     return (JPEG_FALLBACK_WIDTH, height)
 

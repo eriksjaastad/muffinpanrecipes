@@ -139,6 +139,53 @@ def _jpeg_fallback_key(png_key: str) -> str:
     return f"{canonical[:-4]}-{JPEG_FALLBACK_WIDTH}w.jpg"
 
 
+# Matches any width-limited WebP/JPEG variant key this module produces —
+# '-{digits}w.webp' or '-{digits}w.jpg' — regardless of which specific
+# widths WEBP_VARIANT_WIDTHS/JPEG_FALLBACK_WIDTH currently configure, so
+# _source_png_key keeps working if those values ever change.
+_WEBP_SIBLING_SUFFIX_RE = re.compile(r"-\d+w\.webp$", re.IGNORECASE)
+_JPEG_FALLBACK_SUFFIX_RE = re.compile(r"-\d+w\.jpg$", re.IGNORECASE)
+
+
+def _source_png_key(sibling_key: str) -> str:
+    """Return the canonical source-PNG key for any of its upload-time siblings (#7185 review).
+
+    The inverse of _webp_variant_key / _jpeg_fallback_key / the full-size
+    '.webp' sibling / _social_jpeg_key: whichever format a caller found a
+    generated photo served as — the full WebP, a width-limited WebP variant,
+    the sized JPEG <img> fallback, or the social crop — this resolves back
+    to the one PNG every sibling was derived FROM. A key that is already a
+    '.png' passes through unchanged (nothing to invert); a key matching none
+    of the known sibling suffixes also passes through unchanged (nothing
+    this module knows how to invert, e.g. a seed .webp with no PNG sibling
+    at all).
+
+    Anything that reads a hero's identity back out of RENDERED HTML — e.g.
+    scripts/pin_published_heroes.py, which reads the live page's <img src>
+    and writes it into episode.hero_image_url — must route through this
+    before storing that value. Since #7185 shipped, that <img src> can be
+    the sized JPEG fallback instead of the raw PNG; storing it verbatim
+    would permanently swap the hero's source of truth from the canonical
+    PNG to a lossy 1200px-wide JPEG, and every future render would then
+    derive the WebP <source> and the JPEG fallback FROM that JPEG's own
+    (nonexistent) '.png'-shaped sibling names, silently losing all of them
+    (HIGH finding on #7185 review round 2).
+    """
+    lowered = sibling_key.lower()
+    if lowered.endswith(".png"):
+        return sibling_key
+    if lowered.endswith(SOCIAL_IMAGE_SUFFIX):
+        return sibling_key[: -len(SOCIAL_IMAGE_SUFFIX)] + ".png"
+    if lowered.endswith(".webp"):
+        stripped = _WEBP_SIBLING_SUFFIX_RE.sub(".png", sibling_key)
+        return stripped if stripped != sibling_key else sibling_key[:-5] + ".png"
+    if lowered.endswith(".jpg") or lowered.endswith(".jpeg"):
+        stripped = _JPEG_FALLBACK_SUFFIX_RE.sub(".png", sibling_key)
+        if stripped != sibling_key:
+            return stripped
+    return sibling_key
+
+
 def _encode_webp(png_bytes: bytes, width: int | None = None) -> bytes:
     """Encode PNG bytes as WebP, optionally downscaled to ``width`` (#6755).
 

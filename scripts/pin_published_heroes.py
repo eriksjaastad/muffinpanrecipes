@@ -29,6 +29,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from backend.publishing.episode_renderer import BLOB_CDN_PREFIX, _slugify  # noqa: E402
+from backend.storage import _source_png_key  # noqa: E402
 from backend.utils.catalog import catalog_recipes, load_published_catalog  # noqa: E402
 
 SITE = "https://muffinpanrecipes.com"
@@ -43,9 +44,21 @@ def hero_src_from_page(html: str) -> str | None:
 
 def hero_url_for_episode(page_src: str) -> str:
     """Turn a rendered '/blob-images/<key>' src back into the CDN url the
-    renderer stores and re-derives the same src from (_to_local_image_url)."""
+    renderer stores and re-derives the same src from (_to_local_image_url).
+
+    #7185 review round 2, HIGH: page_src is whatever sibling the LIVE page
+    happened to be serving as the <img> fallback the day this ran — the raw
+    PNG before backfill, or (once #7185's JPEG fallback exists) the sized
+    '-1200w.jpg'. storage._source_png_key maps either back to the canonical
+    source PNG before it is stored as hero_image_url, so pinning a page that
+    already has its JPEG fallback backfilled can never turn a future
+    render's hero identity into a lossy 1200px JPEG — which would silently
+    drop the WebP <source> and every width/JPEG variant on every render
+    after that, since they are all derived from a '.png'-shaped key.
+    """
     if page_src.startswith("/blob-images/"):
-        return BLOB_CDN_PREFIX + page_src[len("/blob-images/"):]
+        key = _source_png_key(page_src[len("/blob-images/"):])
+        return BLOB_CDN_PREFIX + key
     return page_src
 
 

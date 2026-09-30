@@ -71,11 +71,48 @@ def test_pin_plan_reads_the_live_page_and_matches_unstamped_rows_by_title() -> N
     ]
 
 
+def test_pin_plan_stores_the_source_png_when_the_live_page_serves_the_jpeg_fallback() -> None:
+    """#7185 review round 2, HIGH, the exact scenario the finding describes:
+    a page rendered AFTER the JPEG fallback (#7185) was backfilled serves
+    '-1200w.jpg' as its <img src>. The planned pin must still be the
+    canonical PNG — never the JPEG — or the next render would treat a lossy
+    1200px sibling as the hero's source of truth."""
+    catalog = {"recipes": [
+        {"slug": "spanakopita-phyllo-cups", "image": "/blob-images/2068c0cc/round_1/macro_closeup.webp"},
+    ]}
+    episodes = {"2026-W28": _episode()}
+    pages = {
+        "spanakopita-phyllo-cups": (
+            '<div class="recipe-hero__image"><picture>'
+            '<source srcset="/blob-images/2068c0cc/round_1/macro_closeup.webp" type="image/webp">'
+            '<img src="/blob-images/2068c0cc/round_1/macro_closeup-1200w.jpg" width="1200">'
+            '</picture></div>'
+        ),
+    }
+    rows = pin.plan(catalog, episodes, lambda slug: pages[slug])
+    assert rows == [
+        ("2026-W28", "spanakopita-phyllo-cups", CDN + "2068c0cc/round_1/macro_closeup.png", None),
+    ]
+
+
 def test_hero_src_extraction_handles_old_webp_and_suffixed_names() -> None:
     page = '<div class="recipe-hero__image"><img src="/blob-images/fe1a35bf/round_1/macro_closeup-Id7qzqIvqMV4id0oV26sRWxUpMf1T8.png"></div>'
     assert pin.hero_url_for_episode(pin.hero_src_from_page(page)) == CDN + "fe1a35bf/round_1/macro_closeup-Id7qzqIvqMV4id0oV26sRWxUpMf1T8.png"
-    assert pin.hero_url_for_episode("/blob-images/8a79d045.webp") == CDN + "8a79d045.webp"
+    # #7185 review round 2, HIGH: a sibling format read off a live page must
+    # invert back to the canonical source PNG, not be stored as-is — every
+    # non-seed hero this script pins always has a PNG upload behind it.
+    assert pin.hero_url_for_episode("/blob-images/8a79d045.webp") == CDN + "8a79d045.png"
     assert pin.hero_src_from_page("<html>no hero</html>") is None
+
+
+def test_hero_src_jpeg_fallback_inverts_to_the_source_png() -> None:
+    """#7185 review round 2, HIGH, the core regression: once the JPEG
+    fallback ships, a live page's <img src> can be the sized '-1200w.jpg'
+    instead of the raw PNG. Pinning that verbatim would permanently swap the
+    hero's identity to a lossy JPEG and silently drop the WebP <source> and
+    every variant on every future render."""
+    page = '<div class="recipe-hero__image"><img src="/blob-images/foo/hero-1200w.jpg"></div>'
+    assert pin.hero_url_for_episode(pin.hero_src_from_page(page)) == CDN + "foo/hero.png"
 
 
 def test_static_builder_uses_the_pinned_hero_not_its_own_pick() -> None:
