@@ -5,7 +5,9 @@ REST API to verify correct request structure, caching, and fallback behavior.
 """
 
 import os
+import re
 from io import BytesIO
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -769,47 +771,151 @@ class TestEncodeJpegFallback:
             assert decoded.convert("RGB").getpixel((0, 0)) == (255, 255, 255)
 
 
+# --- CSS-aware hero aspect-ratio checker (#7185 review round 5) ---
+#
+# A plain regex search for the FIRST `.recipe-hero__image { ... }` block
+# (the round-4 version of this guard) only ever sees the top-level rule —
+# a later `@media` override changing the ratio for phones would leave that
+# check green while phones actually lose content. This walks the real CSS
+# structure instead: strip comments, recurse into every brace-nested block
+# (so an @media wrapper is descended into, not skipped), and read the
+# aspect-ratio declaration off every LEAF rule whose selector targets
+# `.recipe-hero__image` specifically (never `-placeholder` or similar).
+
+_HERO_SELECTOR_RE = re.compile(r"\.recipe-hero__image(?![\w-])")
+_ASPECT_RATIO_RE = re.compile(r"aspect-ratio\s*:\s*(\d+)\s*/\s*(\d+)\s*;?")
+
+
+def _iter_css_leaf_rules(css: str):
+    """Yield (selector, declarations) for every CSS rule whose body holds
+    declarations, not further nested rules — at ANY nesting depth. A block
+    whose body itself contains `{` (an @-rule wrapper like @media/@supports)
+    is recursed into instead of yielded, so a selector nested inside it is
+    still found."""
+
+    def scan(text: str):
+        i = 0
+        n = len(text)
+        sel_start = 0
+        while i < n:
+            if text[i] == "{":
+                selector = text[sel_start:i]
+                depth = 1
+                j = i + 1
+                while j < n and depth:
+                    if text[j] == "{":
+                        depth += 1
+                    elif text[j] == "}":
+                        depth -= 1
+                    j += 1
+                body = text[i + 1 : j - 1]
+                if "{" in body:
+                    yield from scan(body)
+                else:
+                    yield selector.strip(), body
+                i = j
+                sel_start = j
+            else:
+                i += 1
+
+    stripped = re.sub(r"/\*.*?\*/", "", css, flags=re.DOTALL)
+    yield from scan(stripped)
+
+
+def _hero_aspect_ratios_in_css(css: str) -> list[tuple[int, int]]:
+    """Every aspect-ratio declared on a rule targeting .recipe-hero__image,
+    in document order, at any nesting depth (including inside @media)."""
+    ratios = []
+    for selector, body in _iter_css_leaf_rules(css):
+        if not _HERO_SELECTOR_RE.search(selector):
+            continue
+        match = _ASPECT_RATIO_RE.search(body)
+        if match:
+            ratios.append((int(match.group(1)), int(match.group(2))))
+    return ratios
+
+
 class TestHeroAspectMatchesCss:
-    """storage.HERO_ASPECT must track src/assets/site.css's actual rule
-    (#7185 review round 4) — the whole point of _encode_jpeg_fallback's
-    fixed-crop fix is that the fallback's shape matches the hero box's real
-    CSS shape exactly. If the CSS ratio ever changes without this constant
+    """storage.HERO_ASPECT must track src/assets/site.css's actual rule(s)
+    (#7185 review round 4, tightened round 5) — the whole point of
+    _encode_jpeg_fallback's fixed-crop fix is that the fallback's shape
+    matches the hero box's real CSS shape exactly, on EVERY viewport the
+    CSS targets, not just the first rule in the file. If any rule (base or
+    an @media override) ever sets a different ratio without HERO_ASPECT
     changing too, the fallback silently goes back to being a second, lossy
-    crop inside `object-fit: cover` — this test is the tripwire."""
+    crop inside `object-fit: cover` for whichever viewport that rule
+    targets — this test is the tripwire."""
 
-    def test_recipe_hero_image_aspect_ratio_matches_hero_aspect(self):
-        import re
-        from pathlib import Path
-
+    def test_recipe_hero_image_aspect_ratio_matches_hero_aspect_everywhere(self):
         from backend.storage import HERO_ASPECT
 
-        css_path = (
-            Path(__file__).resolve().parents[1] / "src" / "assets" / "site.css"
-        )
+        css_path = Path(__file__).resolve().parents[1] / "src" / "assets" / "site.css"
         css = css_path.read_text()
 
-        rule_match = re.search(
-            r"\.recipe-hero__image\s*\{([^}]*)\}", css, flags=re.DOTALL
-        )
-        assert rule_match, "could not find the .recipe-hero__image rule in site.css"
-
-        ratio_match = re.search(
-            r"aspect-ratio\s*:\s*(\d+)\s*/\s*(\d+)\s*;", rule_match.group(1)
-        )
-        assert ratio_match, ".recipe-hero__image has no aspect-ratio declaration"
-
-        css_ratio = (int(ratio_match.group(1)), int(ratio_match.group(2)))
-        assert css_ratio == HERO_ASPECT, (
-            f"site.css's hero aspect-ratio is {css_ratio}, but "
-            f"storage.HERO_ASPECT is {HERO_ASPECT} — the JPEG fallback's "
-            "fixed crop no longer matches what the hero box actually shows; "
+        ratios = _hero_aspect_ratios_in_css(css)
+        assert ratios, "no .recipe-hero__image rule declares an aspect-ratio in site.css"
+        assert all(ratio == HERO_ASPECT for ratio in ratios), (
+            f"site.css declares aspect-ratio(s) {ratios} for .recipe-hero__image "
+            f"across its rules (including any @media overrides), but "
+            f"storage.HERO_ASPECT is {HERO_ASPECT} — some viewport would show "
+            "a hero box shaped differently than the JPEG fallback's fixed crop; "
             "update HERO_ASPECT (and re-run scripts/backfill_image_variants.py)."
         )
 
         assert (
-            "object-fit: cover" in css[rule_match.end() : rule_match.end() + 400]
-            or "object-fit:cover" in css[rule_match.end() : rule_match.end() + 400]
-        ), "the adjacent img object-fit:cover rule moved or was removed — re-check this test's assumptions"
+            "object-fit: cover" in css or "object-fit:cover" in css
+        ), "the img object-fit:cover rule moved or was removed — re-check this test's assumptions"
+
+    def test_checker_descends_into_media_queries_and_flags_a_disagreeing_override(self):
+        """Proves the guard actually works rather than just looking
+        plausible: a synthetic stylesheet with a base 16:9 rule plus a
+        mobile @media override at a DIFFERENT ratio must yield BOTH values
+        — exactly the drift the real test above exists to catch, and which
+        a first-rule-only regex would have missed entirely."""
+        synthetic_css = """
+        .recipe-hero__image {
+            aspect-ratio: 16 / 9;
+            overflow: hidden;
+        }
+        .recipe-hero__image img { object-fit: cover; }
+        @media (max-width: 480px) {
+            .recipe-hero__image {
+                aspect-ratio: 1 / 1;
+            }
+        }
+        """
+        ratios = _hero_aspect_ratios_in_css(synthetic_css)
+        assert ratios == [(16, 9), (1, 1)]
+        assert len(set(ratios)) > 1, "the checker must be able to detect a disagreement"
+
+    def test_checker_strips_comments_before_matching(self):
+        synthetic_css = """
+        .recipe-hero__image { aspect-ratio: 16 / 9; }
+        /* .recipe-hero__image { aspect-ratio: 1 / 1; } */
+        """
+        assert _hero_aspect_ratios_in_css(synthetic_css) == [(16, 9)]
+
+    def test_checker_ignores_the_placeholder_class(self):
+        """.recipe-hero__image-placeholder must never be mistaken for the
+        hero image container itself."""
+        synthetic_css = """
+        .recipe-hero__image { aspect-ratio: 16 / 9; }
+        .recipe-hero__image-placeholder { aspect-ratio: 4 / 3; }
+        """
+        assert _hero_aspect_ratios_in_css(synthetic_css) == [(16, 9)]
+
+    def test_checker_finds_a_deeply_nested_at_rule_override(self):
+        """@supports wrapping @media (or any other nesting depth) must
+        still be descended into, not just one level of @media."""
+        synthetic_css = """
+        .recipe-hero__image { aspect-ratio: 16 / 9; }
+        @supports (aspect-ratio: 1 / 1) {
+            @media (max-width: 480px) {
+                .recipe-hero__image { aspect-ratio: 1 / 1; }
+            }
+        }
+        """
+        assert _hero_aspect_ratios_in_css(synthetic_css) == [(16, 9), (1, 1)]
 
 
 class TestCloudBackendJpegFallbackAvailable:

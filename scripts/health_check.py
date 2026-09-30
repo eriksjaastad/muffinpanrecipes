@@ -33,6 +33,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit, urlunsplit
 from xml.etree import ElementTree
@@ -598,12 +599,72 @@ def _image_references(body: str) -> list[str]:
     return references
 
 
-_HERO_IMG_SRC_RE = re.compile(r'recipe-hero__image.*?<img\b[^>]*\ssrc="([^"]*)"', re.S)
+_VOID_ELEMENTS = frozenset({
+    "area", "base", "br", "col", "embed", "hr", "img", "input",
+    "link", "meta", "param", "source", "track", "wbr",
+})
+
+
+class _HeroContainerImgParser(HTMLParser):
+    """First <img src> strictly inside the element whose class list
+    contains 'recipe-hero__image' (#7185 review round 5, MEDIUM).
+
+    A round-4 regex (`recipe-hero__image.*?<img ... src="...">`) matched
+    from the container's class name to the NEXT <img> anywhere later in the
+    document, past the container's own closing tag — so a hero placeholder
+    ("Photo coming Wednesday", which has no <img> inside it at all) would
+    return a later, unrelated gallery image's URL instead of None. This
+    tracks real element nesting with a tag stack: the hero container's
+    start tag records the stack depth at that point, an <img> is only
+    captured while the stack hasn't yet unwound past that depth, and once
+    the container's own end tag pops the stack back to (or below) that
+    depth, no <img> found later can be attributed to it.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._stack: list[str] = []
+        self._hero_stack_depth: int | None = None
+        self.result: str | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if self._hero_stack_depth is not None and self.result is None and tag == "img":
+            for name, value in attrs:
+                if name == "src":
+                    self.result = value
+                    break
+
+        if self._hero_stack_depth is None:
+            for name, value in attrs:
+                if name == "class" and "recipe-hero__image" in (value or "").split():
+                    # Recorded BEFORE this tag is pushed, so its own
+                    # matching end tag pops the stack back to exactly this
+                    # depth — the signal that we've exited the container.
+                    self._hero_stack_depth = len(self._stack)
+                    break
+
+        if tag not in _VOID_ELEMENTS:
+            self._stack.append(tag)
+
+    def handle_endtag(self, tag: str) -> None:
+        if self._stack and self._stack[-1] == tag:
+            self._stack.pop()
+        elif tag in self._stack:
+            # Unbalanced/malformed markup: unwind to the matching opener
+            # rather than leaving the stack permanently desynced.
+            while self._stack and self._stack[-1] != tag:
+                self._stack.pop()
+            if self._stack:
+                self._stack.pop()
+
+        if self._hero_stack_depth is not None and len(self._stack) <= self._hero_stack_depth:
+            self._hero_stack_depth = None
 
 
 def _hero_img_src(body: str) -> str | None:
     """The recipe hero's own <img src> — the <picture> fallback, whatever
-    format it currently is (#7185 review round 4, MEDIUM).
+    format it currently is — or None if the hero container has no <img> at
+    all (e.g. the "Photo coming Wednesday" placeholder) (#7185 review).
 
     _image_references above walks EVERY <source> tag on the page before any
     <img>, in document order — a page with two or more <source> tags (the
@@ -613,11 +674,14 @@ def _hero_img_src(body: str) -> str | None:
     fallback at all. That fallback is exactly the file a browser which
     cannot decode the <source> format actually loads, so a health check that
     never requests it can pass while that file 404s. This targets the hero
-    specifically (not just any <img> on the page), the same container match
-    scripts/pin_published_heroes.py's hero_src_from_page uses.
+    specifically (not just any <img> on the page), the same container class
+    scripts/pin_published_heroes.py's hero_src_from_page matches on — but,
+    unlike that regex, confined to the container's own element subtree.
     """
-    match = _HERO_IMG_SRC_RE.search(body)
-    return match.group(1) if match else None
+    parser = _HeroContainerImgParser()
+    parser.feed(body)
+    parser.close()
+    return parser.result
 
 
 def _check_hero_image(body: str, base_url: str, *, required: bool) -> None:

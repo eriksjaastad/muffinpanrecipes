@@ -768,6 +768,65 @@ class TestHealthCheckReachesTheHeroImgFallback:
         assert mock_head.call_count == 1
 
 
+class TestHeroImgSrcConfinedToItsOwnSubtree:
+    """_hero_img_src (#7185 review round 5, MEDIUM) — a round-4 regex
+    matched from 'recipe-hero__image' to the NEXT <img> anywhere later in
+    the document, even past the container's own closing tag. A page whose
+    hero is the "Photo coming Wednesday" placeholder (no <img> inside the
+    hero container at all) plus a later, unrelated gallery <img> would
+    therefore return the GALLERY's URL instead of None. This confines the
+    match to real element nesting via html.parser, not a regex span."""
+
+    def test_placeholder_hero_with_a_later_gallery_img_returns_none(self):
+        """The core round-5 regression case."""
+        from scripts.health_check import _hero_img_src
+
+        html = (
+            '<div class="recipe-hero__image">'
+            '<div class="recipe-hero__image-placeholder">Photo coming Wednesday</div>'
+            "</div>"
+            '<div class="chat-msg__images">'
+            '<img src="/blob-images/foo/round_1/gallery-option.png">'
+            "</div>"
+        )
+        assert _hero_img_src(html) is None
+
+    def test_normal_hero_returns_its_own_img(self):
+        from scripts.health_check import _hero_img_src
+
+        html = (
+            '<div class="recipe-hero__image">'
+            '<img src="/blob-images/foo/hero.png" width="1536" height="1536">'
+            "</div>"
+        )
+        assert _hero_img_src(html) == "/blob-images/foo/hero.png"
+
+    def test_nested_picture_source_inside_hero_returns_the_img_src(self):
+        from scripts.health_check import _hero_img_src
+
+        html = (
+            '<div class="recipe-hero__image"><picture>'
+            '<source srcset="/blob-images/foo/hero.webp" type="image/webp">'
+            '<img src="/blob-images/foo/hero-1200w.jpg" width="1200" height="675">'
+            "</picture></div>"
+        )
+        assert _hero_img_src(html) == "/blob-images/foo/hero-1200w.jpg"
+
+    def test_gallery_img_before_the_hero_container_is_not_mistaken_for_it(self):
+        """A round-4 regex anchored only on 'starts matching from
+        recipe-hero__image' would get this right by luck (it can't match
+        backwards), but a subtree-based parser must too."""
+        from scripts.health_check import _hero_img_src
+
+        html = (
+            '<img src="/blob-images/foo/round_1/gallery-option.png">'
+            '<div class="recipe-hero__image">'
+            '<img src="/blob-images/foo/hero.png">'
+            "</div>"
+        )
+        assert _hero_img_src(html) == "/blob-images/foo/hero.png"
+
+
 class TestJpegFallbackDimensionsConstant:
     """JPEG_FALLBACK_DIMENSIONS (#7185 review round 4) — the fixed 16:9
     (HERO_ASPECT) size storage._encode_jpeg_fallback always produces, TRUE
