@@ -187,9 +187,14 @@ control/variant generation, or a judge call), whichever hits first:
   --max-calls: DERIVED when omitted (None) rather than one flat number -
   the printed report always shows the value used and whether it was
   derived or explicitly passed:
-    - a single --concept/--recipe-context `ab` run: a flat 120
-      (_SINGLE_CONCEPT_MAX_CALLS, per docs/conversation-lab/PROTOCOL.md's
-      cost budget); `calibrate` keeps its own flat default of 40.
+    - a single --concept/--recipe-context `ab` run: `runs * (2 *
+      arm_call_reservation + 2)`, where arm_call_reservation is the same
+      per-arm structural worst case (#7732) the run itself checks against
+      before every arm - four generation requests per turn, plus per-tick
+      stop-check attempts when the effective WINDDOWN_TRIGGER is "check" -
+      so a variant that widens TICKS_RANGE/OPEN_ENDED_MAX_TICKS raises this
+      default too, instead of leaving it under a flat number; `calibrate`
+      keeps its own flat default of 40.
     - `ab --testbed`/`ab --sweep`: `panel_size * runs * (2 * 4 * max_turns +
       2)`, reserving four generation requests per turn for each arm, where max_turns is the upper bound of
       scripts.simulate_dialogue_week.TICKS_RANGE for --stage, floored at
@@ -3266,11 +3271,6 @@ def _ab_result_path(results_dir: Path, slug: str, variant_path: Path) -> Path:
         f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-ab-{slug}-{variant_path.stem}.json"
     )
 
-# Flat --max-calls default for a single --concept run, unchanged from the
-# original slice's hardcoded argparse default - a single concept/recipe
-# doesn't have a "panel size" to derive a formula from.
-_SINGLE_CONCEPT_MAX_CALLS = 120
-
 # Floor under a stage's TICKS_RANGE upper bound when deriving --max-calls
 # for --testbed/--sweep (below). Some stages can run MORE turns than their
 # static TICKS_RANGE says: scripts/simulate_dialogue_week.py bumps
@@ -3366,12 +3366,23 @@ def _arm_call_reservation(stage: str, variant: dict[str, Any] | None, *, dry_run
         reservation += _MAX_STOP_CHECK_ATTEMPTS_PER_TICK * max_turns
     return reservation
 
-def _derive_max_calls(mode: str, *, scenario_count: int, runs: int, stage: str) -> int:
+def _derive_max_calls(
+    mode: str, *, scenario_count: int, runs: int, stage: str, variant: dict[str, Any] | None = None
+) -> int:
     """The --max-calls default when the flag itself is omitted (None).
 
-    "single": a flat 120 (docs/conversation-lab/PROTOCOL.md's cost
-    budget) - a lone --concept/--recipe-context run has no panel size to
-    derive a formula from.
+    "single": `runs * (2 * _arm_call_reservation(stage, variant, dry_run=False) + 2)`
+    - the same per-arm-reservation shape "testbed"/"sweep" use below, with
+    scenario_count=1 (a lone --concept/--recipe-context run has no panel to
+    multiply over). Reserving via `_arm_call_reservation` - the same
+    structural worst case `_generate_and_judge_pairs` checks against before
+    each arm - means the derived default honors whatever the VARIANT itself
+    raises (a wider TICKS_RANGE, an OPEN_ENDED_MAX_TICKS override, or a
+    WINDDOWN_TRIGGER of "check" that turns on the per-tick stop-check
+    reservation), not just the unpatched module defaults (#7732: a flat 120
+    used to sit below a single open-ended variant arm's own 175-call
+    reservation at 25 ticks, so `ab` with that variant refused before making
+    one call unless --max-calls was passed explicitly).
 
     "testbed"/"sweep": `scenario_count * runs * (2 * _MAX_CALLS_PER_TURN * max_turns + 2)`.
     This reserves four generation requests per turn for each arm, plus the
@@ -3382,7 +3393,8 @@ def _derive_max_calls(mode: str, *, scenario_count: int, runs: int, stage: str) 
     deliberately generous ceiling, not a tight budget.
     """
     if mode == "single":
-        return _SINGLE_CONCEPT_MAX_CALLS
+        arm_reservation = _arm_call_reservation(stage, variant, dry_run=False)
+        return runs * (2 * arm_reservation + 2)
     max_turns = _max_turns_for_stage(stage)
     return scenario_count * runs * (2 * _MAX_CALLS_PER_TURN * max_turns + 2)
 
@@ -3424,7 +3436,9 @@ def cmd_ab(args: argparse.Namespace) -> None:
         raise SystemExit("conversation_lab ab: --runs is required unless --testbed or --sweep is passed")
 
     if args.max_calls is None:
-        args.max_calls = _derive_max_calls("single", scenario_count=1, runs=args.runs, stage=args.stage)
+        args.max_calls = _derive_max_calls(
+            "single", scenario_count=1, runs=args.runs, stage=args.stage, variant=variant
+        )
     budget = CallBudget(max_calls=args.max_calls)
 
     recipe_context, recipe_facts = _resolve_recipe_context_and_facts(args)
@@ -7952,7 +7966,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--max-calls", type=int, default=None,
         help=(
             "Defaults to a value DERIVED from the mode when omitted (printed in the report): "
-            f"a single --concept/--recipe-context run gets a flat {_SINGLE_CONCEPT_MAX_CALLS}; "
+            "a single --concept/--recipe-context run gets `runs * (2 * arm_call_reservation + 2)`, "
+            "where arm_call_reservation is the same per-arm worst case (four calls/turn, plus "
+            "per-tick stop-check attempts when the effective WINDDOWN_TRIGGER is \"check\") the run "
+            "itself reserves before every arm - a --variant that widens TICKS_RANGE or "
+            "OPEN_ENDED_MAX_TICKS raises this default too; "
             "--testbed and --sweep reserve four calls/turn for each generation arm, plus two judges: "
             "`panel_size * runs * (2 * 4 * max_turns + 2)`, where "
             "max_turns is the upper bound of scripts.simulate_dialogue_week.TICKS_RANGE for "

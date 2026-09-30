@@ -2217,7 +2217,15 @@ def test_max_turns_for_stage_floors_at_ten():
     # An unknown stage falls back to (4, 6) - still floored to 10.
     assert cl._max_turns_for_stage("not-a-real-day") == 10
 
-def test_ab_single_concept_default_max_calls_is_120(tmp_path, monkeypatch):
+def test_ab_single_concept_default_max_calls_is_derived_from_arm_reservation(tmp_path, monkeypatch):
+    """#7732: a single --concept/--recipe-context run's default used to be a
+    flat 120 regardless of the variant - below one open-ended variant arm's
+    own reservation (see the next test). It is now `runs * (2 *
+    arm_call_reservation + 2)`, the same per-arm formula _generate_and_judge_
+    pairs checks against before every arm. For a plain variant (no
+    TICKS_RANGE/OPEN_ENDED_MAX_TICKS/WINDDOWN_TRIGGER override) on "monday"
+    (max_turns 10, no stop-check), arm_call_reservation is 4 * 10 = 40, so
+    runs=50 derives 50 * (2*40 + 2) = 4100."""
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "V"})
     results_dir = tmp_path / "results"
@@ -2230,7 +2238,58 @@ def test_ab_single_concept_default_max_calls_is_120(tmp_path, monkeypatch):
 
     [result_file] = list(results_dir.glob("*-ab-*.json"))
     report = json.loads(result_file.read_text())
-    assert report["max_calls"] == 120
+    assert report["max_calls"] == 4100
+
+def test_ab_single_concept_default_max_calls_covers_open_ended_variant_reservation(tmp_path, monkeypatch):
+    """The bug this fixes: a variant that opens WINDDOWN_TRIGGER to "check"
+    and raises OPEN_ENDED_MAX_TICKS["monday"] to 25 gives that arm a
+    175-call reservation (25 * (4 generation calls + 3 stop-check attempts)
+    per tick) - well above the old flat 120 default, so `ab` used to refuse
+    before making a single call. The derived default must cover it."""
+    monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
+    # HISTORY_DEPTH must be raised in the same variant or validate_variant's
+    # invariant check (later_turns must exceed the tick ceiling) refuses this
+    # variant before any derivation happens - unrelated to the fix here.
+    variant_path = _write_variant(tmp_path, {
+        "WINDDOWN_TRIGGER": "check",
+        "OPEN_ENDED_MAX_TICKS": {"monday": 25},
+        "HISTORY_DEPTH": {"early": [30, 30], "late": [20, 16]},
+    })
+    results_dir = tmp_path / "results"
+
+    cl.main([
+        "ab", "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+        "--variant", str(variant_path), "--recipe-context", "anchor",
+        "--dry-run", "--results-dir", str(results_dir),
+    ])
+
+    [result_file] = list(results_dir.glob("*-ab-*.json"))
+    report = json.loads(result_file.read_text())
+    arm_reservation = 175
+    assert report["max_calls"] == 1 * (2 * arm_reservation + 2)
+    assert report["max_calls"] > arm_reservation
+
+def test_ab_single_concept_explicit_max_calls_is_not_rederived(tmp_path, monkeypatch):
+    """Fail-safe: an explicit --max-calls still wins over the derived
+    default, same as --testbed/--sweep (test_ab_testbed_explicit_max_calls_
+    is_not_rederived)."""
+    monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
+    variant_path = _write_variant(tmp_path, {
+        "WINDDOWN_TRIGGER": "check",
+        "OPEN_ENDED_MAX_TICKS": {"monday": 25},
+        "HISTORY_DEPTH": {"early": [30, 30], "late": [20, 16]},
+    })
+    results_dir = tmp_path / "results"
+
+    cl.main([
+        "ab", "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+        "--variant", str(variant_path), "--recipe-context", "anchor",
+        "--max-calls", "7", "--dry-run", "--results-dir", str(results_dir),
+    ])
+
+    [result_file] = list(results_dir.glob("*-ab-*.json"))
+    report = json.loads(result_file.read_text())
+    assert report["max_calls"] == 7
 
 def test_ab_testbed_default_max_calls_is_derived_from_panel_size_and_runs(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
