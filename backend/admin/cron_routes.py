@@ -2966,7 +2966,12 @@ async def cron_sunday(request: Request):
                     "message": WEEK_OFF_MESSAGE, "missed_week": episode_id,
                 }
                 storage.save_episode(episode_id, ep)
-                regenerate_and_upload(ep)
+                # pages/latest.json is global and belongs to the CURRENT
+                # week: a manual force=true retry of an older incomplete week
+                # must not replace this week's live teaser with stale content
+                # (it would also fail health_check's current-week check).
+                if episode_id == _current_episode_id():
+                    regenerate_and_upload(ep)
                 raise HTTPException(
                     status_code=400,
                     detail=f"Cannot publish: {day} stage incomplete (status={stage_status!r})",

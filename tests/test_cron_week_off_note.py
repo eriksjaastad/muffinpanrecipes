@@ -119,6 +119,7 @@ def test_cron_sunday_sets_week_off_note_when_a_required_stage_is_incomplete():
          patch.object(cron_routes, "_verify_day_of_week"), \
          patch.object(cron_routes.storage, "load_episode", return_value=episode), \
          patch.object(cron_routes.storage, "save_episode") as save_episode, \
+         patch.object(cron_routes, "_current_episode_id", return_value="2026-W40"), \
          patch.object(cron_routes, "regenerate_and_upload") as regenerate:
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(cron_routes.cron_sunday(_request()))
@@ -131,6 +132,36 @@ def test_cron_sunday_sets_week_off_note_when_a_required_stage_is_incomplete():
     }
     save_episode.assert_called_once_with("2026-W40", episode)
     regenerate.assert_called_once_with(episode)
+
+
+def test_refusing_an_older_week_never_rewrites_the_live_latest_json():
+    """Codex review of 2d0567b: a manual force=true retry of an OLDER
+    incomplete week must not replace the current week's live teaser in the
+    global pages/latest.json. It still refuses with the same 400 and records
+    the note on that older episode's own record."""
+    episode = {
+        "episode_id": "2026-W40",
+        "concept": "Some Concept",
+        "stages": {
+            "monday": {"status": "complete", "recipe_data": {"title": "X"}},
+            "tuesday": {"status": "complete"},
+        },
+        "events": [],
+    }
+
+    with patch.object(cron_routes, "_verify_cron_secret"), \
+         patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=_body("2026-W40"))), \
+         patch.object(cron_routes, "_verify_day_of_week"), \
+         patch.object(cron_routes.storage, "load_episode", return_value=episode), \
+         patch.object(cron_routes.storage, "save_episode") as save_episode, \
+         patch.object(cron_routes, "_current_episode_id", return_value="2026-W41"), \
+         patch.object(cron_routes, "regenerate_and_upload") as regenerate:
+        with pytest.raises(HTTPException) as exc_info:
+            asyncio.run(cron_routes.cron_sunday(_request()))
+
+    assert exc_info.value.status_code == 400
+    save_episode.assert_called_once_with("2026-W40", episode)
+    regenerate.assert_not_called()
 
 
 def test_cron_sunday_does_not_set_week_off_note_when_publish_succeeds():
