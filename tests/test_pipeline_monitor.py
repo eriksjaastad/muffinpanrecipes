@@ -1175,3 +1175,71 @@ def test_unusable_state_moved_aside_still_starts_fresh(tmp_path, monkeypatch):
     assert trashed == [str(state)]
     assert len(posts) == 1
     assert list(json.loads(state.read_text())["alerted_failures"].values()) == ["stage A"]
+
+
+# ---------------------------------------------------------------------------
+# Round 9: the alert body was cut at 1900 chars after composition, and every
+# new failure was recorded as alerted, including the ones cut off. Now the
+# body is built to a budget and only the failures in it are recorded.
+# ---------------------------------------------------------------------------
+
+
+def _many_long_failures(n=9, width=600):
+    return [f"{chr(65 + i)} stage failed — " + chr(65 + i) * width for i in range(n)]
+
+
+def test_failures_that_do_not_fit_are_not_recorded_and_follow_next_run(tmp_path, monkeypatch):
+    state = tmp_path / "pipeline_status.json"
+    posts = _captured_alerts(monkeypatch)
+    failures = _many_long_failures()
+    _install_pipeline(monkeypatch, episode_only_failures=failures)
+
+    pm.run(state)
+    assert len(posts) == 1
+    first_body = posts[0]["body"]
+    assert len(first_body) <= pm._ALERT_BODY_BUDGET
+    recorded = set(json.loads(state.read_text())["alerted_failures"].values())
+    assert 0 < len(recorded) < len(failures)
+    # Everything recorded was really in the delivered body, and nothing in
+    # it was left unrecorded.
+    assert recorded == {f for f in failures if f in first_body}
+    assert "follow in the next hourly alert" in first_body
+
+    # Next run: the rest go out, and every failure is then recorded.
+    for _ in range(len(failures)):
+        before = len(json.loads(state.read_text())["alerted_failures"])
+        if before == len(failures):
+            break
+        pm.run(state)
+    final = set(json.loads(state.read_text())["alerted_failures"].values())
+    assert final == set(failures)
+    for failure in failures:
+        assert any(failure in p["body"].split("Still open:")[0] for p in posts)
+
+
+def test_budgeted_body_records_nothing_when_delivery_fails(tmp_path, monkeypatch):
+    state = tmp_path / "pipeline_status.json"
+    posts = _captured_alerts(monkeypatch)
+    posts.deliver = False
+    _install_pipeline(monkeypatch, episode_only_failures=_many_long_failures())
+    pm.run(state)
+    assert posts.attempts == 1
+    assert json.loads(state.read_text())["alerted_failures"] == {}
+
+
+def test_one_huge_failure_is_shortened_but_still_sent_and_recorded(tmp_path, monkeypatch):
+    state = tmp_path / "pipeline_status.json"
+    posts = _captured_alerts(monkeypatch)
+    huge = "stage failed: " + "x" * 10_000
+    _install_pipeline(monkeypatch, episode_only_failures=[huge, "small failure"])
+    pm.run(state)
+    body = posts[0]["body"]
+    assert len(body) <= pm._ALERT_BODY_BUDGET
+    assert "[shortened]" in body and "small failure" in body
+    assert set(json.loads(state.read_text())["alerted_failures"].values()) == {huge, "small failure"}
+
+
+def test_compose_counts_only_a_leading_run_of_new_failures():
+    body, included = pm._compose_degraded_body("summary", _many_long_failures(), ["old"] * 50)
+    assert len(body) <= pm._ALERT_BODY_BUDGET
+    assert included == sum(1 for f in _many_long_failures() if f in body)

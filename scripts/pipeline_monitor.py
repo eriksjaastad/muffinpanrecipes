@@ -552,32 +552,73 @@ def _exclusive_lock(lock_path: Path):
         os.close(fd)
 
 
-def _alert_new_failures(verdict: dict, new_texts: list[str], all_texts: list[str]) -> bool:
-    """Announce failures never before alerted. Returns whether it was
-    actually delivered — the caller must not record them as sent otherwise
-    (round 1 correction A, unchanged)."""
-    still_open = [t for t in all_texts if t not in new_texts]
-    lines = [f"{LABEL}: DEGRADED — {_utc_now_iso()}", "", verdict["summary"], "", "New:"]
-    lines += [f"- {t}" for t in new_texts]
+# Largest alert body that every backend delivers whole: alerts.py cuts the
+# Discord description at 4000 characters. The body is built to fit this
+# budget, never cut after the fact (round 9).
+_ALERT_BODY_BUDGET = 3800
+# One failure longer than this is shortened so a single huge message can't
+# starve every other failure of room. Its id still records it as alerted.
+_ALERT_TEXT_MAX = 1500
+
+
+def _compose_degraded_body(summary: str, new_texts: list[str], still_open: list[str]) -> tuple[str, int]:
+    """The DEGRADED alert body and how many of `new_texts` (a leading run,
+    in order) it contains in full or as a marked excerpt.
+
+    Only those are recorded as alerted. A new failure that doesn't fit is
+    left out whole, stays unrecorded, and leads the next run's alert (round
+    9: a cut-off body used to record failures nobody was ever shown).
+    """
+    def _item(text: str) -> str:
+        if len(text) > _ALERT_TEXT_MAX:
+            text = text[:_ALERT_TEXT_MAX] + " … [shortened]"
+        return f"- {text}"
+
+    head = [f"{LABEL}: DEGRADED — {_utc_now_iso()}", "", summary[:500], "", "New:"]
+    # Room kept free for the "more to follow" line, so adding it can never
+    # push the body over budget.
+    more_line_room = 80
+    body = "\n".join(head)
+    included = 0
+    for text in new_texts:
+        line = _item(text)
+        if len(body) + 1 + len(line) > _ALERT_BODY_BUDGET - more_line_room:
+            break
+        body += "\n" + line
+        included += 1
+    deferred = len(new_texts) - included
+    if deferred:
+        body += f"\n({deferred} more new failure(s) follow in the next hourly alert)"
     if still_open:
-        lines += ["", "Still open:"]
-        lines += [f"- {t}" for t in still_open]
+        # Already alerted before, so leaving some out loses nothing.
+        section = "\n\nStill open:"
+        if len(body) + len(section) <= _ALERT_BODY_BUDGET:
+            body += section
+            for text in still_open:
+                line = "\n" + _item(text)
+                if len(body) + len(line) > _ALERT_BODY_BUDGET:
+                    break
+                body += line
+    return body, included
+
+
+def _alert_new_failures(verdict: dict, new_texts: list[str], all_texts: list[str]) -> int:
+    """Announce failures never before alerted. Returns how many of
+    `new_texts` (a leading run, in order) were in a DELIVERED alert — 0 when
+    delivery failed. The caller records only those as sent (round 1
+    correction A; round 9 for the count)."""
+    still_open = [t for t in all_texts if t not in new_texts]
+    body, included = _compose_degraded_body(verdict["summary"], new_texts, still_open)
     try:
-        return bool(
-            send_alert(
-                subject=f"{LABEL} DEGRADED",
-                body="\n".join(lines)[:1900],
-                severity="warning",
-                fields=[
-                    (f"failure {i + 1}", t[:300], False) for i, t in enumerate(new_texts[:5])
-                ],
-            )
+        delivered = bool(
+            send_alert(subject=f"{LABEL} DEGRADED", body=body, severity="warning")
         )
     except Exception as e:
         # send_alert already swallows per-backend failures; this is a last
         # resort so a totally unexpected error here still can't block main().
         print(f"{LABEL}: alert (degraded) failed ({type(e).__name__}: {e})", file=sys.stderr)
-        return False
+        return 0
+    return included if delivered else 0
 
 
 def _alert_recovered(verdict: dict) -> bool:
@@ -586,7 +627,7 @@ def _alert_recovered(verdict: dict) -> bool:
         return bool(
             send_alert(
                 subject=f"{LABEL} recovered",
-                body=(f"{LABEL}: back to OK — {_utc_now_iso()}\n{verdict['summary']}")[:1900],
+                body=f"{LABEL}: back to OK — {_utc_now_iso()}\n{verdict['summary'][:500]}",
                 severity="info",
             )
         )
@@ -662,10 +703,14 @@ def _transition(state_path: Path, episode_id: str | None) -> int:
     alerted_at = previous.get("alerted_at")
 
     if new_ids:
-        new_texts = [observed[i] for i in sorted(new_ids)]
+        ordered_new_ids = sorted(new_ids)
+        new_texts = [observed[i] for i in ordered_new_ids]
         all_texts = [observed[i] for i in sorted(observed_ids)]
-        if _alert_new_failures(verdict, new_texts, all_texts):
-            committed_alerted.update({i: observed[i] for i in new_ids})
+        shown = _alert_new_failures(verdict, new_texts, all_texts)
+        if shown:
+            # Only the failures that were actually in the delivered alert;
+            # any that did not fit stay new and lead the next run's alert.
+            committed_alerted.update({i: observed[i] for i in ordered_new_ids[:shown]})
             alerted_at = _utc_now_iso()
         else:
             # Clearing (unrelated old failures confirmed gone) still applies
