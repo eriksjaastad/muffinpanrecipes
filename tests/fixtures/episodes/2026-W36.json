@@ -1,0 +1,40 @@
+{
+  "episode_id": "2026-W36",
+  "concept": "Weekly Muffin Pan Recipe",
+  "target_category": "sweet",
+  "stages": {
+    "monday": {
+      "status": "complete",
+      "recipe_data": {
+        "title": "Cardamom Pistachio Swirl Buns",
+        "category": "sweet",
+        "description": "A soft, spiced swirl bun with a crisp pistachio crust.",
+        "ingredients": [
+          {"amount": "2 cups", "item": "flour"},
+          {"amount": "1/4 cup", "item": "crushed pistachios"}
+        ],
+        "instructions": [
+          "Roll the dough into a spiral.",
+          "Bake until golden and fragrant."
+        ]
+      },
+      "dialogue": [
+        {"day": "monday", "stage": "monday", "character": "Margaret Chen",
+         "message": "I love a cardamom-forward bake for this slot.",
+         "timestamp": "2026-09-07T14:00:00Z", "model": "test-fixture", "attachments": []},
+        {"day": "monday", "stage": "monday", "character": "Marcus Reid",
+         "message": "The pistachio crust could really pop on camera.",
+         "timestamp": "2026-09-07T14:01:00Z", "model": "test-fixture", "attachments": []},
+        {"day": "monday", "stage": "monday", "character": "Stephanie 'Steph' Whitmore",
+         "message": "I'll keep the copy warm and a little playful.",
+         "timestamp": "2026-09-07T14:02:00Z", "model": "test-fixture", "attachments": []},
+        {"day": "monday", "stage": "monday", "character": "Julian Torres",
+         "message": "Already thinking about how the swirl will photograph.",
+         "timestamp": "2026-09-07T14:03:00Z", "model": "test-fixture", "attachments": []},
+        {"day": "monday", "stage": "monday", "character": "Ria Castillo",
+         "message": "This will make a great short-form teaser clip.",
+         "timestamp": "2026-09-07T14:04:00Z", "model": "test-fixture", "attachments": []}
+      ]
+    }
+  }
+}
