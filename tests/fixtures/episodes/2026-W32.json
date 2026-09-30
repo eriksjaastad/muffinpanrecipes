@@ -1,0 +1,57 @@
+{
+  "episode_id": "2026-W32",
+  "concept": "Weekly Muffin Pan Recipe",
+  "target_category": "savory",
+  "stages": {
+    "monday": {
+      "status": "complete",
+      "recipe_data": {
+        "title": "Miso Ginger Donburi Cups",
+        "category": "savory",
+        "description": "A rice-forward savory cup layered with miso-ginger glaze.",
+        "ingredients": [
+          {"amount": "2 cups", "item": "cooked rice"},
+          {"amount": "2 tbsp", "item": "white miso"}
+        ],
+        "instructions": [
+          "Press rice into each muffin cup.",
+          "Top with miso-ginger glaze and bake until set."
+        ]
+      },
+      "dialogue": [
+        {"day": "monday", "stage": "monday", "character": "Margaret Chen",
+         "message": "A savory rice cup is a nice change of pace this week.",
+         "timestamp": "2026-08-10T14:00:00Z", "model": "test-fixture", "attachments": []},
+        {"day": "monday", "stage": "monday", "character": "Marcus Reid",
+         "message": "The miso glaze should read as glossy on camera.",
+         "timestamp": "2026-08-10T14:01:00Z", "model": "test-fixture", "attachments": []},
+        {"day": "monday", "stage": "monday", "character": "Stephanie 'Steph' Whitmore",
+         "message": "I'll pitch it as an easy weeknight upgrade.",
+         "timestamp": "2026-08-10T14:02:00Z", "model": "test-fixture", "attachments": []},
+        {"day": "monday", "stage": "monday", "character": "Julian Torres",
+         "message": "Already scouting the overhead shot for the glaze sheen.",
+         "timestamp": "2026-08-10T14:03:00Z", "model": "test-fixture", "attachments": []},
+        {"day": "monday", "stage": "monday", "character": "Ria Castillo",
+         "message": "This one will clip well for a quick reel.",
+         "timestamp": "2026-08-10T14:04:00Z", "model": "test-fixture", "attachments": []}
+      ]
+    },
+    "tuesday": {
+      "status": "complete",
+      "dialogue": [
+        {"day": "tuesday", "stage": "tuesday", "character": "Margaret Chen",
+         "message": "Let's talk through how the ginger balances the miso.",
+         "timestamp": "2026-08-11T14:00:00Z", "model": "test-fixture", "attachments": []},
+        {"day": "tuesday", "stage": "tuesday", "character": "Stephanie 'Steph' Whitmore",
+         "message": "I want the copy to lean into the umami angle.",
+         "timestamp": "2026-08-11T14:01:00Z", "model": "test-fixture", "attachments": []},
+        {"day": "tuesday", "stage": "tuesday", "character": "Marcus Reid",
+         "message": "The glaze sheen is going to carry the hero shot.",
+         "timestamp": "2026-08-11T14:02:00Z", "model": "test-fixture", "attachments": []},
+        {"day": "tuesday", "stage": "tuesday", "character": "Devon Park",
+         "message": "Ready to line up test batches whenever you are.",
+         "timestamp": "2026-08-11T14:03:00Z", "model": "test-fixture", "attachments": []}
+      ]
+    }
+  }
+}

@@ -16,6 +16,7 @@ import math
 import os
 import re
 import urllib.error
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -28,6 +29,26 @@ from backend.utils import model_router
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+FIXTURE_EPISODES_DIR = Path(__file__).resolve().parent / "fixtures" / "episodes"
+
+def _local_episode_root(tmp_path, *episode_ids: str) -> Path:
+    """Copy committed fixture episodes into a throwaway `data/episodes/`
+    dir and return the root to monkeypatch `cl.ROOT` onto (#7395).
+
+    `data/episodes/*.json` is gitignored (real weekly mirrors, some with
+    production content), so a fresh clone/worktree has none of them and
+    `_load_episode_local` raises. The committed fixtures under
+    tests/fixtures/episodes/ stand in for specific named episodes
+    (2026-W36, 2026-W32) that several tests reference by id, without
+    un-ignoring the real directory or weakening what each test asserts.
+    """
+    episodes_dir = tmp_path / "data" / "episodes"
+    episodes_dir.mkdir(parents=True, exist_ok=True)
+    for episode_id in episode_ids:
+        source = FIXTURE_EPISODES_DIR / f"{episode_id}.json"
+        (episodes_dir / f"{episode_id}.json").write_text(source.read_text(encoding="utf-8"))
+    return tmp_path
 
 def _messages(tag: str, count: int = 2) -> list[dict]:
     return [
@@ -506,7 +527,8 @@ def test_ab_without_dry_run_fails_loud_when_dialogue_model_unset(tmp_path, monke
 # baseline
 # ---------------------------------------------------------------------------
 
-def test_baseline_local_reads_real_episode_and_writes_results(tmp_path):
+def test_baseline_local_reads_real_episode_and_writes_results(tmp_path, monkeypatch):
+    monkeypatch.setattr(cl, "ROOT", _local_episode_root(tmp_path, "2026-W36"))
     results_dir = tmp_path / "results"
     cl.main(["baseline", "2026-W36", "--local", "--results-dir", str(results_dir)])
 
@@ -520,7 +542,9 @@ def test_baseline_local_reads_real_episode_and_writes_results(tmp_path):
     assert monday["summary"]["message_count"] == monday["message_count"]
     assert "judge" in monday
 
-def test_load_episode_falls_back_to_local_on_cdn_failure(monkeypatch, capsys):
+def test_load_episode_falls_back_to_local_on_cdn_failure(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cl, "ROOT", _local_episode_root(tmp_path, "2026-W36"))
+
     def raising_urlopen(*_args, **_kwargs):
         raise urllib.error.URLError("no network in test sandbox")
 
@@ -572,6 +596,8 @@ def test_calibrate_degradations_are_deterministic_for_a_seed():
     assert [m["message"] for m in rotated_a] == [m["message"] for m in dialogue]
 
 def test_calibrate_dry_run_makes_zero_judge_calls_and_writes_results(tmp_path, monkeypatch):
+    monkeypatch.setattr(cl, "ROOT", _local_episode_root(tmp_path, "2026-W36"))
+
     def fail_judge(**kwargs):
         raise AssertionError("generate_judge_response must not be called in --dry-run")
 
@@ -902,6 +928,7 @@ def test_ab_without_dry_run_fails_loud_when_judge_model_unset(tmp_path, monkeypa
         ])
 
 def test_calibrate_without_dry_run_fails_loud_when_judge_model_unset(tmp_path, monkeypatch):
+    monkeypatch.setattr(cl, "ROOT", _local_episode_root(tmp_path, "2026-W36"))
     monkeypatch.delenv("JUDGE_MODEL", raising=False)
 
     with pytest.raises(SystemExit, match="JUDGE_MODEL is not set"):
@@ -912,12 +939,14 @@ def test_calibrate_without_dry_run_fails_loud_when_judge_model_unset(tmp_path, m
         ])
 
 # ---------------------------------------------------------------------------
-# Placeholder-concept fallback - finding (b). 2026-W32/W27/W33/W11 are real
-# local mirrors whose top-level `concept` is still the placeholder even
-# though the baker already picked a real dish name.
+# Placeholder-concept fallback - finding (b). 2026-W32/W27/W33/W11 were real
+# local mirrors whose top-level `concept` stayed the placeholder even though
+# the baker already picked a real dish name; 2026-W32 below is a committed
+# fixture (tests/fixtures/episodes/2026-W32.json) reproducing that shape (#7395).
 # ---------------------------------------------------------------------------
 
-def test_baseline_reports_real_title_not_placeholder_concept(tmp_path):
+def test_baseline_reports_real_title_not_placeholder_concept(tmp_path, monkeypatch):
+    monkeypatch.setattr(cl, "ROOT", _local_episode_root(tmp_path, "2026-W32"))
     results_dir = tmp_path / "results"
     cl.main(["baseline", "2026-W32", "--local", "--results-dir", str(results_dir)])
 
@@ -926,6 +955,7 @@ def test_baseline_reports_real_title_not_placeholder_concept(tmp_path):
     assert report["concept"] == "Miso Ginger Donburi Cups"
 
 def test_calibrate_judge_prompt_never_contains_placeholder_concept(tmp_path, monkeypatch):
+    monkeypatch.setattr(cl, "ROOT", _local_episode_root(tmp_path, "2026-W32"))
     captured_prompts: list[str] = []
 
     def capture_judge(*, prompt, system_prompt, model, temperature):
@@ -953,6 +983,7 @@ def test_calibrate_falls_back_to_monday_recipe_data_for_recipe_context(tmp_path,
     """2026-W32's tuesday stage carries dialogue but no recipe_data of its
     own - calibrate must fall back to monday's, exactly like ab's
     _resolve_recipe_context."""
+    monkeypatch.setattr(cl, "ROOT", _local_episode_root(tmp_path, "2026-W32"))
     captured_prompts: list[str] = []
 
     def capture_judge(*, prompt, system_prompt, model, temperature):
@@ -1441,6 +1472,7 @@ def test_second_orientation_failure_persists_both_attempts(
         assert second["error"] == "RuntimeError: synthetic provider failure"
 
 def test_calibrate_writes_partial_result_on_exception_mid_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(cl, "ROOT", _local_episode_root(tmp_path, "2026-W36"))
     monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
     call_count = {"n": 0}
 
@@ -2279,7 +2311,8 @@ def test_ab_testbed_explicit_max_calls_is_not_rederived(tmp_path, monkeypatch):
 # - finding (4)
 # ---------------------------------------------------------------------------
 
-def test_calibrate_dry_run_verdict_is_dry_run_not_grader(tmp_path):
+def test_calibrate_dry_run_verdict_is_dry_run_not_grader(tmp_path, monkeypatch):
+    monkeypatch.setattr(cl, "ROOT", _local_episode_root(tmp_path, "2026-W36"))
     results_dir = tmp_path / "results"
     cl.main([
         "calibrate", "--from-episode", "2026-W36", "--stage", "monday", "--local",
