@@ -53,32 +53,47 @@ Trash via `trash` — never `rm`, per this repo's hygiene rules.
   (override with `MUFFINPAN_PIPELINE_STATE_FILE` or `--state-file`). JSON:
   ```json
   {
-    "status": "ok" | "degraded",
+    "status": "ok" | "degraded" | "unknown",
     "episode_id": "2026-W40",
     "summary": "<one-line episode_summary() output>",
-    "failures": ["<failure detail>", "..."],
+    "failures": ["<failure text observed THIS run>", "..."],
+    "checks_ran": ["episode"] | ["catalog", "episode"] | [],
     "checked_at": "2026-09-30T18:00:00Z",
-    "alerted": {
-      "status": "ok" | "degraded" | null,
-      "signature": "<sha256 of episode_id + normalized failures>" | null,
-      "at": "2026-09-30T18:00:00Z" | null
-    }
+    "alerted_failures": {"<failure id>": "<failure text>", "...": "..."},
+    "alerted_at": "2026-09-30T18:00:00Z" | null
   }
   ```
-  `status` is only ever `"ok"` or `"degraded"` on disk — a network blip
-  never gets written as a fresh verdict over a known one (see below), so a
-  reader of this file never has to special-case a third value.
 
-  `status` and `alerted` are deliberately separate. `status` is what THIS
-  run observed; `alerted` is the status + failure signature of the last
-  **confirmed** delivery (`send_alert` returned `True`). They can disagree —
-  a DEGRADED run whose alert failed on every channel writes
-  `status: "degraded"` but leaves `alerted` at its previous value, so the
-  next run sees "still owed" and retries the delivery instead of treating
-  the failure as already announced. A reader that only wants "what does the
-  monitor currently believe about the pipeline" should read `status`; a
-  reader that wants "has the current problem actually been announced yet"
-  should compare `status`/failure-signature against `alerted`.
+  `status` is `"unknown"` **only** the very first time this monitor ever
+  runs and the episode fetch fails before any prior state exists on disk —
+  every other network hiccup (including every catalog-fetch problem; see
+  below) leaves the last known status in place untouched, never
+  `"unknown"`. Otherwise `status` is `"degraded"` when this run observed a
+  failure OR something from an earlier alert is still outstanding and
+  unverified (see `checks_ran` below), and `"ok"` otherwise.
+
+  The monitor tracks failures **per check, individually**, not as one
+  whole-pipeline signature. `episode_integrity_failures()` runs several
+  checks in one call; all but one (title-collision) only need the episode
+  itself (the **"episode" group**, which runs whenever the episode fetch
+  succeeds) — the title-collision check additionally needs the separately-
+  fetched catalog (the **"catalog" group**, which runs only when that fetch
+  returns a usable list or dict). `checks_ran` records which groups actually
+  ran THIS cycle; `failures` is only what those checks actually observed.
+  A catalog fetch that failed OR came back in an unexpected shape means the
+  catalog group simply didn't run — it never blocks the episode group from
+  alerting on something new, and it never manufactures a "new" or "cleared"
+  failure purely from that flakiness (see "Alerting" below).
+
+  `alerted_failures` is a `{failure id: failure text}` map of every failure
+  covered by the last **confirmed** delivery (`send_alert` returned `True`).
+  It is deliberately a superset of `failures` when a check didn't run this
+  cycle: an id from that check is left exactly as it was (`alerted_failures`
+  keeps it, `failures` doesn't currently show it) because it's neither
+  confirmed gone nor a repeat worth re-announcing. Comparing `checks_ran`
+  against which groups the ids in `alerted_failures` belong to (the id's
+  first `\x1f`-separated segment) tells a reader whether something "still
+  owed" is currently unverified.
 
   A lock file sits beside the state file at the same path plus `.lock`
   (e.g. `pipeline_status.json.lock`) — it holds no data, and its only job is
@@ -104,30 +119,44 @@ Alerts go through the one door every alert in this repo uses —
 (email is the channel Erik actually reads; see that module's docstring).
 No new channel was invented for this monitor.
 
-The monitor alerts on:
+Every observed failure gets a stable id (`<group>\x1f<episode_id>\x1f
+<normalized text>`, timestamps stripped). Each run:
 
-- `OK`/`unknown` → `DEGRADED` (including the very first run ever): one
-  `warning` alert, with the failure list.
-- A **new failure signature** while still `DEGRADED` — a different failure,
-  or the same failure text on a new episode (a new ISO week degrading the
-  same way): one `warning` alert. The signature is a hash of the episode id
-  plus the sorted failure text with any embedded timestamp stripped first,
-  so an identical failure never looks "new" just because an hour passed.
-- `DEGRADED` → `OK`: one `info` recovery alert.
+- **Any failure id never covered by a confirmed alert before** (a genuinely
+  new failure, OR the same failure text on a new episode — a new ISO week
+  degrading the same way gets a different id via its episode_id) → one
+  `warning` alert listing the new ones (plus the full current list for
+  context).
+- **Every previously-alerted id clearing at once, with nothing new** → one
+  `info` recovery alert.
 
 The monitor stays silent on:
 
-- `DEGRADED` → `DEGRADED` with the **same** failure signature (persistent,
-  unchanged failure) — a monitor that repeats itself every hour trains you
-  to ignore it.
-- `OK` → `OK`.
+- A previously-alerted id whose check simply **didn't run this cycle**
+  (catalog down or malformed) — it's neither cleared (unverified) nor
+  re-alerted (already announced once). This is what makes a flickering or
+  malformed catalog response inert: a persistent stage failure (A) plus a
+  title collision (B), with the catalog fetch failing on the middle of
+  three runs, produces exactly ONE alert — not three, and the catalog
+  outage never blocks A from being alerted on its own if A is new.
+- A failure id that clears while at least one other stays active (a
+  **partial** recovery) — the clearing is applied to `alerted_failures`
+  silently, no alert, until the LAST one clears too.
+- The exact same set of ids repeating, forever — a monitor that repeats
+  itself every hour trains you to ignore it.
 
 **Delivery is confirmed, not assumed.** `send_alert`'s boolean return is
-checked before `alerted` is updated. If every channel is down (or
-credentials are missing), the alert attempt is logged to stderr and
-`alerted` is left exactly as it was — the next run (an hour later, or
-sooner via a manual invocation) sees the same "not yet delivered" state and
-tries again, rather than the failure silently being recorded as announced.
+checked before `alerted_failures` is updated. If every channel is down (or
+credentials are missing):
+- a **new-failure** alert that fails to send adds nothing to
+  `alerted_failures` — the same ids still look "new" next run and are
+  retried (any *unrelated* clearing that happened the same cycle is still
+  applied; it's an independent fact, not a claim that was just announced);
+- a **recovery** alert that fails to send keeps the **entire** prior
+  `alerted_failures` set exactly as it was (undoing even the clearing that
+  would have triggered it) — `status` stays `"degraded"` even though
+  nothing is currently observed as failing, because the all-clear was never
+  actually announced, and the same recovery is retried next run.
 
 ## Never blocks
 
@@ -137,9 +166,12 @@ addition made for concurrency:
 - Always exits 0, including on a total exception (`_safe_main()`'s guard).
 - Inherits the 6s-per-request network bound from
   `session_pipeline_status.py`'s `_get_json`.
-- A network failure records `"unknown"` and does **not** alert, and does
-  **not** overwrite an already-known (`ok`/`degraded`) verdict on disk — a
-  flaky connection can't erase history or spam every hour.
+- An episode fetch failure with NO prior state at all writes `"unknown"`
+  (the one case it's ever persisted); with a known verdict already on disk
+  it changes nothing — no alert, no overwrite, every existing field kept
+  exactly as it was. A catalog fetch failure or malformed response never
+  produces `"unknown"` at all — it just means the catalog check didn't run
+  this cycle (see "Where things live" and "Alerting" above).
 - The whole read-decide-alert-write sequence runs under a non-blocking
   exclusive file lock (`fcntl.flock` on the `.lock` file above). If a run
   is already in flight when the next one starts (e.g. a slow run still

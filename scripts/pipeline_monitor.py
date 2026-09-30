@@ -11,7 +11,7 @@ It deliberately does NOT reimplement the fetch or the verdict logic — both
 come straight from session_pipeline_status.py, imported as a module. This
 file only adds: persisting the verdict to a small JSON state file (so the
 SessionStart hook can read it instantly instead of doing its own network
-fetch), and alerting on a CHANGE to DEGRADED plus one recovery notice.
+fetch), and alerting when the set of active failures changes.
 
 Design constraints carried over from session_pipeline_status.py (per #7006,
 "KEEP" — this script must not change that check's design):
@@ -19,60 +19,102 @@ Design constraints carried over from session_pipeline_status.py (per #7006,
      must never be the reason a login or a launchd tick goes red.
   2. The 6s-per-request network bound lives in session_pipeline_status.py's
      _get_json and is inherited unchanged.
-  3. Silent on network errors: a fetch failure produces "unknown", not an
-     alert, and must never overwrite an already-known ("ok"/"degraded")
-     verdict on disk — a flaky connection must not erase real history or
-     spam every hour.
+  3. Silent on network errors: an unreadable episode produces "unknown", not
+     an alert, and must never overwrite an already-known verdict on disk —
+     a flaky connection must not erase real history or spam every hour.
 
 Alerting goes through backend/utils/alerts.py::send_alert, the one door
 every operational alert in this project uses (Discord + email, both on
 every severity per #7097) — no new channel is invented here.
 
-Corrections made after Codex review round 1 of fb3fb3c (#7006):
+PER-CHECK FAILURE TRACKING (current design, round 3)
+-----------------------------------------------------
+episode_integrity_failures() runs several checks in one call; exactly one of
+them (title-collision) needs the separately-fetched catalog and is skipped
+when `catalog=None` — see that function's own docstring. Everything else
+only needs the episode itself. `compute_verdict()` calls it TWICE — once
+with `catalog=None` (the "episode" group: always runs whenever the episode
+fetch succeeds) and, only if the catalog fetch itself produced a usable list
+or dict, once more with the real catalog (adds the "catalog" group, i.e. the
+title-collision check). A catalog fetch that failed OR returned something
+malformed is treated identically: the catalog GROUP simply did not run this
+cycle — it never has any bearing on whether the EPISODE group's checks ran,
+and it never makes the whole verdict "unknown" (round 2 tried exactly that
+and got it wrong: it hid a genuinely new episode-group failure for as long
+as the catalog was down, and if that failure then recovered before the
+catalog came back, it was never alerted at all).
 
-  A. `status` (what was just OBSERVED) and `alerted` (the status + failure
-     signature of the last CONFIRMED delivery) are now separate fields.
-     `send_alert`'s boolean return is checked; a delivery that fails on every
-     channel leaves `alerted` untouched, so the NEXT run still sees "not yet
-     alerted for this" and retries — same pattern as #7403's advisory alert
-     ("only a confirmed delivery clears what is owed"). Before this, a failed
-     delivery was recorded as delivered, and a persistent DEGRADED with no
-     working alert channel would never alert again.
-  B. Re-alerting on a persistent DEGRADED is keyed on a normalized failure
-     SIGNATURE (episode id + sorted, timestamp-stripped failure text), not
-     merely on the status staying "degraded". A new, different failure surfaces
-     one alert even while already degraded; the same failure repeating stays
-     silent.
-  C. The read-decide-alert-write section runs under an exclusive, non-blocking
-     file lock (`fcntl.flock` on a `.lock` file beside the state file) so two
-     overlapping invocations (e.g. a slow run still in flight when the next
-     hourly tick fires) cannot both observe "not yet alerted" and both send.
-     A run that cannot get the lock logs it and exits 0 immediately, sending
-     nothing. `write_state` replaces the file atomically via a unique
-     `tempfile.mkstemp` name in the same directory.
+Every observed failure gets a stable id: `<group><SEP><episode_id><SEP>
+<normalized failure text>` (timestamps stripped so an identical failure
+never looks "new" just because an hour passed, while the same failure text
+on a new week's episode genuinely does look new via its episode_id). The
+group prefix is what makes CLEARING correct without re-deriving provenance
+later: given only a stored id, `_failure_id_group()` reads off which check
+produced it, so we always know whether THIS run's `checks_ran` is even in a
+position to confirm that failure is gone.
 
-Corrections made after Codex review round 2 of bb4b313 (#7006):
+State keeps `alerted_failures`, a `{id: text}` map of every failure id
+covered by the last CONFIRMED delivered alert (never a merely-attempted
+one — see "confirmed delivery" below, inherited from round 1). Each run:
+  - `new = observed_ids - alerted_ids`: failures never before announced.
+    Non-empty -> send one alert listing them (plus the full current list for
+    context). Only on a CONFIRMED delivery are they added to
+    `alerted_failures`; a failed delivery adds nothing, so the SAME ids
+    still look "new" next run and get retried.
+  - `cleared = {id in alerted_ids : id's group is in this run's checks_ran
+    AND id is not in observed_ids}`. A check that did NOT run this cycle
+    (e.g. catalog down) leaves ITS alerted ids untouched either way — they
+    are neither cleared (we didn't verify they're gone) nor re-alerted
+    (we already told Erik about them once). This makes a flickering catalog
+    fetch inert: A+B, catalog-down (episode-only group still confirms A is
+    unchanged, B is simply unverified this run), A+B again -> one alert,
+    never three, and never a "new" catalog-shaped failure the third time
+    just because the fetch briefly failed. Clearing itself is unconditional
+    (no alert is sent to say "X is fixed" individually) — only a FULL
+    recovery (see below) is announced.
+  - If nothing is new and clearing empties `alerted_failures` completely
+    (and it was non-empty before): one recovery alert. Confirmed delivery
+    clears it for real; a failed delivery keeps the full prior set so the
+    same recovery is retried next run, exactly like round 1's advisory-alert
+    pattern (#7403 — "only a confirmed delivery clears what is owed").
+  - Otherwise (no new ids, and either nothing cleared or a PARTIAL clear
+    that still leaves something outstanding): silent, `alerted_failures` is
+    just updated to reflect whatever cleared.
 
-  D. A catalog fetch that flickers (succeeds, then times out, then succeeds
-     again) used to change WHICH checks ran between runs — the title-
-     collision check silently drops out whenever the catalog GET fails,
-     per session_pipeline_status.py's own design (KEEP) — which changed the
-     failure SIGNATURE even though nothing about the pipeline itself
-     changed, re-alerting for the same underlying problem. `compute_verdict`
-     now treats a failed catalog fetch (`_get_json` returned `None`) the
-     same as a failed episode fetch: the whole run is "unknown", not a
-     partial verdict. This is the simpler of the two options Codex offered
-     (rather than computing a signature only from "checks that ran"): a
-     catalog-fetch failure is exactly the network-blip case constraint 3
-     already covers, so folding it into "unknown" costs nothing new and the
-     existing "unknown never alerts, never clobbers a known verdict" rule
-     handles it for free.
-  E. `write_state`'s orphaned-temp-file cleanup used `os.unlink`, which is
-     permanent deletion (AGENTS.md forbids it outside literal /tmp paths).
-     It now uses `send2trash`, same as `scripts/conversation_lab.py`'s
-     `_write_pairs_report_atomic`; a trash failure is logged, not raised
-     (constraint 1 — a cleanup failure on an already-failed write must not
-     be the reason this monitor stops).
+`status` in the state file is `"unknown"` ONLY when the episode fetch itself
+failed (no check ran at all — nothing to compare, nothing to clear, nothing
+to alert); `"degraded"` when this run observed a failure OR something is
+still alerted-and-unverified (an outstanding id from a check that didn't run
+this cycle); `"ok"` otherwise. "ok" is deliberately also the answer when not
+every check ran but nothing is or was ever wrong — e.g. a catalog fetch that
+timed out on a week with no other problems is not something to be anxious
+about.
+
+DESIGN HISTORY
+---------------
+Round 1 (fb3fb3c) shipped OK/DEGRADED-status-transition alerting with a
+whole-set failure signature. Codex found three bugs, all still true today
+and unchanged by round 3: (A) a failed `send_alert` call must not be
+recorded as delivered — `alerted_*` is only ever updated by a CONFIRMED
+delivery; (B) re-alerting on a persistent DEGRADED must be keyed on WHICH
+failures are present, not merely that the status stayed "degraded"; (C) the
+whole read-decide-alert-write section runs under a non-blocking `fcntl.flock`
+so two overlapping invocations can't both decide "not yet alerted" and both
+send, and `write_state` replaces the file atomically via a unique
+`tempfile.mkstemp` name.
+
+Round 2 (bb4b313) replaced the whole-set signature with a hash, but treated
+ANY catalog problem (fetch failure or malformed shape) as making the WHOLE
+verdict "unknown" — simple, but wrong: it hid a genuinely new episode-group
+failure for as long as the catalog was down, and a malformed (but present)
+catalog response still flapped the signature exactly like round 1's bug. It
+also said the `.lock` file was safe to delete (wrong: see
+ops/launchd/README.md) and used `os.unlink` for orphaned-temp-file cleanup
+instead of `send2trash` (AGENTS.md forbids permanent deletion).
+
+Round 3 (this version) replaces the single whole-set signature with the
+per-check, per-failure-id model described above, and fixes the lock-file
+guidance and `send2trash` usage from round 2's own review.
 
 Usage:
     uv run python scripts/pipeline_monitor.py
@@ -81,22 +123,23 @@ Usage:
 
 State file schema (JSON):
     {
-      "status": "ok" | "degraded",
+      "status": "ok" | "degraded" | "unknown",
       "episode_id": "<ISO week, e.g. 2026-W40>",
       "summary": "<one-line episode_summary() output>",
-      "failures": ["<failure detail>", ...],
+      "failures": ["<failure text observed THIS run>", ...],
+      "checks_ran": ["episode"] | ["catalog", "episode"] | [],
       "checked_at": "<UTC ISO-8601, e.g. 2026-09-30T18:00:00Z>",
-      "alerted": {
-        "status": "ok" | "degraded" | null,
-        "signature": "<sha256 of episode_id + normalized failures>" | null,
-        "at": "<UTC ISO-8601 of the last CONFIRMED delivery>" | null
-      }
+      "alerted_failures": {"<failure id>": "<failure text>", ...},
+      "alerted_at": "<UTC ISO-8601 of the last CONFIRMED delivery>" | null
     }
 
-`status` is what THIS run observed; `alerted` is what has actually been
-delivered so far. They can differ — a DEGRADED run whose alert failed to
-send leaves `status: "degraded"` but `alerted.status` still at its previous
-value, so the next run retries the delivery rather than staying silent.
+`"unknown"` appears on disk ONLY the very first time this monitor ever runs
+and the episode fetch fails before any prior state exists — every other
+network hiccup leaves the last known status in place untouched (constraint
+3). `failures` is what THIS run actually observed (from `checks_ran`);
+`alerted_failures` is the superset that includes ids from a check that
+didn't run this cycle and so couldn't be confirmed cleared — comparing the
+two tells a reader whether something "still owed" is currently unverified.
 """
 
 from __future__ import annotations
@@ -104,7 +147,6 @@ from __future__ import annotations
 import argparse
 import contextlib
 import fcntl
-import hashlib
 import json
 import os
 import re
@@ -122,17 +164,18 @@ from scripts import session_pipeline_status as sps  # noqa: E402
 
 LABEL = "muffinpanrecipes pipeline"
 
-# The "nothing has ever been delivered" alerted-state, used both as the
-# starting point for a brand-new state file and whenever a previous state
-# file has no `alerted` key (older format).
-_EMPTY_ALERTED = {"status": None, "signature": None, "at": None}
+# Separator used inside a failure id (<group><SEP><episode_id><SEP><text>).
+# \x1f (ASCII unit separator) rather than something printable, so it can
+# never collide with a character that legitimately appears in an episode id
+# or a failure message.
+_ID_SEP = "\x1f"
 
-# Strips date/time text from a failure message before hashing it into a
-# signature, so a value that legitimately varies run-to-run (a timestamp) or
-# tick-to-tick (an hourly count) can never make an unchanged failure look
-# "new" and re-alert every hour. Matches both "YYYY-MM-DD HH:MM[:SS]" and
-# full ISO-8601 ("...T...Z") shapes; session_pipeline_status.py's own
-# failures use the former (see episode_integrity.stage_deadline formatting).
+# Strips date/time text from a failure message before folding it into an id,
+# so a value that legitimately varies run-to-run (a timestamp) or tick-to-
+# tick (an hourly count) can never make an unchanged failure look "new" and
+# re-alert every hour. Matches both "YYYY-MM-DD HH:MM[:SS]" and full
+# ISO-8601 ("...T...Z") shapes; session_pipeline_status.py's own failures use
+# the former (see episode_integrity.stage_deadline formatting).
 _TIMESTAMP_RE = re.compile(r"\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?(\.\d+)?Z?")
 
 # Resolved at call time (not a module-level constant) so MUFFINPAN_PIPELINE_STATE_FILE
@@ -151,78 +194,96 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def compute_verdict(episode_id: str | None = None) -> dict:
-    """Reuse session_pipeline_status.py's fetch + verdict logic, structured.
+def _normalize_failure(text: str) -> str:
+    """Strip date/time text so an id built from a failure is stable across
+    runs even if a message ever embeds a timestamp or a ticking count."""
+    return _TIMESTAMP_RE.sub("<TS>", text)
 
-    Mirrors sps.main() line for line, but returns a dict instead of printing,
-    so this script can persist and diff it. `_get_json`, `current_episode_id`,
-    `BLOB_CDN`, `episode_integrity_failures`, and `episode_summary` are all
-    the SAME functions session_pipeline_status.py runs — nothing here
-    refetches or re-derives a verdict independently.
+
+def _failure_id(group: str, episode_id: str, text: str) -> str:
+    """A stable identity for "this specific failure, this week, from this
+    check". The group prefix lets `_failure_id_group` recover which check
+    produced an id we only have from a PREVIOUS run's state file, which is
+    what makes correct clearing possible without re-deriving anything."""
+    return _ID_SEP.join((group, episode_id, _normalize_failure(text)))
+
+
+def _failure_id_group(failure_id: str) -> str:
+    return failure_id.split(_ID_SEP, 1)[0]
+
+
+def compute_verdict(episode_id: str | None = None) -> dict:
+    """Reuse session_pipeline_status.py's fetch + verdict logic, structured
+    per-check so the caller can tell which checks ran this time.
+
+    Returns either:
+      {"kind": "unknown", "episode_id": eid, "summary": "..."}
+        — the episode fetch itself failed; no check ran at all.
+      {"kind": "observed", "episode_id": eid, "summary": "...",
+       "checks_ran": ("episode",) | ("episode", "catalog"),
+       "observed_failures": {"<failure id>": "<failure text>", ...}}
+        — the episode fetch succeeded; the catalog-dependent check
+          (title-collision) additionally ran iff the catalog fetch produced
+          a usable list or dict. `_get_json`, `current_episode_id`,
+          `BLOB_CDN`, `episode_integrity_failures`, and `episode_summary`
+          are the SAME functions session_pipeline_status.py runs — nothing
+          here refetches or re-derives a verdict independently.
     """
     eid = episode_id or sps.current_episode_id()
     episode = sps._get_json(f"{sps.BLOB_CDN}/episodes/{eid}.json")
 
     if not isinstance(episode, dict):
         return {
-            "status": "unknown",
+            "kind": "unknown",
             "episode_id": eid,
             "summary": f"could not read {eid} from blob",
-            "failures": [],
         }
+
+    # One `now` for both calls below, so the two runs of
+    # episode_integrity_failures (with and without the catalog) can never
+    # disagree about which stages are "due" purely because a few
+    # milliseconds of wall-clock time passed between them.
+    now = datetime.now(timezone.utc)
+    episode_only = list(sps.episode_integrity_failures(episode, catalog=None, now=now))
 
     raw_catalog = sps._get_json(f"{sps.BLOB_CDN}/pages/recipes.json")
-    if raw_catalog is None:
-        # `_get_json` returns None ONLY on a fetch failure (exception), never
-        # for a legitimately empty catalog ("[]"/"{}" are falsy but not
-        # None) — see module docstring, correction D. A failed sub-fetch
-        # makes this a partial verdict, not a real one: report "unknown"
-        # rather than silently computing a verdict with the title-collision
-        # check missing, which would manufacture a different failure
-        # signature (and a repeat alert) purely from network flakiness.
-        return {
-            "status": "unknown",
-            "episode_id": eid,
-            "summary": f"could not read catalog for {eid} from blob",
-            "failures": [],
-        }
-
     catalog: list[dict] | None
     if isinstance(raw_catalog, list):
         catalog = raw_catalog
     elif isinstance(raw_catalog, dict):
         catalog = raw_catalog.get("recipes", [])
     else:
-        # Fetch succeeded (raw_catalog is not None) but returned an
-        # unexpected shape — not a failure, just malformed data. Same as
-        # sps.main(): skip only the title-collision assertion, same as
-        # before this correction; this branch is NOT the flicker case above.
+        # Covers BOTH a failed fetch (raw_catalog is None) and a fetched-but-
+        # malformed response alike: either way the catalog-dependent check
+        # simply does not run this cycle. This used to be two different
+        # code paths (round 2 special-cased None into a whole-verdict
+        # "unknown"); per-check tracking makes them the same thing.
         catalog = None
 
-    failures = list(sps.episode_integrity_failures(episode, catalog=catalog))
+    if catalog is not None:
+        full = list(sps.episode_integrity_failures(episode, catalog=catalog, now=now))
+        checks_ran: tuple[str, ...] = ("episode", "catalog")
+    else:
+        full = episode_only
+        checks_ran = ("episode",)
+
     summary = sps.episode_summary(episode)
-    status = "degraded" if failures else "ok"
-    return {"status": status, "episode_id": eid, "summary": summary, "failures": failures}
 
+    observed: dict[str, str] = {
+        _failure_id("episode", eid, text): text for text in episode_only
+    }
+    if "catalog" in checks_ran:
+        for text in full:
+            if text not in episode_only:
+                observed[_failure_id("catalog", eid, text)] = text
 
-def _normalize_failure(text: str) -> str:
-    """Strip date/time text so a signature over failures is stable across
-    runs even if a message ever embeds a timestamp or a ticking count."""
-    return _TIMESTAMP_RE.sub("<TS>", text)
-
-
-def failure_signature(episode_id: str, failures: list[str]) -> str:
-    """A stable identity for "this specific set of failures, this week".
-
-    Sorted + normalized so failure ORDER and embedded timestamps can't change
-    the signature, but a genuinely different failure (or the same failure on
-    a new episode_id) does. Used to decide whether a persistent DEGRADED
-    status is still the same incident (stay silent) or a new one (alert
-    once) — see module docstring, correction B.
-    """
-    normalized = sorted(_normalize_failure(f) for f in failures)
-    raw = "\x1f".join([episode_id, *normalized])
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return {
+        "kind": "observed",
+        "episode_id": eid,
+        "summary": summary,
+        "checks_ran": checks_ran,
+        "observed_failures": observed,
+    }
 
 
 def read_state(path: Path) -> dict | None:
@@ -282,9 +343,17 @@ def _exclusive_lock(lock_path: Path):
 
     Yields True if the lock was acquired (caller should proceed) or False if
     another invocation currently holds it (caller should do nothing and
-    return 0 quietly — see module docstring, correction C). Two overlapping
-    launchd ticks — a slow run still in flight when the next hourly one fires
-    — must never both decide "not yet alerted" and both send.
+    return 0 quietly). Two overlapping launchd ticks — a slow run still in
+    flight when the next hourly one fires — must never both decide "not yet
+    alerted" and both send.
+
+    Never delete this lock file (see ops/launchd/README.md): flock locks the
+    open file description tied to a specific inode, so deleting the file out
+    from under a holder and letting a new run create a fresh one at the same
+    path produces two independently-lockable inodes — the guard silently
+    stops working. It is never necessary: flock releases automatically when
+    the holding process exits for ANY reason, so a stale lock from a dead
+    process simply isn't a real state.
     """
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o644)
@@ -303,12 +372,16 @@ def _exclusive_lock(lock_path: Path):
         os.close(fd)
 
 
-def _alert_degraded(verdict: dict) -> bool:
-    """Send the DEGRADED alert. Returns whether it was actually delivered —
-    the caller must not record the alert as sent otherwise (correction A)."""
-    failures = verdict.get("failures") or []
-    lines = [f"{LABEL}: DEGRADED — {_utc_now_iso()}", "", verdict["summary"], ""]
-    lines += [f"- {f}" for f in failures]
+def _alert_new_failures(verdict: dict, new_texts: list[str], all_texts: list[str]) -> bool:
+    """Announce failures never before alerted. Returns whether it was
+    actually delivered — the caller must not record them as sent otherwise
+    (round 1 correction A, unchanged)."""
+    still_open = [t for t in all_texts if t not in new_texts]
+    lines = [f"{LABEL}: DEGRADED — {_utc_now_iso()}", "", verdict["summary"], "", "New:"]
+    lines += [f"- {t}" for t in new_texts]
+    if still_open:
+        lines += ["", "Still open:"]
+        lines += [f"- {t}" for t in still_open]
     try:
         return bool(
             send_alert(
@@ -316,7 +389,7 @@ def _alert_degraded(verdict: dict) -> bool:
                 body="\n".join(lines)[:1900],
                 severity="warning",
                 fields=[
-                    (f"failure {i + 1}", f[:300], False) for i, f in enumerate(failures[:5])
+                    (f"failure {i + 1}", t[:300], False) for i, t in enumerate(new_texts[:5])
                 ],
             )
         )
@@ -345,73 +418,101 @@ def _alert_recovered(verdict: dict) -> bool:
 def _run_locked(state_path: Path, episode_id: str | None) -> int:
     """The actual read-decide-alert-write body, run under `run()`'s lock."""
     verdict = compute_verdict(episode_id)
-    status = verdict["status"]
 
-    if status == "unknown":
-        # KEEP: a network blip must never alert, and must never clobber a
-        # known verdict already on disk. Only write when there is nothing to
-        # clobber (first-ever run), so a reader has something rather than
-        # nothing.
+    if verdict["kind"] == "unknown":
+        # KEEP: no check ran at all, so there's nothing to compare, clear,
+        # or alert on. Only write when there is nothing to clobber
+        # (first-ever run — this is the ONE case "unknown" is ever
+        # persisted), so a reader has something rather than nothing.
         if read_state(state_path) is None:
             write_state(
                 state_path,
-                {**verdict, "checked_at": _utc_now_iso(), "alerted": dict(_EMPTY_ALERTED)},
+                {
+                    "status": "unknown",
+                    "episode_id": verdict["episode_id"],
+                    "summary": verdict["summary"],
+                    "failures": [],
+                    "checks_ran": [],
+                    "checked_at": _utc_now_iso(),
+                    "alerted_failures": {},
+                    "alerted_at": None,
+                },
             )
         else:
             print(f"{LABEL}: unknown verdict — keeping last known state")
         return 0
 
-    previous = read_state(state_path)
-    prev_alerted = (previous or {}).get("alerted") or _EMPTY_ALERTED
+    checks_ran = set(verdict["checks_ran"])
+    observed: dict[str, str] = verdict["observed_failures"]
+    observed_ids = set(observed)
 
-    current_signature = (
-        failure_signature(verdict["episode_id"], verdict["failures"])
-        if status == "degraded"
-        else None
-    )
+    previous = read_state(state_path) or {}
+    prev_alerted: dict[str, str] = previous.get("alerted_failures") or {}
+    prev_alerted_ids = set(prev_alerted)
 
-    # Default: carry the last CONFIRMED delivery forward unchanged. Only a
-    # successful send below replaces it — a failed one leaves this exactly as
-    # it was, so the next run's comparison still says "not yet delivered" and
-    # retries (correction A).
-    new_alerted = dict(prev_alerted)
+    # A previously-alerted id is cleared only when the check that produces
+    # it ran THIS cycle and no longer reports it. An id whose check did NOT
+    # run this cycle (e.g. catalog down) is left exactly as it was — neither
+    # cleared (unverified) nor re-alerted (already announced once).
+    cleared_ids = {
+        fid
+        for fid in prev_alerted_ids
+        if _failure_id_group(fid) in checks_ran and fid not in observed_ids
+    }
+    after_clear_ids = prev_alerted_ids - cleared_ids
+    new_ids = observed_ids - prev_alerted_ids
 
-    if status == "degraded" and (
-        prev_alerted.get("status") != "degraded"
-        or prev_alerted.get("signature") != current_signature
-    ):
-        # Covers OK -> DEGRADED, unknown -> DEGRADED, first-ever-run ->
-        # DEGRADED, AND a persistent DEGRADED whose failure signature just
-        # changed (a new/different failure, or a new week's episode failing
-        # the same way — correction B).
-        if _alert_degraded(verdict):
-            new_alerted = {
-                "status": "degraded",
-                "signature": current_signature,
-                "at": _utc_now_iso(),
-            }
+    committed_alerted: dict[str, str] = {i: prev_alerted[i] for i in after_clear_ids}
+    alerted_at = previous.get("alerted_at")
+
+    if new_ids:
+        new_texts = [observed[i] for i in sorted(new_ids)]
+        all_texts = [observed[i] for i in sorted(observed_ids)]
+        if _alert_new_failures(verdict, new_texts, all_texts):
+            committed_alerted.update({i: observed[i] for i in new_ids})
+            alerted_at = _utc_now_iso()
         else:
+            # Clearing (unrelated old failures confirmed gone) still applies
+            # regardless — only the NEW ids stay unconfirmed so they're
+            # retried next run (round 1 correction A, generalized to a set).
             print(
-                f"{LABEL}: DEGRADED alert was not delivered on any channel; "
-                "left pending for the next run",
+                f"{LABEL}: DEGRADED alert (new failures) was not delivered on any "
+                "channel; left pending for the next run",
                 file=sys.stderr,
             )
-    elif status == "ok" and prev_alerted.get("status") == "degraded":
+    elif not after_clear_ids and prev_alerted_ids:
+        # Nothing new, and everything previously alerted just cleared: a
+        # full recovery.
         if _alert_recovered(verdict):
-            new_alerted = {"status": "ok", "signature": None, "at": _utc_now_iso()}
+            committed_alerted = {}
+            alerted_at = _utc_now_iso()
         else:
+            # Keep the ENTIRE prior set (undo the clearing too) so the same
+            # recovery is retried next run rather than silently applied.
+            committed_alerted = dict(prev_alerted)
             print(
                 f"{LABEL}: recovery alert was not delivered on any channel; "
                 "left pending for the next run",
                 file=sys.stderr,
             )
-    # else: degraded -> degraded with the SAME signature, or ok -> ok: no
-    # alert, by design (#7006 — a persistent failure that re-alerts every
-    # hour becomes decoration).
+    # else: no new ids and either nothing cleared, or a PARTIAL clear that
+    # still leaves something outstanding — silent, `committed_alerted`
+    # already reflects whatever cleared (set above).
+
+    status = "degraded" if (observed_ids or committed_alerted) else "ok"
 
     write_state(
         state_path,
-        {**verdict, "checked_at": _utc_now_iso(), "alerted": new_alerted},
+        {
+            "status": status,
+            "episode_id": verdict["episode_id"],
+            "summary": verdict["summary"],
+            "failures": [observed[i] for i in sorted(observed_ids)],
+            "checks_ran": sorted(checks_ran),
+            "checked_at": _utc_now_iso(),
+            "alerted_failures": committed_alerted,
+            "alerted_at": alerted_at,
+        },
     )
     return 0
 
