@@ -12,6 +12,14 @@
     "deepseek-opus": {
       "dialogue": "deepseek/deepseek-v4.1-flash",
       "judge": "anthropic/claude-opus-4.6"
+    },
+    "claude-o55": {
+      "dialogue": "anthropic/claude-haiku-4.5",
+      "judge": "anthropic/claude-opus-5.5"
+    },
+    "deepseek-o55": {
+      "dialogue": "deepseek/deepseek-v4.1-flash",
+      "judge": "anthropic/claude-opus-5.5"
     }
   }
 }
