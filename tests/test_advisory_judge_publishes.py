@@ -127,7 +127,8 @@ def test_the_alert_fires_once_the_page_exists():
     _run_advisory(episode, [{"x": 3}, {"x": 9}, {"x": 1}])
     episode["judge_advisory"]["sunday"]["published"] = True
 
-    with patch.object(cron_routes, "notify_judge_advisory") as alert:
+    with patch.object(cron_routes, "notify_judge_advisory") as alert, \
+         patch.object(cron_routes.storage, "save_episode") as save_episode:
         cron_routes._announce_advisory_publication(
             episode, "sunday", "Cardamom Cinnamon Spiral Bites",
         )
@@ -137,6 +138,106 @@ def test_the_alert_fires_once_the_page_exists():
     assert kwargs["attempts"] == 3
     assert kwargs["scores"] == {"x": 9}
     assert kwargs["weakest"] == ["weak 2"]
+    # announced_at (#7403) is what makes a retry of this same record a no-op.
+    assert episode["judge_advisory"]["sunday"]["announced_at"]
+    save_episode.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Exactly-once announce (#7403): a crash between the publish save and the
+# alert used to lose the alert forever, because the already-published fast
+# path in cron_sunday never retried it.
+# ---------------------------------------------------------------------------
+
+
+def test_announce_is_a_no_op_once_already_announced():
+    """Calling the helper again after a successful send must not resend."""
+    episode = _episode()
+    _run_advisory(episode, [{"x": 3}, {"x": 9}, {"x": 1}])
+    episode["judge_advisory"]["sunday"]["published"] = True
+
+    with patch.object(cron_routes, "notify_judge_advisory") as alert, \
+         patch.object(cron_routes.storage, "save_episode"):
+        cron_routes._announce_advisory_publication(
+            episode, "sunday", "Cardamom Cinnamon Spiral Bites",
+        )
+    alert.assert_called_once()
+    first_announced_at = episode["judge_advisory"]["sunday"]["announced_at"]
+
+    with patch.object(cron_routes, "notify_judge_advisory") as alert_again, \
+         patch.object(cron_routes.storage, "save_episode") as save_again:
+        cron_routes._announce_advisory_publication(
+            episode, "sunday", "Cardamom Cinnamon Spiral Bites",
+        )
+    alert_again.assert_not_called()
+    save_again.assert_not_called()
+    assert episode["judge_advisory"]["sunday"]["announced_at"] == first_announced_at
+
+
+def _crashed_after_publish_episode() -> dict:
+    """What disk holds if the process died right after saving published=True
+    but before the alert ever went out - the exact window #7403 fixes.
+    """
+    return {
+        "episode_id": "2026-W99",
+        "concept": "Cardamom Cinnamon Spiral Bites",
+        "published_at": "2026-09-21T00:00:00+00:00",
+        "stages": {"sunday": {"status": "complete", "dialogue": []}},
+        "events": [],
+        "judge_advisory": {
+            "sunday": {
+                "selected_below_bar": True,
+                "published": True,
+                "published_at": "2026-09-21T00:00:00+00:00",
+                "attempts": 3,
+                "attempt_selected": 2,
+                "verdict": "FAIL - attempt 2",
+                "scores": {"natural_progression": 2},
+                "weakest": ["natural_progression"],
+                "recorded_at": "2026-09-21T00:00:00+00:00",
+                # no announced_at - the alert never went out.
+            }
+        },
+    }
+
+
+def test_a_crashed_run_s_alert_is_sent_on_the_next_already_published_retry():
+    """The already-published fast path must retry a missing announce."""
+    episode = _crashed_after_publish_episode()
+    body = cron_routes.StageRequest(episode_id="2026-W99", force=True)
+
+    with patch.object(cron_routes, "_verify_cron_secret"), \
+         patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=body)), \
+         patch.object(cron_routes, "_verify_day_of_week"), \
+         patch.object(cron_routes.storage, "load_episode", return_value=episode), \
+         patch.object(cron_routes.storage, "save_episode") as save_episode, \
+         patch.object(cron_routes, "notify_judge_advisory") as alert:
+        result = asyncio.run(cron_routes.cron_sunday(_sunday_request()))
+
+    assert result["already_published"] is True
+    alert.assert_called_once()
+    assert alert.call_args.kwargs["stage"] == "sunday"
+    assert episode["judge_advisory"]["sunday"]["announced_at"]
+    save_episode.assert_called_once()
+
+
+def test_a_second_retry_after_the_alert_sent_does_not_resend():
+    """Once announced_at is on disk, further already-published hits are quiet."""
+    episode = _crashed_after_publish_episode()
+    episode["judge_advisory"]["sunday"]["announced_at"] = "2026-09-21T00:05:00+00:00"
+    body = cron_routes.StageRequest(episode_id="2026-W99", force=True)
+
+    with patch.object(cron_routes, "_verify_cron_secret"), \
+         patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=body)), \
+         patch.object(cron_routes, "_verify_day_of_week"), \
+         patch.object(cron_routes.storage, "load_episode", return_value=episode), \
+         patch.object(cron_routes.storage, "save_episode") as save_episode, \
+         patch.object(cron_routes, "notify_judge_advisory") as alert:
+        result = asyncio.run(cron_routes.cron_sunday(_sunday_request()))
+
+    assert result["already_published"] is True
+    alert.assert_not_called()
+    save_episode.assert_not_called()
 
 
 def test_a_non_string_weakest_entry_cannot_break_the_alert():

@@ -850,15 +850,27 @@ def _judge_meta_fields(episode: dict, stage: str) -> dict:
 
 
 def _announce_advisory_publication(episode: dict, stage: str, concept: str) -> None:
-    """Send the advisory alert once the page it describes actually exists.
+    """Send the advisory alert once the page it describes actually exists,
+    exactly once even if the process dies between the two (#7403).
 
     _generate_and_judge_dialogue records that it SELECTED a below-bar
     dialogue; only the publish path knows whether the recipe went live. The
-    record is flipped and persisted by the caller before this fires, so a
-    delivery failure cannot leave the episode claiming an unsent alert.
+    `published` flip is persisted by the caller before this fires, so a
+    delivery failure here cannot leave the episode claiming an unsent alert.
+
+    That save happens before this call, not after, and `_complete_static_
+    source_handoff` runs in between (see cron_sunday) — so a crash after the
+    save but before this function ever runs used to lose the alert forever:
+    the episode was already `published=True` on disk, and cron_sunday's
+    already-published fast path (the `ep.get("published_at")` early return)
+    never called this function again on retry. `announced_at`, written here
+    with its own save right after a successful send, is what that fast path
+    now checks (see its call site) to fire the alert it would otherwise skip
+    — and what stops it from sending a second time once this function has
+    already succeeded once.
     """
     record = episode.get("judge_advisory", {}).get(stage)
-    if not record or not record.get("published"):
+    if not record or not record.get("published") or record.get("announced_at"):
         return
     notify_judge_advisory(
         concept=concept,
@@ -869,6 +881,13 @@ def _announce_advisory_publication(episode: dict, stage: str, concept: str) -> N
         scores=record.get("scores") or {},
         weakest=record.get("weakest") or [],
     )
+    # Recorded only after a successful send, and persisted immediately: if the
+    # process dies between the line above and this save, the worst case is
+    # one extra duplicate alert on the next retry, never a lost one — the
+    # opposite failure mode from the one this card fixes, and the
+    # acceptable one.
+    record["announced_at"] = datetime.now(timezone.utc).isoformat()
+    storage.save_episode(episode.get("episode_id", "unknown"), episode)
 
 
 class JudgeFailedError(Exception):
@@ -2800,6 +2819,13 @@ async def cron_sunday(request: Request):
             and _static_deploy_state(ep).get("phase") == "sources"
         ):
             _complete_static_source_handoff(episode_id, ep)
+        # A crash between saving published=True and sending the advisory
+        # alert used to lose the alert forever, because this fast path never
+        # retried it (#7403). _announce_advisory_publication is idempotent
+        # (it checks and then sets announced_at), so calling it on every
+        # already-published hit is safe: a no-op once the alert has actually
+        # gone out, a retry when it has not.
+        _announce_advisory_publication(ep, "sunday", concept)
         sunday_stage = ep.get("stages", {}).get("sunday", {})
         return _stage_response("sunday", episode_id, concept, {
             "published": True,
