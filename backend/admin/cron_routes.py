@@ -295,9 +295,13 @@ def _clear_stale_week_off_note_after_late_publish(published_episode_id: str) -> 
         note = next_episode.get("week_off_note")
         if not isinstance(note, dict) or note.get("missed_week") != published_episode_id:
             return
+        # Render first, strictly, then persist (Codex round 6). Either
+        # failure leaves the note on the STORED episode, which is exactly
+        # what lets the already_published catch-up retry the whole clear.
+        # Saving first used to lose that signal when the render then failed.
         next_episode.pop("week_off_note", None)
+        regenerate_and_upload(next_episode, strict=True)
         storage.save_episode(next_id, next_episode)
-        regenerate_and_upload(next_episode)
     except Exception as exc:  # noqa: BLE001 - best-effort, must not fail the publish
         logger.warning(
             f"week-off note clear-after-late-publish skipped for "

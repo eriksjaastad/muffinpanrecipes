@@ -158,6 +158,25 @@ def test_week_off_note_reaches_homepage_even_with_no_teaser_dialogue():
     assert payload == {"episode_id": "2026-W18", "week_off_note": _WEEK_OFF_NOTE}
 
 
+
+def test_no_teaser_and_no_note_still_overwrites_a_stale_latest_json():
+    """Codex round 6 on #7630: with neither a teaser nor a note, the writer
+    used to write nothing, so a note from an earlier write stayed on the
+    homepage after it was cleared. It now writes the neutral shape."""
+    episode = _episode({})
+
+    writes: dict[str, str] = {}
+
+    def fake_save(path, content):
+        writes[path] = content
+        return f"https://blob/{path}"
+
+    with patch.object(episode_renderer.storage, "save_page", side_effect=fake_save), \
+         patch.object(episode_renderer, "render_episode_page", return_value="<html></html>"):
+        episode_renderer.regenerate_and_upload(episode)
+
+    assert json.loads(writes["pages/latest.json"]) == {"episode_id": "2026-W18"}
+
 # ---------------------------------------------------------------------------
 # pages/latest.json is global and belongs to the CURRENT ISO week only
 # (#7630 — Codex review of 2d0567b/6b86ede). regenerate_and_upload is the

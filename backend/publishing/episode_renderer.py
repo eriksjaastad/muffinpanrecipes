@@ -1369,6 +1369,14 @@ def regenerate_and_upload(episode: dict, *, strict: bool = False) -> str | None:
                     json.dumps({"episode_id": episode_id, "week_off_note": week_off_note}),
                 )
                 logger.info("Uploaded week_off_note with no teaser content available")
+            else:
+                # Neither a teaser nor a note: still write, so a note (or
+                # teaser) from an earlier write can never outlive the state
+                # that produced it (Codex round 6 on #7630). No title means
+                # the homepage shows nothing; episode_id keeps health_check's
+                # current-week teaser check passing.
+                storage.save_page("pages/latest.json", json.dumps({"episode_id": episode_id}))
+                logger.info("Cleared teaser: no teaser content or week_off_note yet")
 
         return url
     except Exception as e:

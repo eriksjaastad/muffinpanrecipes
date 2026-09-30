@@ -171,7 +171,7 @@ def test_clear_stale_note_removes_it_when_the_successor_blames_this_week():
 
     assert "week_off_note" not in next_episode
     save_episode.assert_called_once_with("2026-W41", next_episode)
-    regenerate.assert_called_once_with(next_episode)
+    regenerate.assert_called_once_with(next_episode, strict=True)
 
 
 @pytest.mark.parametrize(
@@ -198,6 +198,43 @@ def test_clear_stale_note_changes_nothing_when_not_applicable(next_episode):
     assert next_episode == original
     save_episode.assert_not_called()
     regenerate.assert_not_called()
+
+
+
+def test_clear_stale_note_render_failure_keeps_the_note_stored_so_a_retry_redoes_it():
+    """Codex round 6: saving the cleared episode before a render that then
+    failed left the homepage showing the note while the stored episode had
+    none, so the already_published retry found nothing to do. Now the save
+    happens only after a successful strict render."""
+    stored = {
+        "episode_id": "2026-W41",
+        "stages": {},
+        "week_off_note": {"message": cron_routes.WEEK_OFF_MESSAGE, "missed_week": "2026-W40"},
+    }
+
+    def load(_eid):
+        return copy.deepcopy(stored)
+
+    def save(eid, data):
+        stored.clear()
+        stored.update(copy.deepcopy(data))
+
+    with patch.object(cron_routes.storage, "load_episode_strict", side_effect=load), \
+         patch.object(cron_routes.storage, "save_episode", side_effect=save) as save_episode, \
+         patch.object(cron_routes, "regenerate_and_upload", side_effect=RuntimeError("blob write failed")):
+        cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")  # must not raise
+
+    save_episode.assert_not_called()
+    assert stored["week_off_note"]["missed_week"] == "2026-W40"
+
+    # The retry (already_published catch-up) now succeeds and clears it.
+    with patch.object(cron_routes.storage, "load_episode_strict", side_effect=load), \
+         patch.object(cron_routes.storage, "save_episode", side_effect=save), \
+         patch.object(cron_routes, "regenerate_and_upload") as regenerate:
+        cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")
+
+    assert "week_off_note" not in stored
+    regenerate.assert_called_once()
 
 
 def test_clear_stale_note_error_is_logged_and_swallowed(caplog):
@@ -397,4 +434,4 @@ def test_cron_sunday_late_publish_clears_the_successors_note_end_to_end():
     assert result["published"] is True
     assert "week_off_note" not in next_episode
     assert ("2026-W41", next_episode) in save_calls
-    regenerate.assert_any_call(next_episode)
+    regenerate.assert_any_call(next_episode, strict=True)
