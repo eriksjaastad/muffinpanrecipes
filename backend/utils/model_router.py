@@ -10,6 +10,7 @@ provider (e.g. Gemini), just:
 
 from __future__ import annotations
 
+import math
 import os
 import time
 from dataclasses import dataclass
@@ -731,6 +732,11 @@ def _openrouter_attempt(client: Any, model: str, messages: list, temperature: fl
     raw_cost = getattr(usage, "cost", None) if usage else None
     actual_cost: Optional[float]
     if isinstance(raw_cost, bool) or not isinstance(raw_cost, (int, float)):
+        actual_cost = None
+    elif not math.isfinite(raw_cost) or raw_cost < 0:
+        # A NaN/inf/negative usage.cost is not a real price. Record it as
+        # absent so the lab's cost total treats the entry as unmetered and
+        # fails closed, instead of poisoning the running total.
         actual_cost = None
     else:
         actual_cost = float(raw_cost)

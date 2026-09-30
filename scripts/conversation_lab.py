@@ -260,6 +260,7 @@ import urllib.parse
 import urllib.request
 
 import httpx
+from send2trash import send2trash
 from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -733,7 +734,8 @@ def _would_exceed_cost(max_cost: float, baseline: float = 0.0) -> bool:
     except Exception as exc:
         _warn_cost_summary_failure_once(exc)
         return False
-    return (total_cost - baseline) >= max_cost
+    # `not (x < cap)`: a NaN total or cap counts as exceeded (fail closed).
+    return not ((total_cost - baseline) < max_cost)
 
 
 # ---------------------------------------------------------------------------
@@ -962,6 +964,12 @@ def _fetch_openrouter_model_prices() -> dict[str, tuple[float, float]]:
             prompt_price = float(pricing.get("prompt"))
             completion_price = float(pricing.get("completion"))
         except (TypeError, ValueError):
+            continue
+        # float() accepts "NaN", "inf" and negatives; any of those would make
+        # the worst-case reservation NaN/inf/negative and the cap comparison
+        # meaningless. Leave such a model unpriced so the preflight and the
+        # pre-call guard refuse it (fail closed).
+        if not (isfinite(prompt_price) and isfinite(completion_price)) or prompt_price < 0 or completion_price < 0:
             continue
         prices[model_id] = (prompt_price, completion_price)
     return prices
@@ -1896,7 +1904,10 @@ def _installed_budget_guard(budget: CallBudget, max_cost: float | None, baseline
                 # no usage.cost) blocks: admitting the call would spend
                 # against a cap nobody can check.
                 total = _total_cost_or_none()
-                cost_blocked = total is None or (total - baseline_cost) + worst_case > max_cost
+                # `not (x <= cap)` rather than `x > cap`: a NaN anywhere
+                # (total, reservation or the cap itself) blocks instead of
+                # comparing False and admitting the call.
+                cost_blocked = total is None or not ((total - baseline_cost) + worst_case <= max_cost)
             elif provider is None:
                 # A Jev HTTP attempt (stop_check's hook call) - no
                 # per-model price to look up, so reserve the same
@@ -1906,7 +1917,7 @@ def _installed_budget_guard(budget: CallBudget, max_cost: float | None, baseline
                 total = _total_cost_or_none()
                 cost_blocked = (
                     total is None
-                    or (total - baseline_cost) + stop_check._JEV_FAILED_ATTEMPT_COST_ESTIMATE_USD > max_cost
+                    or not ((total - baseline_cost) + stop_check._JEV_FAILED_ATTEMPT_COST_ESTIMATE_USD <= max_cost)
                 )
             else:
                 # Non-OpenRouter direct providers (anthropic/openai/google):
@@ -6712,6 +6723,18 @@ def _load_rejudge_source(result_path: Path) -> dict[str, Any]:
     if not isinstance(pairs, list) or not pairs:
         raise SystemExit(f"conversation_lab rejudge: {result_path} has no pairs to re-judge")
 
+    # The judge prompt is the instrument (RESEARCH_PLAN.md section 3): a
+    # re-judge under a different system prompt is a new instrument, not a
+    # test-retest, so refuse rather than report it as V3 agreement.
+    current_sha = _pairwise_evaluator_metadata()["evaluator_prompt_sha256"]
+    source_sha = data.get("evaluator_prompt_sha256")
+    if source_sha is not None and source_sha != current_sha:
+        raise SystemExit(
+            f"conversation_lab rejudge: {result_path} was judged under evaluator_prompt_sha256 "
+            f"{source_sha}, but the current judge prompt is {current_sha} - a re-judge would "
+            "change the instrument, not retest it"
+        )
+
     for i, pair in enumerate(pairs, start=1):
         if not pair.get("control_messages") or not pair.get("variant_messages"):
             raise SystemExit(
@@ -6737,6 +6760,35 @@ def _load_rejudge_source(result_path: Path) -> dict[str, Any]:
                     f"conversation_lab rejudge: {result_path} pair {i} orientation is missing its "
                     "saved prompt/mapping - cannot re-judge without regenerating"
                 )
+            saved_system = evidence.get("system_prompt")
+            if saved_system is None and source_sha is None:
+                raise SystemExit(
+                    f"conversation_lab rejudge: {result_path} pair {i} records neither its judge "
+                    "system prompt nor an evaluator_prompt_sha256 - cannot show the instrument is unchanged"
+                )
+            if saved_system is not None and saved_system != PAIRWISE_JUDGE_SYSTEM_PROMPT:
+                raise SystemExit(
+                    f"conversation_lab rejudge: {result_path} pair {i} was judged under a different "
+                    "system prompt than the current one - a re-judge would change the instrument"
+                )
+            first_arm = evidence.get("first_arm")
+            second_arm = evidence.get("second_arm")
+            mapping = evidence["mapping"]
+            if (
+                {first_arm, second_arm} != {"control", "variant"}
+                or mapping.get("A") != first_arm
+                or mapping.get("B") != second_arm
+            ):
+                raise SystemExit(
+                    f"conversation_lab rejudge: {result_path} pair {i} orientation has an incomplete "
+                    "or inconsistent first_arm/second_arm/mapping record - refusing to guess the A/B order"
+                )
+        first_arms = [o["evidence"]["first_arm"] for o in orientations]
+        if first_arms[0] == first_arms[1]:
+            raise SystemExit(
+                f"conversation_lab rejudge: {result_path} pair {i} has two orientations with the same "
+                "A/B order - not a position-swapped pair"
+            )
     return data
 
 
@@ -6782,8 +6834,8 @@ def cmd_rejudge(args: argparse.Namespace) -> None:
                         orientation=orientation["orientation"], pending_pair=pending_pair, budget=budget,
                         judge_model=judge_model, concept=data.get("concept") or "", stage=data.get("stage") or "",
                         recipe_context=None, expected_cast=[],
-                        first_arm=evidence.get("first_arm", "control"), first_messages=[],
-                        second_arm=evidence.get("second_arm", "variant"), second_messages=[],
+                        first_arm=evidence["first_arm"], first_messages=[],
+                        second_arm=evidence["second_arm"], second_messages=[],
                         recipe_facts=None, max_cost=args.max_cost,
                         prebuilt_prompt=evidence["prompt"],
                     )
@@ -7081,10 +7133,10 @@ def _write_pairs_report_atomic(path: Path, report: dict[str, Any]) -> None:
             f.write(payload)
         os.replace(tmp_name, path)
     except BaseException:
-        try:
-            os.unlink(tmp_name)
-        except OSError:
-            pass
+        # The repo forbids permanent deletion (AGENTS.md): trash the orphaned
+        # temp file. A trash failure propagates chained to the original error.
+        if os.path.exists(tmp_name):
+            send2trash(tmp_name)
         raise
 
 
