@@ -27,7 +27,9 @@ from statistics import mean
 from typing import Any
 
 from backend.config import config
+from backend.utils.director import Direction, direct_day, roll_day
 from backend.utils.model_router import generate_response
+from backend.utils.stop_check import StopCheckError, check_scene_done
 
 ROOT = Path(__file__).resolve().parents[1]
 PERSONAS_PATH = ROOT / "backend" / "data" / "agent_personalities.json"
@@ -274,6 +276,49 @@ TICKS_RANGE: dict[str, tuple[int, int]] = {
     "saturday":  (5, 6),   # was (3, 5) - a 2-person cast still needs an arc (#7292)
     "sunday":    (5, 6),   # publish + warmth - was (3, 4), then (4, 6) (#7079, #7082)
 }
+
+# Wind-down/stop knobs (#7680, #7681, #7629) — module attributes so the
+# conversation lab can sweep them. The defaults reproduce today's production
+# behaviour exactly: the regex goal check below is the only trigger, and a day
+# always ends by winding down over its last two ticks.
+WINDDOWN_TRIGGER: str = "regex"
+
+# How a model-based stop check decides a scene is done. Done =
+# decided >= decided_threshold and (not require_pushback or
+# pushback >= pushback_threshold).
+STOP_CHECK: dict = {
+    "provider": "haiku",
+    "decided_threshold": 0.7,
+    "require_pushback": True,
+    "pushback_threshold": 0.5,
+}
+
+# Per-day open-ended safety cap. When a day is present its cap replaces the
+# TICKS_RANGE roll; the tick after goal_met becomes the closing turn and the
+# day ends, or the cap is reached and the last tick closes as today. Only
+# valid with WINDDOWN_TRIGGER == "check".
+OPEN_ENDED_MAX_TICKS: dict = {}
+
+# Every stop check is appended here (day, tick, decided, pushback, provider,
+# model, cost_usd). run_simulation clears it at start; the conversation lab
+# copies it into the result JSON after each arm.
+STOP_CHECK_LOG: list[dict] = []
+
+# Director knob (#7679, absorbs #7677) — module attribute so the conversation
+# lab can sweep it. enabled False (the production default) leaves every prompt
+# byte-identical to today: no rolls, no director call, no extra prompt lines.
+DIRECTOR: dict = {
+    "enabled": False,
+    "probability": 0.5,
+    "intensity": 3,
+    "rng_seed": 0,
+    "no_repeat_window": 14,
+}
+
+# One director record per simulated day (day, rolls, direction, fallback).
+# run_simulation clears it at start; the conversation lab copies it into the
+# result JSON after each arm, next to STOP_CHECK_LOG.
+DIRECTOR_LOG: list[dict] = []
 
 PROMPT_ECHO_PATTERNS = [
     "day:",
@@ -530,15 +575,59 @@ def _load_memories(name: str) -> list[dict[str, str]]:
         return []
 
 
-_system_prompt_cache: dict[str, str] = {}
+# Deterministic patterns for WORD_CAPS=False. Each entry is a regex that
+# matches one numeric length constraint and removes it. The list is explicit
+# and covered by tests (tests/test_word_caps.py): a new phrasing in the voice
+# guides or shared rules must be added here deliberately, not discovered by
+# drifting past a catch-all.
+WORD_CAP_PATTERNS: tuple[str, ...] = (
+    # Sentence-count limits, with or without "max": "1-3 sentences max.",
+    # "1-2 sentences.", "1 sentence max."
+    r"\d+(?:\s*-\s*\d+)?\s+sentences?\s+max\.?",
+    r"\d+(?:\s*-\s*\d+)?\s+sentences?\.?",
+    # Average-word ranges: "Average message: 8-15 words."
+    r"Average message:\s*\d+(?:\s*-\s*\d+)?\s+words\.?",
+    # Hard per-character caps: "MAXIMUM 15 words."
+    r"MAXIMUM\s+\d+\s+words\.?",
+    # The shared word-budget bullet.
+    r"- Your word budget is the MAXIMUM stated in HOW YOU SPEAK above, and it "
+    r"is different for every character\. Obey YOUR number, not a number you "
+    r"infer from how others talk\. Going shorter than your budget is always "
+    r"fine; going over it never is\.\n?",
+    # "Be punchy." — a style order whose only job is to police length.
+    r"Be punchy\.",
+)
+
+
+def _strip_word_caps(text: str) -> str:
+    """Remove every numeric length constraint from `text`, leaving the rest.
+
+    Used on _CHARACTER_VOICE_GUIDES and _SHARED_CHARACTER_RULES when
+    WORD_CAPS is False. Deterministic: same input always maps to the same
+    output, and every removed phrase is one of WORD_CAP_PATTERNS above.
+    """
+    for pattern in WORD_CAP_PATTERNS:
+        text = re.sub(pattern, "", text, flags=re.IGNORECASE)
+    # Collapse the holes the removals leave behind.
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r" *\n *", "\n", text)
+    return text.strip()
+
+
+_system_prompt_cache: dict[tuple[str, bool], str] = {}
 
 
 def build_system_prompt(persona: dict[str, Any]) -> str:
     name = persona["name"]
-    if name in _system_prompt_cache:
-        return _system_prompt_cache[name]
+    cache_key = (name, WORD_CAPS)
+    if cache_key in _system_prompt_cache:
+        return _system_prompt_cache[cache_key]
     comm = persona["communication_style"]
     voice_guide = _CHARACTER_VOICE_GUIDES.get(name, "")
+    shared_rules = _SHARED_CHARACTER_RULES
+    if not WORD_CAPS:
+        voice_guide = _strip_word_caps(voice_guide)
+        shared_rules = _strip_word_caps(shared_rules)
 
     # Use bio.md if available, fall back to truncated backstory
     bio = _load_bio(name)
@@ -597,7 +686,7 @@ def build_system_prompt(persona: dict[str, Any]) -> str:
         f"SIGNATURE PHRASES (use as OCCASIONAL spice - once or twice a WEEK, not every message):\n"
         f"{', '.join(comm.get('signature_phrases', []))}\n\n"
         f"TRIGGERS (these make you react strongly): {', '.join(persona.get('triggers', []))}\n\n"
-        f"{_SHARED_CHARACTER_RULES}\n\n"
+        f"{shared_rules}\n\n"
         "CHARACTER-SPECIFIC RULES:\n"
         "- Signature phrases are spice, not default. Use at most once or twice a week.\n"
         "- Email habits (signing with initials, etc.) do NOT apply in group chat.\n"
@@ -605,7 +694,7 @@ def build_system_prompt(persona: dict[str, Any]) -> str:
         "Use plain hyphens and straight apostrophes only.\n"
         "- Conflict is natural. Disagree when your character would disagree. Don't smooth things over artificially."
     )
-    _system_prompt_cache[name] = result
+    _system_prompt_cache[cache_key] = result
     return result
 
 
@@ -761,6 +850,26 @@ SHAPE_MAX_IN_WINDOW = 2   # at most this many of them may share the shape
 # while leaving natural variance alone. A lab lever so it can be swept.
 WORD_BUDGET_TOLERANCE = 1.3
 
+# Per-line rewrite guards (#7705) — module attributes so the conversation lab
+# can sweep them. A guard set False is NOT evaluated as a fault, so it cannot
+# trigger a rewrite. The defaults reproduce today's production behaviour
+# byte-for-byte: every guard runs exactly as before.
+REWRITE_GUARDS: dict = {"repetition": True, "shape": True, "word_budget": True}
+
+# Word-caps knob (#7705 follow-on). True renders every prompt byte-identical
+# to today (the production default). False strips the numeric length
+# constraints from the voice guides and shared rules (see WORD_CAP_PATTERNS)
+# and also suppresses the word_budget rewrite fault, so a caps-off run never
+# tells the model a number.
+WORD_CAPS: bool = True
+
+# One record per generated line (#7705): day, speaker, the fault keys that
+# fired, whether the draft was rewritten, draft/final word counts, the draft
+# text (truncated to 300 chars), and whether the CoT guard retried. Cleared by
+# run_simulation; the conversation lab copies it into result JSONs next to
+# STOP_CHECK_LOG / DIRECTOR_LOG.
+REWRITE_LOG: list[dict] = []
+
 
 # Must match conversation_metrics.DASH_CLAUSE_RE exactly. Deliberately DUPLICATED
 # rather than imported: this module ships in the Vercel Lambda bundle and
@@ -839,6 +948,28 @@ def _over_word_budget(message: str, name: str) -> bool:
     return len(str(message).split()) > budget * WORD_BUDGET_TOLERANCE
 
 
+def _append_rewrite_log(
+    *,
+    day: str | None,
+    speaker: str | None,
+    faults: list[str],
+    rewritten: bool,
+    draft: str,
+    final: str,
+    cot_retry: bool,
+) -> None:
+    """Append one per-generated-line record to REWRITE_LOG (#7705)."""
+    REWRITE_LOG.append({
+        "day": day,
+        "speaker": speaker,
+        "faults": list(faults),
+        "rewritten": bool(rewritten),
+        "draft_words": len(str(draft).split()),
+        "final_words": len(str(final).split()),
+        "draft": str(draft)[:300],
+        "cot_retry": bool(cot_retry),
+    })
+
 
 def generate_turn(
     persona: dict[str, Any],
@@ -860,12 +991,23 @@ def generate_turn(
     week_highlights: list[str] | None = None,
     highlight_format: str = "plain",
     recipe_context: str | None = None,
+    direction: Direction | None = None,
 ) -> str:
     if mode == "template":
         sig = persona["communication_style"].get("signature_phrases", ["Right."])
         pick = random.choice(sig)
         event_bit = f" Also: {event}." if event else ""
-        return f"{pick} {day.title()} is {stage}; deadline is {deadline}. For {concept}, lock one decision now.{event_bit}"[:220]
+        line = f"{pick} {day.title()} is {stage}; deadline is {deadline}. For {concept}, lock one decision now.{event_bit}"[:220]
+        _append_rewrite_log(
+            day=day,
+            speaker=persona.get("name"),
+            faults=[],
+            rewritten=False,
+            draft=line,
+            final=line,
+            cot_retry=False,
+        )
+        return line
 
     # Use deeper context for late-week days that need to reference earlier decisions.
     # Full-context testing showed 12/8 depth + compression highlights outperforms raw dump.
@@ -943,8 +1085,23 @@ def generate_turn(
 
     no_clock_line = "Do NOT mention specific clock times."
 
+    # Director (#7679): the shared scene and this character's own pre-meeting
+    # line. A fallback direction behaves exactly like today's plain scene, and
+    # an absent direction keeps every prompt byte-identical to today.
+    director_scene_block = ""
+    director_before_block = ""
+    if direction is not None and not direction.fallback:
+        scene = (direction.scene or "").strip()
+        own_line = (direction.characters or {}).get(persona.get("name", ""), "").strip()
+        if scene and day_turn != 1:
+            director_scene_block = f"Scene today: {scene}\n"
+        if own_line:
+            director_before_block = f"Before this meeting: {own_line}\n"
+
     if prompt_style == "scene":
         scene_sentence = DAY_STAGE_DIRECTIONS[day]
+        if direction is not None and not direction.fallback and (direction.scene or "").strip():
+            scene_sentence = direction.scene.strip()
         arc_summary = _build_dynamic_arc(day, concept, photography_context=photography_context)
 
         if day_turn == 1:
@@ -968,6 +1125,7 @@ def generate_turn(
                 f"{char_goal_line}\n"
                 f"{no_clock_line}\n"
                 f"{event_line}\n"
+                f"{director_before_block}"
                 f"{week_context_block}"
                 f"Recent chat:\n{history}\n\n"
                 f"{self_awareness_block}"
@@ -1002,6 +1160,7 @@ def generate_turn(
                 f"{char_goal_line}\n"
                 f"{no_clock_line}\n"
                 f"{event_line}\n"
+                f"{director_scene_block}{director_before_block}"
                 f"{week_context_block}"
                 f"Recent chat:\n{history}\n\n"
                 f"{self_awareness_block}"
@@ -1032,6 +1191,7 @@ def generate_turn(
             f"{char_goal_line}\n"
             f"{no_clock_line}\n"
             f"{event_line}\n"
+            f"{director_scene_block}{director_before_block}"
             f"{week_context_block}"
             f"Recent chat:\n{history}\n\n"
             f"{self_awareness_block}"
@@ -1051,6 +1211,7 @@ def generate_turn(
             f"Wrap-up context: {_DAY_CLOSER_CONTEXT[day]}"
         )
 
+    cot_retry_flag = [False]
     msg = generate_response(
         prompt=prompt,
         system_prompt=build_system_prompt(persona),
@@ -1062,17 +1223,25 @@ def generate_turn(
         prompt=prompt,
         persona=persona,
         model=model,
+        retry_flag=cot_retry_flag,
     )
+    draft = msg
     # One bounded rewrite, as before - but it now names EVERY failing part of the
     # output contract at once rather than only near-duplicate wording. Same API
-    # cost, more signal.
+    # cost, more signal. REWRITE_GUARDS (#7705) makes each fault a lab knob: a
+    # guard set False is not evaluated, so it cannot trigger a rewrite. Defaults
+    # reproduce today's production behaviour byte-for-byte.
     _faults: list[str] = []
-    if _is_repetitive_candidate(msg, recent_lines) or _shared_trigram_with_recent(msg, recent_lines):
+    _fault_keys: list[str] = []
+    if REWRITE_GUARDS.get("repetition", True) and (
+        _is_repetitive_candidate(msg, recent_lines) or _shared_trigram_with_recent(msg, recent_lines)
+    ):
         _faults.append(
             "It repeats wording already used in this conversation. Use different "
             "phrasing and a new specific detail."
         )
-    if _shape_is_saturated(msg, recent_lines):
+        _fault_keys.append("repetition")
+    if REWRITE_GUARDS.get("shape", True) and _shape_is_saturated(msg, recent_lines):
         _shape = _sentence_shape(msg)
         if _shape == "dash_clause":
             _faults.append(
@@ -1086,13 +1255,16 @@ def generate_turn(
                 f"Its sentence shape ({_shape}) already dominates the last few "
                 "messages. Vary the construction, not just the words."
             )
-    _budget = _word_budget_for(persona.get("name", ""))
-    if _budget and _over_word_budget(msg, persona.get("name", "")):
-        _faults.append(
-            f"It is {len(msg.split())} words. Your MAXIMUM is {_budget}. Cut it to "
-            f"{_budget} words or fewer - keep the one thing that matters and drop the "
-            "rest. Do not pad it back out."
-        )
+        _fault_keys.append(f"shape:{_shape}")
+    if REWRITE_GUARDS.get("word_budget", True) and WORD_CAPS:
+        _budget = _word_budget_for(persona.get("name", ""))
+        if _budget and _over_word_budget(msg, persona.get("name", "")):
+            _faults.append(
+                f"It is {len(msg.split())} words. Your MAXIMUM is {_budget}. Cut it to "
+                f"{_budget} words or fewer - keep the one thing that matters and drop the "
+                "rest. Do not pad it back out."
+            )
+            _fault_keys.append("word_budget")
 
     if _faults:
         # Build the rewrite ON TOP of the original prompt, never from scratch.
@@ -1125,6 +1297,7 @@ def generate_turn(
             prompt=rewrite_prompt,
             persona=persona,
             model=model,
+            retry_flag=cot_retry_flag,
         )
 
     msg = sanitize_typographic_tells(msg)
@@ -1133,7 +1306,17 @@ def generate_turn(
     # Strip 24-hour clock references (e.g. "17:42" -> remove the time phrase)
     msg = re.sub(r"\bat\s+\d{2}:\d{2}\b", "", msg)
     msg = re.sub(r"\b[012]\d:\d{2}\b", "", msg)
-    return " ".join(msg.split())
+    final = " ".join(msg.split())
+    _append_rewrite_log(
+        day=day,
+        speaker=persona.get("name"),
+        faults=_fault_keys,
+        rewritten=bool(_faults),
+        draft=draft,
+        final=final,
+        cot_retry=cot_retry_flag[0],
+    )
+    return final
 
 
 # #5919 / #5920 — Chain-of-thought leak guard. Haiku occasionally ignores
@@ -1162,15 +1345,23 @@ def _guard_cot_leak(
     prompt: str,
     persona: dict,
     model: str,
+    retry_flag: list[bool] | None = None,
 ) -> str:
     """Detect interiority leakage and retry once with a stricter instruction.
 
     Raises RuntimeError if the model leaks twice in a row — the caller's
     cron stage will catch it via _run_stage and write a failure record
     instead of shipping contaminated dialogue.
+
+    `retry_flag` is an optional single-element list the caller can pass to
+    learn whether a retry happened; generate_turn uses it to record the CoT
+    retry in REWRITE_LOG (#7705).
     """
     if not _has_cot_leak(msg):
         return msg
+
+    if retry_flag is not None:
+        retry_flag[0] = True
 
     retry_prompt = (
         f"{prompt}\n\n"
@@ -2108,12 +2299,30 @@ def run_simulation(
     initial_recent_lines: list[str] | None = None,  # seed recent_lines (e.g. Saturday msgs for Sunday-only runs)
     highlight_format: str = "plain",  # "plain" or "xml" — controls how week context is injected
     recipe_context: str | None = None,  # one-line recipe summary; anchors dialogue to the actual dish
+    message_sink: list | None = None,  # #7714: when given, IS the messages list - turns land here as
+    # they are generated, so a caller that holds a reference to it can recover whatever was paid for
+    # even if this function never returns (e.g. an exception mid-run). Production never passes it -
+    # this parameter and the branch below are the only difference from before it existed.
 ) -> dict[str, Any]:
     personas = load_personas()
     start = datetime.now(timezone.utc).replace(hour=9, minute=0, second=0, microsecond=0)
-    messages: list[Message] = []
+    messages: list[Message] = message_sink if message_sink is not None else []
     recent_lines: list[str] = list(initial_recent_lines) if initial_recent_lines else []
     week_highlights: list[str] = list(initial_highlights) if initial_highlights else []
+    # In-run director history (#7679): later days in the same simulated week
+    # must not repeat an earlier day's (character, category) pairing, summary,
+    # or scene.
+    director_history: list[dict] = []
+
+    STOP_CHECK_LOG.clear()
+    DIRECTOR_LOG.clear()
+    REWRITE_LOG.clear()
+    if WINDDOWN_TRIGGER not in ("regex", "off", "check"):
+        raise ValueError(
+            f"WINDDOWN_TRIGGER must be 'regex', 'off', or 'check', got {WINDDOWN_TRIGGER!r}"
+        )
+    if OPEN_ENDED_MAX_TICKS and WINDDOWN_TRIGGER != "check":
+        raise ValueError("OPEN_ENDED_MAX_TICKS requires WINDDOWN_TRIGGER == 'check'")
 
     # Detect first episode — no character has any memories (#5030)
     first_episode = all(not _load_memories(name) for name in personas)
@@ -2130,7 +2339,13 @@ def run_simulation(
             DAY_STAGE_DIRECTIONS[day] = photo_scene
 
         # Variable message count — sample fresh each day/run
-        if ticks_per_day > 0:
+        open_ended_cap = OPEN_ENDED_MAX_TICKS.get(day) if OPEN_ENDED_MAX_TICKS else None
+        if open_ended_cap is not None:
+            # Open-ended safety cap: the day may still end EARLIER than this
+            # (the tick after goal_met becomes the closing turn), but it can
+            # never run past it.
+            day_ticks = open_ended_cap
+        elif ticks_per_day > 0:
             # Caller passed explicit count (e.g. pipeline stage calling with ticks_per_day=4)
             day_ticks = ticks_per_day
         else:
@@ -2138,7 +2353,7 @@ def run_simulation(
             day_ticks = random.randint(lo, hi)
 
         # Wednesday with photography context needs enough messages for hero debate
-        if day == "wednesday" and photography_context:
+        if day == "wednesday" and photography_context and open_ended_cap is None:
             if photography_context.get("reshoot_happened"):
                 day_ticks = max(day_ticks, 10)  # panic + reshoot + hero debate
             else:
@@ -2149,9 +2364,69 @@ def run_simulation(
         goal = DAY_MEETING_GOAL[day]
         goal_met = False
 
+        # Director (#7679): roll and direct the scene ONCE per day, before the
+        # first turn. Skipped in template mode so --dry-run stays zero-API.
+        # DirectorError propagates (no silent empty result); a fallback
+        # direction simply runs the day with today's plain scene.
+        direction = None
+        if DIRECTOR["enabled"] and mode != "template":
+            rolls = roll_day(
+                seed_key=concept,
+                characters=names,
+                probability=DIRECTOR["probability"],
+                rng_seed=DIRECTOR["rng_seed"],
+                day=day,
+            )
+            direction = direct_day(
+                day=day,
+                concept=concept,
+                objective=goal["objective"],
+                rolls=rolls,
+                intensity=DIRECTOR["intensity"],
+                history=director_history,
+                model=default_model,
+                no_repeat_window=DIRECTOR["no_repeat_window"],
+            )
+            for roll in rolls:
+                if not roll.has_something:
+                    continue
+                line = (direction.characters or {}).get(roll.character, "").strip()
+                if not line:
+                    continue
+                director_history.append({
+                    "day": day,
+                    "character": roll.character,
+                    "category": roll.category,
+                    "summary": " ".join(line.split()[:10]),
+                    "scene": direction.scene,
+                })
+            DIRECTOR_LOG.append({
+                "day": day,
+                "rolls": [
+                    {
+                        "character": r.character,
+                        "category": r.category,
+                        "u": r.u,
+                        "has_something": r.has_something,
+                    }
+                    for r in rolls
+                ],
+                "direction": (
+                    {"scene": direction.scene, "characters": direction.characters}
+                    if not direction.fallback
+                    else None
+                ),
+                "fallback": direction.fallback,
+            })
+
         for tick in range(day_ticks):
+            # In an open-ended day, the tick after goal_met is the closing
+            # turn and the day ends after it.
+            goal_already_met = goal_met
             # Determine conversation phase
-            if tick == day_ticks - 1:
+            if open_ended_cap is not None and goal_already_met:
+                turn_phase = "closing"
+            elif tick == day_ticks - 1:
                 turn_phase = "closing"
             elif goal_met or tick >= day_ticks - 2:
                 turn_phase = "winding_down"
@@ -2177,7 +2452,7 @@ def run_simulation(
                 mode=mode,
                 prompt_style=prompt_style,
                 day_turn=tick + 1,
-                is_last_turn=(tick == day_ticks - 1),
+                is_last_turn=(tick == day_ticks - 1) or (open_ended_cap is not None and goal_already_met),
                 photography_context=photography_context,
                 phase=turn_phase,
                 prior_own_messages=day_messages_by_char.get(speaker, []),
@@ -2185,16 +2460,53 @@ def run_simulation(
                 week_highlights=week_highlights if week_highlights else None,
                 highlight_format=highlight_format,
                 recipe_context=recipe_context,
+                direction=direction,
             )
             day_messages_by_char[speaker].append(line)
             recent_lines.append(f"{speaker.split()[0]}: {line}")
             messages.append(Message(day=day, stage=stage, character=speaker, message=line, timestamp=ts.isoformat(), model=model))
 
             # Check if meeting goal was met (only after a few turns of discussion)
-            if not goal_met and tick >= 2:
-                combined = " ".join(recent_lines[-3:]).lower()
-                if re.search(goal["completion_signal"], combined):
-                    goal_met = True
+            if WINDDOWN_TRIGGER == "regex":
+                if not goal_met and tick >= 2:
+                    combined = " ".join(recent_lines[-3:]).lower()
+                    if re.search(goal["completion_signal"], combined):
+                        goal_met = True
+            elif WINDDOWN_TRIGGER == "check":
+                # mode="template" is the lab's zero-API dry run; the stop check
+                # is a paid call, so it is skipped there like the director.
+                if not goal_met and tick >= 2 and mode != "template":
+                    try:
+                        result = check_scene_done(
+                            lines=recent_lines,
+                            provider=STOP_CHECK["provider"],
+                            day=day,
+                            objective=goal["objective"],
+                            haiku_model=default_model,
+                        )
+                    except StopCheckError as exc:
+                        raise StopCheckError(f"stop check failed on {day} tick {tick}: {exc}") from exc
+                    STOP_CHECK_LOG.append({
+                        "day": day,
+                        "tick": tick,
+                        "decided": result.decided,
+                        "pushback": result.pushback,
+                        "provider": result.provider,
+                        "model": result.model,
+                        "cost_usd": result.cost_usd,
+                    })
+                    decided_ok = result.decided >= STOP_CHECK["decided_threshold"]
+                    pushback_ok = (
+                        (not STOP_CHECK["require_pushback"])
+                        or result.pushback >= STOP_CHECK["pushback_threshold"]
+                    )
+                    if decided_ok and pushback_ok:
+                        goal_met = True
+            # WINDDOWN_TRIGGER == "off": goal_met is never set; phases are
+            # purely tick-based.
+
+            if open_ended_cap is not None and goal_already_met:
+                break  # the closing turn that follows goal_met just finished
 
         # Generate highlights for this day to carry forward into later days
         if mode == "llm" and not stage_only:

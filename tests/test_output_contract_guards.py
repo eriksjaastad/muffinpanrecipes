@@ -172,6 +172,93 @@ def test_multiple_faults_are_reported_together_in_one_rewrite():
     assert body.count("- ") >= 2
 
 
+# --- rewrite guards / REWRITE_LOG (#7705) ------------------------------------
+
+def _run_with_log(monkeypatch, persona, first_draft, recent_lines,
+                  reply="Cardamom isn't visible. Fix that."):
+    monkeypatch.setattr(sdw, "REWRITE_LOG", [])
+    prompts: list[str] = []
+    replies = iter([first_draft, reply])
+
+    def fake_generate(prompt, system_prompt=None, model=None, temperature=None, **_kw):
+        prompts.append(prompt)
+        return next(replies)
+
+    monkeypatch.setattr(sdw, "generate_response", fake_generate)
+    monkeypatch.setattr(sdw, "_guard_cot_leak", lambda m, **_kw: m)
+    sdw.generate_turn(
+        persona=persona, concept="Spiral Bites", day="wednesday",
+        stage="photography", deadline="5 pm", recent_lines=recent_lines,
+        event=None, model="test-model", mode="openai", prompt_style="scene",
+        day_turn=4, is_last_turn=False,
+    )
+    return prompts, list(sdw.REWRITE_LOG)
+
+
+def test_default_guards_log_and_rewrite_all_three_faults_once(monkeypatch):
+    """Defaults reproduce current behaviour: one rewrite, same prompt text, and
+    one REWRITE_LOG entry naming every fault key that fired."""
+    monkeypatch.setattr(sdw, "_is_repetitive_candidate", lambda *a, **k: True)
+    monkeypatch.setattr(sdw, "_shared_trigram_with_recent", lambda *a, **k: False)
+    monkeypatch.setattr(sdw, "_shape_is_saturated", lambda *a, **k: True)
+    monkeypatch.setattr(sdw, "_sentence_shape", lambda m: "dash_clause")
+    draft = "The steam is the issue - " + " ".join(["word"] * 30)
+
+    prompts, log = _run_with_log(monkeypatch, _persona("Margaret Chen"), draft, [])
+    assert len(prompts) == 2
+    body = prompts[1]
+    assert "It repeats wording already used in this conversation" in body
+    assert "claim> - <elaboration" in body
+    assert "MAXIMUM is 15" in body
+
+    (entry,) = log
+    assert entry["day"] == "wednesday"
+    assert entry["speaker"] == "Margaret Chen"
+    assert entry["faults"] == ["repetition", "shape:dash_clause", "word_budget"]
+    assert entry["rewritten"] is True
+    assert entry["draft_words"] == len(draft.split())
+    assert entry["final_words"] == len("Cardamom isn't visible. Fix that.".split())
+    assert entry["draft"] == draft[:300]
+    assert entry["cot_retry"] is False
+
+
+@pytest.mark.parametrize(
+    "guard_key,first_draft",
+    [
+        ("repetition", "A fresh specific line here."),
+        ("shape", "A fresh specific line here."),
+        ("word_budget", " ".join(["word"] * 33)),
+    ],
+)
+def test_each_rewrite_guard_off_stops_that_fault_from_triggering(monkeypatch, guard_key, first_draft):
+    """With defaults the setup trips exactly that guard; with it switched off the
+    same draft is not rewritten and the log entry carries no faults."""
+    if guard_key == "repetition":
+        monkeypatch.setattr(sdw, "_is_repetitive_candidate", lambda *a, **k: True)
+        monkeypatch.setattr(sdw, "_shared_trigram_with_recent", lambda *a, **k: False)
+    elif guard_key == "shape":
+        monkeypatch.setattr(sdw, "_shape_is_saturated", lambda *a, **k: True)
+        monkeypatch.setattr(sdw, "_sentence_shape", lambda m: "dash_clause")
+
+    prompts, log = _run_with_log(monkeypatch, _persona("Margaret Chen"), first_draft, [])
+    assert len(prompts) == 2
+    assert log[-1]["faults"] and log[-1]["faults"][0].startswith(guard_key)
+
+    monkeypatch.setattr(sdw, "REWRITE_GUARDS", {guard_key: False})
+    prompts, log = _run_with_log(monkeypatch, _persona("Margaret Chen"), first_draft, [])
+    assert len(prompts) == 1
+    assert log == [{
+        "day": "wednesday",
+        "speaker": "Margaret Chen",
+        "faults": [],
+        "rewritten": False,
+        "draft_words": len(first_draft.split()),
+        "final_words": len(first_draft.split()),
+        "draft": first_draft[:300],
+        "cot_retry": False,
+    }]
+
+
 # --- Codex review of 7a0bfba: two P2 bugs -------------------------------------
 
 @pytest.mark.parametrize("dash", [" - ", "—", "–"])

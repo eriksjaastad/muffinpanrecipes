@@ -1,0 +1,17 @@
+{
+  "default": "claude",
+  "sets": {
+    "claude": {
+      "dialogue": "anthropic/claude-haiku-4.5",
+      "judge": "anthropic/claude-opus-4.6"
+    },
+    "deepseek": {
+      "dialogue": "deepseek/deepseek-v4.1-flash",
+      "judge": "deepseek/deepseek-v4-pro-0813"
+    },
+    "deepseek-opus": {
+      "dialogue": "deepseek/deepseek-v4.1-flash",
+      "judge": "anthropic/claude-opus-4.6"
+    }
+  }
+}

@@ -4,7 +4,7 @@
 See docs/conversation-lab/PROTOCOL.md for the full method this implements;
 this docstring covers the mechanics.
 
-Four subcommands:
+Five subcommands:
 
   baseline <episode_id> [--local]
       Score an already-generated episode's dialogue with
@@ -49,6 +49,14 @@ Four subcommands:
       comparison. --concept, --recipe-context, and --from-episode are
       forbidden with --testbed; each scenario already carries its own.
 
+      --prior-days FROZEN_JSON (--testbed/--sweep only) seeds BOTH arms of
+      every pair with that scenario's frozen earlier days from `freeze`,
+      passed as run_simulation's initial_recent_lines (the exact
+      "FirstName: line" entries a full-week run would have accumulated by
+      that day). The frozen file must cover every panel scenario and must
+      not contain --stage or a later day; provenance (path, sha256, days)
+      is recorded in the result JSON as `prior_days`.
+
       Every judged dimension - the production 8 plus two lab-only ones,
       emotional_range and register_naturalness (see
       LAB_ONLY_JUDGE_DIMENSIONS) - is a valid --target and appears in the
@@ -59,8 +67,15 @@ Four subcommands:
       values (a string or a dict). Only existing, non-callable module
       attributes may be overridden - see ALLOWED_VARIANT_ATTRS below for the
       documented, useful levers (docs/conversation-lab/PROTOCOL.md's "Where
-      the levers live"). The patch applies to the variant arm's generation
-      call only and is always restored afterward, even on error.
+      the levers live"). The lever set spans the character-prompt levers
+      (_SHARED_CHARACTER_RULES, _REACTION_DIRECTIVE, DAY_STAGE_DIRECTIONS,
+      CHARACTER_DAY_GOALS), the history window HISTORY_DEPTH, the
+      output-contract guards (SHAPE_WINDOW, SHAPE_MAX_IN_WINDOW,
+      WORD_BUDGET_TOLERANCE, REWRITE_GUARDS, WORD_CAPS), the wind-down/stop knobs (TICKS_RANGE,
+      WINDDOWN_TRIGGER, STOP_CHECK, OPEN_ENDED_MAX_TICKS), and the director
+      knob (DIRECTOR). The patch applies
+      to the variant arm's generation call only and is always restored
+      afterward, even on error.
 
       --experiments-log overrides where the one-row-per-run log is
       inserted into the "## Experiments" table (default
@@ -143,6 +158,17 @@ Four subcommands:
       carries no direction to agree or disagree with. --variant-name picks
       which variant's own pairs to review in an `ab --sweep` result (which
       nests pairs per variant instead of one flat top-level list).
+
+  freeze --from RESULT_JSON --arm {control,variant} --pick {judge,run0}
+         --out FROZEN_JSON [--variant NAME] | --append-to FROZEN_JSON
+      Distill one arm's transcript per scenario_id from an `ab --testbed`
+      or `ab --sweep` result into a frozen prior-days file. --pick judge
+      selects the pair where that arm won the most judge dimensions (ties
+      broken by lowest run_index); --pick run0 selects the lowest run_index
+      (the lab's runs are 1-based, so in practice run 1). --append-to adds
+      a later day onto an existing file so Mon+Tue live in one file, keyed
+      by scenario then day, in week order; it refuses a day that is not
+      after the last frozen day.
 
   Paid experiment commands accept --budget-ledger PATH to share an
   authoritative Anthropic token-usage ledger across ab, bench and calibrate;
@@ -230,13 +256,15 @@ import sys
 import time
 import urllib.error
 import urllib.request
+
+import httpx
 from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from math import isfinite, sqrt
-from statistics import mean, stdev
+from statistics import mean, median, stdev
 from typing import Any
 
 import scripts.conversation_heatmap as conversation_heatmap
@@ -249,6 +277,7 @@ from backend.admin.cron_routes import (
 )
 from backend.config import config
 from backend.utils import model_router
+from backend.utils import stop_check
 from backend.utils.episode_integrity import PLACEHOLDER_CONCEPT, _recipe_title
 from scripts.conversation_metrics import summarize
 from scripts.conversation_budget import AnthropicBudgetGuard, BudgetGuardError
@@ -268,6 +297,127 @@ DEFAULT_TESTBED_RUNS = 3
 
 # Erik's standing cost cap for a single conversation-lab invocation, 2026-09-06.
 DEFAULT_MAX_COST_USD = 5.00
+
+# ---------------------------------------------------------------------------
+# Swappable lab model sets (#7714). scripts/lab_models.json maps a set name to
+# a {"dialogue": ..., "judge": ...} pair of bare OpenRouter dotted ids
+# (vendor/model, e.g. "anthropic/claude-haiku-4.5"); `ab --models NAME` picks
+# one, defaulting to the file's "default" key. Changing which models the lab
+# uses is then a one-line edit to that file, never a code change here.
+#
+# model_router itself must never read this file (backend/ ships in the Vercel
+# Lambda bundle, scripts/ does not - see .vercelignore) - this module reads it
+# and calls model_router.allow_openrouter_models() to register every set's ids.
+# ---------------------------------------------------------------------------
+LAB_MODELS_PATH = ROOT / "scripts" / "lab_models.json"
+
+# vendor/model - a single slash, no leading/trailing slash, no whitespace.
+_LAB_MODEL_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.:-]+$")
+
+
+@dataclass(frozen=True)
+class LabModelSet:
+    name: str
+    dialogue: str  # bare OpenRouter id, e.g. "anthropic/claude-haiku-4.5"
+    judge: str
+
+
+@dataclass(frozen=True)
+class LabModelsFile:
+    default: str
+    sets: dict[str, "LabModelSet"]
+
+    def get(self, name: str) -> "LabModelSet":
+        try:
+            return self.sets[name]
+        except KeyError:
+            raise SystemExit(
+                f"conversation_lab: --models {name!r} is not defined in {LAB_MODELS_PATH} - "
+                f"defined sets: {', '.join(sorted(self.sets)) or '(none)'}"
+            )
+
+
+def _validate_lab_model_id(path: Path, set_name: str, key: str, value: Any) -> str:
+    if not isinstance(value, str) or not _LAB_MODEL_ID_RE.match(value):
+        raise SystemExit(
+            f"conversation_lab: {path} set {set_name!r} key {key!r} must look like "
+            f"'vendor/model' (e.g. 'anthropic/claude-haiku-4.5'), got {value!r}"
+        )
+    return value
+
+
+def _load_lab_models_file(path: Path = LAB_MODELS_PATH) -> LabModelsFile:
+    """Load and validate a lab_models.json file. Raises SystemExit (never a
+    silent fallback) on anything malformed - a bad model-set file must fail
+    loud before any generation call, the same as every other lab config."""
+    try:
+        raw_text = path.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise SystemExit(f"conversation_lab: model set file not found: {path}") from exc
+    try:
+        raw = json.loads(raw_text)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"conversation_lab: model set file is not valid JSON: {path} ({exc})") from exc
+    if not isinstance(raw, dict):
+        raise SystemExit(f"conversation_lab: model set file must be a JSON object: {path}")
+    default = raw.get("default")
+    sets_raw = raw.get("sets")
+    if not isinstance(default, str) or not default:
+        raise SystemExit(f"conversation_lab: {path} 'default' must be a non-empty string")
+    if not isinstance(sets_raw, dict) or not sets_raw:
+        raise SystemExit(f"conversation_lab: {path} 'sets' must be a non-empty object")
+    sets: dict[str, LabModelSet] = {}
+    for set_name, entry in sets_raw.items():
+        if not isinstance(entry, dict) or set(entry) != {"dialogue", "judge"}:
+            raise SystemExit(
+                f"conversation_lab: {path} set {set_name!r} must be an object with exactly "
+                f"'dialogue' and 'judge' keys, got {entry!r}"
+            )
+        dialogue = _validate_lab_model_id(path, set_name, "dialogue", entry["dialogue"])
+        judge = _validate_lab_model_id(path, set_name, "judge", entry["judge"])
+        sets[set_name] = LabModelSet(name=set_name, dialogue=dialogue, judge=judge)
+    if default not in sets:
+        raise SystemExit(f"conversation_lab: {path} 'default' {default!r} is not one of 'sets': {sorted(sets)}")
+    return LabModelsFile(default=default, sets=sets)
+
+
+# Loaded once at import - scripts/ is not part of the Vercel Lambda bundle, so
+# reading this file here (unlike in backend/utils/model_router.py) is safe.
+_LAB_MODELS = _load_lab_models_file()
+_DEFAULT_LAB_MODEL_SET = _LAB_MODELS.get(_LAB_MODELS.default)
+
+# Register every set's ids with model_router's OpenRouter allowlists (both
+# dialogue and judge) up front - regardless of which set a given invocation
+# picks at runtime via --models.
+for _lab_model_set in _LAB_MODELS.sets.values():
+    model_router.allow_openrouter_models(dialogue=_lab_model_set.dialogue, judge=_lab_model_set.judge)
+del _lab_model_set
+
+# Kept as module attributes (names other tests/code import) - always the
+# DEFAULT set's ids, "openrouter/"-scheme-prefixed the way model_router.
+# parse_model expects (it splits on the FIRST "/" only).
+OPENROUTER_DIALOGUE_MODEL = f"openrouter/{_DEFAULT_LAB_MODEL_SET.dialogue}"
+OPENROUTER_JUDGE_MODEL = f"openrouter/{_DEFAULT_LAB_MODEL_SET.judge}"
+
+_OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
+_OPENROUTER_CREDITS_URL = "https://openrouter.ai/api/v1/credits"
+_OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
+_OPENROUTER_KEY_TIMEOUT_SECONDS = 30.0
+
+# Key snapshots for one paid OpenRouter run. `before` is captured in main()
+# before dispatch; `after` is fetched lazily by the first report builder.
+_OPENROUTER_KEY_BEFORE: dict[str, Any] | None = None
+_OPENROUTER_KEY_AFTER: dict[str, Any] | None = None
+
+# {model_id: (prompt_price_per_token_usd, completion_price_per_token_usd)},
+# fetched ONCE by _openrouter_preflight (#7714 finding 2) - never under
+# --dry-run, since _openrouter_preflight itself is only called when not
+# args.dry_run. None until then; the mid-arm guard's worst-case reservation
+# (_openrouter_worst_case_call_cost) fails CLOSED (treats the model as
+# infinitely expensive) when a price is missing, rather than silently
+# reading this as "$0 remaining prices," but the real fail-closed moment is
+# _openrouter_preflight refusing to start the run at all.
+_OPENROUTER_MODEL_PRICES: dict[str, tuple[float, float]] | None = None
 
 # Public, read-only CDN mirror of published/in-progress episode JSON.
 _CDN_BASE = "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/episodes"
@@ -294,6 +444,25 @@ ALLOWED_VARIANT_ATTRS: tuple[str, ...] = (
     "SHAPE_WINDOW",
     "SHAPE_MAX_IN_WINDOW",
     "WORD_BUDGET_TOLERANCE",
+    # Per-line rewrite guards (#7705). A variant may carry a SUBSET of the
+    # {"repetition", "shape", "word_budget"} bool keys; _apply_variant merges the
+    # subset onto the module default, so the patched module always has all three.
+    # A guard set False is not evaluated as a fault, so it cannot trigger a rewrite.
+    "REWRITE_GUARDS",
+    # Word-caps knob (#7705 follow-on). False strips every numeric length
+    # constraint from the voice guides/shared rules and suppresses the
+    # word_budget rewrite fault for that arm.
+    "WORD_CAPS",
+    # Wind-down/stop knobs (#7680, #7681, #7629). TICKS_RANGE and
+    # OPEN_ENDED_MAX_TICKS raise a scene's turn count; WINDDOWN_TRIGGER and
+    # STOP_CHECK choose how the scene decides it is done.
+    "TICKS_RANGE",
+    "WINDDOWN_TRIGGER",
+    "STOP_CHECK",
+    "OPEN_ENDED_MAX_TICKS",
+    # Director knob (#7679, absorbs #7677). When enabled, run_simulation rolls
+    # and directs each scene before the first turn (one Haiku call per day).
+    "DIRECTOR",
 )
 
 # The 8 dimensions the production judge scores (backend/admin/cron_routes.py
@@ -417,10 +586,10 @@ class CallBudget:
     def record(self, amount: int) -> None:
         self.used += amount
 
-# Set once, the first time backend.utils.model_router.get_cost_summary()
-# raises - see _warn_cost_summary_failure_once - so a broken cost log warns
-# exactly once per process instead of once per checked call (ab/calibrate
-# check it before every single generation and judge call).
+# Set once, the first time the lab's own cost total cannot be read - see
+# _warn_cost_summary_failure_once - so a broken cost log warns exactly once
+# per process instead of once per checked call (ab/calibrate check it
+# before every single generation and judge call).
 _cost_summary_failure_warned = False
 
 def _warn_cost_summary_failure_once(exc: Exception) -> None:
@@ -429,12 +598,29 @@ def _warn_cost_summary_failure_once(exc: Exception) -> None:
         return
     print(
         "WARNING: cost cap check failed open - "
-        f"backend.utils.model_router.get_cost_summary() raised {type(exc).__name__}: {exc} - "
+        f"backend.utils.model_router.get_cost_entries() raised {type(exc).__name__}: {exc} - "
         "--max-cost cannot be enforced until this is fixed; --max-calls remains the "
         "primary, always-available spending guard",
         file=sys.stderr,
     )
     _cost_summary_failure_warned = True
+
+# Set once, the first time _lab_cost_total() hits an untrusted OpenRouter
+# entry (see its docstring) - a separate warning from the read-failure one
+# above, since this path fails CLOSED rather than open and Erik should be
+# able to tell the two apart from stderr alone.
+_untrusted_cost_entry_warned = False
+
+def _warn_untrusted_cost_entry_once(exc: Exception) -> None:
+    global _untrusted_cost_entry_warned
+    if _untrusted_cost_entry_warned:
+        return
+    print(
+        f"WARNING: cost cap check failed CLOSED - {exc} - "
+        "aborting the run rather than treating unmetered OpenRouter spend as $0",
+        file=sys.stderr,
+    )
+    _untrusted_cost_entry_warned = True
 
 def _cost_summary_or_none() -> dict[str, Any] | None:
     """model_router's running totals, or None if the log cannot be read."""
@@ -445,13 +631,65 @@ def _cost_summary_or_none() -> dict[str, Any] | None:
         return None
     return summary if isinstance(summary, dict) else None
 
+class _UntrustedCostEntry(RuntimeError):
+    """Raised by `_lab_cost_total` for an OpenRouter cost-log entry that
+    reports neither a real `actual_cost` nor a nonzero `estimated_cost`.
+
+    #7714 finding 1: `backend.utils.model_router.get_cost_summary()`'s
+    `total_cost` sums ONLY `estimated_cost`, computed from
+    `_COST_PER_M_TOKENS` - a table with no OpenRouter ids in it - so every
+    OpenRouter call estimates to $0 there even though `_generate_openrouter`
+    stores the real `usage.cost` as `actual_cost` right next to it. Treating
+    that shape as $0 spend would let real, unmetered OpenRouter cost run
+    straight past --max-cost, so `_would_exceed_cost` treats this as an
+    immediate, fail-CLOSED cap hit instead of a read failure (which fails
+    open)."""
+
+def _lab_cost_total() -> float:
+    """The lab's own running-cost total: sum, over every entry in
+    `backend.utils.model_router.get_cost_entries()`, of that entry's
+    `actual_cost` when present, else its `estimated_cost` - NOT
+    `get_cost_summary()['total_cost']` (see `_UntrustedCostEntry`'s
+    docstring for why that undercounts OpenRouter spend to $0).
+
+    Raises `_UntrustedCostEntry` for an OpenRouter entry with neither a
+    real `actual_cost` nor a nonzero `estimated_cost` - callers decide
+    whether that fails open or closed (see `_would_exceed_cost` and
+    `_total_cost_or_none`).
+    """
+    total = 0.0
+    for entry in model_router.get_cost_entries():
+        if not isinstance(entry, dict):
+            continue
+        actual = entry.get("actual_cost")
+        if isinstance(actual, (int, float)) and not isinstance(actual, bool):
+            total += float(actual)
+            continue
+        estimated = entry.get("estimated_cost")
+        if isinstance(estimated, (int, float)) and not isinstance(estimated, bool):
+            estimated = float(estimated)
+        else:
+            estimated = 0.0
+        if entry.get("provider") == "openrouter" and estimated == 0.0:
+            raise _UntrustedCostEntry(
+                "openrouter cost entry for model "
+                f"{entry.get('model')!r} reports no actual_cost and a zero "
+                "estimate - refusing to count it as $0 spend"
+            )
+        total += estimated
+    return total
+
 def _total_cost_or_none() -> float | None:
-    """Current backend.utils.model_router.get_cost_summary()['total_cost'],
-    or None on a read failure - after firing the one-time stderr warning
-    above. Shared by `_would_exceed_cost` and `ab --sweep`'s per-variant
-    cost baseline (see `_would_exceed_cost`'s `baseline` parameter)."""
+    """Current lab-wide running cost total (see `_lab_cost_total`), or
+    None on ANY failure to compute it - including an untrusted OpenRouter
+    entry - after firing the one-time stderr warning above. This is the
+    REPORTING-facing total (`ab --sweep`'s per-variant baseline and
+    `cost_spent`), so it fails open to None uniformly rather than raising;
+    `_would_exceed_cost` is the one caller that must tell "unknown" apart
+    from "untrusted", and it calls `_lab_cost_total()` directly instead of
+    going through this function."""
     try:
-        return model_router.get_cost_summary().get("total_cost", 0.0)
+        return _lab_cost_total()
     except Exception as exc:
         _warn_cost_summary_failure_once(exc)
         return None
@@ -471,16 +709,485 @@ def _would_exceed_cost(max_cost: float, baseline: float = 0.0) -> bool:
     in the sweep - rather than one absolute cap racing against everything
     the sweep has already spent.
 
-    A cost-summary read failure does not disable the cap by raising - it
+    A cost-log read failure does not disable the cap by raising - it
     fails open (returns False, i.e. "not yet exceeded") the same way
     _run_arm_and_count already tolerates a failed read, because
     --max-calls remains the primary, always-available spending guard
-    regardless of whether cost tracking itself is working.
+    regardless of whether cost tracking itself is working. An untrusted
+    OpenRouter entry (see `_UntrustedCostEntry`) is NOT a read failure -
+    it fails CLOSED (returns True) instead, since the alternative is
+    silently letting unmetered OpenRouter spend run past --max-cost.
     """
-    total_cost = _total_cost_or_none()
-    if total_cost is None:
+    try:
+        total_cost = _lab_cost_total()
+    except _UntrustedCostEntry as exc:
+        _warn_untrusted_cost_entry_once(exc)
+        return True
+    except Exception as exc:
+        _warn_cost_summary_failure_once(exc)
         return False
     return (total_cost - baseline) >= max_cost
+
+
+# ---------------------------------------------------------------------------
+# OpenRouter (lab-only) key and cost accounting
+# ---------------------------------------------------------------------------
+def _provider_for(args: argparse.Namespace) -> str:
+    """The provider a command invocation is running under.
+
+    argparse always sets `provider` for ab/bench/calibrate; direct calls from
+    tests (or internal callers) that predate the flag default to the
+    production-direct Anthropic path.
+    """
+    return getattr(args, "provider", None) or "anthropic"
+
+
+def _models_arg_for(args: argparse.Namespace) -> str | None:
+    """The --models value, or None when this subcommand has no such flag
+    (only `ab` gets --models) or it was not passed."""
+    return getattr(args, "models", None)
+
+
+def _resolve_lab_model_set(args: argparse.Namespace) -> "LabModelSet":
+    """The LabModelSet an `ab` invocation uses - always the REAL ids, never
+    collapsed to "template" by --dry-run, so provider_route reporting and the
+    STOP_CHECK/haiku compatibility check both reason about the actual set even
+    under a zero-cost dry run.
+
+    --models is only meaningful with --provider openrouter: --provider
+    anthropic is the production-direct path and always runs the default set.
+    """
+    name = _models_arg_for(args) or _LAB_MODELS.default
+    if name != _LAB_MODELS.default and _provider_for(args) != "openrouter":
+        raise SystemExit(
+            f"conversation_lab: --models {name!r} is only meaningful with --provider "
+            f"openrouter (--provider anthropic always uses the {_LAB_MODELS.default!r} set)"
+        )
+    return _LAB_MODELS.get(name)
+
+
+def _refuse_if_stop_check_conflicts_with_models(
+    args: argparse.Namespace, variant: dict[str, Any] | None,
+) -> None:
+    """STOP_CHECK['provider'] == "haiku" always calls real Anthropic Claude
+    Haiku directly (backend/utils/stop_check.py's HAIKU_MODEL, through
+    model_router with --provider anthropic) - it never routes through
+    --models. Running a non-default model set (e.g. --models deepseek) with a
+    haiku stop check would silently spend on Claude while everything else in
+    the run is billed to a different vendor, so refuse instead of doing that
+    quietly. The lab's own convention is STOP_CHECK provider="jev" (see
+    scripts/simulate_dialogue_week.py); stop_check.py's haiku path stays out
+    of scope for #7714 (it is not swappable via lab_models.json).
+
+    STOP_CHECK is only ever consulted when WINDDOWN_TRIGGER == "check" -
+    scripts/simulate_dialogue_week.py's run_simulation calls check_scene_done
+    (which reads STOP_CHECK['provider']) inside the `elif WINDDOWN_TRIGGER ==
+    "check":` branch of its per-tick loop, and nowhere else in the codebase.
+    The "regex" (production default) and "off" triggers never call it, so an
+    arm whose effective WINDDOWN_TRIGGER isn't "check" cannot spend on Claude
+    no matter what STOP_CHECK says - refusing that arm was over-strict and
+    blocked every WINDDOWN_TRIGGER="check" + STOP_CHECK provider="jev" variant
+    from running with a non-default model set, since the unpatched control
+    module default (WINDDOWN_TRIGGER="regex", STOP_CHECK provider="haiku")
+    always looked like a conflict.
+
+    Checks BOTH the control arm (the module's current, unpatched
+    WINDDOWN_TRIGGER/STOP_CHECK - control is never variant-patched) and the
+    variant arm (the variant's own WINDDOWN_TRIGGER/STOP_CHECK overrides, if
+    any, else the same module defaults) - each arm's *effective* pairing.
+
+    Runs under --dry-run too (unlike the OpenRouter key/balance preflight,
+    which needs the network): this check only reads the lab-models registry
+    and module attributes already loaded in memory, no network call and no
+    credential read, so there is no cost reason to skip it. #7680's bug was
+    found in a real run, not a dry run, specifically because this used to
+    return early here - a --dry-run of the exact same variant/--models combo
+    could not have caught it.
+    """
+    if _provider_for(args) != "openrouter":
+        return
+    model_set = _resolve_lab_model_set(args)
+    if model_set.name == _LAB_MODELS.default:
+        return
+
+    control_trigger = simulate_module.WINDDOWN_TRIGGER
+    control_provider = simulate_module.STOP_CHECK.get("provider")
+
+    is_dict = isinstance(variant, dict)
+    variant_trigger = (
+        variant.get("WINDDOWN_TRIGGER")
+        if is_dict and "WINDDOWN_TRIGGER" in variant
+        else control_trigger
+    )
+    variant_stop_check = variant.get("STOP_CHECK") if is_dict else None
+    variant_provider = (
+        variant_stop_check.get("provider")
+        if isinstance(variant_stop_check, dict) and "provider" in variant_stop_check
+        else control_provider
+    )
+
+    control_conflict = control_trigger == "check" and control_provider == "haiku"
+    variant_conflict = variant_trigger == "check" and variant_provider == "haiku"
+
+    if control_conflict or variant_conflict:
+        raise SystemExit(
+            f"conversation_lab: --models {model_set.name!r} cannot run with STOP_CHECK "
+            "provider='haiku' - stop_check.py's haiku provider always calls Anthropic "
+            "Claude Haiku directly, never through --models, so this would silently spend "
+            "on Claude while everything else runs on a different model set. Set STOP_CHECK "
+            f"provider to 'jev' in the variant, or drop --models to use the "
+            f"{_LAB_MODELS.default!r} default."
+        )
+
+
+def _provider_route_for(provider: str, model_set: "LabModelSet | None" = None) -> dict[str, Any] | None:
+    if provider != "openrouter":
+        return None
+    if model_set is None:
+        model_set = _DEFAULT_LAB_MODEL_SET
+    return model_router.openrouter_provider_route(model_set.dialogue)
+
+
+def _resolve_provider(args: argparse.Namespace, ledger_path: Any) -> str | None:
+    """Which provider a CLI invocation uses.
+
+    The CLI default is openrouter for ab/bench/calibrate. A --budget-ledger
+    run always uses the production-direct Anthropic path, because the guard
+    only meters the Anthropic SDK.
+    """
+    if args.command not in {"ab", "bench", "calibrate"}:
+        return None
+    explicit = getattr(args, "provider", None)
+    if explicit:
+        return explicit
+    return "anthropic" if ledger_path is not None else "openrouter"
+
+
+def _openrouter_preflight(args: argparse.Namespace) -> None:
+    """Check the OpenRouter key limit before any generation and refuse if it
+    cannot cover --max-cost. Prints limit and limit_remaining.
+
+    Also fetches OpenRouter's per-token model prices ONCE (#7714 finding
+    2) and refuses to start if a model this run will actually use has no
+    published price - the mid-arm guard's --max-cost check reserves the
+    NEXT call's worst-case cost for an OpenRouter model (see
+    `_openrouter_worst_case_call_cost`), and a model with no price has no
+    worst case to reserve. Never reached under --dry-run: `main()` only
+    calls this when `not args.dry_run`.
+    """
+    global _OPENROUTER_KEY_BEFORE, _OPENROUTER_MODEL_PRICES
+    _require_openrouter_key()
+    key_info = _openrouter_fetch_key()
+    _OPENROUTER_KEY_BEFORE = key_info
+    print(
+        "[openrouter] key limit: "
+        f"${key_info['limit']:.2f}  limit_remaining: ${key_info['limit_remaining']:.2f}"
+    )
+    if key_info["limit_remaining"] < args.max_cost:
+        raise SystemExit(
+            "conversation_lab: OpenRouter limit_remaining "
+            f"${key_info['limit_remaining']:.2f} is below --max-cost ${args.max_cost:.2f}; "
+            "refusing to start"
+        )
+    # The key limit is only a ceiling; spend comes out of the ACCOUNT balance.
+    # 2026-09-27 the first paid run passed the key check with $49.62 of limit
+    # remaining and died at its first judge call because the account held $0.56.
+    balance = _openrouter_fetch_account_balance()
+    print(f"[openrouter] account balance: ${balance:.2f}")
+    if balance < args.max_cost:
+        raise SystemExit(
+            f"conversation_lab: OpenRouter account balance ${balance:.2f} is below "
+            f"--max-cost ${args.max_cost:.2f}; add credits before starting"
+        )
+
+    _OPENROUTER_MODEL_PRICES = _fetch_openrouter_model_prices()
+    model_set = _resolve_lab_model_set(args)
+    missing = sorted({m for m in (model_set.dialogue, model_set.judge) if m not in _OPENROUTER_MODEL_PRICES})
+    if missing:
+        raise SystemExit(
+            "conversation_lab: OpenRouter has no published price for "
+            f"{', '.join(missing)} - --max-cost cannot reserve this model's "
+            "worst-case call cost; refusing to start"
+        )
+
+
+def _fetch_openrouter_model_prices() -> dict[str, tuple[float, float]]:
+    """GET OpenRouter's /models endpoint; return {model_id: (prompt_price,
+    completion_price)} in USD per token, parsed from each entry's
+    `pricing.prompt`/`pricing.completion` (OpenRouter publishes these as
+    strings). An entry missing either field, or with a non-numeric price,
+    is left out - `_openrouter_preflight` treats an absent id as "no
+    price" and fails closed."""
+    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if not api_key:
+        raise ConversationLabError("OPENROUTER_API_KEY is not set")
+    try:
+        response = httpx.get(
+            _OPENROUTER_MODELS_URL,
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=_OPENROUTER_KEY_TIMEOUT_SECONDS,
+        )
+    except httpx.HTTPError as exc:
+        raise ConversationLabError(f"openrouter models check failed: {exc}") from exc
+    if response.status_code != 200:
+        raise ConversationLabError(f"openrouter models check returned HTTP {response.status_code}")
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise ConversationLabError("openrouter models check returned malformed JSON") from exc
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, list):
+        raise ConversationLabError("openrouter models check response is missing the data list")
+
+    prices: dict[str, tuple[float, float]] = {}
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        model_id = entry.get("id")
+        pricing = entry.get("pricing")
+        if not isinstance(model_id, str) or not model_id or not isinstance(pricing, dict):
+            continue
+        try:
+            prompt_price = float(pricing.get("prompt"))
+            completion_price = float(pricing.get("completion"))
+        except (TypeError, ValueError):
+            continue
+        prices[model_id] = (prompt_price, completion_price)
+    return prices
+
+
+# Role markers and special tokens the chat template adds around the
+# system and user messages - a generous allowance, not a measured value.
+_OPENROUTER_PROMPT_OVERHEAD_TOKENS = 256
+
+
+def _openrouter_worst_case_call_cost(model: str, prompt_bytes: int) -> float:
+    """Conservative worst-case USD cost of ONE OpenRouter call to `model`
+    whose prompt is `prompt_bytes` bytes of UTF-8 (#7714 finding 2).
+
+    Input bound: one token per UTF-8 byte plus _OPENROUTER_PROMPT_OVERHEAD_TOKENS
+    for the chat template. Byte-level BPE tokens cover at least one byte
+    each, so a byte count is a true upper bound for any text - a
+    characters/2 estimate undercounted non-ASCII prompts. That, at the
+    model's per-token prompt price,
+    plus `backend.utils.model_router.openrouter_max_tokens(model)` tokens
+    (the full output ceiling, not an expected length - OpenRouter bills
+    tokens actually generated, but a reasoning model can spend the WHOLE
+    ceiling reasoning; see that function's docstring) at its per-token
+    completion price.
+
+    Returns float('inf') - an unconditional block - when `model` has no
+    cached price: `_openrouter_preflight` already fails closed by
+    refusing to START a run with an unpriced model in use, but this is
+    the defense-in-depth fallback if the guard is ever asked about a
+    model that check didn't cover.
+    """
+    prices = _OPENROUTER_MODEL_PRICES or {}
+    price = prices.get(model)
+    if price is None:
+        return float("inf")
+    prompt_price, completion_price = price
+    prompt_tokens_bound = prompt_bytes + _OPENROUTER_PROMPT_OVERHEAD_TOKENS
+    max_tokens = model_router.openrouter_max_tokens(model)
+    return prompt_tokens_bound * prompt_price + max_tokens * completion_price
+
+
+def _openrouter_fetch_account_balance() -> float:
+    """GET OpenRouter's /credits endpoint; return total_credits - total_usage."""
+    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if not api_key:
+        raise ConversationLabError("OPENROUTER_API_KEY is not set")
+    try:
+        response = httpx.get(
+            _OPENROUTER_CREDITS_URL,
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=_OPENROUTER_KEY_TIMEOUT_SECONDS,
+        )
+    except httpx.HTTPError as exc:
+        raise ConversationLabError(f"openrouter credits check failed: {exc}") from exc
+    if response.status_code != 200:
+        raise ConversationLabError(f"openrouter credits check returned HTTP {response.status_code}")
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise ConversationLabError("openrouter credits check returned malformed JSON") from exc
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
+        raise ConversationLabError("openrouter credits check response is missing the data object")
+    total_credits = data.get("total_credits")
+    total_usage = data.get("total_usage")
+    for field, value in (("total_credits", total_credits), ("total_usage", total_usage)):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ConversationLabError(f"openrouter credits check {field} is invalid")
+    return float(total_credits) - float(total_usage)
+
+
+def _openrouter_fetch_key() -> dict[str, Any]:
+    """GET OpenRouter's /key endpoint and return limit, remaining and usage."""
+    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if not api_key:
+        raise ConversationLabError("OPENROUTER_API_KEY is not set")
+    try:
+        response = httpx.get(
+            _OPENROUTER_KEY_URL,
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=_OPENROUTER_KEY_TIMEOUT_SECONDS,
+        )
+    except httpx.HTTPError as exc:
+        raise ConversationLabError(f"openrouter key check failed: {exc}") from exc
+    if response.status_code != 200:
+        raise ConversationLabError(f"openrouter key check returned HTTP {response.status_code}")
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise ConversationLabError("openrouter key check returned malformed JSON") from exc
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
+        raise ConversationLabError("openrouter key check response is missing the data object")
+    limit = data.get("limit")
+    limit_remaining = data.get("limit_remaining")
+    usage = data.get("usage")
+    for field, value in (("limit", limit), ("limit_remaining", limit_remaining)):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ConversationLabError(f"openrouter key check {field} is invalid")
+    return {
+        "limit": float(limit),
+        "limit_remaining": float(limit_remaining),
+        "usage": usage if isinstance(usage, (dict, int, float)) else None,
+    }
+
+
+def _openrouter_key_usage_report() -> dict[str, Any] | None:
+    """Before/after OpenRouter key snapshots for the result JSON."""
+    global _OPENROUTER_KEY_AFTER
+    if _OPENROUTER_KEY_BEFORE is None:
+        return None
+    if _OPENROUTER_KEY_AFTER is None:
+        try:
+            _OPENROUTER_KEY_AFTER = _openrouter_fetch_key()
+        except Exception as exc:
+            return {
+                "before": _OPENROUTER_KEY_BEFORE,
+                "after": None,
+                "after_error": f"{type(exc).__name__}: {exc}",
+            }
+    return {"before": _OPENROUTER_KEY_BEFORE, "after": _OPENROUTER_KEY_AFTER}
+
+
+def _openrouter_router_cost_by_model() -> dict[str, float]:
+    """OpenRouter usage.cost totals recorded by the model router."""
+    totals: dict[str, float] = {}
+    # No try/except: get_cost_entries() is a list copy, and a failure here must
+    # not print as "$0 spent" (review of ffbae2c).
+    entries = model_router.get_cost_entries()
+    missing = 0
+    for entry in entries:
+        if not isinstance(entry, dict) or entry.get("provider") != "openrouter":
+            continue
+        actual = entry.get("actual_cost")
+        if isinstance(actual, bool) or not isinstance(actual, (int, float)) or not isfinite(actual):
+            missing += 1
+            continue
+        model = str(entry.get("model") or "unknown")
+        key = f"openrouter/{model}"
+        totals[key] = round(totals.get(key, 0.0) + float(actual), 9)
+    if missing:
+        print(
+            f"[openrouter] WARNING: {missing} call(s) returned no usage.cost; "
+            "cost_by_model undercounts them - compare against the key usage before/after",
+            file=sys.stderr,
+        )
+    return totals
+
+
+def _jev_router_cost_by_model() -> dict[str, float]:
+    """Jev cost totals from the model router's ledger - EVERY HTTP attempt
+    backend.utils.stop_check._record_jev_attempt recorded via
+    record_external_cost (success, retry, and terminal failure), not just
+    the successful ones scripts.simulate_dialogue_week.STOP_CHECK_LOG
+    holds.
+
+    #7714 round 2, finding 4: the OLD per-pair helper
+    (`_jev_cost_by_model_from_log`, removed) derived cost from
+    STOP_CHECK_LOG snapshots attached to each pair, which only ever
+    contain the LAST successful check per tick - a retried/failed attempt
+    was already charged against --max-cost (see `_lab_cost_total`), but
+    never showed up in the REPORTED total, so the report could read lower
+    than what the cap actually saw. This reads the SAME ledger the cap
+    reads, so the two can never disagree.
+    """
+    totals: dict[str, float] = {}
+    entries = model_router.get_cost_entries()
+    for entry in entries:
+        if not isinstance(entry, dict) or entry.get("provider") != "jev":
+            continue
+        actual = entry.get("actual_cost")
+        if isinstance(actual, bool) or not isinstance(actual, (int, float)) or not isfinite(actual):
+            continue
+        model = str(entry.get("model") or "typesafe/jev-1.13")
+        key = f"jev/{model}"
+        totals[key] = round(totals.get(key, 0.0) + float(actual), 9)
+    return totals
+
+
+def _jev_cost_usd_total() -> float:
+    """Total Jev spend, from the same router ledger --max-cost reads (see
+    `_lab_cost_total`) - so `jev_cost_usd` in a report can never read
+    lower than what the cap actually saw (#7714 finding 4)."""
+    return round(sum(_jev_router_cost_by_model().values()), 9)
+
+
+def _openrouter_cost_by_model_for_pairs(
+    pairs: list[dict[str, Any]],
+    partial_pairs: list[dict[str, Any]] | None = None,
+) -> dict[str, float]:
+    """OpenRouter dialogue/judge cost + Jev stop-check cost, both read from
+    the model router's ledger (#7714 round 2, finding 4). `pairs`/
+    `partial_pairs` are accepted for call-site compatibility but no longer
+    read - Jev cost used to be derived from THEIR per-pair stop-check
+    logs, which undercounted (see `_jev_router_cost_by_model`)."""
+    del pairs, partial_pairs
+    totals = _openrouter_router_cost_by_model()
+    totals.update(_jev_router_cost_by_model())
+    return totals
+
+
+def _openrouter_cost_by_model_for_sweep(
+    control_transcripts: dict[tuple[str, int], dict[str, Any]],
+    variant_reports: dict[str, Any],
+) -> dict[str, float]:
+    """See `_openrouter_cost_by_model_for_pairs` - same fix, same reason;
+    `control_transcripts`/`variant_reports` are no longer read."""
+    del control_transcripts, variant_reports
+    totals = _openrouter_router_cost_by_model()
+    totals.update(_jev_router_cost_by_model())
+    return totals
+
+
+def _openrouter_cost_report(cost_by_model: dict[str, float]) -> dict[str, Any]:
+    return {
+        "cost_by_model": cost_by_model,
+        "total_cost_usd": round(sum(cost_by_model.values()), 9),
+    }
+
+
+def _openrouter_fields_for(
+    args: argparse.Namespace,
+    cost_by_model: dict[str, float],
+) -> dict[str, Any]:
+    """The provider_route/cost/key fields added to every OpenRouter report."""
+    provider = _provider_for(args)
+    model_set = _resolve_lab_model_set(args) if provider == "openrouter" else None
+    fields: dict[str, Any] = {"provider_route": _provider_route_for(provider, model_set)}
+    if provider != "openrouter":
+        return fields
+    fields["models"] = {"set": model_set.name, "dialogue": model_set.dialogue, "judge": model_set.judge}
+    fields.update(_openrouter_cost_report(cost_by_model))
+    key_report = _openrouter_key_usage_report()
+    if key_report is not None:
+        fields["openrouter_key"] = key_report
+    return fields
+
 
 # ---------------------------------------------------------------------------
 # Episode loading (baseline, calibrate, ab --from-episode)
@@ -665,12 +1372,13 @@ def _load_variant_file(path: Path) -> dict[str, Any]:
     return data
 
 def _clear_prompt_cache(module: Any) -> None:
-    """build_system_prompt caches per-character prompts by name only
-    (scripts/simulate_dialogue_week.py's `_system_prompt_cache`, keyed
-    purely on persona name), so a lever change to e.g.
-    _SHARED_CHARACTER_RULES is silently ignored for any character whose
-    prompt was already built this process, unless the cache is cleared
-    both when applying a variant and when restoring the control."""
+    """build_system_prompt caches per-character prompts by (persona name,
+    WORD_CAPS) — see scripts/simulate_dialogue_week.py's
+    `_system_prompt_cache` — so a lever change to e.g.
+    _SHARED_CHARACTER_RULES or WORD_CAPS is silently ignored for any
+    character whose prompt was already built this process, unless the
+    cache is cleared both when applying a variant and when restoring the
+    control."""
     cache = getattr(module, "_system_prompt_cache", None)
     if isinstance(cache, dict):
         cache.clear()
@@ -693,6 +1401,17 @@ def _apply_variant(module: Any, variant: dict[str, Any]) -> dict[str, Any]:
     original: dict[str, Any] = {}
     for name, value in variant.items():
         original[name] = getattr(module, name)
+        if name == "TICKS_RANGE":
+            # Variant files are JSON, so pairs arrive as lists. run_simulation
+            # unpacks them by position, which works either way, but the module's
+            # own type is tuples - normalise on the way in so the patched module
+            # looks exactly like the default shape.
+            value = {day: tuple(pair) for day, pair in value.items()}
+        elif name == "REWRITE_GUARDS":
+            # validate_variant allows a SUBSET of the three bool guards; merge
+            # the subset onto the module default so the patched module always
+            # carries exactly {"repetition", "shape", "word_budget"}.
+            value = {**getattr(module, name), **value}
         setattr(module, name, value)
     _clear_prompt_cache(module)
     return original
@@ -718,6 +1437,7 @@ def validate_variant(module: Any, variant: dict[str, Any]) -> None:
                 "constant this variant mechanism can safely restore"
             )
         _validate_lever_shape(name, value)
+    _validate_history_depth_invariant(module, variant)
 
 def _validate_lever_shape(name: str, value: Any) -> None:
     """Reject a structurally wrong lever BEFORE any API call is made.
@@ -739,6 +1459,33 @@ def _validate_lever_shape(name: str, value: Any) -> None:
             raise ConversationLabError(
                 f"WORD_BUDGET_TOLERANCE must be a number >= 1 (1.0 enforces the stated "
                 f"maximum exactly; higher allows slack), got {value!r}"
+            )
+        return
+    if name == "WINDDOWN_TRIGGER":
+        if value not in ("regex", "off", "check"):
+            raise ConversationLabError(
+                f"WINDDOWN_TRIGGER must be one of 'regex', 'off', 'check', got {value!r}"
+            )
+        return
+    if name == "STOP_CHECK":
+        _validate_stop_check_shape(value)
+        return
+    if name == "TICKS_RANGE":
+        _validate_ticks_range_shape(value)
+        return
+    if name == "OPEN_ENDED_MAX_TICKS":
+        _validate_open_ended_max_ticks_shape(value)
+        return
+    if name == "DIRECTOR":
+        _validate_director_shape(value)
+        return
+    if name == "REWRITE_GUARDS":
+        _validate_rewrite_guards_shape(value)
+        return
+    if name == "WORD_CAPS":
+        if not isinstance(value, bool):
+            raise ConversationLabError(
+                f"WORD_CAPS must be a bool, got {value!r}"
             )
         return
     if name != "HISTORY_DEPTH":
@@ -766,6 +1513,193 @@ def _validate_lever_shape(name: str, value: Any) -> None:
                 f"HISTORY_DEPTH['{key}'] entries must be positive integers, got {pair!r}"
             )
 
+def _validate_stop_check_shape(value: Any) -> None:
+    expected_keys = {"provider", "decided_threshold", "require_pushback", "pushback_threshold"}
+    if not isinstance(value, dict) or set(value) != expected_keys:
+        missing = sorted(expected_keys - (set(value) if isinstance(value, dict) else set()))
+        extra = sorted((set(value) if isinstance(value, dict) else set()) - expected_keys)
+        raise ConversationLabError(
+            f"STOP_CHECK must be a dict with exactly the keys {sorted(expected_keys)}; "
+            f"missing {missing}, unexpected {extra}, got {type(value).__name__}"
+        )
+    provider = value["provider"]
+    if provider not in ("jev", "haiku"):
+        raise ConversationLabError(
+            f"STOP_CHECK['provider'] must be 'jev' or 'haiku', got {provider!r}"
+        )
+    decided_threshold = value["decided_threshold"]
+    if (
+        isinstance(decided_threshold, bool)
+        or not isinstance(decided_threshold, (int, float))
+        or not 0 <= decided_threshold <= 1
+    ):
+        raise ConversationLabError(
+            f"STOP_CHECK['decided_threshold'] must be a number 0-1, got {decided_threshold!r}"
+        )
+    require_pushback = value["require_pushback"]
+    if not isinstance(require_pushback, bool):
+        raise ConversationLabError(
+            f"STOP_CHECK['require_pushback'] must be a bool, got {require_pushback!r}"
+        )
+    pushback_threshold = value["pushback_threshold"]
+    if (
+        isinstance(pushback_threshold, bool)
+        or not isinstance(pushback_threshold, (int, float))
+        or not 0 <= pushback_threshold <= 1
+    ):
+        raise ConversationLabError(
+            f"STOP_CHECK['pushback_threshold'] must be a number 0-1, got {pushback_threshold!r}"
+        )
+
+def _validate_ticks_range_shape(value: Any) -> None:
+    if not isinstance(value, dict) or not value:
+        raise ConversationLabError(
+            f"TICKS_RANGE must be a non-empty dict of day -> [lo, hi] ints, "
+            f"got {type(value).__name__}"
+        )
+    for day, pair in value.items():
+        if day not in simulate_module.DAY_ORDER:
+            raise ConversationLabError(
+                f"TICKS_RANGE has unknown day {day!r} (expected one of {simulate_module.DAY_ORDER})"
+            )
+        if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+            raise ConversationLabError(
+                f"TICKS_RANGE[{day!r}] must be a 2-item [lo, hi], got {pair!r}"
+            )
+        lo, hi = pair
+        if (
+            isinstance(lo, bool) or not isinstance(lo, int)
+            or isinstance(hi, bool) or not isinstance(hi, int)
+        ):
+            raise ConversationLabError(
+                f"TICKS_RANGE[{day!r}] entries must be integers, got {pair!r}"
+            )
+        if not 1 <= lo <= hi:
+            raise ConversationLabError(
+                f"TICKS_RANGE[{day!r}] must satisfy 1 <= lo <= hi, got {pair!r}"
+            )
+
+def _validate_open_ended_max_ticks_shape(value: Any) -> None:
+    if not isinstance(value, dict) or not value:
+        raise ConversationLabError(
+            f"OPEN_ENDED_MAX_TICKS must be a non-empty dict of day -> cap >= 3, "
+            f"got {type(value).__name__}"
+        )
+    for day, cap in value.items():
+        if day not in simulate_module.DAY_ORDER:
+            raise ConversationLabError(
+                f"OPEN_ENDED_MAX_TICKS has unknown day {day!r} "
+                f"(expected one of {simulate_module.DAY_ORDER})"
+            )
+        if isinstance(cap, bool) or not isinstance(cap, int) or cap < 3:
+            raise ConversationLabError(
+                f"OPEN_ENDED_MAX_TICKS[{day!r}] must be an integer >= 3, got {cap!r}"
+            )
+
+def _validate_director_shape(value: Any) -> None:
+    expected_keys = {"enabled", "probability", "intensity", "rng_seed", "no_repeat_window"}
+    if not isinstance(value, dict) or set(value) != expected_keys:
+        missing = sorted(expected_keys - (set(value) if isinstance(value, dict) else set()))
+        extra = sorted((set(value) if isinstance(value, dict) else set()) - expected_keys)
+        raise ConversationLabError(
+            f"DIRECTOR must be a dict with exactly the keys {sorted(expected_keys)}; "
+            f"missing {missing}, unexpected {extra}, got {type(value).__name__}"
+        )
+    enabled = value["enabled"]
+    if not isinstance(enabled, bool):
+        raise ConversationLabError(
+            f"DIRECTOR['enabled'] must be a bool, got {enabled!r}"
+        )
+    probability = value["probability"]
+    if (
+        isinstance(probability, bool)
+        or not isinstance(probability, (int, float))
+        or not 0 <= probability <= 1
+    ):
+        raise ConversationLabError(
+            f"DIRECTOR['probability'] must be a number 0-1, got {probability!r}"
+        )
+    intensity = value["intensity"]
+    if isinstance(intensity, bool) or not isinstance(intensity, int) or not 1 <= intensity <= 5:
+        raise ConversationLabError(
+            f"DIRECTOR['intensity'] must be an integer 1-5, got {intensity!r}"
+        )
+    rng_seed = value["rng_seed"]
+    if isinstance(rng_seed, bool) or not isinstance(rng_seed, int):
+        raise ConversationLabError(
+            f"DIRECTOR['rng_seed'] must be an int, got {rng_seed!r}"
+        )
+    no_repeat_window = value["no_repeat_window"]
+    if (
+        isinstance(no_repeat_window, bool)
+        or not isinstance(no_repeat_window, int)
+        or no_repeat_window < 0
+    ):
+        raise ConversationLabError(
+            f"DIRECTOR['no_repeat_window'] must be an integer >= 0, got {no_repeat_window!r}"
+        )
+
+def _validate_rewrite_guards_shape(value: Any) -> None:
+    """REWRITE_GUARDS accepts a non-empty SUBSET of the three bool guards.
+
+    A variant file may override only the guards it cares about - the merge in
+    _apply_variant fills in the missing keys from the module default, so the
+    patched module always carries exactly {'repetition', 'shape',
+    'word_budget'} with bool values.
+    """
+    expected_keys = {"repetition", "shape", "word_budget"}
+    if not isinstance(value, dict) or not value or not set(value) <= expected_keys:
+        extra = sorted((set(value) if isinstance(value, dict) else set()) - expected_keys)
+        raise ConversationLabError(
+            f"REWRITE_GUARDS must be a non-empty dict with a subset of keys "
+            f"{sorted(expected_keys)}; unexpected {extra}, got {type(value).__name__}"
+        )
+    for key, flag in value.items():
+        if not isinstance(flag, bool):
+            raise ConversationLabError(
+                f"REWRITE_GUARDS[{key!r}] must be a bool, got {flag!r}"
+            )
+
+def _validate_history_depth_invariant(module: Any, variant: dict[str, Any]) -> None:
+    """Refuse a variant whose max tick count would swallow the history floor.
+
+    HISTORY_DEPTH's later_turns floor must stay ABOVE the largest tick count a
+    scene can run (scripts/simulate_dialogue_week.py's comment above
+    HISTORY_DEPTH): once a scene's own premise scrolls out of the window nobody
+    can answer or close it. A variant that raises TICKS_RANGE upper bounds or
+    OPEN_ENDED_MAX_TICKS toward that floor must also raise HISTORY_DEPTH in the
+    SAME variant, or it would only fail mid-run, after paid calls.
+    """
+    history = variant.get("HISTORY_DEPTH")
+    if history is None:
+        history = getattr(module, "HISTORY_DEPTH")
+
+    def later_turns(day: str) -> int:
+        key = "late" if day in ("friday", "saturday", "sunday") else "early"
+        return history[key][1]
+
+    problems: list[str] = []
+    ticks_range = variant.get("TICKS_RANGE")
+    if isinstance(ticks_range, dict):
+        for day, pair in ticks_range.items():
+            if pair[1] >= later_turns(day):
+                problems.append(
+                    f"TICKS_RANGE[{day!r}] upper bound {pair[1]} reaches "
+                    f"HISTORY_DEPTH later_turns {later_turns(day)}"
+                )
+    open_ended = variant.get("OPEN_ENDED_MAX_TICKS")
+    if isinstance(open_ended, dict):
+        for day, cap in open_ended.items():
+            if cap >= later_turns(day):
+                problems.append(
+                    f"OPEN_ENDED_MAX_TICKS[{day!r}] cap {cap} reaches "
+                    f"HISTORY_DEPTH later_turns {later_turns(day)}"
+                )
+    if problems:
+        raise ConversationLabError(
+            "; ".join(problems) + ". Set HISTORY_DEPTH higher in the same variant."
+        )
+
 def _restore_variant(module: Any, original: dict[str, Any]) -> None:
     for name, value in original.items():
         setattr(module, name, value)
@@ -784,6 +1718,8 @@ def _run_arm(
     default_model: str,
     photography_context: dict[str, Any] | None = None,
     image_paths: list[Any] | None = None,
+    prior_lines: list[str] | None = None,
+    message_sink: list | None = None,
 ) -> dict[str, Any]:
     """Call run_simulation with the exact production call shape.
 
@@ -791,6 +1727,21 @@ def _run_arm(
     228) and .scratch/regen_w36.py: mode="openai", prompt_style="scene",
     ticks_per_day=0, plus a recipe_context anchor. --dry-run substitutes
     mode="template" for a zero-API-call plumbing check.
+
+    `prior_lines` (frozen earlier days from `conversation_lab freeze`)
+    seed run_simulation's `initial_recent_lines` so a stage-only run sees
+    exactly the lines a full-week run would have accumulated by that day.
+    `initial_highlights` stays None on purpose: run_simulation only builds
+    week highlights when mode=="llm" (see its `_generate_day_highlights`
+    call site), and production/this lab call with mode="openai" - so a real
+    full-week openai run would carry an empty week-highlights list too.
+
+    `message_sink`, when given, is forwarded UNCHANGED to
+    `run_simulation`'s own `message_sink` (#7714) - see that function's
+    docstring. `_run_arm_and_count` passes one so it can recover whatever
+    turns were already generated (and paid for) if this call raises
+    partway through, most commonly a LabBudgetAbort from the ambient
+    mid-arm guard.
     """
     return simulate_module.run_simulation(
         concept=concept,
@@ -805,8 +1756,152 @@ def _run_arm(
         image_paths=copy.deepcopy(image_paths) if image_paths is not None else [],
         photography_context=copy.deepcopy(photography_context),
         recipe_context=recipe_context,
-        initial_recent_lines=None,
+        initial_highlights=None,
+        initial_recent_lines=list(prior_lines) if prior_lines is not None else None,
+        message_sink=message_sink,
     )
+
+class LabBudgetAbort(BaseException):
+    """Raised by the mid-arm budget guard (see `_installed_budget_guard`)
+    the moment --max-calls or --max-cost would be exceeded by the very
+    next paid call/attempt - checked INSIDE a running arm, not only at the
+    coarser arm/judge boundaries the existing `budget.would_exceed(
+    arm_call_reservation)`/`_would_exceed_cost(max_cost)` checks already
+    guard. #7714 finding 3: an open-ended arm (OPEN_ENDED_MAX_TICKS) can
+    run well past either cap between one boundary check and the next, and
+    every Jev stop-check HTTP attempt (#7714 finding 2) never reached
+    either cap at all before this guard existed.
+
+    Deliberately derives from BaseException, not Exception (#7714 round 2,
+    finding 3) - the SAME family as KeyboardInterrupt/SystemExit. This
+    abort has to travel out through arbitrary library code on the arm's
+    call path - backend.utils.director's `except Exception as exc: raise
+    DirectorError(...)`, backend.utils.stop_check's `_check_haiku`
+    `except Exception as exc: raise StopCheckError(...)`,
+    scripts.simulate_dialogue_week's best-effort highlight/memory
+    generation `except Exception: continue` - none of which this module
+    is allowed to special-case for a lab-only signal, and any of which
+    silently converted or swallowed the OLD RuntimeError-based abort,
+    which is exactly what happened in the round-1 review. Only a caller
+    that names LabBudgetAbort explicitly can catch it; every ordinary
+    `except Exception`/`except (Exception, ...)` in between now lets it
+    straight through, by construction.
+
+    Every command-level catch that is SUPPOSED to catch this (cmd_ab,
+    cmd_bench, cmd_calibrate, and their sweep/testbed helpers) does so by
+    name - `except LabBudgetAbort` or an explicit tuple entry - and turns
+    it into a clean aborted/partial result, exactly like the existing
+    boundary checks."""
+
+@contextmanager
+def _installed_budget_guard(budget: CallBudget, max_cost: float | None, baseline_cost: float = 0.0):
+    """Install a pre-call hook on backend.utils.model_router and a
+    pre-attempt hook on backend.utils.stop_check for the duration of the
+    `with` block. Both hooks are the SAME closure: the moment the next
+    paid unit (a model_router call, or a single Jev HTTP attempt/retry)
+    would push the running call count past --max-calls or the running
+    cost past --max-cost (relative to `baseline_cost` - see
+    `_would_exceed_cost`), it raises LabBudgetAbort instead of letting the
+    call happen. `max_cost=None` disables the cost side entirely (used by
+    `_generate_sweep_control`'s shared control loop, which --max-cost
+    never governs - it is a per-variant cap, see `_run_sweep_variant`).
+
+    #7714 round 2: this is now installed ONCE per command-level scope -
+    an entire `_generate_and_judge_pairs`/`_run_sweep_variant` call, an
+    entire sweep control loop, an entire bench/calibrate run - covering
+    EVERY arm inside that scope by construction, rather than needing to
+    be threaded through every individual `_run_arm_and_count`/generation
+    call site (round 1's approach, which is exactly how `_generate_sweep_
+    control` and `cmd_bench` were missed).
+
+    The call-count side tracks a LIVE delta from a baseline (`_calls_now()`)
+    captured ONCE here, at install time, and compares it DIRECTLY against
+    `budget.max_calls` - it never adds `budget.used`. `budget.used` only
+    advances when `budget.record()` runs, between arms; since one guard
+    installation can span MANY arms, adding `budget.used` to a live delta
+    measured from a baseline that predates those same already-recorded
+    arms would double-count every arm that finished before the one
+    currently in flight. The live delta alone, measured from install time,
+    is the exact total spend since this guard was installed, whether or
+    not any of it has been `record()`ed yet.
+
+    Fails OPEN on the calls side when the counter cannot be read at all
+    (`_calls_now()` returns None) - the coarser `budget.would_exceed(...)`
+    boundary checks remain the fallback guard, same philosophy as
+    `_would_exceed_cost`'s own read-failure handling.
+
+    Restores whatever hook was installed before (normally None) on exit,
+    even on exception, so any code path that never opens this context -
+    every production call, and every existing test that predates #7714's
+    mid-arm guard - stays byte-identical.
+    """
+    calls_before = _calls_now()
+    # Calls this budget already recorded before the guard went in - e.g.
+    # earlier scenarios of an `ab --testbed` run, which shares one budget
+    # across every scenario but installs a fresh guard per scenario. Snapshot
+    # once: anything recorded later inside this scope is already in the live
+    # delta, so reading `budget.used` live would double-count it.
+    used_before = budget.used
+
+    def _guard(provider: str | None = None, model: str | None = None, prompt_bytes: int | None = None) -> None:
+        """`provider`/`model`/`prompt_bytes` describe the NEXT call about
+        to be made (#7714 finding 2): `model_router.set_pre_call_hook`
+        passes the real triple for every generation/judge call;
+        `stop_check.set_pre_attempt_hook` calls with no arguments (a Jev
+        HTTP attempt has no model_router provider/model of its own), which
+        is exactly how the branches below tell a Jev attempt apart from an
+        OpenRouter/direct-provider call without needing a separate flag.
+        """
+        calls_blocked = False
+        if calls_before is not None:
+            calls_now = _calls_now()
+            live_total = calls_now - calls_before if (calls_now is not None and calls_now > calls_before) else 0
+            calls_blocked = used_before + live_total + 1 > budget.max_calls
+        cost_blocked = False
+        if max_cost is not None:
+            if provider == "openrouter":
+                # #7714 finding 2: --max-cost used to admit a call whenever
+                # ANY money remained, regardless of that call's possible
+                # cost - with a 32768-token completion ceiling
+                # (openrouter_max_tokens), one call can overshoot the cap
+                # materially. Reserve its worst case instead of just
+                # checking the running total.
+                worst_case = _openrouter_worst_case_call_cost(model or "", prompt_bytes or 0)
+                # An unreadable total (e.g. an earlier OpenRouter entry with
+                # no usage.cost) blocks: admitting the call would spend
+                # against a cap nobody can check.
+                total = _total_cost_or_none()
+                cost_blocked = total is None or (total - baseline_cost) + worst_case > max_cost
+            elif provider is None:
+                # A Jev HTTP attempt (stop_check's hook call) - no
+                # per-model price to look up, so reserve the same
+                # documented conservative per-attempt estimate the cost
+                # log itself charges a failed/unmetered attempt (see
+                # backend.utils.stop_check._JEV_FAILED_ATTEMPT_COST_ESTIMATE_USD).
+                total = _total_cost_or_none()
+                cost_blocked = (
+                    total is None
+                    or (total - baseline_cost) + stop_check._JEV_FAILED_ATTEMPT_COST_ESTIMATE_USD > max_cost
+                )
+            else:
+                # Non-OpenRouter direct providers (anthropic/openai/google):
+                # unchanged - the estimated-cost table's absolute running
+                # total, no worst-case reservation (#7714 finding 2 scopes
+                # the reservation fix to OpenRouter, whose reasoning-model
+                # output ceiling is what let a single call overshoot).
+                cost_blocked = _would_exceed_cost(max_cost, baseline=baseline_cost)
+        if calls_blocked or cost_blocked:
+            raise LabBudgetAbort(
+                "--max-calls or --max-cost would be exceeded by the next paid call/attempt"
+            )
+
+    previous_router_hook = model_router.set_pre_call_hook(_guard)
+    previous_stop_check_hook = stop_check.set_pre_attempt_hook(_guard)
+    try:
+        yield
+    finally:
+        model_router.set_pre_call_hook(previous_router_hook)
+        stop_check.set_pre_attempt_hook(previous_stop_check_hook)
 
 def _run_arm_and_count(
     concept: str,
@@ -815,6 +1910,7 @@ def _run_arm_and_count(
     recipe_context: str | None,
     mode: str,
     default_model: str,
+    prior_lines: list[str] | None = None,
 ) -> tuple[dict[str, Any], int]:
     """Run one arm and estimate its call cost.
 
@@ -823,12 +1919,57 @@ def _run_arm_and_count(
     LLM call happened); falls back to the transcript's message count as a
     lower bound when the cost log did not move (mode="template",
     --dry-run, or a monkeypatched run_simulation in tests).
+
+    Installs no guard itself (#7714 round 2) - a caller wraps the SCOPE
+    this arm runs inside with `_installed_budget_guard` (see that
+    function's docstring for why one guard per scope, not per arm, is the
+    right granularity). If `_run_arm` raises for ANY reason - most
+    commonly `LabBudgetAbort` from that ambient guard, but any exception
+    after real paid calls happened - the exception is annotated with:
+
+    - `conversation_lab_calls_made`: the call delta actually observed
+      before it happened. Callers read this to record real spend instead
+      of silently reporting zero (#7714 finding 2) - `budget.record()`
+      otherwise only happens on normal return, which an abort or any
+      other mid-arm failure never reaches.
+    - `conversation_lab_partial_messages` (#7714 round 3): whatever turns
+      `run_simulation` had already generated - real, paid work - before
+      it raised, in the SAME `[m.__dict__ for m in messages]` shape its
+      own "messages" field uses on a normal return. `run_simulation`
+      keeps its `messages` list local and only returns it at the very
+      end, so recovering it on a mid-run exception requires handing it a
+      pre-created list (`message_sink`) it appends into as it goes -
+      that list is still readable here even though `_run_arm` itself
+      never got a return value.
+
+    Neither attribute is overwritten if a deeper frame already set it
+    (e.g. a nested arm invocation this module doesn't currently have, but
+    kept defensive to match the existing `conversation_lab_calls_used`/
+    `conversation_lab_calls_made` convention elsewhere in this file).
     """
     try:
         before = model_router.get_cost_summary().get("total_calls", 0)
     except Exception:
         before = 0
-    result = _run_arm(concept, stage, run_index, recipe_context, mode, default_model)
+    sink: list = []
+    try:
+        result = _run_arm(
+            concept, stage, run_index, recipe_context, mode, default_model,
+            prior_lines=prior_lines, message_sink=sink,
+        )
+    except BaseException as exc:
+        if not hasattr(exc, "conversation_lab_calls_made"):
+            try:
+                after = model_router.get_cost_summary().get("total_calls", 0)
+            except Exception:
+                after = before
+            setattr(exc, "conversation_lab_calls_made", max(after - before, 0))
+        if not hasattr(exc, "conversation_lab_partial_messages"):
+            try:
+                setattr(exc, "conversation_lab_partial_messages", [m.__dict__ for m in sink])
+            except Exception:
+                setattr(exc, "conversation_lab_partial_messages", [])
+        raise
     try:
         after = model_router.get_cost_summary().get("total_calls", 0)
     except Exception:
@@ -837,6 +1978,94 @@ def _run_arm_and_count(
     message_count = len(result.get("messages", []))
     calls = delta if delta > 0 else message_count
     return result, calls
+
+def _snapshot_stop_check_log() -> list[dict[str, Any]]:
+    """Copy the simulator's STOP_CHECK_LOG (a list of dicts) after one arm."""
+    log = getattr(simulate_module, "STOP_CHECK_LOG", [])
+    return list(log) if isinstance(log, list) else []
+
+def _snapshot_director_log() -> list[dict[str, Any]]:
+    """Copy the simulator's DIRECTOR_LOG (a list of dicts) after one arm."""
+    log = getattr(simulate_module, "DIRECTOR_LOG", [])
+    return list(log) if isinstance(log, list) else []
+
+def _snapshot_rewrite_log() -> list[dict[str, Any]]:
+    """Copy the simulator's REWRITE_LOG (a list of dicts) after one arm."""
+    log = getattr(simulate_module, "REWRITE_LOG", [])
+    return list(log) if isinstance(log, list) else []
+
+def _rewrite_summary(entries: Any) -> dict[str, Any]:
+    """Per-arm rewrite accounting: lines, rewritten count/rate, fault counts,
+    and CoT-guard retry count (#7705)."""
+    entries = [e for e in (entries or []) if isinstance(e, dict)]
+    rewritten = sum(1 for e in entries if e.get("rewritten") is True)
+    fault_counts: Counter[str] = Counter()
+    cot_retry = 0
+    for entry in entries:
+        faults = entry.get("faults")
+        if isinstance(faults, list):
+            for fault in faults:
+                if isinstance(fault, str):
+                    fault_counts[fault] += 1
+        if entry.get("cot_retry") is True:
+            cot_retry += 1
+    n = len(entries)
+    return {
+        "lines": n,
+        "rewritten": rewritten,
+        "rewrite_rate": round(rewritten / n, 4) if n else 0.0,
+        "fault_counts": dict(fault_counts),
+        "cot_retry": cot_retry,
+    }
+
+def _length_stats(messages: Any) -> dict[str, dict[str, float | int | None]]:
+    """mean/median/max words per line, per character, for one arm's transcript.
+
+    Words are counted with `len(line.split())` on each message's `message`
+    field — the same counting the word_budget rewrite guard uses — so the
+    length stats in a lab report speak the same language as the guard.
+    """
+    by_char: dict[str, list[int]] = {}
+    for message in messages or []:
+        if not isinstance(message, dict):
+            continue
+        character = str(message.get("character") or "?")
+        text = str(message.get("message") or "")
+        by_char.setdefault(character, []).append(len(text.split()))
+
+    stats: dict[str, dict[str, float | int | None]] = {}
+    for character, counts in sorted(by_char.items()):
+        stats[character] = {
+            "lines": len(counts),
+            "mean": round(mean(counts), 3) if counts else None,
+            "median": round(median(counts), 3) if counts else None,
+            "max": max(counts) if counts else None,
+        }
+    return stats
+
+
+def _pair_arm_length_stats(pairs: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Per-arm length stats across every completed pair in an `ab` report."""
+    return {
+        "control": _length_stats(
+            [message for pair in pairs for message in (pair.get("control_messages") or [])]
+        ),
+        "variant": _length_stats(
+            [message for pair in pairs for message in (pair.get("variant_messages") or [])]
+        ),
+    }
+
+
+def _pair_arm_rewrite_summaries(pairs: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """The control/variant rewrite_summary block for a set of completed pairs."""
+    return {
+        "control": _rewrite_summary(
+            [entry for pair in pairs for entry in (pair.get("control_rewrite_log") or [])]
+        ),
+        "variant": _rewrite_summary(
+            [entry for pair in pairs for entry in (pair.get("variant_rewrite_log") or [])]
+        ),
+    }
 
 # ---------------------------------------------------------------------------
 # Pairwise judge
@@ -875,24 +2104,71 @@ def _build_pairwise_prompt(
         "Score this pair and return the JSON verdict described in your instructions."
     )
 
-def _parse_judge_json(raw: str) -> dict[str, Any] | None:
-    """Tolerant slice-and-parse: first '{' to last '}'.
+def _extract_first_json_object(raw: str) -> str | None:
+    """Slice out the first BALANCED {...} object in `raw`, honoring quoted
+    string literals (so a brace inside "reason": "uses {braces} in prose"
+    never miscounts) and escapes inside those strings.
 
-    Same approach as backend/admin/cron_routes.py's `_parse_judge_json`
-    (~line 313) - judge models occasionally wrap JSON in a markdown fence
-    or add a sentence of preamble despite being told not to. Reimplemented
+    This is "first complete JSON object", not "first '{' to last '}'" - a
+    judge that keeps talking after the JSON (or wraps it in a markdown fence
+    with commentary after the closing fence) must not corrupt the slice by
+    dragging in trailing braces that aren't part of the verdict. Returns None
+    when there's no '{' at all, or the object never closes (truncated output -
+    #7714, 09-27: one truncated Opus verdict aborted a whole paid run).
+    """
+    start = raw.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(raw)):
+        ch = raw[i]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return raw[start : i + 1]
+    return None
+
+
+def _parse_judge_json(raw: str) -> dict[str, Any] | None:
+    """Tolerant parse: extract the first complete JSON object (see
+    _extract_first_json_object) and parse it. Same intent as
+    backend/admin/cron_routes.py's `_parse_judge_json` (~line 313) - judge
+    models occasionally wrap JSON in a markdown fence or add a sentence of
+    preamble/trailing chatter despite being told not to. Reimplemented
     locally (not imported) so this module does not depend on a private
     helper in a file it is not allowed to edit.
     """
-    start = raw.find("{")
-    end = raw.rfind("}")
-    if start == -1 or end == -1 or end <= start:
+    candidate = _extract_first_json_object(raw)
+    if candidate is None:
         return None
     try:
-        parsed = json.loads(raw[start : end + 1])
+        parsed = json.loads(candidate)
     except json.JSONDecodeError:
         return None
     return parsed if isinstance(parsed, dict) else None
+
+
+# A truncated/unparseable judge response gets this many retries of the SAME
+# orientation call before _judge_orientation gives up (#7714, 09-27: one
+# truncated Opus verdict aborted a whole paid run). A structurally invalid
+# but PARSEABLE response (missing "winner", wrong-typed per_dimension, ...) is
+# never retried - that would loosen validation instead of working around a
+# transport/truncation glitch.
+_JUDGE_JSON_MAX_RETRIES = 2
 
 def _judge_orientation(
     judge_model: str,
@@ -906,8 +2182,19 @@ def _judge_orientation(
     second_messages: list[dict[str, Any]],
     recipe_facts: str | None = None,
     evidence: dict[str, Any] | None = None,
+    budget: "CallBudget | None" = None,
+    max_cost: float | None = None,
+    baseline: float = 0.0,
 ) -> dict[str, str]:
-    """Judge once with A=first_arm, B=second_arm; map the A/B verdict back to arm labels."""
+    """Judge once with A=first_arm, B=second_arm; map the A/B verdict back to arm labels.
+
+    `budget`/`max_cost`/`baseline` are OPTIONAL and gate only the RETRY
+    attempts (see `_JUDGE_JSON_MAX_RETRIES`) - the first attempt is always
+    made; it was already pre-checked by the caller (every `_run_judge_
+    orientation` call site checks `budget.would_exceed(1)` and
+    `_would_exceed_cost` before invoking this orientation at all). Passing
+    `None` for either disables that dimension's retry cap (used by direct
+    unit-test calls that don't exercise budget/cost enforcement)."""
     prompt = _build_pairwise_prompt(
         concept, stage, recipe_context, expected_cast, first_messages, second_messages,
         recipe_facts=recipe_facts,
@@ -927,37 +2214,72 @@ def _judge_orientation(
     if evidence is not None:
         evidence["guard_generation_attempts_before"] = before_attempts
         evidence["model_router_invoked"] = True
-    try:
-        raw = model_router.generate_judge_response(
-            prompt=prompt,
-            system_prompt=PAIRWISE_JUDGE_SYSTEM_PROMPT,
-            model=judge_model,
-            temperature=0.2,
-        )
-    except BaseException as original_error:
+
+    raw = ""
+    parsed: dict[str, Any] | None = None
+    retries_used = 0
+    retry_blocked_by: str | None = None
+    attempt = 0
+    while True:
+        try:
+            raw = model_router.generate_judge_response(
+                prompt=prompt,
+                system_prompt=PAIRWISE_JUDGE_SYSTEM_PROMPT,
+                model=judge_model,
+                temperature=0.2,
+            )
+        except BaseException as original_error:
+            if evidence is not None:
+                evidence["judge_retries"] = retries_used
+                try:
+                    evidence["guard_generation_attempts_after"] = _budget_generation_attempts()
+                except BaseException as snapshot_error:
+                    evidence["generation_attempt_snapshot_error"] = (
+                        f"{type(snapshot_error).__name__}: {snapshot_error}"
+                    )
+            raise
         if evidence is not None:
-            try:
-                evidence["guard_generation_attempts_after"] = _budget_generation_attempts()
-            except BaseException as snapshot_error:
+            evidence["raw_response"] = raw
+        try:
+            after_attempts = _budget_generation_attempts()
+        except BaseException as snapshot_error:
+            if evidence is not None:
                 evidence["generation_attempt_snapshot_error"] = (
                     f"{type(snapshot_error).__name__}: {snapshot_error}"
                 )
-        raise
-    if evidence is not None:
-        evidence["raw_response"] = raw
-    try:
-        after_attempts = _budget_generation_attempts()
-    except BaseException as snapshot_error:
+            raise
         if evidence is not None:
-            evidence["generation_attempt_snapshot_error"] = (
-                f"{type(snapshot_error).__name__}: {snapshot_error}"
-            )
-        raise
+            evidence["guard_generation_attempts_after"] = after_attempts
+        parsed = _parse_judge_json(raw)
+        if parsed is not None:
+            break
+        if attempt >= _JUDGE_JSON_MAX_RETRIES:
+            break
+        # About to spend ONE MORE real call on a retry of this SAME
+        # orientation. `budget.record()` only happens after the whole
+        # orientation finishes (see `_run_judge_orientation`), so
+        # `budget.used` does not yet reflect the `attempt + 1` real calls
+        # already made here - add them back in before checking the cap.
+        # Without this, an orientation that starts right at the edge of
+        # --max-calls/--max-cost can overshoot both by up to
+        # `_JUDGE_JSON_MAX_RETRIES` extra billed judge calls (#7714 follow-up).
+        calls_blocked = budget is not None and budget.would_exceed(attempt + 2)
+        cost_blocked = max_cost is not None and _would_exceed_cost(max_cost, baseline=baseline)
+        if calls_blocked or cost_blocked:
+            retry_blocked_by = "calls" if calls_blocked else "cost"
+            break
+        retries_used += 1
+        attempt += 1
     if evidence is not None:
-        evidence["guard_generation_attempts_after"] = after_attempts
-    parsed = _parse_judge_json(raw)
+        evidence["judge_retries"] = retries_used
+        if retry_blocked_by is not None:
+            evidence["judge_retry_blocked_by_cap"] = retry_blocked_by
+
     if parsed is None:
-        raise ConversationLabError(f"pairwise judge returned unparseable output: {raw[:200]!r}")
+        raise ConversationLabError(
+            f"pairwise judge returned unparseable output after {retries_used} "
+            f"retr{'y' if retries_used == 1 else 'ies'}: {raw[:200]!r}"
+        )
 
     if "winner" not in parsed:
         raise ConversationLabError("pairwise judge response is missing winner")
@@ -1020,16 +2342,27 @@ def _orientation_diagnostics(first: dict[str, str], second: dict[str, str]) -> d
 def _run_judge_orientation(
     *, orientation: str, pending_pair: dict[str, Any], budget: "CallBudget", **kwargs: Any,
 ) -> dict[str, str]:
-    """Record evidence even when generation/parsing fails; count each invocation."""
+    """Record evidence even when generation/parsing fails; count each invocation.
+
+    `budget` is always forwarded into `_judge_orientation` (in addition to
+    being used here for `.record()`) so a truncated-response retry can be
+    capped mid-orientation; pass `max_cost`/`baseline` through `**kwargs`
+    from the call site for the same reason - see `_judge_orientation`."""
     evidence: dict[str, Any] = {}
     result = None
     original_error: BaseException | None = None
     original_traceback = None
     try:
-        result = _judge_orientation(**kwargs, evidence=evidence)
+        result = _judge_orientation(**kwargs, evidence=evidence, budget=budget)
     except BaseException as exc:
         original_error = exc
         original_traceback = exc.__traceback__
+
+    # A retried judge call (see _JUDGE_JSON_MAX_RETRIES) makes MORE than one
+    # real generation attempt for this single orientation - the guard delta
+    # below must expect exactly (1 + retries), not a hardcoded 1.
+    judge_retries = evidence.get("judge_retries") or 0
+    expected_attempts = 1 + judge_retries
 
     guard_active = _ACTIVE_BUDGET_GUARD.get() is not None
     if not guard_active:
@@ -1045,9 +2378,11 @@ def _run_judge_orientation(
             attempted = None
         else:
             delta = after - before
-            attempted = delta == 1
-            if delta < 0 or delta > 1:
-                evidence["generation_attempt_accounting_error"] = f"unexpected guarded attempt delta: {delta}"
+            attempted = delta == expected_attempts
+            if delta < 0 or delta > expected_attempts:
+                evidence["generation_attempt_accounting_error"] = (
+                    f"unexpected guarded attempt delta: {delta} (expected {expected_attempts})"
+                )
                 attempted = None
 
     # Guard preflight failures (token count, route, reservation, or cap) have
@@ -1056,7 +2391,7 @@ def _run_judge_orientation(
     entry = None
     if attempted is not False:
         if attempted is True:
-            budget.record(1)
+            budget.record(expected_attempts)
         entry = {
             "orientation": orientation,
             "status": "invoked" if attempted else "accounting_unknown",
@@ -1332,6 +2667,49 @@ def _resolve_judge_model() -> str:
         )
     return judge_model
 
+
+def _require_openrouter_key() -> None:
+    if not os.environ.get("OPENROUTER_API_KEY", "").strip():
+        raise SystemExit(
+            "conversation_lab: OPENROUTER_API_KEY is not set. Run under "
+            "`doppler run -- uv run ...` so OPENROUTER_API_KEY resolves, or pass "
+            "--provider anthropic / --dry-run for a zero-cost plumbing check."
+        )
+
+
+def _resolve_openrouter_models(dry_run: bool, model_set: "LabModelSet") -> tuple[str, str, str]:
+    """Return (mode, dialogue_model, judge_model) for --provider openrouter.
+
+    The model strings are the OpenRouter dotted names named by `model_set`
+    (scripts/lab_models.json, "claude" by default - the same models
+    production uses); prompts/temperatures/max_tokens are unchanged. Fails
+    loud on a missing OPENROUTER_API_KEY unless --dry-run is passed.
+    """
+    if dry_run:
+        return "template", "template", "template"
+    _require_openrouter_key()
+    return "openai", f"openrouter/{model_set.dialogue}", f"openrouter/{model_set.judge}"
+
+
+def _resolve_openrouter_judge_model(dry_run: bool, model_set: "LabModelSet") -> str:
+    if dry_run:
+        return "template"
+    _require_openrouter_key()
+    return f"openrouter/{model_set.judge}"
+
+
+def _resolve_models_for_args(args: argparse.Namespace) -> tuple[str, str, str]:
+    provider = _provider_for(args)
+    if provider == "openrouter":
+        return _resolve_openrouter_models(args.dry_run, _resolve_lab_model_set(args))
+    return _resolve_models(args.dry_run)
+
+
+def _resolve_judge_model_for_args(args: argparse.Namespace) -> str:
+    if _provider_for(args) == "openrouter":
+        return _resolve_openrouter_judge_model(args.dry_run, _resolve_lab_model_set(args))
+    return "template" if args.dry_run else _resolve_judge_model()
+
 def _resolve_models(dry_run: bool) -> tuple[str, str, str]:
     """Return (mode, default_model, judge_model) for `ab`.
 
@@ -1352,6 +2730,192 @@ def _resolve_models(dry_run: bool) -> tuple[str, str, str]:
             "resolve, or pass --dry-run for a zero-cost plumbing check."
         ) from exc
     return "openai", default_model, _resolve_judge_model()
+
+# ---------------------------------------------------------------------------
+# Frozen prior days (freeze / --prior-days)
+#
+# Erik's one-day-at-a-time method: freeze the best Monday per scenario, run
+# Tuesday with that Monday as context, freeze Tuesday, and so on. `freeze`
+# distills one arm's transcript per scenario from an `ab` result into a
+# frozen file; `ab --prior-days` seeds both arms with that file's earlier
+# days so no tokens are spent regenerating Monday.
+# ---------------------------------------------------------------------------
+
+def _day_index(day: str) -> int:
+    try:
+        return simulate_module.DAY_ORDER.index(day)
+    except ValueError as exc:
+        raise SystemExit(
+            f"conversation_lab: unknown day {day!r} (expected one of {', '.join(simulate_module.DAY_ORDER)})"
+        ) from exc
+
+
+def _frozen_scenario_days(data: dict[str, Any], scenario_id: str) -> list[tuple[str, list[dict[str, Any]]]]:
+    """Return [(day, messages), ...] for one scenario, sorted in week order.
+
+    A fresh `freeze` writes one day directly under the scenario id:
+        {"day": "monday", "messages": [...]}
+    An appended file is keyed by scenario then day (Mon+Tue live in one file):
+        {"monday": {"day": "monday", "messages": [...]}, "tuesday": {...}}
+    This reader accepts both shapes. Returns None when the scenario is absent.
+    """
+    scenarios = data.get("scenarios")
+    if not isinstance(scenarios, dict) or scenario_id not in scenarios:
+        return None
+    entry = scenarios[scenario_id]
+    if not isinstance(entry, dict):
+        raise SystemExit(
+            f"conversation_lab: frozen scenario {scenario_id!r} entry is not a JSON object"
+        )
+    if "messages" in entry:
+        day = entry.get("day")
+        if day not in simulate_module.DAY_ORDER:
+            raise SystemExit(
+                f"conversation_lab: frozen scenario {scenario_id!r} has unknown day {day!r}"
+            )
+        return [(day, entry.get("messages") or [])]
+    entries: list[tuple[str, list[dict[str, Any]]]] = []
+    for day, day_entry in entry.items():
+        if not isinstance(day_entry, dict) or "messages" not in day_entry:
+            raise SystemExit(
+                f"conversation_lab: frozen scenario {scenario_id!r} day {day!r} "
+                "is not a {\"day\": ..., \"messages\": [...]} object"
+            )
+        if day not in simulate_module.DAY_ORDER:
+            raise SystemExit(
+                f"conversation_lab: frozen scenario {scenario_id!r} has unknown day {day!r}"
+            )
+        entries.append((day, day_entry.get("messages") or []))
+    entries.sort(key=lambda item: _day_index(item[0]))
+    return entries
+
+
+def _frozen_days_present(data: dict[str, Any]) -> list[str]:
+    """Every day present anywhere in a frozen file, in week order."""
+    scenarios = data.get("scenarios")
+    if not isinstance(scenarios, dict) or not scenarios:
+        raise SystemExit("conversation_lab: frozen file has no 'scenarios' object")
+    days: set[str] = set()
+    for scenario_id in scenarios:
+        for day, _messages in _frozen_scenario_days(data, scenario_id):
+            days.add(day)
+    return sorted(days, key=_day_index)
+
+
+def _prior_recent_lines(data: dict[str, Any], scenario_id: str, stage: str) -> list[str]:
+    """Frozen earlier days as the exact `recent_lines` entries a full-week run
+    would have accumulated before `stage`.
+
+    run_simulation appends f"{speaker.split()[0]}: {line}" for every message
+    of every day (see its run loop), so the frozen messages are flattened the
+    same way, in week order, and passed as `initial_recent_lines`.
+    """
+    stage_index = _day_index(stage)
+    lines: list[str] = []
+    for day, messages in _frozen_scenario_days(data, scenario_id):
+        if _day_index(day) >= stage_index:
+            continue
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            text = message.get("message")
+            if not text:
+                continue
+            character = str(message.get("character") or "Unknown")
+            lines.append(f"{character.split()[0]}: {text}")
+    return lines
+
+
+def _load_frozen_prior_days(path: Path) -> tuple[dict[str, Any], str]:
+    """Load a frozen prior-days file; return (data, sha256-of-file-bytes)."""
+    if not path.exists():
+        raise SystemExit(f"conversation_lab ab: --prior-days file not found: {path}")
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise SystemExit(f"conversation_lab ab: cannot read --prior-days file {path}: {exc}") from exc
+    digest = hashlib.sha256(raw).hexdigest()
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"conversation_lab ab: --prior-days file is not valid JSON: {path} ({exc})") from exc
+    if not isinstance(data, dict):
+        raise SystemExit(f"conversation_lab ab: --prior-days file must be a JSON object: {path}")
+    if not isinstance(data.get("scenarios"), dict) or not data["scenarios"]:
+        raise SystemExit(f"conversation_lab ab: --prior-days file has no 'scenarios' object: {path}")
+    # Touch every scenario once so a malformed entry fails before any paid work.
+    for scenario_id in data["scenarios"]:
+        _frozen_scenario_days(data, scenario_id)
+    return data, digest
+
+
+def _prepare_prior_days(
+    args: argparse.Namespace, scenario_ids: list[str],
+) -> dict[str, list[str]]:
+    """Validate `--prior-days` against the panel and build per-scenario lines.
+
+    Refuses (before any paid work) when the frozen file lacks a panel
+    scenario, or contains --stage or a later day. Both arms of every pair get
+    the SAME lines: the returned mapping is computed once and reused verbatim.
+    """
+    if not getattr(args, "prior_days", None):
+        return {}
+    path = Path(args.prior_days)
+    data, digest = _load_frozen_prior_days(path)
+    days_present = _frozen_days_present(data)
+    stage_index = _day_index(args.stage)
+    for day in days_present:
+        if _day_index(day) >= stage_index:
+            raise SystemExit(
+                f"conversation_lab ab: --prior-days file {path} contains day {day!r}, "
+                f"which is --stage ({args.stage}) or later"
+            )
+    prior_by_scenario: dict[str, list[str]] = {}
+    for scenario_id in scenario_ids:
+        if scenario_id not in data["scenarios"]:
+            raise SystemExit(
+                f"conversation_lab ab: --prior-days file {path} lacks scenario {scenario_id!r} "
+                "from the panel"
+            )
+        prior_by_scenario[scenario_id] = _prior_recent_lines(data, scenario_id, args.stage)
+    args.prior_days_provenance = {
+        "path": str(path),
+        "sha256": digest,
+        "days": days_present,
+    }
+    return prior_by_scenario
+
+
+def _freeze_pick_pair(
+    pairs: list[dict[str, Any]], arm: str, pick: str,
+) -> dict[str, Any]:
+    """Pick ONE transcript per scenario from its judged pairs.
+
+    pick="run0": the pair with the lowest run_index (the lab's runs are
+    1-based, so in practice run 1; a result that carried run_index 0 would
+    pick that).
+    pick="judge": the pair where `arm` won the most judge dimensions; ties
+    break by lowest run_index (a secondary tie keeps the first pair in the
+    file, which mirrors lowest run_index for well-formed results).
+    """
+    if not pairs:
+        raise SystemExit("conversation_lab freeze: scenario has no completed pairs to pick from")
+
+    def run_key(pair: dict[str, Any]) -> int:
+        run_index = pair.get("run_index")
+        return run_index if isinstance(run_index, int) else 1 << 30
+
+    if pick == "run0":
+        return min(pairs, key=run_key)
+
+    ranked = []
+    for pair in pairs:
+        judge = pair.get("judge") if isinstance(pair.get("judge"), dict) else {}
+        wins = sum(1 for dimension in ALL_JUDGE_DIMENSIONS if judge.get(dimension) == arm)
+        ranked.append((wins, run_key(pair), pair))
+    ranked.sort(key=lambda item: (-item[0], item[1]))
+    return ranked[0][2]
+
 
 def _load_testbed(path: Path) -> list[dict[str, Any]]:
     """Load the frozen scenario panel (docs/conversation-lab/testbed-v3.json by default).
@@ -1420,9 +2984,14 @@ def _generate_and_judge_pairs(
     dry_run: bool,
     pairs: list[dict[str, Any]],
     partial_pairs: list[dict[str, Any]] | None = None,
+    prior_lines: list[str] | None = None,
 ) -> bool:
     """Append up to `runs` control/variant pairs to `pairs` in place; return
     whether the run aborted (--max-calls or --max-cost hit).
+
+    `prior_lines` (frozen earlier days) is passed UNCHANGED to both the
+    control and the variant arm, so the two arms of every pair see identical
+    prior context.
 
     `pairs` is mutated in place rather than returned, so that a pair that
     finished before run N+1 raised (a judge parse failure, a generation
@@ -1441,29 +3010,69 @@ def _generate_and_judge_pairs(
     aborted = False
     restore_pending: dict[str, Any] | None = None
     partial_pairs = partial_pairs if partial_pairs is not None else []
-    arm_call_reservation = (
-        0 if dry_run else _MAX_CALLS_PER_TURN * _max_turns_for_stage(stage)
-    )
+    arm_call_reservation = _arm_call_reservation(stage, variant, dry_run=dry_run)
 
     # Before the control arm costs anything (Codex audit): a malformed variant
     # used to surface only when _apply_variant ran, which is after the control
     # generation for this run index.
     validate_variant(simulate_module, variant)
 
+    # #7714 round 2: ONE guard install for this whole function's run loop -
+    # every control/variant arm and every judge call inside it is covered
+    # by construction, not by threading budget/max_cost through each
+    # individual _run_arm_and_count/generate_judge_response call.
+    guard_ctx = _installed_budget_guard(budget, max_cost)
+    guard_ctx.__enter__()
     try:
         for run_index in range(1, runs + 1):
             if budget.would_exceed(arm_call_reservation) or _would_exceed_cost(max_cost):
                 aborted = True
                 break
 
-            control_result, control_calls = _run_arm_and_count(
-                concept, stage, run_index, recipe_context, mode, default_model
-            )
+            try:
+                control_result, control_calls = _run_arm_and_count(
+                    concept, stage, run_index, recipe_context, mode, default_model,
+                    prior_lines=prior_lines,
+                )
+            except BaseException as exc:
+                # #7714 round 3 / round 4 finding 1: the control arm's
+                # turns generated before ANY exception - a LabBudgetAbort
+                # from the guard, or any other mid-arm error (dialogue,
+                # rewrite, director, the Haiku stop-check path, an empty-
+                # content RuntimeError from an OpenRouter reasoning model)
+                # - are real, paid work, saved as a partial pair (never
+                # judged, see the docstring above) instead of discarded.
+                # A budget abort still reads as a clean aborted result; any
+                # other exception still propagates as a truthful error -
+                # only the accounting changes, not the control flow.
+                made = getattr(exc, "conversation_lab_calls_made", 0)
+                budget.record(0 if dry_run else made)
+                partial_pairs.append({
+                    "run_index": run_index,
+                    "status": "aborted_mid_arm" if isinstance(exc, LabBudgetAbort) else "error_mid_arm",
+                    "control_messages": getattr(exc, "conversation_lab_partial_messages", []),
+                    "control_stop_check_log": _snapshot_stop_check_log(),
+                    "control_director_log": _snapshot_director_log(),
+                    "control_rewrite_log": _snapshot_rewrite_log(),
+                    "control_calls_before_abort": made,
+                    "variant_messages": None,
+                    "judge_orientations": [],
+                })
+                if not isinstance(exc, LabBudgetAbort):
+                    raise
+                aborted = True
+                break
+            control_stop_check_log = _snapshot_stop_check_log()
+            control_director_log = _snapshot_director_log()
+            control_rewrite_log = _snapshot_rewrite_log()
             budget.record(0 if dry_run else control_calls)
             pending_pair: dict[str, Any] = {
                 "run_index": run_index,
                 "status": "control_generated",
                 "control_messages": control_result.get("messages", []),
+                "control_stop_check_log": control_stop_check_log,
+                "control_director_log": control_director_log,
+                "control_rewrite_log": control_rewrite_log,
                 "variant_messages": None,
                 "judge_orientations": [],
             }
@@ -1476,9 +3085,32 @@ def _generate_and_judge_pairs(
 
             restore_pending = _apply_variant(simulate_module, variant)
             try:
-                variant_result, variant_calls = _run_arm_and_count(
-                    concept, stage, run_index, recipe_context, mode, default_model
-                )
+                try:
+                    variant_result, variant_calls = _run_arm_and_count(
+                        concept, stage, run_index, recipe_context, mode, default_model,
+                        prior_lines=prior_lines,
+                    )
+                except BaseException as exc:
+                    # #7714 finding 2 / round 3 / round 4 finding 1: the
+                    # pending pair already reflects real, paid control-arm
+                    # work - mark it explicitly instead of leaving it in an
+                    # ambiguous "control_generated" status, record what
+                    # this variant arm actually spent instead of silently
+                    # reporting zero, and save whatever variant turns it
+                    # generated before ANY exception - not just a budget
+                    # abort - instead of discarding them.
+                    made = getattr(exc, "conversation_lab_calls_made", 0)
+                    budget.record(0 if dry_run else made)
+                    pending_pair["status"] = "aborted_mid_arm" if isinstance(exc, LabBudgetAbort) else "error_mid_arm"
+                    pending_pair["variant_calls_before_abort"] = made
+                    pending_pair["variant_messages"] = getattr(exc, "conversation_lab_partial_messages", [])
+                    if not isinstance(exc, LabBudgetAbort):
+                        raise
+                    aborted = True
+                    break
+                variant_stop_check_log = _snapshot_stop_check_log()
+                variant_director_log = _snapshot_director_log()
+                variant_rewrite_log = _snapshot_rewrite_log()
             finally:
                 _restore_variant(simulate_module, restore_pending)
                 restore_pending = None
@@ -1487,6 +3119,9 @@ def _generate_and_judge_pairs(
             control_messages = control_result.get("messages", [])
             variant_messages = variant_result.get("messages", [])
             pending_pair["variant_messages"] = variant_messages
+            pending_pair["variant_stop_check_log"] = variant_stop_check_log
+            pending_pair["variant_director_log"] = variant_director_log
+            pending_pair["variant_rewrite_log"] = variant_rewrite_log
             pending_pair["status"] = "awaiting_judges"
             _budget_checkpoint()
 
@@ -1502,7 +3137,7 @@ def _generate_and_judge_pairs(
                     recipe_context=recipe_context, expected_cast=expected_cast,
                     first_arm="control", first_messages=control_messages,
                     second_arm="variant", second_messages=variant_messages,
-                    recipe_facts=recipe_facts,
+                    recipe_facts=recipe_facts, max_cost=max_cost,
                 )
 
                 if budget.would_exceed(1) or _would_exceed_cost(max_cost):
@@ -1514,7 +3149,7 @@ def _generate_and_judge_pairs(
                     recipe_context=recipe_context, expected_cast=expected_cast,
                     first_arm="variant", first_messages=variant_messages,
                     second_arm="control", second_messages=control_messages,
-                    recipe_facts=recipe_facts,
+                    recipe_facts=recipe_facts, max_cost=max_cost,
                 )
                 combined = _combine_orientations(first, second)
 
@@ -1522,6 +3157,12 @@ def _generate_and_judge_pairs(
                 "run_index": run_index,
                 "control_messages": control_messages,
                 "variant_messages": variant_messages,
+                "control_stop_check_log": control_stop_check_log,
+                "variant_stop_check_log": variant_stop_check_log,
+                "control_director_log": control_director_log,
+                "variant_director_log": variant_director_log,
+                "control_rewrite_log": control_rewrite_log,
+                "variant_rewrite_log": variant_rewrite_log,
                 "control_summary": summarize(control_messages, expected_cast, concept=concept, day=stage),
                 "variant_summary": summarize(variant_messages, expected_cast, concept=concept, day=stage),
                 "judge": combined,
@@ -1532,6 +3173,7 @@ def _generate_and_judge_pairs(
             pairs.append(completed_pair)
             partial_pairs.remove(pending_pair)
     finally:
+        guard_ctx.__exit__(None, None, None)
         if restore_pending is not None:
             _restore_variant(simulate_module, restore_pending)
     return aborted
@@ -1561,6 +3203,86 @@ def _max_turns_for_stage(stage: str) -> int:
     upper = simulate_module.TICKS_RANGE.get(stage, (4, 6))[1]
     return max(upper, _MIN_MAX_TURNS_FLOOR)
 
+def _effective_max_turns_for_stage(stage: str, variant: dict[str, Any] | None) -> int:
+    """Like `_max_turns_for_stage`, but also honors whatever a VARIANT
+    raises TICKS_RANGE/OPEN_ENDED_MAX_TICKS to for `stage` (#7714 finding
+    3) - `arm_call_reservation` used to be computed once, from
+    `_max_turns_for_stage` alone, BEFORE `_apply_variant` ever ran for
+    that run, so a variant whose OPEN_ENDED_MAX_TICKS[stage] (or raised
+    TICKS_RANGE[stage] upper bound) exceeded the unpatched module default
+    silently under-reserved: the pre-arm budget check passed using a
+    ceiling the variant arm could - and, per `validate_variant`'s own
+    HISTORY_DEPTH cross-check, was explicitly allowed to - exceed.
+
+    Also honors the CONTROL's own current module attributes (not just
+    their checked-in defaults) - a test or future CLI knob that sets
+    OPEN_ENDED_MAX_TICKS directly on the module without going through a
+    variant must not be under-reserved either.
+    """
+    upper = simulate_module.TICKS_RANGE.get(stage, (4, 6))[1]
+
+    control_open_ended = getattr(simulate_module, "OPEN_ENDED_MAX_TICKS", None)
+    if isinstance(control_open_ended, dict):
+        cap = control_open_ended.get(stage)
+        if isinstance(cap, int) and not isinstance(cap, bool):
+            upper = max(upper, cap)
+
+    if isinstance(variant, dict):
+        variant_ticks_range = variant.get("TICKS_RANGE")
+        if isinstance(variant_ticks_range, dict):
+            pair = variant_ticks_range.get(stage)
+            if isinstance(pair, (list, tuple)) and len(pair) == 2:
+                try:
+                    upper = max(upper, int(pair[1]))
+                except (TypeError, ValueError):
+                    pass
+        variant_open_ended = variant.get("OPEN_ENDED_MAX_TICKS")
+        if isinstance(variant_open_ended, dict):
+            cap = variant_open_ended.get(stage)
+            if isinstance(cap, int) and not isinstance(cap, bool):
+                upper = max(upper, cap)
+
+    return max(upper, _MIN_MAX_TURNS_FLOOR)
+
+def _effective_stop_check_active(variant: dict[str, Any] | None) -> bool:
+    """True when EITHER arm's effective WINDDOWN_TRIGGER is "check" - the
+    only trigger under which `check_scene_done` (and therefore Jev HTTP
+    attempts) runs per tick (see
+    `_refuse_if_stop_check_conflicts_with_models`, which reasons about the
+    same two effective triggers)."""
+    control_trigger = simulate_module.WINDDOWN_TRIGGER
+    is_dict = isinstance(variant, dict)
+    variant_trigger = (
+        variant.get("WINDDOWN_TRIGGER")
+        if is_dict and "WINDDOWN_TRIGGER" in variant
+        else control_trigger
+    )
+    return control_trigger == "check" or variant_trigger == "check"
+
+# backend.utils.stop_check._JEV_MAX_ATTEMPTS: the worst case number of Jev
+# HTTP attempts (first try + retries) ONE stop check can make in a single
+# tick - reserved per tick, on top of _MAX_CALLS_PER_TURN's four generation
+# requests, whenever the effective WINDDOWN_TRIGGER is "check" (#7714
+# finding 2/3: those attempts are real paid calls that used to run entirely
+# outside this reservation).
+_MAX_STOP_CHECK_ATTEMPTS_PER_TICK = stop_check._JEV_MAX_ATTEMPTS
+
+def _arm_call_reservation(stage: str, variant: dict[str, Any] | None, *, dry_run: bool) -> int:
+    """Structural worst-case call reservation for ONE control+variant pair
+    at `stage`: four paid generation requests per turn (the initial
+    request, its CoT retry, a fault rewrite, and the rewrite's CoT retry)
+    across `_effective_max_turns_for_stage`'s ceiling (#7714 finding 3),
+    PLUS - when a stop check can actually run - up to
+    `_MAX_STOP_CHECK_ATTEMPTS_PER_TICK` Jev HTTP attempts per tick (#7714
+    finding 2)."""
+    if dry_run:
+        return 0
+    max_turns = _effective_max_turns_for_stage(stage, variant)
+    reservation = _MAX_CALLS_PER_TURN * max_turns
+    if _effective_stop_check_active(variant):
+        reservation += _MAX_STOP_CHECK_ATTEMPTS_PER_TICK * max_turns
+    return reservation
+
 def _derive_max_calls(mode: str, *, scenario_count: int, runs: int, stage: str) -> int:
     """The --max-calls default when the flag itself is omitted (None).
 
@@ -1586,8 +3308,20 @@ def cmd_ab(args: argparse.Namespace) -> None:
         raise SystemExit("conversation_lab ab: pass --variant or --sweep, not both")
     if not args.sweep and not args.variant:
         raise SystemExit("conversation_lab ab: --variant is required unless --sweep is passed")
+    if args.prior_days and not args.sweep and args.testbed is None:
+        raise SystemExit(
+            "conversation_lab ab: --prior-days requires --testbed or --sweep - "
+            "a single --concept run has no scenario to attach frozen days to"
+        )
 
-    mode, default_model, judge_model = _resolve_models(args.dry_run)
+    if _models_arg_for(args) is not None:
+        # Validates the name and refuses --provider anthropic + a non-default
+        # set REGARDLESS of which branch below actually resolves models -
+        # _resolve_models_for_args only calls _resolve_lab_model_set on the
+        # openrouter path, so the anthropic path needs this checked explicitly.
+        _resolve_lab_model_set(args)
+
+    mode, default_model, judge_model = _resolve_models_for_args(args)
 
     if args.sweep:
         _cmd_ab_sweep(args, mode, default_model, judge_model)
@@ -1595,6 +3329,7 @@ def cmd_ab(args: argparse.Namespace) -> None:
 
     variant_path = Path(args.variant)
     variant = _load_variant_file(variant_path)
+    _refuse_if_stop_check_conflicts_with_models(args, variant)
 
     if args.testbed is not None:
         _cmd_ab_testbed(args, variant_path, variant, mode, default_model, judge_model)
@@ -1655,6 +3390,7 @@ def _cmd_ab_testbed(
             "--recipe-context, or --from-episode - each testbed scenario supplies its own"
         )
     scenarios = _load_testbed(Path(args.testbed))
+    prior_by_scenario = _prepare_prior_days(args, [scenario["id"] for scenario in scenarios])
     runs = args.runs if args.runs is not None else DEFAULT_TESTBED_RUNS
     max_calls_derived = args.max_calls is None
     if max_calls_derived:
@@ -1679,6 +3415,7 @@ def _cmd_ab_testbed(
                     runs=runs, variant=variant, mode=mode, default_model=default_model, judge_model=judge_model,
                     expected_cast=expected_cast, budget=budget, max_cost=args.max_cost, dry_run=args.dry_run,
                     pairs=scenario_pairs, partial_pairs=scenario_partial_pairs,
+                    prior_lines=prior_by_scenario.get(scenario["id"]),
                 )
             finally:
                 for pair in scenario_pairs:
@@ -1829,8 +3566,12 @@ def _build_ab_report(
         "target_dimension": args.target,
         "decision_rule": DECISION_RULE_TEXT,
         "cost_summary": cost_summary,
+        "jev_cost_usd": _jev_cost_usd_total(),
+        **_openrouter_fields_for(args, _openrouter_cost_by_model_for_pairs(pairs, partial_pairs or [])),
         "pairs": pairs,
         "partial_pairs": partial_pairs or [],
+        "rewrite_summary": _pair_arm_rewrite_summaries(pairs),
+        "length_stats": _pair_arm_length_stats(pairs),
         "results_file": str(result_path),
         **_aggregate_pairs(pairs, args.target, args.dry_run),
     }
@@ -1880,14 +3621,21 @@ def _build_testbed_ab_report(
         "target_dimension": args.target,
         "decision_rule": DECISION_RULE_TEXT,
         "cost_summary": cost_summary,
+        "jev_cost_usd": _jev_cost_usd_total(),
+        **_openrouter_fields_for(args, _openrouter_cost_by_model_for_pairs(all_pairs, partial_pairs or [])),
         "scenarios": scenario_reports,
         "pairs": all_pairs,
         "partial_pairs": partial_pairs or [],
+        "rewrite_summary": _pair_arm_rewrite_summaries(all_pairs),
+        "length_stats": _pair_arm_length_stats(all_pairs),
         "results_file": str(result_path),
         **_aggregate_pairs(all_pairs, args.target, args.dry_run),
     }
     if error is not None:
         report["error"] = error
+    prior_days = getattr(args, "prior_days_provenance", None)
+    if prior_days is not None:
+        report["prior_days"] = prior_days
     return report
 
 def _print_dimension_table(per_dimension_counts: dict[str, dict[str, int]]) -> None:
@@ -1909,6 +3657,30 @@ def _print_metric_deltas(
         else:
             print(f"  {key:<32}unavailable{sample_text}")
 
+def _print_openrouter_costs(report: dict[str, Any]) -> None:
+    if "cost_by_model" not in report:
+        return
+    print("openrouter costs by model:")
+    for model in sorted(report["cost_by_model"]):
+        print(f"  {model}: ${report['cost_by_model'][model]:.9f}")
+    print(f"total cost: ${report['total_cost_usd']:.9f}")
+    key_report = report.get("openrouter_key")
+    if key_report:
+        before = key_report.get("before") or {}
+        after = key_report.get("after")
+        print(
+            f"openrouter key before: limit=${before.get('limit', 0.0):.2f} "
+            f"limit_remaining=${before.get('limit_remaining', 0.0):.2f}"
+        )
+        if after:
+            print(
+                f"openrouter key after: limit=${after.get('limit', 0.0):.2f} "
+                f"limit_remaining=${after.get('limit_remaining', 0.0):.2f}"
+            )
+        elif key_report.get("after_error"):
+            print(f"openrouter key after: unavailable ({key_report['after_error']})")
+
+
 def _print_ab_report(report: dict[str, Any]) -> None:
     print(f"\n=== conversation_lab ab: {report['concept']} / {report['stage']} ===")
     print(f"variant: {report['variant_name']} ({report['variant_file']}) keys={report['variant_keys']}")
@@ -1926,6 +3698,8 @@ def _print_ab_report(report: dict[str, Any]) -> None:
     _print_metric_deltas(report["metric_deltas"], report.get("metric_coverage"))
     print(f"\nDECISION RULE (informational, not enforced): {report['decision_rule']}")
     print(f"cost summary: {report['cost_summary']}")
+    print(f"jev cost: ${report['jev_cost_usd']:.9f}")
+    _print_openrouter_costs(report)
     print(f"\nresults written to: {report['results_file']}")
 
 def _print_testbed_ab_report(report: dict[str, Any]) -> None:
@@ -1958,6 +3732,8 @@ def _print_testbed_ab_report(report: dict[str, Any]) -> None:
     _print_metric_deltas(report["metric_deltas"], report.get("metric_coverage"))
     print(f"\nDECISION RULE (informational, not enforced): {report['decision_rule']}")
     print(f"cost summary: {report['cost_summary']}")
+    print(f"jev cost: ${report['jev_cost_usd']:.9f}")
+    _print_openrouter_costs(report)
     print(f"\nresults written to: {report['results_file']}")
 
 _EXPERIMENTS_SECTION_HEADING = "## Experiments"
@@ -2112,6 +3888,7 @@ def _generate_sweep_control(
     default_model: str,
     budget: CallBudget,
     transcripts: dict[tuple[str, int], dict[str, Any]],
+    prior_by_scenario: dict[str, list[str]] | None = None,
 ) -> bool:
     """Generate the control transcript for every (scenario, run) pair
     EXACTLY ONCE, into `transcripts` (mutated in place) - every variant in
@@ -2125,19 +3902,59 @@ def _generate_sweep_control(
     every (scenario, run) pair got a control transcript.
     """
     dry_run = mode == "template"
-    arm_call_reservation = (
-        0 if dry_run else _MAX_CALLS_PER_TURN * _max_turns_for_stage(stage)
-    )
-    for scenario in scenarios:
-        for run_index in range(1, runs + 1):
-            if budget.would_exceed(arm_call_reservation):
-                return True
-            result, calls = _run_arm_and_count(
-                scenario["concept"], stage, run_index, scenario["recipe_context"], mode, default_model,
-            )
-            budget.record(0 if dry_run else calls)
-            transcripts[(scenario["id"], run_index)] = result
-            _budget_checkpoint()
+    arm_call_reservation = _arm_call_reservation(stage, None, dry_run=dry_run)
+    # #7714 round 2, finding 1: this loop had NO guard at all - max_cost=None
+    # disables the cost side (this loop is calls-only by design, see the
+    # docstring above), but every arm here is still covered for --max-calls
+    # by construction, same as every other arm-running loop in this module.
+    with _installed_budget_guard(budget, None):
+        for scenario in scenarios:
+            for run_index in range(1, runs + 1):
+                if budget.would_exceed(arm_call_reservation):
+                    return True
+                try:
+                    result, calls = _run_arm_and_count(
+                        scenario["concept"], stage, run_index, scenario["recipe_context"], mode, default_model,
+                        prior_lines=(prior_by_scenario or {}).get(scenario["id"]),
+                    )
+                except BaseException as exc:
+                    # #7714 round 3 / round 4 finding 1: the aborted
+                    # (scenario, run)'s turns generated before ANY
+                    # exception - not just a budget abort - are real, paid
+                    # work, saved into `transcripts` at this key (the same
+                    # "messages" shape a completed entry has, so
+                    # _build_sweep_report's existing control_transcripts_
+                    # by_key/unpaired_control_transcripts machinery picks it
+                    # up with no further changes) instead of discarded.
+                    # Never judged: control aborting/erroring here means no
+                    # variant ever runs this key (see _cmd_ab_sweep's `if
+                    # not control_aborted:` guard, and this re-raises for a
+                    # non-budget error so the sweep's own outer handler
+                    # writes a truthful error report instead of a clean
+                    # "aborted" one).
+                    made = getattr(exc, "conversation_lab_calls_made", 0)
+                    budget.record(0 if dry_run else made)
+                    transcripts[(scenario["id"], run_index)] = {
+                        "status": "aborted_mid_arm" if isinstance(exc, LabBudgetAbort) else "error_mid_arm",
+                        "messages": getattr(exc, "conversation_lab_partial_messages", []),
+                        "stop_check_log": _snapshot_stop_check_log(),
+                        "director_log": _snapshot_director_log(),
+                        "rewrite_log": _snapshot_rewrite_log(),
+                        "calls_before_abort": made,
+                    }
+                    if not isinstance(exc, LabBudgetAbort):
+                        raise
+                    return True
+                budget.record(0 if dry_run else calls)
+                # The shared control is generated once, up front; its stop-check,
+                # director, and rewrite logs would be long gone from the module by
+                # the time its pairs are judged, so copy them into the stored
+                # transcript now.
+                result["stop_check_log"] = _snapshot_stop_check_log()
+                result["director_log"] = _snapshot_director_log()
+                result["rewrite_log"] = _snapshot_rewrite_log()
+                transcripts[(scenario["id"], run_index)] = result
+                _budget_checkpoint()
     return False
 
 def _run_sweep_variant(
@@ -2156,6 +3973,7 @@ def _run_sweep_variant(
     dry_run: bool,
     pairs: list[dict[str, Any]],
     partial_pairs: list[dict[str, Any]] | None = None,
+    prior_by_scenario: dict[str, list[str]] | None = None,
 ) -> tuple[bool, int, float | None]:
     """Generate this ONE variant's own transcripts (one per scenario/run)
     and pairwise-judge each against the ALREADY-GENERATED shared control
@@ -2180,10 +3998,13 @@ def _run_sweep_variant(
     baseline_cost = _total_cost_or_none() or 0.0
     aborted = False
     restore_pending: dict[str, Any] | None = None
-    arm_call_reservation = (
-        0 if dry_run else _MAX_CALLS_PER_TURN * _max_turns_for_stage(stage)
-    )
+    arm_call_reservation = _arm_call_reservation(stage, variant, dry_run=dry_run)
 
+    # #7714 round 2: ONE guard install for this whole variant's run - every
+    # arm and judge call across every (scenario, run) pair it processes is
+    # covered by construction.
+    guard_ctx = _installed_budget_guard(budget, max_cost, baseline_cost=baseline_cost)
+    guard_ctx.__enter__()
     try:
         for scenario in scenarios:
             for run_index in range(1, runs + 1):
@@ -2201,11 +4022,17 @@ def _run_sweep_variant(
                     break
 
                 control_messages = control_result.get("messages", [])
+                control_stop_check_log = control_result.get("stop_check_log", [])
+                control_director_log = control_result.get("director_log", [])
+                control_rewrite_log = control_result.get("rewrite_log", [])
                 pending_pair: dict[str, Any] = {
                     "scenario_id": scenario["id"],
                     "run_index": run_index,
                     "status": "control_generated",
                     "control_messages": control_messages,
+                    "control_stop_check_log": control_stop_check_log,
+                    "control_director_log": control_director_log,
+                    "control_rewrite_log": control_rewrite_log,
                     "variant_messages": None,
                     "judge_orientations": [],
                 }
@@ -2213,9 +4040,31 @@ def _run_sweep_variant(
 
                 restore_pending = _apply_variant(simulate_module, variant)
                 try:
-                    variant_result, variant_calls = _run_arm_and_count(
-                        scenario["concept"], stage, run_index, scenario["recipe_context"], mode, default_model,
-                    )
+                    try:
+                        variant_result, variant_calls = _run_arm_and_count(
+                            scenario["concept"], stage, run_index, scenario["recipe_context"], mode, default_model,
+                            prior_lines=(prior_by_scenario or {}).get(scenario["id"]),
+                        )
+                    except BaseException as exc:
+                        # #7714 finding 2 / round 3 / round 4 finding 1:
+                        # save whatever variant turns were generated before
+                        # ANY exception - not just a budget abort - instead
+                        # of discarding them, mirroring _generate_and_
+                        # judge_pairs' same fix. A non-budget error still
+                        # re-raises so the sweep's outer handler writes a
+                        # truthful error report.
+                        made = getattr(exc, "conversation_lab_calls_made", 0)
+                        budget.record(0 if dry_run else made)
+                        pending_pair["status"] = "aborted_mid_arm" if isinstance(exc, LabBudgetAbort) else "error_mid_arm"
+                        pending_pair["variant_calls_before_abort"] = made
+                        pending_pair["variant_messages"] = getattr(exc, "conversation_lab_partial_messages", [])
+                        if not isinstance(exc, LabBudgetAbort):
+                            raise
+                        aborted = True
+                        break
+                    variant_stop_check_log = _snapshot_stop_check_log()
+                    variant_director_log = _snapshot_director_log()
+                    variant_rewrite_log = _snapshot_rewrite_log()
                 finally:
                     _restore_variant(simulate_module, restore_pending)
                     restore_pending = None
@@ -2223,6 +4072,9 @@ def _run_sweep_variant(
 
                 variant_messages = variant_result.get("messages", [])
                 pending_pair["variant_messages"] = variant_messages
+                pending_pair["variant_stop_check_log"] = variant_stop_check_log
+                pending_pair["variant_director_log"] = variant_director_log
+                pending_pair["variant_rewrite_log"] = variant_rewrite_log
                 pending_pair["status"] = "awaiting_judges"
                 _budget_checkpoint()
 
@@ -2239,6 +4091,7 @@ def _run_sweep_variant(
                         first_arm="control", first_messages=control_messages,
                         second_arm="variant", second_messages=variant_messages,
                         recipe_facts=scenario.get("judge_recipe_facts"),
+                        max_cost=max_cost, baseline=baseline_cost,
                     )
 
                     if budget.would_exceed(1) or _would_exceed_cost(max_cost, baseline=baseline_cost):
@@ -2251,6 +4104,7 @@ def _run_sweep_variant(
                         first_arm="variant", first_messages=variant_messages,
                         second_arm="control", second_messages=control_messages,
                         recipe_facts=scenario.get("judge_recipe_facts"),
+                        max_cost=max_cost, baseline=baseline_cost,
                     )
                     combined = _combine_orientations(first, second)
 
@@ -2259,6 +4113,12 @@ def _run_sweep_variant(
                     "run_index": run_index,
                     "control_messages": control_messages,
                     "variant_messages": variant_messages,
+                    "control_stop_check_log": control_stop_check_log,
+                    "variant_stop_check_log": variant_stop_check_log,
+                    "control_director_log": control_director_log,
+                    "variant_director_log": variant_director_log,
+                    "control_rewrite_log": control_rewrite_log,
+                    "variant_rewrite_log": variant_rewrite_log,
                     "control_summary": summarize(control_messages, expected_cast, concept=scenario["concept"], day=stage),
                     "variant_summary": summarize(variant_messages, expected_cast, concept=scenario["concept"], day=stage),
                     "judge": combined,
@@ -2276,6 +4136,7 @@ def _run_sweep_variant(
         setattr(exc, "conversation_lab_calls_used", budget.used)
         raise
     finally:
+        guard_ctx.__exit__(None, None, None)
         if restore_pending is not None:
             _restore_variant(simulate_module, restore_pending)
 
@@ -2302,6 +4163,8 @@ def _build_sweep_variant_report(
         "cost": cost,
         "pairs": pairs,
         "partial_pairs": partial_pairs or [],
+        "rewrite_summary": _pair_arm_rewrite_summaries(pairs),
+        "length_stats": _pair_arm_length_stats(pairs),
         **_aggregate_pairs(pairs, target, dry_run),
     }
 
@@ -2444,16 +4307,45 @@ def _build_sweep_report(
         "control_transcripts_generated": len(control_transcripts),
         "unpaired_control_transcripts": unpaired_control_transcripts,
         "control_top_phrases": _arm_top_phrases(control_transcripts_by_key),
+        "control_length_stats": _length_stats(
+            [
+                message
+                for result in control_transcripts.values()
+                for message in (result.get("messages") or [])
+            ]
+        ),
+        "rewrite_summary": {
+            "control": _rewrite_summary(
+                [
+                    entry
+                    for result in control_transcripts.values()
+                    for entry in (result.get("rewrite_log") or [])
+                ]
+            ),
+            "variant": _rewrite_summary(
+                [
+                    entry
+                    for variant_report in variant_reports.values()
+                    for pair in variant_report.get("pairs", [])
+                    for entry in (pair.get("variant_rewrite_log") or [])
+                ]
+            ),
+        },
         "dry_run": bool(args.dry_run),
         "target_dimension": args.target,
         "decision_rule": DECISION_RULE_TEXT,
         "cost_summary": cost_summary,
+        "jev_cost_usd": _jev_cost_usd_total(),
+        **_openrouter_fields_for(args, _openrouter_cost_by_model_for_sweep(control_transcripts, variant_reports)),
         "variants": variant_reports,
         "ranking": _rank_sweep_variants(variant_reports, args.target),
         "results_file": str(result_path),
     }
     if error is not None:
         report["error"] = error
+    prior_days = getattr(args, "prior_days_provenance", None)
+    if prior_days is not None:
+        report["prior_days"] = prior_days
     return report
 
 def _print_sweep_report(report: dict[str, Any]) -> None:
@@ -2471,6 +4363,7 @@ def _print_sweep_report(report: dict[str, Any]) -> None:
         f"charged to the sweep, not to any one variant{abort_note}"
     )
     print(f"max_cost per variant: ${report['max_cost_per_variant']:.2f}  dry_run={report['dry_run']}")
+    print(f"jev cost: ${report['jev_cost_usd']:.9f}")
 
     print(f"\n--- variant ranking (target: {report['target_dimension']}) ---")
     for entry in report["ranking"]:
@@ -2512,6 +4405,7 @@ def _print_sweep_report(report: dict[str, Any]) -> None:
 
     if report.get("error"):
         print(f"\nERROR: {report['error']}")
+    _print_openrouter_costs(report)
     print(f"\nresults written to: {report['results_file']}")
 
 def _append_sweep_experiments_row(
@@ -2565,6 +4459,7 @@ def _cmd_ab_sweep(
 
     testbed_path = Path(args.testbed) if args.testbed else DEFAULT_TESTBED_PATH
     scenarios = _load_testbed(testbed_path)
+    prior_by_scenario = _prepare_prior_days(args, [scenario["id"] for scenario in scenarios])
     runs = args.runs if args.runs is not None else DEFAULT_TESTBED_RUNS
     expected_cast = simulate_module.participants_for_day(args.stage)
 
@@ -2583,6 +4478,7 @@ def _cmd_ab_sweep(
             validate_variant(simulate_module, _variant_body)
         except ConversationLabError as exc:
             raise ConversationLabError(f"variant {_variant_name!r}: {exc}") from exc
+        _refuse_if_stop_check_conflicts_with_models(args, _variant_body)
 
     control_budget = CallBudget(max_calls=args.max_calls)
     control_baseline = _total_cost_or_none() or 0.0
@@ -2599,6 +4495,7 @@ def _cmd_ab_sweep(
         control_aborted = _generate_sweep_control(
             scenarios=scenarios, stage=args.stage, runs=runs, mode=mode, default_model=default_model,
             budget=control_budget, transcripts=control_transcripts,
+            prior_by_scenario=prior_by_scenario,
         )
         aborted = control_aborted
 
@@ -2613,6 +4510,7 @@ def _cmd_ab_sweep(
                         control_transcripts=control_transcripts, max_calls=args.max_calls, max_cost=args.max_cost,
                         dry_run=args.dry_run, pairs=variant_pairs,
                         partial_pairs=variant_partial_pairs,
+                        prior_by_scenario=prior_by_scenario,
                     )
                 except BaseException as exc:
                     variant_reports[variant_name] = _build_sweep_variant_report(
@@ -2841,6 +4739,7 @@ def _build_calibrate_report(
         "max_calls": args.max_calls,
         "max_cost": args.max_cost,
         "calls_used": budget.used,
+        **_openrouter_fields_for(args, _openrouter_router_cost_by_model()),
         "degradations": degradation_reports,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "results_file": str(result_path),
@@ -2856,7 +4755,7 @@ def _cmd_calibrate_reference_panel(args: argparse.Namespace) -> None:
     panel_path = Path(args.reference_panel)
     panel = _load_reference_panel(panel_path)
     pairs = _reference_pairs(panel)
-    judge_model = "template" if args.dry_run else _resolve_judge_model()
+    judge_model = _resolve_judge_model_for_args(args)
     budget = CallBudget(max_calls=args.max_calls)
     result_path = _results_dir(args) / (
         f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}-calibrate-reference-panel-v0.json"
@@ -2968,6 +4867,7 @@ def _cmd_calibrate_reference_panel(args: argparse.Namespace) -> None:
             "calls_used": budget.used,
             "cost_summary": cost_summary,
             **({"cost_summary_error": cost_summary_error} if cost_summary_error else {}),
+            **_openrouter_fields_for(args, _openrouter_router_cost_by_model()),
             "evaluator": {
                 "prompt_sha256": hashlib.sha256(PAIRWISE_JUDGE_SYSTEM_PROMPT.encode("utf-8")).hexdigest(),
                 "prompt_version": PAIRWISE_JUDGE_PROMPT_VERSION,
@@ -2984,6 +4884,8 @@ def _cmd_calibrate_reference_panel(args: argparse.Namespace) -> None:
             **({"error": error} if error else {}),
         }
 
+    guard_ctx = _installed_budget_guard(budget, args.max_cost)
+    guard_ctx.__enter__()
     try:
         for case in pairs:
             case_id = case["case_id"]
@@ -3027,6 +4929,7 @@ def _cmd_calibrate_reference_panel(args: argparse.Namespace) -> None:
                         "recipe_context": case["recipe_context"],
                         "expected_cast": speakers,
                         "recipe_facts": None,
+                        "max_cost": args.max_cost,
                     }
                     if budget.would_exceed(1) or _would_exceed_cost(args.max_cost):
                         aborted = True
@@ -3057,11 +4960,26 @@ def _cmd_calibrate_reference_panel(args: argparse.Namespace) -> None:
                 partial_records.remove(pending)
             if aborted:
                 break
+    except LabBudgetAbort:
+        # #7714 round 2: same reasoning as cmd_calibrate's --from-episode
+        # path - a mid-arm budget abort is the SAME event the coarse
+        # would_exceed()/_would_exceed_cost() checks above already handle
+        # inline, and must read the same way: aborted, no `error`, no
+        # re-raise past main() as an uncaught exception.
+        aborted = True
+        report = make_report()
+        _write_json_result(result_path, report)
+        print(f"\n=== conversation_lab calibrate: reference panel {panel['packet_id']} ===")
+        print(f"status: ABORTED  calls used: {report['calls_used']} / max {report['max_calls']}  dry_run={report['dry_run']}")
+        print(f"\nresults written to: {report['results_file']}")
+        return
     except BaseException as exc:
         error = f"{type(exc).__name__}: {exc}"
         aborted = True
         _write_json_result(result_path, make_report())
         raise
+    finally:
+        guard_ctx.__exit__(None, None, None)
 
     report = make_report()
     _write_json_result(result_path, report)
@@ -3077,6 +4995,7 @@ def _cmd_calibrate_reference_panel(args: argparse.Namespace) -> None:
     print("consistent-name-permutation: source-based named-fit hypothesis only; no pass/fail gate")
     for name, info in reports.items():
         print(f"  {name}: completed={len(info['completed_pairs'])} partial={len(info['partial_pairs'])} {info['interpretation']}")
+    _print_openrouter_costs(report)
     print(f"\nresults written to: {report['results_file']}")
 
 # ---------------------------------------------------------------------------
@@ -3176,6 +5095,7 @@ def _judge_one_transcript(
     prior_stages: dict[str, Any],
     recipe_context: str | None,
     recipe_facts: str | None,
+    judge_model: str,
 ) -> dict[str, Any]:
     """Score one transcript with the PRODUCTION publish gate, not the lab's
     pairwise judge.
@@ -3186,6 +5106,11 @@ def _judge_one_transcript(
     is handed (see that function's docstring), so each run gets a FRESH
     outer dict - `prior_stages` is shared read-only, the judge_* keys are
     not, and reusing one dict would let run N read run N-1's scores.
+
+    ``judge_model`` is the lab-resolved judge route (direct Anthropic under
+    --provider anthropic, the same model through OpenRouter under
+    --provider openrouter); production callers that invoke `_judge_dialogue`
+    directly still default to ``config.judge_model``.
     """
     episode: dict[str, Any] = {"stages": prior_stages}
     passed, verdict = judge_dialogue(
@@ -3195,6 +5120,7 @@ def _judge_one_transcript(
         episode,
         recipe_context=recipe_context,
         recipe_facts=recipe_facts,
+        judge_model=judge_model,
     )
     _budget_checkpoint()
     return {  # noqa: DOC201 - the caller measures calls separately
@@ -3916,7 +5842,7 @@ def _assert_comparable_scenario(baseline: dict[str, Any], report: dict[str, Any]
 
 def cmd_bench(args: argparse.Namespace) -> None:
     _validate_bench_args(args)
-    mode, default_model, judge_model = _resolve_models(args.dry_run)
+    mode, default_model, judge_model = _resolve_models_for_args(args)
     concept, recipe_context, recipe_facts, prior_stages, photo_inputs = _resolve_bench_scenario(args)
     expected_cast = simulate_module.participants_for_day(args.stage)
 
@@ -3996,15 +5922,36 @@ def cmd_bench(args: argparse.Namespace) -> None:
     budget = CallBudget(max_calls=max_calls)
 
     runs: list[dict[str, Any]] = []
+    # Turns from a run the mid-arm guard cut short: paid for, so saved, but
+    # never summarized, judged, aggregated or counted as completed (#7714).
+    aborted_runs: list[dict[str, Any]] = []
     aborted = False
     error: str | None = None
     interrupted = False
 
+    # #7714 round 2, finding 1: this loop had NO mid-arm guard at all -
+    # every arm/judge call here is now covered by construction, same as
+    # every other arm-running loop in this module.
+    guard_ctx = _installed_budget_guard(budget, args.max_cost)
+    guard_ctx.__enter__()
+    # #7714 round 3: a fresh list per run_index, passed to _run_arm as
+    # message_sink - run_simulation appends into it as turns are
+    # generated, so whatever it holds is recoverable even if _run_arm
+    # raises before returning (most commonly a mid-arm LabBudgetAbort).
+    # `generation_recorded` distinguishes "the exception happened before
+    # this run's transcript ever reached `runs`" (sink holds a real
+    # partial transcript worth saving) from "generation finished and the
+    # exception came from summarize()/judging instead" (the run is
+    # already in `runs`; sink is stale and must not be saved again).
+    sink: list = []
+    generation_recorded = True
     try:
         for run_index in range(1, args.runs + 1):
             if budget.would_exceed(gen_reserve) or _would_exceed_cost(args.max_cost):
                 aborted = True
                 break
+            sink = []
+            generation_recorded = False
             result = _spend(
                 budget,
                 lambda: _run_arm(
@@ -4016,6 +5963,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
                     default_model,
                     photography_context=photo_inputs["photography_context"],
                     image_paths=photo_inputs["image_paths"],
+                    message_sink=sink,
                 ),
                 fallback=0 if args.dry_run else _max_turns_for_stage(args.stage),
                 reservation=gen_reserve,
@@ -4033,6 +5981,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
                 "transcript": messages,
             }
             runs.append(record)
+            generation_recorded = True
             # The transcript is durable partial evidence before we consult
             # the ledger again. A denied or unreadable ledger must stop here,
             # before summary/judge work or another paid generation request.
@@ -4056,9 +6005,10 @@ def cmd_bench(args: argparse.Namespace) -> None:
                         prior_stages=prior_stages,
                         recipe_context=recipe_context,
                         recipe_facts=recipe_facts,
+                        judge_model=judge_model,
                     ),
                 )
-    except (Exception, KeyboardInterrupt) as exc:  # noqa: BLE001
+    except (Exception, KeyboardInterrupt, LabBudgetAbort) as exc:  # noqa: BLE001
         # Same contract as _generate_and_judge_pairs: runs that already
         # finished are paid for and must reach disk, so record the failure
         # and fall through to writing the report instead of propagating.
@@ -4069,25 +6019,42 @@ def cmd_bench(args: argparse.Namespace) -> None:
         # spend accounting _spend's finally had just recorded. Interrupting
         # a run you are watching go wrong is a NORMAL thing to do, and it
         # must not be the one path that loses the evidence.
-        error = f"{type(exc).__name__}: {exc}"
+        #
+        # LabBudgetAbort is included deliberately too (#7714 round 2): it
+        # derives from BaseException, same family as KeyboardInterrupt, for
+        # the same reason - a plain `except Exception` must never be able
+        # to swallow it on its way up from a deeply nested paid call.
+        #
+        # It is NOT treated as an `error` (Codex round 2): hitting the cap
+        # via the coarse would_exceed()/_would_exceed_cost() pre-check
+        # never sets `error` or raises SystemExit below - it is the guard
+        # doing its job, and the results up to that point are valid. The
+        # mid-arm guard hitting mid-flight is the SAME event, just caught
+        # later; it must read the same way, not like a bench that crashed.
+        if isinstance(exc, LabBudgetAbort):
+            aborted = True
+        else:
+            error = f"{type(exc).__name__}: {exc}"
         interrupted = isinstance(exc, KeyboardInterrupt)
         if _budget_guard_stopped():
             aborted = True
-        partial_arm = getattr(exc, "conversation_lab_partial_arm", None)
-        if partial_arm is not None:
-            messages = partial_arm.get("messages", [])
-            partial_record: dict[str, Any] = {
+        # #7714 round 3 / round 4 finding 1: `sink` holds whatever turns
+        # run_simulation had already generated - real, paid work - before
+        # ANY exception (a LabBudgetAbort, or any other mid-arm error),
+        # unless the CURRENT run's transcript already made it into `runs`
+        # (generation_recorded=True means the failure was in summarize()/
+        # judging instead, and `sink` is stale from a completed run - do
+        # not save it again).
+        if not generation_recorded and sink:
+            partial_messages = [m.__dict__ for m in sink]
+            aborted_runs.append({
                 "run_index": len(runs) + 1,
-                "message_count": len(messages),
-                "transcript": messages,
-            }
-            try:
-                partial_record["summary"] = summarize(
-                    messages, expected_cast, concept=concept, day=args.stage
-                )
-            except Exception as summary_exc:
-                error += f"; partial transcript summary failed: {type(summary_exc).__name__}: {summary_exc}"
-            runs.append(partial_record)
+                "message_count": len(partial_messages),
+                "transcript": partial_messages,
+                "status": "aborted_mid_arm" if isinstance(exc, LabBudgetAbort) else "error_mid_arm",
+            })
+    finally:
+        guard_ctx.__exit__(None, None, None)
 
     aggregate = _bench_aggregate(runs)
     if args.dry_run:
@@ -4126,12 +6093,14 @@ def cmd_bench(args: argparse.Namespace) -> None:
         "aggregate": aggregate,
         "recurring_phrases_across_runs": corpus,
         "runs": runs,
+        "aborted_runs": aborted_runs,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         # PROTOCOL.md says every experiment logs calls AND cost, and `ab`
         # already snapshots this. The cost log is process-local, so without
         # it the result retains no dollar figure once the command exits and
         # nobody can audit how close a run came to --max-cost (Codex).
         "cost_summary": _cost_summary_or_none(),
+        **_openrouter_fields_for(args, _openrouter_router_cost_by_model()),
     }
 
     comparison = None
@@ -4465,6 +6434,7 @@ def _print_bench_report(report: dict[str, Any]) -> None:
                     )
                 print(f"({note}; unavailable rows remain listed above)")
 
+    _print_openrouter_costs(report)
     print(f"\nresults written to: {report['results_file']}")
 
 def cmd_calibrate(args: argparse.Namespace) -> None:
@@ -4492,10 +6462,7 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
     recipe_context = _build_recipe_context(recipe_data)
     recipe_facts = _build_judge_recipe_facts(recipe_data) or None
 
-    if args.dry_run:
-        judge_model = "template"
-    else:
-        judge_model = _resolve_judge_model()
+    judge_model = _resolve_judge_model_for_args(args)
 
     budget = CallBudget(max_calls=args.max_calls)
     aborted = False
@@ -4513,6 +6480,15 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
     # completed pairs, which would otherwise be dropped because they are
     # only assigned into degradation_reports after the inner loop returns
     # normally.
+    #
+    # #7714 round 2: covered by the mid-arm guard too, for the same
+    # by-construction reason as every other command - every judge call
+    # here is already individually pre-checked, so this is defense in
+    # depth rather than closing a real gap, but it keeps calibrate
+    # consistent with ab/bench instead of being the one command a future
+    # reviewer has to reason about separately.
+    guard_ctx = _installed_budget_guard(budget, args.max_cost)
+    guard_ctx.__enter__()
     try:
         for name, degrade in _DEGRADATIONS:
             pair_records: list[dict[str, Any]] = []
@@ -4547,7 +6523,7 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
                             recipe_context=recipe_context, expected_cast=expected_cast,
                             first_arm="real", first_messages=dialogue,
                             second_arm="degraded", second_messages=degraded,
-                            recipe_facts=recipe_facts,
+                            recipe_facts=recipe_facts, max_cost=args.max_cost,
                         )
 
                         if budget.would_exceed(1) or _would_exceed_cost(args.max_cost):
@@ -4559,7 +6535,7 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
                             recipe_context=recipe_context, expected_cast=expected_cast,
                             first_arm="degraded", first_messages=degraded,
                             second_arm="real", second_messages=dialogue,
-                            recipe_facts=recipe_facts,
+                            recipe_facts=recipe_facts, max_cost=args.max_cost,
                         )
                         combined = _combine_orientations(first, second)
 
@@ -4595,6 +6571,20 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
                 }
             if aborted:
                 break
+    except LabBudgetAbort:
+        # #7714 round 2: hitting the cap via the mid-arm guard is the SAME
+        # event the coarse would_exceed()/_would_exceed_cost() checks above
+        # already handle inline (aborted=True; break, no exception, no
+        # `error`) - it must read the same way, not like calibrate crashed.
+        # A bare `except BaseException: ...; raise` here would re-raise it
+        # all the way past `main()` (which only catches ConversationLabError/
+        # BudgetGuardError), printing a raw traceback instead of a clean
+        # aborted/partial result.
+        aborted = True
+        report = _build_calibrate_report(args, concept, degradation_reports, True, budget, result_path)
+        _write_json_result(result_path, report)
+        _print_calibrate_report(report)
+        return
     except BaseException as exc:
         report = _build_calibrate_report(
             args, concept, degradation_reports, True, budget, result_path,
@@ -4602,6 +6592,8 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
         )
         _write_json_result(result_path, report)
         raise
+    finally:
+        guard_ctx.__exit__(None, None, None)
 
     report = _build_calibrate_report(args, concept, degradation_reports, aborted, budget, result_path)
     _write_json_result(result_path, report)
@@ -4623,6 +6615,7 @@ def _print_calibrate_report(report: dict[str, Any]) -> None:
             f"scored={info.get('scored_pairs', info.get('completed_pairs', 0))} "
             f"real_preference_rate={rate_text}  {info['verdict']}"
         )
+    _print_openrouter_costs(report)
     print(f"\nresults written to: {report['results_file']}")
 
 # ---------------------------------------------------------------------------
@@ -4772,6 +6765,146 @@ def cmd_pairs(args: argparse.Namespace) -> None:
         )
 
 # ---------------------------------------------------------------------------
+# freeze - distill one arm's transcript per scenario from an ab result
+# ---------------------------------------------------------------------------
+
+def cmd_freeze(args: argparse.Namespace) -> None:
+    """Write (or append to) a frozen prior-days file from an `ab` result.
+
+    See the "Frozen prior days" section above for the file shapes and the
+    one-day-at-a-time method this supports.
+    """
+    from_path = Path(args.from_result)
+    if not from_path.exists():
+        raise SystemExit(f"conversation_lab freeze: result file not found: {from_path}")
+    try:
+        raw = from_path.read_bytes()
+    except OSError as exc:
+        raise SystemExit(f"conversation_lab freeze: cannot read result file {from_path}: {exc}") from exc
+    digest = hashlib.sha256(raw).hexdigest()
+    try:
+        report = json.loads(raw.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"conversation_lab freeze: result file is not valid JSON: {from_path} ({exc})") from exc
+    if not isinstance(report, dict) or report.get("command") != "ab":
+        raise SystemExit(f"conversation_lab freeze: --from must be an `ab` result JSON: {from_path}")
+
+    mode = report.get("mode")
+    if mode not in ("testbed", "sweep"):
+        raise SystemExit(
+            "conversation_lab freeze: --from must be an `ab --testbed` or `ab --sweep` result - "
+            "a single-concept result has no scenario_id to key frozen days by"
+        )
+    stage = report.get("stage")
+    if stage not in simulate_module.DAY_ORDER:
+        raise SystemExit(f"conversation_lab freeze: result has unknown stage {stage!r}")
+
+    variant_name = args.variant
+    if mode == "sweep":
+        if not variant_name:
+            raise SystemExit("conversation_lab freeze: --variant NAME is required for an `ab --sweep` result")
+        variants = report.get("variants") or {}
+        if variant_name not in variants:
+            raise SystemExit(
+                f"conversation_lab freeze: unknown --variant {variant_name!r} "
+                f"(available: {', '.join(sorted(variants)) or 'none'})"
+            )
+        pairs = variants[variant_name].get("pairs") or []
+    else:
+        if variant_name:
+            raise SystemExit("conversation_lab freeze: --variant is only valid for an `ab --sweep` result")
+        pairs = report.get("pairs") or []
+
+    by_scenario: dict[str, list[dict[str, Any]]] = {}
+    for pair in pairs:
+        scenario_id = pair.get("scenario_id")
+        if not scenario_id:
+            raise SystemExit(
+                "conversation_lab freeze: result pair has no scenario_id - "
+                "freeze supports --testbed/--sweep results only"
+            )
+        by_scenario.setdefault(scenario_id, []).append(pair)
+    if not by_scenario:
+        raise SystemExit("conversation_lab freeze: result has no completed pairs to freeze")
+
+    frozen_scenarios: dict[str, dict[str, Any]] = {}
+    for scenario_id in sorted(by_scenario):
+        chosen = _freeze_pick_pair(by_scenario[scenario_id], args.arm, args.pick)
+        messages = chosen.get(f"{args.arm}_messages")
+        if messages is None:
+            raise SystemExit(
+                f"conversation_lab freeze: chosen pair for scenario {scenario_id!r} "
+                f"has no {args.arm}_messages"
+            )
+        frozen_scenarios[scenario_id] = {"day": stage, "messages": copy.deepcopy(messages)}
+
+    if args.append_to:
+        out_path = Path(args.append_to)
+        if args.out and Path(args.out).resolve() != out_path.resolve():
+            raise SystemExit(
+                "conversation_lab freeze: --out and --append-to disagree - "
+                "pass only --append-to (it is both input and output)"
+            )
+        if not out_path.exists():
+            raise SystemExit(f"conversation_lab freeze: --append-to file not found: {out_path}")
+        try:
+            existing = json.loads(out_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"conversation_lab freeze: --append-to file is not valid JSON: {out_path} ({exc})") from exc
+        if not isinstance(existing, dict) or not isinstance(existing.get("scenarios"), dict):
+            raise SystemExit(f"conversation_lab freeze: --append-to file is not a frozen prior-days file: {out_path}")
+
+        existing_days = _frozen_days_present(existing)
+        if existing_days:
+            last_day = max(existing_days, key=_day_index)
+            if _day_index(stage) <= _day_index(last_day):
+                raise SystemExit(
+                    f"conversation_lab freeze: cannot append {stage!r} - it is not after "
+                    f"the last frozen day {last_day!r} in {out_path}"
+                )
+        existing_ids = set(existing["scenarios"])
+        new_ids = set(frozen_scenarios)
+        if existing_ids != new_ids:
+            raise SystemExit(
+                f"conversation_lab freeze: cannot append - scenario sets differ "
+                f"(existing: {sorted(existing_ids)}, new: {sorted(new_ids)})"
+            )
+
+        merged_scenarios: dict[str, dict[str, Any]] = {}
+        for scenario_id in sorted(existing_ids):
+            merged: dict[str, Any] = {}
+            for day, messages in _frozen_scenario_days(existing, scenario_id):
+                merged[day] = {"day": day, "messages": copy.deepcopy(messages)}
+            merged[stage] = frozen_scenarios[scenario_id]
+            merged_scenarios[scenario_id] = merged
+        output: dict[str, Any] = {
+            "frozen_from": {"path": str(from_path), "sha256": digest},
+            "stage": stage,
+            "arm": args.arm,
+            "pick": args.pick,
+            "scenarios": merged_scenarios,
+        }
+    else:
+        if not args.out:
+            raise SystemExit("conversation_lab freeze: --out is required unless --append-to is passed")
+        out_path = Path(args.out)
+        output = {
+            "frozen_from": {"path": str(from_path), "sha256": digest},
+            "stage": stage,
+            "arm": args.arm,
+            "pick": args.pick,
+            "scenarios": frozen_scenarios,
+        }
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(output, indent=2, default=str), encoding="utf-8")
+    verb = "appended" if args.append_to else "froze"
+    print(
+        f"{verb} {len(frozen_scenarios)} scenario(s) for {stage} "
+        f"({args.arm}, {args.pick}) from {from_path} -> {out_path}"
+    )
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -4783,6 +6916,28 @@ def _add_budget_guard_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--create-budget-ledger", action="store_true",
         help="Create a new ledger at --budget-ledger; refuses to replace an existing file.",
+    )
+
+
+def _add_provider_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--provider", choices=("anthropic", "openrouter"), default=None,
+        help=(
+            "Which provider routes paid lab calls. Default: openrouter (the lab's "
+            "OpenRouter bill, pinned to Anthropic's servers). Pass --provider anthropic "
+            "for the production-direct path; --budget-ledger always uses anthropic."
+        ),
+    )
+
+
+def _add_models_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--models", default=None, choices=tuple(sorted(_LAB_MODELS.sets)),
+        help=(
+            f"Which model set from {LAB_MODELS_PATH} to use for dialogue + judge "
+            f"calls (default: {_LAB_MODELS.default!r}). Only meaningful with "
+            "--provider openrouter - --provider anthropic always uses the default set."
+        ),
     )
 
 
@@ -4903,6 +7058,17 @@ def _build_parser() -> argparse.ArgumentParser:
     ab.add_argument("--no-log", action="store_true", help="Do not append a row to the experiments log")
     ab.add_argument("--experiments-log", default=None, help=f"Override the EXPERIMENTS.md path (default: {DEFAULT_EXPERIMENTS_LOG})")
     ab.add_argument("--results-dir", default=None)
+    ab.add_argument(
+        "--prior-days", default=None,
+        help=(
+            "Frozen prior-day transcript file from `conversation_lab freeze`. "
+            "In --testbed/--sweep mode, both arms of every pair get that scenario's "
+            "frozen earlier days as identical initial context (initial_recent_lines). "
+            "Refuses when the file lacks a panel scenario, or contains --stage or a later day."
+        ),
+    )
+    _add_provider_option(ab)
+    _add_models_option(ab)
     _add_budget_guard_options(ab)
 
     bench = sub.add_parser(
@@ -4959,6 +7125,7 @@ def _build_parser() -> argparse.ArgumentParser:
     bench.add_argument("--no-log", action="store_true", help="Do not append a row to the experiments log")
     bench.add_argument("--experiments-log", default=None, help=f"Override the EXPERIMENTS.md path (default: {DEFAULT_EXPERIMENTS_LOG})")
     bench.add_argument("--results-dir", default=None)
+    _add_provider_option(bench)
     _add_budget_guard_options(bench)
 
     calibrate = sub.add_parser(
@@ -4986,6 +7153,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     calibrate.add_argument("--dry-run", action="store_true")
     calibrate.add_argument("--results-dir", default=None)
+    _add_provider_option(calibrate)
     _add_budget_guard_options(calibrate)
 
     pairs_cmd = sub.add_parser(
@@ -5026,6 +7194,34 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    freeze_cmd = sub.add_parser(
+        "freeze",
+        help="Freeze one arm's best transcript per scenario from an ab result into a prior-days file.",
+        description=(
+            "Distill an `ab --testbed` or `ab --sweep` result into a frozen "
+            "prior-days file for `ab --prior-days`. Per scenario_id, pick one "
+            "transcript from the --arm arm: --pick judge selects the pair where "
+            "that arm won the most judge dimensions (ties broken by lowest "
+            "run_index); --pick run0 selects the lowest run_index. Writes "
+            '{"frozen_from": {"path", "sha256"}, "stage", "arm", "pick", '
+            '"scenarios": {id: {"day", "messages"}}}. With --append-to, a later '
+            "day is merged into the existing file (scenario -> day -> entry, in "
+            "week order); refuses when the new day is not after the last frozen day."
+        ),
+    )
+    freeze_cmd.add_argument("--from", dest="from_result", required=True, help="Path to an ab result JSON file")
+    freeze_cmd.add_argument("--arm", required=True, choices=("control", "variant"))
+    freeze_cmd.add_argument("--pick", required=True, choices=("judge", "run0"))
+    freeze_cmd.add_argument("--out", default=None, help="Write the frozen file here (unless --append-to)")
+    freeze_cmd.add_argument(
+        "--append-to", default=None,
+        help="Append this result's day to an existing frozen file (input and output in one path)",
+    )
+    freeze_cmd.add_argument(
+        "--variant", dest="variant", default=None,
+        help="For an `ab --sweep` result only: which variant's pairs to freeze",
+    )
+
     return parser
 
 def _dispatch_command(args: argparse.Namespace) -> None:
@@ -5039,6 +7235,8 @@ def _dispatch_command(args: argparse.Namespace) -> None:
         cmd_calibrate(args)
     elif args.command == "pairs":
         cmd_pairs(args)
+    elif args.command == "freeze":
+        cmd_freeze(args)
     else:  # pragma: no cover - argparse enforces valid choices
         raise SystemExit(f"conversation_lab: unknown command {args.command!r}")
 
@@ -5053,7 +7251,21 @@ def main(argv: list[str] | None = None) -> None:
     if ledger_path is not None and args.command not in {"ab", "bench", "calibrate"}:
         raise SystemExit("conversation_lab: --budget-ledger is supported only for ab, bench, and calibrate")
 
+    provider = _resolve_provider(args, ledger_path)
+    if provider is not None:
+        args.provider = provider
+
+    global _OPENROUTER_KEY_BEFORE, _OPENROUTER_KEY_AFTER
+    _OPENROUTER_KEY_BEFORE = None
+    _OPENROUTER_KEY_AFTER = None
+
     try:
+        if provider == "openrouter":
+            if ledger_path is not None:
+                raise SystemExit("conversation_lab: --budget-ledger requires --provider anthropic")
+            if not args.dry_run:
+                _openrouter_preflight(args)
+
         if ledger_path is None:
             _dispatch_command(args)
             return

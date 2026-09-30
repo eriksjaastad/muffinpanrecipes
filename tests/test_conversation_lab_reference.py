@@ -108,7 +108,8 @@ def test_reference_panel_rejects_zero_runs_before_writing_or_judging(tmp_path, m
     results_dir = tmp_path / "results"
     with pytest.raises(SystemExit, match="--runs must be at least 1"):
         cl.main([
-            "calibrate", "--reference-panel", str(PANEL), "--runs", "0",
+            "calibrate", "--provider", "anthropic",
+            "--reference-panel", str(PANEL), "--runs", "0",
             "--results-dir", str(results_dir),
         ])
     assert not results_dir.exists()
@@ -172,7 +173,8 @@ def test_reference_panel_paid_path_uses_versioned_prompt_and_swapped_raw_evidenc
     monkeypatch.setattr(model_router, "generate_judge_response", judge)
     results_dir = tmp_path / "results"
     cl.main([
-        "calibrate", "--reference-panel", str(PANEL), "--runs", "1",
+        "calibrate", "--provider", "anthropic",
+        "--reference-panel", str(PANEL), "--runs", "1",
         "--results-dir", str(results_dir),
     ])
 
@@ -210,7 +212,8 @@ def test_reference_panel_abort_keeps_first_orientation_as_partial_evidence(tmp_p
     monkeypatch.setattr(model_router, "generate_judge_response", lambda **_kwargs: _tie_response())
     results_dir = tmp_path / "results"
     cl.main([
-        "calibrate", "--reference-panel", str(PANEL), "--runs", "1", "--max-calls", "1",
+        "calibrate", "--provider", "anthropic",
+        "--reference-panel", str(PANEL), "--runs", "1", "--max-calls", "1",
         "--results-dir", str(results_dir),
     ])
 
@@ -236,7 +239,8 @@ def test_reference_panel_coverage_counts_attempted_malformed_orientation(tmp_pat
     results_dir = tmp_path / "results"
     with pytest.raises(SystemExit, match="missing per_dimension"):
         cl.main([
-            "calibrate", "--reference-panel", str(PANEL), "--runs", "1", "--max-calls", "1",
+            "calibrate", "--provider", "anthropic",
+            "--reference-panel", str(PANEL), "--runs", "1", "--max-calls", "1",
             "--results-dir", str(results_dir),
         ])
 

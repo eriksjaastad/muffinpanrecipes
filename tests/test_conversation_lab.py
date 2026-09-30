@@ -16,6 +16,7 @@ import math
 import os
 import re
 import urllib.error
+from unittest.mock import Mock
 
 import pytest
 
@@ -208,7 +209,8 @@ def test_ab_pairwise_judge_agreement_counts_as_win(tmp_path, monkeypatch):
     results_dir = tmp_path / "results"
 
     cl.main([
-        "ab", "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+        "ab", "--provider", "anthropic",
+        "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
         "--variant", str(variant_path), "--recipe-context", "anchor",
         "--target", "turn_taking", "--results-dir", str(results_dir),
     ])
@@ -244,7 +246,8 @@ def test_ab_pairwise_judge_disagreement_results_in_tie(tmp_path, monkeypatch):
     results_dir = tmp_path / "results"
 
     cl.main([
-        "ab", "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+        "ab", "--provider", "anthropic",
+        "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
         "--variant", str(variant_path), "--recipe-context", "anchor",
         "--results-dir", str(results_dir),
     ])
@@ -493,7 +496,8 @@ def test_ab_without_dry_run_fails_loud_when_dialogue_model_unset(tmp_path, monke
 
     with pytest.raises(SystemExit, match="DIALOGUE_MODEL is not set"):
         cl.main([
-            "ab", "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+            "ab", "--provider", "anthropic",
+            "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
             "--variant", str(variant_path), "--recipe-context", "anchor",
             "--results-dir", str(tmp_path / "results"),
         ])
@@ -628,7 +632,8 @@ def test_calibrate_complete_runs_keep_grader_threshold_and_scored_pair_rate(tmp_
         )
         results = tmp_path / f"results-{expected_verdict.lower().replace(' ', '-')}"
         cl.main([
-            "calibrate", "--from-episode", "snapshot-week", "--stage", "tuesday",
+            "calibrate", "--provider", "anthropic",
+            "--from-episode", "snapshot-week", "--stage", "tuesday",
             "--runs", "1", "--results-dir", str(results),
         ])
         [path] = results.glob("*-calibrate-*.json")
@@ -646,6 +651,34 @@ def test_calibrate_complete_runs_keep_grader_threshold_and_scored_pair_rate(tmp_
             assert pair["judge_diagnostics"]["turn_taking"]["status"] == "unanimous_tie"
 
 
+def test_calibrate_survives_a_lab_budget_abort_as_a_clean_partial_result(tmp_path, monkeypatch):
+    """#7714 round 2: calibrate's outer `except BaseException as exc: ...;
+    raise` used to re-raise EVERY exception uncaught, including a
+    LabBudgetAbort from the mid-arm guard - which main() does not catch
+    (it only catches ConversationLabError/BudgetGuardError), so it would
+    have surfaced as a raw traceback instead of a clean aborted/partial
+    result, exactly the failure mode --max-calls/--max-cost hitting via
+    the ALREADY-EXISTING coarse pre-check never has."""
+    monkeypatch.setattr(cl, "_load_episode", lambda *_args, **_kwargs: _snapshot_episode())
+    monkeypatch.setenv("JUDGE_MODEL", "test-judge")
+
+    def raises_abort(**kwargs):
+        raise cl.LabBudgetAbort("--max-calls would be exceeded")
+
+    monkeypatch.setattr(model_router, "generate_judge_response", raises_abort)
+    results = tmp_path / "results"
+
+    cl.main([
+        "calibrate", "--provider", "anthropic",
+        "--from-episode", "snapshot-week", "--stage", "tuesday",
+        "--runs", "1", "--results-dir", str(results),
+    ])
+
+    [path] = results.glob("*-calibrate-*.json")
+    report = json.loads(path.read_text())
+    assert report["aborted"] is True
+    assert not report.get("error")
+
 def test_calibrate_zero_completed_pairs_has_unavailable_rate_and_incomplete_verdict(
     tmp_path, monkeypatch, capsys,
 ):
@@ -654,7 +687,8 @@ def test_calibrate_zero_completed_pairs_has_unavailable_rate_and_incomplete_verd
     monkeypatch.setattr(model_router, "generate_judge_response", lambda **_kwargs: _judge_stub())
 
     cl.main([
-        "calibrate", "--from-episode", "snapshot-week", "--stage", "tuesday",
+        "calibrate", "--provider", "anthropic",
+        "--from-episode", "snapshot-week", "--stage", "tuesday",
         "--runs", "2", "--max-calls", "1", "--results-dir", str(tmp_path / "results"),
     ])
 
@@ -687,7 +721,8 @@ def test_calibrate_completed_plus_partial_rate_uses_only_complete_pairs(tmp_path
     )
 
     cl.main([
-        "calibrate", "--from-episode", "snapshot-week", "--stage", "tuesday",
+        "calibrate", "--provider", "anthropic",
+        "--from-episode", "snapshot-week", "--stage", "tuesday",
         "--runs", "2", "--max-calls", "3", "--results-dir", str(tmp_path / "results"),
     ])
 
@@ -746,7 +781,8 @@ def test_ab_uses_one_episode_snapshot_for_anchor_and_every_judge_orientation(tmp
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
 
     cl.main([
-        "ab", "--concept", "Snapshot Spiral Bites", "--stage", "tuesday", "--runs", "2",
+        "ab", "--provider", "anthropic",
+        "--concept", "Snapshot Spiral Bites", "--stage", "tuesday", "--runs", "2",
         "--variant", str(variant_path), "--from-episode", "snapshot-week", "--local",
         "--max-calls", "200", "--no-log", "--results-dir", str(tmp_path / "results"),
     ])
@@ -783,7 +819,8 @@ def test_calibrate_uses_one_snapshot_and_monday_fallback_for_all_judges(tmp_path
     monkeypatch.setenv("JUDGE_MODEL", "test-judge")
 
     cl.main([
-        "calibrate", "--from-episode", "snapshot-week", "--stage", "tuesday", "--runs", "2",
+        "calibrate", "--provider", "anthropic",
+        "--from-episode", "snapshot-week", "--stage", "tuesday", "--runs", "2",
         "--max-calls", "20", "--results-dir", str(tmp_path / "results"),
     ])
 
@@ -814,7 +851,8 @@ def test_manual_recipe_context_does_not_load_or_supply_facts(tmp_path, monkeypat
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
 
     cl.main([
-        "ab", "--concept", "Manual Context", "--stage", "monday", "--runs", "1",
+        "ab", "--provider", "anthropic",
+        "--concept", "Manual Context", "--stage", "monday", "--runs", "1",
         "--variant", str(variant_path), "--recipe-context", "manual anchor",
         "--no-log", "--results-dir", str(tmp_path / "results"),
     ])
@@ -839,7 +877,8 @@ def test_episode_load_failure_propagates_before_generation(tmp_path, monkeypatch
 
     with pytest.raises(RuntimeError, match="snapshot unavailable"):
         cl.main([
-            "ab", "--concept", "Load Failure", "--stage", "monday", "--runs", "1",
+            "ab", "--provider", "anthropic",
+            "--concept", "Load Failure", "--stage", "monday", "--runs", "1",
             "--variant", str(variant_path), "--from-episode", "missing", "--local",
             "--no-log", "--results-dir", str(tmp_path / "results"),
         ])
@@ -856,7 +895,8 @@ def test_ab_without_dry_run_fails_loud_when_judge_model_unset(tmp_path, monkeypa
 
     with pytest.raises(SystemExit, match="JUDGE_MODEL is not set"):
         cl.main([
-            "ab", "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+            "ab", "--provider", "anthropic",
+            "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
             "--variant", str(variant_path), "--recipe-context", "anchor",
             "--results-dir", str(tmp_path / "results"),
         ])
@@ -866,7 +906,8 @@ def test_calibrate_without_dry_run_fails_loud_when_judge_model_unset(tmp_path, m
 
     with pytest.raises(SystemExit, match="JUDGE_MODEL is not set"):
         cl.main([
-            "calibrate", "--from-episode", "2026-W36", "--stage", "monday", "--local",
+            "calibrate", "--provider", "anthropic",
+            "--from-episode", "2026-W36", "--stage", "monday", "--local",
             "--results-dir", str(tmp_path / "results"),
         ])
 
@@ -899,7 +940,8 @@ def test_calibrate_judge_prompt_never_contains_placeholder_concept(tmp_path, mon
     monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
 
     cl.main([
-        "calibrate", "--from-episode", "2026-W32", "--stage", "monday", "--local",
+        "calibrate", "--provider", "anthropic",
+        "--from-episode", "2026-W32", "--stage", "monday", "--local",
         "--runs", "1", "--results-dir", str(tmp_path / "results"),
     ])
 
@@ -925,7 +967,8 @@ def test_calibrate_falls_back_to_monday_recipe_data_for_recipe_context(tmp_path,
     monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
 
     cl.main([
-        "calibrate", "--from-episode", "2026-W32", "--stage", "tuesday", "--local",
+        "calibrate", "--provider", "anthropic",
+        "--from-episode", "2026-W32", "--stage", "tuesday", "--local",
         "--runs", "1", "--results-dir", str(tmp_path / "results"),
     ])
 
@@ -1036,6 +1079,195 @@ def test_interrupted_orientation_retains_evidence_before_propagating(monkeypatch
     assert record["evidence"]["prompt"]
     assert record["error"] == "KeyboardInterrupt: synthetic interruption"
 
+# ---------------------------------------------------------------------------
+# _parse_judge_json extracts the first COMPLETE JSON object (#7714) - not
+# "first '{' to last '}'", which a judge's trailing chatter could corrupt.
+# ---------------------------------------------------------------------------
+
+def test_parse_judge_json_ignores_trailing_content_after_closing_brace():
+    payload = {"winner": "A", "per_dimension": {d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS}}
+    raw = "```json\n" + json.dumps(payload) + "\n```\nHope that helps! {stray text}"
+    assert cl._parse_judge_json(raw) == payload
+
+def test_parse_judge_json_handles_braces_inside_string_values():
+    payload = {
+        "winner": "A",
+        "per_dimension": {d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS},
+        "reason": "uses {braces} and a \"quoted\" clause in prose",
+    }
+    raw = json.dumps(payload)
+    assert cl._parse_judge_json(raw) == payload
+
+def test_parse_judge_json_returns_none_for_truncated_object():
+    assert cl._parse_judge_json('{"winner": "A", "per_dimension": {') is None
+    assert cl._parse_judge_json("not json at all") is None
+
+# ---------------------------------------------------------------------------
+# A truncated/unparseable judge response retries the SAME orientation call up
+# to _JUDGE_JSON_MAX_RETRIES times before failing (#7714, 09-27: one truncated
+# Opus verdict aborted a whole paid run). A parseable-but-structurally-invalid
+# response (covered above by test_judge_orientation_rejects_incomplete_or_
+# mistyped_scorecards) is never retried.
+# ---------------------------------------------------------------------------
+
+def test_judge_orientation_retries_truncated_json_then_succeeds(monkeypatch):
+    truncated = '{"winner": "A", "per_dimension": {'
+    good = json.dumps({"winner": "A", "per_dimension": {d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS}})
+    responses = iter([truncated, truncated, good])
+    monkeypatch.setattr(model_router, "generate_judge_response", lambda **kwargs: next(responses))
+    evidence: dict = {}
+    judged = cl._judge_orientation(
+        "judge", "muffins", "monday", None, [], "control", [], "variant", [], evidence=evidence,
+    )
+    assert judged["overall"] == "control"
+    assert evidence["judge_retries"] == 2
+    assert evidence["raw_response"] == good
+
+def test_judge_orientation_fails_after_exhausting_retries(monkeypatch):
+    monkeypatch.setattr(model_router, "generate_judge_response", lambda **kwargs: "not json at all")
+    evidence: dict = {}
+    with pytest.raises(cl.ConversationLabError, match="unparseable output after 2 retries"):
+        cl._judge_orientation(
+            "judge", "muffins", "monday", None, [], "control", [], "variant", [], evidence=evidence,
+        )
+    assert evidence["judge_retries"] == cl._JUDGE_JSON_MAX_RETRIES
+
+def test_run_judge_orientation_records_retry_count_and_charges_budget_for_every_attempt(monkeypatch):
+    good = json.dumps({"winner": "tie", "per_dimension": {d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS}})
+    responses = iter(["garbage", good])
+    monkeypatch.setattr(model_router, "generate_judge_response", lambda **kwargs: next(responses))
+    pending = {"judge_orientations": []}
+    budget = cl.CallBudget(max_calls=5)
+    result = cl._run_judge_orientation(
+        orientation="control_first", pending_pair=pending, budget=budget,
+        judge_model="judge", concept="muffins", stage="monday", recipe_context="anchor",
+        expected_cast=["Margaret"], first_arm="control", first_messages=[],
+        second_arm="variant", second_messages=[],
+    )
+    assert result["overall"] == "tie"
+    assert budget.used == 2  # one failed attempt + one successful attempt
+    [record] = pending["judge_orientations"]
+    assert record["evidence"]["judge_retries"] == 1
+    assert record["status"] == "invoked"
+
+# ---------------------------------------------------------------------------
+# A retry of a truncated/unparseable judge response is itself a real billed
+# call - up to _JUDGE_JSON_MAX_RETRIES of them per orientation. Every
+# `_run_judge_orientation` call site pre-checks the cap ONCE before the
+# orientation starts, so without a per-retry check a single orientation can
+# overshoot --max-calls/--max-cost by up to _JUDGE_JSON_MAX_RETRIES extra
+# billed judge calls (#7714 follow-up finding). These tests exercise the
+# retry-time cap check directly against the mocked provider call.
+# ---------------------------------------------------------------------------
+
+def test_run_judge_orientation_at_call_cap_skips_retry_and_fails_closed(monkeypatch):
+    mock = Mock(return_value='{"winner": "A", "per_dimension": {')  # truncated
+    monkeypatch.setattr(model_router, "generate_judge_response", mock)
+    pending = {"judge_orientations": []}
+    budget = cl.CallBudget(max_calls=2)
+    budget.used = 1  # max_calls - 1: exactly one more call fits, no retry
+    with pytest.raises(cl.ConversationLabError, match="unparseable output after 0 retries"):
+        cl._run_judge_orientation(
+            orientation="control_first", pending_pair=pending, budget=budget,
+            judge_model="judge", concept="muffins", stage="monday", recipe_context="anchor",
+            expected_cast=["Margaret"], first_arm="control", first_messages=[],
+            second_arm="variant", second_messages=[], recipe_facts="facts",
+        )
+    assert mock.call_count == 1  # the retry was never attempted
+    assert budget.used == 2  # == max_calls: the one real attempt was recorded
+    [record] = pending["judge_orientations"]
+    assert record["evidence"]["judge_retries"] == 0
+    assert record["evidence"]["judge_retry_blocked_by_cap"] == "calls"
+
+def test_run_judge_orientation_uses_exactly_the_remaining_calls_for_retries(monkeypatch):
+    """Off-by-one boundary: with max_calls - 2 used, the first attempt and ONE
+    retry fit (landing exactly on the cap); the second retry does not."""
+    mock = Mock(return_value='{"winner": "A", "per_dimension": {')  # truncated
+    monkeypatch.setattr(model_router, "generate_judge_response", mock)
+    pending = {"judge_orientations": []}
+    budget = cl.CallBudget(max_calls=5)
+    budget.used = 3
+    with pytest.raises(cl.ConversationLabError, match="unparseable output after 1 retry:"):
+        cl._run_judge_orientation(
+            orientation="control_first", pending_pair=pending, budget=budget,
+            judge_model="judge", concept="muffins", stage="monday", recipe_context="anchor",
+            expected_cast=["Margaret"], first_arm="control", first_messages=[],
+            second_arm="variant", second_messages=[], recipe_facts="facts",
+        )
+    assert mock.call_count == 2  # first attempt + exactly one retry
+    assert budget.used == 5  # lands on the cap, never past it
+    [record] = pending["judge_orientations"]
+    assert record["evidence"]["judge_retries"] == 1
+    assert record["evidence"]["judge_retry_blocked_by_cap"] == "calls"
+
+def test_run_judge_orientation_at_cost_cap_skips_retry_and_fails_closed(monkeypatch):
+    mock = Mock(return_value="not json at all")
+    monkeypatch.setattr(model_router, "generate_judge_response", mock)
+    # Plenty of call headroom - only the cost cap should block the retry.
+    monkeypatch.setattr(cl, "_would_exceed_cost", lambda max_cost, baseline=0.0: True)
+    pending = {"judge_orientations": []}
+    budget = cl.CallBudget(max_calls=10)
+    with pytest.raises(cl.ConversationLabError, match="unparseable output after 0 retries"):
+        cl._run_judge_orientation(
+            orientation="control_first", pending_pair=pending, budget=budget,
+            judge_model="judge", concept="muffins", stage="monday", recipe_context="anchor",
+            expected_cast=["Margaret"], first_arm="control", first_messages=[],
+            second_arm="variant", second_messages=[], max_cost=1.0,
+        )
+    assert mock.call_count == 1  # the retry was never attempted
+    assert budget.used == 1
+    [record] = pending["judge_orientations"]
+    assert record["evidence"]["judge_retries"] == 0
+    assert record["evidence"]["judge_retry_blocked_by_cap"] == "cost"
+
+def test_run_judge_orientation_retries_when_caps_have_headroom(monkeypatch):
+    """Existing behavior: with a generous call budget AND cost cap, a
+    truncated first response still gets retried and succeeds - the new
+    per-retry cap check must not interfere when there is room."""
+    good = json.dumps({"winner": "tie", "per_dimension": {d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS}})
+    responses = iter(["not json at all", good])
+    mock = Mock(side_effect=lambda **kwargs: next(responses))
+    monkeypatch.setattr(model_router, "generate_judge_response", mock)
+    monkeypatch.setattr(cl, "_would_exceed_cost", lambda max_cost, baseline=0.0: False)
+    pending = {"judge_orientations": []}
+    budget = cl.CallBudget(max_calls=10)
+    result = cl._run_judge_orientation(
+        orientation="control_first", pending_pair=pending, budget=budget,
+        judge_model="judge", concept="muffins", stage="monday", recipe_context="anchor",
+        expected_cast=["Margaret"], first_arm="control", first_messages=[],
+        second_arm="variant", second_messages=[], max_cost=5.0, baseline=0.0,
+    )
+    assert result["overall"] == "tie"
+    assert mock.call_count == 2  # the retry DID happen
+    assert budget.used == 2
+    [record] = pending["judge_orientations"]
+    assert record["evidence"]["judge_retries"] == 1
+    assert "judge_retry_blocked_by_cap" not in record["evidence"]
+
+def test_judge_orientation_retry_cap_check_uses_the_caller_supplied_baseline(monkeypatch):
+    """`ab --sweep` (`_run_sweep_variant`) checks --max-cost against a PER-
+    VARIANT `baseline_cost`, not an absolute 0.0 - the retry-time check must
+    honor whatever `baseline` its caller passed through, exactly like the
+    sweep call site's own pre-check does."""
+    mock = Mock(return_value="not json at all")
+    monkeypatch.setattr(model_router, "generate_judge_response", mock)
+    cost_spy = Mock(return_value=False)
+    monkeypatch.setattr(cl, "_would_exceed_cost", cost_spy)
+    budget = cl.CallBudget(max_calls=10)
+    with pytest.raises(cl.ConversationLabError, match="unparseable output after 2 retries"):
+        cl._run_judge_orientation(
+            orientation="control_first", pending_pair={"judge_orientations": []}, budget=budget,
+            judge_model="judge", concept="muffins", stage="monday", recipe_context="anchor",
+            expected_cast=["Margaret"], first_arm="control", first_messages=[],
+            second_arm="variant", second_messages=[], max_cost=3.5, baseline=1.25,
+        )
+    assert mock.call_count == 3  # first attempt + 2 retries, none blocked
+    assert cost_spy.call_count == 2  # once before each of the 2 retries
+    for call in cost_spy.call_args_list:
+        args, kwargs = call
+        assert args[0] == 3.5
+        assert kwargs.get("baseline") == 1.25
+
 def test_orientation_diagnostics_separate_disagreement_from_unanimous_tie():
     first = {"overall": "tie", **{d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS}}
     second = {**first, "overall": "variant", "turn_taking": "control"}
@@ -1080,7 +1312,8 @@ def test_ab_writes_partial_result_on_exception_mid_run(tmp_path, monkeypatch):
 
     with pytest.raises(SystemExit):
         cl.main([
-            "ab", "--concept", "Test Muffins", "--stage", "monday", "--runs", "2",
+            "ab", "--provider", "anthropic",
+            "--concept", "Test Muffins", "--stage", "monday", "--runs", "2",
             "--variant", str(variant_path), "--recipe-context", "anchor",
             "--results-dir", str(results_dir),
         ])
@@ -1123,7 +1356,8 @@ def test_second_orientation_failure_persists_both_attempts(
     if command == "ab":
         variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT"})
         cli_args = [
-            "ab", "--concept", "Fixture", "--stage", "monday", "--runs", "1",
+            "ab", "--provider", "anthropic",
+            "--concept", "Fixture", "--stage", "monday", "--runs", "1",
             "--variant", str(variant_path), "--recipe-context", "anchor",
             "--results-dir", str(results_dir),
         ]
@@ -1136,13 +1370,15 @@ def test_second_orientation_failure_persists_both_attempts(
         sweep_dir.mkdir()
         (sweep_dir / "variant.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "VARIANT"}))
         cli_args = [
-            "ab", "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
+            "ab", "--provider", "anthropic",
+            "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
             "--stage", "monday", "--runs", "1", "--results-dir", str(results_dir),
         ]
         result_pattern = "*-ab-sweep-*.json"
     else:
         cli_args = [
-            "calibrate", "--from-episode", "snapshot-week", "--stage", "tuesday",
+            "calibrate", "--provider", "anthropic",
+            "--from-episode", "snapshot-week", "--stage", "tuesday",
             "--runs", "1", "--results-dir", str(results_dir),
         ]
         result_pattern = "*-calibrate-*.json"
@@ -1227,7 +1463,8 @@ def test_calibrate_writes_partial_result_on_exception_mid_run(tmp_path, monkeypa
 
     with pytest.raises(SystemExit):
         cl.main([
-            "calibrate", "--from-episode", "2026-W36", "--stage", "monday", "--local",
+            "calibrate", "--provider", "anthropic",
+            "--from-episode", "2026-W36", "--stage", "monday", "--local",
             "--runs", "2", "--results-dir", str(results_dir),
         ])
 
@@ -1259,7 +1496,8 @@ def test_ab_max_calls_denies_before_generation_when_arm_reservation_cannot_fit(t
     results_dir = tmp_path / "results"
 
     cl.main([
-        "ab", "--concept", "Test Muffins", "--stage", "monday", "--runs", "3",
+        "ab", "--provider", "anthropic",
+        "--concept", "Test Muffins", "--stage", "monday", "--runs", "3",
         "--variant", str(variant_path), "--recipe-context", "anchor",
         "--max-calls", "11", "--results-dir", str(results_dir),
     ])
@@ -1277,44 +1515,71 @@ def test_ab_max_calls_denies_before_generation_when_arm_reservation_cannot_fit(t
 # ---------------------------------------------------------------------------
 
 def test_would_exceed_cost_true_once_at_or_over_cap(monkeypatch):
-    monkeypatch.setattr(model_router, "get_cost_summary", lambda: {"total_cost": 5.0})
+    monkeypatch.setattr(model_router, "get_cost_entries", lambda: [{"estimated_cost": 5.0}])
     assert cl._would_exceed_cost(5.0) is True
     assert cl._would_exceed_cost(5.01) is False
 
 def test_would_exceed_cost_fails_open_on_a_read_error(monkeypatch):
-    def raising_get_cost_summary():
+    def raising_get_cost_entries():
         raise RuntimeError("cost log unavailable")
 
-    monkeypatch.setattr(model_router, "get_cost_summary", raising_get_cost_summary)
+    monkeypatch.setattr(model_router, "get_cost_entries", raising_get_cost_entries)
     assert cl._would_exceed_cost(1.0) is False
 
 def test_would_exceed_cost_respects_a_per_variant_baseline(monkeypatch):
     """ab --sweep's per-variant cap: (total - baseline) >= max_cost, not
     the absolute total - a $6 baseline with a $5 cap and a $9 total should
     NOT trip (delta is only $3), even though $9 alone would."""
-    monkeypatch.setattr(model_router, "get_cost_summary", lambda: {"total_cost": 9.0})
+    monkeypatch.setattr(model_router, "get_cost_entries", lambda: [{"estimated_cost": 9.0}])
     assert cl._would_exceed_cost(5.0) is True  # absolute cap: 9 >= 5
     assert cl._would_exceed_cost(5.0, baseline=6.0) is False  # delta: 9-6=3 < 5
     assert cl._would_exceed_cost(5.0, baseline=3.0) is True  # delta: 9-3=6 >= 5
 
 def test_would_exceed_cost_warns_once_on_stderr_on_first_failure(monkeypatch, capsys):
-    def raising_get_cost_summary():
+    def raising_get_cost_entries():
         raise RuntimeError("cost log unavailable")
 
-    monkeypatch.setattr(model_router, "get_cost_summary", raising_get_cost_summary)
+    monkeypatch.setattr(model_router, "get_cost_entries", raising_get_cost_entries)
 
     assert cl._would_exceed_cost(1.0) is False
     first_err = capsys.readouterr().err
     assert "WARNING" in first_err
-    assert "get_cost_summary" in first_err
+    assert "get_cost_entries" in first_err
 
     assert cl._would_exceed_cost(1.0) is False
     second_err = capsys.readouterr().err
     assert second_err == ""
 
+def test_would_exceed_cost_fails_closed_on_untrusted_openrouter_entry(monkeypatch, capsys):
+    """#7714 finding 1: an OpenRouter entry with no actual_cost AND a zero
+    estimate (get_cost_summary()['total_cost'] has no OpenRouter price-table
+    entry, so it always estimates to $0) must abort the next paid unit
+    rather than silently look like $0 spent."""
+    monkeypatch.setattr(
+        model_router, "get_cost_entries",
+        lambda: [{"provider": "openrouter", "model": "anthropic/claude-haiku-4.5", "estimated_cost": 0.0}],
+    )
+    assert cl._would_exceed_cost(1.0) is True
+    err = capsys.readouterr().err
+    assert "WARNING" in err
+    assert "failed CLOSED" in err
+
+def test_would_exceed_cost_trusts_openrouter_actual_cost(monkeypatch):
+    """An OpenRouter entry WITH a real actual_cost is exactly what --max-cost
+    must see - this is the fix for the bug the two tests above guard
+    against regressing: get_cost_summary()['total_cost'] never carries it."""
+    monkeypatch.setattr(
+        model_router, "get_cost_entries",
+        lambda: [{"provider": "openrouter", "model": "anthropic/claude-haiku-4.5",
+                   "estimated_cost": 0.0, "actual_cost": 1.25}],
+    )
+    assert cl._would_exceed_cost(1.0) is True
+    assert cl._would_exceed_cost(1.25) is True
+    assert cl._would_exceed_cost(1.26) is False
+
 def test_ab_aborts_when_cost_cap_already_reached(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
-    monkeypatch.setattr(model_router, "get_cost_summary", lambda: {"total_cost": 10.0})
+    monkeypatch.setattr(model_router, "get_cost_entries", lambda: [{"estimated_cost": 10.0}])
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
     results_dir = tmp_path / "results"
 
@@ -1329,6 +1594,599 @@ def test_ab_aborts_when_cost_cap_already_reached(tmp_path, monkeypatch):
     assert report["aborted"] is True
     assert report["completed_pairs"] == 0
     assert report["max_cost"] == 5.0
+
+# ---------------------------------------------------------------------------
+# #7714 finding 3: arm_call_reservation must honor a variant's raised
+# TICKS_RANGE/OPEN_ENDED_MAX_TICKS, not just the unpatched module defaults -
+# and a runaway arm must be stoppable mid-flight (the mid-arm budget guard),
+# not only at the next arm/judge boundary.
+# ---------------------------------------------------------------------------
+
+def test_arm_call_reservation_honors_variant_open_ended_max_ticks_above_unpatched():
+    """monday's unpatched TICKS_RANGE upper bound is 10 (== the floor); a
+    variant that raises OPEN_ENDED_MAX_TICKS['monday'] to 25 must make the
+    reservation bigger, not silently keep reserving for 10."""
+    unpatched = cl._arm_call_reservation("monday", None, dry_run=False)
+    variant = {"WINDDOWN_TRIGGER": "check", "OPEN_ENDED_MAX_TICKS": {"monday": 25}}
+    patched = cl._arm_call_reservation("monday", variant, dry_run=False)
+    assert patched > unpatched
+    assert patched == 25 * (cl._MAX_CALLS_PER_TURN + cl._MAX_STOP_CHECK_ATTEMPTS_PER_TICK)
+
+def test_arm_call_reservation_dry_run_is_always_zero():
+    variant = {"WINDDOWN_TRIGGER": "check", "OPEN_ENDED_MAX_TICKS": {"monday": 25}}
+    assert cl._arm_call_reservation("monday", variant, dry_run=True) == 0
+
+def test_run_arm_and_count_raises_lab_budget_abort_mid_arm(monkeypatch):
+    """#7714 round 2: the guard is installed by the CALLER (see
+    _installed_budget_guard), not by _run_arm_and_count itself - a caller
+    wraps the scope an arm runs inside, and _run_arm_and_count just needs
+    to annotate whatever exception escapes with the real calls made so
+    far, using a LIVE call-count delta, not budget.used (which the caller
+    only updates AFTER an arm finishes) - otherwise a single arm making
+    far more real calls than --max-calls allows would run to completion
+    before anything noticed."""
+    call_count = {"n": 0}
+
+    def fake_generate_anthropic(**kw):
+        call_count["n"] += 1
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    def runaway_run_arm(*a, **k):
+        for _ in range(50):
+            model_router.generate_response(prompt="x", model="anthropic/claude-haiku-4-5-20251001")
+        return {"messages": []}
+
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+    monkeypatch.setattr(cl, "_run_arm", runaway_run_arm)
+    budget = cl.CallBudget(max_calls=3)
+
+    with cl._installed_budget_guard(budget, 5.0):
+        with pytest.raises(cl.LabBudgetAbort) as excinfo:
+            cl._run_arm_and_count("concept", "monday", 1, "anchor", "openai", "stub")
+
+    assert 0 < call_count["n"] < 50, "the guard must interrupt the runaway loop partway through"
+    made = getattr(excinfo.value, "conversation_lab_calls_made", None)
+    assert made == call_count["n"], (
+        "the abort must carry the REAL number of calls made before it fired, "
+        "not zero - the caller's budget.record() never runs on this path"
+    )
+
+def test_lab_budget_abort_is_not_swallowed_by_a_broad_except_exception(monkeypatch):
+    """#7714 round 2, finding 3: LabBudgetAbort must derive from
+    BaseException, not Exception - any ordinary `except Exception` on the
+    arm's call path (director.py, stop_check.py's haiku path, etc.) must
+    let it straight through instead of converting or swallowing it."""
+    assert not issubclass(cl.LabBudgetAbort, Exception)
+    assert issubclass(cl.LabBudgetAbort, BaseException)
+
+    def raises_abort():
+        raise cl.LabBudgetAbort("boom")
+
+    with pytest.raises(cl.LabBudgetAbort):
+        try:
+            raises_abort()
+        except Exception:
+            raise AssertionError("a broad except Exception must never catch LabBudgetAbort")
+
+def test_generate_day_highlights_fallback_lets_lab_budget_abort_through(monkeypatch):
+    """#7714 round 2, finding 3: scripts.simulate_dialogue_week's
+    _generate_day_highlights has an `except Exception: <fallback text>`
+    around its generate_response call - a best-effort degrade that must
+    stay for every OTHER failure, but must NOT catch a LabBudgetAbort from
+    the ambient mid-arm guard. A silent fallback here would let a whole
+    week keep running past the cap using degraded highlight text instead
+    of stopping."""
+    def raises_abort(**kwargs):
+        raise cl.LabBudgetAbort("--max-calls would be exceeded")
+
+    monkeypatch.setattr(sdw, "generate_response", raises_abort)
+    day_messages = [
+        sdw.Message(
+            day="monday", stage="monday", character="Margaret Chen",
+            message="Let's do the jalapeno version.", timestamp="2026-01-01T00:00:00",
+            model="stub",
+        ),
+    ]
+    with pytest.raises(cl.LabBudgetAbort):
+        sdw._generate_day_highlights("monday", day_messages, "Test Muffins", "stub")
+
+def test_ab_survives_a_lab_budget_abort_raised_inside_the_director(tmp_path, monkeypatch):
+    """#7714 round 2: a LabBudgetAbort raised deep inside run_simulation's
+    per-day DIRECTOR call (backend.utils.director.direct_day -> its own
+    `except Exception as exc: raise DirectorError(...)`) must still reach
+    `ab`'s own command-level handling as a clean aborted/partial RESULT -
+    not a crash, not a DirectorError, not a hang. This exercises the real
+    (unmocked) run_simulation/direct_day code, only the model boundary is
+    faked, so it proves the propagation chain end to end rather than just
+    each broad-except site in isolation."""
+    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    monkeypatch.setattr(sdw, "DIRECTOR", {
+        "enabled": True, "probability": 1.0, "intensity": 3,
+        "rng_seed": 0, "no_repeat_window": 14,
+    })
+
+    def raises_abort(**kwargs):
+        raise cl.LabBudgetAbort("--max-calls would be exceeded")
+
+    # The director's own generate_response call is what raises - dialogue
+    # generation is never reached, since the director runs before the
+    # first tick of the day.
+    monkeypatch.setattr("backend.utils.director.generate_response", raises_abort)
+
+    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "V"})
+    results_dir = tmp_path / "results"
+
+    cl.main([
+        "ab", "--provider", "anthropic",
+        "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+        "--variant", str(variant_path), "--recipe-context", "anchor",
+        "--results-dir", str(results_dir),
+    ])
+
+    [result_file] = list(results_dir.glob("*-ab-*.json"))
+    report = json.loads(result_file.read_text())
+    assert report["aborted"] is True
+    assert report["completed_pairs"] == 0
+    assert "error" not in report or report.get("error") is None
+
+def test_run_arm_and_count_with_no_budget_installs_no_guard(monkeypatch):
+    """budget=None (every call site that predates #7714's mid-arm guard,
+    and every direct test of this function) must stay byte-identical: no
+    hook installed, no LabBudgetAbort possible, no matter how many calls
+    an arm makes."""
+    def runaway_run_arm(*a, **k):
+        for _ in range(10):
+            model_router.generate_response(prompt="x", model="anthropic/claude-haiku-4-5-20251001")
+        return {"messages": []}
+
+    monkeypatch.setattr(model_router, "_generate_anthropic", lambda **kw: "ok")
+    monkeypatch.setattr(cl, "_run_arm", runaway_run_arm)
+
+    result, calls = cl._run_arm_and_count("concept", "monday", 1, "anchor", "openai", "stub")
+    assert result == {"messages": []}
+    # _generate_anthropic is mocked without recording any cost, so the cost
+    # log never moves and calls falls back to the message count (0 here) -
+    # confirming this ran the plain, unguarded path, not the mid-arm guard.
+    assert calls == 0
+    # No hook was left installed - set_pre_call_hook(None) must report the
+    # PREVIOUS hook was already None.
+    assert model_router.set_pre_call_hook(None) is None
+
+def test_ab_mid_arm_guard_stops_a_runaway_variant_arm_and_writes_partial(tmp_path, monkeypatch):
+    """#7714 finding 3, end to end: give the fake arm far more real calls
+    than the (correct) reservation reserves, with --max-calls set to
+    EXACTLY that reservation - the coarse pre-arm boundary check clears
+    (reservation is not itself exceeded), so only the mid-arm guard
+    inside the arm can be what stops the runaway loop and produces the
+    partial, aborted `ab` result."""
+    monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
+    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    variant = {"_SHARED_CHARACTER_RULES": "V"}
+    reservation = cl._arm_call_reservation("monday", variant, dry_run=False)
+
+    call_count = {"n": 0}
+
+    def fake_generate_anthropic(**kw):
+        call_count["n"] += 1
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    def runaway_run_arm(*a, **k):
+        for _ in range(reservation * 3):
+            model_router.generate_response(prompt="x", model="anthropic/claude-haiku-4-5-20251001")
+        return {"messages": _messages("X")}
+
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+    monkeypatch.setattr(cl, "_run_arm", runaway_run_arm)
+
+    variant_path = _write_variant(tmp_path, variant)
+    results_dir = tmp_path / "results"
+
+    cl.main([
+        "ab", "--provider", "anthropic",
+        "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+        "--variant", str(variant_path), "--recipe-context", "anchor",
+        "--max-calls", str(reservation), "--results-dir", str(results_dir),
+    ])
+
+    [result_file] = list(results_dir.glob("*-ab-*.json"))
+    report = json.loads(result_file.read_text())
+    assert report["aborted"] is True
+    assert report["completed_pairs"] == 0
+    assert call_count["n"] < reservation * 3, "the mid-arm guard must interrupt the runaway arm"
+
+def _runaway_turn_generator(sink, *, model="anthropic/claude-haiku-4-5-20251001"):
+    """Keep making real (mocked) generate_response calls and appending one
+    sdw.Message per successful call to `sink` - used to prove a mid-arm
+    abort saves EXACTLY the turns generated before it fired, never zero
+    and never the full unbounded set. Never returns on its own; a
+    LabBudgetAbort from the ambient guard is what stops it."""
+    for i in range(10_000):
+        model_router.generate_response(prompt="x", model=model)
+        sink.append(sdw.Message(
+            day="monday", stage="monday", character="Margaret Chen",
+            message=f"Turn {i}", timestamp="2026-01-01T00:00:00", model="stub",
+        ))
+
+def _erroring_turn_generator(sink, n, *, model="anthropic/claude-haiku-4-5-20251001"):
+    """Generate exactly `n` real turns, then raise a plain RuntimeError -
+    standing in for any NON-budget mid-arm failure (the empty-content
+    RuntimeError from an OpenRouter reasoning model, a CoT-leak retry
+    that still leaks, a DirectorError, a Haiku stop-check failure).
+    #7714 round 4 finding 1: partial-work recovery must cover these too,
+    not just LabBudgetAbort."""
+    for i in range(n):
+        model_router.generate_response(prompt="x", model=model)
+        sink.append(sdw.Message(
+            day="monday", stage="monday", character="Margaret Chen",
+            message=f"Turn {i}", timestamp="2026-01-01T00:00:00", model="stub",
+        ))
+    raise RuntimeError("simulated non-budget mid-arm failure")
+
+def test_ab_control_arm_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatch):
+    """#7714 round 3: run_simulation keeps `messages` local and only
+    returns it at the end, so a mid-arm abort used to discard every turn
+    already generated (real, paid work). message_sink fixes that - this
+    proves the CONTROL arm's saved partial pair holds exactly the N turns
+    generated before the guard fired, not zero and not all of them."""
+    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    variant = {"_SHARED_CHARACTER_RULES": "V"}
+    reservation = cl._arm_call_reservation("monday", variant, dry_run=False)
+
+    def fake_generate_anthropic(**kw):
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    def fake_run_simulation(*, message_sink=None, **kwargs):
+        sink = message_sink if message_sink is not None else []
+        _runaway_turn_generator(sink)
+        return {"messages": [m.__dict__ for m in sink]}
+
+    monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+
+    variant_path = _write_variant(tmp_path, variant)
+    results_dir = tmp_path / "results"
+
+    cl.main([
+        "ab", "--provider", "anthropic",
+        "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+        "--variant", str(variant_path), "--recipe-context", "anchor",
+        "--max-calls", str(reservation), "--results-dir", str(results_dir),
+    ])
+
+    [result_file] = list(results_dir.glob("*-ab-*.json"))
+    report = json.loads(result_file.read_text())
+    assert report["aborted"] is True
+    assert report["completed_pairs"] == 0
+    [pending] = report["partial_pairs"]
+    assert pending["status"] == "aborted_mid_arm"
+    assert len(pending["control_messages"]) == reservation
+    assert pending.get("variant_messages") is None
+
+def test_ab_control_arm_non_budget_error_saves_partial_turns_and_reports_error(tmp_path, monkeypatch):
+    """#7714 round 4 finding 1: a non-budget mid-arm failure (empty-
+    content RuntimeError, CoT-leak, DirectorError, ...) must ALSO save
+    the turns generated before it - not just LabBudgetAbort - AND still
+    propagate as a truthful error (not silently become a clean abort)."""
+    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    variant = {"_SHARED_CHARACTER_RULES": "V"}
+    n = 3
+
+    def fake_generate_anthropic(**kw):
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    def fake_run_simulation(*, message_sink=None, **kwargs):
+        sink = message_sink if message_sink is not None else []
+        _erroring_turn_generator(sink, n)
+        return {"messages": [m.__dict__ for m in sink]}  # unreached
+
+    monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+
+    variant_path = _write_variant(tmp_path, variant)
+    results_dir = tmp_path / "results"
+
+    with pytest.raises(RuntimeError, match="simulated non-budget mid-arm failure"):
+        cl.main([
+            "ab", "--provider", "anthropic",
+            "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+            "--variant", str(variant_path), "--recipe-context", "anchor",
+            "--results-dir", str(results_dir),
+        ])
+
+    [result_file] = list(results_dir.glob("*-ab-*.json"))
+    report = json.loads(result_file.read_text())
+    assert "simulated non-budget mid-arm failure" in report["error"]
+    assert report["calls_used"] == n
+    [pending] = report["partial_pairs"]
+    assert pending["status"] == "error_mid_arm"
+    assert len(pending["control_messages"]) == n
+
+def test_ab_variant_arm_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatch):
+    """Same proof as the control-arm test above, for the VARIANT arm: the
+    control side stays cheap (zero real calls), so the shared guard's
+    live count is entirely the variant's own turns when it fires."""
+    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    variant = {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"}
+    reservation = cl._arm_call_reservation("monday", variant, dry_run=False)
+
+    def fake_generate_anthropic(**kw):
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    def fake_run_simulation(*, message_sink=None, **kwargs):
+        sink = message_sink if message_sink is not None else []
+        if sdw._SHARED_CHARACTER_RULES == "VARIANT_RULES":
+            _runaway_turn_generator(sink)
+        return {"messages": [m.__dict__ for m in sink]}
+
+    monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+
+    variant_path = _write_variant(tmp_path, variant)
+    results_dir = tmp_path / "results"
+
+    cl.main([
+        "ab", "--provider", "anthropic",
+        "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+        "--variant", str(variant_path), "--recipe-context", "anchor",
+        "--max-calls", str(reservation), "--results-dir", str(results_dir),
+    ])
+
+    [result_file] = list(results_dir.glob("*-ab-*.json"))
+    report = json.loads(result_file.read_text())
+    assert report["aborted"] is True
+    assert report["completed_pairs"] == 0
+    [pending] = report["partial_pairs"]
+    assert pending["status"] == "aborted_mid_arm"
+    assert len(pending["control_messages"]) == 0
+    assert len(pending["variant_messages"]) == reservation
+
+def test_ab_variant_arm_non_budget_error_saves_partial_turns_and_reports_error(tmp_path, monkeypatch):
+    """#7714 round 4 finding 1, variant side: control stays cheap (zero
+    real calls); the variant arm's non-budget failure must save its own
+    partial turns and propagate as a truthful error."""
+    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    variant = {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"}
+    n = 3
+
+    def fake_generate_anthropic(**kw):
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    def fake_run_simulation(*, message_sink=None, **kwargs):
+        sink = message_sink if message_sink is not None else []
+        if sdw._SHARED_CHARACTER_RULES == "VARIANT_RULES":
+            _erroring_turn_generator(sink, n)
+        return {"messages": [m.__dict__ for m in sink]}
+
+    monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+
+    variant_path = _write_variant(tmp_path, variant)
+    results_dir = tmp_path / "results"
+
+    with pytest.raises(RuntimeError, match="simulated non-budget mid-arm failure"):
+        cl.main([
+            "ab", "--provider", "anthropic",
+            "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+            "--variant", str(variant_path), "--recipe-context", "anchor",
+            "--results-dir", str(results_dir),
+        ])
+
+    [result_file] = list(results_dir.glob("*-ab-*.json"))
+    report = json.loads(result_file.read_text())
+    assert "simulated non-budget mid-arm failure" in report["error"]
+    assert report["calls_used"] == n
+    [pending] = report["partial_pairs"]
+    assert pending["status"] == "error_mid_arm"
+    assert len(pending["control_messages"]) == 0
+    assert len(pending["variant_messages"]) == n
+
+def test_ab_sweep_control_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatch):
+    """Same proof for the sweep's shared control loop: the aborted
+    (scenario, run) key's stored transcript holds exactly the N turns
+    generated before the guard fired."""
+    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    reservation = cl._arm_call_reservation("monday", None, dry_run=False)
+
+    def fake_generate_anthropic(**kw):
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    def fake_run_simulation(*, message_sink=None, **kwargs):
+        sink = message_sink if message_sink is not None else []
+        _runaway_turn_generator(sink)
+        return {"messages": [m.__dict__ for m in sink]}
+
+    monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+
+    testbed_path = _write_testbed(tmp_path, [
+        {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
+    ])
+    sweep_dir = tmp_path / "sweep"
+    sweep_dir.mkdir()
+    (sweep_dir / "only.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "V"}))
+    results_dir = tmp_path / "results"
+
+    cl.main([
+        "ab", "--provider", "anthropic", "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
+        "--stage", "monday", "--runs", "1", "--max-calls", str(reservation), "--results-dir", str(results_dir),
+    ])
+
+    [result_file] = list(results_dir.glob("*-ab-sweep-*.json"))
+    report = json.loads(result_file.read_text())
+    assert report["aborted"] is True
+    assert report["control_aborted"] is True
+    [unpaired] = report["unpaired_control_transcripts"]
+    assert len(unpaired["messages"]) == reservation
+
+def test_ab_sweep_control_non_budget_error_saves_partial_turns_and_reports_error(tmp_path, monkeypatch):
+    """#7714 round 4 finding 1, sweep control side: a non-budget failure
+    must save the control's partial turns at the aborted key AND
+    propagate as a truthful error - not become a clean "control_aborted"
+    result."""
+    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    n = 3
+
+    def fake_generate_anthropic(**kw):
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    def fake_run_simulation(*, message_sink=None, **kwargs):
+        sink = message_sink if message_sink is not None else []
+        _erroring_turn_generator(sink, n)
+        return {"messages": [m.__dict__ for m in sink]}
+
+    monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+
+    testbed_path = _write_testbed(tmp_path, [
+        {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
+    ])
+    sweep_dir = tmp_path / "sweep"
+    sweep_dir.mkdir()
+    (sweep_dir / "only.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "V"}))
+    results_dir = tmp_path / "results"
+
+    with pytest.raises(RuntimeError, match="simulated non-budget mid-arm failure"):
+        cl.main([
+            "ab", "--provider", "anthropic", "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
+            "--stage", "monday", "--runs", "1", "--results-dir", str(results_dir),
+        ])
+
+    [result_file] = list(results_dir.glob("*-ab-sweep-*.json"))
+    report = json.loads(result_file.read_text())
+    assert "simulated non-budget mid-arm failure" in report["error"]
+    assert report["control_calls_used"] == n
+    [unpaired] = report["unpaired_control_transcripts"]
+    assert len(unpaired["messages"]) == n
+
+def test_bench_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatch):
+    """Same proof for bench: the saved aborted run holds exactly the N
+    turns generated before the guard fired, marked aborted_mid_arm, and
+    stays out of `runs`, the aggregate and completed_runs."""
+    reservation = cl._MAX_CALLS_PER_TURN * cl._max_turns_for_stage("saturday")
+
+    def fake_generate_anthropic(**kw):
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    def fake_run_simulation(*, message_sink=None, **kwargs):
+        sink = message_sink if message_sink is not None else []
+        _runaway_turn_generator(sink)
+        return {"messages": [m.__dict__ for m in sink]}
+
+    monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+    monkeypatch.setattr(
+        cl, "_resolve_models",
+        lambda dry_run: ("openai", "anthropic/claude-haiku-4-5-20251001", "anthropic/claude-sonnet-4-6"),
+    )
+
+    cl.cmd_bench(_bench_args(tmp_path, runs=1, max_calls=reservation))
+
+    report = _read_bench(tmp_path, "saturday-n1")
+    assert report["aborted"] is True
+    [run] = report["aborted_runs"]
+    assert run["status"] == "aborted_mid_arm"
+    assert len(run["transcript"]) == reservation
+    assert "summary" not in run and "judge" not in run
+    assert report["runs"] == []
+    assert report["completed_runs"] == 0
+    assert report["aggregate"] == cl._bench_aggregate([])
+
+def test_bench_non_budget_error_saves_partial_turns_and_reports_error(tmp_path, monkeypatch):
+    """#7714 round 4 finding 1, bench side: a non-budget failure must
+    save the run's partial turns (marked error_mid_arm, out of `runs`/
+    the aggregate, same as a budget abort) AND still surface as a
+    truthful error - cmd_bench's own SystemExit contract, unchanged."""
+    n = 3
+
+    def fake_generate_anthropic(**kw):
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    def fake_run_simulation(*, message_sink=None, **kwargs):
+        sink = message_sink if message_sink is not None else []
+        _erroring_turn_generator(sink, n)
+        return {"messages": [m.__dict__ for m in sink]}  # unreached
+
+    monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+    monkeypatch.setattr(
+        cl, "_resolve_models",
+        lambda dry_run: ("openai", "anthropic/claude-haiku-4-5-20251001", "anthropic/claude-sonnet-4-6"),
+    )
+
+    with pytest.raises(SystemExit, match="simulated non-budget mid-arm failure"):
+        cl.cmd_bench(_bench_args(tmp_path, runs=1))
+
+    report = _read_bench(tmp_path, "saturday-n1")
+    assert "simulated non-budget mid-arm failure" in report["error"]
+    [run] = report["aborted_runs"]
+    assert run["status"] == "error_mid_arm"
+    assert len(run["transcript"]) == n
+    assert report["calls_used"] == n
+    assert report["runs"] == []
+    assert report["completed_runs"] == 0
+
+def test_run_simulation_without_a_sink_returns_the_same_result_as_before(monkeypatch):
+    """#7714 round 3: message_sink is additive - production (and every
+    call that omits it) must get byte-identical behavior to before it
+    existed."""
+    monkeypatch.setattr(sdw, "generate_turn", lambda **kwargs: "Line.")
+
+    kwargs = dict(
+        concept="Jalapeno Corn Dog Bites",
+        default_model="stub",
+        run_index=0,
+        stage_only="monday",
+        injected_event=None,
+        ticks_per_day=3,
+        mode="llm",
+        prompt_style="scene",
+        character_models=None,
+    )
+    # Speaker selection uses module-level `random` state - seed identically
+    # before each call so the only variable between them is message_sink.
+    sdw.random.seed(0)
+    with_sink_result = sdw.run_simulation(**kwargs, message_sink=[])
+    sdw.random.seed(0)
+    without_sink_result = sdw.run_simulation(**kwargs)
+
+    assert with_sink_result["messages"] == without_sink_result["messages"]
+    assert with_sink_result["metrics"] == without_sink_result["metrics"]
+
+def test_budget_guard_counts_calls_recorded_before_install(monkeypatch):
+    """`ab --testbed` shares one CallBudget across scenarios but installs a
+    fresh guard per scenario: a later scenario's guard must start from what
+    earlier scenarios already spent, not from zero."""
+    def fake_generate_anthropic(**kw):
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+    budget = cl.CallBudget(max_calls=10, used=8)
+    made = 0
+    with pytest.raises(cl.LabBudgetAbort):
+        with cl._installed_budget_guard(budget, None):
+            for _ in range(10):
+                model_router.generate_response(prompt="x", model="anthropic/claude-haiku-4-5-20251001")
+                made += 1
+    assert made == 2, "8 already used of 10: exactly 2 more calls fit"
 
 def test_ab_default_max_cost_is_five_dollars(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
@@ -1506,7 +2364,8 @@ def test_ab_testbed_runs_every_scenario_and_aggregates(tmp_path, monkeypatch):
     results_dir = tmp_path / "results"
 
     cl.main([
-        "ab", "--stage", "monday", "--variant", str(variant_path),
+        "ab", "--provider", "anthropic",
+        "--stage", "monday", "--variant", str(variant_path),
         "--testbed", str(testbed_path), "--runs", "2", "--target", "turn_taking",
         "--results-dir", str(results_dir),
     ])
@@ -1597,7 +2456,8 @@ def test_ab_testbed_writes_partial_result_on_exception_in_a_later_scenario(tmp_p
 
     with pytest.raises(SystemExit):
         cl.main([
-            "ab", "--stage", "monday", "--variant", str(variant_path),
+            "ab", "--provider", "anthropic",
+            "--stage", "monday", "--variant", str(variant_path),
             "--testbed", str(testbed_path), "--runs", "1",
             "--results-dir", str(results_dir),
         ])
@@ -2029,7 +2889,8 @@ def test_ab_sweep_ranks_three_variants_and_result_schema(tmp_path, monkeypatch):
     results_dir = tmp_path / "results"
 
     cl.main([
-        "ab", "--sweep", str(sweep_dir), "--testbed", str(testbed_path), "--stage", "monday",
+        "ab", "--provider", "anthropic",
+        "--sweep", str(sweep_dir), "--testbed", str(testbed_path), "--stage", "monday",
         "--runs", "1", "--target", "turn_taking", "--results-dir", str(results_dir),
     ])
 
@@ -2075,6 +2936,7 @@ def test_ab_sweep_per_variant_cost_cap_abort_writes_partial(tmp_path, monkeypatc
     # variant starts, then the lone variant's own first call pushes it to
     # $18 (delta so far: $6 >= $5, so its SECOND scenario never runs).
     state = {"total": 0.0}
+    monkeypatch.setattr(model_router, "get_cost_entries", lambda: [{"estimated_cost": state["total"]}])
     monkeypatch.setattr(model_router, "get_cost_summary", lambda: {"total_cost": state["total"], "total_calls": 0})
 
     real_run_arm_and_count = cl._run_arm_and_count
@@ -2109,6 +2971,144 @@ def test_ab_sweep_per_variant_cost_cap_abort_writes_partial(tmp_path, monkeypatc
     variant_report = report["variants"]["only"]
     assert variant_report["aborted"] is True
     assert variant_report["completed_pairs"] == 1  # only the first scenario finished
+
+def test_ab_sweep_control_mid_arm_guard_stops_a_runaway_run(tmp_path, monkeypatch):
+    """#7714 round 2, finding 1: _generate_sweep_control's loop had NO
+    guard at all - only the coarse would_exceed(arm_call_reservation)
+    check between arms, which cannot stop a single runaway arm
+    mid-flight. --max-calls is set to EXACTLY the reservation so the
+    coarse check clears; only the mid-arm guard can stop the runaway
+    control arm from there."""
+    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    reservation = cl._arm_call_reservation("monday", None, dry_run=False)
+
+    call_count = {"n": 0}
+
+    def fake_generate_anthropic(**kw):
+        call_count["n"] += 1
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    def runaway_run_simulation(**kwargs):
+        for _ in range(reservation * 3):
+            model_router.generate_response(prompt="x", model="anthropic/claude-haiku-4-5-20251001")
+        return {"messages": _messages("X")}
+
+    monkeypatch.setattr(sdw, "run_simulation", runaway_run_simulation)
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+
+    testbed_path = _write_testbed(tmp_path, [
+        {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
+    ])
+    sweep_dir = tmp_path / "sweep"
+    sweep_dir.mkdir()
+    (sweep_dir / "only.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "V"}))
+    results_dir = tmp_path / "results"
+
+    cl.main([
+        "ab", "--provider", "anthropic", "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
+        "--stage", "monday", "--runs", "1", "--max-calls", str(reservation), "--results-dir", str(results_dir),
+    ])
+
+    [result_file] = list(results_dir.glob("*-ab-sweep-*.json"))
+    report = json.loads(result_file.read_text())
+    assert report["aborted"] is True
+    assert report["control_aborted"] is True
+    assert call_count["n"] < reservation * 3, "the mid-arm guard must interrupt the runaway control arm"
+
+def test_ab_sweep_variant_mid_arm_guard_stops_a_runaway_run(tmp_path, monkeypatch):
+    """#7714 round 2, finding 1: _run_sweep_variant's own arm_call_
+    reservation pre-check clears the same way (--max-calls == reservation)
+    - only the mid-arm guard installed for this variant's whole run can
+    stop its runaway arm. The control arm stays cheap so control_aborted
+    is False and the variant's own guard is what fires."""
+    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    variant = {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"}
+    reservation = cl._arm_call_reservation("monday", variant, dry_run=False)
+
+    call_count = {"n": 0}
+
+    def fake_generate_anthropic(**kw):
+        call_count["n"] += 1
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    def maybe_runaway_run_simulation(**kwargs):
+        if sdw._SHARED_CHARACTER_RULES == "VARIANT_RULES":
+            for _ in range(reservation * 3):
+                model_router.generate_response(prompt="x", model="anthropic/claude-haiku-4-5-20251001")
+        return {"messages": _messages("X")}
+
+    monkeypatch.setattr(sdw, "run_simulation", maybe_runaway_run_simulation)
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+
+    testbed_path = _write_testbed(tmp_path, [
+        {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
+    ])
+    sweep_dir = tmp_path / "sweep"
+    sweep_dir.mkdir()
+    (sweep_dir / "only.json").write_text(json.dumps(variant))
+    results_dir = tmp_path / "results"
+
+    cl.main([
+        "ab", "--provider", "anthropic", "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
+        "--stage", "monday", "--runs", "1", "--max-calls", str(reservation), "--results-dir", str(results_dir),
+    ])
+
+    [result_file] = list(results_dir.glob("*-ab-sweep-*.json"))
+    report = json.loads(result_file.read_text())
+    assert report["aborted"] is True
+    assert report["control_aborted"] is False
+    variant_report = report["variants"]["only"]
+    assert variant_report["aborted"] is True
+    assert call_count["n"] < reservation * 3, "the mid-arm guard must interrupt the runaway variant arm"
+
+def test_ab_sweep_variant_non_budget_error_saves_partial_turns_and_reports_error(tmp_path, monkeypatch):
+    """#7714 round 4 finding 1, sweep variant side: control stays cheap;
+    the variant's own non-budget failure must save its partial turns AND
+    propagate as a truthful error, not become a clean aborted variant."""
+    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
+    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
+    variant = {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"}
+    n = 3
+
+    def fake_generate_anthropic(**kw):
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    def fake_run_simulation(*, message_sink=None, **kwargs):
+        sink = message_sink if message_sink is not None else []
+        if sdw._SHARED_CHARACTER_RULES == "VARIANT_RULES":
+            _erroring_turn_generator(sink, n)
+        return {"messages": [m.__dict__ for m in sink]}
+
+    monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+
+    testbed_path = _write_testbed(tmp_path, [
+        {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
+    ])
+    sweep_dir = tmp_path / "sweep"
+    sweep_dir.mkdir()
+    (sweep_dir / "only.json").write_text(json.dumps(variant))
+    results_dir = tmp_path / "results"
+
+    with pytest.raises(RuntimeError, match="simulated non-budget mid-arm failure"):
+        cl.main([
+            "ab", "--provider", "anthropic", "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
+            "--stage", "monday", "--runs", "1", "--results-dir", str(results_dir),
+        ])
+
+    [result_file] = list(results_dir.glob("*-ab-sweep-*.json"))
+    report = json.loads(result_file.read_text())
+    assert "simulated non-budget mid-arm failure" in report["error"]
+    variant_report = report["variants"]["only"]
+    assert variant_report["calls_used"] == n
+    [pending] = variant_report["partial_pairs"]
+    assert pending["status"] == "error_mid_arm"
+    assert len(pending["variant_messages"]) == n
 
 def test_ab_sweep_dry_run_makes_zero_judge_calls(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
@@ -2403,6 +3403,44 @@ def test_bench_runs_n_times_and_aggregates(tmp_path, monkeypatch):
     assert len(report["runs"]) == 5
     assert report["aggregate"]["metrics"]["message_count"]["n"] == 5
     assert report["aggregate"]["metrics"]["message_count"]["mean"] == 4.0
+
+def test_bench_mid_arm_guard_stops_a_runaway_run(tmp_path, monkeypatch):
+    """#7714 round 2, finding 1: cmd_bench's per-run loop had NO mid-arm
+    guard installed at all - a runaway _run_arm here used to run to
+    completion no matter how far past --max-calls it went, since only the
+    coarse pre-arm reservation check (budget.would_exceed(gen_reserve))
+    guarded it, and that only fires BETWEEN runs, never inside one.
+
+    --max-calls is set to EXACTLY the reservation, so the coarse pre-check
+    clears (reservation is not itself exceeded) - only the mid-arm guard,
+    firing on the live call count as the runaway run makes far more real
+    calls than that reservation, can be what stops it."""
+    call_count = {"n": 0}
+    reservation = cl._MAX_CALLS_PER_TURN * cl._max_turns_for_stage("saturday")
+
+    def fake_generate_anthropic(**kw):
+        call_count["n"] += 1
+        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        return "ok"
+
+    def runaway_run_simulation(**kwargs):
+        for _ in range(reservation * 3):
+            model_router.generate_response(prompt="x", model="anthropic/claude-haiku-4-5-20251001")
+        return {"messages": _messages("X")}
+
+    monkeypatch.setattr(sdw, "run_simulation", runaway_run_simulation)
+    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+    monkeypatch.setattr(
+        cl, "_resolve_models",
+        lambda dry_run: ("openai", "anthropic/claude-haiku-4-5-20251001", "anthropic/claude-sonnet-4-6"),
+    )
+
+    cl.cmd_bench(_bench_args(tmp_path, runs=1, max_calls=reservation))
+
+    report = _read_bench(tmp_path, "saturday-n1")
+    assert report["aborted"] is True
+    assert call_count["n"] < reservation * 3, "the mid-arm guard must interrupt the runaway run"
+    assert report["calls_used"] > 0, "real calls made before the abort must be recorded, not zero"
 
 def test_bench_dry_run_never_calls_the_judge(tmp_path, monkeypatch):
     _patch_bench_generation(monkeypatch, sdw)
@@ -4431,3 +5469,293 @@ def test_bench_requires_every_judge_dimension_in_a_non_dry_baseline(tmp_path, mo
     }))
     with pytest.raises(cl.ConversationLabError, match="voice_distinctiveness"):
         cl.cmd_bench(_bench_args(tmp_path, compare=str(partial)))
+
+# ---------------------------------------------------------------------------
+# freeze / --prior-days (#frozen-prior-days)
+# ---------------------------------------------------------------------------
+
+def _frozen_messages(tag: str, day: str = "monday") -> list[dict]:
+    return [
+        {"day": day, "character": "Margaret Chen", "message": f"{tag} one"},
+        {"day": day, "character": "Marcus Reid", "message": f"{tag} two"},
+    ]
+
+
+def _freeze_result(tmp_path, stage: str, pairs: list[dict], mode: str = "testbed") -> "cl.Path":
+    path = tmp_path / f"result-{stage}.json"
+    report = {"command": "ab", "mode": mode, "stage": stage, "pairs": pairs}
+    if mode == "sweep":
+        report = {"command": "ab", "mode": "sweep", "stage": stage,
+                  "variants": {"v": {"pairs": pairs}}}
+    path.write_text(json.dumps(report))
+    return path
+
+
+def _freeze_pairs(scenario_id: str, stage: str) -> list[dict]:
+    return [
+        {
+            "scenario_id": scenario_id, "run_index": 1,
+            "control_messages": _frozen_messages(f"C1-{stage}", stage),
+            "variant_messages": _frozen_messages(f"V1-{stage}", stage),
+            "judge": {"overall": "control", **{d: "control" for d in cl.ALL_JUDGE_DIMENSIONS}},
+        },
+        {
+            "scenario_id": scenario_id, "run_index": 2,
+            "control_messages": _frozen_messages(f"C2-{stage}", stage),
+            "variant_messages": _frozen_messages(f"V2-{stage}", stage),
+            "judge": {"overall": "tie", **{d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS}},
+        },
+    ]
+
+
+def test_freeze_judge_pick_counts_dimension_wins_per_arm():
+    pairs = _freeze_pairs("s1", "monday")
+    assert cl._freeze_pick_pair(pairs, "control", "judge")["run_index"] == 1
+    assert cl._freeze_pick_pair(pairs, "variant", "judge")["run_index"] == 1  # 0 wins for both runs
+    # Second run wins every dimension for the variant arm -> picked over run 1.
+    pairs[1]["judge"] = {"overall": "variant", **{d: "variant" for d in cl.ALL_JUDGE_DIMENSIONS}}
+    assert cl._freeze_pick_pair(pairs, "variant", "judge")["run_index"] == 2
+
+
+def test_freeze_judge_tie_breaks_by_lowest_run_index():
+    pairs = _freeze_pairs("s1", "monday")
+    # Run 1 wins one dimension for control; run 2 also wins one dimension.
+    pairs[0]["judge"] = {"overall": "tie", **{d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS}, "turn_taking": "control"}
+    pairs[1]["judge"] = {"overall": "tie", **{d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS}, "turn_taking": "control"}
+    assert cl._freeze_pick_pair(pairs, "control", "judge")["run_index"] == 1
+
+
+def test_freeze_run0_pick_uses_lowest_run_index():
+    pairs = _freeze_pairs("s1", "monday")
+    assert cl._freeze_pick_pair(pairs, "variant", "run0")["run_index"] == 1
+
+
+def test_freeze_writes_provenance_and_messages(tmp_path):
+    result = _freeze_result(tmp_path, "monday", _freeze_pairs("s1", "monday"))
+    out = tmp_path / "frozen.json"
+    cl.main(["freeze", "--from", str(result), "--arm", "control", "--pick", "judge", "--out", str(out)])
+
+    data = json.loads(out.read_text())
+    assert data["stage"] == "monday"
+    assert data["arm"] == "control"
+    assert data["pick"] == "judge"
+    assert data["frozen_from"]["path"] == str(result)
+    assert data["frozen_from"]["sha256"] == cl.hashlib.sha256(result.read_bytes()).hexdigest()
+    assert data["scenarios"]["s1"]["day"] == "monday"
+    assert [m["message"] for m in data["scenarios"]["s1"]["messages"]] == ["C1-monday one", "C1-monday two"]
+
+
+def test_freeze_append_adds_later_day_keyed_by_scenario_then_day(tmp_path):
+    monday = _freeze_result(tmp_path, "monday", _freeze_pairs("s1", "monday"))
+    out = tmp_path / "frozen.json"
+    cl.main(["freeze", "--from", str(monday), "--arm", "control", "--pick", "judge", "--out", str(out)])
+
+    tuesday = _freeze_result(tmp_path, "tuesday", _freeze_pairs("s1", "tuesday"))
+    cl.main(["freeze", "--from", str(tuesday), "--arm", "variant", "--pick", "run0", "--append-to", str(out)])
+
+    data = json.loads(out.read_text())
+    assert data["stage"] == "tuesday"
+    assert data["arm"] == "variant"
+    assert data["pick"] == "run0"
+    assert list(data["scenarios"]["s1"]) == ["monday", "tuesday"]
+    assert data["scenarios"]["s1"]["monday"]["day"] == "monday"
+    assert data["scenarios"]["s1"]["tuesday"]["day"] == "tuesday"
+
+
+def test_freeze_append_refuses_a_day_not_after_the_last_frozen_day(tmp_path):
+    monday = _freeze_result(tmp_path, "monday", _freeze_pairs("s1", "monday"))
+    out = tmp_path / "frozen.json"
+    cl.main(["freeze", "--from", str(monday), "--arm", "control", "--pick", "judge", "--out", str(out)])
+
+    another_monday = _freeze_result(tmp_path, "monday", _freeze_pairs("s1", "monday"))
+    with pytest.raises(SystemExit, match="not after the last frozen day"):
+        cl.main(["freeze", "--from", str(another_monday), "--arm", "control", "--pick", "run0", "--append-to", str(out)])
+
+    # A later day is fine...
+    tuesday = _freeze_result(tmp_path, "tuesday", _freeze_pairs("s1", "tuesday"))
+    cl.main(["freeze", "--from", str(tuesday), "--arm", "control", "--pick", "run0", "--append-to", str(out)])
+
+    # ...but then an EARLIER day is refused.
+    with pytest.raises(SystemExit, match="not after the last frozen day"):
+        cl.main(["freeze", "--from", str(another_monday), "--arm", "control", "--pick", "run0", "--append-to", str(out)])
+
+
+def test_freeze_append_refuses_mismatched_scenario_sets(tmp_path):
+    monday = _freeze_result(tmp_path, "monday", _freeze_pairs("s1", "monday"))
+    out = tmp_path / "frozen.json"
+    cl.main(["freeze", "--from", str(monday), "--arm", "control", "--pick", "judge", "--out", str(out)])
+
+    tuesday = _freeze_result(
+        tmp_path, "tuesday", _freeze_pairs("s1", "tuesday") + _freeze_pairs("s2", "tuesday"),
+    )
+    with pytest.raises(SystemExit, match="scenario sets differ"):
+        cl.main(["freeze", "--from", str(tuesday), "--arm", "control", "--pick", "run0", "--append-to", str(out)])
+
+
+def _capturing_run_simulation(calls: list):
+    def fake_run_simulation(*, concept, default_model, run_index, stage_only, mode, recipe_context, **kwargs):
+        calls.append({
+            "concept": concept,
+            "stage_only": stage_only,
+            "initial_recent_lines": kwargs.get("initial_recent_lines"),
+            "initial_highlights": kwargs.get("initial_highlights"),
+        })
+        return {"messages": _messages(concept)}
+    return fake_run_simulation
+
+
+def _write_frozen(tmp_path, stage: str, scenario_id: str, day: str = "monday") -> "cl.Path":
+    frozen = tmp_path / f"frozen-{stage}.json"
+    frozen.write_text(json.dumps({
+        "frozen_from": {"path": "some/result.json", "sha256": "abc"},
+        "stage": stage,
+        "arm": "control",
+        "pick": "judge",
+        "scenarios": {
+            scenario_id: {
+                "day": day,
+                "messages": [
+                    {"day": day, "character": "Margaret Chen", "message": "frozen line one"},
+                    {"day": day, "character": "Marcus Reid", "message": "frozen line two"},
+                ],
+            }
+        },
+    }))
+    return frozen
+
+
+def test_ab_testbed_prior_days_passes_identical_context_to_both_arms(tmp_path, monkeypatch):
+    calls: list[dict] = []
+    monkeypatch.setattr(sdw, "run_simulation", _capturing_run_simulation(calls))
+
+    testbed_path = _write_testbed(tmp_path, [
+        {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
+    ])
+    frozen = _write_frozen(tmp_path, "monday", "s1")
+    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    results_dir = tmp_path / "results"
+
+    cl.main([
+        "ab", "--variant", str(variant_path), "--testbed", str(testbed_path),
+        "--stage", "tuesday", "--runs", "2", "--dry-run",
+        "--prior-days", str(frozen), "--results-dir", str(results_dir),
+    ])
+
+    expected = ["Margaret: frozen line one", "Marcus: frozen line two"]
+    assert len(calls) == 4  # control+variant for run 1 and 2
+    assert [call["initial_recent_lines"] for call in calls] == [expected, expected, expected, expected]
+    assert all(call["initial_highlights"] is None for call in calls)
+
+    [result_file] = list(results_dir.glob("*-ab-testbed-*.json"))
+    report = json.loads(result_file.read_text())
+    assert report["prior_days"]["path"] == str(frozen)
+    assert report["prior_days"]["sha256"] == cl.hashlib.sha256(frozen.read_bytes()).hexdigest()
+    assert report["prior_days"]["days"] == ["monday"]
+
+
+def test_ab_testbed_prior_days_refuses_missing_scenario(tmp_path, monkeypatch):
+    monkeypatch.setattr(sdw, "run_simulation", lambda **_kwargs: {"messages": _messages("X")})
+    testbed_path = _write_testbed(tmp_path, [
+        {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
+    ])
+    frozen = _write_frozen(tmp_path, "monday", "some-other-scenario")
+    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+
+    with pytest.raises(SystemExit, match="lacks scenario 's1'"):
+        cl.main([
+            "ab", "--variant", str(variant_path), "--testbed", str(testbed_path),
+            "--stage", "tuesday", "--dry-run", "--prior-days", str(frozen),
+            "--results-dir", str(tmp_path / "results"),
+        ])
+
+
+def test_ab_testbed_prior_days_refuses_stage_or_later_day(tmp_path, monkeypatch):
+    monkeypatch.setattr(sdw, "run_simulation", lambda **_kwargs: {"messages": _messages("X")})
+    testbed_path = _write_testbed(tmp_path, [
+        {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
+    ])
+    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+
+    # Frozen file contains exactly the --stage day.
+    frozen_monday = _write_frozen(tmp_path, "monday", "s1")
+    with pytest.raises(SystemExit, match="contains day 'monday'"):
+        cl.main([
+            "ab", "--variant", str(variant_path), "--testbed", str(testbed_path),
+            "--stage", "monday", "--dry-run", "--prior-days", str(frozen_monday),
+            "--results-dir", str(tmp_path / "results"),
+        ])
+
+    # Frozen file contains a LATER day than --stage.
+    frozen_tuesday = _write_frozen(tmp_path, "tuesday", "s1", day="tuesday")
+    with pytest.raises(SystemExit, match="contains day 'tuesday'"):
+        cl.main([
+            "ab", "--variant", str(variant_path), "--testbed", str(testbed_path),
+            "--stage", "monday", "--dry-run", "--prior-days", str(frozen_tuesday),
+            "--results-dir", str(tmp_path / "results"),
+        ])
+
+
+def test_ab_sweep_prior_days_gives_control_and_variant_the_same_context(tmp_path, monkeypatch):
+    calls: list[dict] = []
+    monkeypatch.setattr(sdw, "run_simulation", _capturing_run_simulation(calls))
+
+    testbed_path = _write_testbed(tmp_path, [
+        {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
+    ])
+    frozen = _write_frozen(tmp_path, "monday", "s1")
+    sweep_dir = tmp_path / "sweep"
+    sweep_dir.mkdir()
+    (sweep_dir / "v.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "VARIANT_RULES"}))
+
+    cl.main([
+        "ab", "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
+        "--stage", "tuesday", "--runs", "1", "--dry-run",
+        "--prior-days", str(frozen), "--results-dir", str(tmp_path / "results"),
+    ])
+
+    expected = ["Margaret: frozen line one", "Marcus: frozen line two"]
+    assert len(calls) == 2  # shared control + one variant arm
+    assert calls[0]["initial_recent_lines"] == expected
+    assert calls[1]["initial_recent_lines"] == expected
+    assert all(call["initial_highlights"] is None for call in calls)
+
+    [result_file] = list((tmp_path / "results").glob("*-ab-sweep-*.json"))
+    report = json.loads(result_file.read_text())
+    assert report["prior_days"]["days"] == ["monday"]
+
+
+def test_ab_single_concept_refuses_prior_days(tmp_path, monkeypatch):
+    monkeypatch.setattr(sdw, "run_simulation", lambda **_kwargs: {"messages": _messages("X")})
+    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    frozen = _write_frozen(tmp_path, "monday", "s1")
+
+    with pytest.raises(SystemExit, match="--prior-days requires --testbed or --sweep"):
+        cl.main([
+            "ab", "--variant", str(variant_path), "--concept", "Test Muffins",
+            "--stage", "tuesday", "--runs", "1", "--dry-run",
+            "--prior-days", str(frozen), "--recipe-context", "anchor",
+            "--results-dir", str(tmp_path / "results"),
+        ])
+
+
+def test_ab_without_prior_days_keeps_initial_recent_lines_none(tmp_path, monkeypatch):
+    calls: list[dict] = []
+    monkeypatch.setattr(sdw, "run_simulation", _capturing_run_simulation(calls))
+
+    testbed_path = _write_testbed(tmp_path, [
+        {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
+    ])
+    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+
+    cl.main([
+        "ab", "--variant", str(variant_path), "--testbed", str(testbed_path),
+        "--stage", "tuesday", "--runs", "1", "--dry-run",
+        "--results-dir", str(tmp_path / "results"),
+    ])
+
+    assert calls
+    assert all(call["initial_recent_lines"] is None for call in calls)
+
+    [result_file] = list((tmp_path / "results").glob("*-ab-testbed-*.json"))
+    report = json.loads(result_file.read_text())
+    assert "prior_days" not in report

@@ -13,7 +13,7 @@ from __future__ import annotations
 import os
 import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 from backend.utils.logging import get_logger
 
@@ -97,6 +97,70 @@ HARD_BLOCKED_ANTHROPIC_MODELS = {
 }
 
 # ---------------------------------------------------------------------------
+# OpenRouter model policy (fail-closed)
+# ---------------------------------------------------------------------------
+# Lab-only provider: routes lab calls through OpenRouter so per-model and
+# per-test cost lands on one bill. Production model strings stay direct
+# Anthropic; these dotted ids are OpenRouter's names for the same models.
+DEFAULT_OPENROUTER_ALLOWLIST = {
+    "anthropic/claude-haiku-4.5",
+    "anthropic/claude-sonnet-4-6",
+}
+
+HARD_BLOCKED_OPENROUTER_MODELS: set[str] = set()
+
+OPENROUTER_JUDGE_ALLOWLIST = {
+    "anthropic/claude-opus-4.6",
+    "anthropic/claude-sonnet-4-6",
+}
+
+# Pin every OpenRouter call to Anthropic's own servers and never fall back to
+# Vertex/Bedrock. Erik's account guardrail (verified 2026-09-27) means the
+# served model is exactly the one production uses. Kept as a literal alias for
+# the anthropic vendor (equal to openrouter_provider_route("anthropic/...")) -
+# some callers/tests still import this constant directly.
+OPENROUTER_PROVIDER_ROUTE = {"order": ["anthropic"], "allow_fallbacks": False}
+
+
+def openrouter_provider_route(model_id: str) -> dict[str, Any]:
+    """Provider-routing hint for an OpenRouter dotted model id (e.g.
+    ``anthropic/claude-haiku-4.5`` or ``deepseek/deepseek-v4.1-flash``),
+    derived from its vendor prefix - the part before the first ``/`` - rather
+    than a single hardcoded global. For any anthropic id this returns exactly
+    OPENROUTER_PROVIDER_ROUTE. Every route still pins to one vendor and never
+    falls back (#7714 - swappable lab models needed a route per model, not
+    one route for the whole process).
+    """
+    if "/" not in model_id:
+        raise RuntimeError(f"Cannot derive an OpenRouter provider route from model id: {model_id!r}")
+    vendor = model_id.split("/", 1)[0].strip().lower()
+    if not vendor:
+        raise RuntimeError(f"Cannot derive an OpenRouter provider route from model id: {model_id!r}")
+    return {"order": [vendor], "allow_fallbacks": False}
+
+
+# ---------------------------------------------------------------------------
+# Lab-only OpenRouter allowlist registration (#7714)
+#
+# scripts/conversation_lab.py reads scripts/lab_models.json and calls
+# allow_openrouter_models() to register whichever model ids that file names -
+# this module must NEVER read that file itself: backend/ ships in the Vercel
+# Lambda bundle and scripts/lab_models.json does not (see .vercelignore), so a
+# file read here would 404 in production. Registration is additive only -
+# it never removes an id from DEFAULT_OPENROUTER_ALLOWLIST/OPENROUTER_JUDGE_ALLOWLIST.
+# ---------------------------------------------------------------------------
+_EXTRA_OPENROUTER_DIALOGUE_MODELS: set[str] = set()
+_EXTRA_OPENROUTER_JUDGE_MODELS: set[str] = set()
+
+
+def allow_openrouter_models(*, dialogue: str, judge: str) -> None:
+    """Register one lab model set's OpenRouter ids as allowed for dialogue
+    generation and for the judge, in addition to whatever is already allowed.
+    Safe to call more than once (e.g. once per set in lab_models.json)."""
+    _EXTRA_OPENROUTER_DIALOGUE_MODELS.add(dialogue)
+    _EXTRA_OPENROUTER_JUDGE_MODELS.add(judge)
+
+# ---------------------------------------------------------------------------
 # Google model policy (fail-closed)
 # ---------------------------------------------------------------------------
 DEFAULT_GOOGLE_ALLOWLIST = {
@@ -164,17 +228,24 @@ def _record_cost(
     model: str,
     tokens_in: int,
     tokens_out: int,
+    actual_cost: Optional[float] = None,
+    served_provider: Optional[str] = None,
 ) -> None:
     costs = _COST_PER_M_TOKENS.get(model, (0.0, 0.0))
     estimated = (tokens_in * costs[0] + tokens_out * costs[1]) / 1_000_000
-    _COST_LOG.append({
+    entry = {
         "provider": provider,
         "model": model,
         "tokens_in": tokens_in,
         "tokens_out": tokens_out,
         "estimated_cost": estimated,
         "timestamp": time.time(),
-    })
+    }
+    if actual_cost is not None:
+        entry["actual_cost"] = actual_cost
+    if served_provider is not None:
+        entry["served_provider"] = served_provider
+    _COST_LOG.append(entry)
 
 
 def get_cost_summary() -> dict:
@@ -208,10 +279,70 @@ def reset_cost_log() -> None:
     _COST_LOG.clear()
 
 
+def get_cost_entries() -> list[dict]:
+    """Return a shallow copy of the raw cost log.
+
+    Callers that need per-call fields beyond ``get_cost_summary`` (for
+    example OpenRouter's ``usage.cost`` and the served provider) total them
+    from here instead of re-deriving them from token counts.
+    """
+    return [dict(entry) for entry in _COST_LOG]
+
+
+def record_external_cost(provider: str, model: str, cost: float) -> None:
+    """Record a cost-log entry for a paid unit that never goes through
+    generate_response()/generate_judge_response() - currently only
+    backend.utils.stop_check's Jev HTTP attempts (#7714).
+
+    Stored as ``actual_cost`` with zero tokens, exactly like an OpenRouter
+    call's real ``usage.cost`` - so it counts toward
+    ``get_cost_summary()['total_calls']`` (a lab caller's before/after
+    total_calls delta, e.g. scripts/conversation_lab.py's
+    ``_run_arm_and_count``, naturally includes it) and toward
+    ``get_cost_entries()``'s actual-cost total the same way a router call
+    would.
+    """
+    _record_cost(provider, model, 0, 0, actual_cost=float(cost))
+
+
+# ---------------------------------------------------------------------------
+# Lab-only pre-call guard hook (#7714)
+#
+# A caller (scripts/conversation_lab.py) may install a callback here that
+# fires immediately before every generate_response()/generate_judge_response()
+# call - and, via backend.utils.stop_check's own hook, before every Jev HTTP
+# attempt - so it can enforce --max-calls/--max-cost INSIDE a running arm
+# instead of only at coarser boundaries. With no hook installed (the
+# production default, and every test that never calls set_pre_call_hook),
+# this is a complete no-op and behavior is byte-identical to before #7714.
+# ---------------------------------------------------------------------------
+_PRE_CALL_HOOK: Optional[Any] = None
+
+
+def set_pre_call_hook(hook: Optional[Any]) -> Optional[Any]:
+    """Install (or clear, with None) the pre-call hook; returns the
+    previously-installed hook so a caller can restore it (see
+    scripts/conversation_lab.py's ``_installed_budget_guard``)."""
+    global _PRE_CALL_HOOK
+    previous = _PRE_CALL_HOOK
+    _PRE_CALL_HOOK = hook
+    return previous
+
+
+def _fire_pre_call_hook(provider: str, model: str, prompt_bytes: int) -> None:
+    """`provider`/`model`/`prompt_bytes` describe the call about to be
+    made (#7714 finding 2) - a caller-installed hook can use them to
+    reserve that call's worst-case cost (e.g. an OpenRouter reasoning
+    model's output ceiling) instead of only checking the running total.
+    A no-op when unset, same as before this signature existed."""
+    if _PRE_CALL_HOOK is not None:
+        _PRE_CALL_HOOK(provider, model, prompt_bytes)
+
+
 # ---------------------------------------------------------------------------
 # Routing
 # ---------------------------------------------------------------------------
-SUPPORTED_PROVIDERS = {"openai", "anthropic", "google"}  # extend when adding Gemini etc.
+SUPPORTED_PROVIDERS = {"openai", "anthropic", "google", "openrouter"}
 
 
 @dataclass
@@ -290,6 +421,25 @@ def ensure_google_model_allowed(model: str) -> None:
     if low not in allowed:
         raise RuntimeError(
             f"Google model not allowlisted: {model}. Allowed: {', '.join(sorted(allowed))}"
+        )
+
+
+def _allowed_openrouter_models() -> set[str]:
+    raw = os.getenv("OPENROUTER_MODEL_ALLOWLIST", "").strip()
+    base = {m.strip() for m in raw.split(",") if m.strip()} if raw else set(DEFAULT_OPENROUTER_ALLOWLIST)
+    # Union, not override - a lab model set registered via allow_openrouter_models()
+    # must stay allowed even when OPENROUTER_MODEL_ALLOWLIST is set for something else.
+    return base | _EXTRA_OPENROUTER_DIALOGUE_MODELS
+
+
+def ensure_openrouter_model_allowed(model: str) -> None:
+    low = model.lower().strip()
+    if low in HARD_BLOCKED_OPENROUTER_MODELS:
+        raise RuntimeError(f"OpenRouter model blocked by policy: {model}")
+    allowed = _allowed_openrouter_models()
+    if low not in allowed:
+        raise RuntimeError(
+            f"OpenRouter model not allowlisted: {model}. Allowed: {', '.join(sorted(allowed))}"
         )
 
 
@@ -488,6 +638,122 @@ def _generate_google(
     return str(response).strip()
 
 
+_OPENROUTER_ANTHROPIC_MAX_TOKENS = 4096
+_OPENROUTER_REASONING_MAX_TOKENS = 32768
+
+
+def openrouter_max_tokens(model_id: str) -> int:
+    """Output ceiling for one OpenRouter call.
+
+    Anthropic ids keep 4096 - parity with _generate_anthropic, the production
+    call shape. Other vendors' lab models (the DeepSeek set) reason before
+    answering and count that reasoning against max_tokens: at 4096 the judge
+    used every token thinking and returned nothing (12288 tokens over three
+    calls, smoke run 2026-09-28). 32768 leaves room to reason and still answer;
+    OpenRouter bills tokens actually generated, not the ceiling.
+    """
+    vendor = model_id.split("/", 1)[0].strip().lower()
+    if vendor == "anthropic":
+        return _OPENROUTER_ANTHROPIC_MAX_TOKENS
+    return _OPENROUTER_REASONING_MAX_TOKENS
+
+
+# deepseek-v4.1-flash occasionally ends a turn with finish_reason "stop" and
+# no content after reasoning (3 in ~3000 calls, 2026-09-28); each one used to
+# end the whole lab run. Bounded: first try plus two retries.
+_OPENROUTER_EMPTY_STOP_MAX_ATTEMPTS = 3
+
+
+def _generate_openrouter(
+    prompt: str,
+    system_prompt: Optional[str],
+    model: str,
+    temperature: float,
+) -> str:
+    """Generate through OpenRouter's OpenAI-compatible chat-completions API.
+
+    ``model`` is the OpenRouter dotted id (e.g. ``anthropic/claude-haiku-4.5``).
+    Every request is pinned to Anthropic's own servers via
+    OPENROUTER_PROVIDER_ROUTE and asks OpenRouter to include ``usage.cost``
+    so callers can total the exact USD cost of each call.
+    """
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY is not set")
+
+    try:
+        from openai import OpenAI
+    except Exception as e:
+        raise RuntimeError("openai package is not installed") from e
+
+    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+
+    prompt_bytes = len(prompt.encode("utf-8")) + len((system_prompt or "").encode("utf-8"))
+    finish_reason: Any = None
+    completion_tokens: Any = None
+    for attempt in range(_OPENROUTER_EMPTY_STOP_MAX_ATTEMPTS):
+        if attempt:
+            # A retry is another paid call: it passes the caller's guard too.
+            _fire_pre_call_hook("openrouter", model, prompt_bytes)
+            logger.warning("openrouter %s empty content with finish_reason=stop; retry %d", model, attempt)
+        text, finish_reason, completion_tokens = _openrouter_attempt(client, model, messages, temperature)
+        if text:
+            return text
+        if finish_reason != "stop":
+            break
+    # Empty content is never a successful result. finish_reason "length" (a
+    # reasoning model spent the whole ceiling thinking) is not retried - the
+    # same ceiling would fail the same way.
+    raise RuntimeError(
+        f"OpenRouter {model} returned empty content "
+        f"(finish_reason={finish_reason!r}, completion_tokens={completion_tokens})"
+    )
+
+
+def _openrouter_attempt(client: Any, model: str, messages: list, temperature: float) -> tuple[str, Any, Any]:
+    """One OpenRouter request; records its cost. Returns (text, finish_reason, completion_tokens)."""
+    response = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=openrouter_max_tokens(model),
+        extra_body={
+            "provider": openrouter_provider_route(model),
+            "usage": {"include": True},
+        },
+    )
+
+    usage = getattr(response, "usage", None)
+    raw_cost = getattr(usage, "cost", None) if usage else None
+    actual_cost: Optional[float]
+    if isinstance(raw_cost, bool) or not isinstance(raw_cost, (int, float)):
+        actual_cost = None
+    else:
+        actual_cost = float(raw_cost)
+    served_provider = getattr(response, "provider", None)
+    if not isinstance(served_provider, str) or not served_provider:
+        served_provider = None
+    _record_cost(
+        "openrouter", model,
+        getattr(usage, "prompt_tokens", 0) if usage else 0,
+        getattr(usage, "completion_tokens", 0) if usage else 0,
+        actual_cost=actual_cost,
+        served_provider=served_provider,
+    )
+    _central_track(response, "openrouter", project="muffinpanrecipes", caller="model_router.openrouter")
+
+    choice = response.choices[0]
+    return (
+        (choice.message.content or "").strip(),
+        getattr(choice, "finish_reason", None),
+        getattr(usage, "completion_tokens", None) if usage else None,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Vision provider implementations
 # ---------------------------------------------------------------------------
@@ -664,6 +930,7 @@ def generate_response(
     """
     routed = parse_model(model)
     logger.debug(f"Model router provider={routed.provider} model={routed.model}")
+    _fire_pre_call_hook(routed.provider, routed.model, len(prompt.encode("utf-8")) + len((system_prompt or "").encode("utf-8")))
 
     if routed.provider == "openai":
         ensure_openai_model_allowed(routed.model)
@@ -686,6 +953,13 @@ def generate_response(
             model=routed.model, temperature=temperature,
         )
 
+    if routed.provider == "openrouter":
+        ensure_openrouter_model_allowed(routed.model)
+        return _generate_openrouter(
+            prompt=prompt, system_prompt=system_prompt,
+            model=routed.model, temperature=temperature,
+        )
+
     raise RuntimeError(f"Unsupported provider: {routed.provider}")
 
 
@@ -702,12 +976,20 @@ def generate_judge_response(
     Lower temperature by default for more consistent evaluation.
     """
     routed = parse_model(model)
-    if routed.model not in JUDGE_ALLOWLIST:
+    if routed.provider == "openrouter":
+        allowed_judge_models = OPENROUTER_JUDGE_ALLOWLIST | _EXTRA_OPENROUTER_JUDGE_MODELS
+        if routed.model not in allowed_judge_models:
+            raise RuntimeError(
+                f"OpenRouter model not in judge allowlist: {routed.model}. "
+                f"Allowed: {', '.join(sorted(allowed_judge_models))}"
+            )
+    elif routed.model not in JUDGE_ALLOWLIST:
         raise RuntimeError(
             f"Model not in judge allowlist: {routed.model}. "
             f"Allowed: {', '.join(sorted(JUDGE_ALLOWLIST))}"
         )
     logger.info(f"Judge router provider={routed.provider} model={routed.model}")
+    _fire_pre_call_hook(routed.provider, routed.model, len(prompt.encode("utf-8")) + len((system_prompt or "").encode("utf-8")))
 
     if routed.provider == "openai":
         return _generate_openai(
@@ -716,6 +998,11 @@ def generate_judge_response(
         )
     if routed.provider == "anthropic":
         return _generate_anthropic(
+            prompt=prompt, system_prompt=system_prompt,
+            model=routed.model, temperature=temperature,
+        )
+    if routed.provider == "openrouter":
+        return _generate_openrouter(
             prompt=prompt, system_prompt=system_prompt,
             model=routed.model, temperature=temperature,
         )

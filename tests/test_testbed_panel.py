@@ -246,9 +246,12 @@ def _capture_judge_prompts(monkeypatch):
 
     def fake_judge(prompt, system_prompt=None, model=None, temperature=None, **_kw):
         prompts.append(prompt)
+        # c94a60a made the pairwise parser require a per_dimension verdict for
+        # every judged dimension; a stub without it now fails before the prompt
+        # assertions this test exists for.
         return json.dumps({
-            "winner": "A", "scores": {}, "reason": "stub",
-            "dimensions": {"voice_distinctiveness": {"A": 4, "B": 3}},
+            "winner": "A", "reason": "stub",
+            "per_dimension": {dim: "tie" for dim in cl.ALL_JUDGE_DIMENSIONS},
         })
 
     monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
@@ -265,7 +268,8 @@ def test_testbed_run_hands_the_judge_the_recipe_method(tmp_path, monkeypatch):
     variant.write_text(json.dumps({"_SHARED_CHARACTER_RULES": "VARIANT"}))
 
     cl.main([
-        "ab", "--stage", "tuesday", "--testbed", "--runs", "1",
+        "ab", "--provider", "anthropic",
+        "--stage", "tuesday", "--testbed", "--runs", "1",
         "--variant", str(variant), "--results-dir", str(tmp_path / "r"),
         "--max-calls", "500", "--no-log",
     ])
@@ -285,7 +289,8 @@ def test_sweep_run_hands_the_judge_the_recipe_method(tmp_path, monkeypatch):
     (sweep / "a.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "VARIANT_A"}))
 
     cl.main([
-        "ab", "--stage", "tuesday", "--sweep", str(sweep), "--runs", "1",
+        "ab", "--provider", "anthropic",
+        "--stage", "tuesday", "--sweep", str(sweep), "--runs", "1",
         "--results-dir", str(tmp_path / "r"), "--max-calls", "500", "--no-log",
     ])
 
@@ -303,7 +308,8 @@ def test_the_w38_method_reaches_the_judge_verbatim(tmp_path, monkeypatch):
     variant.write_text(json.dumps({"_SHARED_CHARACTER_RULES": "VARIANT"}))
 
     cl.main([
-        "ab", "--stage", "tuesday", "--testbed", "--runs", "1",
+        "ab", "--provider", "anthropic",
+        "--stage", "tuesday", "--testbed", "--runs", "1",
         "--variant", str(variant), "--results-dir", str(tmp_path / "r"),
         "--max-calls", "500", "--no-log",
     ])
