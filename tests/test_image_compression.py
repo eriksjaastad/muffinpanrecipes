@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import os
+from io import BytesIO
 from unittest.mock import MagicMock, patch
+
+from PIL import Image
 
 
 def test_seed_webp_dimensions_are_read_from_repository_assets():
@@ -433,6 +436,152 @@ class TestHeroSrcsetWithVariantsAvailable:
         assert 'sizes="(max-width: 768px) 100vw, 720px"' in html
 
 
+class TestToJpegFallbackUrl:
+    """_to_jpeg_fallback_url (#7185): same deterministic-pathname rewrite as
+    _to_webp_url, but to the sized JPEG <img>-fallback sibling."""
+
+    def test_png_path_becomes_sized_jpeg(self):
+        from backend.publishing.episode_renderer import _to_jpeg_fallback_url
+
+        assert _to_jpeg_fallback_url("/blob-images/abc/hero.png") == (
+            "/blob-images/abc/hero-1200w.jpg"
+        )
+
+    def test_preserves_querystring(self):
+        from backend.publishing.episode_renderer import _to_jpeg_fallback_url
+
+        assert _to_jpeg_fallback_url("/blob-images/abc/hero.png?v=1") == (
+            "/blob-images/abc/hero-1200w.jpg?v=1"
+        )
+
+    def test_non_png_passthrough(self):
+        from backend.publishing.episode_renderer import _to_jpeg_fallback_url
+
+        assert _to_jpeg_fallback_url("/blob-images/abc/hero.jpg") == (
+            "/blob-images/abc/hero.jpg"
+        )
+
+    def test_empty_passthrough(self):
+        from backend.publishing.episode_renderer import _to_jpeg_fallback_url
+
+        assert _to_jpeg_fallback_url("") == ""
+
+    def test_strips_vercel_random_suffix(self):
+        from backend.publishing.episode_renderer import _to_jpeg_fallback_url
+
+        url = "images/20d49356-9VSOT4SGhaUDoAUDM3kZPqxd3Hpeyu.png"
+        assert _to_jpeg_fallback_url(url) == "images/20d49356-1200w.jpg"
+
+
+class TestJpegFallbackAvailable:
+    """_jpeg_fallback_available (#7185): gates the <img> fallback rewrite on
+    storage confirming the sized JPEG sibling actually exists."""
+
+    def test_false_when_storage_reports_unavailable(self):
+        from backend.publishing.episode_renderer import _jpeg_fallback_available
+
+        with patch(
+            "backend.publishing.episode_renderer.storage.jpeg_fallback_available",
+            return_value=False,
+        ):
+            assert _jpeg_fallback_available("/blob-images/abc/hero.png") is False
+
+    def test_true_when_storage_confirms_it_exists(self):
+        from backend.publishing.episode_renderer import _jpeg_fallback_available
+
+        with patch(
+            "backend.publishing.episode_renderer.storage.jpeg_fallback_available",
+            return_value=True,
+        ):
+            assert _jpeg_fallback_available("/blob-images/abc/hero.png") is True
+
+    def test_non_png_short_circuits_without_calling_storage(self):
+        from backend.publishing.episode_renderer import _jpeg_fallback_available
+
+        with patch(
+            "backend.publishing.episode_renderer.storage.jpeg_fallback_available"
+        ) as mock_available:
+            assert _jpeg_fallback_available("/blob-images/abc/hero.jpg") is False
+        mock_available.assert_not_called()
+
+    def test_per_render_cache_checks_storage_once_and_does_not_collide_with_webp_cache(self):
+        """Shares variant_cache with _variants_available (WebP) under a
+        distinct key — one lookup per image per render, and the two checks
+        must never read/write each other's cached answer."""
+        from backend.publishing.episode_renderer import (
+            _jpeg_fallback_available,
+            _variants_available,
+        )
+
+        cache: dict[str, bool] = {}
+        with (
+            patch(
+                "backend.publishing.episode_renderer.storage.jpeg_fallback_available",
+                return_value=True,
+            ) as mock_jpeg,
+            patch(
+                "backend.publishing.episode_renderer.storage.image_variants_available",
+                return_value=False,
+            ) as mock_webp,
+        ):
+            assert _jpeg_fallback_available("/blob-images/abc/hero.png", cache) is True
+            assert _jpeg_fallback_available("/blob-images/abc/hero.png", cache) is True
+            assert _variants_available("/blob-images/abc/hero.png", cache) is False
+            assert _variants_available("/blob-images/abc/hero.png", cache) is False
+
+        mock_jpeg.assert_called_once()
+        mock_webp.assert_called_once()
+
+
+class TestHeroJpegFallback:
+    """End-to-end: render_episode_page's hero <img> fallback (#7185)."""
+
+    @staticmethod
+    def _episode():
+        return {
+            "episode_id": "ep-test",
+            "concept": "Test",
+            "stages": {
+                "monday": {
+                    "recipe_data": {
+                        "title": "Test Muffins",
+                        "description": "delicious",
+                        "ingredients": [{"item": "flour", "amount": "1 cup"}],
+                        "instructions": ["mix it", "bake it"],
+                    },
+                },
+            },
+            "image_urls": ["https://example.com/images/foo/hero.png"],
+        }
+
+    def test_img_fallback_uses_sized_jpeg_once_available(self):
+        from backend.publishing import episode_renderer
+
+        with patch.object(
+            episode_renderer.storage, "jpeg_fallback_available", return_value=True
+        ):
+            html = episode_renderer.render_episode_page(
+                self._episode(), image_url="/blob-images/foo/hero.png",
+            )
+
+        assert 'src="/blob-images/foo/hero-1200w.jpg"' in html
+        assert 'src="/blob-images/foo/hero.png"' not in html
+        # The <source> WebP negotiation is unaffected by the fallback change.
+        assert 'type="image/webp"' in html
+
+    def test_img_fallback_stays_on_raw_png_when_not_yet_backfilled(self):
+        """Default/unmocked storage in this test env reports the fallback as
+        unavailable (no real blob), so the pre-#7185 behavior must hold."""
+        from backend.publishing import episode_renderer
+
+        html = episode_renderer.render_episode_page(
+            self._episode(), image_url="/blob-images/foo/hero.png",
+        )
+
+        assert 'src="/blob-images/foo/hero.png"' in html
+        assert "-1200w.jpg" not in html
+
+
 class TestGallerySrcsetWithVariantsAvailable:
     def test_gallery_emits_full_srcset_and_sizes(self):
         from backend.publishing.episode_renderer import _render_chat_message
@@ -548,6 +697,9 @@ class TestBackfillImageVariantsScript:
         assert "1 distinct published PNGs referenced" in output
         assert "would create: images/abc123/round_1/macro_closeup-400w.webp" in output
         assert "would create: images/abc123/round_1/macro_closeup-800w.webp" in output
+        # #7185 — the sized JPEG <img> fallback is backfilled alongside the
+        # WebP srcset candidates, not by a separate script/invocation.
+        assert "would create: images/abc123/round_1/macro_closeup-1200w.jpg" in output
 
     def test_missing_token_exits_without_any_network_call(self):
         import scripts.backfill_image_variants as backfill
@@ -560,6 +712,62 @@ class TestBackfillImageVariantsScript:
 
         assert exit_code == 2
         mock_get.assert_not_called()
+
+    def test_apply_uploads_missing_webp_and_jpeg_variants(self):
+        """--apply encodes and uploads every missing variant kind for a PNG
+        that predates both #6755 (WebP widths) and #7185 (JPEG fallback) —
+        exercised against synthetic Pillow bytes, no real network/Blob."""
+        import scripts.backfill_image_variants as backfill
+
+        empty_episode_listing = MagicMock()
+        empty_episode_listing.raise_for_status = MagicMock()
+        empty_episode_listing.json.return_value = {"blobs": [], "hasMore": False}
+
+        png_image = Image.new("RGB", (300, 200), (10, 20, 30))
+        png_buf = BytesIO()
+        png_image.save(png_buf, format="PNG")
+
+        fetch_png_response = MagicMock()
+        fetch_png_response.raise_for_status = MagicMock()
+        fetch_png_response.content = png_buf.getvalue()
+
+        get_responses = [
+            self._catalog_response(),
+            self._catalog_content(),
+            self._episode_list_response(),
+            self._episode_content(),
+            empty_episode_listing,
+            self._images_list_response(),
+            fetch_png_response,
+        ]
+
+        def _put_response(url, data=None, headers=None, timeout=None):
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock()
+            resp.json.return_value = {"url": url}
+            return resp
+
+        with (
+            patch.dict(os.environ, {"BLOB_READ_WRITE_TOKEN": "fake-token"}),
+            patch("scripts.backfill_image_variants.requests.get", side_effect=get_responses),
+            patch("scripts.backfill_image_variants.requests.put", side_effect=_put_response) as mock_put,
+        ):
+            exit_code = backfill.main(["--apply"])
+
+        assert exit_code == 0
+        uploaded_paths = [call.args[0] for call in mock_put.call_args_list]
+        assert uploaded_paths == [
+            "https://blob.vercel-storage.com/images/abc123/round_1/macro_closeup-400w.webp",
+            "https://blob.vercel-storage.com/images/abc123/round_1/macro_closeup-800w.webp",
+            "https://blob.vercel-storage.com/images/abc123/round_1/macro_closeup-1200w.jpg",
+        ]
+        content_types = [call.kwargs["headers"]["Content-Type"] for call in mock_put.call_args_list]
+        assert content_types == ["image/webp", "image/webp", "image/jpeg"]
+        # The JPEG upload really is a JPEG at the fallback width, not a
+        # re-encoded WebP wearing a .jpg extension.
+        with Image.open(BytesIO(mock_put.call_args_list[2].kwargs["data"])) as decoded:
+            assert decoded.format == "JPEG"
+            assert decoded.width == 1200
 
 
 def test_backfill_collects_the_confirmed_winner_hero_key():

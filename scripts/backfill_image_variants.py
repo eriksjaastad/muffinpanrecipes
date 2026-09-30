@@ -1,18 +1,23 @@
-"""Backfill width-limited WebP variants for already-published images (#6755).
+"""Backfill sized image variants for already-published images (#6755, #7185).
 
 episode_renderer._to_webp_srcset only emits 400w/800w candidates for an
 image once storage.image_variants_available confirms the smaller blobs
 exist — a srcset candidate that 404s breaks the image for whichever browser
-picks it (see backend/storage.py's _upload_webp_variant docstring). Every
-PNG uploaded before this feature shipped needs its variants generated once,
-here, or its page keeps the old single-candidate srcset forever.
+picks it (see backend/storage.py's _upload_webp_variant docstring).
+episode_renderer's hero <img> fallback likewise only points at the sized
+JPEG sibling once storage.jpeg_fallback_available confirms it exists (#7185)
+— otherwise it keeps pointing at the raw ~1536px PNG, same missing-means-
+not-backfilled-yet fallback behavior. Every PNG uploaded before either
+feature shipped needs its variants generated once, here, or its page keeps
+the old behavior forever.
 
 Walks the PUBLIC CATALOG (pages/recipes.json) and each catalog entry's full
 episode JSON to find every currently-referenced PNG — read-only, no writes
-to episode data or the catalog. For each PNG missing a 400w or 800w
-sibling, downloads the canonical PNG from Blob, encodes both widths with
-storage._encode_webp, and uploads them at the same deterministic
-'<stem>-{width}w.webp' key backend/storage.py's save_image path uses.
+to episode data or the catalog. For each PNG missing a 400w/800w WebP
+sibling or its 1200w JPEG fallback sibling, downloads the canonical PNG
+from Blob, encodes the missing variant(s) with storage._encode_webp /
+storage._encode_jpeg_fallback, and uploads them at the same deterministic
+keys backend/storage.py's save_image path uses.
 
 Defaults to a dry run that only lists what is missing. Pass --apply to
 actually download/encode/upload.
@@ -40,9 +45,40 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import requests  # noqa: E402
 
 from backend.publishing.episode_renderer import _to_local_image_url  # noqa: E402
-from backend.storage import WEBP_VARIANT_WIDTHS, _encode_webp, _webp_variant_key  # noqa: E402
+from backend.storage import (  # noqa: E402
+    JPEG_FALLBACK_WIDTH,
+    WEBP_VARIANT_WIDTHS,
+    _encode_jpeg_fallback,
+    _encode_webp,
+    _jpeg_fallback_key,
+    _webp_variant_key,
+)
 
 BLOB_API = "https://blob.vercel-storage.com"
+
+# Every variant this script can backfill, as (kind, width) pairs. "webp"
+# widths feed the <source> srcset (#6755); the single "jpeg" width is the
+# <img> fallback for browsers that cannot decode WebP at all (#7185).
+VARIANT_SPECS: list[tuple[str, int]] = [
+    *[("webp", width) for width in WEBP_VARIANT_WIDTHS],
+    ("jpeg", JPEG_FALLBACK_WIDTH),
+]
+
+
+def _variant_key_for(png_key: str, kind: str, width: int) -> str:
+    if kind == "jpeg":
+        return _jpeg_fallback_key(png_key)
+    return _webp_variant_key(png_key, width)
+
+
+def _encode_variant(png_bytes: bytes, kind: str, width: int) -> bytes:
+    if kind == "jpeg":
+        return _encode_jpeg_fallback(png_bytes)
+    return _encode_webp(png_bytes, width=width)
+
+
+def _content_type_for(kind: str) -> str:
+    return "image/jpeg" if kind == "jpeg" else "image/webp"
 
 
 def _auth_headers(token: str) -> dict[str, str]:
@@ -88,22 +124,22 @@ def fetch_blob_bytes(url: str) -> bytes:
     return resp.content
 
 
-def upload_variant(token: str, pathname: str, webp_bytes: bytes) -> str:
-    """Upload one WebP variant at its deterministic Blob pathname.
+def upload_variant(token: str, pathname: str, variant_bytes: bytes, content_type: str) -> str:
+    """Upload one variant (WebP or JPEG) at its deterministic Blob pathname.
 
     Same x-add-random-suffix=0 / x-allow-overwrite=1 contract as every
-    other sibling upload (#5251) — required for the renderer's srcset
-    string rewrite to resolve the URL.
+    other sibling upload (#5251) — required for the renderer's string
+    rewrite (srcset or <img> fallback) to resolve the URL.
     """
     upload_url = f"{BLOB_API}/{pathname}"
     headers = {
         "Authorization": f"Bearer {token}",
-        "Content-Type": "image/webp",
+        "Content-Type": content_type,
         "x-vercel-access": "public",
         "x-add-random-suffix": "0",
         "x-allow-overwrite": "1",
     }
-    resp = requests.put(upload_url, data=webp_bytes, headers=headers, timeout=120)
+    resp = requests.put(upload_url, data=variant_bytes, headers=headers, timeout=120)
     resp.raise_for_status()
     return resp.json().get("url", "")
 
@@ -204,48 +240,48 @@ def main(argv: list[str] | None = None) -> int:
     existing = {b.get("pathname", "") for b in all_blobs}
     blobs_by_pathname = {b.get("pathname", ""): b for b in all_blobs}
 
-    todo: list[tuple[str, int]] = []
+    todo: list[tuple[str, str, int]] = []
     for png_key in png_keys:
         if png_key not in blobs_by_pathname:
             print(f"  WARNING: referenced PNG not found in Blob: {png_key}")
             continue
-        for width in WEBP_VARIANT_WIDTHS:
-            if _webp_variant_key(png_key, width) not in existing:
-                todo.append((png_key, width))
+        for kind, width in VARIANT_SPECS:
+            if _variant_key_for(png_key, kind, width) not in existing:
+                todo.append((png_key, kind, width))
 
     mode = "apply" if args.apply else "dry-run"
     print(
-        f"Variant backfill ({mode}): {len(todo)} missing width variants "
+        f"Variant backfill ({mode}): {len(todo)} missing variants "
         f"across {len(png_keys)} referenced PNGs"
     )
 
     if not args.apply:
-        for png_key, width in todo:
-            print(f"  would create: {_webp_variant_key(png_key, width)}")
+        for png_key, kind, width in todo:
+            print(f"  would create: {_variant_key_for(png_key, kind, width)}")
         return 0
 
-    by_png: dict[str, list[int]] = {}
-    for png_key, width in todo:
-        by_png.setdefault(png_key, []).append(width)
+    by_png: dict[str, list[tuple[str, int]]] = {}
+    for png_key, kind, width in todo:
+        by_png.setdefault(png_key, []).append((kind, width))
 
     converted = 0
     failed = 0
-    for i, (png_key, widths) in enumerate(by_png.items(), 1):
+    for i, (png_key, specs) in enumerate(by_png.items(), 1):
         source = blobs_by_pathname[png_key]
         try:
             png_bytes = fetch_blob_bytes(source["url"])
         except Exception as e:  # noqa: BLE001 - continue the idempotent batch after one bad image
             print(f"  [{i}/{len(by_png)}] SKIP {png_key}: fetch failed ({e})")
-            failed += len(widths)
+            failed += len(specs)
             continue
-        for width in widths:
-            variant_key = _webp_variant_key(png_key, width)
+        for kind, width in specs:
+            variant_key = _variant_key_for(png_key, kind, width)
             try:
-                webp_bytes = _encode_webp(png_bytes, width=width)
-                upload_variant(token, variant_key, webp_bytes)
+                variant_bytes = _encode_variant(png_bytes, kind, width)
+                upload_variant(token, variant_key, variant_bytes, _content_type_for(kind))
                 print(f"  [{i}/{len(by_png)}] {png_key} -> {variant_key}")
                 converted += 1
-            except Exception as e:  # noqa: BLE001 - one bad width must not stop the others
+            except Exception as e:  # noqa: BLE001 - one bad variant must not stop the others
                 print(f"  [{i}/{len(by_png)}] FAILED {variant_key}: {e}")
                 failed += 1
 

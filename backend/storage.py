@@ -54,6 +54,15 @@ SOCIAL_IMAGE_SUFFIX = ".social.jpg"
 # scripts/backfill_image_variants.py for every already-published image.
 WEBP_VARIANT_WIDTHS: tuple[int, ...] = (400, 800)
 
+# #7185 — sized JPEG sibling for the <picture> <img> fallback. The <source>
+# above already offers a WebP srcset; the <img> is what a browser that
+# cannot decode WebP at all falls through to, and until this shipped that
+# fallback was the raw ~1536px/3-4MB PNG. One width, not a tuple: <img> has
+# exactly one src, unlike <source>'s srcset which offers several candidates
+# for the browser to pick by viewport. Changing this value requires
+# re-running scripts/backfill_image_variants.py for already-published images.
+JPEG_FALLBACK_WIDTH: int = 1200
+
 # Public, prefix-free base of the (public) blob store. Existence checks HEAD
 # this host: a HEAD against the API host (https://blob.vercel-storage.com/<key>)
 # returns 404 even for blobs that exist — verified 2026-09-05 against a live
@@ -81,6 +90,20 @@ def _webp_variant_key(png_key: str, width: int) -> str:
     if not png_key.lower().endswith(".png"):
         raise ValueError(f"WebP variants require a PNG key: {png_key!r}")
     return f"{png_key[:-4]}-{width}w.webp"
+
+
+def _jpeg_fallback_key(png_key: str) -> str:
+    """Return the deterministic sized-JPEG fallback key for a PNG key (#7185).
+
+    Distinct from SOCIAL_IMAGE_SUFFIX's '.social.jpg' (a fixed 1200x630 crop
+    for OG/Twitter cards): this sibling preserves the source aspect ratio —
+    same resize semantics as the WebP width variants above — so it is a
+    faithful, smaller stand-in for the full photo, suitable as the <picture>
+    <img> fallback. Mirrors _webp_variant_key's naming: '<stem>-{width}w.jpg'.
+    """
+    if not png_key.lower().endswith(".png"):
+        raise ValueError(f"JPEG fallback variant requires a PNG key: {png_key!r}")
+    return f"{png_key[:-4]}-{JPEG_FALLBACK_WIDTH}w.jpg"
 
 
 def _encode_webp(png_bytes: bytes, width: int | None = None) -> bytes:
@@ -149,6 +172,38 @@ def _encode_jpeg(png_bytes: bytes, size: tuple[int, int] | None = None) -> bytes
 def _encode_social_jpeg(png_bytes: bytes) -> bytes:
     """Create a deterministic 1200x630 JPEG suitable for social metadata."""
     return _encode_jpeg(png_bytes, SOCIAL_IMAGE_SIZE)
+
+
+def _encode_jpeg_fallback(png_bytes: bytes) -> bytes:
+    """Encode PNG bytes as a width-limited JPEG, aspect preserved (#7185).
+
+    Same LANCZOS width-only resize as _encode_webp (no cropping — this is a
+    smaller sibling of the whole photo, not a fixed-aspect social crop like
+    _encode_social_jpeg above). JPEG has no alpha channel, so transparency is
+    composited onto white, matching _encode_jpeg's approach.
+    """
+    from io import BytesIO
+
+    from PIL import Image
+
+    with Image.open(BytesIO(png_bytes)) as source:
+        orig_width, orig_height = source.size
+        if orig_width <= 0:
+            raise ValueError("Cannot resize image with zero width")
+        target_height = max(1, round(orig_height * (JPEG_FALLBACK_WIDTH / orig_width)))
+        rgba = source.convert("RGBA")
+        resized = rgba.resize((JPEG_FALLBACK_WIDTH, target_height), Image.Resampling.LANCZOS)
+        background = Image.new("RGB", resized.size, (255, 255, 255))
+        background.paste(resized, mask=resized.getchannel("A"))
+        output = BytesIO()
+        background.save(
+            output,
+            format="JPEG",
+            quality=85,
+            optimize=True,
+            progressive=True,
+        )
+        return output.getvalue()
 
 
 class _FilesystemBackend:
@@ -270,6 +325,11 @@ class _FilesystemBackend:
                     variant_path.write_bytes(_encode_webp(image_bytes, width=width))
                 except Exception as e:  # noqa: BLE001 - same rationale as above
                     logger.warning(f"WebP {width}w variant write failed for {dest}: {e}")
+            try:
+                jpeg_variant_path = dest.with_name(f"{dest.stem}-{JPEG_FALLBACK_WIDTH}w.jpg")
+                jpeg_variant_path.write_bytes(_encode_jpeg_fallback(image_bytes))
+            except Exception as e:  # noqa: BLE001 - same rationale as above
+                logger.warning(f"JPEG fallback write failed for {dest}: {e}")
 
         # Strip src/ prefix — static mount serves src/ at /static, assets at /assets
         url_path = relative_path.removeprefix("src/")
@@ -302,6 +362,19 @@ class _FilesystemBackend:
         # best-effort, so one can be missing while another exists (review
         # finding, 2026-09-05) — and one 404 candidate breaks the image.
         return all((IMAGES_DIR / key).exists() for key in variant_keys)
+
+    def jpeg_fallback_available(self, image_key: str) -> bool:
+        """Whether the sized JPEG <img> fallback exists for a rendered image (#7185).
+
+        Same '<subpath>/name.png' identity as image_variants_available.
+        """
+        if not image_key.lower().endswith(".png"):
+            return False
+        try:
+            key = _jpeg_fallback_key(image_key)
+        except ValueError:
+            return False
+        return (IMAGES_DIR / key).exists()
 
     def cleanup_image_variants(self, recipe_id: str) -> list[str]:
         """Trash the round directories for a recipe. Keeps {recipe_id}.png (the winner).
@@ -731,6 +804,12 @@ class _CloudBackend:
                 # Keep the publishing path safe even if an unexpected
                 # dependency/runtime error escapes the helper's guards.
                 logger.warning(f"Social JPEG sibling pipeline failed for {key}: {e}")
+            # #7185 — sized JPEG <img> fallback, independent of the social
+            # crop above (different aspect ratio, different purpose).
+            try:
+                self._upload_jpeg_fallback(key, image_bytes)
+            except Exception as e:  # noqa: BLE001 - optimization must not block publishing
+                logger.warning(f"JPEG fallback pipeline failed for {key}: {e}")
 
         return blob_url
 
@@ -848,6 +927,41 @@ class _CloudBackend:
         except Exception as e:
             logger.warning(f"Social JPEG upload failed for {social_key}: {e}")
 
+    def _upload_jpeg_fallback(self, png_key: str, png_bytes: bytes) -> None:
+        """Best-effort upload of the sized JPEG <img> fallback sibling (#7185).
+
+        Same one-way best-effort shape as _upload_webp_variant/_upload_social_
+        jpeg_sibling: logs and swallows both encode and upload failures so the
+        canonical PNG upload above always remains the only publishing
+        dependency.
+        """
+        try:
+            jpeg_bytes = _encode_jpeg_fallback(png_bytes)
+        except Exception as e:
+            logger.warning(f"JPEG fallback encode failed for {png_key}: {e}")
+            return
+
+        import requests as _requests
+
+        variant_key = _jpeg_fallback_key(png_key)
+        upload_url = f"https://blob.vercel-storage.com/{variant_key}"
+        headers = {
+            "Authorization": f"Bearer {self._blob_token}",
+            "Content-Type": "image/jpeg",
+            "x-vercel-access": "public",
+            "x-add-random-suffix": "0",
+            "x-allow-overwrite": "1",
+        }
+        try:
+            resp = _requests.put(upload_url, data=jpeg_bytes, headers=headers, timeout=60)
+            resp.raise_for_status()
+            logger.info(
+                f"Uploaded JPEG fallback: {variant_key} "
+                f"({len(jpeg_bytes)}B from {len(png_bytes)}B PNG)"
+            )
+        except Exception as e:
+            logger.warning(f"JPEG fallback upload failed for {variant_key}: {e}")
+
     def get_image_url(self, relative_path: str) -> str:
         if not self._has_cloud():
             return self._fs.get_image_url(relative_path)
@@ -915,6 +1029,33 @@ class _CloudBackend:
             if resp.status_code != 200:
                 return False
         return True
+
+    def jpeg_fallback_available(self, image_key: str) -> bool:
+        """HEAD-check the sized JPEG <img> fallback blob for a rendered image (#7185).
+
+        Same public-host HEAD contract as image_variants_available above — the
+        API host 404s for existing blobs (see BLOB_PUBLIC_BASE) — and the same
+        missing-means-not-backfilled-yet semantics: the renderer falls back to
+        the raw PNG <img> src rather than ever emitting a URL that 404s.
+        """
+        if not self._has_cloud():
+            return self._fs.jpeg_fallback_available(image_key)
+        if not image_key.lower().endswith(".png"):
+            return False
+        try:
+            variant_key = _jpeg_fallback_key(f"images/{image_key}")
+        except ValueError:
+            return False
+
+        import requests as _requests
+
+        key = f"{self.prefix}{variant_key}"
+        try:
+            resp = _requests.head(f"{BLOB_PUBLIC_BASE}/{key}", timeout=10, allow_redirects=True)
+        except Exception as e:
+            logger.warning(f"JPEG fallback existence check failed for {key}: {e}")
+            return False
+        return resp.status_code == 200
 
     def cleanup_image_variants(self, recipe_id: str) -> list[str]:
         """No-op on cloud storage: round-1 variants are LIVE content, not discards (#6712).

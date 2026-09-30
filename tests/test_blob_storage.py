@@ -338,37 +338,45 @@ class TestCloudBackendImageSiblings:
         webp_400w = self._response("https://cdn.example.com/images/recipe/hero-400w.webp")
         webp_800w = self._response("https://cdn.example.com/images/recipe/hero-800w.webp")
         social = self._response("https://cdn.example.com/images/recipe/hero.social.jpg")
+        jpeg_fallback = self._response("https://cdn.example.com/images/recipe/hero-1200w.jpg")
 
         with patch(
             "requests.put",
-            side_effect=[canonical, webp, webp_400w, webp_800w, social],
+            side_effect=[canonical, webp, webp_400w, webp_800w, social, jpeg_fallback],
         ) as mock_put:
             result = cloud_backend.save_image(
                 "src/assets/images/recipe/hero.png", self._png_bytes()
             )
 
         assert result == "https://cdn.example.com/images/recipe/hero.png"
-        assert mock_put.call_count == 5
+        assert mock_put.call_count == 6
 
-        canonical_call, webp_call, webp_400_call, webp_800_call, social_call = (
-            mock_put.call_args_list
-        )
+        (
+            canonical_call,
+            webp_call,
+            webp_400_call,
+            webp_800_call,
+            social_call,
+            jpeg_fallback_call,
+        ) = mock_put.call_args_list
         assert [call.args[0] for call in mock_put.call_args_list] == [
             "https://blob.vercel-storage.com/images/recipe/hero.png",
             "https://blob.vercel-storage.com/images/recipe/hero.webp",
             "https://blob.vercel-storage.com/images/recipe/hero-400w.webp",
             "https://blob.vercel-storage.com/images/recipe/hero-800w.webp",
             "https://blob.vercel-storage.com/images/recipe/hero.social.jpg",
+            "https://blob.vercel-storage.com/images/recipe/hero-1200w.jpg",
         ]
 
         assert canonical_call.kwargs["headers"]["Content-Type"] == "image/png"
         assert webp_call.kwargs["headers"]["Content-Type"] == "image/webp"
         assert webp_400_call.kwargs["headers"]["Content-Type"] == "image/webp"
         assert webp_800_call.kwargs["headers"]["Content-Type"] == "image/webp"
+        assert jpeg_fallback_call.kwargs["headers"]["Content-Type"] == "image/jpeg"
         # Variant siblings use the same deterministic-pathname contract as
         # every other sibling upload (#5251) — otherwise the renderer's
-        # srcset string rewrite can't resolve them.
-        for call in (webp_400_call, webp_800_call):
+        # srcset/fallback string rewrite can't resolve them.
+        for call in (webp_400_call, webp_800_call, jpeg_fallback_call):
             assert call.kwargs["headers"]["x-add-random-suffix"] == "0"
             assert call.kwargs["headers"]["x-allow-overwrite"] == "1"
         # 400w variant is actually downscaled, not just re-encoded at full size.
@@ -385,6 +393,10 @@ class TestCloudBackendImageSiblings:
         with Image.open(BytesIO(social_call.kwargs["data"])) as image:
             assert image.format == "JPEG"
             assert image.size == (1200, 630)
+        # JPEG fallback preserves aspect ratio (no crop) unlike the social sibling.
+        with Image.open(BytesIO(jpeg_fallback_call.kwargs["data"])) as image:
+            assert image.format == "JPEG"
+            assert image.width == 1200
 
     def test_sibling_conversion_or_upload_failure_does_not_fail_png_publish(
         self, cloud_backend
@@ -399,6 +411,7 @@ class TestCloudBackendImageSiblings:
                 RuntimeError("400w variant unavailable"),
                 RuntimeError("800w variant unavailable"),
                 RuntimeError("social jpeg unavailable"),
+                RuntimeError("jpeg fallback unavailable"),
             ],
         ) as mock_put:
             result = cloud_backend.save_image(
@@ -406,7 +419,7 @@ class TestCloudBackendImageSiblings:
             )
 
         assert result == "https://cdn.example.com/images/recipe/hero.png"
-        assert mock_put.call_count == 5
+        assert mock_put.call_count == 6
 
         with (
             patch("backend.storage._encode_social_jpeg", side_effect=OSError("bad PNG")),
@@ -549,6 +562,134 @@ class TestCloudBackendImageVariantsAvailable:
             backend._fs, "image_variants_available", return_value=True
         ) as mock_fs:
             assert backend.image_variants_available("recipe/hero.png") is True
+        mock_fs.assert_called_once_with("recipe/hero.png")
+
+
+class TestJpegFallbackKey:
+    """Deterministic sized-JPEG fallback key naming (#7185)."""
+
+    def test_appends_width_descriptor_before_jpg_extension(self):
+        from backend.storage import JPEG_FALLBACK_WIDTH, _jpeg_fallback_key
+
+        assert _jpeg_fallback_key("images/recipe/hero.png") == (
+            f"images/recipe/hero-{JPEG_FALLBACK_WIDTH}w.jpg"
+        )
+
+    def test_rejects_non_png_key(self):
+        from backend.storage import _jpeg_fallback_key
+
+        with pytest.raises(ValueError):
+            _jpeg_fallback_key("images/recipe/hero.webp")
+
+    def test_distinct_from_social_jpeg_key(self):
+        """The fallback sibling and the social crop must never collide."""
+        from backend.storage import _jpeg_fallback_key, _social_jpeg_key
+
+        assert _jpeg_fallback_key("images/recipe/hero.png") != _social_jpeg_key(
+            "images/recipe/hero.png"
+        )
+
+
+class TestEncodeJpegFallback:
+    """_encode_jpeg_fallback resizing (#7185)."""
+
+    @staticmethod
+    def _png_bytes(size=(1536, 1536)) -> bytes:
+        image = Image.new("RGBA", size, (10, 20, 30, 255))
+        output = BytesIO()
+        image.save(output, format="PNG")
+        return output.getvalue()
+
+    def test_downscales_to_fallback_width_preserving_aspect_ratio(self):
+        from backend.storage import JPEG_FALLBACK_WIDTH, _encode_jpeg_fallback
+
+        result = _encode_jpeg_fallback(self._png_bytes(size=(1536, 1536)))
+        with Image.open(BytesIO(result)) as image:
+            assert image.format == "JPEG"
+            assert image.size == (JPEG_FALLBACK_WIDTH, JPEG_FALLBACK_WIDTH)
+            assert image.mode == "RGB"
+
+    def test_non_square_aspect_ratio_preserved_no_crop(self):
+        """Distinct from the social sibling: this resizes, it never crops."""
+        from backend.storage import JPEG_FALLBACK_WIDTH, _encode_jpeg_fallback
+
+        result = _encode_jpeg_fallback(self._png_bytes(size=(1600, 800)))
+        with Image.open(BytesIO(result)) as image:
+            assert image.size == (JPEG_FALLBACK_WIDTH, 600)
+
+    def test_transparency_composited_onto_white(self):
+        from backend.storage import _encode_jpeg_fallback
+
+        image = Image.new("RGBA", (1536, 1536), (0, 0, 0, 0))
+        buf = BytesIO()
+        image.save(buf, format="PNG")
+
+        result = _encode_jpeg_fallback(buf.getvalue())
+        with Image.open(BytesIO(result)) as decoded:
+            assert decoded.convert("RGB").getpixel((0, 0)) == (255, 255, 255)
+
+
+class TestCloudBackendJpegFallbackAvailable:
+    """storage.jpeg_fallback_available (#7185) — same HEAD-probe contract as
+    image_variants_available, for the single JPEG <img>-fallback sibling.
+    """
+
+    def test_true_when_fallback_blob_exists(self, cloud_backend):
+        from backend.storage import JPEG_FALLBACK_WIDTH
+
+        response = MagicMock()
+        response.status_code = 200
+        with patch("requests.head", return_value=response) as mock_head:
+            assert cloud_backend.jpeg_fallback_available("recipe/hero.png") is True
+
+        assert mock_head.call_args_list[0].args[0] == (
+            "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/"
+            f"images/recipe/hero-{JPEG_FALLBACK_WIDTH}w.jpg"
+        )
+        assert "headers" not in mock_head.call_args_list[0].kwargs, "public probe must not send the token"
+
+    def test_false_when_fallback_blob_missing(self, cloud_backend):
+        response = MagicMock()
+        response.status_code = 404
+        with patch("requests.head", return_value=response):
+            assert cloud_backend.jpeg_fallback_available("recipe/hero.png") is False
+
+    def test_false_on_network_error(self, cloud_backend):
+        with patch("requests.head", side_effect=Exception("timeout")):
+            assert cloud_backend.jpeg_fallback_available("recipe/hero.png") is False
+
+    def test_false_for_non_png_key_without_a_network_call(self, cloud_backend):
+        with patch("requests.head") as mock_head:
+            assert cloud_backend.jpeg_fallback_available("recipe/hero.webp") is False
+        mock_head.assert_not_called()
+
+    def test_respects_prefix_for_test_mode_isolation(self, cloud_backend):
+        from backend.storage import JPEG_FALLBACK_WIDTH
+
+        cloud_backend.set_prefix("test/")
+        response = MagicMock()
+        response.status_code = 200
+        with patch("requests.head", return_value=response) as mock_head:
+            cloud_backend.jpeg_fallback_available("recipe/hero.png")
+
+        called_url = mock_head.call_args_list[0].args[0]
+        assert called_url == (
+            "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/"
+            f"test/images/recipe/hero-{JPEG_FALLBACK_WIDTH}w.jpg"
+        )
+
+    def test_falls_back_to_filesystem_without_cloud_token(self):
+        from backend.storage import _CloudBackend
+
+        with patch.dict(os.environ, {}, clear=True):
+            os.environ.pop("VERCEL_ENV", None)
+            os.environ.pop("BLOB_READ_WRITE_TOKEN", None)
+            backend = _CloudBackend()
+
+        with patch.object(
+            backend._fs, "jpeg_fallback_available", return_value=True
+        ) as mock_fs:
+            assert backend.jpeg_fallback_available("recipe/hero.png") is True
         mock_fs.assert_called_once_with("recipe/hero.png")
 
 

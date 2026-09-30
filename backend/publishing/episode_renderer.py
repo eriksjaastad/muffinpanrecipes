@@ -21,7 +21,12 @@ from pathlib import Path
 from typing import Optional
 
 from backend.publishing.analytics import GA4_TAG
-from backend.storage import SOCIAL_IMAGE_SUFFIX, WEBP_VARIANT_WIDTHS, storage
+from backend.storage import (
+    JPEG_FALLBACK_WIDTH,
+    SOCIAL_IMAGE_SUFFIX,
+    WEBP_VARIANT_WIDTHS,
+    storage,
+)
 from backend.utils.logging import get_logger
 from backend.utils.text_sanitize import sanitize_text
 
@@ -168,6 +173,48 @@ def _variants_available(png_url: str, variant_cache: dict[str, bool] | None = No
     available = storage.image_variants_available(lookup_key)
     if variant_cache is not None:
         variant_cache[lookup_key] = available
+    return available
+
+
+def _to_jpeg_fallback_url(image_url: str) -> str:
+    """Return the sized-JPEG fallback sibling URL for a PNG image URL (#7185).
+
+    Mirrors _to_webp_url: same deterministic-pathname contract and same
+    Vercel-random-suffix stripping, but the '<stem>-{width}w.jpg' naming from
+    storage._jpeg_fallback_key. A non-PNG URL (already a WebP/JPEG sibling,
+    or a seed asset) passes through unchanged.
+    """
+    if not image_url:
+        return image_url
+    path, sep, tail = image_url.partition("?")
+    if not sep:
+        path, sep, tail = image_url.partition("#")
+    if not path.lower().endswith(".png"):
+        return image_url
+    stripped = _VERCEL_RANDOM_SUFFIX_RE.sub(".png", path)
+    jpeg_path = stripped[:-4] + f"-{JPEG_FALLBACK_WIDTH}w.jpg"
+    return jpeg_path + (sep + tail if sep else "")
+
+
+def _jpeg_fallback_available(png_url: str, variant_cache: dict[str, bool] | None = None) -> bool:
+    """Whether the sized JPEG <img> fallback exists for png_url's PNG (#7185).
+
+    Shares variant_cache with _variants_available (same lifetime: once per
+    image per render_episode_page call) but under a distinct key so the two
+    existence checks never collide in the same dict. Unlike the WebP srcset's
+    ORDERING HAZARD, a missing JPEG fallback has a safe, cheap answer: keep
+    serving the raw PNG src rather than ever pointing <img> at a URL that
+    hasn't been backfilled yet (scripts/backfill_image_variants.py).
+    """
+    lookup_key = _variant_lookup_key(png_url)
+    if not lookup_key.lower().endswith(".png"):
+        return False
+    cache_key = f"jpeg-fallback:{lookup_key}"
+    if variant_cache is not None and cache_key in variant_cache:
+        return variant_cache[cache_key]
+    available = storage.jpeg_fallback_available(lookup_key)
+    if variant_cache is not None:
+        variant_cache[cache_key] = available
     return available
 
 
@@ -657,13 +704,17 @@ def render_episode_page(
             f'<span>{html.escape(sanitize_text(step_text))}</span></li>\n'
         )
 
-    # Image block — WebP is the preferred source, while the compressed JPEG
-    # sibling is the fallback for browsers that cannot decode WebP. The
-    # recipe hero is the one above-the-fold image: load it eagerly and give it
-    # high fetch priority. Gallery/chat images remain lazy in
-    # _render_chat_message.
+    # Image block — WebP is the preferred source, while a sized JPEG sibling
+    # (#7185) is the fallback for browsers that cannot decode WebP at all —
+    # once storage confirms it exists (scripts/backfill_image_variants.py
+    # for already-published images); otherwise the raw PNG remains the
+    # fallback exactly as before. The recipe hero is the one above-the-fold
+    # image: load it eagerly and give it high fetch priority. Gallery/chat
+    # images remain lazy in _render_chat_message.
     if has_image:
         fallback_url = image_url
+        if _jpeg_fallback_available(image_url, variant_cache):
+            fallback_url = _to_jpeg_fallback_url(image_url)
         escaped_fallback = html.escape(fallback_url)
         webp_srcset = _to_webp_srcset(image_url, variant_cache)
         if webp_srcset and webp_srcset != image_url:
