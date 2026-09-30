@@ -39,6 +39,30 @@ def sample_episode():
     }
 
 
+class TestFilesystemBackendLoadEpisodeStrict:
+    """#7630: cron_routes._apply_week_off_note calls load_episode_strict
+    uniformly regardless of which backend `storage` resolved to — the
+    filesystem backend needs the method to exist, even though it has no
+    cloud-fallback failure mode to be "strict" about."""
+
+    def test_returns_none_for_a_missing_episode(self, tmp_path, monkeypatch):
+        from backend.storage import _FilesystemBackend
+
+        monkeypatch.setattr("backend.storage.EPISODES_DIR", tmp_path)
+        backend = _FilesystemBackend()
+        assert backend.load_episode_strict("nope") is None
+
+    def test_returns_the_episode_when_present(self, tmp_path, monkeypatch, sample_episode):
+        import json as _json
+
+        from backend.storage import _FilesystemBackend
+
+        monkeypatch.setattr("backend.storage.EPISODES_DIR", tmp_path)
+        (tmp_path / f"{sample_episode['episode_id']}.json").write_text(_json.dumps(sample_episode))
+        backend = _FilesystemBackend()
+        assert backend.load_episode_strict(sample_episode["episode_id"]) == sample_episode
+
+
 class TestCloudBackendSaveEpisode:
     def test_save_puts_to_blob_api(self, cloud_backend, sample_episode):
         mock_resp = MagicMock()
@@ -167,6 +191,23 @@ class TestCloudBackendLoadEpisode:
             with pytest.raises(Exception, match="Network error"):
                 cloud_backend.load_episode_strict("ep-broken")
 
+        mock_fs.assert_not_called()
+
+    def test_strict_load_returns_none_on_genuine_not_found(self, cloud_backend):
+        """#7630: the not-found vs error distinction load_episode_strict
+        exists for. A SUCCESSFUL list call that legitimately finds nothing
+        (empty blobs) is not an error — it must return None cleanly, not
+        raise, and must not fall back to the filesystem either (unlike the
+        non-strict load_episode)."""
+        mock_list = MagicMock()
+        mock_list.json.return_value = {"blobs": []}
+        mock_list.raise_for_status = MagicMock()
+
+        with patch("requests.get", return_value=mock_list), \
+             patch.object(cloud_backend._fs, "load_episode") as mock_fs:
+            result = cloud_backend.load_episode_strict("ep-missing")
+
+        assert result is None
         mock_fs.assert_not_called()
 
 

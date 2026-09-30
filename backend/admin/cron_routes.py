@@ -238,10 +238,18 @@ def _apply_week_off_note(episode_id: str, ep: dict) -> None:
     episode id or a failed read of the previous week is logged and leaves
     the field exactly as it was (ops still see the failure through their own
     alerts and health checks).
+
+    Uses `load_episode_strict`, not the ordinary `load_episode` (#7630): a
+    Blob outage must not be mistaken for "the previous week never
+    published". `load_episode` intentionally falls back to (empty) local
+    filesystem data on ANY cloud error and returns None either way, which
+    would stamp a false note during an outage. `load_episode_strict` raises
+    on a genuine read/network failure — caught below, same as an
+    unparseable id — and only returns None for an ACTUAL missing episode.
     """
     try:
         previous_id = episode_integrity.week_before(episode_id)
-        previous_episode = storage.load_episode(previous_id)
+        previous_episode = storage.load_episode_strict(previous_id)
     except Exception as exc:  # noqa: BLE001 - best-effort cosmetic note
         logger.warning(
             f"week-off note check skipped for {episode_id}: {type(exc).__name__}: {exc}"
@@ -2978,12 +2986,14 @@ async def cron_sunday(request: Request):
                     "message": WEEK_OFF_MESSAGE, "missed_week": episode_id,
                 }
                 storage.save_episode(episode_id, ep)
-                # pages/latest.json is global and belongs to the CURRENT
-                # week: a manual force=true retry of an older incomplete week
-                # must not replace this week's live teaser with stale content
-                # (it would also fail health_check's current-week check).
-                if episode_id == _current_episode_id():
-                    regenerate_and_upload(ep)
+                # regenerate_and_upload itself only ever touches
+                # pages/latest.json for the CURRENT ISO week (#7630) — a
+                # manual force=true retry of an older incomplete week still
+                # renders/uploads that week's own page here, but can no
+                # longer replace the live homepage teaser with stale
+                # content. No guard needed at this call site any more; the
+                # writer is the single source of truth for the invariant.
+                regenerate_and_upload(ep)
                 raise HTTPException(
                     status_code=400,
                     detail=f"Cannot publish: {day} stage incomplete (status={stage_status!r})",

@@ -189,6 +189,19 @@ class _FilesystemBackend:
             return None
         return json.loads(path.read_text())
 
+    def load_episode_strict(self, episode_id: str) -> Optional[dict]:
+        """Same as load_episode.
+
+        The filesystem backend has no cloud fallback path to mask a read
+        failure with — a missing file already returns None cleanly, and any
+        other failure (a malformed JSON file, a permissions error) already
+        propagates as a real exception. "Strict" is the filesystem backend's
+        only mode, so this exists only so callers that need the not-found
+        vs. error distinction (#7630) can call one method name regardless of
+        which backend `storage` resolved to.
+        """
+        return self.load_episode(episode_id)
+
     def save_episode(self, episode_id: str, data: dict) -> None:
         EPISODES_DIR.mkdir(parents=True, exist_ok=True)
         path = EPISODES_DIR / f"{episode_id}.json"
@@ -440,6 +453,15 @@ class _CloudBackend:
         Static deployment builds use this authoritative form so a transient
         Blob failure cannot publish a page set assembled from stale disk data.
         Runtime readers retain the compatibility fallback in ``load_episode``.
+
+        Also used by cron_routes._apply_week_off_note (#7630): a read error
+        here must be distinguishable from a genuine "no episode for that
+        week" — ``load_episode``'s fallback-on-any-exception behavior would
+        turn a transient Blob outage into a false "the week never published"
+        note. Not found (an empty ``blobs`` list from a SUCCESSFUL API call)
+        returns ``None``; any read/network/API failure raises instead of
+        returning ``None``, so callers that need that distinction get it for
+        free by calling this instead of ``load_episode``.
         """
         if not self._has_cloud():
             return self._fs.load_episode(episode_id)

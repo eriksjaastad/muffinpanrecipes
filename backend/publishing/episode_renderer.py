@@ -22,6 +22,7 @@ from typing import Optional
 
 from backend.publishing.analytics import GA4_TAG
 from backend.storage import SOCIAL_IMAGE_SUFFIX, WEBP_VARIANT_WIDTHS, storage
+from backend.utils import episode_integrity
 from backend.utils.logging import get_logger
 from backend.utils.text_sanitize import sanitize_text
 
@@ -1314,6 +1315,26 @@ def regenerate_and_upload(episode: dict, *, strict: bool = False) -> str | None:
         # (top of recipes.json), so the teaser must step aside to avoid the
         # same recipe appearing twice. Frontend hides on missing title.
         #
+        # pages/latest.json is GLOBAL and belongs to the CURRENT ISO week
+        # only (#7630 — Codex review of 2d0567b/6b86ede). Every caller here
+        # runs against whatever episode it was handed, and that is not
+        # always the current week: a manual force=true re-fire or publish of
+        # an OLDER (or a not-yet-current) week must render and upload THAT
+        # episode's own page above, but must never replace the live homepage
+        # teaser with stale or premature content, and a late publish of an
+        # older week must not silently claim the current week's spot either.
+        # The invariant lives here, once, rather than in every caller: skip
+        # step 2 entirely — no teaser write, no published-marker write — for
+        # any episode that isn't the current week. health_check's
+        # current-week teaser check is unaffected either way, since it only
+        # ever reads whatever the CURRENT week last legitimately wrote.
+        if episode_id != episode_integrity.current_episode_id():
+            logger.info(
+                f"Skipped pages/latest.json for {episode_id}: not the "
+                f"current ISO week — its own page was still rendered above."
+            )
+            return url
+
         # week_off_note (#7630): a "kitchen took the week off" note that
         # cron_routes._apply_week_off_note (Monday) or cron_sunday's own
         # refuse-to-publish path stamps onto `episode` when the PREVIOUS

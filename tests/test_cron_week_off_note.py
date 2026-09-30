@@ -41,8 +41,10 @@ MONDAY_W37 = datetime(2026, 9, 7, 14, 30, tzinfo=timezone.utc)
 # ---------------------------------------------------------------------------
 
 def test_apply_week_off_note_sets_field_when_previous_week_has_no_episode():
+    """Genuine not-found (load_episode_strict returns None cleanly, no
+    exception) -> the note IS set (#7630 finding 2)."""
     ep = {"episode_id": "2026-W37", "stages": {}}
-    with patch.object(storage, "load_episode", return_value=None) as load_episode:
+    with patch.object(storage, "load_episode_strict", return_value=None) as load_episode:
         cron_routes._apply_week_off_note("2026-W37", ep)
     load_episode.assert_called_once_with("2026-W36")
     assert ep["week_off_note"] == {
@@ -54,7 +56,7 @@ def test_apply_week_off_note_sets_field_when_previous_week_has_no_episode():
 def test_apply_week_off_note_sets_field_when_previous_week_unpublished():
     previous = {"episode_id": "2026-W36", "stages": {"wednesday": {"status": "failed"}}}
     ep = {"episode_id": "2026-W37", "stages": {}}
-    with patch.object(storage, "load_episode", return_value=previous):
+    with patch.object(storage, "load_episode_strict", return_value=previous):
         cron_routes._apply_week_off_note("2026-W37", ep)
     assert ep["week_off_note"]["missed_week"] == "2026-W36"
 
@@ -62,7 +64,7 @@ def test_apply_week_off_note_sets_field_when_previous_week_unpublished():
 def test_apply_week_off_note_clears_field_when_previous_week_published():
     previous = {"episode_id": "2026-W36", "published_at": "2026-09-06T00:10:00+00:00"}
     ep = {"episode_id": "2026-W37", "stages": {}, "week_off_note": {"stale": "leftover"}}
-    with patch.object(storage, "load_episode", return_value=previous):
+    with patch.object(storage, "load_episode_strict", return_value=previous):
         cron_routes._apply_week_off_note("2026-W37", ep)
     assert "week_off_note" not in ep
 
@@ -78,7 +80,7 @@ def test_apply_week_off_note_respects_the_active_prefix():
         seen_prefixes.append(storage.prefix)
         return {"published_at": "2026-09-06T00:10:00+00:00"}
 
-    with patch.object(storage, "load_episode", side_effect=fake_load_episode):
+    with patch.object(storage, "load_episode_strict", side_effect=fake_load_episode):
         with storage.prefix_scope("test/"):
             cron_routes._apply_week_off_note("2026-W37", {"episode_id": "2026-W37", "stages": {}})
         with storage.prefix_scope(""):
@@ -93,10 +95,24 @@ def test_apply_week_off_note_on_an_older_week_refire_asks_about_the_week_before_
     never stamps a false 'missed W40' note that Monday's writer would then
     put on the live homepage."""
     ep = {"episode_id": "2026-W40", "stages": {}}
-    with patch.object(storage, "load_episode", return_value={"published_at": "x"}) as load_episode:
+    with patch.object(storage, "load_episode_strict", return_value={"published_at": "x"}) as load_episode:
         cron_routes._apply_week_off_note("2026-W40", ep)
     load_episode.assert_called_once_with("2026-W39")
     assert "week_off_note" not in ep
+
+
+def test_apply_week_off_note_unchanged_on_a_read_error_with_a_warning(caplog):
+    """#7630 finding 2: a cloud read ERROR (not a genuine not-found) must
+    take the logged-skip path, never be mistaken for "no previous episode".
+    load_episode_strict raises on a read/network failure (unlike plain
+    load_episode, which would swallow it and return None) — caught here,
+    the field is left exactly as it was, and a warning is logged."""
+    ep = {"episode_id": "2026-W40", "stages": {}, "week_off_note": {"kept": True}}
+    with patch.object(storage, "load_episode_strict", side_effect=RuntimeError("blob down")):
+        with caplog.at_level("WARNING"):
+            cron_routes._apply_week_off_note("2026-W40", ep)
+    assert ep["week_off_note"] == {"kept": True}
+    assert any("blob down" in record.message for record in caplog.records)
 
 
 @pytest.mark.parametrize("failure", ["bad-id", "read-error"])
@@ -105,7 +121,7 @@ def test_apply_week_off_note_never_fails_monday(failure):
     if failure == "bad-id":
         cron_routes._apply_week_off_note("2026-W99", ep)
     else:
-        with patch.object(storage, "load_episode", side_effect=RuntimeError("blob down")):
+        with patch.object(storage, "load_episode_strict", side_effect=RuntimeError("blob down")):
             cron_routes._apply_week_off_note("2026-W40", ep)
     assert ep["week_off_note"] == {"kept": True}
 
@@ -165,10 +181,15 @@ def test_cron_sunday_sets_week_off_note_when_a_required_stage_is_incomplete():
 
 
 def test_refusing_an_older_week_never_rewrites_the_live_latest_json():
-    """Codex review of 2d0567b: a manual force=true retry of an OLDER
-    incomplete week must not replace the current week's live teaser in the
-    global pages/latest.json. It still refuses with the same 400 and records
-    the note on that older episode's own record."""
+    """Codex review of 2d0567b/6b86ede: a manual force=true retry of an
+    OLDER incomplete week must not replace the current week's live teaser
+    in the global pages/latest.json. It still refuses with the same 400 and
+    records the note on that older episode's own record.
+
+    regenerate_and_upload is NOT mocked here — the invariant now lives
+    inside it (#7630), so this is an end-to-end check that cron_sunday's
+    refusal path really is protected by the writer's own current-week gate,
+    not just trusted to be."""
     episode = {
         "episode_id": "2026-W40",
         "concept": "Some Concept",
@@ -177,21 +198,30 @@ def test_refusing_an_older_week_never_rewrites_the_live_latest_json():
             "tuesday": {"status": "complete"},
         },
         "events": [],
+        "image_urls": [],
     }
+
+    writes: dict[str, str] = {}
+
+    def fake_save_page(path, content):
+        writes[path] = content
+        return f"https://blob/{path}"
 
     with patch.object(cron_routes, "_verify_cron_secret"), \
          patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=_body("2026-W40"))), \
          patch.object(cron_routes, "_verify_day_of_week"), \
          patch.object(cron_routes.storage, "load_episode", return_value=episode), \
          patch.object(cron_routes.storage, "save_episode") as save_episode, \
-         patch.object(cron_routes, "_current_episode_id", return_value="2026-W41"), \
-         patch.object(cron_routes, "regenerate_and_upload") as regenerate:
+         patch.object(cron_routes.storage, "save_page", side_effect=fake_save_page), \
+         patch.object(cron_routes.episode_integrity, "current_episode_id", return_value="2026-W41"), \
+         patch("backend.publishing.episode_renderer.render_episode_page", return_value="<html></html>"):
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(cron_routes.cron_sunday(_request()))
 
     assert exc_info.value.status_code == 400
     save_episode.assert_called_once_with("2026-W40", episode)
-    regenerate.assert_not_called()
+    assert "pages/2026-W40/index.html" in writes  # its own page still rendered
+    assert "pages/latest.json" not in writes       # the live homepage teaser, untouched
 
 
 def test_cron_sunday_does_not_set_week_off_note_when_publish_succeeds():

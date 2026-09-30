@@ -3,7 +3,19 @@
 import json
 from unittest.mock import patch
 
+import pytest
+
 from backend.publishing import episode_renderer
+
+
+@pytest.fixture(autouse=True)
+def _pin_current_week(monkeypatch):
+    """Every fixture in this file uses episode_id "2026-W18". Pin
+    current_episode_id() to match so regenerate_and_upload's current-week
+    gate (#7630) writes pages/latest.json exactly like it used to, whatever
+    the real calendar date is when the suite runs. Tests exercising the gate
+    itself override this within their own `with patch.object(...)` block."""
+    monkeypatch.setattr(episode_renderer.episode_integrity, "current_episode_id", lambda: "2026-W18")
 
 
 def _episode(stages):
@@ -144,3 +156,51 @@ def test_week_off_note_reaches_homepage_even_with_no_teaser_dialogue():
 
     payload = json.loads(writes["pages/latest.json"])
     assert payload == {"episode_id": "2026-W18", "week_off_note": _WEEK_OFF_NOTE}
+
+
+# ---------------------------------------------------------------------------
+# pages/latest.json is global and belongs to the CURRENT ISO week only
+# (#7630 — Codex review of 2d0567b/6b86ede). regenerate_and_upload is the
+# single source of truth for this invariant: every caller (each day's cron,
+# a manual force=true retry, scripts/fix_w36_category_cuisine.py) can hand it
+# any episode, and it must render/upload THAT episode's own page regardless,
+# but only ever touch the global teaser/published marker for the current week.
+# ---------------------------------------------------------------------------
+
+def test_regenerate_and_upload_skips_latest_json_for_a_non_current_week():
+    """A manual force=true retry (or late publish) of an OLDER — or a
+    not-yet-current — week must still render/upload that episode's own page,
+    but must never replace the live homepage teaser."""
+    episode = _episode({"monday": _stage_with_dialogue(), "sunday": _stage_with_dialogue()})
+
+    writes: dict[str, str] = {}
+
+    def fake_save(path, content):
+        writes[path] = content
+        return f"https://blob/{path}"
+
+    with patch.object(episode_renderer.episode_integrity, "current_episode_id", return_value="2026-W19"), \
+         patch.object(episode_renderer.storage, "save_page", side_effect=fake_save):
+        url = episode_renderer.regenerate_and_upload(episode)
+
+    assert "pages/2026-W18/index.html" in writes  # its own page, always
+    assert "pages/latest.json" not in writes       # the global teaser, never
+    assert url == "https://blob/pages/2026-W18/index.html"
+
+
+def test_regenerate_and_upload_writes_latest_json_for_the_current_week():
+    """Sanity check: the gate only skips a NON-current week — the ordinary
+    case (this episode IS the current week) is unaffected."""
+    episode = _episode({"monday": _stage_with_dialogue(), "saturday": _stage_with_dialogue()})
+
+    writes: dict[str, str] = {}
+
+    def fake_save(path, content):
+        writes[path] = content
+        return f"https://blob/{path}"
+
+    with patch.object(episode_renderer.episode_integrity, "current_episode_id", return_value="2026-W18"), \
+         patch.object(episode_renderer.storage, "save_page", side_effect=fake_save):
+        episode_renderer.regenerate_and_upload(episode)
+
+    assert "pages/latest.json" in writes
