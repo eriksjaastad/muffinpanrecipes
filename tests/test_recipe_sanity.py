@@ -22,10 +22,12 @@ import pathlib
 import pytest
 
 from backend.utils.recipe_sanity import (
+    DONENESS_PROXIMITY_WINDOW_WORDS,
     OVEN_TEMP_MAX_F,
     OVEN_TEMP_MIN_F,
     PAN_CAPACITY_CUPS_MAX,
     PAN_WELLS,
+    _weak_doneness_near_protein,
     check_recipe_sanity,
 )
 
@@ -385,6 +387,78 @@ def test_weak_doneness_in_the_protein_step_does_clear_it() -> None:
         )
     )
     assert verdict.status == "clear", verdict.reason
+
+
+def test_doneness_proximity_window_accepts_realistic_cooking_verbosity() -> None:
+    """Real recipes separate the protein mention from its own doneness word
+    by ordinary cooking narration - "breaking it into small crumbles" - and
+    that must still clear (#7107). This mirrors the published
+    w30_ground_pork_loses_pink_and_fish_sauce fixture, 10 words apart.
+    """
+    verdict = check_recipe_sanity(
+        _recipe(
+            ingredients=[{"item": "ground pork", "amount": "1 lb", "notes": ""}],
+            instructions=[
+                "Preheat the oven to 375F.",
+                "Add the ground pork and cook, breaking it into small crumbles, "
+                "until it loses its pink color, about 4-5 minutes.",
+                "Divide among the wells and bake 20 minutes.",
+            ],
+        )
+    )
+    assert verdict.status == "clear", verdict.reason
+
+
+def test_doneness_far_outside_window_does_not_clear_the_protein() -> None:
+    """A weak doneness word far enough from the protein mention - well past
+    DONENESS_PROXIMITY_WINDOW_WORDS - must not clear it, even sharing a step.
+    This is the case the old "anywhere in the step" rule could not catch.
+    """
+    filler = " ".join(["and stir gently"] * 8)  # 24 words of padding
+    step = f"Add the raw chicken thighs {filler} until the topping looks nicely browned."
+    verdict = check_recipe_sanity(
+        _recipe(
+            ingredients=[{"item": "boneless chicken thighs", "amount": "1 lb", "notes": ""}],
+            instructions=["Preheat the oven to 375F.", step],
+        )
+    )
+    assert verdict.status == "unsafe", verdict.reason
+
+
+def test_compound_sentence_defeat_is_a_documented_residual_limit() -> None:
+    """The exact compound sentence from #7107's card still clears - a
+    known, documented residual limit, not an oversight.
+
+    "browned" sits 10 words from "chicken" here, describing the glaze - but
+    real published recipes place a genuine doneness word for their protein
+    just as far away (see DONENESS_PROXIMITY_WINDOW_WORDS), so a window tight
+    enough to reject this sentence also rejects real recipes. This test pins
+    that trade-off rather than silently regressing it later.
+    """
+    verdict = check_recipe_sanity(
+        _recipe(
+            ingredients=[{"item": "boneless chicken thighs", "amount": "1 lb", "notes": ""}],
+            instructions=[
+                "Preheat the oven to 375F.",
+                "Stir the raw chicken into the glaze until the glaze looks "
+                "glossy and browned, then divide among the wells and bake "
+                "20 minutes.",
+            ],
+        )
+    )
+    assert verdict.status == "clear"
+
+
+def test_weak_doneness_near_protein_boundary_at_window_edge() -> None:
+    """Unit-level pin on the exact window boundary: exactly on the edge
+    clears, one word past it does not.
+    """
+    words_before = " ".join(["word"] * (DONENESS_PROXIMITY_WINDOW_WORDS - 1))
+    at_edge = f"chicken {words_before} browned"
+    assert _weak_doneness_near_protein(at_edge) is True
+
+    past_edge = f"chicken {words_before} extra browned"
+    assert _weak_doneness_near_protein(past_edge) is False
 
 
 def test_strong_doneness_counts_anywhere() -> None:
