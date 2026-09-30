@@ -892,43 +892,65 @@ def _judge_meta_fields(episode: dict, stage: str) -> dict:
 
 def _announce_advisory_publication(episode_id: str, episode: dict, stage: str, concept: str) -> None:
     """Send the advisory alert once the page it describes actually exists,
-    exactly once even if the process dies between the two (#7403).
+    and keep retrying on later Sunday invocations until it is delivered
+    (#7403).
 
     _generate_and_judge_dialogue records that it SELECTED a below-bar
     dialogue; only the publish path knows whether the recipe went live. The
-    `published` flip is persisted by the caller before this fires, so a
-    delivery failure here cannot leave the episode claiming an unsent alert.
+    publish path sets ``published`` and ``announce_pending`` in the same
+    save, before the static source handoff. This function sends only while
+    ``announce_pending`` is set AND the handoff has reached ``source_ready``
+    (the reader pages were written), so it never announces a page that was
+    not written. It is called from the publish path and again from
+    cron_sunday's already-published fast path, so a crash between the
+    publish save and the alert is retried on the next invocation.
 
-    That save happens before this call, not after, and `_complete_static_
-    source_handoff` runs in between (see cron_sunday) — so a crash after the
-    save but before this function ever runs used to lose the alert forever:
-    the episode was already `published=True` on disk, and cron_sunday's
-    already-published fast path (the `ep.get("published_at")` early return)
-    never called this function again on retry. `announced_at`, written here
-    with its own save right after a successful send, is what that fast path
-    now checks (see its call site) to fire the alert it would otherwise skip
-    — and what stops it from sending a second time once this function has
-    already succeeded once.
+    Guarantees, stated exactly:
+    - A delivery that ``notify_judge_advisory`` reports as failed (it returns
+      False without raising when every channel is down) leaves the record
+      pending, so the next invocation tries again. Only a confirmed delivery
+      clears it.
+    - Records published before ``announce_pending`` existed never carry it,
+      so this never re-sends an advisory that older code already announced.
+    - Sequential invocations send at most once per delivery confirmed and
+      saved. If the send succeeds but saving the cleared flag fails, the
+      error is logged and the stage is not failed (the recipe did publish);
+      the next invocation may send one duplicate. Two invocations running
+      at the same moment can both send: there is no storage-level lock, so
+      this is at-least-once under concurrency, not exactly-once.
     """
     record = episode.get("judge_advisory", {}).get(stage)
-    if not record or not record.get("published") or record.get("announced_at"):
+    if not record or not record.get("published") or not record.get("announce_pending"):
         return
-    notify_judge_advisory(
+    if _static_deploy_state(episode).get("status") != "source_ready":
+        # Pages not confirmed written; the handoff raises its own alert on
+        # failure. Stay pending so a later invocation announces after it.
+        return
+    delivered = notify_judge_advisory(
         concept=concept,
         stage=stage,
         verdict=record.get("verdict", ""),
-        episode_id=episode.get("episode_id", "unknown"),
+        episode_id=episode_id,
         attempts=record.get("attempts", 0),
         scores=record.get("scores") or {},
         weakest=record.get("weakest") or [],
     )
-    # Recorded only after a successful send, and persisted immediately: if the
-    # process dies between the line above and this save, the worst case is
-    # one extra duplicate alert on the next retry, never a lost one — the
-    # opposite failure mode from the one this card fixes, and the
-    # acceptable one.
+    if not delivered:
+        logger.error(
+            f"Advisory alert for {episode_id}/{stage} was not delivered on any channel; "
+            "left pending for the next Sunday invocation"
+        )
+        return
+    record["announce_pending"] = False
     record["announced_at"] = datetime.now(timezone.utc).isoformat()
-    storage.save_episode(episode_id, episode)
+    try:
+        storage.save_episode(episode_id, episode)
+    except Exception as exc:  # noqa: BLE001 - the publish already succeeded
+        logger.error(
+            f"Advisory alert for {episode_id}/{stage} was delivered but its announced marker "
+            f"could not be saved ({type(exc).__name__}: {exc}); a later invocation may send "
+            "one duplicate"
+        )
 
 
 class JudgeFailedError(Exception):
@@ -2862,10 +2884,9 @@ async def cron_sunday(request: Request):
             _complete_static_source_handoff(episode_id, ep)
         # A crash between saving published=True and sending the advisory
         # alert used to lose the alert forever, because this fast path never
-        # retried it (#7403). _announce_advisory_publication is idempotent
-        # (it checks and then sets announced_at), so calling it on every
-        # already-published hit is safe: a no-op once the alert has actually
-        # gone out, a retry when it has not.
+        # retried it (#7403). The helper only sends while the record is
+        # announce_pending and the handoff reached source_ready, so this is a
+        # no-op once delivered and for records older code already announced.
         _announce_advisory_publication(episode_id, ep, "sunday", concept)
         sunday_stage = ep.get("stages", {}).get("sunday", {})
         return _stage_response("sunday", episode_id, concept, {
@@ -3059,6 +3080,9 @@ async def cron_sunday(request: Request):
         if advisory and not advisory.get("published"):
             advisory["published"] = True
             advisory["published_at"] = ep["published_at"]
+            # Saved in the same write as `published` (#7403): the alert is
+            # owed from here until a delivery is confirmed.
+            advisory["announce_pending"] = True
 
         # Persist the published episode before writing the catalog so a crash
         # between authoritative writes and the manual deployment handoff is
