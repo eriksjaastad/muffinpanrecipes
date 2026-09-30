@@ -27,12 +27,7 @@ from statistics import mean
 from typing import Any, Iterable
 
 from backend.config import config
-from backend.storage import (
-    CharacterMemoryUnavailable,
-    merge_character_memory,
-    order_valid_episodes_by_week,
-    storage,
-)
+from backend.storage import CharacterMemoryUnavailable, storage
 from backend.utils.director import Direction, direct_day, roll_day
 from backend.utils.logging import get_logger
 from backend.utils.model_router import generate_response
@@ -571,84 +566,89 @@ def _load_bio(name: str) -> str | None:
     return None
 
 
-def _load_character_memory_seeded(slug: str, *, force_refresh: bool = False) -> dict[str, Any] | None:
-    """Durable memory for `slug`, seeded from the legacy bundled file (#6968).
+def _load_legacy_memory_entries(slug: str) -> list[dict]:
+    """Read-only DISPLAY fallback: the legacy bundled memory.json (#6968,
+    redesigned in review round 3).
 
-    backend/data/characters/<slug>/memory.json is the read-only file that
-    predates durable storage; it remains in place as the initial seed ONLY
-    for a genuine not-found in durable storage (card #6968, item 7). Once
-    durable storage holds anything for a character it is authoritative and
-    the legacy file is never consulted again for that character. Mirrors
-    backend.admin.cron_routes._load_character_memory_seeded.
-
-    Deliberately does NOT catch CharacterMemoryUnavailable — a durable-store
-    READ failure must propagate rather than being treated as "no memory
-    yet" (#6968 review finding 1); _load_memories below converts that into
-    the truthful known-coworker prompt fallback instead of silently seeding
-    stale legacy data, and _generate_episode_memories' per-character write
-    skips the write entirely on this path.
-
-    `force_refresh` MUST be True for any read that precedes a write (this
-    module's local _generate_episode_memories does exactly that) — see
-    backend.storage._CloudBackend.load_character_memory's docstring
-    (#6968 review finding 1). The prompt-read path (_load_memories below)
-    keeps the default False: a stale read there is harmless.
+    Used ONLY when durable storage has zero weeks for this character — see
+    _load_memories_or_unavailable. Never written to and never merged into
+    durable storage. Its entries are returned exactly as stored — NOT
+    deduped, NOT validated, NOT sorted by week — because round-3 review
+    finding 2 established that each legacy seed's 3 identically-labelled
+    "week": "2026-W11" entries are 3 DIFFERENT recipes the old, pre-#6968
+    writer mislabelled with the same week key (e.g. margaret-chen's are
+    Jalapeno Corn Dog Bites, Mini Shepherd's Pies, and Brown Butter Pecan
+    Tassies). Deduping them, as an earlier round of this fix did, silently
+    destroyed 2 of 3 real, distinct histories. Their week labels are known
+    to be unreliable and are never parsed/sorted here — this returns the
+    last 2 entries in file order, matching the file's own intended
+    recency ordering.
     """
-    existing = storage.load_character_memory(slug, force_refresh=force_refresh)
-    if existing is not None:
-        return existing
     legacy_path = CHARACTERS_DIR / slug / "memory.json"
-    if legacy_path.exists():
-        try:
-            return json.loads(legacy_path.read_text())
-        except (json.JSONDecodeError, OSError):
-            return None
-    return None
+    if not legacy_path.exists():
+        return []
+    try:
+        data = json.loads(legacy_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return []
+    episodes = data.get("episodes") if isinstance(data, dict) else None
+    if not isinstance(episodes, list):
+        return []
+    return [e for e in episodes if isinstance(e, dict)][-2:]
 
 
 def _load_memories_or_unavailable(name: str) -> tuple[list[dict[str, str]], bool]:
-    """Load a character's 2 most-recent-by-week memories, plus whether the
-    read itself was unavailable (#6968 review finding 3).
+    """Load a character's memories for the prompt, plus whether a needed
+    durable read was unavailable (#6968, redesigned in review round 3).
 
     Returns ``(episodes, unavailable)``. ``unavailable`` is True ONLY when
-    the durable-store read failed (CharacterMemoryUnavailable) — never when
-    the character genuinely has no memory yet. A caller deciding whether
-    this is truly the cast's first-ever episode (run_simulation's
+    a durable-store LIST or a needed week's FETCH failed — never when the
+    character genuinely has no memory yet. A caller deciding whether this
+    is truly the cast's first-ever episode (run_simulation's
     `first_episode`) must treat "unavailable" as "unknown", not as
-    "confirmed no history": a read outage must never produce the
+    "confirmed no history": a read outage must never produce the false
     "meeting for the first time" opener (_FIRST_MONDAY_OPENER).
 
-    Deduped, validated, and ordered by the "week" key via
-    storage.order_valid_episodes_by_week — not list/write order — so the 2
-    shown are always the chronologically most recent real ISO weeks
-    regardless of how they were inserted, and a legacy seed file's
-    duplicate-week rows (#6968 review finding 4) never both show up as if
-    they were 2 different weeks.
+    Flow: list this character's durable weeks — authoritative, via the
+    Blob LIST API, never a cached blob body (round-3 review finding 1). An
+    empty list is a genuine not-found in durable storage and falls back to
+    the read-only legacy seed display (_load_legacy_memory_entries — never
+    written, never deduped). A non-empty list fetches only the most recent
+    weeks' bodies (storage.load_character_memory_week, which validates
+    each body's schema); a fetch or schema failure on any needed week
+    makes the whole read unavailable (fail closed) rather than silently
+    showing a partial or malformed picture (round-3 review finding 3).
     """
+    slug = _char_dir_slug(name)
     try:
-        data = _load_character_memory_seeded(_char_dir_slug(name))
+        weeks = storage.list_character_memory_weeks(slug)
     except CharacterMemoryUnavailable as e:
-        logger.warning(f"Character memory read failed for {name}, using fallback: {type(e).__name__}: {e}")
+        logger.warning(f"Character memory listing failed for {name}, using fallback: {type(e).__name__}: {e}")
         return [], True
-    if not data:
-        return [], False
+
+    if not weeks:
+        # Genuine not-found in durable storage (#6968 review finding 2).
+        return _load_legacy_memory_entries(slug), False
+
+    latest_weeks = weeks[-PROMPT_MEMORY_WEEKS:]  # weeks is ascending; retention is a read-time choice
+    episodes: list[dict] = []
     try:
-        episodes = data.get("episodes", [])
-    except AttributeError:
-        return [], False
-    ordered = order_valid_episodes_by_week(episodes)
-    return ordered[-2:], False  # 2 most recent by week
+        for week in latest_weeks:
+            episodes.append(storage.load_character_memory_week(slug, week))
+    except CharacterMemoryUnavailable as e:
+        logger.warning(f"Character memory fetch failed for {name}, using fallback: {type(e).__name__}: {e}")
+        return [], True
+    return episodes, False
 
 
 def _load_memories(name: str) -> list[dict[str, str]]:
-    """Load episode memories for a character (2 most recent by week), from
-    durable storage with the legacy bundled file as an initial seed (#6968).
+    """Load episode memories for a character for the prompt (#6968).
 
     A durable-store read failure degrades to "no memories" (the
     known-coworker prompt fallback in build_system_prompt) rather than
-    raising or seeding from the stale legacy file (#6968 review finding 1).
-    See _load_memories_or_unavailable for callers that need to distinguish
-    that from a genuinely empty record (finding 3).
+    raising. See _load_memories_or_unavailable for the full list/fetch/
+    legacy-fallback flow and for callers that need to distinguish this
+    from a genuinely empty record.
     """
     episodes, _unavailable = _load_memories_or_unavailable(name)
     return episodes
@@ -1021,6 +1021,12 @@ SPEAKERS_SEE_JUDGE_RECIPE_FACTS: bool = False
 # episode) must never see onboarding text again, including when their
 # memory is empty or a write failed — so this must stay off in production.
 MEMORY_ONBOARDING_PILOT: bool = False
+
+# How many of a character's most recent durable weeks the prompt shows
+# (#6968, redesigned round 3). Retention itself is unbounded in durable
+# storage — nothing is ever deleted — so this is purely a read-time display
+# choice, not a storage limit.
+PROMPT_MEMORY_WEEKS: int = 2
 
 # One record per generated line (#7705): day, speaker, the fault keys that
 # fired, whether the draft was rewritten, draft/final word counts, the draft
@@ -2381,19 +2387,21 @@ def _generate_episode_memories(
     (backend.admin.cron_routes._generate_episode_memories) — NOT
     backend/data/characters/<slug>/memory.json (#6968, item 6). That bundled
     path is tracked source; a local full-week simulation must not dirty it.
-    Idempotent by week label via storage.merge_character_memory, keeping at
-    most storage.MAX_CHARACTER_MEMORY_WEEKS distinct weeks.
+    Each character's memory is ONE durable blob per week
+    (storage.save_character_memory_week) — no read, no merge (#6968,
+    redesigned in review round 3), so replaying the same week is an
+    idempotent overwrite of only that week's own blob, and this can never
+    touch or lose any other week's blob.
 
     `week_label` defaults to the current ISO week when not given (this
     function has no episode object to read an episode_id from, unlike the
     production writer). It MUST be a real ISO week string ("YYYY-Www") —
-    storage.merge_character_memory now rejects anything else with
-    ValueError (#6968 review finding 5), since a non-ISO/synthetic label
-    (e.g. "test-week") sorts unpredictably against real weeks and could
-    evict genuine history. A caller driving a synthetic/backfill run should
-    pass a real, deliberately-chosen ISO week rather than an arbitrary
-    string; passing a non-ISO label simply skips that character's write
-    (logged), it does not corrupt durable storage.
+    storage.save_character_memory_week validates it and rejects anything
+    else with ValueError, since a non-ISO/synthetic label (e.g.
+    "test-week") is not a real week. A caller driving a synthetic/backfill
+    run should pass a real, deliberately-chosen ISO week rather than an
+    arbitrary string; passing a non-ISO label simply skips that
+    character's write (logged), it does not corrupt durable storage.
     """
     from datetime import date
 
@@ -2440,27 +2448,21 @@ def _generate_episode_memories(
         sentences = summary.split(". ")
         key_moment = sentences[-1].rstrip(".") + "." if len(sentences) > 1 else ""
 
-        episode = {
+        entry = {
             "week": week_label,
+            "episode_id": week_label,
             "concept": concept,
             "summary": summary,
             "key_moment": key_moment,
         }
 
-        # Durable storage, seeded from the legacy bundled file, merged and
-        # replaced by week label (#6968) — never a direct write to the
-        # tracked backend/data/characters/<slug>/memory.json source. A read
-        # failure (CharacterMemoryUnavailable) raises out of
-        # _load_character_memory_seeded before merge/save run, so this
-        # never writes a merge built on a missing read (#6968 review
-        # finding 1) — it is caught here only to log and move on.
+        # One durable blob for THIS week, PUT to its own key — never a
+        # direct write to the tracked backend/data/characters/<slug>/
+        # memory.json source, and no read-then-merge that could touch or
+        # lose any other week's blob (#6968, redesigned round 3).
         slug = _char_dir_slug(char_name)
         try:
-            # force_refresh=True (#6968 review finding 1): this read
-            # precedes a write.
-            existing = _load_character_memory_seeded(slug, force_refresh=True)
-            merged = merge_character_memory(existing, episode)
-            storage.save_character_memory(slug, merged)
+            storage.save_character_memory_week(slug, week_label, entry)
         except Exception as e:
             logger.warning(f"Local-simulation memory write failed for {char_name}: {type(e).__name__}: {e}")
 

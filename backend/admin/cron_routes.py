@@ -46,7 +46,7 @@ from pydantic import BaseModel
 
 from backend.config import config
 from backend.publishing.episode_renderer import _hero_image_url, regenerate_and_upload
-from backend.storage import CharacterMemoryUnavailable, merge_character_memory, storage
+from backend.storage import storage
 from backend.utils import episode_integrity
 from backend.utils.catalog import (
     VALID_CATEGORIES,
@@ -1625,10 +1625,8 @@ def _editorial_qa_review(episode: dict) -> tuple[bool, str]:
 
 
 # ---------------------------------------------------------------------------
-# Per-character episode memories (#5027)
+# Per-character episode memories (#5027, redesigned in #6968 review round 3)
 # ---------------------------------------------------------------------------
-
-_CHARACTERS_DIR = Path(__file__).resolve().parents[1] / "data" / "characters"
 
 _CHAR_SLUG_OVERRIDES: dict[str, str] = {
     "Stephanie 'Steph' Whitmore": "steph-whitmore",
@@ -1642,54 +1640,22 @@ def _char_dir_slug(name: str) -> str:
     return _re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
 
-def _load_character_memory_seeded(slug: str, *, force_refresh: bool = False) -> Optional[dict]:
-    """Durable memory for `slug`, seeded from the legacy bundled file (#6968).
-
-    backend/data/characters/<slug>/memory.json is the read-only file that
-    shipped inside the Vercel Lambda bundle before this card; it remains in
-    place as the initial seed ONLY for a character with a genuine
-    not-found in durable storage (card #6968, item 7). Once durable storage
-    holds anything for a character it is authoritative, and the legacy
-    file is never consulted again for that character.
-
-    Deliberately does NOT catch CharacterMemoryUnavailable — a durable-store
-    READ failure (a transient Blob error, a corrupted local file) must
-    propagate to the caller rather than being treated as "no memory yet",
-    which would seed from the stale legacy file and let the caller write a
-    merge that regresses good durable memory to seed-plus-one-week (#6968
-    review finding 1). The caller's per-character try/except records this
-    as a failure and skips the write for this run.
-
-    `force_refresh` MUST be True for any read that precedes a write (this
-    module's only caller does exactly that): storage's same-invocation
-    cache has no cross-process invalidation, so a stale cached read taken
-    right before a merge+save could silently overwrite a newer week another
-    process already wrote (#6968 review finding 1).
-    """
-    existing = storage.load_character_memory(slug, force_refresh=force_refresh)
-    if existing is not None:
-        return existing
-    legacy_path = _CHARACTERS_DIR / slug / "memory.json"
-    if legacy_path.exists():
-        try:
-            return json.loads(legacy_path.read_text())
-        except (json.JSONDecodeError, OSError) as e:
-            logger.warning(f"Legacy memory seed unreadable for {slug}: {type(e).__name__}: {e}")
-            return None
-    return None
-
-
 def _generate_episode_memories(episode: dict, concept: str, *, dry_run: bool = False) -> dict[str, list[str]]:
     """Generate per-character memories from a completed episode (#6968).
 
     Called after Sunday publish. One LLM call per character (~100 tokens
-    each). Memories are stored in durable, prefix-scoped storage
-    (backend.storage.storage.save_character_memory) rather than the
-    read-only backend/data/characters/<slug>/memory.json bundle path — see
-    _load_character_memory_seeded for the legacy-file fallback. Writes are
-    idempotent by episode ID via storage.merge_character_memory: replaying
-    the same week never duplicates it, and at most
-    storage.MAX_CHARACTER_MEMORY_WEEKS distinct weeks are retained.
+    each). Each character's memory is ONE durable blob per week
+    (character_memory/<slug>/<week>.json, storage.save_character_memory_week)
+    — this function never reads existing memory before writing. There is no
+    merge and nothing to make stale: a write is always the complete body for
+    THIS week, PUT to its own key, so replaying the same week is an
+    idempotent overwrite of only that key, and it is structurally
+    impossible for this write to touch or drop any other week's blob
+    (round-3 review finding 1 — the prior read-modify-write design could
+    merge against a stale CDN-served body and silently undo a just-written
+    week). Retention/legacy-fallback/dedup concerns are entirely a read-time
+    concern of the prompt builder (scripts.simulate_dialogue_week
+    ._load_memories_or_unavailable); this writer has none of that.
 
     With dry_run=True, no storage write happens; the return value still
     describes what each character's outcome would be. Used by
@@ -1775,30 +1741,19 @@ def _generate_episode_memories(episode: dict, concept: str, *, dry_run: bool = F
 
         mem_entry = {
             "week": week_label,
+            "episode_id": week_label,
             "concept": concept,
             "summary": summary,
             "key_moment": key_moment,
+            "written_at": datetime.now(timezone.utc).isoformat(),
         }
 
         slug = _char_dir_slug(char_name)
         try:
-            # force_refresh=True (#6968 review finding 1): this read
-            # precedes a write, so a same-invocation cached value (which
-            # has no cross-process invalidation) must never be used here.
-            existing = _load_character_memory_seeded(slug, force_refresh=True)
-            merged = merge_character_memory(existing, mem_entry)
             if not dry_run:
-                storage.save_character_memory(slug, merged)
+                storage.save_character_memory_week(slug, week_label, mem_entry)
             logger.info(f"{'Would save' if dry_run else 'Saved'} memory for {char_name}: {summary[:80]}")
             outcome["saved"].append(char_name)
-        except CharacterMemoryUnavailable as e:
-            # A durable-store READ failure (#6968 review finding 1): never
-            # seed from the legacy file or write a merge on top of a
-            # missing read — that would regress good durable memory to
-            # seed-plus-this-week. The summary above succeeded but is
-            # discarded; existing memory is left exactly as it was.
-            logger.error(f"Memory read failed for {char_name}, write skipped: {type(e).__name__}: {e}")
-            outcome["failed"].append(char_name)
         except Exception as e:
             # A write failure must never claim success (#6968) — recorded as
             # failed even though the summary above succeeded.

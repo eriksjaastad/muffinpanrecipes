@@ -3,10 +3,13 @@
 
 Rebuilds one or more episodes' per-character memory entries from their
 stored, ACCEPTED dialogue (episode["stages"][<day>]["dialogue"]) using the
-exact same summarization and idempotent merge logic as the production
+exact same summarization and per-week-blob write logic as the production
 Sunday writer (backend.admin.cron_routes._generate_episode_memories) — this
 script calls that function directly rather than re-implementing it, so the
-two can never drift apart.
+two can never drift apart. Each write is a single, complete blob for the
+target week (character_memory/<slug>/<week>.json) with no read or merge, so
+replaying the same week is an idempotent overwrite of only that week's own
+blob and can never touch or lose any other week's history.
 
 It never re-fires any cron stage (no /api/cron/sunday call, no recipe/QA/
 publish logic runs) and never touches published pages or the catalog: it
