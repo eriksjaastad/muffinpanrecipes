@@ -679,7 +679,7 @@ class _CloudBackend:
         # "no episode".
         blobs = payload.get("blobs") if isinstance(payload, dict) else None
         if not isinstance(blobs, list) or not all(isinstance(b, dict) for b in blobs):
-            raise ValueError(f"malformed list payload for episode {episode_id!r}: {payload!r}")
+            raise ValueError(f"malformed list payload for episode {episode_id!r}: {repr(payload)[:200]}")
         if not blobs:
             return None
         content_resp = _requests.get(blobs[0]["url"], timeout=15)

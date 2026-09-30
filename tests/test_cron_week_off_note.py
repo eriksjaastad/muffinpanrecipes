@@ -164,7 +164,7 @@ def test_clear_stale_note_removes_it_when_the_successor_blames_this_week():
         "week_off_note": {"message": cron_routes.WEEK_OFF_MESSAGE, "missed_week": "2026-W40"},
     }
 
-    with patch.object(cron_routes.storage, "load_episode", return_value=next_episode), \
+    with patch.object(cron_routes.storage, "load_episode_strict", return_value=next_episode), \
          patch.object(cron_routes.storage, "save_episode") as save_episode, \
          patch.object(cron_routes, "regenerate_and_upload") as regenerate:
         cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")
@@ -190,7 +190,7 @@ def test_clear_stale_note_removes_it_when_the_successor_blames_this_week():
 def test_clear_stale_note_changes_nothing_when_not_applicable(next_episode):
     original = copy.deepcopy(next_episode) if next_episode is not None else None
 
-    with patch.object(cron_routes.storage, "load_episode", return_value=next_episode), \
+    with patch.object(cron_routes.storage, "load_episode_strict", return_value=next_episode), \
          patch.object(cron_routes.storage, "save_episode") as save_episode, \
          patch.object(cron_routes, "regenerate_and_upload") as regenerate:
         cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")
@@ -203,7 +203,7 @@ def test_clear_stale_note_changes_nothing_when_not_applicable(next_episode):
 def test_clear_stale_note_error_is_logged_and_swallowed(caplog):
     """Best-effort: nothing in this path may turn a successful publish into
     a failed request."""
-    with patch.object(cron_routes.storage, "load_episode", side_effect=RuntimeError("blob down")):
+    with patch.object(cron_routes.storage, "load_episode_strict", side_effect=RuntimeError("blob down")):
         with caplog.at_level("WARNING"):
             cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")  # must not raise
 
@@ -381,6 +381,7 @@ def test_cron_sunday_late_publish_clears_the_successors_note_end_to_end():
          patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=_body())), \
          patch.object(cron_routes, "_verify_day_of_week"), \
          patch.object(cron_routes.storage, "load_episode", side_effect=lambda eid: episodes_by_id.get(eid)), \
+         patch.object(cron_routes.storage, "load_episode_strict", side_effect=lambda eid: episodes_by_id.get(eid)), \
          patch.object(cron_routes.storage, "save_episode", side_effect=lambda eid, data: save_calls.append((eid, data))), \
          patch.object(cron_routes.storage, "save_page"), \
          patch.object(cron_routes, "_generate_and_judge_dialogue", return_value=(
