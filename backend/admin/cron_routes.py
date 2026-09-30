@@ -890,7 +890,7 @@ def _judge_meta_fields(episode: dict, stage: str) -> dict:
     }
 
 
-def _announce_advisory_publication(episode: dict, stage: str, concept: str) -> None:
+def _announce_advisory_publication(episode_id: str, episode: dict, stage: str, concept: str) -> None:
     """Send the advisory alert once the page it describes actually exists,
     exactly once even if the process dies between the two (#7403).
 
@@ -928,7 +928,7 @@ def _announce_advisory_publication(episode: dict, stage: str, concept: str) -> N
     # opposite failure mode from the one this card fixes, and the
     # acceptable one.
     record["announced_at"] = datetime.now(timezone.utc).isoformat()
-    storage.save_episode(episode.get("episode_id", "unknown"), episode)
+    storage.save_episode(episode_id, episode)
 
 
 class JudgeFailedError(Exception):
@@ -2866,7 +2866,7 @@ async def cron_sunday(request: Request):
         # (it checks and then sets announced_at), so calling it on every
         # already-published hit is safe: a no-op once the alert has actually
         # gone out, a retry when it has not.
-        _announce_advisory_publication(ep, "sunday", concept)
+        _announce_advisory_publication(episode_id, ep, "sunday", concept)
         sunday_stage = ep.get("stages", {}).get("sunday", {})
         return _stage_response("sunday", episode_id, concept, {
             "published": True,
@@ -3073,7 +3073,7 @@ async def cron_sunday(request: Request):
         # put "the recipe is live" and "the pages were not written" in the
         # same inbox. Skipping the advisory alert on that path loses it —
         # carded — which is the lesser harm of the two.
-        _announce_advisory_publication(ep, "sunday", concept)
+        _announce_advisory_publication(episode_id, ep, "sunday", concept)
 
     return _stage_response("sunday", episode_id, concept, {
         "published": True,

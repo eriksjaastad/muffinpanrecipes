@@ -116,7 +116,7 @@ def test_a_selected_dialogue_that_never_publishes_never_claims_it_did():
 
     with patch.object(cron_routes, "notify_judge_advisory") as alert:
         cron_routes._announce_advisory_publication(
-            episode, "sunday", "Cardamom Cinnamon Spiral Bites",
+            episode.get("episode_id", "2026-W99"), episode, "sunday", "Cardamom Cinnamon Spiral Bites",
         )
     alert.assert_not_called()
 
@@ -130,7 +130,7 @@ def test_the_alert_fires_once_the_page_exists():
     with patch.object(cron_routes, "notify_judge_advisory") as alert, \
          patch.object(cron_routes.storage, "save_episode") as save_episode:
         cron_routes._announce_advisory_publication(
-            episode, "sunday", "Cardamom Cinnamon Spiral Bites",
+            episode.get("episode_id", "2026-W99"), episode, "sunday", "Cardamom Cinnamon Spiral Bites",
         )
 
     kwargs = alert.call_args.kwargs
@@ -159,7 +159,7 @@ def test_announce_is_a_no_op_once_already_announced():
     with patch.object(cron_routes, "notify_judge_advisory") as alert, \
          patch.object(cron_routes.storage, "save_episode"):
         cron_routes._announce_advisory_publication(
-            episode, "sunday", "Cardamom Cinnamon Spiral Bites",
+            episode.get("episode_id", "2026-W99"), episode, "sunday", "Cardamom Cinnamon Spiral Bites",
         )
     alert.assert_called_once()
     first_announced_at = episode["judge_advisory"]["sunday"]["announced_at"]
@@ -167,7 +167,7 @@ def test_announce_is_a_no_op_once_already_announced():
     with patch.object(cron_routes, "notify_judge_advisory") as alert_again, \
          patch.object(cron_routes.storage, "save_episode") as save_again:
         cron_routes._announce_advisory_publication(
-            episode, "sunday", "Cardamom Cinnamon Spiral Bites",
+            episode.get("episode_id", "2026-W99"), episode, "sunday", "Cardamom Cinnamon Spiral Bites",
         )
     alert_again.assert_not_called()
     save_again.assert_not_called()
@@ -599,7 +599,7 @@ def test_a_clean_retry_clears_the_previous_run_s_advisory_record():
 
     with patch.object(cron_routes, "notify_judge_advisory") as alert:
         cron_routes._announce_advisory_publication(
-            episode, "sunday", "Cardamom Cinnamon Spiral Bites",
+            episode.get("episode_id", "2026-W99"), episode, "sunday", "Cardamom Cinnamon Spiral Bites",
         )
     alert.assert_not_called()
 
@@ -786,3 +786,19 @@ def test_the_judge_records_empty_meta_when_its_provider_errors():
     assert episode["judge_scores"]["sunday"] == {}
     assert episode["judge_weakest"]["sunday"] == []
     assert "judge error" in episode["judge_reason"]["sunday"]
+
+
+def test_announce_persists_announced_at_under_the_callers_episode_id():
+    """The exactly-once record is saved under the episode the caller named,
+    never a fallback id (#7403 review)."""
+    episode = {
+        "episode_id": "2026-W99",
+        "judge_advisory": {"sunday": {"published": True, "scores": {"voice_distinctiveness": 2}, "weakest": []}},
+    }
+    with patch.object(cron_routes, "notify_judge_advisory") as notify, \
+         patch.object(cron_routes.storage, "save_episode") as save:
+        cron_routes._announce_advisory_publication("2026-W41", episode, "sunday", "Test Cups")
+        cron_routes._announce_advisory_publication("2026-W41", episode, "sunday", "Test Cups")
+    notify.assert_called_once()
+    save.assert_called_once_with("2026-W41", episode)
+    assert episode["judge_advisory"]["sunday"]["announced_at"]
