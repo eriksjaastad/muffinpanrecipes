@@ -222,24 +222,53 @@ def test_rejudge_refuses_a_default_judge_that_differs_from_the_source_judge(tmp_
     # judges with Opus 4.6. That is a different instrument, refused before any call.
     _mock_openrouter_preflight(monkeypatch)
     _no_judge_calls(monkeypatch)
-    path = _fake_ab_result(tmp_path)
-    with pytest.raises(SystemExit, match="--cross-judge"):
-        cl.main(["rejudge", str(path)])
+    with pytest.raises(SystemExit, match=r"differ from the source's: .*\bmodel\b"):
+        cl.main(["rejudge", str(_fake_ab_result(tmp_path))])
 
 
-def test_rejudge_same_judge_is_reported_as_v3_retest(tmp_path, monkeypatch, capsys):
+def test_rejudge_same_instrument_is_reported_as_v3_retest(tmp_path, monkeypatch, capsys):
     _mock_openrouter_preflight(monkeypatch)
     monkeypatch.setattr(model_router, "generate_judge_response", lambda **_k: _verdict_json())
     out = tmp_path / "out"
     cl.main(["rejudge", str(_fake_ab_result(tmp_path)), "--models", "claude-o55", "--results-dir", str(out)])
-    [report_path] = list(out.glob("*-rejudge-*.json"))
-    report = json.loads(report_path.read_text())
+    report = json.loads(next(out.glob("*-rejudge-*.json")).read_text())
     assert report["rejudge_mode"] == "retest"
-    assert report["source_judge_model"] == report["judge_model"] == "openrouter/anthropic/claude-opus-5.5"
+    assert report["instrument_changed_fields"] == []
+    assert report["judge_instrument"] == report["source_judge_instrument"]
     assert "V3 test-retest agreement" in capsys.readouterr().out
 
 
-def test_rejudge_cross_judge_opt_in_runs_and_is_never_labelled_v3(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize(
+    ("field", "attr", "value"),
+    [
+        # Each is a judge setting that is not the model, prompt or temperature.
+        ("max_tokens", "_OPENROUTER_ANTHROPIC_MAX_TOKENS", 8192),
+        ("provider_route", "openrouter_provider_route", lambda _m: {"order": ["anthropic"], "allow_fallbacks": True}),
+        ("empty_stop_max_attempts", "_OPENROUTER_EMPTY_STOP_MAX_ATTEMPTS", 5),
+    ],
+)
+def test_rejudge_refuses_when_any_judge_request_setting_changed(tmp_path, monkeypatch, field, attr, value):
+    """Codex round 3: the route, token ceiling and retry bound are part of
+    the instrument too. The source fixture recorded today's values; change
+    one and the same-model rejudge must refuse, naming that field."""
+    path = _fake_ab_result(tmp_path)  # records the instrument BEFORE the change
+    _mock_openrouter_preflight(monkeypatch)
+    _no_judge_calls(monkeypatch)
+    monkeypatch.setattr(model_router, attr, value)
+    with pytest.raises(SystemExit, match=rf"differ from the source's: {field}\."):
+        cl.main(["rejudge", str(path), "--models", "claude-o55"])
+
+
+def test_rejudge_refuses_when_the_json_retry_bound_changed(tmp_path, monkeypatch):
+    path = _fake_ab_result(tmp_path)
+    _mock_openrouter_preflight(monkeypatch)
+    _no_judge_calls(monkeypatch)
+    monkeypatch.setattr(cl, "_JUDGE_JSON_MAX_RETRIES", 5)
+    with pytest.raises(SystemExit, match=r"differ from the source's: json_max_retries\."):
+        cl.main(["rejudge", str(path), "--models", "claude-o55"])
+
+
+def test_allow_instrument_change_runs_and_is_never_labelled_v3(tmp_path, monkeypatch, capsys):
     _mock_openrouter_preflight(monkeypatch)
     models_seen: list[str] = []
 
@@ -249,20 +278,41 @@ def test_rejudge_cross_judge_opt_in_runs_and_is_never_labelled_v3(tmp_path, monk
 
     monkeypatch.setattr(model_router, "generate_judge_response", judge)
     out = tmp_path / "out"
-    cl.main(["rejudge", str(_fake_ab_result(tmp_path)), "--cross-judge", "--results-dir", str(out)])
+    cl.main(["rejudge", str(_fake_ab_result(tmp_path)), "--allow-instrument-change", "--results-dir", str(out)])
     report = json.loads(next(out.glob("*-rejudge-*.json")).read_text())
-    assert report["rejudge_mode"] == "cross_judge"
+    assert report["rejudge_mode"] == "instrument_changed"
+    assert "model" in report["instrument_changed_fields"]
     assert set(models_seen) == {report["judge_model"]} != {report["source_judge_model"]}
     printed = capsys.readouterr().out
-    assert "CROSS-JUDGE" in printed and "V3 test-retest agreement" not in printed
+    assert "CHANGED-INSTRUMENT" in printed and "V3 test-retest agreement" not in printed
 
 
-def test_rejudge_refuses_a_source_judged_at_another_temperature(tmp_path, monkeypatch):
+def test_rejudge_of_a_source_without_a_recorded_instrument_needs_the_opt_in(tmp_path, monkeypatch, capsys):
+    pair = _fake_pair()
+    for orientation in pair["judge_orientations"]:
+        del orientation["evidence"]["judge_instrument"]
+    path = _fake_ab_result(tmp_path, pairs=[pair])
     _mock_openrouter_preflight(monkeypatch)
     _no_judge_calls(monkeypatch)
+    with pytest.raises(SystemExit, match="does not record its judge instrument"):
+        cl.main(["rejudge", str(path), "--models", "claude-o55"])
+
+    monkeypatch.setattr(model_router, "generate_judge_response", lambda **_k: _verdict_json())
+    out = tmp_path / "out"
+    cl.main(["rejudge", str(path), "--models", "claude-o55", "--allow-instrument-change", "--results-dir", str(out)])
+    report = json.loads(next(out.glob("*-rejudge-*.json")).read_text())
+    assert report["rejudge_mode"] == "instrument_unverified"
+    assert "V3 test-retest agreement" not in capsys.readouterr().out
+
+
+def test_rejudge_refuses_a_source_with_inconsistent_instruments(tmp_path, monkeypatch):
     pair = _fake_pair()
-    pair["judge_orientations"][0]["evidence"]["temperature"] = 0.7
-    with pytest.raises(SystemExit, match="temperature"):
+    pair["judge_orientations"][1]["evidence"]["judge_instrument"] = {
+        **pair["judge_orientations"][1]["evidence"]["judge_instrument"], "max_tokens": 1,
+    }
+    _mock_openrouter_preflight(monkeypatch)
+    _no_judge_calls(monkeypatch)
+    with pytest.raises(SystemExit, match="different judge instruments"):
         cl.main(["rejudge", str(_fake_ab_result(tmp_path, pairs=[pair])), "--models", "claude-o55"])
 
 
@@ -284,6 +334,49 @@ def test_rejudge_refuses_a_source_that_does_not_record_its_judge_model(tmp_path,
     del pair["judge_orientations"][1]["evidence"]["model"]
     with pytest.raises(SystemExit, match="which judge model"):
         cl.main(["rejudge", str(_fake_ab_result(tmp_path, pairs=[pair])), "--models", "claude-o55"])
+
+
+def test_new_judge_calls_save_the_full_instrument_in_evidence():
+    evidence: dict = {}
+    import unittest.mock as um
+    with um.patch.object(model_router, "generate_judge_response", return_value=_verdict_json()):
+        cl._judge_orientation(
+            judge_model="openrouter/anthropic/claude-opus-5.5", concept="c", stage="monday",
+            recipe_context=None, expected_cast=[], first_arm="control", first_messages=[],
+            second_arm="variant", second_messages=[], evidence=evidence,
+        )
+    inst = evidence["judge_instrument"]
+    assert inst == cl._judge_instrument("openrouter/anthropic/claude-opus-5.5")
+    assert inst["model"] == "anthropic/claude-opus-5.5"
+    assert inst["provider_route"] == {"order": ["anthropic"], "allow_fallbacks": False}
+    assert inst["max_tokens"] == 4096 and inst["temperature"] == 0.2
+    assert inst["evaluator_prompt_sha256"] and inst["json_max_retries"] == cl._JUDGE_JSON_MAX_RETRIES
+
+
+def test_preflight_prices_only_the_judge_for_rejudge(tmp_path, monkeypatch):
+    """Codex round 3 P2: rejudge never calls the dialogue model, so a missing
+    dialogue-model price must not block it; a missing judge price still does."""
+    _mock_openrouter_preflight(monkeypatch)
+    monkeypatch.setattr(cl, "_fetch_openrouter_model_prices",
+                        lambda: {"anthropic/claude-opus-5.5": (0.000004, 0.00002)})
+    monkeypatch.setattr(model_router, "generate_judge_response", lambda **_k: _verdict_json())
+    out = tmp_path / "out"
+    cl.main(["rejudge", str(_fake_ab_result(tmp_path)), "--models", "claude-o55", "--results-dir", str(out)])
+    assert list(out.glob("*-rejudge-*.json"))
+
+    monkeypatch.setattr(cl, "_fetch_openrouter_model_prices",
+                        lambda: {"anthropic/claude-haiku-4.5": (0.000001, 0.000005)})
+    with pytest.raises(SystemExit, match="no published price for anthropic/claude-opus-5.5"):
+        cl.main(["rejudge", str(_fake_ab_result(tmp_path, filename="b.json")), "--models", "claude-o55"])
+
+
+def test_preflight_still_prices_both_models_for_ab(tmp_path, monkeypatch):
+    _mock_openrouter_preflight(monkeypatch)
+    monkeypatch.setattr(cl, "_fetch_openrouter_model_prices",
+                        lambda: {"anthropic/claude-opus-5.5": (0.000004, 0.00002)})
+    args = SimpleNamespace(command="ab", max_cost=5.0, models="claude-o55", provider="openrouter", dry_run=False)
+    with pytest.raises(SystemExit, match="anthropic/claude-haiku-4.5"):
+        cl._openrouter_preflight(args)
 
 
 def test_offline_metrics_refuses_a_sweep_result(tmp_path):

@@ -549,6 +549,11 @@ def _generate_openai(
         raise
 
 
+# Output ceiling for a direct Anthropic text call; part of the judge request
+# that judge_request_settings() reports.
+_ANTHROPIC_MAX_TOKENS = 4096
+
+
 def _generate_anthropic(
     prompt: str,
     system_prompt: Optional[str],
@@ -568,7 +573,7 @@ def _generate_anthropic(
 
     kwargs: dict = {
         "model": model,
-        "max_tokens": 4096,
+        "max_tokens": _ANTHROPIC_MAX_TOKENS,
         "temperature": temperature,
         "messages": [{"role": "user", "content": prompt}],
     }
@@ -1013,3 +1018,33 @@ def generate_judge_response(
             model=routed.model, temperature=temperature,
         )
     raise RuntimeError(f"Unsupported provider for judge: {routed.provider}")
+
+
+def judge_request_settings(model: str, temperature: float) -> dict[str, Any]:
+    """Everything except the prompt text that `generate_judge_response`
+    sends for `model` at `temperature`: provider, model id, temperature,
+    output ceiling, OpenRouter route, and the router's own retry bound.
+
+    Kept beside the send path so the description changes when the request
+    does. The conversation lab saves it with every judge verdict and
+    `rejudge` compares it whole (#7791): a test-retest is only valid when
+    the entire judge request is the same, not a hand-picked subset of it.
+    """
+    routed = parse_model(model)
+    settings: dict[str, Any] = {
+        "provider": routed.provider,
+        "model": routed.model,
+        "temperature": temperature,
+    }
+    if routed.provider == "openrouter":
+        settings.update(
+            max_tokens=openrouter_max_tokens(routed.model),
+            provider_route=openrouter_provider_route(routed.model),
+            usage_include=True,
+            empty_stop_max_attempts=_OPENROUTER_EMPTY_STOP_MAX_ATTEMPTS,
+        )
+    elif routed.provider == "anthropic":
+        settings["max_tokens"] = _ANTHROPIC_MAX_TOKENS
+    elif routed.provider == "openai":
+        settings["reasoning"] = _reasoning_kwargs(routed.model)
+    return settings

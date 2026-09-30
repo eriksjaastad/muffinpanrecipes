@@ -569,6 +569,22 @@ PAIRWISE_JUDGE_SYSTEM_PROMPT = (
 )
 
 
+def _judge_instrument(judge_model: str) -> dict[str, Any]:
+    """The complete judge instrument for `judge_model` (#7791): the full
+    request `model_router.generate_judge_response` makes, minus the prompt
+    text (from `model_router.judge_request_settings`), plus the lab-side
+    parts that decide a verdict - the system prompt's sha and version and
+    this module's JSON-retry bound. Saved with every judge orientation;
+    `rejudge` calls a re-run V3 test-retest only when this whole dict is
+    unchanged, so a setting added to the request later is covered without
+    a new hand-written check."""
+    return {
+        **model_router.judge_request_settings(judge_model, PAIRWISE_JUDGE_TEMPERATURE),
+        **_pairwise_evaluator_metadata(),
+        "json_max_retries": _JUDGE_JSON_MAX_RETRIES,
+    }
+
+
 def _pairwise_evaluator_metadata() -> dict[str, str]:
     return {
         "evaluator_prompt_version": PAIRWISE_JUDGE_PROMPT_VERSION,
@@ -917,7 +933,12 @@ def _openrouter_preflight(args: argparse.Namespace) -> None:
 
     _OPENROUTER_MODEL_PRICES = _fetch_openrouter_model_prices()
     model_set = _resolve_lab_model_set(args)
-    missing = sorted({m for m in (model_set.dialogue, model_set.judge) if m not in _OPENROUTER_MODEL_PRICES})
+    # Price only the models this command will call: rejudge and calibrate
+    # judge saved transcripts and never generate dialogue.
+    models_called = (
+        (model_set.judge,) if args.command in {"rejudge", "calibrate"} else (model_set.dialogue, model_set.judge)
+    )
+    missing = sorted({m for m in models_called if m not in _OPENROUTER_MODEL_PRICES})
     if missing:
         raise SystemExit(
             "conversation_lab: OpenRouter has no published price for "
@@ -2263,6 +2284,15 @@ def _judge_orientation(
             "first_arm": first_arm,
             "second_arm": second_arm,
         })
+        # Describing the instrument must never cost the evidence above: a
+        # model id the router cannot parse is recorded, not raised here (the
+        # judge call itself raises on it next). rejudge treats a missing
+        # instrument as unverifiable, never as V3.
+        try:
+            evidence["judge_instrument"] = _judge_instrument(judge_model)
+        except RuntimeError as exc:
+            evidence["judge_instrument"] = None
+            evidence["judge_instrument_error"] = str(exc)
     before_attempts = _budget_generation_attempts()
     if evidence is not None:
         evidence["guard_generation_attempts_before"] = before_attempts
@@ -6796,12 +6826,16 @@ def _load_rejudge_source(result_path: Path) -> dict[str, Any]:
     return data
 
 
-def _rejudge_source_judge_model(result_path: Path, pairs: list[dict[str, Any]]) -> str:
-    """The one judge model every saved orientation was scored by, with the
-    same temperature this command uses. The instrument is (judge model,
-    system prompt, temperature); `_load_rejudge_source` checks the prompt,
-    this checks the other two so `cmd_rejudge` can compare the model."""
+def _rejudge_source_instrument(
+    result_path: Path, pairs: list[dict[str, Any]],
+) -> tuple[str, dict[str, Any] | None]:
+    """(judge model, saved judge instrument) for a source result. Every
+    orientation must name the same judge model; the saved instrument (see
+    `_judge_instrument`) must be identical across orientations, or absent
+    from all of them (a result written before instruments were recorded,
+    returned as None: the instrument cannot be verified)."""
     models: set[str] = set()
+    instruments: list[dict[str, Any] | None] = []
     for i, pair in enumerate(pairs, start=1):
         for orientation in pair["judge_orientations"]:
             evidence = orientation["evidence"]
@@ -6811,19 +6845,39 @@ def _rejudge_source_judge_model(result_path: Path, pairs: list[dict[str, Any]]) 
                     f"conversation_lab rejudge: {result_path} pair {i} does not record which judge model "
                     "scored it - cannot show the instrument is unchanged"
                 )
-            if evidence.get("temperature") != PAIRWISE_JUDGE_TEMPERATURE:
-                raise SystemExit(
-                    f"conversation_lab rejudge: {result_path} pair {i} was judged at temperature "
-                    f"{evidence.get('temperature')!r}, not {PAIRWISE_JUDGE_TEMPERATURE} - a re-judge would "
-                    "change the instrument"
-                )
             models.add(model)
+            instrument = evidence.get("judge_instrument")
+            if instrument is not None and not isinstance(instrument, dict):
+                raise SystemExit(f"conversation_lab rejudge: {result_path} pair {i} has a malformed judge_instrument")
+            instruments.append(instrument)
     if len(models) != 1:
         raise SystemExit(
             f"conversation_lab rejudge: {result_path} was scored by more than one judge model "
             f"({', '.join(sorted(models))}) - there is no single instrument to retest"
         )
-    return models.pop()
+    if all(inst is None for inst in instruments):
+        return models.pop(), None
+    first = instruments[0]
+    if any(inst != first for inst in instruments):
+        raise SystemExit(
+            f"conversation_lab rejudge: {result_path} records different judge instruments across its "
+            "orientations - there is no single instrument to retest"
+        )
+    return models.pop(), first
+
+
+def _rejudge_mode(
+    dry_run: bool, judge_model: str, source_instrument: dict[str, Any] | None,
+) -> tuple[str, list[str]]:
+    """("dry_run" | "retest" | "instrument_changed" | "instrument_unverified",
+    names of the instrument fields that differ). Only "retest" is V3."""
+    if dry_run:
+        return "dry_run", []
+    if source_instrument is None:
+        return "instrument_unverified", []
+    current = _judge_instrument(judge_model)
+    changed = sorted(k for k in set(current) | set(source_instrument) if current.get(k) != source_instrument.get(k))
+    return ("retest", []) if not changed else ("instrument_changed", changed)
 
 
 def cmd_rejudge(args: argparse.Namespace) -> None:
@@ -6832,17 +6886,21 @@ def cmd_rejudge(args: argparse.Namespace) -> None:
     pairs: list[dict[str, Any]] = data["pairs"]
 
     judge_model = _resolve_judge_model_for_args(args)
-    source_judge_model = _rejudge_source_judge_model(result_path, pairs)
-    # V3 test-retest means the SAME judge scores the pairs again. A different
-    # judge is a cross-judge comparison: allowed only when asked for, and
-    # reported as such, never as V3 agreement. (Under --dry-run the judge
-    # resolves to "template" and nothing is paid for, so no check.)
-    cross_judge = not args.dry_run and judge_model != source_judge_model
-    if cross_judge and not args.cross_judge:
+    source_judge_model, source_instrument = _rejudge_source_instrument(result_path, pairs)
+    # V3 test-retest means the SAME instrument scores the pairs again: the
+    # whole judge request (_judge_instrument), not a subset of it. Anything
+    # else is refused unless asked for, and then never reported as V3.
+    mode, changed = _rejudge_mode(bool(args.dry_run), judge_model, source_instrument)
+    if mode in {"instrument_changed", "instrument_unverified"} and not args.allow_instrument_change:
+        detail = (
+            f"these judge settings differ from the source's: {', '.join(changed)}"
+            if mode == "instrument_changed"
+            else "the source does not record its judge instrument, so it cannot be shown unchanged"
+        )
         raise SystemExit(
-            f"conversation_lab rejudge: {result_path} was scored by {source_judge_model}, but this "
-            f"invocation would judge with {judge_model}. For V3 test-retest pass the --models set "
-            "whose judge is the source's; to compare two judges on purpose, pass --cross-judge"
+            f"conversation_lab rejudge: {result_path} was scored by {source_judge_model} and this run "
+            f"would judge with {judge_model}; {detail}. V3 test-retest needs the identical instrument. "
+            "To compare on purpose, pass --allow-instrument-change (reported as such, never as V3)"
         )
     target = args.target or data.get("target_dimension") or "turn_taking"
 
@@ -6952,13 +7010,8 @@ def _build_rejudge_report(
     max_calls_derived: bool,
     error: str | None = None,
 ) -> dict[str, Any]:
-    source_judge_model = _rejudge_source_judge_model(source_path, source.get("pairs") or [])
-    if args.dry_run:
-        rejudge_mode = "dry_run"
-    elif judge_model == source_judge_model:
-        rejudge_mode = "retest"
-    else:
-        rejudge_mode = "cross_judge"
+    source_judge_model, source_instrument = _rejudge_source_instrument(source_path, source.get("pairs") or [])
+    rejudge_mode, instrument_changed_fields = _rejudge_mode(bool(args.dry_run), judge_model, source_instrument)
     report: dict[str, Any] = {
         "command": "rejudge",
         **_pairwise_evaluator_metadata(),
@@ -6970,6 +7023,9 @@ def _build_rejudge_report(
         "source_judge_model": source_judge_model,
         "judge_model": judge_model,
         "rejudge_mode": rejudge_mode,
+        "instrument_changed_fields": instrument_changed_fields,
+        "source_judge_instrument": source_instrument,
+        "judge_instrument": None if args.dry_run else _judge_instrument(judge_model),
         "concept": source.get("concept"),
         "stage": source.get("stage"),
         "requested_pairs": len(source.get("pairs") or []),
@@ -7011,7 +7067,13 @@ def _print_rejudge_report(report: dict[str, Any]) -> None:
     rate_text = "n/a" if overall_rate is None else f"{overall_rate:.2%}"
     label = {
         "retest": "V3 test-retest agreement",
-        "cross_judge": f"CROSS-JUDGE agreement ({report['source_judge_model']} -> {report['judge_model']}; NOT V3 test-retest)",
+        "instrument_changed": (
+            f"CHANGED-INSTRUMENT agreement ({', '.join(report['instrument_changed_fields'])} differ; "
+            f"{report['source_judge_model']} -> {report['judge_model']}; NOT V3 test-retest)"
+        ),
+        "instrument_unverified": (
+            "UNVERIFIED-INSTRUMENT agreement (source did not record its judge instrument; NOT V3 test-retest)"
+        ),
         "dry_run": "dry-run agreement (template verdicts; not a measurement)",
     }[report["rejudge_mode"]]
     print(f"\n{label} (overall, vs original verdicts): {rate_text} over {agreement['pairs_compared']} pairs")
@@ -8040,8 +8102,9 @@ def _build_parser() -> argparse.ArgumentParser:
             "the judge prompt itself is never changed by this command), using --models' judge (or "
             "--provider anthropic). No dialogue is regenerated - this is a judge-only re-score, for "
             "RESEARCH_PLAN.md's V3 test-retest (re-judge a pilot's saved pairs with the SAME judge a "
-            "second time; a different judge model is refused unless --cross-judge is passed, and is "
-            "then reported as cross_judge, never V3). Refuses (nonzero exit, "
+            "second time; any difference in the saved judge instrument - model, route, token ceiling, "
+            "temperature, prompt, retry bounds - is refused unless --allow-instrument-change is passed, "
+            "and is then reported as such, never as V3). Refuses (nonzero exit, "
             "no result written) on a source file that is aborted, has any partial pair, or is missing "
             "a transcript or a saved prompt - there is nothing safe to re-judge in a partial run. "
             "Writes a new result file recording the source file, the new verdicts, the new "
@@ -8067,11 +8130,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     rejudge.add_argument("--dry-run", action="store_true", help="Zero paid calls - every re-judged verdict is 'tie'")
     rejudge.add_argument(
-        "--cross-judge", action="store_true",
+        "--allow-instrument-change", action="store_true",
         help=(
-            "Allow a judge model different from the one that scored the source. Without it, rejudge "
-            "refuses a model mismatch, because V3 test-retest needs the same instrument; with it, the "
-            "report is labelled cross_judge, never V3."
+            "Allow a judge instrument (model, route, token ceiling, temperature, prompt, retry bounds) "
+            "different from - or not recorded by - the source. Without it rejudge refuses, because V3 "
+            "test-retest needs the identical instrument; with it the report says instrument_changed "
+            "or instrument_unverified, never V3."
         ),
     )
     rejudge.add_argument("--results-dir", default=None)
