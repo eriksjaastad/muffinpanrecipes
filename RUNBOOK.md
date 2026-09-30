@@ -357,7 +357,9 @@ Vercel cron delivery is at-least-once. On 2026-05-17 (W20), Sunday could be invo
 PR #45 fixed the production behavior:
 
 - `cron_sunday` checks `ep["published_at"]` before generating dialogue, running editorial QA, saving episode data, rendering pages, or updating the catalog.
-- If `published_at` exists, Sunday returns `already_published=true` and performs no side effects, even when the request body has `force=true`.
+- If `published_at` exists, Sunday returns `already_published=true` and never regenerates dialogue, re-runs editorial QA, or re-publishes, even when the request body has `force=true`. It does two bounded catch-up steps, both of which are no-ops once complete:
+  - finishes a static source handoff left `pending` or `failed` in the sources phase (writes the reader pages and catalog, and alerts if that fails);
+  - sends an advisory "published below the judge bar" alert that is still owed (`judge_advisory.sunday.announce_pending` is true and the handoff reached `source_ready`), then records `announced_at` (#7403). Records published before 2026-09-30 never carry `announce_pending` and are never re-announced.
 - Catalog publish dedup is no longer slug-only.
 
 ### How to verify this is the incident you're looking at
@@ -385,7 +387,7 @@ uv run pytest tests/test_sunday_publish_idempotency.py -q
 
 Expected: both tests pass, including `test_cron_sunday_returns_without_side_effects_when_already_published`.
 
-If you must confirm the live endpoint, do it only after the Blob check shows `published_at_present: True`:
+If you must confirm the live endpoint, do it only after the Blob check shows `published_at_present: True`. This POST is not read-only: if the episode's handoff is unfinished or an advisory alert is still owed, it completes them (see the bullets above). Check `static_deploy.status` and `judge_advisory.sunday.announce_pending` in the Blob read first if you need a side-effect-free check:
 
 ```bash
 WEEK=2026-W20 doppler run --project muffinpanrecipes --config prd -- \

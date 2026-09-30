@@ -116,7 +116,7 @@ def test_a_selected_dialogue_that_never_publishes_never_claims_it_did():
 
     with patch.object(cron_routes, "notify_judge_advisory") as alert:
         cron_routes._announce_advisory_publication(
-            episode, "sunday", "Cardamom Cinnamon Spiral Bites",
+            episode.get("episode_id", "2026-W99"), episode, "sunday", "Cardamom Cinnamon Spiral Bites",
         )
     alert.assert_not_called()
 
@@ -125,11 +125,12 @@ def test_the_alert_fires_once_the_page_exists():
     """Not gating is not the same as not telling Erik."""
     episode = _episode()
     _run_advisory(episode, [{"x": 3}, {"x": 9}, {"x": 1}])
-    episode["judge_advisory"]["sunday"]["published"] = True
+    _mark_published(episode)
 
-    with patch.object(cron_routes, "notify_judge_advisory") as alert:
+    with patch.object(cron_routes, "notify_judge_advisory") as alert, \
+         patch.object(cron_routes.storage, "save_episode") as save_episode:
         cron_routes._announce_advisory_publication(
-            episode, "sunday", "Cardamom Cinnamon Spiral Bites",
+            episode.get("episode_id", "2026-W99"), episode, "sunday", "Cardamom Cinnamon Spiral Bites",
         )
 
     kwargs = alert.call_args.kwargs
@@ -137,6 +138,121 @@ def test_the_alert_fires_once_the_page_exists():
     assert kwargs["attempts"] == 3
     assert kwargs["scores"] == {"x": 9}
     assert kwargs["weakest"] == ["weak 2"]
+    # announced_at (#7403) is what makes a retry of this same record a no-op.
+    assert episode["judge_advisory"]["sunday"]["announced_at"]
+    save_episode.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Exactly-once announce (#7403): a crash between the publish save and the
+# alert used to lose the alert forever, because the already-published fast
+# path in cron_sunday never retried it.
+# ---------------------------------------------------------------------------
+
+
+def test_announce_is_a_no_op_once_already_announced():
+    """Calling the helper again after a successful send must not resend."""
+    episode = _episode()
+    _run_advisory(episode, [{"x": 3}, {"x": 9}, {"x": 1}])
+    _mark_published(episode)
+
+    with patch.object(cron_routes, "notify_judge_advisory") as alert, \
+         patch.object(cron_routes.storage, "save_episode"):
+        cron_routes._announce_advisory_publication(
+            episode.get("episode_id", "2026-W99"), episode, "sunday", "Cardamom Cinnamon Spiral Bites",
+        )
+    alert.assert_called_once()
+    first_announced_at = episode["judge_advisory"]["sunday"]["announced_at"]
+
+    with patch.object(cron_routes, "notify_judge_advisory") as alert_again, \
+         patch.object(cron_routes.storage, "save_episode") as save_again:
+        cron_routes._announce_advisory_publication(
+            episode.get("episode_id", "2026-W99"), episode, "sunday", "Cardamom Cinnamon Spiral Bites",
+        )
+    alert_again.assert_not_called()
+    save_again.assert_not_called()
+    assert episode["judge_advisory"]["sunday"]["announced_at"] == first_announced_at
+
+
+def _mark_published(episode: dict) -> None:
+    """What the publish path writes (#7403): published + announce_pending in
+    one save, then the source handoff reaches source_ready."""
+    record = episode["judge_advisory"]["sunday"]
+    record["published"] = True
+    record["announce_pending"] = True
+    episode["static_deploy"] = {"status": "source_ready", "phase": "manual_deploy"}
+
+
+def _crashed_after_publish_episode() -> dict:
+    """What disk holds if the process died right after saving published=True
+    but before the alert ever went out - the exact window #7403 fixes.
+    """
+    return {
+        "episode_id": "2026-W99",
+        "concept": "Cardamom Cinnamon Spiral Bites",
+        "published_at": "2026-09-21T00:00:00+00:00",
+        "stages": {"sunday": {"status": "complete", "dialogue": []}},
+        "events": [],
+        "judge_advisory": {
+            "sunday": {
+                "selected_below_bar": True,
+                "published": True,
+                "published_at": "2026-09-21T00:00:00+00:00",
+                "attempts": 3,
+                "attempt_selected": 2,
+                "verdict": "FAIL - attempt 2",
+                "scores": {"natural_progression": 2},
+                "weakest": ["natural_progression"],
+                "recorded_at": "2026-09-21T00:00:00+00:00",
+                # Saved with published=True by the publish path; the alert
+                # never went out, so it is still owed.
+                "announce_pending": True,
+            }
+        },
+        # The source handoff finished before the crash.
+        "static_deploy": {"status": "source_ready", "phase": "manual_deploy"},
+    }
+
+
+def test_a_crashed_run_s_alert_is_sent_on_the_next_already_published_retry():
+    """The already-published fast path must retry a missing announce."""
+    episode = _crashed_after_publish_episode()
+    body = cron_routes.StageRequest(episode_id="2026-W99", force=True)
+
+    with patch.object(cron_routes, "_verify_cron_secret"), \
+         patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=body)), \
+         patch.object(cron_routes, "_verify_day_of_week"), \
+         patch.object(cron_routes.storage, "load_episode", return_value=episode), \
+         patch.object(cron_routes.storage, "save_episode") as save_episode, \
+         patch.object(cron_routes, "notify_judge_advisory") as alert:
+        result = asyncio.run(cron_routes.cron_sunday(_sunday_request()))
+
+    assert result["already_published"] is True
+    alert.assert_called_once()
+    assert alert.call_args.kwargs["stage"] == "sunday"
+    assert episode["judge_advisory"]["sunday"]["announced_at"]
+    save_episode.assert_called_once()
+
+
+def test_a_second_retry_after_the_alert_sent_does_not_resend():
+    """Once the delivered alert is recorded on disk (announce_pending cleared,
+    announced_at set), further already-published hits are quiet."""
+    episode = _crashed_after_publish_episode()
+    episode["judge_advisory"]["sunday"]["announce_pending"] = False
+    episode["judge_advisory"]["sunday"]["announced_at"] = "2026-09-21T00:05:00+00:00"
+    body = cron_routes.StageRequest(episode_id="2026-W99", force=True)
+
+    with patch.object(cron_routes, "_verify_cron_secret"), \
+         patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=body)), \
+         patch.object(cron_routes, "_verify_day_of_week"), \
+         patch.object(cron_routes.storage, "load_episode", return_value=episode), \
+         patch.object(cron_routes.storage, "save_episode") as save_episode, \
+         patch.object(cron_routes, "notify_judge_advisory") as alert:
+        result = asyncio.run(cron_routes.cron_sunday(_sunday_request()))
+
+    assert result["already_published"] is True
+    alert.assert_not_called()
+    save_episode.assert_not_called()
 
 
 def test_a_non_string_weakest_entry_cannot_break_the_alert():
@@ -498,7 +614,7 @@ def test_a_clean_retry_clears_the_previous_run_s_advisory_record():
 
     with patch.object(cron_routes, "notify_judge_advisory") as alert:
         cron_routes._announce_advisory_publication(
-            episode, "sunday", "Cardamom Cinnamon Spiral Bites",
+            episode.get("episode_id", "2026-W99"), episode, "sunday", "Cardamom Cinnamon Spiral Bites",
         )
     alert.assert_not_called()
 
@@ -537,21 +653,31 @@ def test_a_clean_retry_clears_the_record_on_the_gated_stages_too():
 
 
 def test_the_sunday_route_sends_no_alert_when_the_retry_passes():
-    """End to end: the stale record must not survive into the publish."""
+    """End to end: the stale record must not survive into the publish.
+
+    #7404: the original version of this test replaced
+    _generate_and_judge_dialogue wholesale with a fake whose side_effect did
+    `ep.get("judge_advisory", {}).pop(stage, None)` itself — the exact line
+    this test exists to protect, duplicated into the mock instead of
+    exercised. It passed even with that real line reverted to a no-op,
+    because the real function never ran. This version only fakes the
+    judge's two collaborators (_generate_dialogue, _judge_dialogue), so the
+    real _generate_and_judge_dialogue — including its real clear-on-pass
+    pop — is what executes.
+    """
     episode = _sunday_episode()
     episode["judge_advisory"] = {"sunday": _stale_record()}
     body = cron_routes.StageRequest(episode_id="2026-W99", force=True)
-
-    def _judged(stage, concept, ep, **kwargs):
-        ep.get("judge_advisory", {}).pop(stage, None)
-        return [{"character": "Devon Park", "message": "live"}], "PASS"
 
     with patch.object(cron_routes, "_verify_cron_secret"), \
          patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=body)), \
          patch.object(cron_routes, "_verify_day_of_week"), \
          patch.object(cron_routes.storage, "load_episode", return_value=episode), \
          patch.object(cron_routes.storage, "save_episode"), \
-         patch.object(cron_routes, "_generate_and_judge_dialogue", side_effect=_judged), \
+         patch.object(cron_routes, "_generate_dialogue",
+                      lambda stage, concept, **kw: _dialogue("clean")), \
+         patch.object(cron_routes, "_judge_dialogue", lambda *a, **kw: (True, "PASS")), \
+         patch.object(cron_routes, "_score_dialogue_qa", lambda *a, **kw: {}), \
          patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "clean")), \
          patch.object(cron_routes, "_hero_image_url", return_value="https://x/hero.png"), \
          patch.object(cron_routes, "_generate_episode_memories"), \
@@ -675,3 +801,113 @@ def test_the_judge_records_empty_meta_when_its_provider_errors():
     assert episode["judge_scores"]["sunday"] == {}
     assert episode["judge_weakest"]["sunday"] == []
     assert "judge error" in episode["judge_reason"]["sunday"]
+
+
+def test_announce_persists_announced_at_under_the_callers_episode_id():
+    """The exactly-once record is saved under the episode the caller named,
+    never a fallback id (#7403 review)."""
+    episode = {
+        "episode_id": "2026-W99",
+        "judge_advisory": {"sunday": {
+            "published": True, "announce_pending": True, "scores": {"voice_distinctiveness": 2}, "weakest": [],
+        }},
+        "static_deploy": {"status": "source_ready", "phase": "manual_deploy"},
+    }
+    with patch.object(cron_routes, "notify_judge_advisory") as notify, \
+         patch.object(cron_routes.storage, "save_episode") as save:
+        cron_routes._announce_advisory_publication("2026-W41", episode, "sunday", "Test Cups")
+        cron_routes._announce_advisory_publication("2026-W41", episode, "sunday", "Test Cups")
+    notify.assert_called_once()
+    save.assert_called_once_with("2026-W41", episode)
+    assert episode["judge_advisory"]["sunday"]["announced_at"]
+
+
+
+def _owed_episode() -> dict:
+    episode = _crashed_after_publish_episode()
+    return episode
+
+
+def test_an_undelivered_alert_stays_owed_and_is_sent_on_the_next_try():
+    """Codex review of 2c6200f: notify_judge_advisory returns False without
+    raising when every channel is down. That must not mark the alert sent."""
+    episode = _owed_episode()
+    with patch.object(cron_routes, "notify_judge_advisory", return_value=False) as alert, \
+         patch.object(cron_routes.storage, "save_episode") as save:
+        cron_routes._announce_advisory_publication("2026-W99", episode, "sunday", "C")
+    alert.assert_called_once()
+    save.assert_not_called()
+    record = episode["judge_advisory"]["sunday"]
+    assert record["announce_pending"] is True and "announced_at" not in record
+
+    with patch.object(cron_routes, "notify_judge_advisory", return_value=True) as alert, \
+         patch.object(cron_routes.storage, "save_episode") as save:
+        cron_routes._announce_advisory_publication("2026-W99", episode, "sunday", "C")
+    alert.assert_called_once()
+    save.assert_called_once_with("2026-W99", episode)
+    assert record["announce_pending"] is False and record["announced_at"]
+
+
+def test_a_legacy_published_advisory_is_never_re_announced():
+    """Codex review of 2c6200f: a record published by older code (no
+    announce_pending) may already have been announced; never resend it."""
+    episode = _owed_episode()
+    del episode["judge_advisory"]["sunday"]["announce_pending"]
+    with patch.object(cron_routes, "notify_judge_advisory") as alert, \
+         patch.object(cron_routes.storage, "save_episode") as save:
+        cron_routes._announce_advisory_publication("2026-W99", episode, "sunday", "C")
+    alert.assert_not_called()
+    save.assert_not_called()
+
+
+def test_no_announce_before_the_source_handoff_reaches_source_ready():
+    episode = _owed_episode()
+    episode["static_deploy"] = {"status": "pending"}
+    with patch.object(cron_routes, "notify_judge_advisory") as alert:
+        cron_routes._announce_advisory_publication("2026-W99", episode, "sunday", "C")
+    alert.assert_not_called()
+    assert episode["judge_advisory"]["sunday"]["announce_pending"] is True
+
+
+def test_a_failed_marker_save_after_delivery_does_not_raise():
+    """Codex review of 2c6200f: the recipe already published and the alert
+    went out; a failed save of the marker must not fail the Sunday stage."""
+    episode = _owed_episode()
+    with patch.object(cron_routes, "notify_judge_advisory", return_value=True) as alert, \
+         patch.object(cron_routes.storage, "save_episode", side_effect=OSError("blob down")):
+        cron_routes._announce_advisory_publication("2026-W99", episode, "sunday", "C")
+    alert.assert_called_once()
+    # Codex review of 89430c3: the live object is what a warm process's
+    # storage cache hands back on the next load, so it must still say the
+    # alert is owed, exactly as storage does.
+    record = episode["judge_advisory"]["sunday"]
+    assert record["announce_pending"] is True and "announced_at" not in record
+
+    with patch.object(cron_routes, "notify_judge_advisory", return_value=True) as alert, \
+         patch.object(cron_routes.storage, "save_episode") as save:
+        cron_routes._announce_advisory_publication("2026-W99", episode, "sunday", "C")
+    alert.assert_called_once()
+    saved = save.call_args.args[1]
+    assert saved["judge_advisory"]["sunday"]["announce_pending"] is False
+    assert record["announce_pending"] is False and record["announced_at"]
+
+
+def test_fast_path_finishes_a_pending_handoff_then_announces_once():
+    """Crash after the publish save but before the handoff: the retry
+    completes the handoff first, then sends the owed alert."""
+    episode = _owed_episode()
+    episode["static_deploy"] = {"status": "pending"}
+    body = cron_routes.StageRequest(episode_id="2026-W99", force=True)
+    with patch.object(cron_routes, "_verify_cron_secret"), \
+         patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=body)), \
+         patch.object(cron_routes, "_verify_day_of_week"), \
+         patch.object(cron_routes.storage, "load_episode", return_value=episode), \
+         patch.object(cron_routes.storage, "save_episode"), \
+         patch.object(cron_routes, "_publish_sunday_sources") as publish_sources, \
+         patch.object(cron_routes, "notify_judge_advisory", return_value=True) as alert:
+        result = asyncio.run(cron_routes.cron_sunday(_sunday_request()))
+    assert result["already_published"] is True
+    publish_sources.assert_called_once()
+    alert.assert_called_once()
+    assert episode["static_deploy"]["status"] == "source_ready"
+    assert episode["judge_advisory"]["sunday"]["announce_pending"] is False
