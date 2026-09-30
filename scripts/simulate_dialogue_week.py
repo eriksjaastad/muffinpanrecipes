@@ -24,12 +24,16 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from statistics import mean
-from typing import Any
+from typing import Any, Iterable
 
 from backend.config import config
+from backend.storage import CharacterMemoryUnavailable, storage
 from backend.utils.director import Direction, direct_day, roll_day
+from backend.utils.logging import get_logger
 from backend.utils.model_router import generate_response
 from backend.utils.stop_check import StopCheckError, check_scene_done
+
+logger = get_logger(__name__)
 
 ROOT = Path(__file__).resolve().parents[1]
 PERSONAS_PATH = ROOT / "backend" / "data" / "agent_personalities.json"
@@ -562,17 +566,108 @@ def _load_bio(name: str) -> str | None:
     return None
 
 
-def _load_memories(name: str) -> list[dict[str, str]]:
-    """Load episode memories for a character (last 2 episodes)."""
-    mem_path = CHARACTERS_DIR / _char_dir_slug(name) / "memory.json"
-    if not mem_path.exists():
+def _load_legacy_memory_entries(slug: str) -> list[dict]:
+    """Read-only DISPLAY fallback: the legacy bundled memory.json (#6968,
+    redesigned in review round 3).
+
+    Used ONLY when durable storage has zero weeks for this character — see
+    _load_memories_or_unavailable. Never written to and never merged into
+    durable storage. Its entries are returned exactly as stored — NOT
+    deduped, NOT validated, NOT sorted by week — because round-3 review
+    finding 2 established that each legacy seed's 3 identically-labelled
+    "week": "2026-W11" entries are 3 DIFFERENT recipes the old, pre-#6968
+    writer mislabelled with the same week key (e.g. margaret-chen's are
+    Jalapeno Corn Dog Bites, Mini Shepherd's Pies, and Brown Butter Pecan
+    Tassies). Deduping them, as an earlier round of this fix did, silently
+    destroyed 2 of 3 real, distinct histories. Their week labels are known
+    to be unreliable and are never parsed/sorted here — this returns the
+    last 2 entries in file order, matching the file's own intended
+    recency ordering.
+    """
+    legacy_path = CHARACTERS_DIR / slug / "memory.json"
+    if not legacy_path.exists():
         return []
     try:
-        data = json.loads(mem_path.read_text())
-        episodes = data.get("episodes", [])
-        return episodes[-2:]  # last 2 episodes
-    except (json.JSONDecodeError, KeyError):
+        data = json.loads(legacy_path.read_text())
+    except (json.JSONDecodeError, OSError):
         return []
+    episodes = data.get("episodes") if isinstance(data, dict) else None
+    if not isinstance(episodes, list):
+        return []
+    return [e for e in episodes if isinstance(e, dict)][-2:]
+
+
+def _load_memories_or_unavailable(name: str) -> tuple[list[dict[str, str]], bool]:
+    """Load a character's memories for the prompt, plus whether a needed
+    durable read was unavailable (#6968, redesigned in review round 3).
+
+    Returns ``(episodes, unavailable)``. ``unavailable`` is True ONLY when
+    a durable-store LIST or a needed week's FETCH failed — never when the
+    character genuinely has no memory yet. A caller deciding whether this
+    is truly the cast's first-ever episode (run_simulation's
+    `first_episode`) must treat "unavailable" as "unknown", not as
+    "confirmed no history": a read outage must never produce the false
+    "meeting for the first time" opener (_FIRST_MONDAY_OPENER).
+
+    Flow: list this character's durable weeks — authoritative, via the
+    Blob LIST API, never a cached blob body (round-3 review finding 1). An
+    empty list is a genuine not-found in durable storage and falls back to
+    the read-only legacy seed display (_load_legacy_memory_entries — never
+    written, never deduped). A non-empty list fetches only the most recent
+    weeks' bodies (storage.load_character_memory_week, which validates
+    each body's schema); a fetch or schema failure on any needed week
+    makes the whole read unavailable (fail closed) rather than silently
+    showing a partial or malformed picture (round-3 review finding 3).
+    """
+    slug = _char_dir_slug(name)
+    try:
+        weeks = storage.list_character_memory_weeks(slug)
+    except CharacterMemoryUnavailable as e:
+        logger.warning(f"Character memory listing failed for {name}, using fallback: {type(e).__name__}: {e}")
+        return [], True
+
+    if not weeks:
+        # Genuine not-found in durable storage (#6968 review finding 2).
+        return _load_legacy_memory_entries(slug), False
+
+    latest_weeks = weeks[-PROMPT_MEMORY_WEEKS:]  # weeks is ascending; retention is a read-time choice
+    episodes: list[dict] = []
+    try:
+        for week in latest_weeks:
+            episodes.append(storage.load_character_memory_week(slug, week))
+    except CharacterMemoryUnavailable as e:
+        logger.warning(f"Character memory fetch failed for {name}, using fallback: {type(e).__name__}: {e}")
+        return [], True
+    return episodes, False
+
+
+def _load_memories(name: str) -> list[dict[str, str]]:
+    """Load episode memories for a character for the prompt (#6968).
+
+    A durable-store read failure degrades to "no memories" (the
+    known-coworker prompt fallback in build_system_prompt) rather than
+    raising. See _load_memories_or_unavailable for the full list/fetch/
+    legacy-fallback flow and for callers that need to distinguish this
+    from a genuinely empty record.
+    """
+    episodes, _unavailable = _load_memories_or_unavailable(name)
+    return episodes
+
+
+def _is_genuinely_first_episode(memory_checks: Iterable[tuple[list, bool]]) -> bool:
+    """True only when EVERY character genuinely has no memory yet (#5030,
+    #6968 review finding 3).
+
+    Takes an iterable of ``(episodes, unavailable)`` pairs, as produced by
+    _load_memories_or_unavailable. A character whose read was `unavailable`
+    is "unknown", never "confirmed no history" — so ANY unavailable read
+    makes this False, regardless of how many characters have empty
+    episodes. Without this distinction, a durable-store read outage that
+    happens to hit every character would look identical to a genuine
+    premiere week and produce the false "meeting for the first time"
+    Monday opener (_FIRST_MONDAY_OPENER).
+    """
+    return all(not episodes and not unavailable for episodes, unavailable in memory_checks)
 
 
 # Deterministic patterns for WORD_CAPS=False. Each entry is a regex that
@@ -614,6 +709,12 @@ def _strip_word_caps(text: str) -> str:
     return text.strip()
 
 
+# Cached within a single run_simulation() call so repeated turns for the same
+# character reuse one built prompt. run_simulation() clears this at the start
+# of every call (#6968) so a warm process (a long-lived Lambda, or a local
+# script simulating several weeks in one process) always loads a fresh
+# memory snapshot per stage/run instead of serving a prompt built from a
+# previous week's now-stale memory.
 _system_prompt_cache: dict[tuple[str, bool], str] = {}
 
 
@@ -663,14 +764,29 @@ def build_system_prompt(persona: dict[str, Any]) -> str:
             "WHAT YOU REMEMBER FROM RECENTLY:\n"
             + chr(10).join(mem_lines) + "\n\n"
         )
-    else:
-        # First episode — no prior memories (#5030)
+    elif MEMORY_ONBOARDING_PILOT:
+        # Explicit pilot flag only (#6968) — a genuinely empty/unavailable
+        # memory must default to the "known coworker" fallback below, never
+        # this block. Without the flag, an empty memory.json or a failed
+        # write can no longer make a recurring character (e.g. Ria after her
+        # real first episode) falsely claim to be new.
         memory_block = (
             "THIS IS YOUR FIRST WEEK ON THE JOB.\n"
             "You've never worked with these people before. You were hired separately. "
             "You know everyone's name and role from email introductions, but you haven't "
             "seen how they actually work. First impressions are forming RIGHT NOW. "
             "Be slightly guarded, curious, or nervous depending on your personality.\n\n"
+        )
+    else:
+        # Empty or unavailable memory (#6968): a truthful known-coworker
+        # fallback, not a false first-week claim. This is the production
+        # default for a character with nothing in durable storage yet or a
+        # memory read/write that failed.
+        memory_block = (
+            "WHAT YOU REMEMBER FROM RECENTLY:\n"
+            "Nothing specific comes to mind about recent weeks - but these are your "
+            "established coworkers. You've worked with them before; the details of "
+            "the last week or two just aren't top of mind right now.\n\n"
         )
 
     result = (
@@ -895,6 +1011,22 @@ WORD_CAPS: bool = True
 # accept `recipe_facts` as a plain parameter (never a module global itself);
 # this flag is the switch that decides whether that parameter is used.
 SPEAKERS_SEE_JUDGE_RECIPE_FACTS: bool = False
+
+# #6968: False (the default) is the production behaviour — a character with
+# no durable memory gets a truthful "known coworker, recent details
+# unspecified" line, never a false claim of being new. The literal
+# "THIS IS YOUR FIRST WEEK ON THE JOB" onboarding block only renders when
+# this is explicitly set True, e.g. for a deliberate premiere-week pilot
+# run. Recurring characters (every real character after their real first
+# episode) must never see onboarding text again, including when their
+# memory is empty or a write failed — so this must stay off in production.
+MEMORY_ONBOARDING_PILOT: bool = False
+
+# How many of a character's most recent durable weeks the prompt shows
+# (#6968, redesigned round 3). Retention itself is unbounded in durable
+# storage — nothing is ever deleted — so this is purely a read-time display
+# choice, not a storage limit.
+PROMPT_MEMORY_WEEKS: int = 2
 
 # One record per generated line (#7705): day, speaker, the fault keys that
 # fired, whether the draft was rewritten, draft/final word counts, the draft
@@ -2246,15 +2378,34 @@ def _generate_episode_memories(
     concept: str,
     personas: dict[str, dict[str, Any]],
     model: str,
+    week_label: str | None = None,
 ) -> None:
     """Generate per-character episode memories after a full week simulation.
 
-    One LLM call per character (~100 tokens output each). Appends to each
-    character's memory.json, keeping at most 3 episodes.
+    One LLM call per character (~100 tokens output each). Persists through
+    the same durable storage primitives as the production Sunday writer
+    (backend.admin.cron_routes._generate_episode_memories) — NOT
+    backend/data/characters/<slug>/memory.json (#6968, item 6). That bundled
+    path is tracked source; a local full-week simulation must not dirty it.
+    Each character's memory is ONE durable blob per week
+    (storage.save_character_memory_week) — no read, no merge (#6968,
+    redesigned in review round 3), so replaying the same week is an
+    idempotent overwrite of only that week's own blob, and this can never
+    touch or lose any other week's blob.
+
+    `week_label` defaults to the current ISO week when not given (this
+    function has no episode object to read an episode_id from, unlike the
+    production writer). It MUST be a real ISO week string ("YYYY-Www") —
+    storage.save_character_memory_week validates it and rejects anything
+    else with ValueError, since a non-ISO/synthetic label (e.g.
+    "test-week") is not a real week. A caller driving a synthetic/backfill
+    run should pass a real, deliberately-chosen ISO week rather than an
+    arbitrary string; passing a non-ISO label simply skips that
+    character's write (logged), it does not corrupt durable storage.
     """
     from datetime import date
 
-    week_label = date.today().strftime("%G-W%V")
+    week_label = week_label or date.today().strftime("%G-W%V")
 
     # Group messages by character
     by_char: dict[str, list[str]] = {}
@@ -2297,27 +2448,23 @@ def _generate_episode_memories(
         sentences = summary.split(". ")
         key_moment = sentences[-1].rstrip(".") + "." if len(sentences) > 1 else ""
 
-        episode = {
+        entry = {
             "week": week_label,
+            "episode_id": week_label,
             "concept": concept,
             "summary": summary,
             "key_moment": key_moment,
         }
 
-        # Load existing memory, append, keep last 3
+        # One durable blob for THIS week, PUT to its own key — never a
+        # direct write to the tracked backend/data/characters/<slug>/
+        # memory.json source, and no read-then-merge that could touch or
+        # lose any other week's blob (#6968, redesigned round 3).
         slug = _char_dir_slug(char_name)
-        mem_path = CHARACTERS_DIR / slug / "memory.json"
         try:
-            data: dict[str, Any] = json.loads(mem_path.read_text()) if mem_path.exists() else {"episodes": []}
-        except (json.JSONDecodeError, KeyError):
-            data: dict[str, Any] = {"episodes": []}
-
-        data["episodes"].append(episode)
-        data["episodes"] = data["episodes"][-3:]  # keep last 3
-        data["last_updated"] = week_label
-
-        mem_path.parent.mkdir(parents=True, exist_ok=True)
-        mem_path.write_text(json.dumps(data, indent=2))
+            storage.save_character_memory_week(slug, week_label, entry)
+        except Exception as e:
+            logger.warning(f"Local-simulation memory write failed for {char_name}: {type(e).__name__}: {e}")
 
 
 def run_simulation(
@@ -2343,6 +2490,13 @@ def run_simulation(
     # even if this function never returns (e.g. an exception mid-run). Production never passes it -
     # this parameter and the branch below are the only difference from before it existed.
 ) -> dict[str, Any]:
+    # #6968: force a fresh memory snapshot for this run. Without this, a
+    # process that stays warm across stages/weeks (a long-lived Lambda, or a
+    # local script simulating multiple weeks in one process) would keep
+    # serving system prompts built from whichever week's memory was loaded
+    # the first time each character's name hit the cache.
+    _system_prompt_cache.clear()
+
     personas = load_personas()
     start = datetime.now(timezone.utc).replace(hour=9, minute=0, second=0, microsecond=0)
     messages: list[Message] = message_sink if message_sink is not None else []
@@ -2363,8 +2517,11 @@ def run_simulation(
     if OPEN_ENDED_MAX_TICKS and WINDDOWN_TRIGGER != "check":
         raise ValueError("OPEN_ENDED_MAX_TICKS requires WINDDOWN_TRIGGER == 'check'")
 
-    # Detect first episode — no character has any memories (#5030)
-    first_episode = all(not _load_memories(name) for name in personas)
+    # Detect first episode — every character genuinely has no memory (#5030,
+    # #6968 review finding 3).
+    first_episode = _is_genuinely_first_episode(
+        _load_memories_or_unavailable(name) for name in personas
+    )
 
     days = [stage_only] if stage_only else DAY_ORDER
     for day_i, day in enumerate(days):
