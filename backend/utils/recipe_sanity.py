@@ -24,20 +24,32 @@ temperature exists only as prose inside instruction strings, it is present
 in 36/36 episodes and regex-extractable.
 
 KNOWN LIMIT, stated rather than papered over. Weak doneness evidence is
-accepted when it appears in the same instruction step as the protein, which
-is a proxy for "describes the protein" and not the same thing. A single
-compound sentence naming both defeats it:
+accepted when it appears within DONENESS_PROXIMITY_WINDOW_WORDS of the
+protein mention in the same instruction step (#7107, narrowed from "anywhere
+in the step"), which is a proxy for "describes the protein" and not the same
+thing. A single compound sentence naming both can still defeat it:
 
     "Stir the raw chicken into the glaze until the glaze looks glossy and
      browned, then divide among the wells and bake 20 minutes."
 
-reads as clear, because "browned" and "chicken" share a step even though the
-word describes the glaze. Separating those needs to parse what the adjective
-attaches to, which regex cannot do. This is deliberately left to the LLM
-editorial reviewer, whose rules 6-8 cover exactly this kind of judgement —
-the point of this module is to give that reviewer a floor it cannot fall
-below, not to replace it. Do not widen WEAK_DONENESS_PATTERNS to compensate;
-that trades a narrow hole for a wide one.
+reads as clear, because "browned" sits 10 words from "chicken" - inside the
+window - even though the word describes the glaze. The window cannot be
+tightened enough to close this: real, already-published recipes routinely
+separate a protein mention from its own genuine doneness word by 10-17 words
+("Add the ground pork and cook, breaking it into small crumbles, until it
+loses its pink color" is 10 words; 2026-W23's bacon description is 17), so a
+window tight enough to reject the chicken/glaze sentence above also rejects
+real recipes - checked against the full local episode corpus, not just the
+committed fixtures, per this card's own instruction. Separating "which noun
+the adjective attaches to" needs actual parsing, which regex cannot do. This
+is deliberately left to the LLM editorial reviewer, whose rules 6-8 cover
+exactly this kind of judgement - the point of this module is to give that
+reviewer a floor it cannot fall below, not to replace it. The window still
+narrows the exposure versus the old unbounded-step rule (a protein mentioned
+at the start of a 90-word step no longer clears on an unrelated doneness word
+at the end), it just does not close this specific compound-sentence shape.
+Do not widen WEAK_DONENESS_PATTERNS to compensate; that trades a narrow hole
+for a wide one.
 
 SECOND KNOWN LIMIT, same category. The pantry lookaheads on the risk-protein
 patterns ("chicken" but not "chicken stock") suppress the match only when the
@@ -191,6 +203,55 @@ WEAK_DONENESS_PATTERNS = (
     r"\bbrowned?\b",
     r"\bcrisp(?:s|ed|y)?\b",
 )
+
+# Word-distance window for the weak-doneness proximity rule (#7107, narrowed
+# from "anywhere in the step"). 17, not the 6-8 words first proposed by the
+# reviewer who filed the card - that value was checked against every recipe
+# in the local episode corpus with a risk protein and no strong evidence
+# (data/episodes/*.json, 35 recipes) before being adopted, per the card's own
+# instruction to calibrate against the corpus, not just the fixtures. A
+# window under 17 rejects real, already-published recipes:
+#   2026-W18 sausage -> "browned"          3 words away
+#   2026-W20 turkey sausage -> "no longer pink"   11 words away
+#   2026-W21 chorizo -> "cooked through"   13 words away
+#   2026-W23 bacon -> "crisp"              17 words away
+#   2026-W26 -> weak evidence               3 words away
+#   2026-W30 ground pork -> "loses its pink"   10 words away
+#   2026-W32 salmon -> "opaque"             3 words away
+# 17 is therefore a floor set by evidence, not a guess, and it is why the
+# module docstring's KNOWN LIMIT above still applies to the compound-sentence
+# defeat: that example sits at 10 words, inside this floor.
+DONENESS_PROXIMITY_WINDOW_WORDS = 17
+
+
+def _match_word_index(text: str, match: re.Match) -> int:
+    """0-based index of the word a regex match starts on."""
+    return len(text[: match.start()].split())
+
+
+def _weak_doneness_near_protein(step: str, window: int = DONENESS_PROXIMITY_WINDOW_WORDS) -> bool:
+    """True when a WEAK doneness signal sits within `window` words of a
+    RISK_PROTEIN mention in the same step.
+
+    Replaces the old "anywhere in the step" rule with a bounded search
+    radius - see DONENESS_PROXIMITY_WINDOW_WORDS for why the radius is 17.
+    """
+    protein_positions = [
+        _match_word_index(step, m)
+        for p in RISK_PROTEIN_PATTERNS
+        for m in re.finditer(p, step, re.IGNORECASE)
+    ]
+    if not protein_positions:
+        return False
+    weak_positions = [
+        _match_word_index(step, m)
+        for p in WEAK_DONENESS_PATTERNS
+        for m in re.finditer(p, step, re.IGNORECASE)
+    ]
+    if not weak_positions:
+        return False
+    return any(abs(p - w) <= window for p in protein_positions for w in weak_positions)
+
 
 # Raw egg is safe once baked, which is why eggs are not risk proteins - but
 # that reasoning only holds if heat is actually applied. A no-bake custard or
@@ -364,11 +425,12 @@ def _check_food_safety(recipe: dict[str, Any], instructions: str) -> str | None:
     """A risk protein must have its doneness verified, near the protein itself.
 
     Strong evidence (a thermometer reading, "pre-cooked") counts anywhere.
-    Weak evidence — "browned", "opaque", "crisp" — counts only in a step that
-    also names the protein, because those are ordinary cooking words that
-    something else in the recipe will almost always satisfy. Before that
-    proximity rule, "bake until the cheese tops are browned" cleared a raw
-    chicken filling.
+    Weak evidence — "browned", "opaque", "crisp" — counts only within
+    DONENESS_PROXIMITY_WINDOW_WORDS of the protein mention in the same step
+    (#7107), because those are ordinary cooking words that something else in
+    the recipe will almost always satisfy. Before the original (whole-step)
+    version of this proximity rule, "bake until the cheese tops are browned"
+    cleared a raw chicken filling.
     """
     ingredient_text = " ".join(
         str(i.get("item", "")) if isinstance(i, dict) else str(i)
@@ -382,14 +444,12 @@ def _check_food_safety(recipe: dict[str, Any], instructions: str) -> str | None:
                     STRONG_DONENESS_PATTERNS):
         return None
 
-    # Weak evidence, but only where it is actually talking about the protein.
+    # Weak evidence, but only where it is actually near the protein.
     steps = [str(s) for s in (recipe.get("instructions") or [])]
     if chef_notes:
         steps.append(chef_notes)
     for step in steps:
-        if _matches_any(step, RISK_PROTEIN_PATTERNS) and _matches_any(
-            step, WEAK_DONENESS_PATTERNS
-        ):
+        if _weak_doneness_near_protein(step):
             return None
 
     return (
