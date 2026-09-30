@@ -109,7 +109,7 @@ def test_openrouter_request_shape_and_cost_capture(monkeypatch):
     assert entry["served_provider"] == "Anthropic"
 
 
-def _fake_openrouter(monkeypatch, *, content, finish_reason="stop", completion_tokens=3):
+def _fake_openrouter(monkeypatch, *, content, finish_reason="stop", completion_tokens=3, cost=0.0087):
     """`content` may be a list: one entry per successive request (the last repeats)."""
     captured: dict = {"requests": 0}
     contents = content if isinstance(content, list) else [content]
@@ -125,7 +125,7 @@ def _fake_openrouter(monkeypatch, *, content, finish_reason="stop", completion_t
                 choices=[SimpleNamespace(
                     message=SimpleNamespace(content=this), finish_reason=finish_reason,
                 )],
-                usage=SimpleNamespace(prompt_tokens=10, completion_tokens=completion_tokens, cost=0.0087),
+                usage=SimpleNamespace(prompt_tokens=10, completion_tokens=completion_tokens, cost=cost),
                 provider="DeepSeek",
             )
 

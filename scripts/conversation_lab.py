@@ -246,6 +246,7 @@ import contextvars
 import copy
 import fcntl
 import hashlib
+import http.server
 import json
 import math
 import os
@@ -255,9 +256,11 @@ import re
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import httpx
+from send2trash import send2trash
 from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -463,6 +466,11 @@ ALLOWED_VARIANT_ATTRS: tuple[str, ...] = (
     # Director knob (#7679, absorbs #7677). When enabled, run_simulation rolls
     # and directs each scene before the first turn (one Haiku call per day).
     "DIRECTOR",
+    # #7791 P4 / RESEARCH_PLAN.md S3 R3. False (default) is production-identical:
+    # speakers see only the recipe_context anchor. True appends the scenario's
+    # judge_recipe_facts to that anchor so speakers argue from the same facts
+    # the judge scores against.
+    "SPEAKERS_SEE_JUDGE_RECIPE_FACTS",
 )
 
 # The 8 dimensions the production judge scores (backend/admin/cron_routes.py
@@ -503,6 +511,8 @@ ALL_JUDGE_DIMENSIONS: tuple[str, ...] = JUDGE_DIMENSIONS + LAB_ONLY_JUDGE_DIMENS
 # LAB_ONLY_JUDGE_DIMENSIONS above (lab-only - never fed back into the
 # production judge prompt).
 PAIRWISE_JUDGE_PROMPT_VERSION = "pairwise-v2-candidate-versions-character-rules"
+# Part of the judge instrument alongside the model and the system prompt.
+PAIRWISE_JUDGE_TEMPERATURE = 0.2
 PAIRWISE_JUDGE_SYSTEM_PROMPT = (
     "You are a senior editorial judge for a food content site comparing TWO "
     "candidate dialogue transcripts for the SAME day, recipe concept, and "
@@ -557,6 +567,22 @@ PAIRWISE_JUDGE_SYSTEM_PROMPT = (
     '"emotional_range": "A"|"B"|"tie", "register_naturalness": "A"|"B"|"tie"}, '
     '"reason": "<one sentence>"}'
 )
+
+
+def _judge_instrument(judge_model: str) -> dict[str, Any]:
+    """The complete judge instrument for `judge_model` (#7791): the full
+    request `model_router.generate_judge_response` makes, minus the prompt
+    text (from `model_router.judge_request_settings`), plus the lab-side
+    parts that decide a verdict - the system prompt's sha and version and
+    this module's JSON-retry bound. Saved with every judge orientation;
+    `rejudge` calls a re-run V3 test-retest only when this whole dict is
+    unchanged, so a setting added to the request later is covered without
+    a new hand-written check."""
+    return {
+        **model_router.judge_request_settings(judge_model, PAIRWISE_JUDGE_TEMPERATURE),
+        **_pairwise_evaluator_metadata(),
+        "json_max_retries": _JUDGE_JSON_MAX_RETRIES,
+    }
 
 
 def _pairwise_evaluator_metadata() -> dict[str, str]:
@@ -726,7 +752,8 @@ def _would_exceed_cost(max_cost: float, baseline: float = 0.0) -> bool:
     except Exception as exc:
         _warn_cost_summary_failure_once(exc)
         return False
-    return (total_cost - baseline) >= max_cost
+    # `not (x < cap)`: a NaN total or cap counts as exceeded (fail closed).
+    return not ((total_cost - baseline) < max_cost)
 
 
 # ---------------------------------------------------------------------------
@@ -851,11 +878,15 @@ def _provider_route_for(provider: str, model_set: "LabModelSet | None" = None) -
 def _resolve_provider(args: argparse.Namespace, ledger_path: Any) -> str | None:
     """Which provider a CLI invocation uses.
 
-    The CLI default is openrouter for ab/bench/calibrate. A --budget-ledger
-    run always uses the production-direct Anthropic path, because the guard
-    only meters the Anthropic SDK.
+    The CLI default is openrouter for ab/bench/calibrate/rejudge. A
+    --budget-ledger run always uses the production-direct Anthropic path,
+    because the guard only meters the Anthropic SDK - rejudge does not
+    expose --budget-ledger (see `_add_budget_guard_options` call sites), so
+    ledger_path is always None for it, but it still needs a default
+    provider so `_openrouter_preflight` runs the same OpenRouter key/price
+    checks every other paid command gets.
     """
-    if args.command not in {"ab", "bench", "calibrate"}:
+    if args.command not in {"ab", "bench", "calibrate", "rejudge"}:
         return None
     explicit = getattr(args, "provider", None)
     if explicit:
@@ -883,7 +914,7 @@ def _openrouter_preflight(args: argparse.Namespace) -> None:
         "[openrouter] key limit: "
         f"${key_info['limit']:.2f}  limit_remaining: ${key_info['limit_remaining']:.2f}"
     )
-    if key_info["limit_remaining"] < args.max_cost:
+    if not (key_info["limit_remaining"] >= args.max_cost):
         raise SystemExit(
             "conversation_lab: OpenRouter limit_remaining "
             f"${key_info['limit_remaining']:.2f} is below --max-cost ${args.max_cost:.2f}; "
@@ -894,7 +925,7 @@ def _openrouter_preflight(args: argparse.Namespace) -> None:
     # remaining and died at its first judge call because the account held $0.56.
     balance = _openrouter_fetch_account_balance()
     print(f"[openrouter] account balance: ${balance:.2f}")
-    if balance < args.max_cost:
+    if not (balance >= args.max_cost):
         raise SystemExit(
             f"conversation_lab: OpenRouter account balance ${balance:.2f} is below "
             f"--max-cost ${args.max_cost:.2f}; add credits before starting"
@@ -902,7 +933,12 @@ def _openrouter_preflight(args: argparse.Namespace) -> None:
 
     _OPENROUTER_MODEL_PRICES = _fetch_openrouter_model_prices()
     model_set = _resolve_lab_model_set(args)
-    missing = sorted({m for m in (model_set.dialogue, model_set.judge) if m not in _OPENROUTER_MODEL_PRICES})
+    # Price only the models this command will call: rejudge and calibrate
+    # judge saved transcripts and never generate dialogue.
+    models_called = (
+        (model_set.judge,) if args.command in {"rejudge", "calibrate"} else (model_set.dialogue, model_set.judge)
+    )
+    missing = sorted({m for m in models_called if m not in _OPENROUTER_MODEL_PRICES})
     if missing:
         raise SystemExit(
             "conversation_lab: OpenRouter has no published price for "
@@ -951,6 +987,12 @@ def _fetch_openrouter_model_prices() -> dict[str, tuple[float, float]]:
             prompt_price = float(pricing.get("prompt"))
             completion_price = float(pricing.get("completion"))
         except (TypeError, ValueError):
+            continue
+        # float() accepts "NaN", "inf" and negatives; any of those would make
+        # the worst-case reservation NaN/inf/negative and the cap comparison
+        # meaningless. Leave such a model unpriced so the preflight and the
+        # pre-call guard refuse it (fail closed).
+        if not (isfinite(prompt_price) and isfinite(completion_price)) or prompt_price < 0 or completion_price < 0:
             continue
         prices[model_id] = (prompt_price, completion_price)
     return prices
@@ -1017,7 +1059,9 @@ def _openrouter_fetch_account_balance() -> float:
     total_credits = data.get("total_credits")
     total_usage = data.get("total_usage")
     for field, value in (("total_credits", total_credits), ("total_usage", total_usage)):
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
+        # json.loads accepts NaN/Infinity; a non-finite amount must not reach
+        # the preflight comparison, where it would compare False and pass.
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(value):
             raise ConversationLabError(f"openrouter credits check {field} is invalid")
     return float(total_credits) - float(total_usage)
 
@@ -1048,7 +1092,7 @@ def _openrouter_fetch_key() -> dict[str, Any]:
     limit_remaining = data.get("limit_remaining")
     usage = data.get("usage")
     for field, value in (("limit", limit), ("limit_remaining", limit_remaining)):
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(value):
             raise ConversationLabError(f"openrouter key check {field} is invalid")
     return {
         "limit": float(limit),
@@ -1488,6 +1532,12 @@ def _validate_lever_shape(name: str, value: Any) -> None:
                 f"WORD_CAPS must be a bool, got {value!r}"
             )
         return
+    if name == "SPEAKERS_SEE_JUDGE_RECIPE_FACTS":
+        if not isinstance(value, bool):
+            raise ConversationLabError(
+                f"SPEAKERS_SEE_JUDGE_RECIPE_FACTS must be a bool, got {value!r}"
+            )
+        return
     if name != "HISTORY_DEPTH":
         return
     if not isinstance(value, dict):
@@ -1720,6 +1770,7 @@ def _run_arm(
     image_paths: list[Any] | None = None,
     prior_lines: list[str] | None = None,
     message_sink: list | None = None,
+    recipe_facts: str | None = None,
 ) -> dict[str, Any]:
     """Call run_simulation with the exact production call shape.
 
@@ -1742,6 +1793,12 @@ def _run_arm(
     turns were already generated (and paid for) if this call raises
     partway through, most commonly a LabBudgetAbort from the ambient
     mid-arm guard.
+
+    `recipe_facts` (#7791 P4), when given, is forwarded UNCHANGED to
+    `run_simulation`'s own `recipe_facts` - it only reaches a speaker prompt
+    when the SPEAKERS_SEE_JUDGE_RECIPE_FACTS variant lever is True (default
+    False, production-identical); passing it here costs nothing when the
+    lever is off.
     """
     return simulate_module.run_simulation(
         concept=concept,
@@ -1756,6 +1813,7 @@ def _run_arm(
         image_paths=copy.deepcopy(image_paths) if image_paths is not None else [],
         photography_context=copy.deepcopy(photography_context),
         recipe_context=recipe_context,
+        recipe_facts=recipe_facts,
         initial_highlights=None,
         initial_recent_lines=list(prior_lines) if prior_lines is not None else None,
         message_sink=message_sink,
@@ -1871,7 +1929,10 @@ def _installed_budget_guard(budget: CallBudget, max_cost: float | None, baseline
                 # no usage.cost) blocks: admitting the call would spend
                 # against a cap nobody can check.
                 total = _total_cost_or_none()
-                cost_blocked = total is None or (total - baseline_cost) + worst_case > max_cost
+                # `not (x <= cap)` rather than `x > cap`: a NaN anywhere
+                # (total, reservation or the cap itself) blocks instead of
+                # comparing False and admitting the call.
+                cost_blocked = total is None or not ((total - baseline_cost) + worst_case <= max_cost)
             elif provider is None:
                 # A Jev HTTP attempt (stop_check's hook call) - no
                 # per-model price to look up, so reserve the same
@@ -1881,7 +1942,7 @@ def _installed_budget_guard(budget: CallBudget, max_cost: float | None, baseline
                 total = _total_cost_or_none()
                 cost_blocked = (
                     total is None
-                    or (total - baseline_cost) + stop_check._JEV_FAILED_ATTEMPT_COST_ESTIMATE_USD > max_cost
+                    or not ((total - baseline_cost) + stop_check._JEV_FAILED_ATTEMPT_COST_ESTIMATE_USD <= max_cost)
                 )
             else:
                 # Non-OpenRouter direct providers (anthropic/openai/google):
@@ -1911,6 +1972,7 @@ def _run_arm_and_count(
     mode: str,
     default_model: str,
     prior_lines: list[str] | None = None,
+    recipe_facts: str | None = None,
 ) -> tuple[dict[str, Any], int]:
     """Run one arm and estimate its call cost.
 
@@ -1955,7 +2017,7 @@ def _run_arm_and_count(
     try:
         result = _run_arm(
             concept, stage, run_index, recipe_context, mode, default_model,
-            prior_lines=prior_lines, message_sink=sink,
+            prior_lines=prior_lines, message_sink=sink, recipe_facts=recipe_facts,
         )
     except BaseException as exc:
         if not hasattr(exc, "conversation_lab_calls_made"):
@@ -2185,6 +2247,7 @@ def _judge_orientation(
     budget: "CallBudget | None" = None,
     max_cost: float | None = None,
     baseline: float = 0.0,
+    prebuilt_prompt: str | None = None,
 ) -> dict[str, str]:
     """Judge once with A=first_arm, B=second_arm; map the A/B verdict back to arm labels.
 
@@ -2194,8 +2257,19 @@ def _judge_orientation(
     orientation` call site checks `budget.would_exceed(1)` and
     `_would_exceed_cost` before invoking this orientation at all). Passing
     `None` for either disables that dimension's retry cap (used by direct
-    unit-test calls that don't exercise budget/cost enforcement)."""
-    prompt = _build_pairwise_prompt(
+    unit-test calls that don't exercise budget/cost enforcement).
+
+    `prebuilt_prompt` (#7791 P2, `rejudge`) skips `_build_pairwise_prompt`
+    entirely and sends this exact text instead - used to re-judge a saved
+    `ab`/`calibrate` result's ALREADY-BUILT prompt (stored verbatim in that
+    orientation's `evidence["prompt"]`) under a different judge model,
+    without needing to reconstruct concept/stage/recipe_context/
+    expected_cast/recipe_facts, which single-concept `ab` results do not
+    even persist at the top level. `concept`/`stage`/`recipe_context`/
+    `expected_cast`/`recipe_facts`/`first_messages`/`second_messages` are
+    then unused for prompt-building (still accepted so `_run_judge_
+    orientation`'s call shape stays uniform across every caller)."""
+    prompt = prebuilt_prompt if prebuilt_prompt is not None else _build_pairwise_prompt(
         concept, stage, recipe_context, expected_cast, first_messages, second_messages,
         recipe_facts=recipe_facts,
     )
@@ -2205,11 +2279,20 @@ def _judge_orientation(
             "prompt": prompt,
             "system_prompt": PAIRWISE_JUDGE_SYSTEM_PROMPT,
             "model": judge_model,
-            "temperature": 0.2,
+            "temperature": PAIRWISE_JUDGE_TEMPERATURE,
             "mapping": mapping,
             "first_arm": first_arm,
             "second_arm": second_arm,
         })
+        # Describing the instrument must never cost the evidence above: a
+        # model id the router cannot parse is recorded, not raised here (the
+        # judge call itself raises on it next). rejudge treats a missing
+        # instrument as unverifiable, never as V3.
+        try:
+            evidence["judge_instrument"] = _judge_instrument(judge_model)
+        except RuntimeError as exc:
+            evidence["judge_instrument"] = None
+            evidence["judge_instrument_error"] = str(exc)
     before_attempts = _budget_generation_attempts()
     if evidence is not None:
         evidence["guard_generation_attempts_before"] = before_attempts
@@ -2226,7 +2309,7 @@ def _judge_orientation(
                 prompt=prompt,
                 system_prompt=PAIRWISE_JUDGE_SYSTEM_PROMPT,
                 model=judge_model,
-                temperature=0.2,
+                temperature=PAIRWISE_JUDGE_TEMPERATURE,
             )
         except BaseException as original_error:
             if evidence is not None:
@@ -3032,7 +3115,7 @@ def _generate_and_judge_pairs(
             try:
                 control_result, control_calls = _run_arm_and_count(
                     concept, stage, run_index, recipe_context, mode, default_model,
-                    prior_lines=prior_lines,
+                    prior_lines=prior_lines, recipe_facts=recipe_facts,
                 )
             except BaseException as exc:
                 # #7714 round 3 / round 4 finding 1: the control arm's
@@ -3088,7 +3171,7 @@ def _generate_and_judge_pairs(
                 try:
                     variant_result, variant_calls = _run_arm_and_count(
                         concept, stage, run_index, recipe_context, mode, default_model,
-                        prior_lines=prior_lines,
+                        prior_lines=prior_lines, recipe_facts=recipe_facts,
                     )
                 except BaseException as exc:
                     # #7714 finding 2 / round 3 / round 4 finding 1: the
@@ -3916,6 +3999,7 @@ def _generate_sweep_control(
                     result, calls = _run_arm_and_count(
                         scenario["concept"], stage, run_index, scenario["recipe_context"], mode, default_model,
                         prior_lines=(prior_by_scenario or {}).get(scenario["id"]),
+                        recipe_facts=scenario.get("judge_recipe_facts"),
                     )
                 except BaseException as exc:
                     # #7714 round 3 / round 4 finding 1: the aborted
@@ -4044,6 +4128,7 @@ def _run_sweep_variant(
                         variant_result, variant_calls = _run_arm_and_count(
                             scenario["concept"], stage, run_index, scenario["recipe_context"], mode, default_model,
                             prior_lines=(prior_by_scenario or {}).get(scenario["id"]),
+                            recipe_facts=scenario.get("judge_recipe_facts"),
                         )
                     except BaseException as exc:
                         # #7714 finding 2 / round 3 / round 4 finding 1:
@@ -5964,6 +6049,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
                     photography_context=photo_inputs["photography_context"],
                     image_paths=photo_inputs["image_paths"],
                     message_sink=sink,
+                    recipe_facts=recipe_facts,
                 ),
                 fallback=0 if args.dry_run else _max_turns_for_stage(args.stage),
                 reservation=gen_reserve,
@@ -6619,6 +6705,363 @@ def _print_calibrate_report(report: dict[str, Any]) -> None:
     print(f"\nresults written to: {report['results_file']}")
 
 # ---------------------------------------------------------------------------
+# rejudge (#7791 P2: RESEARCH_PLAN.md S0a V3 test-retest)
+# ---------------------------------------------------------------------------
+
+_REJUDGE_ORIENTATION_KEYS = ("orientation", "status", "evidence", "result")
+
+
+def _load_rejudge_source(result_path: Path) -> dict[str, Any]:
+    """Load and validate an `ab` result file for `rejudge`. Raises SystemExit
+    (never a silent skip) on anything that means the file cannot be safely
+    re-judged - an aborted run, a partial arm, a missing transcript, or a
+    missing saved prompt/mapping (dropping into a code path that would have
+    to reconstruct one instead)."""
+    try:
+        raw_text = result_path.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise SystemExit(f"conversation_lab rejudge: result file not found: {result_path}") from exc
+    try:
+        data = json.loads(raw_text)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"conversation_lab rejudge: {result_path} is not valid JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise SystemExit(f"conversation_lab rejudge: {result_path} is not a JSON object")
+    if data.get("command") != "ab":
+        raise SystemExit(
+            f"conversation_lab rejudge: {result_path} is a {data.get('command')!r} result, not an "
+            "`ab` result - rejudge only re-scores an ab result's saved transcripts"
+        )
+    if data.get("mode") == "sweep":
+        raise SystemExit(
+            f"conversation_lab rejudge: {result_path} is an `ab --sweep` result (pairs nested per "
+            "variant) - rejudge does not support --sweep results; pass a single-variant or --testbed result"
+        )
+    if data.get("dry_run"):
+        raise SystemExit(
+            f"conversation_lab rejudge: {result_path} is a --dry-run result - it has no real judge "
+            "calls to redo"
+        )
+    if data.get("aborted"):
+        raise SystemExit(
+            f"conversation_lab rejudge: {result_path} is an ABORTED ab result (--max-calls/--max-cost "
+            "hit mid-run) - refusing to re-judge a partial run"
+        )
+    partial_pairs = data.get("partial_pairs") or []
+    if partial_pairs:
+        raise SystemExit(
+            f"conversation_lab rejudge: {result_path} has {len(partial_pairs)} partial pair(s) (a "
+            "control/variant arm that never finished) - refusing to re-judge a partial run"
+        )
+    pairs = data.get("pairs")
+    if not isinstance(pairs, list) or not pairs:
+        raise SystemExit(f"conversation_lab rejudge: {result_path} has no pairs to re-judge")
+
+    for i, pair in enumerate(pairs, start=1):
+        if not pair.get("control_messages") or not pair.get("variant_messages"):
+            raise SystemExit(
+                f"conversation_lab rejudge: {result_path} pair {i} is missing a transcript "
+                "(control_messages/variant_messages) - refusing to re-judge a partial run"
+            )
+        orientations = pair.get("judge_orientations")
+        if not isinstance(orientations, list) or len(orientations) != 2:
+            found = len(orientations) if isinstance(orientations, list) else 0
+            raise SystemExit(
+                f"conversation_lab rejudge: {result_path} pair {i} does not have exactly 2 recorded "
+                f"judge orientations (found {found}) - refusing to re-judge a partial run"
+            )
+        for orientation in orientations:
+            if not isinstance(orientation, dict) or orientation.get("status") != "invoked" or "result" not in orientation:
+                raise SystemExit(
+                    f"conversation_lab rejudge: {result_path} pair {i} has an orientation that never "
+                    "completed - refusing to re-judge a partial run"
+                )
+            evidence = orientation.get("evidence") or {}
+            if not evidence.get("prompt") or not isinstance(evidence.get("mapping"), dict):
+                raise SystemExit(
+                    f"conversation_lab rejudge: {result_path} pair {i} orientation is missing its "
+                    "saved prompt/mapping - cannot re-judge without regenerating"
+                )
+            first_arm = evidence.get("first_arm")
+            second_arm = evidence.get("second_arm")
+            mapping = evidence["mapping"]
+            if (
+                {first_arm, second_arm} != {"control", "variant"}
+                or mapping.get("A") != first_arm
+                or mapping.get("B") != second_arm
+            ):
+                raise SystemExit(
+                    f"conversation_lab rejudge: {result_path} pair {i} orientation has an incomplete "
+                    "or inconsistent first_arm/second_arm/mapping record - refusing to guess the A/B order"
+                )
+        first_arms = [o["evidence"]["first_arm"] for o in orientations]
+        if first_arms[0] == first_arms[1]:
+            raise SystemExit(
+                f"conversation_lab rejudge: {result_path} pair {i} has two orientations with the same "
+                "A/B order - not a position-swapped pair"
+            )
+    return data
+
+
+def _rejudge_source_instrument(
+    result_path: Path, pairs: list[dict[str, Any]],
+) -> tuple[str, dict[str, Any] | None]:
+    """(judge model, saved judge instrument) for a source result. Every
+    orientation must name the same judge model; the saved instrument (see
+    `_judge_instrument`) must be identical across orientations, or absent
+    from all of them (a result written before instruments were recorded,
+    returned as None: the instrument cannot be verified)."""
+    models: set[str] = set()
+    instruments: list[dict[str, Any] | None] = []
+    for i, pair in enumerate(pairs, start=1):
+        for orientation in pair["judge_orientations"]:
+            evidence = orientation["evidence"]
+            model = evidence.get("model")
+            if not isinstance(model, str) or not model:
+                raise SystemExit(
+                    f"conversation_lab rejudge: {result_path} pair {i} does not record which judge model "
+                    "scored it - cannot show the instrument is unchanged"
+                )
+            models.add(model)
+            instrument = evidence.get("judge_instrument")
+            if instrument is not None and not isinstance(instrument, dict):
+                raise SystemExit(f"conversation_lab rejudge: {result_path} pair {i} has a malformed judge_instrument")
+            instruments.append(instrument)
+    if len(models) != 1:
+        raise SystemExit(
+            f"conversation_lab rejudge: {result_path} was scored by more than one judge model "
+            f"({', '.join(sorted(models))}) - there is no single instrument to retest"
+        )
+    if all(inst is None for inst in instruments):
+        return models.pop(), None
+    first = instruments[0]
+    if any(inst != first for inst in instruments):
+        raise SystemExit(
+            f"conversation_lab rejudge: {result_path} records different judge instruments across its "
+            "orientations - there is no single instrument to retest"
+        )
+    return models.pop(), first
+
+
+def _rejudge_mode(
+    dry_run: bool, judge_model: str, source_instrument: dict[str, Any] | None,
+) -> tuple[str, list[str]]:
+    """("dry_run" | "retest" | "instrument_changed" | "instrument_unverified",
+    names of the instrument fields that differ). Only "retest" is V3."""
+    if dry_run:
+        return "dry_run", []
+    current = _judge_instrument(judge_model)
+    # A path whose request changes at run time (model_router's openai
+    # fallbacks) has no fixed instrument to compare, on either side.
+    if source_instrument is None or "variable" in {
+        source_instrument.get("request_shape"), current.get("request_shape"),
+    }:
+        return "instrument_unverified", []
+    changed = sorted(k for k in set(current) | set(source_instrument) if current.get(k) != source_instrument.get(k))
+    return ("retest", []) if not changed else ("instrument_changed", changed)
+
+
+def cmd_rejudge(args: argparse.Namespace) -> None:
+    result_path = Path(args.result_file)
+    data = _load_rejudge_source(result_path)
+    pairs: list[dict[str, Any]] = data["pairs"]
+
+    judge_model = _resolve_judge_model_for_args(args)
+    source_judge_model, source_instrument = _rejudge_source_instrument(result_path, pairs)
+    # V3 test-retest means the SAME instrument scores the pairs again: the
+    # whole judge request (_judge_instrument), not a subset of it. Anything
+    # else is refused unless asked for, and then never reported as V3.
+    mode, changed = _rejudge_mode(bool(args.dry_run), judge_model, source_instrument)
+    if mode in {"instrument_changed", "instrument_unverified"} and not args.allow_instrument_change:
+        detail = (
+            f"these judge settings differ from the source's: {', '.join(changed)}"
+            if mode == "instrument_changed"
+            else "the source does not record its judge instrument, so it cannot be shown unchanged"
+        )
+        raise SystemExit(
+            f"conversation_lab rejudge: {result_path} was scored by {source_judge_model} and this run "
+            f"would judge with {judge_model}; {detail}. V3 test-retest needs the identical instrument. "
+            "To compare on purpose, pass --allow-instrument-change (reported as such, never as V3)"
+        )
+    target = args.target or data.get("target_dimension") or "turn_taking"
+
+    total_orientations = len(pairs) * 2
+    max_calls_derived = args.max_calls is None
+    max_calls = args.max_calls if args.max_calls is not None else total_orientations * (1 + _JUDGE_JSON_MAX_RETRIES)
+    budget = CallBudget(max_calls=max_calls)
+    aborted = False
+    error: str | None = None
+    new_pairs: list[dict[str, Any]] = []
+    result_path_out = _results_dir(args) / (
+        f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-rejudge-{result_path.stem}.json"
+    )
+
+    guard_ctx = _installed_budget_guard(budget, args.max_cost)
+    guard_ctx.__enter__()
+    try:
+        for pair in pairs:
+            if budget.would_exceed(2) or _would_exceed_cost(args.max_cost):
+                aborted = True
+                break
+            if args.dry_run:
+                combined = _dry_run_combined()
+                new_orientations: list[dict[str, Any]] = []
+            else:
+                new_results: list[dict[str, str]] = []
+                new_orientations = []
+                for orientation in pair["judge_orientations"]:
+                    if budget.would_exceed(1) or _would_exceed_cost(args.max_cost):
+                        aborted = True
+                        break
+                    evidence = orientation["evidence"]
+                    pending_pair: dict[str, Any] = {"judge_orientations": []}
+                    result = _run_judge_orientation(
+                        orientation=orientation["orientation"], pending_pair=pending_pair, budget=budget,
+                        judge_model=judge_model, concept=data.get("concept") or "", stage=data.get("stage") or "",
+                        recipe_context=None, expected_cast=[],
+                        first_arm=evidence["first_arm"], first_messages=[],
+                        second_arm=evidence["second_arm"], second_messages=[],
+                        recipe_facts=None, max_cost=args.max_cost,
+                        prebuilt_prompt=evidence["prompt"],
+                    )
+                    new_results.append(result)
+                    new_orientations.extend(pending_pair["judge_orientations"])
+                if aborted or len(new_results) < 2:
+                    aborted = True
+                    break
+                combined = _combine_orientations(new_results[0], new_results[1])
+            new_pair = dict(pair)
+            new_pair["judge"] = combined
+            new_pair["judge_orientations"] = new_orientations
+            new_pair["previous_judge"] = pair.get("judge")
+            new_pair["previous_judge_orientations"] = pair.get("judge_orientations")
+            new_pairs.append(new_pair)
+            _budget_checkpoint()
+    except LabBudgetAbort:
+        aborted = True
+    except BaseException as exc:
+        error = f"{type(exc).__name__}: {exc}"
+        aborted = True
+        raise
+    finally:
+        guard_ctx.__exit__(None, None, None)
+        if error is not None:
+            report = _build_rejudge_report(
+                args, data, result_path, judge_model, target, new_pairs, True, budget,
+                result_path_out, max_calls, max_calls_derived, error=error,
+            )
+            _write_json_result(result_path_out, report)
+
+    report = _build_rejudge_report(
+        args, data, result_path, judge_model, target, new_pairs, aborted, budget,
+        result_path_out, max_calls, max_calls_derived,
+    )
+    _write_json_result(result_path_out, report)
+    _print_rejudge_report(report)
+
+
+def _rejudge_agreement(old_pairs: list[dict[str, Any]], new_pairs: list[dict[str, Any]]) -> dict[str, Any]:
+    """V3 test-retest: per-key agreement between the ORIGINAL saved verdict
+    and the just-recomputed one, for every pair that was actually re-judged
+    (a pair dropped by a mid-run abort has no new verdict to compare)."""
+    keys = ("overall", *ALL_JUDGE_DIMENSIONS)
+    matches = {key: 0 for key in keys}
+    n = min(len(old_pairs), len(new_pairs))
+    for old_pair, new_pair in zip(old_pairs[:n], new_pairs[:n]):
+        for key in keys:
+            if old_pair["judge"][key] == new_pair["judge"][key]:
+                matches[key] += 1
+    return {
+        "pairs_compared": n,
+        "rates": {key: (round(matches[key] / n, 4) if n else None) for key in keys},
+    }
+
+
+def _build_rejudge_report(
+    args: argparse.Namespace,
+    source: dict[str, Any],
+    source_path: Path,
+    judge_model: str,
+    target: str,
+    new_pairs: list[dict[str, Any]],
+    aborted: bool,
+    budget: CallBudget,
+    result_path: Path,
+    max_calls: int,
+    max_calls_derived: bool,
+    error: str | None = None,
+) -> dict[str, Any]:
+    source_judge_model, source_instrument = _rejudge_source_instrument(source_path, source.get("pairs") or [])
+    rejudge_mode, instrument_changed_fields = _rejudge_mode(bool(args.dry_run), judge_model, source_instrument)
+    report: dict[str, Any] = {
+        "command": "rejudge",
+        **_pairwise_evaluator_metadata(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "source_result_file": str(source_path),
+        "source_command": source.get("command"),
+        "source_evaluator_prompt_sha256": source.get("evaluator_prompt_sha256"),
+        "source_models": source.get("models"),
+        "source_judge_model": source_judge_model,
+        "judge_model": judge_model,
+        "rejudge_mode": rejudge_mode,
+        "instrument_changed_fields": instrument_changed_fields,
+        "source_judge_instrument": source_instrument,
+        "judge_instrument": None if args.dry_run else _judge_instrument(judge_model),
+        "concept": source.get("concept"),
+        "stage": source.get("stage"),
+        "requested_pairs": len(source.get("pairs") or []),
+        "rejudged_pairs_count": len(new_pairs),
+        "aborted": aborted,
+        "max_calls": max_calls,
+        "max_calls_derived": max_calls_derived,
+        "max_cost": args.max_cost,
+        "calls_used": budget.used,
+        "dry_run": bool(args.dry_run),
+        "target_dimension": target,
+        **_openrouter_fields_for(args, _openrouter_router_cost_by_model()),
+        "pairs": new_pairs,
+        "agreement": _rejudge_agreement(source.get("pairs") or [], new_pairs),
+        "results_file": str(result_path),
+    }
+    if new_pairs:
+        report.update(_aggregate_pairs(new_pairs, target, bool(args.dry_run)))
+    if error is not None:
+        report["error"] = error
+    return report
+
+
+def _print_rejudge_report(report: dict[str, Any]) -> None:
+    print(f"\n=== conversation_lab rejudge: {report['source_result_file']} ===")
+    print(f"judge_model: {report['judge_model']}")
+    abort_note = "  [ABORTED: max-calls/max-cost hit]" if report["aborted"] else ""
+    print(
+        f"pairs re-judged: {report['rejudged_pairs_count']} / requested {report['requested_pairs']}{abort_note}"
+    )
+    print(
+        f"calls used: {report['calls_used']} / max {report['max_calls']}  "
+        f"cost cap: ${report['max_cost']:.2f}  dry_run={report['dry_run']}"
+    )
+    if "overall_counts" in report:
+        print(f"\noverall (new verdicts): {dict(report['overall_counts'])}")
+    agreement = report["agreement"]
+    overall_rate = agreement["rates"].get("overall")
+    rate_text = "n/a" if overall_rate is None else f"{overall_rate:.2%}"
+    label = {
+        "retest": "V3 test-retest agreement",
+        "instrument_changed": (
+            f"CHANGED-INSTRUMENT agreement ({', '.join(report['instrument_changed_fields'])} differ; "
+            f"{report['source_judge_model']} -> {report['judge_model']}; NOT V3 test-retest)"
+        ),
+        "instrument_unverified": (
+            "UNVERIFIED-INSTRUMENT agreement (source did not record its judge instrument; NOT V3 test-retest)"
+        ),
+        "dry_run": "dry-run agreement (template verdicts; not a measurement)",
+    }[report["rejudge_mode"]]
+    print(f"\n{label} (overall, vs original verdicts): {rate_text} over {agreement['pairs_compared']} pairs")
+    _print_openrouter_costs(report)
+    print(f"\nresults written to: {report['results_file']}")
+
+# ---------------------------------------------------------------------------
 # pairs (blind human read)
 # ---------------------------------------------------------------------------
 
@@ -6663,6 +7106,143 @@ def _parse_pick_spec(spec: str) -> dict[int, str]:
         picks[idx] = "tie" if normalized == "TIE" else normalized
     return picks
 
+def _resolve_pairs_container(report: dict[str, Any], variant_name: str | None) -> dict[str, Any]:
+    """Resolve the pairs container: `report` itself for a normal ab/testbed
+    result, or one variant's own sub-dict for an `ab --sweep` result (it
+    nests every variant's own pairs under report["variants"][name]["pairs"]
+    instead of a flat top-level "pairs" list, since one sweep judges N
+    variants against the SAME shared control - there is no single "the
+    pairs" to default to). Shared by `pairs --pick`/`--show` and `pairs-ui`
+    (#7793) so both pick apart a --sweep result identically."""
+    container = report
+    if report.get("mode") == "sweep":
+        variants = report.get("variants") or {}
+        if not variant_name:
+            raise SystemExit(
+                "conversation_lab pairs: this is an `ab --sweep` result - it nests pairs "
+                f"per variant, so pass --variant-name (available: {', '.join(sorted(variants)) or 'none'})"
+            )
+        if variant_name not in variants:
+            raise SystemExit(
+                f"conversation_lab pairs: unknown --variant-name {variant_name!r} "
+                f"(available: {', '.join(sorted(variants))})"
+            )
+        container = variants[variant_name]
+    return container
+
+
+def _total_word_count(messages: list[dict[str, Any]] | None) -> int:
+    return sum(len(str(m.get("message") or "").split()) for m in (messages or []) if isinstance(m, dict))
+
+
+def _longer_arm(pair: dict[str, Any]) -> str:
+    """"control" | "variant" | "tie" by total word count across the whole
+    arm (#7793) - the S0b V5 length-bias split ("human agreement when the
+    longer transcript won") needs to know which arm was actually longer,
+    independent of which one the human or the judge picked."""
+    control_words = _total_word_count(pair.get("control_messages"))
+    variant_words = _total_word_count(pair.get("variant_messages"))
+    if control_words == variant_words:
+        return "tie"
+    return "control" if control_words > variant_words else "variant"
+
+
+def _apply_human_picks(
+    container: dict[str, Any],
+    pairs: list[dict[str, Any]],
+    order_by_position: dict[int, tuple[str, str]],
+    picks: dict[int, str],
+) -> dict[str, Any]:
+    """Merge `picks` ({position: "A"|"B"|"tie"}) into `container` IN PLACE:
+    `human_picks` (arm labels, mapped through `order_by_position` exactly
+    like the old inline `pairs --pick` code did), `human_review_order`,
+    `human_pick_meta` (#7793 - per-pick longer-arm bookkeeping for the S0b
+    V5 split), and the `human_judge_*` agreement stats.
+
+    The agreement stats are recomputed from the FULL current `human_picks`
+    on every call, not just the picks just added - so `pairs --pick` (which
+    can record several positions in one call) and the review UI (which
+    records exactly one position per HTTP request) always leave `container`
+    in the identical state, and picking an already-picked position simply
+    overwrites it.
+
+    Returns the stats dict (already written into `container`) so a caller
+    - the CLI's own print, or the UI's finish screen - can report it
+    directly without re-deriving it.
+    """
+    human_picks: dict[str, str] = dict(container.get("human_picks") or {})
+    human_pick_meta: dict[str, Any] = dict(container.get("human_pick_meta") or {})
+    for position, label in picks.items():
+        first_arm, second_arm = order_by_position[position]
+        mapped = "tie" if label == "tie" else (first_arm if label == "A" else second_arm)
+        human_picks[str(position)] = mapped
+        pair = pairs[position - 1]
+        longer_arm = _longer_arm(pair)
+        human_pick_meta[str(position)] = {
+            "longer_arm": longer_arm,
+            "picked_longer": bool(mapped != "tie" and longer_arm != "tie" and mapped == longer_arm),
+        }
+    container["human_picks"] = human_picks
+    container["human_pick_meta"] = human_pick_meta
+    container["human_review_order"] = {
+        str(position): {"A": order[0], "B": order[1]} for position, order in order_by_position.items()
+    }
+
+    # Agreement is computed over pairs where the judge reached a
+    # non-tie verdict only - a judge "tie" carries no directional
+    # signal for a human pick to agree or disagree with, so folding it
+    # into either bucket (or into the denominator at all) would water
+    # down what the rate actually measures. judge-tie pairs are still
+    # reported, just kept separate.
+    judge_by_position = {i: pair["judge"]["overall"] for i, pair in enumerate(pairs, start=1)}
+    agreed = 0
+    disagreed = 0
+    judge_tie = 0
+    for position_str, mapped in human_picks.items():
+        judge_overall = judge_by_position.get(int(position_str))
+        if judge_overall is None:
+            continue
+        if judge_overall == "tie":
+            judge_tie += 1
+            continue
+        if judge_overall == mapped:
+            agreed += 1
+        else:
+            disagreed += 1
+    compared = agreed + disagreed
+    agreement_rate = round(agreed / compared, 4) if compared else 0.0
+    container["human_judge_agreement_rate"] = agreement_rate
+    container["human_judge_agreed_count"] = agreed
+    container["human_judge_disagreed_count"] = disagreed
+    container["human_judge_tie_count"] = judge_tie
+    return {
+        "agreement_rate": agreement_rate,
+        "agreed": agreed,
+        "disagreed": disagreed,
+        "judge_tie": judge_tie,
+        "picked_count": len(human_picks),
+    }
+
+
+def _write_pairs_report_atomic(path: Path, report: dict[str, Any]) -> None:
+    """Write a pairs-review result file atomically (temp file + os.replace,
+    #7793) so a crash or a concurrent read mid-write never sees a truncated
+    file. Both `pairs --pick` and the review UI call this - the UI writes on
+    every single pick, so this is on the hot path for it."""
+    payload = json.dumps(report, indent=2, default=str)
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(payload)
+        os.replace(tmp_name, path)
+    except BaseException:
+        # The repo forbids permanent deletion (AGENTS.md): trash the orphaned
+        # temp file. A trash failure propagates chained to the original error.
+        if os.path.exists(tmp_name):
+            send2trash(tmp_name)
+        raise
+
+
 def cmd_pairs(args: argparse.Namespace) -> None:
     if not args.show and not args.pick:
         raise SystemExit("conversation_lab pairs: pass --show, --pick, or both")
@@ -6671,28 +7251,7 @@ def cmd_pairs(args: argparse.Namespace) -> None:
     if not result_path.exists():
         raise SystemExit(f"conversation_lab pairs: result file not found: {result_path}")
     report = json.loads(result_path.read_text(encoding="utf-8"))
-
-    # An `ab --sweep` result nests every variant's own pairs under
-    # report["variants"][name]["pairs"] instead of a flat top-level
-    # "pairs" list (one sweep run judges N variants against the SAME
-    # shared control, so there is no single "the pairs" to default to) -
-    # --variant-name picks which variant's arm to review; human_picks and
-    # the agreement stats below are recorded into that variant's own
-    # sub-dict, not the sweep report's top level.
-    container = report
-    if report.get("mode") == "sweep":
-        variants = report.get("variants") or {}
-        if not args.variant_name:
-            raise SystemExit(
-                "conversation_lab pairs: this is an `ab --sweep` result - it nests pairs "
-                f"per variant, so pass --variant-name (available: {', '.join(sorted(variants)) or 'none'})"
-            )
-        if args.variant_name not in variants:
-            raise SystemExit(
-                f"conversation_lab pairs: unknown --variant-name {args.variant_name!r} "
-                f"(available: {', '.join(sorted(variants))})"
-            )
-        container = variants[args.variant_name]
+    container = _resolve_pairs_container(report, args.variant_name)
 
     pairs = container.get("pairs") or []
     if not pairs:
@@ -6719,50 +7278,407 @@ def cmd_pairs(args: argparse.Namespace) -> None:
                 f"(valid: 1-{len(pairs)})"
             )
 
-        human_picks: dict[str, str] = dict(container.get("human_picks") or {})
-        for position, label in picks.items():
-            first_arm, second_arm = order_by_position[position]
-            mapped = "tie" if label == "tie" else (first_arm if label == "A" else second_arm)
-            human_picks[str(position)] = mapped
-        container["human_picks"] = human_picks
-        container["human_review_order"] = {
-            str(position): {"A": order[0], "B": order[1]} for position, order in order_by_position.items()
-        }
-
-        # Agreement is computed over pairs where the judge reached a
-        # non-tie verdict only - a judge "tie" carries no directional
-        # signal for a human pick to agree or disagree with, so folding it
-        # into either bucket (or into the denominator at all) would water
-        # down what the rate actually measures. judge-tie pairs are still
-        # reported, just kept separate.
-        judge_by_position = {i: pair["judge"]["overall"] for i, pair in enumerate(pairs, start=1)}
-        agreed = 0
-        disagreed = 0
-        judge_tie = 0
-        for position_str, mapped in human_picks.items():
-            judge_overall = judge_by_position.get(int(position_str))
-            if judge_overall is None:
-                continue
-            if judge_overall == "tie":
-                judge_tie += 1
-                continue
-            if judge_overall == mapped:
-                agreed += 1
-            else:
-                disagreed += 1
-        compared = agreed + disagreed
-        agreement_rate = round(agreed / compared, 4) if compared else 0.0
-        container["human_judge_agreement_rate"] = agreement_rate
-        container["human_judge_agreed_count"] = agreed
-        container["human_judge_disagreed_count"] = disagreed
-        container["human_judge_tie_count"] = judge_tie
-
-        result_path.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
+        stats = _apply_human_picks(container, pairs, order_by_position, picks)
+        _write_pairs_report_atomic(result_path, report)
         print(f"\nrecorded {len(picks)} human pick(s) into {result_path}")
         print(
-            f"human/judge agreement rate: {agreement_rate:.2%} ({agreed} agreed / {disagreed} disagreed"
-            f" / {judge_tie} judge-tie - judge ties are excluded from the agreement rate)"
+            f"human/judge agreement rate: {stats['agreement_rate']:.2%} "
+            f"({stats['agreed']} agreed / {stats['disagreed']} disagreed"
+            f" / {stats['judge_tie']} judge-tie - judge ties are excluded from the agreement rate)"
         )
+
+# ---------------------------------------------------------------------------
+# pairs-ui (#7793) - a local, stdlib-only web UI replacing the terminal
+# `pairs --show` / `pairs --pick` flow for a blind human read (V6).
+#
+# Blindness contract: the HTTP JSON responses below NEVER include an arm
+# name ("control"/"variant"), the A/B mapping itself, or any judge field
+# (`pair["judge"]`, `judge_orientations`, ...) - only "transcript_a"/
+# "transcript_b" (whichever the seeded `_blind_order` assigned), a "picked"
+# label already re-mapped back to "A"/"B"/"tie", and the aggregate agreement
+# stats, which are revealed only once every pair is picked (the finish
+# screen). The browser never sees which side is real; only this process,
+# writing straight to the result file, does.
+# ---------------------------------------------------------------------------
+
+
+class PairsReviewState:
+    """One `ab` result's pairs, loaded once, re-read from disk on `refresh`.
+
+    Every mutation (a pick) is written straight back to `result_path` via
+    `_apply_human_picks`/`_write_pairs_report_atomic` - the SAME functions
+    `pairs --pick` uses - so a pick made in the UI and a pick made on the
+    command line for the same file are indistinguishable in the result JSON.
+    """
+
+    def __init__(self, result_path: Path, variant_name: str | None):
+        self.result_path = result_path
+        self.variant_name = variant_name
+        self.refresh()
+
+    def refresh(self) -> None:
+        self.report = json.loads(self.result_path.read_text(encoding="utf-8"))
+        self.container = _resolve_pairs_container(self.report, self.variant_name)
+        self.pairs: list[dict[str, Any]] = self.container.get("pairs") or []
+        if not self.pairs:
+            raise SystemExit(f"conversation_lab pairs-ui: {self.result_path} has no pairs to review")
+        self.order_by_position: dict[int, tuple[str, str]] = {
+            i: _blind_order(i) for i in range(1, len(self.pairs) + 1)
+        }
+
+    @property
+    def total(self) -> int:
+        return len(self.pairs)
+
+    def _human_picks(self) -> dict[str, str]:
+        return self.container.get("human_picks") or {}
+
+    def _picked_label(self, position: int) -> str | None:
+        """The stored arm label for `position`, translated back to what the
+        browser is allowed to see: "A", "B", "tie", or None (never picked)."""
+        stored = self._human_picks().get(str(position))
+        if stored is None:
+            return None
+        if stored == "tie":
+            return "tie"
+        first_arm, _second_arm = self.order_by_position[position]
+        return "A" if stored == first_arm else "B"
+
+    def first_unpicked(self) -> int | None:
+        picked = self._human_picks()
+        for position in range(1, self.total + 1):
+            if str(position) not in picked:
+                return position
+        return None
+
+    def state(self) -> dict[str, Any]:
+        picked_count = len(self._human_picks())
+        finished = picked_count >= self.total
+        payload: dict[str, Any] = {
+            "total": self.total,
+            "picked_count": picked_count,
+            "finished": finished,
+            "first_unpicked": self.first_unpicked(),
+        }
+        if finished:
+            payload["stats"] = {
+                "agreement_rate": self.container.get("human_judge_agreement_rate"),
+                "agreed": self.container.get("human_judge_agreed_count"),
+                "disagreed": self.container.get("human_judge_disagreed_count"),
+                "judge_tie": self.container.get("human_judge_tie_count"),
+            }
+        return payload
+
+    def pair_payload(self, position: int) -> dict[str, Any]:
+        if position < 1 or position > self.total:
+            raise ValueError(f"position {position} out of range 1-{self.total}")
+        pair = self.pairs[position - 1]
+        first_arm, second_arm = self.order_by_position[position]
+        first_messages = pair.get(f"{first_arm}_messages") or []
+        second_messages = pair.get(f"{second_arm}_messages") or []
+
+        def _as_turns(messages: list[dict[str, Any]]) -> list[dict[str, str]]:
+            return [
+                {
+                    "speaker": (m.get("character") or "?").split()[0],
+                    "message": " ".join((m.get("message") or "").split()),
+                }
+                for m in messages
+            ]
+
+        return {
+            "position": position,
+            "total": self.total,
+            "scenario": pair.get("scenario_id"),
+            "concept": self.container.get("concept") or pair.get("concept"),
+            "picked": self._picked_label(position),
+            "transcript_a": _as_turns(first_messages),
+            "transcript_b": _as_turns(second_messages),
+        }
+
+    def apply_pick(self, position: int, label: str) -> dict[str, Any]:
+        if position < 1 or position > self.total:
+            raise ValueError(f"position {position} out of range 1-{self.total}")
+        if label not in ("A", "B", "tie"):
+            raise ValueError(f"label {label!r} must be A, B, or tie")
+        _apply_human_picks(self.container, self.pairs, self.order_by_position, {position: label})
+        _write_pairs_report_atomic(self.result_path, self.report)
+        return self.state()
+
+
+# One self-contained page: no external requests, no build step - stdlib
+# `http.server` is the entire dependency. Hotkeys A/B/T record and
+# auto-advance to the next unpicked pair; Left/Right and J/K navigate
+# without recording. Picking an already-picked pair overwrites it.
+_PAIRS_UI_HTML = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blind pair review</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; padding: 1.25rem;
+         max-width: 1100px; margin-inline: auto; line-height: 1.5; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.5rem; margin-bottom: 1rem; }
+  h1 { font-size: 1.1rem; margin: 0; }
+  #meta { color: #777; font-size: 0.9rem; }
+  .columns { display: flex; gap: 1rem; flex-wrap: wrap; }
+  .column { flex: 1 1 320px; min-width: 280px; border: 1px solid #999; border-radius: 8px; padding: 0.75rem 1rem;
+            max-height: 65vh; overflow-y: auto; }
+  .column h2 { font-size: 0.95rem; margin: 0 0 0.5rem 0; }
+  .turn { margin: 0 0 0.6rem 0; }
+  .speaker { font-weight: 600; }
+  .picked { outline: 3px solid #2a7; }
+  .controls { display: flex; gap: 0.6rem; margin: 1rem 0; flex-wrap: wrap; }
+  button { font-size: 1rem; padding: 0.5rem 1.1rem; border-radius: 6px; border: 1px solid #888; cursor: pointer; }
+  button.pick-a, button.pick-b, button.pick-tie { font-weight: 600; }
+  .nav { display: flex; gap: 0.4rem; }
+  #status { font-size: 0.85rem; color: #777; min-height: 1.2em; }
+  #finish { display: none; text-align: center; margin-top: 3rem; }
+  #finish h2 { font-size: 1.3rem; }
+  .hint { font-size: 0.8rem; color: #888; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="pair-title">Pair - of -</h1>
+  <span id="meta"></span>
+</header>
+<div id="review">
+  <div class="columns">
+    <div class="column" id="col-a"><h2>A</h2><div id="turns-a"></div></div>
+    <div class="column" id="col-b"><h2>B</h2><div id="turns-b"></div></div>
+  </div>
+  <div class="controls">
+    <button class="pick-a" data-label="A">A - pick left (A)</button>
+    <button class="pick-tie" data-label="tie">Tie (T)</button>
+    <button class="pick-b" data-label="B">B - pick right (B)</button>
+    <span class="nav">
+      <button id="prev">&larr; prev (J)</button>
+      <button id="next">next (K) &rarr;</button>
+    </span>
+  </div>
+  <div id="status"></div>
+  <p class="hint">Hotkeys: A / B / T to pick and advance; Left/Right or J/K to navigate without picking.</p>
+</div>
+<div id="finish">
+  <h2>Done</h2>
+  <p id="finish-count"></p>
+  <p id="finish-stats"></p>
+</div>
+<script>
+let position = null;
+let total = null;
+
+async function getJSON(url, opts) {
+  const res = await fetch(url, opts);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || ("HTTP " + res.status));
+  }
+  return res.json();
+}
+
+function renderTurns(el, turns) {
+  el.innerHTML = "";
+  for (const t of turns) {
+    const div = document.createElement("div");
+    div.className = "turn";
+    const speaker = document.createElement("span");
+    speaker.className = "speaker";
+    speaker.textContent = t.speaker + ": ";
+    div.appendChild(speaker);
+    div.appendChild(document.createTextNode(t.message));
+    el.appendChild(div);
+  }
+}
+
+function setPickedHighlight(label) {
+  document.getElementById("col-a").classList.toggle("picked", label === "A");
+  document.getElementById("col-b").classList.toggle("picked", label === "B");
+}
+
+async function loadPair(pos) {
+  const pair = await getJSON("/api/pair/" + pos);
+  position = pair.position;
+  total = pair.total;
+  const scenario = pair.scenario ? (" - " + pair.scenario) : "";
+  document.getElementById("pair-title").textContent = "Pair " + pair.position + " of " + pair.total + scenario;
+  document.getElementById("meta").textContent = pair.concept ? pair.concept : "";
+  renderTurns(document.getElementById("turns-a"), pair.transcript_a);
+  renderTurns(document.getElementById("turns-b"), pair.transcript_b);
+  setPickedHighlight(pair.picked);
+  document.getElementById("status").textContent = pair.picked ? ("Picked: " + pair.picked) : "";
+}
+
+async function refreshState() {
+  const state = await getJSON("/api/state");
+  if (state.finished) {
+    document.getElementById("review").style.display = "none";
+    document.getElementById("finish").style.display = "block";
+    document.getElementById("finish-count").textContent = state.picked_count + " of " + state.total + " picked.";
+    const s = state.stats || {};
+    document.getElementById("finish-stats").textContent =
+      "Human/judge agreement: " + (s.agreement_rate != null ? (Math.round(s.agreement_rate * 10000) / 100) + "%" : "n/a") +
+      " (" + s.agreed + " agreed / " + s.disagreed + " disagreed / " + s.judge_tie + " judge-tie)";
+    return true;
+  }
+  document.getElementById("review").style.display = "block";
+  document.getElementById("finish").style.display = "none";
+  return false;
+}
+
+async function start() {
+  const state = await getJSON("/api/state");
+  if (await refreshState()) return;
+  await loadPair(state.first_unpicked || 1);
+}
+
+async function pick(label) {
+  if (position === null) return;
+  try {
+    await getJSON("/api/pick", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({position: position, label: label}),
+    });
+  } catch (e) {
+    document.getElementById("status").textContent = "Error: " + e.message;
+    return;
+  }
+  const state = await getJSON("/api/state");
+  if (await refreshState()) return;
+  const next = state.first_unpicked || Math.min(position + 1, total);
+  await loadPair(next);
+}
+
+async function navigate(delta) {
+  if (position === null) return;
+  const next = Math.max(1, Math.min(total, position + delta));
+  if (next !== position) await loadPair(next);
+}
+
+document.querySelectorAll("button[data-label]").forEach(btn => {
+  btn.addEventListener("click", () => pick(btn.dataset.label));
+});
+document.getElementById("prev").addEventListener("click", () => navigate(-1));
+document.getElementById("next").addEventListener("click", () => navigate(1));
+
+window.addEventListener("keydown", (ev) => {
+  const key = ev.key.toLowerCase();
+  if (key === "a") pick("A");
+  else if (key === "b") pick("B");
+  else if (key === "t") pick("tie");
+  else if (key === "arrowleft" || key === "j") navigate(-1);
+  else if (key === "arrowright" || key === "k") navigate(1);
+});
+
+start();
+</script>
+</body>
+</html>
+"""
+
+
+class _PairsUIHandler(http.server.BaseHTTPRequestHandler):
+    """Routes:
+    GET  /                -> the page (_PAIRS_UI_HTML)
+    GET  /api/state        -> {total, picked_count, finished, first_unpicked, stats?}
+    GET  /api/pair/<n>      -> blind pair payload (see PairsReviewState.pair_payload)
+    POST /api/pick          -> {"position": int, "label": "A"|"B"|"tie"} -> new state
+    """
+
+    server_version = "ConversationLabPairsUI/1"
+
+    def log_message(self, fmt: str, *fmt_args: Any) -> None:  # noqa: A003 - stdlib signature
+        pass  # keep stdout to the one startup URL line; nothing here reveals review content anyway
+
+    def _send_json(self, payload: dict[str, Any], status: int = 200) -> None:
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_html(self, html: str) -> None:
+        body = html.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self) -> None:  # noqa: N802 - stdlib method name
+        parsed = urllib.parse.urlsplit(self.path)
+        path = parsed.path
+        state: PairsReviewState = self.server.review_state  # type: ignore[attr-defined]
+        if path in ("/", "/index.html"):
+            self._send_html(_PAIRS_UI_HTML)
+            return
+        if path == "/api/state":
+            self._send_json(state.state())
+            return
+        if path.startswith("/api/pair/"):
+            raw = path[len("/api/pair/"):]
+            try:
+                position = int(raw)
+                payload = state.pair_payload(position)
+            except (ValueError, IndexError) as exc:
+                self._send_json({"error": str(exc)}, status=400)
+                return
+            self._send_json(payload)
+            return
+        self._send_json({"error": "not found"}, status=404)
+
+    def do_POST(self) -> None:  # noqa: N802 - stdlib method name
+        parsed = urllib.parse.urlsplit(self.path)
+        if parsed.path != "/api/pick":
+            self._send_json({"error": "not found"}, status=404)
+            return
+        state: PairsReviewState = self.server.review_state  # type: ignore[attr-defined]
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            raw_body = self.rfile.read(length) if length else b""
+            body = json.loads(raw_body or b"{}")
+            position = body["position"]
+            label = body["label"]
+            if not isinstance(position, int) or not isinstance(label, str):
+                raise ValueError("position must be an int and label must be a string")
+            new_state = state.apply_pick(position, label)
+        except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+            self._send_json({"error": str(exc)}, status=400)
+            return
+        self._send_json(new_state)
+
+
+class _PairsUIServer(http.server.HTTPServer):
+    """Binds to 127.0.0.1 only (never 0.0.0.0) - this is a local review tool
+    over unauthenticated HTTP; it must never be reachable off the machine."""
+
+    allow_reuse_address = True
+
+    def __init__(self, port: int, review_state: PairsReviewState):
+        super().__init__(("127.0.0.1", port), _PairsUIHandler)
+        self.review_state = review_state
+
+
+def cmd_pairs_ui(args: argparse.Namespace) -> None:
+    result_path = Path(args.from_result)
+    if not result_path.exists():
+        raise SystemExit(f"conversation_lab pairs-ui: result file not found: {result_path}")
+    state = PairsReviewState(result_path, args.variant_name)
+    server = _PairsUIServer(args.port, state)
+    host, port = server.server_address[:2]
+    print(f"conversation_lab pairs-ui: serving {result_path} at http://{host}:{port}/  (Ctrl-C to stop)")
+    print(f"{state.total} pairs, {len(state._human_picks())} already picked")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
 
 # ---------------------------------------------------------------------------
 # freeze - distill one arm's transcript per scenario from an ab result
@@ -7154,7 +8070,58 @@ def _build_parser() -> argparse.ArgumentParser:
     calibrate.add_argument("--dry-run", action="store_true")
     calibrate.add_argument("--results-dir", default=None)
     _add_provider_option(calibrate)
+    _add_models_option(calibrate)
     _add_budget_guard_options(calibrate)
+
+    rejudge = sub.add_parser(
+        "rejudge",
+        help="Re-run the judge on an ab result's SAVED transcripts, without regenerating dialogue.",
+        description=(
+            "Load an `ab` result JSON (single-concept or --testbed mode; --sweep results are not "
+            "supported) and re-judge every pair's two already-completed orientations from their "
+            "saved prompts (evidence.prompt, byte-identical to what the original judge call sent - "
+            "the judge prompt itself is never changed by this command), using --models' judge (or "
+            "--provider anthropic). No dialogue is regenerated - this is a judge-only re-score, for "
+            "RESEARCH_PLAN.md's V3 test-retest (re-judge a pilot's saved pairs with the SAME judge a "
+            "second time; any difference in the saved judge instrument - model, route, token ceiling, "
+            "temperature, prompt, retry bounds - is refused unless --allow-instrument-change is passed, "
+            "and is then reported as such, never as V3). Refuses (nonzero exit, "
+            "no result written) on a source file that is aborted, has any partial pair, or is missing "
+            "a transcript or a saved prompt - there is nothing safe to re-judge in a partial run. "
+            "Writes a new result file recording the source file, the new verdicts, the new "
+            "judge_orientations, the judge model, evaluator_prompt_sha256, and a per-dimension "
+            "agreement summary against the ORIGINAL verdicts."
+        ),
+    )
+    rejudge.add_argument("result_file", help="Path to an ab result JSON file (single-concept or --testbed mode)")
+    rejudge.add_argument(
+        "--target", default=None, choices=(*ALL_JUDGE_DIMENSIONS, "overall"),
+        help="Target dimension for the re-judged aggregate report (default: the source result's own target_dimension)",
+    )
+    rejudge.add_argument(
+        "--max-calls", type=int, default=None,
+        help=(
+            "Defaults to 2 * pair_count * (1 + retry cap) when omitted (each pair replays exactly 2 "
+            "orientations, each retried up to _JUDGE_JSON_MAX_RETRIES times on an unparseable verdict)."
+        ),
+    )
+    rejudge.add_argument(
+        "--max-cost", type=float, default=DEFAULT_MAX_COST_USD,
+        help=f"USD cap on total_cost for this invocation (default ${DEFAULT_MAX_COST_USD:.2f}); see `ab --help`.",
+    )
+    rejudge.add_argument("--dry-run", action="store_true", help="Zero paid calls - every re-judged verdict is 'tie'")
+    rejudge.add_argument(
+        "--allow-instrument-change", action="store_true",
+        help=(
+            "Allow a judge instrument (model, route, token ceiling, temperature, prompt, retry bounds) "
+            "different from - or not recorded by - the source. Without it rejudge refuses, because V3 "
+            "test-retest needs the identical instrument; with it the report says instrument_changed "
+            "or instrument_unverified, never V3."
+        ),
+    )
+    rejudge.add_argument("--results-dir", default=None)
+    _add_provider_option(rejudge)
+    _add_models_option(rejudge)
 
     pairs_cmd = sub.add_parser(
         "pairs",
@@ -7193,6 +8160,29 @@ def _build_parser() -> argparse.ArgumentParser:
             "control. Ignored for a single-/--testbed-mode result."
         ),
     )
+
+    pairs_ui_cmd = sub.add_parser(
+        "pairs-ui",
+        help="Local web UI for the same blind human read `pairs --show`/`--pick` does (#7793).",
+        description=(
+            "Serve a one-pair-per-screen web UI (stdlib http.server, 127.0.0.1 only) over an ab "
+            "result's transcripts - replaces the terminal pairs --show/--pick flow for a V6 blind "
+            "read. Hotkeys A/B/T record a pick and auto-advance to the next unpicked pair; "
+            "Left/Right or J/K navigate without recording; picking an already-picked pair "
+            "overwrites it. Every pick is written straight to the result file (via the SAME "
+            "_apply_human_picks/_write_pairs_report_atomic functions `pairs --pick` uses, so the "
+            "two are interchangeable on the same file) - reloading the page resumes at the first "
+            "unpicked pair. The arm names, the A/B mapping, and every judge field are never sent "
+            "to the browser; a finish screen appears once every pair is picked, showing the count "
+            "and the human/judge agreement stats."
+        ),
+    )
+    pairs_ui_cmd.add_argument("--from", dest="from_result", required=True, help="Path to an ab result JSON file")
+    pairs_ui_cmd.add_argument(
+        "--variant-name", default=None,
+        help="For an `ab --sweep` result only - see `pairs --help`.",
+    )
+    pairs_ui_cmd.add_argument("--port", type=int, default=8765, help="Port to bind on 127.0.0.1 (default 8765; 0 picks a free port)")
 
     freeze_cmd = sub.add_parser(
         "freeze",
@@ -7233,8 +8223,12 @@ def _dispatch_command(args: argparse.Namespace) -> None:
         cmd_bench(args)
     elif args.command == "calibrate":
         cmd_calibrate(args)
+    elif args.command == "rejudge":
+        cmd_rejudge(args)
     elif args.command == "pairs":
         cmd_pairs(args)
+    elif args.command == "pairs-ui":
+        cmd_pairs_ui(args)
     elif args.command == "freeze":
         cmd_freeze(args)
     else:  # pragma: no cover - argparse enforces valid choices
@@ -7250,6 +8244,12 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit("conversation_lab: --create-budget-ledger requires --budget-ledger PATH")
     if ledger_path is not None and args.command not in {"ab", "bench", "calibrate"}:
         raise SystemExit("conversation_lab: --budget-ledger is supported only for ab, bench, and calibrate")
+
+    # argparse's float accepts "nan"/"inf"; a non-finite or non-positive cap
+    # cannot be enforced, so refuse it before anything is spent.
+    max_cost_arg = getattr(args, "max_cost", None)
+    if max_cost_arg is not None and not (isfinite(max_cost_arg) and max_cost_arg > 0):
+        raise SystemExit(f"conversation_lab: --max-cost must be a positive finite amount, got {max_cost_arg!r}")
 
     provider = _resolve_provider(args, ledger_path)
     if provider is not None:

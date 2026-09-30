@@ -10,6 +10,7 @@ provider (e.g. Gemini), just:
 
 from __future__ import annotations
 
+import math
 import os
 import time
 from dataclasses import dataclass
@@ -548,6 +549,28 @@ def _generate_openai(
         raise
 
 
+# Output ceiling for a direct Anthropic text call; part of the judge request
+# that judge_request_settings() reports.
+_ANTHROPIC_MAX_TOKENS = 4096
+
+
+def _anthropic_request_kwargs(
+    prompt: str, system_prompt: Optional[str], model: str, temperature: float,
+) -> dict[str, Any]:
+    """The exact kwargs `_generate_anthropic` passes to messages.create.
+    judge_request_settings() derives its description from this same
+    function, so the recorded judge instrument is the request itself."""
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "max_tokens": _ANTHROPIC_MAX_TOKENS,
+        "temperature": temperature,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    if system_prompt:
+        kwargs["system"] = system_prompt
+    return kwargs
+
+
 def _generate_anthropic(
     prompt: str,
     system_prompt: Optional[str],
@@ -565,16 +588,7 @@ def _generate_anthropic(
 
     client = anthropic.Anthropic(api_key=api_key)
 
-    kwargs: dict = {
-        "model": model,
-        "max_tokens": 4096,
-        "temperature": temperature,
-        "messages": [{"role": "user", "content": prompt}],
-    }
-    if system_prompt:
-        kwargs["system"] = system_prompt
-
-    response = client.messages.create(**kwargs)
+    response = client.messages.create(**_anthropic_request_kwargs(prompt, system_prompt, model, temperature))
 
     usage = getattr(response, "usage", None)
     _record_cost(
@@ -714,23 +728,35 @@ def _generate_openrouter(
     )
 
 
-def _openrouter_attempt(client: Any, model: str, messages: list, temperature: float) -> tuple[str, Any, Any]:
-    """One OpenRouter request; records its cost. Returns (text, finish_reason, completion_tokens)."""
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        temperature=temperature,
-        max_tokens=openrouter_max_tokens(model),
-        extra_body={
+def _openrouter_request_kwargs(model: str, messages: list, temperature: float) -> dict[str, Any]:
+    """The exact kwargs one OpenRouter attempt passes to chat.completions.create.
+    judge_request_settings() derives its description from this same
+    function, so the recorded judge instrument is the request itself."""
+    return {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": openrouter_max_tokens(model),
+        "extra_body": {
             "provider": openrouter_provider_route(model),
             "usage": {"include": True},
         },
-    )
+    }
+
+
+def _openrouter_attempt(client: Any, model: str, messages: list, temperature: float) -> tuple[str, Any, Any]:
+    """One OpenRouter request; records its cost. Returns (text, finish_reason, completion_tokens)."""
+    response = client.chat.completions.create(**_openrouter_request_kwargs(model, messages, temperature))
 
     usage = getattr(response, "usage", None)
     raw_cost = getattr(usage, "cost", None) if usage else None
     actual_cost: Optional[float]
     if isinstance(raw_cost, bool) or not isinstance(raw_cost, (int, float)):
+        actual_cost = None
+    elif not math.isfinite(raw_cost) or raw_cost < 0:
+        # A NaN/inf/negative usage.cost is not a real price. Record it as
+        # absent so the lab's cost total treats the entry as unmetered and
+        # fails closed, instead of poisoning the running total.
         actual_cost = None
     else:
         actual_cost = float(raw_cost)
@@ -1007,3 +1033,37 @@ def generate_judge_response(
             model=routed.model, temperature=temperature,
         )
     raise RuntimeError(f"Unsupported provider for judge: {routed.provider}")
+
+
+def judge_request_settings(model: str, temperature: float) -> dict[str, Any]:
+    """Everything except the prompt text that `generate_judge_response`
+    sends for `model` at `temperature`.
+
+    For the fixed-shape paths (openrouter, anthropic) this is built by the
+    SAME kwargs builder the send path calls, minus the message content, so
+    it cannot drift from the request (#7791). The conversation lab saves it
+    with every judge verdict and `rejudge` compares it whole.
+
+    Paths whose request can change at run time (openai falls back between
+    endpoints and may drop temperature on retry; google) are reported with
+    ``request_shape: "variable"``: their effective request cannot be known
+    in advance, so the lab never treats them as a verified instrument.
+    """
+    routed = parse_model(model)
+    settings: dict[str, Any] = {"provider": routed.provider}
+    if routed.provider == "openrouter":
+        kwargs = _openrouter_request_kwargs(routed.model, [], temperature)
+        kwargs.pop("messages")
+        settings.update(
+            kwargs,
+            endpoint="chat.completions",
+            empty_stop_max_attempts=_OPENROUTER_EMPTY_STOP_MAX_ATTEMPTS,
+            request_shape="fixed",
+        )
+    elif routed.provider == "anthropic":
+        kwargs = _anthropic_request_kwargs("", None, routed.model, temperature)
+        kwargs.pop("messages")
+        settings.update(kwargs, endpoint="messages", request_shape="fixed")
+    else:
+        settings.update(model=routed.model, temperature=temperature, request_shape="variable")
+    return settings

@@ -863,6 +863,18 @@ REWRITE_GUARDS: dict = {"repetition": True, "shape": True, "word_budget": True}
 # tells the model a number.
 WORD_CAPS: bool = True
 
+# #7791 P4 / RESEARCH_PLAN.md S3 R3: False (the production default) renders
+# every prompt byte-identical to today - speakers see only the light
+# `recipe_context` anchor (a one-line summary, no amounts). True appends the
+# scenario's `judge_recipe_facts` (the same ground-truth amounts/method the
+# lab judge scores against, built by `_build_judge_recipe_facts`) to that
+# anchor in `generate_turn`'s recipe line, so speakers argue from the same
+# facts the judge holds them to instead of inventing ratios (W39's gap).
+# A conversation-lab-only variant lever: `run_simulation`/`generate_turn`
+# accept `recipe_facts` as a plain parameter (never a module global itself);
+# this flag is the switch that decides whether that parameter is used.
+SPEAKERS_SEE_JUDGE_RECIPE_FACTS: bool = False
+
 # One record per generated line (#7705): day, speaker, the fault keys that
 # fired, whether the draft was rewritten, draft/final word counts, the draft
 # text (truncated to 300 chars), and whether the CoT guard retried. Cleared by
@@ -991,6 +1003,7 @@ def generate_turn(
     week_highlights: list[str] | None = None,
     highlight_format: str = "plain",
     recipe_context: str | None = None,
+    recipe_facts: str | None = None,
     direction: Direction | None = None,
 ) -> str:
     if mode == "template":
@@ -1020,6 +1033,11 @@ def generate_turn(
     history = "\n".join(recent_lines[-history_depth:]) if recent_lines else "(no prior messages)"
     event_line = f"Injected event: {event}" if event else "Injected event: none"
     recipe_line = f"Recipe anchor: {recipe_context}\n" if recipe_context else ""
+    # #7791 P4: off by default (production-identical). On, appends the same
+    # ground-truth facts the judge scores against (recipe_facts) to what
+    # speakers see, so they cannot invent ratios the judge then penalises.
+    if SPEAKERS_SEE_JUDGE_RECIPE_FACTS and recipe_facts:
+        recipe_line = f"{recipe_line}Recipe facts: {recipe_facts}\n"
 
     # Week context: inject highlights from prior days so characters can reference them
     week_context_block = ""
@@ -2299,6 +2317,8 @@ def run_simulation(
     initial_recent_lines: list[str] | None = None,  # seed recent_lines (e.g. Saturday msgs for Sunday-only runs)
     highlight_format: str = "plain",  # "plain" or "xml" — controls how week context is injected
     recipe_context: str | None = None,  # one-line recipe summary; anchors dialogue to the actual dish
+    recipe_facts: str | None = None,  # #7791 P4: the judge's ground-truth facts; only reaches a speaker
+    # prompt when SPEAKERS_SEE_JUDGE_RECIPE_FACTS is True (default False, production-identical)
     message_sink: list | None = None,  # #7714: when given, IS the messages list - turns land here as
     # they are generated, so a caller that holds a reference to it can recover whatever was paid for
     # even if this function never returns (e.g. an exception mid-run). Production never passes it -
@@ -2460,6 +2480,7 @@ def run_simulation(
                 week_highlights=week_highlights if week_highlights else None,
                 highlight_format=highlight_format,
                 recipe_context=recipe_context,
+                recipe_facts=recipe_facts,
                 direction=direction,
             )
             day_messages_by_char[speaker].append(line)

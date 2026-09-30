@@ -84,6 +84,58 @@ The lab as it stands cannot run all of this. The following is the minimum, kept 
 | P4 | a variant key that appends the scenario's `judge_recipe_facts` to the speakers' recipe context | R3; the variant mechanism changes simulator attributes, not scenario inputs | small |
 | P5 | head-to-head mode (a variant as the control arm) | required before S3, whose arms are compared against the S2 winner, not production; also answers S2's second question (see S2, limitation) | medium; not needed for S0-S2 |
 
+**P0-P4 shipped 2026-09-30 (card #7791).** P5 is not part of this slice - still
+planned, needed before S3. Usage for each:
+
+- **P0** - `scripts/lab_models.json` gained `claude-o55` (dialogue
+  `anthropic/claude-haiku-4.5`) and `deepseek-o55` (dialogue
+  `deepseek/deepseek-v4.1-flash`), both judged by `anthropic/claude-opus-5.5`.
+  No code change was needed beyond the JSON: `backend/utils/model_router.py`'s
+  provider-route, max-tokens ceiling and judge-allowlist registration are all
+  generic per vendor prefix (`anthropic/...`), not hardcoded to `opus-4.6`, and
+  `conversation_lab.py` already registers every set's ids at import time. Use
+  either set anywhere `--models NAME` is accepted:
+  `ab --models claude-o55 ...`, `calibrate --models deepseek-o55 ...`.
+- **P1** - `calibrate` now accepts `--models`, the same flag `ab`/`bench`
+  already had:
+  `uv run scripts/conversation_lab.py calibrate --from-episode 2026-W40 --stage monday --models claude-o55`
+- **P2** - `rejudge RESULT.json [--models NAME] [--max-cost USD] [--dry-run]`
+  re-runs the judge on an `ab` result's saved transcripts (single-concept or
+  `--testbed`; `--sweep` results are not supported) by replaying each
+  orientation's saved prompt verbatim against the chosen judge - no dialogue
+  is regenerated. It refuses (nonzero exit) on an aborted run, any partial
+  pair, or a missing transcript/saved prompt. Writes a new result file with
+  the new verdicts, `judge_orientations`, `judge_model`,
+  `evaluator_prompt_sha256`, and a `agreement` block (V3 test-retest, overall
+  and per-dimension) against the original verdicts:
+  `uv run scripts/conversation_lab.py rejudge docs/conversation-lab/results/PILOT.json --models claude-o55`
+- **P3** - `scripts/lab_offline_metrics.py` computes the section-4 benchmarks
+  (via `scripts.conversation_metrics.summarize()`, never reimplemented) on
+  both arms of one or more saved `ab` results, per recipe and pooled, plus V4
+  (position-disagreement share) from `judge_orientations` when present. Zero
+  API calls:
+  `uv run scripts/lab_offline_metrics.py 'docs/conversation-lab/results/*-ab-*.json'`
+  `uv run scripts/lab_offline_metrics.py RESULT.json --json`
+- **P4** - the `SPEAKERS_SEE_JUDGE_RECIPE_FACTS` variant lever (default
+  `False`, production-identical) appends the scenario's `judge_recipe_facts`
+  to what speakers see, via a variant file:
+  `echo '{"SPEAKERS_SEE_JUDGE_RECIPE_FACTS": true}' > variant.json`
+  `uv run scripts/conversation_lab.py ab --testbed --stage monday --runs 3 --variant variant.json`
+
+**V6 blind reads use `pairs-ui` (card #7793), shipped 2026-09-30.** It replaces
+the terminal `pairs --show`/`--pick` flow with a local, stdlib-only web UI
+(one pair per screen, hotkeys A/B/T to pick and auto-advance, Left/Right/J/K
+to navigate) bound to `127.0.0.1` only. Picks are written straight to the
+result file through the same recording function `pairs --pick` uses, so the
+two are interchangeable on the same file; reloading resumes at the first
+unpicked pair. The arm names, the A/B mapping, and every judge field are
+never sent to the browser - a finish screen appears once every pair is
+picked, showing the count and the human/judge agreement stats. Each pick also
+records `human_pick_meta[position].longer_arm`/`picked_longer` (by word
+count) for the S0b V5 length-bias split.
+
+`uv run scripts/conversation_lab.py pairs-ui --from docs/conversation-lab/results/PILOT.json`
+
 ## 4. Outcomes
 
 **Primary outcome.** The judge's overall pairwise verdict, variant vs baseline (current

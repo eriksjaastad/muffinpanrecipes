@@ -675,3 +675,103 @@ def test_cost_by_model_still_flags_missing_usage_cost_for_unpriced_model(capsys)
     totals = cl._openrouter_router_cost_by_model()
     assert totals == {}
     assert "no usage.cost" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# #7791 P0: claude-o55 / deepseek-o55 sets pair each dialogue model with the
+# fixed Opus 5.5 lab judge. The routing/pricing machinery is generic per
+# vendor prefix (see model_router.openrouter_provider_route/
+# openrouter_max_tokens above), so a NEW anthropic id needs no code change -
+# these tests confirm that stays true for anthropic/claude-opus-5.5 specifically.
+# ---------------------------------------------------------------------------
+
+def test_real_lab_models_file_has_o55_sets():
+    models = cl._load_lab_models_file(cl.LAB_MODELS_PATH)
+    assert models.sets["claude-o55"].dialogue == "anthropic/claude-haiku-4.5"
+    assert models.sets["claude-o55"].judge == "anthropic/claude-opus-5.5"
+    assert models.sets["deepseek-o55"].dialogue == "deepseek/deepseek-v4.1-flash"
+    assert models.sets["deepseek-o55"].judge == "anthropic/claude-opus-5.5"
+    # Adding the new sets must never change the file's default.
+    assert models.default == "claude"
+
+
+def test_opus_55_gets_the_same_anthropic_max_tokens_ceiling_as_opus_46():
+    assert model_router.openrouter_max_tokens("anthropic/claude-opus-5.5") == 4096
+    assert (
+        model_router.openrouter_max_tokens("anthropic/claude-opus-5.5")
+        == model_router.openrouter_max_tokens("anthropic/claude-opus-4.6")
+    )
+
+
+def test_opus_55_gets_the_same_anthropic_pinned_route_as_opus_46():
+    assert model_router.openrouter_provider_route("anthropic/claude-opus-5.5") == {
+        "order": ["anthropic"], "allow_fallbacks": False,
+    }
+    assert (
+        model_router.openrouter_provider_route("anthropic/claude-opus-5.5")
+        == model_router.openrouter_provider_route("anthropic/claude-opus-4.6")
+    )
+
+
+def test_opus_55_is_registered_in_the_openrouter_judge_allowlist():
+    """conversation_lab's module-level loop calls `allow_openrouter_models`
+    once per lab_models.json set (including claude-o55/deepseek-o55) at cl's
+    own import time. Reproduce that loop directly against the CURRENT
+    model_router module rather than relying on it having already run against
+    this exact module object - test_model_router_does_not_touch_the_
+    filesystem_at_import (above) reloads model_router, which resets its
+    _EXTRA_OPENROUTER_* globals without re-triggering cl's registration."""
+    for model_set in cl._LAB_MODELS.sets.values():
+        model_router.allow_openrouter_models(dialogue=model_set.dialogue, judge=model_set.judge)
+    allowed = model_router.OPENROUTER_JUDGE_ALLOWLIST | model_router._EXTRA_OPENROUTER_JUDGE_MODELS
+    assert "anthropic/claude-opus-5.5" in allowed
+
+
+def test_ab_resolves_claude_o55_judge_model(tmp_path, monkeypatch):
+    """--models claude-o55 routes the judge through openrouter/anthropic/claude-opus-5.5
+    end to end, the same way --models deepseek already does for its judge."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+    monkeypatch.setattr(cl, "_openrouter_fetch_account_balance", lambda: 100.0)
+    monkeypatch.setattr(
+        cl, "_openrouter_fetch_key",
+        lambda: {"limit": 10.0, "limit_remaining": 10.0, "usage": 0.0},
+    )
+    monkeypatch.setattr(
+        cl, "_fetch_openrouter_model_prices",
+        lambda: {
+            "anthropic/claude-haiku-4.5": (0.0000008, 0.000004),
+            "anthropic/claude-opus-5.5": (0.000004, 0.00002),
+        },
+    )
+
+    seen_judge_models = []
+
+    def fake_run_simulation(*, default_model, **kwargs):
+        sdw.STOP_CHECK_LOG.clear()
+        return {"messages": [{
+            "day": "monday", "stage": "brainstorm", "character": "Margaret Chen",
+            "message": "Fixture line.", "timestamp": "2026-09-30T09:00:00+00:00",
+            "model": default_model, "attachments": [],
+        }]}
+
+    def fake_judge(*, model, **kwargs):
+        seen_judge_models.append(model)
+        return json.dumps({
+            "winner": "tie",
+            "per_dimension": {dim: "tie" for dim in cl.ALL_JUDGE_DIMENSIONS},
+            "reason": "fixture",
+        })
+
+    monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
+    monkeypatch.setattr(model_router, "generate_judge_response", fake_judge)
+    variant_path = tmp_path / "variant.json"
+    variant_path.write_text(json.dumps({"WORD_CAPS": True}))
+    results_dir = tmp_path / "results"
+
+    cl.main([
+        "ab", "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+        "--variant", str(variant_path), "--recipe-context", "anchor",
+        "--models", "claude-o55", "--no-log", "--results-dir", str(results_dir),
+    ])
+
+    assert seen_judge_models == ["openrouter/anthropic/claude-opus-5.5"] * 2
