@@ -54,14 +54,36 @@ Trash via `trash` — never `rm`, per this repo's hygiene rules.
   ```json
   {
     "status": "ok" | "degraded",
+    "episode_id": "2026-W40",
     "summary": "<one-line episode_summary() output>",
     "failures": ["<failure detail>", "..."],
-    "checked_at": "2026-09-30T18:00:00Z"
+    "checked_at": "2026-09-30T18:00:00Z",
+    "alerted": {
+      "status": "ok" | "degraded" | null,
+      "signature": "<sha256 of episode_id + normalized failures>" | null,
+      "at": "2026-09-30T18:00:00Z" | null
+    }
   }
   ```
   `status` is only ever `"ok"` or `"degraded"` on disk — a network blip
   never gets written as a fresh verdict over a known one (see below), so a
   reader of this file never has to special-case a third value.
+
+  `status` and `alerted` are deliberately separate. `status` is what THIS
+  run observed; `alerted` is the status + failure signature of the last
+  **confirmed** delivery (`send_alert` returned `True`). They can disagree —
+  a DEGRADED run whose alert failed on every channel writes
+  `status: "degraded"` but leaves `alerted` at its previous value, so the
+  next run sees "still owed" and retries the delivery instead of treating
+  the failure as already announced. A reader that only wants "what does the
+  monitor currently believe about the pipeline" should read `status`; a
+  reader that wants "has the current problem actually been announced yet"
+  should compare `status`/failure-signature against `alerted`.
+
+  A lock file sits beside the state file at the same path plus `.lock`
+  (e.g. `pipeline_status.json.lock`) — it holds no data, and its only job is
+  to serialize concurrent runs (see "Never blocks" below). It's safe to
+  ignore or delete.
 
 - **Logs**: `~/Library/Logs/muffinpan-pipeline-monitor/{stdout,stderr}.log`.
 
@@ -74,16 +96,35 @@ Alerts go through the one door every alert in this repo uses —
 (email is the channel Erik actually reads; see that module's docstring).
 No new channel was invented for this monitor.
 
-The monitor alerts only on a **transition**:
+The monitor alerts on:
 
-- `OK`/`unknown` → `DEGRADED`: one `warning` alert, with the failure list.
+- `OK`/`unknown` → `DEGRADED` (including the very first run ever): one
+  `warning` alert, with the failure list.
+- A **new failure signature** while still `DEGRADED` — a different failure,
+  or the same failure text on a new episode (a new ISO week degrading the
+  same way): one `warning` alert. The signature is a hash of the episode id
+  plus the sorted failure text with any embedded timestamp stripped first,
+  so an identical failure never looks "new" just because an hour passed.
 - `DEGRADED` → `OK`: one `info` recovery alert.
-- `DEGRADED` → `DEGRADED` (persistent failure) or `OK` → `OK`: silent — a
-  monitor that repeats itself every hour trains you to ignore it.
+
+The monitor stays silent on:
+
+- `DEGRADED` → `DEGRADED` with the **same** failure signature (persistent,
+  unchanged failure) — a monitor that repeats itself every hour trains you
+  to ignore it.
+- `OK` → `OK`.
+
+**Delivery is confirmed, not assumed.** `send_alert`'s boolean return is
+checked before `alerted` is updated. If every channel is down (or
+credentials are missing), the alert attempt is logged to stderr and
+`alerted` is left exactly as it was — the next run (an hour later, or
+sooner via a manual invocation) sees the same "not yet delivered" state and
+tries again, rather than the failure silently being recorded as announced.
 
 ## Never blocks
 
-Same discipline as `session_pipeline_status.py`, unchanged:
+Same discipline as `session_pipeline_status.py`, unchanged, plus one
+addition made for concurrency:
 
 - Always exits 0, including on a total exception (`_safe_main()`'s guard).
 - Inherits the 6s-per-request network bound from
@@ -91,6 +132,14 @@ Same discipline as `session_pipeline_status.py`, unchanged:
 - A network failure records `"unknown"` and does **not** alert, and does
   **not** overwrite an already-known (`ok`/`degraded`) verdict on disk — a
   flaky connection can't erase history or spam every hour.
+- The whole read-decide-alert-write sequence runs under a non-blocking
+  exclusive file lock (`fcntl.flock` on the `.lock` file above). If a run
+  is already in flight when the next one starts (e.g. a slow run still
+  going when the next hourly tick fires), the second run logs that the lock
+  is held and exits 0 immediately — it never waits, never double-alerts,
+  and never corrupts the state file with a concurrent write. The state
+  file itself is replaced atomically via a unique `tempfile.mkstemp` name
+  in the same directory, never edited in place.
 
 ## SessionStart hook (not part of this repo)
 

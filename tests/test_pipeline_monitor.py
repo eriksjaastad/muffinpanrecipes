@@ -1,10 +1,21 @@
 """scripts/pipeline_monitor.py — always-on pipeline monitor (#7006).
 
-Covers the transition-only alerting contract: alert on a change TO DEGRADED
-(from OK or unknown), one recovery notice on a change back to OK, silence on
-a persistent DEGRADED, and a network blip that records "unknown" without
-alerting and without clobbering a known verdict on disk. Also asserts the
-job exits 0 on every path, including an unhandled exception.
+Covers the alerting contract: alert on a change TO DEGRADED (from OK or
+unknown) OR on the failure signature changing while still degraded, one
+recovery notice on a change back to OK, silence on a truly unchanged
+DEGRADED, and a network blip that records "unknown" without alerting and
+without clobbering a known verdict on disk. Also covers the three
+corrections made after Codex review of fb3fb3c:
+
+  A. a delivery `send_alert` reports as failed must be retried on the next
+     run, not recorded as delivered (`alerted` vs `status`);
+  B. re-alerting on a persistent DEGRADED is keyed on a normalized failure
+     signature, not merely on the status staying "degraded";
+  C. two overlapping invocations must not both decide "not yet alerted" and
+     both send (an exclusive file lock).
+
+Also asserts the job exits 0 on every path, including an unhandled
+exception.
 
 Network is never touched: `sps._get_json` and the verdict functions it wraps
 are stubbed directly, so these tests exercise pipeline_monitor's own
@@ -15,19 +26,27 @@ by tests/test_episode_integrity.py-equivalent coverage elsewhere).
 from __future__ import annotations
 
 import json
+import threading
 from unittest.mock import patch
 
 from scripts import pipeline_monitor as pm
 
 
 def _stub_ok(monkeypatch, *, summary: str = "2026-W40: on track"):
-    """Make compute_verdict() report a healthy episode."""
+    """Make compute_verdict() report a healthy episode.
+
+    `current_episode_id` is pinned rather than left to resolve from the real
+    "now", so the resulting `episode_id` — and any signature computed from it
+    — is stable regardless of what day the suite actually runs.
+    """
+    monkeypatch.setattr(pm.sps, "current_episode_id", lambda: "2026-W40")
     monkeypatch.setattr(pm.sps, "_get_json", lambda url: {"episode_id": "2026-W40"})
     monkeypatch.setattr(pm.sps, "episode_integrity_failures", lambda episode, catalog=None: [])
     monkeypatch.setattr(pm.sps, "episode_summary", lambda episode: summary)
 
 
 def _stub_degraded(monkeypatch, *, failures=("monday stage is 'missing'",)):
+    monkeypatch.setattr(pm.sps, "current_episode_id", lambda: "2026-W40")
     monkeypatch.setattr(pm.sps, "_get_json", lambda url: {"episode_id": "2026-W40"})
     monkeypatch.setattr(
         pm.sps, "episode_integrity_failures", lambda episode, catalog=None: list(failures)
@@ -42,12 +61,25 @@ def _stub_network_failure(monkeypatch):
     monkeypatch.setattr(pm.sps, "_get_json", lambda url: None)
 
 
+class _AlertRecorder(list):
+    """A list of delivered-alert dicts that also controls whether the NEXT
+    call to the patched send_alert reports success or failure, so a test can
+    flip `.deliver = False` mid-run to simulate every channel being down."""
+
+    def __init__(self):
+        super().__init__()
+        self.deliver = True
+        self.attempts = 0  # every call, delivered or not
+
+
 def _captured_alerts(monkeypatch):
-    posts: list[dict] = []
+    posts = _AlertRecorder()
 
     def _fake_send_alert(subject, body, severity="warning", **kw):
-        posts.append({"subject": subject, "body": body, "severity": severity, **kw})
-        return True
+        posts.attempts += 1
+        if posts.deliver:
+            posts.append({"subject": subject, "body": body, "severity": severity, **kw})
+        return posts.deliver
 
     monkeypatch.setattr(pm, "send_alert", _fake_send_alert)
     return posts
@@ -78,6 +110,10 @@ def test_ok_to_degraded_alerts_once(tmp_path, monkeypatch):
     assert saved["status"] == "degraded"
     assert saved["failures"] == ["monday stage is 'missing'"]
     assert "checked_at" in saved
+    assert saved["alerted"]["status"] == "degraded"
+    assert saved["alerted"]["signature"] == pm.failure_signature(
+        "2026-W40", ["monday stage is 'missing'"]
+    )
 
 
 def test_first_run_degraded_alerts_immediately(tmp_path, monkeypatch):
@@ -93,7 +129,7 @@ def test_first_run_degraded_alerts_immediately(tmp_path, monkeypatch):
     assert "DEGRADED" in posts[0]["subject"]
 
 
-def test_degraded_to_degraded_does_not_realert(tmp_path, monkeypatch):
+def test_degraded_to_degraded_same_signature_does_not_realert(tmp_path, monkeypatch):
     state = tmp_path / "pipeline_status.json"
     posts = _captured_alerts(monkeypatch)
 
@@ -101,12 +137,69 @@ def test_degraded_to_degraded_does_not_realert(tmp_path, monkeypatch):
     pm.run(state)
     assert len(posts) == 1
 
-    _stub_degraded(monkeypatch, failures=("a different failure now",))
+    # Same failure text, run again (and again) — an unchanged incident.
+    _stub_degraded(monkeypatch)
+    pm.run(state)
     pm.run(state)
     assert len(posts) == 1  # still just the one alert — persistent DEGRADED is silent
 
     saved = json.loads(state.read_text())
-    assert saved["failures"] == ["a different failure now"]  # state still updates
+    assert saved["failures"] == ["monday stage is 'missing'"]  # state still updates
+    assert saved["alerted"]["status"] == "degraded"
+
+
+def test_degraded_to_degraded_new_signature_alerts_once(tmp_path, monkeypatch):
+    """Correction B: a DIFFERENT failure while still degraded is a new
+    incident and must surface exactly one alert, not silence."""
+    state = tmp_path / "pipeline_status.json"
+    posts = _captured_alerts(monkeypatch)
+
+    _stub_degraded(monkeypatch, failures=("monday stage is 'missing'",))
+    pm.run(state)
+    assert len(posts) == 1
+
+    _stub_degraded(monkeypatch, failures=("a completely different failure now",))
+    pm.run(state)
+    assert len(posts) == 2
+    assert "DEGRADED" in posts[1]["subject"]
+
+    # Re-running with that SAME new failure must go quiet again.
+    pm.run(state)
+    assert len(posts) == 2
+
+    saved = json.loads(state.read_text())
+    assert saved["failures"] == ["a completely different failure now"]
+    assert saved["alerted"]["signature"] == pm.failure_signature(
+        "2026-W40", ["a completely different failure now"]
+    )
+
+
+def test_new_episode_week_failing_the_same_way_alerts_once(tmp_path, monkeypatch):
+    """Correction B, other half: same failure TEXT but a new episode_id (a new
+    ISO week) is still a new incident, not a repeat. compute_verdict's
+    episode_id comes from the --episode/current_episode_id argument used to
+    build the fetch URL, not from inside the fetched payload, so we vary it
+    via pm.run's episode_id parameter."""
+    state = tmp_path / "pipeline_status.json"
+    posts = _captured_alerts(monkeypatch)
+
+    monkeypatch.setattr(pm.sps, "_get_json", lambda url: {"episode_id": "irrelevant"})
+    monkeypatch.setattr(
+        pm.sps,
+        "episode_integrity_failures",
+        lambda episode, catalog=None: ["monday stage is 'missing'"],
+    )
+    monkeypatch.setattr(pm.sps, "episode_summary", lambda episode: "degraded")
+
+    pm.run(state, episode_id="2026-W40")
+    assert len(posts) == 1
+
+    pm.run(state, episode_id="2026-W41")
+    assert len(posts) == 2
+
+    # And running the second week again with the SAME failure goes quiet.
+    pm.run(state, episode_id="2026-W41")
+    assert len(posts) == 2
 
 
 def test_degraded_to_ok_sends_one_recovery(tmp_path, monkeypatch):
@@ -125,6 +218,7 @@ def test_degraded_to_ok_sends_one_recovery(tmp_path, monkeypatch):
 
     saved = json.loads(state.read_text())
     assert saved["status"] == "ok"
+    assert saved["alerted"] == {"status": "ok", "signature": None, "at": saved["alerted"]["at"]}
 
 
 def test_ok_to_ok_stays_silent(tmp_path, monkeypatch):
@@ -187,6 +281,202 @@ def test_network_failure_does_not_clobber_known_degraded_verdict(tmp_path, monke
 
     after = json.loads(state.read_text())
     assert after == before
+
+
+# ---------------------------------------------------------------------------
+# Correction A: a failed delivery must be retried, never recorded as sent
+# ---------------------------------------------------------------------------
+
+
+def test_failed_degraded_delivery_is_retried_next_run(tmp_path, monkeypatch):
+    state = tmp_path / "pipeline_status.json"
+    posts = _captured_alerts(monkeypatch)
+    posts.deliver = False  # every channel is down
+
+    _stub_degraded(monkeypatch)
+    rc = pm.run(state)
+    assert rc == 0
+    assert posts.attempts == 1
+    assert len(posts) == 0  # attempted, but nothing was actually delivered
+
+    saved = json.loads(state.read_text())
+    assert saved["status"] == "degraded"  # observed truth is still recorded
+    assert saved["alerted"] == {"status": None, "signature": None, "at": None}  # nothing owed-off
+
+    # Channels recover; the SAME degraded state must be retried, not skipped
+    # just because "status" was already degraded last run.
+    posts.deliver = True
+    rc = pm.run(state)
+    assert rc == 0
+    assert posts.attempts == 2
+    assert len(posts) == 1
+    assert "DEGRADED" in posts[0]["subject"]
+
+    saved = json.loads(state.read_text())
+    assert saved["alerted"]["status"] == "degraded"
+
+    # And now that it's been confirmed delivered, a third identical run stays quiet.
+    rc = pm.run(state)
+    assert rc == 0
+    assert len(posts) == 1
+
+
+def test_failed_recovery_delivery_is_retried_next_run(tmp_path, monkeypatch):
+    state = tmp_path / "pipeline_status.json"
+    posts = _captured_alerts(monkeypatch)
+
+    _stub_degraded(monkeypatch)
+    pm.run(state)
+    assert len(posts) == 1
+
+    posts.deliver = False
+    _stub_ok(monkeypatch)
+    rc = pm.run(state)
+    assert rc == 0
+    assert len(posts) == 1  # recovery attempted but not delivered
+    saved = json.loads(state.read_text())
+    assert saved["status"] == "ok"
+    assert saved["alerted"]["status"] == "degraded"  # still owed: recovery never confirmed
+
+    posts.deliver = True
+    rc = pm.run(state)
+    assert rc == 0
+    assert len(posts) == 2
+    assert "recovered" in posts[1]["subject"].lower()
+    saved = json.loads(state.read_text())
+    assert saved["alerted"]["status"] == "ok"
+
+    # Steady OK afterward stays silent.
+    rc = pm.run(state)
+    assert len(posts) == 2
+
+
+# ---------------------------------------------------------------------------
+# Correction B: signature must ignore volatile text (timestamps)
+# ---------------------------------------------------------------------------
+
+
+def test_signature_ignores_embedded_timestamp_using_real_episode_integrity_shape():
+    """Uses the ACTUAL episode_integrity_failures() output shape (a stage
+    failure embeds a real 'cron window closed at <date> <time> UTC' string —
+    see backend/utils/episode_integrity.py) to prove the signature strips it,
+    so an otherwise-identical failure never looks "new" from one hourly tick
+    to the next just because of that timestamp."""
+    from backend.utils.episode_integrity import episode_integrity_failures
+
+    episode = {
+        "episode_id": "2026-W40",
+        "concept": "Apple Cinnamon Muffin Cups",
+        "target_category": "fruit",
+        "stages": {
+            "monday": {"status": "complete", "target_category": "fruit"},
+            "tuesday": {"status": "missing"},
+        },
+    }
+    import datetime as _dt
+
+    failures_a = episode_integrity_failures(
+        episode, now=_dt.datetime(2026, 9, 30, 20, 0, tzinfo=_dt.timezone.utc)
+    )
+    failures_b = episode_integrity_failures(
+        # A whole hour later: the SAME stage, so the same deadline text, but
+        # this also demonstrates the strip works even if it had changed.
+        episode, now=_dt.datetime(2026, 9, 30, 21, 0, tzinfo=_dt.timezone.utc)
+    )
+    assert failures_a and failures_b  # sanity: the fixture actually produced a failure
+    assert any("UTC" in f for f in failures_a)  # sanity: a timestamp is really embedded
+
+    sig_a = pm.failure_signature("2026-W40", failures_a)
+    sig_b = pm.failure_signature("2026-W40", failures_b)
+    assert sig_a == sig_b
+
+
+def test_normalize_failure_strips_common_timestamp_shapes():
+    assert pm._normalize_failure("closed at 2026-09-30 14:30 UTC") == "closed at <TS> UTC"
+    assert pm._normalize_failure("at 2026-09-30T14:30:00Z now") == "at <TS> now"
+    assert pm._normalize_failure("no timestamp here") == "no timestamp here"
+
+
+def test_many_unchanged_signature_runs_across_simulated_hours_stay_silent(tmp_path, monkeypatch):
+    """The literal acceptance scenario: the pipeline is degraded and stays
+    degraded with the identical failure for many consecutive hourly ticks —
+    exactly one alert total, never a repeat."""
+    state = tmp_path / "pipeline_status.json"
+    posts = _captured_alerts(monkeypatch)
+    _stub_degraded(monkeypatch)
+
+    for _ in range(24):  # a full day of hourly ticks
+        rc = pm.run(state)
+        assert rc == 0
+
+    assert len(posts) == 1
+
+
+# ---------------------------------------------------------------------------
+# Correction C: overlapping invocations must not both alert
+# ---------------------------------------------------------------------------
+
+
+def test_second_concurrent_run_exits_zero_without_alerting_while_lock_held(tmp_path, monkeypatch):
+    state = tmp_path / "pipeline_status.json"
+    lock_path = state.with_name(state.name + ".lock")
+    posts = _captured_alerts(monkeypatch)
+    _stub_degraded(monkeypatch)
+
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = pm.os.open(str(lock_path), pm.os.O_CREAT | pm.os.O_RDWR, 0o644)
+    try:
+        pm.fcntl.flock(fd, pm.fcntl.LOCK_EX | pm.fcntl.LOCK_NB)  # simulate a run in flight
+
+        rc = pm.run(state)  # a second, overlapping invocation
+
+        assert rc == 0
+        assert posts == []  # never even computed a verdict, let alone alerted
+        assert not state.exists()  # nothing written either
+    finally:
+        pm.fcntl.flock(fd, pm.fcntl.LOCK_UN)
+        pm.os.close(fd)
+
+    # Lock released -> the next run proceeds normally.
+    rc = pm.run(state)
+    assert rc == 0
+    assert len(posts) == 1
+
+
+def test_lock_is_released_after_a_run_so_the_next_one_proceeds(tmp_path, monkeypatch):
+    state = tmp_path / "pipeline_status.json"
+    posts = _captured_alerts(monkeypatch)
+    _stub_degraded(monkeypatch)
+
+    pm.run(state)
+    pm.run(state)  # would deadlock/hang if the lock weren't released
+
+    assert len(posts) == 1
+
+
+def test_concurrent_runs_via_threads_alert_exactly_once(tmp_path, monkeypatch):
+    """A closer-to-real race: two threads call run() at (as close to) the
+    same instant as Python allows. Exactly one of them must win the lock and
+    alert; the other must exit 0 having sent nothing."""
+    state = tmp_path / "pipeline_status.json"
+    posts = _captured_alerts(monkeypatch)
+    _stub_degraded(monkeypatch)
+
+    barrier = threading.Barrier(2)
+    results = []
+
+    def _worker():
+        barrier.wait()
+        results.append(pm.run(state))
+
+    threads = [threading.Thread(target=_worker) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+
+    assert results == [0, 0]
+    assert len(posts) == 1  # exactly one delivered alert, never zero, never two
 
 
 # ---------------------------------------------------------------------------
