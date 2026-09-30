@@ -684,6 +684,28 @@ def _parse_judge_json(raw: str) -> dict | None:
     return parsed if isinstance(parsed, dict) else None
 
 
+def _judge_verdict_is_malformed(parsed: dict) -> bool:
+    """True when JSON parsed cleanly but never actually rendered a verdict.
+
+    #7405: a response like ``{"scores": {"title_fidelity": 5}}`` with no
+    ``verdict`` key parses fine, so `passed = ... == "PASS"` silently reads
+    it as a scored FAIL - the judge never said FAIL, it said nothing. Same
+    failure shape for an empty string or an unrecognized value ("MAYBE") - a
+    plain parse failure already returns None from `_parse_judge_json` and
+    never reaches here. Any of these must be treated exactly like
+    unparseable output by the caller, never as a judged PASS or FAIL.
+
+    Deliberately does NOT also require `scores` to be non-empty or to carry
+    specific dimensions: several already-shipped, already-tested call sites
+    (e.g. judge-prompt wiring tests) mock a valid PASS/FAIL verdict with an
+    empty or partial `scores` dict, and that is a real, judged verdict, not
+    a malformed one. Widening this check to scores content would silently
+    fail those closed too.
+    """
+    verdict_raw = str(parsed.get("verdict") or "").strip().upper()
+    return verdict_raw not in ("PASS", "FAIL")
+
+
 def _judge_dialogue(
     concept: str,
     stage: str,
@@ -786,14 +808,19 @@ def _judge_dialogue(
         return False, f"JUDGE ERROR: {type(e).__name__}: {e}"
 
     parsed = _parse_judge_json(raw)
-    if parsed is None:
+    malformed = parsed is not None and _judge_verdict_is_malformed(parsed)
+    if parsed is None or malformed:
         # One retry with a stricter reminder — models occasionally wrap the
-        # JSON in a markdown fence or add a sentence of preamble despite
-        # being told not to (#6861).
+        # JSON in a markdown fence, add a sentence of preamble, or (#7405)
+        # return parseable JSON that omits `verdict` entirely or uses an
+        # unrecognized value, despite being told not to.
         retry_prompt = (
-            f"{prompt}\n\nCRITICAL: your previous response could not be parsed as JSON. "
-            "Return ONLY the JSON object described above. No markdown fences, no prose "
-            "before or after it."
+            f"{prompt}\n\nCRITICAL: your previous response could not be used as a "
+            "verdict (it was either not valid JSON, or was missing a `verdict` "
+            "field, or used a `verdict` value other than \"PASS\"/\"FAIL\"). "
+            "Return ONLY the JSON object described above, with a `verdict` of "
+            "exactly \"PASS\" or \"FAIL\". No markdown fences, no prose before or "
+            "after it."
         )
         try:
             raw = generate_judge_response(
@@ -807,6 +834,7 @@ def _judge_dialogue(
             _record_judge_meta({}, [], f"judge error: {type(e).__name__}")
             return False, f"JUDGE ERROR: {type(e).__name__}: {e}"
         parsed = _parse_judge_json(raw)
+        malformed = parsed is not None and _judge_verdict_is_malformed(parsed)
 
     if parsed is None:
         # FAIL CLOSED (#6861). This is the publish gate — an unparseable
@@ -814,6 +842,19 @@ def _judge_dialogue(
         reason = "judge output unparseable"
         _record_judge_meta({}, [], reason)
         logger.error(f"Judge output unparseable for {stage} after retry: {raw[:200]!r}")
+        return False, f"FAIL - {reason}"
+
+    if malformed:
+        # FAIL CLOSED (#7405). The response parsed as JSON but never actually
+        # rendered a verdict (`verdict` missing, empty, or an unrecognized
+        # value) — semantically the same as unparseable output, so it gets
+        # the exact same contract: empty meta, fail closed, and it is NEVER
+        # recorded as a judged FAIL. This is what keeps a malformed response
+        # out of the advisory-gate "attempt is eligible to publish" path and
+        # out of a FAIL alert the judge never actually issued.
+        reason = "judge verdict malformed"
+        _record_judge_meta({}, [], reason)
+        logger.error(f"Judge verdict malformed for {stage} after retry: {parsed!r}")
         return False, f"FAIL - {reason}"
 
     scores = parsed.get("scores")
