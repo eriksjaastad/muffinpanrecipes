@@ -45,6 +45,7 @@ def test_public_routes_are_present_and_ordered() -> None:
 
     assert sources == [
         "/(.*)",
+        "/BingSiteAuth\\.xml",
         "/(.*)",
         "/api/(.*)",
         "/admin/static/(.*)",
@@ -67,8 +68,8 @@ def test_public_routes_are_present_and_ordered() -> None:
         "/(.*)",
     ]
 
-    assert routes[1]["has"] == [{"type": "host", "value": "www.muffinpanrecipes.com"}]
-    assert routes[1]["status"] == 301
+    assert routes[2]["has"] == [{"type": "host", "value": "www.muffinpanrecipes.com"}]
+    assert routes[2]["status"] == 301
     assert routes[-2] == {"src": "/", "dest": "/src/index.html"}
 
 
@@ -273,3 +274,19 @@ def test_builds_array_is_unchanged() -> None:
         },
     ]
     assert "buildCommand" not in config
+
+
+def test_bing_site_auth_is_served_from_root_on_both_hosts_without_redirect() -> None:
+    """Bing Webmaster Tools file verification needs HTTP 200 with no redirect,
+    and www and the apex are verified as separate sites. The route must sit
+    before the www->apex 301 so www.muffinpanrecipes.com/BingSiteAuth.xml is
+    served directly too; the security-header route before it continues."""
+    routes = _routes()
+    sources = [route.get("src") for route in routes]
+    bing = sources.index("/BingSiteAuth\\.xml")
+    www_redirect = next(i for i, r in enumerate(routes) if r.get("status") == 301)
+    assert routes[0].get("continue") is True
+    assert 0 < bing < www_redirect
+    assert routes[bing] == {"src": "/BingSiteAuth\\.xml", "dest": "/src/BingSiteAuth.xml"}
+    served = (ROOT / "src/BingSiteAuth.xml").read_text(encoding="utf-8")
+    assert "<users>" in served and "<user>" in served
