@@ -45,7 +45,7 @@ from pydantic import BaseModel
 
 from backend.config import config
 from backend.publishing.episode_renderer import _hero_image_url, regenerate_and_upload
-from backend.storage import storage
+from backend.storage import merge_character_memory, storage
 from backend.utils import episode_integrity
 from backend.utils.catalog import (
     VALID_CATEGORIES,
@@ -1591,22 +1591,70 @@ def _char_dir_slug(name: str) -> str:
     return _re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
 
-def _generate_episode_memories(episode: dict, concept: str) -> None:
-    """Generate per-character memories from a completed episode.
+def _load_character_memory_seeded(slug: str) -> Optional[dict]:
+    """Durable memory for `slug`, seeded from the legacy bundled file (#6968).
 
-    Called after Sunday publish. One LLM call per character (~100 tokens each).
-    Memories are stored in backend/data/characters/<slug>/memory.json.
+    backend/data/characters/<slug>/memory.json is the read-only file that
+    shipped inside the Vercel Lambda bundle before this card; it remains in
+    place as the initial seed for a character with nothing in durable
+    storage yet (card #6968, item 7). Once durable storage holds anything
+    for a character it is authoritative, and the legacy file is never
+    consulted again for that character.
     """
-    import json as _json
+    existing = storage.load_character_memory(slug)
+    if existing is not None:
+        return existing
+    legacy_path = _CHARACTERS_DIR / slug / "memory.json"
+    if legacy_path.exists():
+        try:
+            return json.loads(legacy_path.read_text())
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"Legacy memory seed unreadable for {slug}: {type(e).__name__}: {e}")
+            return None
+    return None
 
+
+def _generate_episode_memories(episode: dict, concept: str, *, dry_run: bool = False) -> dict[str, list[str]]:
+    """Generate per-character memories from a completed episode (#6968).
+
+    Called after Sunday publish. One LLM call per character (~100 tokens
+    each). Memories are stored in durable, prefix-scoped storage
+    (backend.storage.storage.save_character_memory) rather than the
+    read-only backend/data/characters/<slug>/memory.json bundle path — see
+    _load_character_memory_seeded for the legacy-file fallback. Writes are
+    idempotent by episode ID via storage.merge_character_memory: replaying
+    the same week never duplicates it, and at most
+    storage.MAX_CHARACTER_MEMORY_WEEKS distinct weeks are retained.
+
+    With dry_run=True, no storage write happens; the return value still
+    describes what each character's outcome would be. Used by
+    scripts/repair_character_memory.py to default to a dry run.
+
+    Returns {"saved": [...], "absent": [...], "failed": [...]} — character
+    names bucketed by outcome, for the caller to fold into episode events.
+    A per-character LLM or storage failure lands in "failed" and never
+    raises past this function; a genuinely unexpected error (e.g. the
+    roster lookup itself failing) is allowed to propagate so the caller's
+    outer guard records a total failure instead of silently reporting an
+    empty outcome.
+    """
     all_dialogue: list[dict] = []
     for day in DAY_ORDER:
         day_data = episode.get("stages", {}).get(day, {})
         all_dialogue.extend(day_data.get("dialogue", []))
 
+    outcome: dict[str, list[str]] = {"saved": [], "absent": [], "failed": []}
+
+    # Full weekly roster (#6968): a cast member who produced no accepted
+    # dialogue this week is an observable absence, not silently skipped.
+    # Lazy import mirrors _get_run_simulation()'s pattern above.
+    from scripts.simulate_dialogue_week import participants_for_day
+    roster = sorted({name for day in DAY_ORDER for name in participants_for_day(day)})
+
     if not all_dialogue:
         logger.warning("No dialogue in episode — skipping memory generation")
-        return
+        outcome["absent"] = roster
+        return outcome
 
     # Group messages by character
     by_char: dict[str, list[str]] = {}
@@ -1617,9 +1665,13 @@ def _generate_episode_memories(episode: dict, concept: str) -> None:
 
     week_label = episode.get("episode_id", "unknown")
     model = config.dialogue_model  # cheap model for summaries
-    failed_chars: list[str] = []
 
-    for char_name, char_msgs in by_char.items():
+    for char_name in roster:
+        char_msgs = by_char.get(char_name)
+        if not char_msgs:
+            outcome["absent"].append(char_name)
+            continue
+
         transcript_excerpt = "\n".join(char_msgs[-15:])
 
         prompt = (
@@ -1646,11 +1698,11 @@ def _generate_episode_memories(episode: dict, concept: str) -> None:
             # TRIAGE (#6856): GENUINELY NON-FATAL, logged and recorded.
             # Character memories are flavour for next week's prompts; a gap
             # costs continuity, never correctness, and the publish already
-            # happened by the time this runs. Recorded on the episode below
-            # so a missing memory is visible in the JSON rather than only in
-            # a Lambda log nobody reads.
+            # happened by the time this runs. Recorded on the episode by
+            # the caller so a missing memory is visible in the JSON rather
+            # than only in a Lambda log nobody reads.
             logger.error(f"Memory generation failed for {char_name}: {type(e).__name__}: {e}")
-            failed_chars.append(char_name)
+            outcome["failed"].append(char_name)
             continue
 
         sentences = summary.split(". ")
@@ -1664,24 +1716,20 @@ def _generate_episode_memories(episode: dict, concept: str) -> None:
         }
 
         slug = _char_dir_slug(char_name)
-        mem_path = _CHARACTERS_DIR / slug / "memory.json"
         try:
-            data = _json.loads(mem_path.read_text()) if mem_path.exists() else {"episodes": []}
-        except (_json.JSONDecodeError, KeyError):
-            data = {"episodes": []}
+            existing = _load_character_memory_seeded(slug)
+            merged = merge_character_memory(existing, mem_entry)
+            if not dry_run:
+                storage.save_character_memory(slug, merged)
+            logger.info(f"{'Would save' if dry_run else 'Saved'} memory for {char_name}: {summary[:80]}")
+            outcome["saved"].append(char_name)
+        except Exception as e:
+            # A write failure must never claim success (#6968) — recorded as
+            # failed even though the summary above succeeded.
+            logger.error(f"Memory write failed for {char_name}: {type(e).__name__}: {e}")
+            outcome["failed"].append(char_name)
 
-        data["episodes"].append(mem_entry)
-        data["episodes"] = data["episodes"][-3:]  # keep last 3
-        data["last_updated"] = week_label
-
-        mem_path.parent.mkdir(parents=True, exist_ok=True)
-        mem_path.write_text(_json.dumps(data, indent=2))
-        logger.info(f"Saved memory for {char_name}: {summary[:80]}")
-
-    if failed_chars:
-        episode.setdefault("events", []).append(
-            "sunday: memory generation failed for " + ", ".join(sorted(failed_chars))
-        )
+    return outcome
 
 
 class StageRequest(BaseModel):
@@ -3014,17 +3062,31 @@ async def cron_sunday(request: Request):
         }
         ep["events"].append("sunday: complete (published)")
 
-        # Generate per-character memories from the week's dialogue (#5027)
+        # Generate per-character memories from the week's dialogue (#5027, #6968)
         try:
-            _generate_episode_memories(ep, concept)
-            ep["events"].append("sunday: memories generated")
+            memory_outcome = _generate_episode_memories(ep, concept)
+            if memory_outcome["saved"]:
+                ep["events"].append(
+                    "sunday: memory saved for " + ", ".join(sorted(memory_outcome["saved"]))
+                )
+            if memory_outcome["absent"]:
+                ep["events"].append(
+                    "sunday: memory absent (no dialogue) for "
+                    + ", ".join(sorted(memory_outcome["absent"]))
+                )
+            if memory_outcome["failed"]:
+                ep["events"].append(
+                    "sunday: memory generation failed for "
+                    + ", ".join(sorted(memory_outcome["failed"]))
+                )
         except Exception as e:
             # TRIAGE (#6856): GENUINELY NON-FATAL, logged and recorded. This
             # runs AFTER published_at is set — the recipe is already live and
             # correct. Character memories only feed next week's prompts, and
             # per-character failures are already handled inside; this outer
-            # guard catches a total failure (e.g. a read-only filesystem).
-            # Recorded as an episode event so it is visible in the JSON.
+            # guard catches a total failure (e.g. the roster lookup itself
+            # raising). Recorded as an episode event so it is visible in the
+            # JSON rather than only in a Lambda log.
             logger.error(f"Memory generation failed (non-fatal): {type(e).__name__}: {e}")
             ep["events"].append(f"sunday: memory generation failed ({type(e).__name__})")
 

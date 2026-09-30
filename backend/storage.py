@@ -44,6 +44,22 @@ EPISODES_DIR = ROOT / "data" / "episodes"
 SIMULATIONS_DIR = ROOT / "data" / "simulations"
 IMAGES_DIR = ROOT / "src" / "assets" / "images"
 
+# Durable per-character memory (#6968). This lives at repo-root `data/`,
+# same family as EPISODES_DIR/SIMULATIONS_DIR above and deliberately NOT
+# under backend/data/characters/ — that directory ships inside the Vercel
+# Lambda bundle read-only, which is why the original writer there
+# (backend/data/characters/<slug>/memory.json) silently stopped persisting
+# in production. Those legacy files remain in place as the initial seed for
+# a character with nothing in durable storage yet; callers own that
+# fallback (see backend.admin.cron_routes._load_character_memory_seeded and
+# scripts.simulate_dialogue_week's equivalent).
+CHARACTER_MEMORY_DIR = ROOT / "data" / "character_memory"
+
+# A character memory record keeps at most this many distinct weeks; the
+# prompt-building side displays fewer (see scripts/simulate_dialogue_week.py
+# _load_memories, which shows the latest 2).
+MAX_CHARACTER_MEMORY_WEEKS = 3
+
 SOCIAL_IMAGE_SIZE = (1200, 630)
 SOCIAL_IMAGE_SUFFIX = ".social.jpg"
 
@@ -151,6 +167,29 @@ def _encode_social_jpeg(png_bytes: bytes) -> bytes:
     return _encode_jpeg(png_bytes, SOCIAL_IMAGE_SIZE)
 
 
+def merge_character_memory(existing: Optional[dict], entry: dict) -> dict:
+    """Merge one completed week's memory entry into existing character memory (#6968).
+
+    ``entry`` must carry a ``"week"`` key — the episode ID (e.g.
+    "2026-W40"). Any existing entry already recorded for that week is
+    replaced rather than duplicated, so re-running the same week's Sunday
+    publish, or the repair/backfill command, is idempotent. Keeps at most
+    ``MAX_CHARACTER_MEMORY_WEEKS`` distinct weeks, most recent last.
+
+    Pure function, no I/O — callers load, merge, then save.
+    """
+    week = entry.get("week")
+    if not week:
+        raise ValueError("memory entry must include a non-empty 'week' key")
+    data: dict = dict(existing) if existing else {}
+    episodes = [e for e in data.get("episodes", []) if e.get("week") != week]
+    episodes.append(entry)
+    episodes = episodes[-MAX_CHARACTER_MEMORY_WEEKS:]
+    data["episodes"] = episodes
+    data["last_updated"] = week
+    return data
+
+
 class _FilesystemBackend:
     """Local filesystem storage — used for LOCAL_DEV."""
 
@@ -233,6 +272,19 @@ class _FilesystemBackend:
             except Exception as exc:
                 logger.warning(f"Skipping invalid simulation file {p.name}: {exc}")
         return results
+
+    def load_character_memory(self, slug: str) -> Optional[dict]:
+        """Load durable per-character memory (#6968). Returns None if absent."""
+        path = CHARACTER_MEMORY_DIR / f"{slug}.json"
+        if not path.exists():
+            return None
+        return json.loads(path.read_text())
+
+    def save_character_memory(self, slug: str, data: dict) -> None:
+        """Persist durable per-character memory (#6968)."""
+        CHARACTER_MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+        path = CHARACTER_MEMORY_DIR / f"{slug}.json"
+        path.write_text(json.dumps(data, indent=2))
 
     def save_page(self, pathname: str, html_content: str) -> str:
         """Save an HTML page locally and return its URL path."""
@@ -349,6 +401,8 @@ class _CloudBackend:
         # for seconds).
         self._episode_cache: dict[tuple[str, str], dict] = {}
         self._page_cache: dict[str, str] = {}
+        # Same same-invocation-freshness rationale as _episode_cache (#6968).
+        self._character_memory_cache: dict[tuple[str, str], dict] = {}
         if not self._blob_token and os.environ.get("VERCEL_ENV"):
             raise RuntimeError(
                 "FATAL: Running on Vercel without BLOB_READ_WRITE_TOKEN. "
@@ -600,6 +654,93 @@ class _CloudBackend:
 
         results.sort(key=lambda x: x.get("created_at", ""), reverse=True)
         return results
+
+    # --- Character memory (#6968) ---
+
+    def load_character_memory(self, slug: str) -> Optional[dict]:
+        """Load durable per-character memory from Vercel Blob.
+
+        Mirrors load_episode's shape: same-invocation cache, CDN read
+        through the list API, filesystem fallback on any cloud failure so a
+        transient Blob error degrades to "no memory found" rather than
+        raising (a per-character memory gap must never block a publish or
+        misreport a real coworker as failed to load).
+        """
+        if not self._has_cloud():
+            return self._fs.load_character_memory(slug)
+
+        import requests as _requests
+
+        cache_key = (self.prefix, slug)
+        if cache_key in self._character_memory_cache:
+            return self._character_memory_cache[cache_key]
+
+        pathname = f"{self.prefix}character_memory/{slug}.json"
+        try:
+            resp = _requests.get(
+                self._BLOB_API,
+                params={"prefix": pathname, "limit": "1"},
+                headers=self._auth_headers(),
+                timeout=15,
+            )
+            resp.raise_for_status()
+            blobs = resp.json().get("blobs", [])
+            if not blobs:
+                return self._fs.load_character_memory(slug)
+
+            blob_url = blobs[0]["url"]
+            content_resp = _requests.get(blob_url, timeout=15)
+            content_resp.raise_for_status()
+            data = content_resp.json()
+            self._character_memory_cache[cache_key] = data
+            return data
+        except Exception as e:
+            logger.warning(f"Blob load_character_memory failed for {slug}, falling back to filesystem: {e}")
+            return self._fs.load_character_memory(slug)
+
+    def save_character_memory(self, slug: str, data: dict) -> None:
+        """Persist durable per-character memory to Vercel Blob.
+
+        Raises on cloud failure — same contract as save_episode — so a
+        caller can record the write as failed instead of silently claiming
+        success (#6968).
+        """
+        if not self._has_cloud():
+            self._fs.save_character_memory(slug, data)
+            return
+
+        import requests as _requests
+
+        pathname = f"{self.prefix}character_memory/{slug}.json"
+        body = json.dumps(data, indent=2)
+        headers = {
+            **self._auth_headers(),
+            "Content-Type": "application/json",
+            "x-api-version": "7",
+            "x-content-type": "application/json",
+            "x-add-random-suffix": "0",
+            "x-allow-overwrite": "1",
+        }
+        try:
+            resp = _requests.put(
+                f"{self._BLOB_API}/{pathname}",
+                data=body.encode("utf-8"),
+                headers=headers,
+                timeout=30,
+            )
+            resp.raise_for_status()
+            blob_url = resp.json().get("url", "")
+            logger.info(f"Saved character memory to Vercel Blob: {blob_url}")
+            self._character_memory_cache[(self.prefix, slug)] = data
+        except Exception as e:
+            logger.error(f"Blob save_character_memory failed for {slug}: {e}")
+            raise
+
+        # Best-effort local cache mirror, same rationale as save_episode.
+        try:
+            self._fs.save_character_memory(slug, data)
+        except OSError as exc:
+            logger.debug("Local character-memory cache unavailable for %s: %s", slug, exc)
 
     # --- Simulations ---
 
