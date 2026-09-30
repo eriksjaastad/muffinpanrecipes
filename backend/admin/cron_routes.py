@@ -209,13 +209,13 @@ def _load_or_create_episode(episode_id: str, concept: str) -> dict:
     }
 
 
-def _apply_week_off_note(ep: dict, *, now: datetime | None = None) -> None:
+def _apply_week_off_note(episode_id: str, ep: dict) -> None:
     """Stamp `ep` with a "kitchen took the week off" note when the week
     that just ended never published (#7630).
 
     Decided ONCE, at the start of Monday's cron — by then the previous
     week's Sunday window has necessarily already closed (see
-    episode_integrity.previous_episode_id), so this is a plain
+    episode_integrity.week_before), so this is a plain
     `published_at` check, no time-window arithmetic. Stored on the CURRENT
     week's episode itself, not written straight to pages/latest.json:
     every later stage this week that calls regenerate_and_upload reads it
@@ -230,11 +230,23 @@ def _apply_week_off_note(ep: dict, *, now: datetime | None = None) -> None:
     `"test/"`) that handler already established — a test-mode Monday can
     only ever see test-prefixed data here, never the prod previous week.
 
-    `now` is test-only (defaults to the real clock); production callers
-    never pass it.
+    The previous week is derived from `episode_id` itself, never the clock:
+    a manual force=true re-fire of an older week asks about the week before
+    THAT episode, so it cannot stamp a false note for the current week.
+
+    The note is cosmetic: nothing here may fail Monday. An unparseable
+    episode id or a failed read of the previous week is logged and leaves
+    the field exactly as it was (ops still see the failure through their own
+    alerts and health checks).
     """
-    previous_id = episode_integrity.previous_episode_id(now=now)
-    previous_episode = storage.load_episode(previous_id)
+    try:
+        previous_id = episode_integrity.week_before(episode_id)
+        previous_episode = storage.load_episode(previous_id)
+    except Exception as exc:  # noqa: BLE001 - best-effort cosmetic note
+        logger.warning(
+            f"week-off note check skipped for {episode_id}: {type(exc).__name__}: {exc}"
+        )
+        return
     if episode_integrity.week_off_note_due(previous_episode):
         ep["week_off_note"] = {"message": WEEK_OFF_MESSAGE, "missed_week": previous_id}
     else:
@@ -2487,7 +2499,7 @@ async def cron_monday(request: Request):
     with _test_mode_scope(body):
       episode_id = body.episode_id or _current_episode_id()
       ep = _load_or_create_episode(episode_id, body.concept or PLACEHOLDER_CONCEPT)
-      _apply_week_off_note(ep)
+      _apply_week_off_note(episode_id, ep)
 
       # W15 narrative injection: characters discover the "Party" category
       injected_event: str | None = None

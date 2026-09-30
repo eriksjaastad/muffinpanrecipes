@@ -23,7 +23,6 @@ from backend.utils.episode_integrity import (
     episode_page_is_due,
     episode_summary,
     parse_episode_id,
-    previous_episode_id,
     stage_deadline,
     stages_due,
     week_off_note_due,
@@ -320,7 +319,7 @@ def test_episode_page_is_due_never_raises_on_junk(episode):
 
 
 # ---------------------------------------------------------------------------
-# previous_episode_id / week_off_note_due — the homepage "kitchen took the
+# week_before / week_off_note_due — the homepage "kitchen took the
 # week off" note (#7630)
 #
 # Both are now cron-time-only helpers (see cron_routes._apply_week_off_note
@@ -336,18 +335,6 @@ def test_episode_page_is_due_never_raises_on_junk(episode):
 # W36 spans 2026-08-31 (Mon) through 2026-09-06 (Sun). W35 (2026-08-24
 # through 2026-08-30) is the week immediately before it.
 MONDAY_W36 = datetime(2026, 8, 31, 14, 30, tzinfo=timezone.utc)
-
-
-def test_previous_episode_id_is_the_week_before() -> None:
-    assert previous_episode_id(now=MONDAY_W36) == "2026-W35"
-    assert previous_episode_id(now=SATURDAY_W36) == "2026-W35"
-
-
-def test_previous_episode_id_rolls_forward_with_current_episode_id() -> None:
-    """Exactly one ISO week later, previous_episode_id must agree with what
-    current_episode_id said about the earlier date."""
-    one_week_later = SATURDAY_W36 + timedelta(days=7)
-    assert previous_episode_id(now=one_week_later) == current_episode_id(SATURDAY_W36)
 
 
 def test_week_off_note_due_when_unpublished() -> None:

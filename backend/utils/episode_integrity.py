@@ -94,18 +94,15 @@ def stages_due(
     return [d for d in DAY_ORDER if now >= stage_deadline(episode_id, d) + grace]
 
 
-def previous_episode_id(now: datetime | None = None) -> str:
-    """ISO week id of the week immediately before the current one.
+def week_before(episode_id: str) -> str:
+    """ISO week id of the week immediately before `episode_id` (#7630).
 
-    Subtracting exactly 7 days always lands in the previous Monday-Sunday
-    ISO week, since ISO weeks are fixed 7-day blocks. Used at Monday cron
-    time (#7630) to check whether the week that just ended published: by the
-    time Monday's cron fires, that week's own Sunday window has necessarily
-    already closed, so no separate "is the window closed" check is needed —
-    unlike a homepage request, which can land at any moment mid-week.
+    Derived from the episode's own id, never the clock, so a manual re-fire
+    of an older week asks about the week before THAT episode.
     """
-    now = now or datetime.now(timezone.utc)
-    return current_episode_id(now - timedelta(days=7))
+    iso_year, iso_week = parse_episode_id(episode_id)
+    monday = date.fromisocalendar(iso_year, iso_week, 1)
+    return current_episode_id(datetime(monday.year, monday.month, monday.day, tzinfo=timezone.utc) - timedelta(days=7))
 
 
 def week_off_note_due(episode: object) -> bool:

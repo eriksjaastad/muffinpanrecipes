@@ -43,7 +43,7 @@ MONDAY_W37 = datetime(2026, 9, 7, 14, 30, tzinfo=timezone.utc)
 def test_apply_week_off_note_sets_field_when_previous_week_has_no_episode():
     ep = {"episode_id": "2026-W37", "stages": {}}
     with patch.object(storage, "load_episode", return_value=None) as load_episode:
-        cron_routes._apply_week_off_note(ep, now=MONDAY_W37)
+        cron_routes._apply_week_off_note("2026-W37", ep)
     load_episode.assert_called_once_with("2026-W36")
     assert ep["week_off_note"] == {
         "message": cron_routes.WEEK_OFF_MESSAGE,
@@ -55,7 +55,7 @@ def test_apply_week_off_note_sets_field_when_previous_week_unpublished():
     previous = {"episode_id": "2026-W36", "stages": {"wednesday": {"status": "failed"}}}
     ep = {"episode_id": "2026-W37", "stages": {}}
     with patch.object(storage, "load_episode", return_value=previous):
-        cron_routes._apply_week_off_note(ep, now=MONDAY_W37)
+        cron_routes._apply_week_off_note("2026-W37", ep)
     assert ep["week_off_note"]["missed_week"] == "2026-W36"
 
 
@@ -63,7 +63,7 @@ def test_apply_week_off_note_clears_field_when_previous_week_published():
     previous = {"episode_id": "2026-W36", "published_at": "2026-09-06T00:10:00+00:00"}
     ep = {"episode_id": "2026-W37", "stages": {}, "week_off_note": {"stale": "leftover"}}
     with patch.object(storage, "load_episode", return_value=previous):
-        cron_routes._apply_week_off_note(ep, now=MONDAY_W37)
+        cron_routes._apply_week_off_note("2026-W37", ep)
     assert "week_off_note" not in ep
 
 
@@ -80,11 +80,41 @@ def test_apply_week_off_note_respects_the_active_prefix():
 
     with patch.object(storage, "load_episode", side_effect=fake_load_episode):
         with storage.prefix_scope("test/"):
-            cron_routes._apply_week_off_note({"episode_id": "2026-W37", "stages": {}}, now=MONDAY_W37)
+            cron_routes._apply_week_off_note("2026-W37", {"episode_id": "2026-W37", "stages": {}})
         with storage.prefix_scope(""):
-            cron_routes._apply_week_off_note({"episode_id": "2026-W37", "stages": {}}, now=MONDAY_W37)
+            cron_routes._apply_week_off_note("2026-W37", {"episode_id": "2026-W37", "stages": {}})
 
     assert seen_prefixes == ["test/", ""]
+
+
+def test_apply_week_off_note_on_an_older_week_refire_asks_about_the_week_before_it():
+    """Codex review of 7668ff4: a manual Monday re-fire of W40 while W41 is
+    current must check W39 (the week before W40), not W40 itself, so it
+    never stamps a false 'missed W40' note that Monday's writer would then
+    put on the live homepage."""
+    ep = {"episode_id": "2026-W40", "stages": {}}
+    with patch.object(storage, "load_episode", return_value={"published_at": "x"}) as load_episode:
+        cron_routes._apply_week_off_note("2026-W40", ep)
+    load_episode.assert_called_once_with("2026-W39")
+    assert "week_off_note" not in ep
+
+
+@pytest.mark.parametrize("failure", ["bad-id", "read-error"])
+def test_apply_week_off_note_never_fails_monday(failure):
+    ep = {"episode_id": "2026-W40", "stages": {}, "week_off_note": {"kept": True}}
+    if failure == "bad-id":
+        cron_routes._apply_week_off_note("2026-W99", ep)
+    else:
+        with patch.object(storage, "load_episode", side_effect=RuntimeError("blob down")):
+            cron_routes._apply_week_off_note("2026-W40", ep)
+    assert ep["week_off_note"] == {"kept": True}
+
+
+def test_week_before_crosses_the_iso_year_boundary():
+    from backend.utils.episode_integrity import week_before
+    assert week_before("2026-W01") == "2025-W52"
+    assert week_before("2021-W01") == "2020-W53"
+    assert week_before("2026-W40") == "2026-W39"
 
 
 # ---------------------------------------------------------------------------
