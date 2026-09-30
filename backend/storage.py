@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, Optional
@@ -181,31 +182,120 @@ class CharacterMemoryUnavailable(Exception):
     """
 
 
+_ISO_WEEK_RE = re.compile(r"^(\d{4})-W(\d{2})$")
+
+
+def parse_iso_week(week: str) -> tuple[int, int]:
+    """Parse a "YYYY-Www" ISO week string into a ``(year, week)`` sort key.
+
+    Raises ValueError if ``week`` is not exactly this zero-padded shape or
+    the week number is out of the 1-53 range — a synthetic/test label such
+    as "test-week" is never a valid ISO week (#6968 review finding 5).
+    Deliberately strict: this is the sort key that decides which weeks
+    survive retention and which one is shown as most recent, so an
+    unparsed label must never silently participate in that ordering as if
+    it were real (a raw string sort puts "test-week" after every real
+    "2026-Wnn" week, letting it evict genuine history).
+    """
+    match = _ISO_WEEK_RE.match(week or "")
+    if not match:
+        raise ValueError(f"not a valid ISO week string (expected 'YYYY-Www'): {week!r}")
+    year, week_num = int(match.group(1)), int(match.group(2))
+    if not (1 <= week_num <= 53):
+        raise ValueError(f"ISO week number out of range 1-53: {week!r}")
+    return (year, week_num)
+
+
+def is_valid_iso_week(week: object) -> bool:
+    """True if ``week`` parses as a real ISO week string (see parse_iso_week)."""
+    if not isinstance(week, str):
+        return False
+    try:
+        parse_iso_week(week)
+        return True
+    except ValueError:
+        return False
+
+
+def _dedupe_episodes_by_week(episodes: list) -> list[dict]:
+    """Collapse duplicate ``"week"`` entries to one per week (#6968 review
+    finding 4).
+
+    The legacy bundled seed files (backend/data/characters/*/memory.json)
+    predate this card's idempotent merge and contain up to 3 entries
+    sharing the same week (the old writer appended and truncated without
+    deduping). Keeps the LAST occurrence in list order for a given week —
+    assumed to be the most recently written/most complete one. Non-dict or
+    weekless entries are dropped defensively rather than crashing a read.
+    """
+    by_week: dict[str, dict] = {}
+    for e in episodes:
+        if isinstance(e, dict) and e.get("week"):
+            by_week[e["week"]] = e  # last occurrence for a given key wins
+    return list(by_week.values())
+
+
+def order_valid_episodes_by_week(episodes: list) -> list[dict]:
+    """Dedupe, validate, and chronologically sort a character's episode list.
+
+    Single ordering contract shared by the write path
+    (merge_character_memory, below) and the read/display path
+    (scripts.simulate_dialogue_week._load_memories), so a stored or
+    legacy-seeded record can never show or retain the wrong weeks
+    regardless of which end reads it (#6968 review findings 3-5):
+      - duplicate weeks collapse to one entry (finding 4)
+      - anything that isn't a real, parseable ISO week is dropped rather
+        than sorted as if it were one (finding 5)
+      - the result is chronological, oldest first
+    """
+    deduped = _dedupe_episodes_by_week(episodes)
+    valid: list[dict] = []
+    for e in deduped:
+        week = e.get("week")
+        if is_valid_iso_week(week):
+            valid.append(e)
+        else:
+            logger.warning(f"Dropping non-ISO-week memory entry: {week!r}")
+    valid.sort(key=lambda e: parse_iso_week(e["week"]))
+    return valid
+
+
 def merge_character_memory(existing: Optional[dict], entry: dict) -> dict:
     """Merge one completed week's memory entry into existing character memory (#6968).
 
-    ``entry`` must carry a ``"week"`` key — the episode ID (e.g.
-    "2026-W40"), an ISO week string that sorts chronologically as plain
-    text. Any existing entry already recorded for that week is replaced
-    rather than duplicated, so re-running the same week's Sunday publish,
-    or the repair/backfill command, is idempotent.
+    ``entry`` must carry a ``"week"`` key that is a real ISO week string
+    (e.g. "2026-W40", validated by parse_iso_week) — a non-ISO/synthetic
+    label is rejected with ValueError rather than silently entering durable
+    memory, where it could corrupt retention/display ordering (#6968
+    review finding 5). Any existing entry already recorded for that week is
+    replaced rather than duplicated, so re-running the same week's Sunday
+    publish, or the repair/backfill command, is idempotent.
 
-    Retention and ``last_updated`` are keyed by the week value itself, not
-    by write order (#6968 review finding 3): repairing an older week can
-    never evict a newer one just because it was written more recently, and
-    the ``MAX_CHARACTER_MEMORY_WEEKS`` entries kept (and the 2 shown by
+    Retention and ``last_updated`` are keyed by the parsed (year, week)
+    value, not by write order or raw string comparison (#6968 review
+    finding 3): repairing an older week can never evict a newer one just
+    because it was written more recently, and the
+    ``MAX_CHARACTER_MEMORY_WEEKS`` entries kept (and the 2 shown by
     scripts.simulate_dialogue_week._load_memories) are always the
-    chronologically most recent, in chronological order.
+    chronologically most recent, in chronological order. Existing stored
+    duplicates/invalid weeks are cleaned up via order_valid_episodes_by_week
+    on every merge (finding 4).
 
     Pure function, no I/O — callers load, merge, then save.
     """
     week = entry.get("week")
     if not week:
         raise ValueError("memory entry must include a non-empty 'week' key")
+    if not is_valid_iso_week(week):
+        raise ValueError(
+            f"memory entry 'week' must be a real ISO week string (e.g. '2026-W40'), "
+            f"got {week!r} — non-ISO labels must never enter durable character "
+            "memory (#6968 review finding 5)"
+        )
     data: dict = dict(existing) if existing else {}
     episodes = [e for e in data.get("episodes", []) if e.get("week") != week]
     episodes.append(entry)
-    episodes.sort(key=lambda e: e.get("week", ""))
+    episodes = order_valid_episodes_by_week(episodes)
     episodes = episodes[-MAX_CHARACTER_MEMORY_WEEKS:]
     data["episodes"] = episodes
     data["last_updated"] = episodes[-1]["week"] if episodes else week
@@ -295,7 +385,7 @@ class _FilesystemBackend:
                 logger.warning(f"Skipping invalid simulation file {p.name}: {exc}")
         return results
 
-    def load_character_memory(self, slug: str) -> Optional[dict]:
+    def load_character_memory(self, slug: str, *, force_refresh: bool = False) -> Optional[dict]:
         """Load durable per-character memory (#6968).
 
         Scoped by `self.prefix` the same way the cloud backend's blob key
@@ -305,6 +395,11 @@ class _FilesystemBackend:
         raises CharacterMemoryUnavailable on a read/parse failure so a
         caller never confuses "never written" with "failed to read"
         (finding 1).
+
+        `force_refresh` is accepted for interface parity with
+        _CloudBackend (whose in-memory cache it bypasses) but is a no-op
+        here: the filesystem backend has no cache — every call already
+        reads the current file from disk.
         """
         path = CHARACTER_MEMORY_DIR / f"{self.prefix}{slug}.json"
         if not path.exists():
@@ -691,7 +786,7 @@ class _CloudBackend:
 
     # --- Character memory (#6968) ---
 
-    def load_character_memory(self, slug: str) -> Optional[dict]:
+    def load_character_memory(self, slug: str, *, force_refresh: bool = False) -> Optional[dict]:
         """Load durable per-character memory from Vercel Blob.
 
         Same-invocation cache, CDN read through the list API — but, unlike
@@ -702,13 +797,30 @@ class _CloudBackend:
         (via save's old mirror write) leak memory across the test/
         production boundary that `prefix` exists to enforce.
 
-        Returns None only for a genuine not-found (the list API succeeded
-        and returned no blob under this prefix — i.e. nothing has ever been
-        written for this character here). Raises CharacterMemoryUnavailable
-        on any other failure (network error, non-2xx status, bad JSON) so a
-        caller can tell "never written" from "failed to read" (finding 1)
-        and never seed from the legacy bundled file, or write a merge built
-        on a missing read, in response to a merely transient error.
+        Returns None only for a genuine not-found: the list API returned a
+        well-formed response (a dict with a "blobs" list) with no matching
+        key. Any other shape — a non-2xx status, a network error, a 200
+        whose body isn't the expected `{"blobs": [...]}` shape — raises
+        CharacterMemoryUnavailable instead of silently defaulting to "not
+        found" (#6968 review finding 2: `.get("blobs", [])` used to treat
+        an unexpected payload the same as a genuine empty list, which would
+        make Sunday seed from the stale legacy file).
+
+        `force_refresh=True` bypasses a cached value instead of returning
+        it (#6968 review finding 1): this process's cache has no expiry and
+        no cross-process invalidation, so a stale cached read taken right
+        before a write could merge on top of an older snapshot than
+        another process (a concurrent repair, another warm Lambda
+        instance) has already written, silently reverting that newer
+        write. The freshly fetched result still repopulates the cache
+        afterward, so later same-invocation reads in this call chain see
+        it. Every read that precedes a save — production Sunday, the local
+        full-week writer, and the repair/backfill script, all via
+        _load_character_memory_seeded — must pass force_refresh=True. Reads
+        that only feed a prompt for this run (scripts.simulate_dialogue_week
+        ._load_memories) keep using the cache: a stale read there is
+        harmless and is exactly the "one immutable memory snapshot per
+        run" contract from the prior review round.
         """
         if not self._has_cloud():
             return self._fs.load_character_memory(slug)
@@ -716,7 +828,7 @@ class _CloudBackend:
         import requests as _requests
 
         cache_key = (self.prefix, slug)
-        if cache_key in self._character_memory_cache:
+        if not force_refresh and cache_key in self._character_memory_cache:
             return self._character_memory_cache[cache_key]
 
         pathname = f"{self.prefix}character_memory/{slug}.json"
@@ -728,11 +840,16 @@ class _CloudBackend:
                 timeout=15,
             )
             resp.raise_for_status()
-            blobs = resp.json().get("blobs", [])
+            payload = resp.json()
         except Exception as e:
             logger.error(f"Blob load_character_memory list failed for {slug}: {type(e).__name__}: {e}")
             raise CharacterMemoryUnavailable(f"list failed for {slug!r}: {e}") from e
 
+        if not isinstance(payload, dict) or not isinstance(payload.get("blobs"), list):
+            logger.error(f"Blob load_character_memory list returned malformed payload for {slug}: {payload!r}")
+            raise CharacterMemoryUnavailable(f"malformed list payload for {slug!r}: {payload!r}")
+
+        blobs = payload["blobs"]
         if not blobs:
             return None  # genuine not-found: nothing written for this character under this prefix
 

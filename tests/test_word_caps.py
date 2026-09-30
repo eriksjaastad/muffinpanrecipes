@@ -27,15 +27,23 @@ import scripts.simulate_dialogue_week as sdw
 # for her on every run — the exact bug #6968 fixes (Ria must never be told
 # she is new after her real first episode). The production default now
 # renders the truthful "known coworker, recent details unspecified"
-# fallback for empty/unavailable memory instead, which is why only her hash
-# changed here; every other character still has real memory entries (via
-# the legacy-file seed) and is byte-identical to the prior capture.
+# fallback for empty/unavailable memory instead.
+#
+# The other 5 characters' hashes were recaptured 2026-09-30 (#6968 review
+# round 2, finding 4): each legacy backend/data/characters/*/memory.json
+# seed file carries THREE entries that all share "week": "2026-W11" (the
+# old writer appended and truncated without deduping by week). Before this
+# fix, _load_memories took the raw last 2 list entries and showed them as
+# if they were 2 different weeks; storage.order_valid_episodes_by_week now
+# dedupes by week first, so only ONE "2026-W11" entry survives per
+# character and the memory block shows 1 bullet instead of 2. Ria's file
+# has no entries at all, so she was never affected by this dedup.
 _GOLDEN_PROMPT_SHA256 = {
-    "Margaret Chen": "32775429abd73a8e1662027aa7161d93f72df308cd8a26b0ad26018011ff396e",
-    "Stephanie 'Steph' Whitmore": "fa67326628e7b96f2faacb1952d84a41a17d2f26ab0ee11bfd8fb9bfd7b186a3",
-    "Julian Torres": "8e2cfb7322d45992785ea9487a23e6145d9aa5b237cf3963b3edbe17d208958c",
-    "Marcus Reid": "802fe05c00c6023d169cc4cd4bfa5b01ba3a86bfbf52b0a0d093533200f8a171",
-    "Devon Park": "acd51705005f9960e354ca13e8e73a29083f7b7c3c4f3ee084a18cf0ebe9552b",
+    "Margaret Chen": "1c4fdd823760c7edd038d9cd10d40f6d0f43c23c26eb9c3cad21549433f81739",
+    "Stephanie 'Steph' Whitmore": "89b0078f2c79a2dfd4aa865456de07dbd1a18427892069484dda07a06489d201",
+    "Julian Torres": "bfa267bee03cdec65b32923400f75d475257f6fe403195c0171d9dfa0c79e744",
+    "Marcus Reid": "fb4a1998107c77f41c0e8ce46148f2b89964bbe2a7301e59017a4de6a8739c64",
+    "Devon Park": "b5ab19241467875b1402e85d4dd64d8bb4ab3ebc0f3d848015d40d7bfb2391cd",
     "Ria Castillo": "e2f66f564f7ac94921c1b264024a5f7f438035cb0277092ead289c3f10104c0b",
 }
 

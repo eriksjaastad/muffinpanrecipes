@@ -16,6 +16,24 @@ fixed in this file's companion commit):
      its path by prefix.
   3. Retention and display order by the week key, not write order — an
      out-of-order repair of an older week must not evict a newer one.
+
+And the 2026-09-30 round-2 review of 4ec7f39 (five more findings):
+  1. The cloud backend's same-invocation memory cache has no cross-process
+     invalidation, so a read immediately before a write must force a fresh
+     read (`force_refresh=True`) rather than risk merging on top of a
+     snapshot another process has since superseded.
+  2. A malformed-but-200 Blob list response (missing/non-list "blobs") must
+     raise CharacterMemoryUnavailable, not be treated as an empty/not-found
+     list via `.get("blobs", [])`'s silent default.
+  3. A memory read failure must never look like "genuinely no memory" to
+     the "is this the cast's first-ever episode" check — an outage must
+     never produce the false first-meeting Monday opener.
+  4. The legacy bundled seed files contain duplicate "week" entries; every
+     read and merge must dedupe by week (last occurrence wins) before
+     anything is retained or displayed.
+  5. Week ordering must parse "YYYY-Www" and sort by (year, week), not by
+     raw string comparison — and a non-ISO label must never be accepted
+     into durable memory at all.
 """
 
 from __future__ import annotations
@@ -27,7 +45,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from backend.admin import cron_routes
-from backend.storage import CharacterMemoryUnavailable, merge_character_memory
+from backend.storage import (
+    CharacterMemoryUnavailable,
+    is_valid_iso_week,
+    merge_character_memory,
+    order_valid_episodes_by_week,
+    parse_iso_week,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +128,124 @@ def test_merge_character_memory_repair_of_middle_week_is_kept_and_shown_third():
     weeks = [e["week"] for e in repaired["episodes"]]
     assert weeks == ["2026-W37", "2026-W39", "2026-W40"]
     assert repaired["last_updated"] == "2026-W40"
+
+
+# ---------------------------------------------------------------------------
+# ISO week parsing/validation (#6968 round-2 review finding 5)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_iso_week_parses_real_weeks():
+    assert parse_iso_week("2026-W40") == (2026, 40)
+    assert parse_iso_week("2026-W01") == (2026, 1)
+
+
+@pytest.mark.parametrize(
+    "week",
+    ["test-week", "not-a-week", "2026-40", "2026-W", "2026-W99", "", None, "2026-W1"],
+)
+def test_parse_iso_week_rejects_non_iso_labels(week):
+    with pytest.raises(ValueError):
+        parse_iso_week(week)
+
+
+def test_is_valid_iso_week_matches_parse_iso_week():
+    assert is_valid_iso_week("2026-W40") is True
+    assert is_valid_iso_week("test-week") is False
+    assert is_valid_iso_week(None) is False
+    assert is_valid_iso_week(12345) is False
+
+
+def test_merge_character_memory_rejects_synthetic_non_iso_week_label():
+    """Round-2 review finding 5: a non-ISO label sorts unpredictably against
+    real weeks (raw string comparison put "test-week" after "2026-W40") and
+    must never be accepted into durable memory at all."""
+    with pytest.raises(ValueError):
+        merge_character_memory(None, {"week": "test-week", "summary": "synthetic local run"})
+
+
+def test_merge_character_memory_synthetic_label_cannot_evict_real_weeks():
+    """Even if a non-ISO label were merged in some other way, ordering by
+    (year, week) instead of raw string comparison means it can never sort
+    as "newest" and displace real history."""
+    data = None
+    for week in ("2026-W39", "2026-W40"):
+        data = merge_character_memory(data, {"week": week, "summary": f"summary for {week}"})
+
+    with pytest.raises(ValueError):
+        merge_character_memory(data, {"week": "test-week", "summary": "should never land"})
+
+    # The real weeks are untouched by the rejected attempt.
+    assert [e["week"] for e in data["episodes"]] == ["2026-W39", "2026-W40"]
+
+
+def test_merge_character_memory_drops_pre_existing_non_iso_entries():
+    """A legacy/corrupted record with an unparseable week already stored
+    must not crash the merge or be sorted as if it were real - it is
+    dropped (logged), never treated as newest or oldest."""
+    existing = {
+        "episodes": [
+            {"week": "test-week", "summary": "pre-existing synthetic junk"},
+            {"week": "2026-W39", "summary": "real week"},
+        ]
+    }
+    merged = merge_character_memory(existing, {"week": "2026-W40", "summary": "new real week"})
+
+    weeks = [e["week"] for e in merged["episodes"]]
+    assert weeks == ["2026-W39", "2026-W40"]
+    assert "test-week" not in weeks
+
+
+# ---------------------------------------------------------------------------
+# Dedupe by week (#6968 round-2 review finding 4)
+# ---------------------------------------------------------------------------
+
+
+def test_order_valid_episodes_by_week_dedupes_keeping_last_occurrence():
+    """The legacy bundled seed files have 3 entries all sharing one week
+    (the old writer never deduped). Only the LAST occurrence must survive."""
+    episodes = [
+        {"week": "2026-W11", "summary": "first pass, stale"},
+        {"week": "2026-W11", "summary": "second pass, stale"},
+        {"week": "2026-W11", "summary": "third pass, most complete"},
+    ]
+
+    ordered = order_valid_episodes_by_week(episodes)
+
+    assert len(ordered) == 1
+    assert ordered[0]["summary"] == "third pass, most complete"
+
+
+def test_order_valid_episodes_by_week_dedupes_across_real_weeks():
+    episodes = [
+        {"week": "2026-W38", "summary": "a"},
+        {"week": "2026-W11", "summary": "dup 1"},
+        {"week": "2026-W11", "summary": "dup 2, wins"},
+        {"week": "2026-W40", "summary": "b"},
+    ]
+
+    ordered = order_valid_episodes_by_week(episodes)
+
+    assert [e["week"] for e in ordered] == ["2026-W11", "2026-W38", "2026-W40"]
+    assert ordered[0]["summary"] == "dup 2, wins"
+
+
+def test_merge_character_memory_dedupes_pre_existing_duplicate_weeks():
+    """merge_character_memory cleans up existing duplicate-week records on
+    every merge, not just going forward."""
+    existing = {
+        "episodes": [
+            {"week": "2026-W11", "summary": "dup 1"},
+            {"week": "2026-W11", "summary": "dup 2, wins"},
+            {"week": "2026-W11", "summary": "dup 3, wins over dup 2"},
+        ]
+    }
+    merged = merge_character_memory(existing, {"week": "2026-W40", "summary": "new week"})
+
+    w11_entries = [e for e in merged["episodes"] if e["week"] == "2026-W11"]
+    assert len(w11_entries) == 1
+    assert w11_entries[0]["summary"] == "dup 3, wins over dup 2"
+    assert [e["week"] for e in merged["episodes"]] == ["2026-W11", "2026-W40"]
 
 
 # ---------------------------------------------------------------------------
@@ -321,6 +463,149 @@ def test_cloud_character_memory_save_does_not_mirror_to_filesystem(cloud_backend
         cloud_backend.save_character_memory("margaret-chen", {"episodes": [{"week": "2026-W40"}]})
 
     fs_save.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Malformed-but-200 Blob responses (#6968 round-2 review finding 2)
+# ---------------------------------------------------------------------------
+
+
+def test_cloud_character_memory_load_missing_blobs_key_raises_unavailable(cloud_backend):
+    """A 200 whose body has no "blobs" key at all must not be treated as an
+    empty ("not found") list via .get("blobs", [])'s silent default."""
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"unexpected": "shape"}
+    mock_resp.raise_for_status = MagicMock()
+
+    with patch("requests.get", return_value=mock_resp), \
+         patch.object(cloud_backend._fs, "load_character_memory") as fs_load:
+        with pytest.raises(CharacterMemoryUnavailable):
+            cloud_backend.load_character_memory("margaret-chen")
+
+    fs_load.assert_not_called()
+
+
+def test_cloud_character_memory_load_blobs_not_a_list_raises_unavailable(cloud_backend):
+    """"blobs" present but the wrong type is still malformed, not empty."""
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"blobs": "not-a-list"}
+    mock_resp.raise_for_status = MagicMock()
+
+    with patch("requests.get", return_value=mock_resp):
+        with pytest.raises(CharacterMemoryUnavailable):
+            cloud_backend.load_character_memory("margaret-chen")
+
+
+def test_cloud_character_memory_load_well_formed_empty_list_is_genuine_not_found(cloud_backend):
+    """The one payload shape that IS a genuine not-found: a dict with a
+    "blobs" key holding an actual empty list."""
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"blobs": []}
+    mock_resp.raise_for_status = MagicMock()
+
+    with patch("requests.get", return_value=mock_resp):
+        result = cloud_backend.load_character_memory("margaret-chen")
+
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Stale same-invocation cache before a write (#6968 round-2 review finding 1)
+# ---------------------------------------------------------------------------
+
+
+def test_cloud_character_memory_load_uses_cache_by_default(cloud_backend):
+    """The cache is fine (and intentional) for reads that only feed a
+    prompt for this run — the default call must not hit the network again."""
+    cloud_backend._character_memory_cache[("", "margaret-chen")] = {"episodes": [{"week": "2026-W37"}]}
+
+    with patch("requests.get") as mock_get:
+        result = cloud_backend.load_character_memory("margaret-chen")
+
+    mock_get.assert_not_called()
+    assert result == {"episodes": [{"week": "2026-W37"}]}
+
+
+def test_cloud_character_memory_force_refresh_bypasses_stale_cache(cloud_backend):
+    """Round-2 review finding 1, the core scenario: this process cached
+    W37. Some other process (a concurrent repair, another warm Lambda
+    instance) has since written W38. A read that precedes a write MUST see
+    that fresh W38, not the stale cached W37."""
+    cloud_backend._character_memory_cache[("", "margaret-chen")] = {
+        "episodes": [{"week": "2026-W37", "summary": "stale, cached earlier in this process"}],
+        "last_updated": "2026-W37",
+    }
+
+    fresh_from_another_process = {
+        "episodes": [
+            {"week": "2026-W37", "summary": "stale, cached earlier in this process"},
+            {"week": "2026-W38", "summary": "written by a different process after our cache filled"},
+        ],
+        "last_updated": "2026-W38",
+    }
+    mock_list = MagicMock()
+    mock_list.json.return_value = {"blobs": [{"url": "https://cdn.example.com/margaret.json"}]}
+    mock_list.raise_for_status = MagicMock()
+    mock_content = MagicMock()
+    mock_content.json.return_value = fresh_from_another_process
+    mock_content.raise_for_status = MagicMock()
+
+    with patch("requests.get", side_effect=[mock_list, mock_content]):
+        result = cloud_backend.load_character_memory("margaret-chen", force_refresh=True)
+
+    assert result == fresh_from_another_process
+    # And the fresh value repopulates the cache for later same-invocation reads.
+    assert cloud_backend._character_memory_cache[("", "margaret-chen")] == fresh_from_another_process
+
+
+def test_generate_episode_memories_write_path_reads_fresh_not_stale_cache(monkeypatch):
+    """End-to-end version of the round-2 finding 1 scenario through the
+    actual production write path: a stale cached read must never cause
+    Sunday's merge+save to silently drop a week another process wrote."""
+    import backend.storage as storage_module
+
+    with patch.dict(os.environ, {"BLOB_READ_WRITE_TOKEN": "fake-token-for-test"}):
+        cloud_backend = storage_module._CloudBackend()
+
+    # This process cached W37 earlier (e.g. from an unrelated prompt read).
+    cloud_backend._character_memory_cache[("", "margaret-chen")] = {
+        "episodes": [{"week": "2026-W37", "summary": "stale"}],
+        "last_updated": "2026-W37",
+    }
+    # But durable storage (another process) has since moved on to W38.
+    fresh = {
+        "episodes": [
+            {"week": "2026-W37", "summary": "stale"},
+            {"week": "2026-W38", "summary": "written elsewhere after our cache filled"},
+        ],
+        "last_updated": "2026-W38",
+    }
+    mock_list = MagicMock()
+    mock_list.json.return_value = {"blobs": [{"url": "https://cdn.example.com/margaret.json"}]}
+    mock_list.raise_for_status = MagicMock()
+    mock_content = MagicMock()
+    mock_content.json.return_value = fresh
+    mock_content.raise_for_status = MagicMock()
+
+    monkeypatch.setattr(storage_module, "storage", cloud_backend)
+    monkeypatch.setattr(cron_routes, "storage", cloud_backend)
+
+    episode = _episode_with_dialogue("2026-W39", {"monday": ["Margaret Chen"]})
+
+    save_calls = []
+    with patch("requests.get", side_effect=[mock_list, mock_content]), \
+         patch.object(cloud_backend, "save_character_memory", side_effect=lambda slug, data: save_calls.append((slug, data))), \
+         patch.object(cron_routes, "generate_response", return_value="A calm week. Nice."):
+        outcome = cron_routes._generate_episode_memories(episode, "Test Concept")
+
+    assert "Margaret Chen" in outcome["saved"]
+    assert len(save_calls) == 1
+    _slug, written = save_calls[0]
+    weeks = [e["week"] for e in written["episodes"]]
+    # W38 (written by "another process") must survive - a stale cached read
+    # would have merged W39 onto the cached W37 record alone and silently
+    # dropped W38.
+    assert weeks == ["2026-W37", "2026-W38", "2026-W39"]
 
 
 # ---------------------------------------------------------------------------
@@ -557,6 +842,64 @@ def test_system_prompt_cache_cleared_between_runs_picks_up_new_memory(monkeypatc
 
     assert "Ria shipped a strong caption" in second
     assert second != first
+
+
+# ---------------------------------------------------------------------------
+# "Genuinely first episode" vs "memory unavailable" (#6968 round-2 finding 3)
+# ---------------------------------------------------------------------------
+
+
+def test_load_memories_or_unavailable_distinguishes_empty_from_unavailable(tmp_path, monkeypatch):
+    import scripts.simulate_dialogue_week as sdw
+    import backend.storage as storage_module
+
+    monkeypatch.setattr(storage_module, "CHARACTER_MEMORY_DIR", tmp_path / "character_memory")
+
+    # Genuinely empty: durable storage has nothing, and Ria's legacy seed
+    # file is {"episodes": []}.
+    episodes, unavailable = sdw._load_memories_or_unavailable("Ria Castillo")
+    assert episodes == []
+    assert unavailable is False
+
+    # Read failure: must report unavailable=True, never look like "empty".
+    with patch.object(
+        storage_module.storage, "load_character_memory",
+        side_effect=storage_module.CharacterMemoryUnavailable("simulated Blob outage"),
+    ):
+        episodes, unavailable = sdw._load_memories_or_unavailable("Margaret Chen")
+    assert episodes == []
+    assert unavailable is True
+
+    # Has real memory: episodes non-empty, unavailable False.
+    storage_module.storage.save_character_memory(
+        "margaret-chen", {"episodes": [{"week": "2026-W40", "summary": "x"}]}
+    )
+    episodes, unavailable = sdw._load_memories_or_unavailable("Margaret Chen")
+    assert len(episodes) == 1
+    assert unavailable is False
+
+
+def test_is_genuinely_first_episode_true_only_when_all_empty_and_none_unavailable():
+    import scripts.simulate_dialogue_week as sdw
+
+    assert sdw._is_genuinely_first_episode([([], False), ([], False)]) is True
+    # One character has real memory.
+    assert sdw._is_genuinely_first_episode([([], False), ([{"week": "2026-W40"}], False)]) is False
+
+
+def test_is_genuinely_first_episode_false_on_any_unavailable_read():
+    """The exact round-2 finding 3 scenario: every character's read failed
+    (all "empty" as far as _load_memories can tell), but that must NOT be
+    treated as a genuine premiere week."""
+    import scripts.simulate_dialogue_week as sdw
+
+    all_unavailable = [([], True), ([], True), ([], True)]
+    assert sdw._is_genuinely_first_episode(all_unavailable) is False
+
+    # Even a single unavailable character among otherwise-empty ones must
+    # block the first-episode determination - it is "unknown", not "no".
+    mixed = [([], False), ([], False), ([], True)]
+    assert sdw._is_genuinely_first_episode(mixed) is False
 
 
 def test_load_memories_shows_latest_two_of_three_retained(tmp_path, monkeypatch):

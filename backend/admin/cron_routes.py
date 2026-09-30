@@ -1642,7 +1642,7 @@ def _char_dir_slug(name: str) -> str:
     return _re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
 
-def _load_character_memory_seeded(slug: str) -> Optional[dict]:
+def _load_character_memory_seeded(slug: str, *, force_refresh: bool = False) -> Optional[dict]:
     """Durable memory for `slug`, seeded from the legacy bundled file (#6968).
 
     backend/data/characters/<slug>/memory.json is the read-only file that
@@ -1659,8 +1659,14 @@ def _load_character_memory_seeded(slug: str) -> Optional[dict]:
     merge that regresses good durable memory to seed-plus-one-week (#6968
     review finding 1). The caller's per-character try/except records this
     as a failure and skips the write for this run.
+
+    `force_refresh` MUST be True for any read that precedes a write (this
+    module's only caller does exactly that): storage's same-invocation
+    cache has no cross-process invalidation, so a stale cached read taken
+    right before a merge+save could silently overwrite a newer week another
+    process already wrote (#6968 review finding 1).
     """
-    existing = storage.load_character_memory(slug)
+    existing = storage.load_character_memory(slug, force_refresh=force_refresh)
     if existing is not None:
         return existing
     legacy_path = _CHARACTERS_DIR / slug / "memory.json"
@@ -1776,7 +1782,10 @@ def _generate_episode_memories(episode: dict, concept: str, *, dry_run: bool = F
 
         slug = _char_dir_slug(char_name)
         try:
-            existing = _load_character_memory_seeded(slug)
+            # force_refresh=True (#6968 review finding 1): this read
+            # precedes a write, so a same-invocation cached value (which
+            # has no cross-process invalidation) must never be used here.
+            existing = _load_character_memory_seeded(slug, force_refresh=True)
             merged = merge_character_memory(existing, mem_entry)
             if not dry_run:
                 storage.save_character_memory(slug, merged)

@@ -24,10 +24,15 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from statistics import mean
-from typing import Any
+from typing import Any, Iterable
 
 from backend.config import config
-from backend.storage import CharacterMemoryUnavailable, merge_character_memory, storage
+from backend.storage import (
+    CharacterMemoryUnavailable,
+    merge_character_memory,
+    order_valid_episodes_by_week,
+    storage,
+)
 from backend.utils.director import Direction, direct_day, roll_day
 from backend.utils.logging import get_logger
 from backend.utils.model_router import generate_response
@@ -566,7 +571,7 @@ def _load_bio(name: str) -> str | None:
     return None
 
 
-def _load_character_memory_seeded(slug: str) -> dict[str, Any] | None:
+def _load_character_memory_seeded(slug: str, *, force_refresh: bool = False) -> dict[str, Any] | None:
     """Durable memory for `slug`, seeded from the legacy bundled file (#6968).
 
     backend/data/characters/<slug>/memory.json is the read-only file that
@@ -582,8 +587,14 @@ def _load_character_memory_seeded(slug: str) -> dict[str, Any] | None:
     the truthful known-coworker prompt fallback instead of silently seeding
     stale legacy data, and _generate_episode_memories' per-character write
     skips the write entirely on this path.
+
+    `force_refresh` MUST be True for any read that precedes a write (this
+    module's local _generate_episode_memories does exactly that) — see
+    backend.storage._CloudBackend.load_character_memory's docstring
+    (#6968 review finding 1). The prompt-read path (_load_memories below)
+    keeps the default False: a stale read there is harmless.
     """
-    existing = storage.load_character_memory(slug)
+    existing = storage.load_character_memory(slug, force_refresh=force_refresh)
     if existing is not None:
         return existing
     legacy_path = CHARACTERS_DIR / slug / "memory.json"
@@ -595,6 +606,40 @@ def _load_character_memory_seeded(slug: str) -> dict[str, Any] | None:
     return None
 
 
+def _load_memories_or_unavailable(name: str) -> tuple[list[dict[str, str]], bool]:
+    """Load a character's 2 most-recent-by-week memories, plus whether the
+    read itself was unavailable (#6968 review finding 3).
+
+    Returns ``(episodes, unavailable)``. ``unavailable`` is True ONLY when
+    the durable-store read failed (CharacterMemoryUnavailable) — never when
+    the character genuinely has no memory yet. A caller deciding whether
+    this is truly the cast's first-ever episode (run_simulation's
+    `first_episode`) must treat "unavailable" as "unknown", not as
+    "confirmed no history": a read outage must never produce the
+    "meeting for the first time" opener (_FIRST_MONDAY_OPENER).
+
+    Deduped, validated, and ordered by the "week" key via
+    storage.order_valid_episodes_by_week — not list/write order — so the 2
+    shown are always the chronologically most recent real ISO weeks
+    regardless of how they were inserted, and a legacy seed file's
+    duplicate-week rows (#6968 review finding 4) never both show up as if
+    they were 2 different weeks.
+    """
+    try:
+        data = _load_character_memory_seeded(_char_dir_slug(name))
+    except CharacterMemoryUnavailable as e:
+        logger.warning(f"Character memory read failed for {name}, using fallback: {type(e).__name__}: {e}")
+        return [], True
+    if not data:
+        return [], False
+    try:
+        episodes = data.get("episodes", [])
+    except AttributeError:
+        return [], False
+    ordered = order_valid_episodes_by_week(episodes)
+    return ordered[-2:], False  # 2 most recent by week
+
+
 def _load_memories(name: str) -> list[dict[str, str]]:
     """Load episode memories for a character (2 most recent by week), from
     durable storage with the legacy bundled file as an initial seed (#6968).
@@ -602,26 +647,27 @@ def _load_memories(name: str) -> list[dict[str, str]]:
     A durable-store read failure degrades to "no memories" (the
     known-coworker prompt fallback in build_system_prompt) rather than
     raising or seeding from the stale legacy file (#6968 review finding 1).
-    Ordered by the "week" key rather than list/write order, so the 2 shown
-    are always the chronologically most recent regardless of how they were
-    inserted (#6968 review finding 3).
+    See _load_memories_or_unavailable for callers that need to distinguish
+    that from a genuinely empty record (finding 3).
     """
-    try:
-        data = _load_character_memory_seeded(_char_dir_slug(name))
-    except CharacterMemoryUnavailable as e:
-        logger.warning(f"Character memory read failed for {name}, using fallback: {type(e).__name__}: {e}")
-        return []
-    if not data:
-        return []
-    try:
-        episodes = data.get("episodes", [])
-    except AttributeError:
-        return []
-    ordered = sorted(
-        (e for e in episodes if isinstance(e, dict)),
-        key=lambda e: e.get("week", ""),
-    )
-    return ordered[-2:]  # 2 most recent by week
+    episodes, _unavailable = _load_memories_or_unavailable(name)
+    return episodes
+
+
+def _is_genuinely_first_episode(memory_checks: Iterable[tuple[list, bool]]) -> bool:
+    """True only when EVERY character genuinely has no memory yet (#5030,
+    #6968 review finding 3).
+
+    Takes an iterable of ``(episodes, unavailable)`` pairs, as produced by
+    _load_memories_or_unavailable. A character whose read was `unavailable`
+    is "unknown", never "confirmed no history" — so ANY unavailable read
+    makes this False, regardless of how many characters have empty
+    episodes. Without this distinction, a durable-store read outage that
+    happens to hit every character would look identical to a genuine
+    premiere week and produce the false "meeting for the first time"
+    Monday opener (_FIRST_MONDAY_OPENER).
+    """
+    return all(not episodes and not unavailable for episodes, unavailable in memory_checks)
 
 
 # Deterministic patterns for WORD_CAPS=False. Each entry is a regex that
@@ -2340,9 +2386,14 @@ def _generate_episode_memories(
 
     `week_label` defaults to the current ISO week when not given (this
     function has no episode object to read an episode_id from, unlike the
-    production writer). Callers driving a synthetic/backfill week should
-    pass an explicit, clearly-synthetic label to avoid colliding with a
-    real production week's durable memory entry.
+    production writer). It MUST be a real ISO week string ("YYYY-Www") —
+    storage.merge_character_memory now rejects anything else with
+    ValueError (#6968 review finding 5), since a non-ISO/synthetic label
+    (e.g. "test-week") sorts unpredictably against real weeks and could
+    evict genuine history. A caller driving a synthetic/backfill run should
+    pass a real, deliberately-chosen ISO week rather than an arbitrary
+    string; passing a non-ISO label simply skips that character's write
+    (logged), it does not corrupt durable storage.
     """
     from datetime import date
 
@@ -2405,7 +2456,9 @@ def _generate_episode_memories(
         # finding 1) — it is caught here only to log and move on.
         slug = _char_dir_slug(char_name)
         try:
-            existing = _load_character_memory_seeded(slug)
+            # force_refresh=True (#6968 review finding 1): this read
+            # precedes a write.
+            existing = _load_character_memory_seeded(slug, force_refresh=True)
             merged = merge_character_memory(existing, episode)
             storage.save_character_memory(slug, merged)
         except Exception as e:
@@ -2462,8 +2515,11 @@ def run_simulation(
     if OPEN_ENDED_MAX_TICKS and WINDDOWN_TRIGGER != "check":
         raise ValueError("OPEN_ENDED_MAX_TICKS requires WINDDOWN_TRIGGER == 'check'")
 
-    # Detect first episode — no character has any memories (#5030)
-    first_episode = all(not _load_memories(name) for name in personas)
+    # Detect first episode — every character genuinely has no memory (#5030,
+    # #6968 review finding 3).
+    first_episode = _is_genuinely_first_episode(
+        _load_memories_or_unavailable(name) for name in personas
+    )
 
     days = [stage_only] if stage_only else DAY_ORDER
     for day_i, day in enumerate(days):
