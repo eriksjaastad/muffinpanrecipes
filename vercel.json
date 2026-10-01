@@ -34,6 +34,10 @@
             "dest": "/src/BingSiteAuth.xml"
         },
         {
+            "src": "/015dad665f3a6ddeeab4565e96d0dd50\\.txt",
+            "dest": "/src/015dad665f3a6ddeeab4565e96d0dd50.txt"
+        },
+        {
             "src": "/(.*)",
             "headers": {
                 "Location": "https://muffinpanrecipes.com/$1"

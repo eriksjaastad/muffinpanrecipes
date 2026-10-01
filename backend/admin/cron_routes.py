@@ -48,6 +48,7 @@ from backend.config import config
 from backend.publishing.episode_renderer import _hero_image_url, regenerate_and_upload
 from backend.storage import storage
 from backend.utils import episode_integrity
+from backend.utils.indexnow import submit_urls as _indexnow_submit_urls
 from backend.utils.catalog import (
     VALID_CATEGORIES,
     catalog_recipes as _catalog_recipes,
@@ -2896,6 +2897,70 @@ async def cron_saturday(request: Request):
     return _stage_response("saturday", episode_id, concept, {"dialogue_messages": len(dialogue)})
 
 
+def _submit_sunday_indexnow(ep: dict, episode_id: str, concept: str) -> None:
+    """Tell IndexNow the published recipe page (and the pages that list it)
+    changed, so participating search engines don't wait for their next crawl.
+
+    TRIAGE (#7806): GENUINELY NON-FATAL, logged and recorded. This runs after
+    ``published_at`` is set and the reader pages are confirmed written — the
+    recipe is already live and correct without this. IndexNow submission is a
+    courtesy to the crawler, never a publish requirement, so a failure here
+    must never raise into the publish path (see backend/utils/indexnow.py:
+    ``submit_urls`` already reports rather than raises; this wrapper just
+    decides what to do with that report).
+    """
+    # Everything, from deriving the slug to reading the result, is inside one
+    # guard (Codex round 1): an unexpected error anywhere here would
+    # otherwise reach _run_stage and mark an already-live publish failed.
+    event: str | None = None
+    try:
+        from backend.publishing.episode_renderer import catalog_slug
+
+        # The same slug the catalog (and so the sitemap) uses. URLs match the
+        # sitemap exactly: "/recipes" with no trailing slash, since
+        # "/recipes/" is a 307 to it and IndexNow should get the final URL.
+        slug = catalog_slug(ep)
+        if not slug:
+            event = "sunday: indexnow skipped (no recipe slug)"
+        else:
+            urls = [
+                f"https://muffinpanrecipes.com/recipes/{slug}",
+                "https://muffinpanrecipes.com/",
+                "https://muffinpanrecipes.com/recipes",
+            ]
+            result = _indexnow_submit_urls(urls)
+            if result.ok:
+                event = f"sunday: indexnow submitted ({len(urls)} urls)"
+            else:
+                logger.warning(f"IndexNow submission for {episode_id} failed: {result.detail}")
+                event = f"sunday: indexnow submission failed ({result.detail})"
+    except Exception as exc:  # noqa: BLE001 - the publish already succeeded
+        logger.error(
+            f"IndexNow submission raised unexpectedly (non-fatal): {type(exc).__name__}: {exc}"
+        )
+        event = f"sunday: indexnow submission failed ({type(exc).__name__})"
+
+    # Every outcome, including an unexpected error, is persisted, so the
+    # runbook's "check the episode events" verification always has an answer.
+    # The outcome and `indexnow_pending = False` go into a COPY that is saved
+    # first and applied to `ep` only once the save succeeded: a failed save
+    # leaves the submission owed, in memory and in Blob, for the
+    # already-published catch-up (Codex round 2).
+    try:
+        updated = copy.deepcopy(ep)
+        updated.setdefault("events", []).append(event)
+        updated["indexnow_pending"] = False
+        storage.save_episode(episode_id, updated)
+    except Exception as exc:  # noqa: BLE001 - recording the outcome, not the publish
+        logger.error(
+            f"Could not persist indexnow event for {episode_id} "
+            f"(error_type={type(exc).__name__}); left pending for a retry"
+        )
+        return
+    ep.clear()
+    ep.update(updated)
+
+
 # ---------------------------------------------------------------------------
 # Sunday — Publish
 # ---------------------------------------------------------------------------
@@ -2926,6 +2991,11 @@ async def cron_sunday(request: Request):
         # announce_pending and the handoff reached source_ready, so this is a
         # no-op once delivered and for records older code already announced.
         _announce_advisory_publication(episode_id, ep, "sunday", concept)
+        # #7806: an IndexNow outcome that was never persisted (the run died,
+        # or its save failed) is retried here. Records published before the
+        # flag existed never carry it, so old weeks are not resubmitted.
+        if ep.get("indexnow_pending") and not body.test and not storage.prefix:
+            _submit_sunday_indexnow(ep, episode_id, concept)
         sunday_stage = ep.get("stages", {}).get("sunday", {})
         return _stage_response("sunday", episode_id, concept, {
             "published": True,
@@ -3086,6 +3156,10 @@ async def cron_sunday(request: Request):
             ep["hero_image_url"] = _hero_image_url(ep)
 
         ep["published_at"] = datetime.now(timezone.utc).isoformat()
+        # Saved with published_at, so a run that dies before the IndexNow
+        # outcome is persisted leaves it owed; the already-published path
+        # retries it (#7806, same shape as announce_pending, #7403).
+        ep["indexnow_pending"] = True
         ep["stages"]["sunday"] = {
             "stage": "publish",
             "status": "complete",
@@ -3150,6 +3224,15 @@ async def cron_sunday(request: Request):
         # same inbox. Skipping the advisory alert on that path loses it —
         # carded — which is the lesser harm of the two.
         _announce_advisory_publication(episode_id, ep, "sunday", concept)
+
+        # Last of all: IndexNow is a crawler courtesy, never a publish
+        # requirement, and must never fire against test data (RUNBOOK
+        # Incident 1 was exactly this shape of leak — test-mode data reaching
+        # a real destination). Both `body.test` and the storage prefix are
+        # checked because they are set together by `_test_mode_scope` above,
+        # but the prefix is the structural guarantee; this is belt-and-braces.
+        if not body.test and not storage.prefix:
+            _submit_sunday_indexnow(ep, episode_id, concept)
 
     return _stage_response("sunday", episode_id, concept, {
         "published": True,
