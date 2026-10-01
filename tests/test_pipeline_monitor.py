@@ -291,9 +291,9 @@ def test_new_episode_week_failing_the_same_way_alerts_once(tmp_path, monkeypatch
 
     saved = json.loads(state.read_text())
     assert saved["episode_id"] == "2026-W41"
-    # W41's alert was delivered, so nothing is pending and the old W40 id
-    # rolls off as a silent partial clear.
-    assert len(saved["alerted_failures"]) == 1
+    # W40's id is never verified gone (W40 is no longer checked), so it is
+    # held as retired until the final recovery alert can name it (round 12).
+    assert len(saved["alerted_failures"]) == 2
     assert saved["pending_failures"] == {}
 
     # Running the new week again with the SAME failure goes quiet.
@@ -1377,3 +1377,78 @@ def test_a_failure_cannot_be_both_alerted_and_pending():
 def test_state_without_pending_failures_is_still_current_schema():
     fid = pm._failure_id("episode", "2026-W40", "stage A")
     assert pm._is_current_schema({"alerted_failures": {fid: "stage A"}, "checks_ran": ["episode"]})
+
+
+# ---------------------------------------------------------------------------
+# Round 12: a failure belongs to its own week. A healthy check of a LATER
+# week never verifies it gone; it is "retired" (no longer checked), and is
+# reported as such, never as resolved.
+# ---------------------------------------------------------------------------
+
+
+def test_rollover_never_reports_an_unchecked_week_as_resolved(tmp_path, monkeypatch):
+    state = tmp_path / "pipeline_status.json"
+    posts = _captured_alerts(monkeypatch)
+    _install_pipeline(monkeypatch, episode_id="2026-W40", episode_only_failures=["stage A"])
+    pm.run(state)
+    assert len(posts) == 1
+
+    _install_pipeline(monkeypatch, episode_id="2026-W41", episode_only_failures=[])
+    pm.run(state)
+    assert len(posts) == 2
+    recovery = posts[-1]
+    assert "recovered" in recovery["subject"].lower()
+    assert "NOT verified resolved" in recovery["body"]
+    assert "[2026-W40: week closed, no longer checked] stage A" in recovery["body"]
+    assert json.loads(state.read_text())["alerted_failures"] == {}
+
+
+def test_rollover_still_tells_a_failure_whose_alert_never_went_out(tmp_path, monkeypatch):
+    """Round 12: W40's failure was pending (alert undelivered); a healthy W41
+    check used to drop it silently. It is now alerted, labelled with its
+    closed week, then named again in the recovery alert."""
+    state = tmp_path / "pipeline_status.json"
+    posts = _captured_alerts(monkeypatch)
+    posts.deliver = False
+    _install_pipeline(monkeypatch, episode_id="2026-W40", episode_only_failures=["stage A"])
+    pm.run(state)
+    assert list(json.loads(state.read_text())["pending_failures"].values()) == ["stage A"]
+
+    posts.deliver = True
+    _install_pipeline(monkeypatch, episode_id="2026-W41", episode_only_failures=[])
+    pm.run(state)
+    degraded = [p for p in posts if "DEGRADED" in p["subject"]]
+    assert len(degraded) == 1
+    assert "[2026-W40: week closed, no longer checked] stage A" in degraded[0]["body"]
+    assert any("recovered" in p["subject"].lower() for p in posts)
+    saved = json.loads(state.read_text())
+    assert saved["pending_failures"] == {} and saved["alerted_failures"] == {}
+
+
+def test_a_manual_run_of_an_older_week_leaves_current_failures_alone(tmp_path, monkeypatch):
+    """`--episode 2026-W36` against the live state file must neither resolve
+    nor retire the current week's failures."""
+    state = tmp_path / "pipeline_status.json"
+    posts = _captured_alerts(monkeypatch)
+    _install_pipeline(monkeypatch, episode_id="2026-W40", episode_only_failures=["stage A"])
+    pm.run(state)
+
+    _install_pipeline(monkeypatch, episode_id="2026-W36", episode_only_failures=[])
+    pm.run(state)
+    assert len(posts) == 1  # no recovery claimed
+    assert "stage A" in json.loads(state.read_text())["alerted_failures"].values()
+
+
+def test_retired_failure_is_held_while_the_current_week_is_still_failing(tmp_path, monkeypatch):
+    state = tmp_path / "pipeline_status.json"
+    posts = _captured_alerts(monkeypatch)
+    _install_pipeline(monkeypatch, episode_id="2026-W40", episode_only_failures=["stage A"])
+    pm.run(state)
+    _install_pipeline(monkeypatch, episode_id="2026-W41", episode_only_failures=["stage B"])
+    pm.run(state)
+    _install_pipeline(monkeypatch, episode_id="2026-W41", episode_only_failures=[])
+    pm.run(state)
+    recovery = posts[-1]
+    assert "recovered" in recovery["subject"].lower()
+    assert "[2026-W40: week closed, no longer checked] stage A" in recovery["body"]
+    assert "stage B" not in recovery["body"]  # verified resolved, so not listed

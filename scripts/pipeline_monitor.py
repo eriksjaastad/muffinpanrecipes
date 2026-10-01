@@ -251,6 +251,15 @@ def _failure_id_group(failure_id: str) -> str:
     return failure_id.split(_ID_SEP, 1)[0]
 
 
+def _failure_id_episode(failure_id: str) -> str:
+    return failure_id.split(_ID_SEP, 2)[1]
+
+
+def _retired_label(failure_id: str, text: str) -> str:
+    """How a failure from a closed week is shown: never as resolved."""
+    return f"[{_failure_id_episode(failure_id)}: week closed, no longer checked] {text}"
+
+
 def _valid_catalog(raw_catalog: object) -> list[dict] | None:
     """Validate the catalog payload against exactly what the title-collision
     check reads (`_catalog_titles_excluding_self` in
@@ -628,13 +637,25 @@ def _alert_new_failures(verdict: dict, new_texts: list[str], all_texts: list[str
     return included if delivered else 0
 
 
-def _alert_recovered(verdict: dict) -> bool:
-    """Send the recovery alert. Returns whether it was actually delivered."""
+def _alert_recovered(verdict: dict, retired_texts: list[str] | None = None) -> bool:
+    """Send the recovery alert. Returns whether it was actually delivered.
+
+    `retired_texts` are earlier-week failures that were announced but can
+    never be rechecked; they are listed as such, not claimed resolved."""
+    body = f"{LABEL}: back to OK — {_utc_now_iso()}\n{verdict['summary'][:500]}"
+    if retired_texts:
+        body += "\n\nNo longer checked (earlier week closed; NOT verified resolved):"
+        for text in retired_texts:
+            line = f"\n- {text[:_ALERT_TEXT_MAX]}"
+            if len(body) + len(line) > _ALERT_BODY_BUDGET - 60:
+                body += f"\n- ...and {len(retired_texts)} in total"
+                break
+            body += line
     try:
         return bool(
             send_alert(
                 subject=f"{LABEL} recovered",
-                body=f"{LABEL}: back to OK — {_utc_now_iso()}\n{verdict['summary'][:500]}",
+                body=body,
                 severity="info",
             )
         )
@@ -695,11 +716,28 @@ def _transition(state_path: Path, episode_id: str | None) -> int:
     prev_alerted: dict[str, str] = previous.get("alerted_failures") or {}
     prev_pending: dict[str, str] = previous.get("pending_failures") or {}
 
+    checked_episode = verdict["episode_id"]
+
     def _resolved(fid: str) -> bool:
-        # Verified gone: its own check ran this cycle and did not report it.
-        # An id whose check did not run (e.g. catalog down) is unverified and
-        # stays exactly where it is (round 3).
-        return _failure_id_group(fid) in checks_ran and fid not in observed_ids
+        # Verified gone: this run checked the failure's own episode, its own
+        # check ran, and it was not reported. An id whose check did not run
+        # (e.g. catalog down) is unverified and stays exactly where it is
+        # (round 3); so is an id for an episode this run did not check
+        # (round 12).
+        return (
+            _failure_id_episode(fid) == checked_episode
+            and _failure_id_group(fid) in checks_ran
+            and fid not in observed_ids
+        )
+
+    def _retired(fid: str) -> bool:
+        # A failure from an EARLIER week than the one checked: that week has
+        # closed and this monitor will never check it again, so it can never
+        # be verified gone. It is reported as "no longer checked", never as
+        # resolved (round 12). ISO week ids ("YYYY-Www") sort chronologically.
+        # A LATER week (a manual --episode run of an older week) is neither
+        # resolved nor retired; it is simply left alone.
+        return _failure_id_episode(fid) < checked_episode
 
     # Two sets (round 11 redesign, after rounds 9-11 each found a way for a
     # failure to slip between "seen" and "told"):
@@ -718,11 +756,14 @@ def _transition(state_path: Path, episode_id: str | None) -> int:
     alerted: dict[str, str] = dict(prev_alerted)
     alerted_at = previous.get("alerted_at")
 
-    # Alert only pending failures this run re-confirmed; an unverified one
-    # waits for its check to run again.
-    to_send = sorted(fid for fid in pending if fid in observed_ids)
+    # Alert pending failures this run re-confirmed (an unverified one waits
+    # for its check to run again), plus retired ones, which can never be
+    # re-confirmed and would otherwise never be told at all.
+    to_send = sorted(fid for fid in pending if fid in observed_ids or _retired(fid))
     if to_send:
-        new_texts = [observed[i] for i in to_send]
+        new_texts = [
+            observed[i] if i in observed_ids else _retired_label(i, pending[i]) for i in to_send
+        ]
         all_texts = [observed[i] for i in sorted(observed_ids)]
         shown = _alert_new_failures(verdict, new_texts, all_texts)
         if shown:
@@ -738,11 +779,16 @@ def _transition(state_path: Path, episode_id: str | None) -> int:
 
     if not pending:
         resolved_alerted = {fid for fid in alerted if _resolved(fid)}
-        if resolved_alerted and not (set(alerted) - resolved_alerted):
-            # Everything that was announced is now verified gone: a full
-            # recovery. If its alert isn't delivered, keep the whole set so
-            # the same recovery is retried next run.
-            if _alert_recovered(verdict):
+        retired_alerted = {fid for fid in alerted if _retired(fid)}
+        closable = resolved_alerted | retired_alerted
+        if closable and not (set(alerted) - closable):
+            # Everything that was announced is now verified gone or belongs
+            # to a closed week: a full recovery, which names any retired
+            # failures as no longer checked rather than resolved. If its
+            # alert isn't delivered, keep the whole set so the same recovery
+            # is retried next run.
+            retired_texts = [_retired_label(fid, alerted[fid]) for fid in sorted(retired_alerted)]
+            if _alert_recovered(verdict, retired_texts):
                 alerted = {}
                 alerted_at = _utc_now_iso()
             else:
@@ -753,7 +799,9 @@ def _transition(state_path: Path, episode_id: str | None) -> int:
                 )
         else:
             # A partial recovery (something announced is still open) clears
-            # silently; the LAST one to clear brings the recovery alert.
+            # verified-gone failures silently; retired ones are held so the
+            # final recovery alert can name them. The LAST one to clear
+            # brings the recovery alert.
             for fid in resolved_alerted:
                 del alerted[fid]
 

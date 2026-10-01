@@ -181,6 +181,13 @@ The monitor stays silent on:
   an alert, resolved ones are held, so a recovery can never be announced
   while an untold failure may still be open (for example, owed because its
   alert failed, then unverified because the catalog is down).
+- A failure belongs to its own ISO week, and the monitor only checks the
+  current week. After the week rolls over, an earlier week's failure can
+  never be verified gone, so it is **retired**: held until the recovery
+  alert, which lists it under "No longer checked (earlier week closed; NOT
+  verified resolved)". A retired failure whose alert never went out is
+  alerted once, labelled with its closed week. A manual `--episode` run of
+  an older week leaves later weeks' failures untouched.
 - The exact same set of ids repeating, forever — a monitor that repeats
   itself every hour trains you to ignore it.
 
