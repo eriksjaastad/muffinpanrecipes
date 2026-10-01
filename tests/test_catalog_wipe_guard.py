@@ -12,15 +12,18 @@ Every test here is stubbed: no Blob, no Vercel, no alerts.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import os
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
 from fastapi import HTTPException
 
-from backend.admin import cron_routes
+from backend.admin import cron_routes, episode_routes
 from backend.publishing import episode_renderer
 from backend.storage import PageReadError
 from backend.utils.catalog import CatalogUnavailableError
@@ -60,8 +63,15 @@ class _Resp:
             raise self._json_error
         return self._payload
 
+    def raise_for_status(self):
+        if not self.ok:
+            raise requests.HTTPError(f"HTTP {self.status_code}")
 
-_LISTED = _Resp(200, {"blobs": [{"url": "https://cdn.example/pages/recipes.json"}]})
+
+_LISTED = _Resp(
+    200,
+    {"blobs": [{"url": "https://cdn.example/pages/recipes.json", "pathname": "pages/recipes.json"}]},
+)
 
 
 def _get_sequence(*responses):
@@ -130,7 +140,8 @@ class TestLoadPageDistinguishesAbsentFromFailed:
                 cloud_backend.load_page("pages/recipes.json")
 
     def test_listed_blob_without_url_raises(self, cloud_backend):
-        with patch("requests.get", _get_sequence(_Resp(200, {"blobs": [{}]}))):
+        listing = _Resp(200, {"blobs": [{"pathname": "pages/recipes.json"}]})
+        with patch("requests.get", _get_sequence(listing)):
             with pytest.raises(PageReadError, match="no url"):
                 cloud_backend.load_page("pages/recipes.json")
 
@@ -313,3 +324,220 @@ def test_sunday_handoff_alerts_and_leaves_catalog_untouched(load_page_kwargs):
     assert ep["static_deploy"]["status"] == "failed"
     assert ep["static_deploy"]["phase"] == "sources"
     save_episode.assert_called()
+
+
+# ---------------------------------------------------------------------------
+# Exact pathname match: a same-prefix sibling is never the file (#7833 review)
+# ---------------------------------------------------------------------------
+
+
+def _blob(pathname: str) -> dict:
+    return {"url": f"https://cdn.example/{pathname}", "pathname": pathname}
+
+
+class _Recorder:
+    """requests.get stub: answers the list call(s) in order, then serves
+    content by URL, recording every URL fetched."""
+
+    def __init__(self, listings, contents):
+        self.listings = list(listings)
+        self.contents = contents
+        self.calls = []
+
+    def __call__(self, url, *args, **kwargs):
+        self.calls.append((url, kwargs.get("params")))
+        if url == "https://blob.vercel-storage.com":
+            return self.listings.pop(0)
+        return self.contents[url]
+
+
+class TestExactPathnameMatch:
+    def test_load_page_sibling_only_listing_is_absent(self, cloud_backend):
+        stub = _Recorder([_Resp(200, {"blobs": [_blob("pages/recipes.json.bak")]})], {})
+        with patch("requests.get", stub):
+            assert cloud_backend.load_page("pages/recipes.json") is None
+        # The sibling's content was never fetched.
+        assert all(url == "https://blob.vercel-storage.com" for url, _ in stub.calls)
+
+    def test_load_page_sibling_listed_first_does_not_hide_the_real_file(self, cloud_backend):
+        listing = _Resp(200, {"blobs": [_blob("pages/recipes.json.bak"), _blob("pages/recipes.json")]})
+        stub = _Recorder(
+            [listing],
+            {
+                "https://cdn.example/pages/recipes.json": _Resp(200, content=b'{"recipes": ["real"]}'),
+                "https://cdn.example/pages/recipes.json.bak": _Resp(200, content=b'{"recipes": ["bak"]}'),
+            },
+        )
+        with patch("requests.get", stub):
+            assert cloud_backend.load_page("pages/recipes.json") == '{"recipes": ["real"]}'
+
+    def test_load_page_real_file_on_a_later_list_page_is_found(self, cloud_backend):
+        page1 = _Resp(200, {"blobs": [_blob("pages/recipes.json.bak")], "hasMore": True, "cursor": "c1"})
+        page2 = _Resp(200, {"blobs": [_blob("pages/recipes.json")], "hasMore": False})
+        stub = _Recorder(
+            [page1, page2],
+            {"https://cdn.example/pages/recipes.json": _Resp(200, content=b"real")},
+        )
+        with patch("requests.get", stub):
+            assert cloud_backend.load_page("pages/recipes.json") == "real"
+        assert stub.calls[1][1]["cursor"] == "c1"
+
+    def test_load_page_listing_does_not_rely_on_limit_one(self, cloud_backend):
+        stub = _Recorder([_Resp(200, {"blobs": []})], {})
+        with patch("requests.get", stub):
+            cloud_backend.load_page("pages/recipes.json")
+        assert stub.calls[0][1]["limit"] != "1"
+
+    def test_load_page_has_more_without_cursor_is_a_read_error(self, cloud_backend):
+        page1 = _Resp(200, {"blobs": [_blob("pages/recipes.json.bak")], "hasMore": True})
+        with patch("requests.get", _Recorder([page1], {})):
+            with pytest.raises(PageReadError, match="cursor"):
+                cloud_backend.load_page("pages/recipes.json")
+
+    def test_load_episode_strict_sibling_only_is_absent(self, cloud_backend):
+        stub = _Recorder([_Resp(200, {"blobs": [_blob("episodes/2026-W40.json.bak")]})], {})
+        with patch("requests.get", stub):
+            assert cloud_backend.load_episode_strict("2026-W40") is None
+
+    def test_load_episode_strict_picks_the_exact_episode(self, cloud_backend):
+        listing = _Resp(200, {"blobs": [_blob("episodes/2026-W40.json.bak"), _blob("episodes/2026-W40.json")]})
+        stub = _Recorder(
+            [listing],
+            {
+                "https://cdn.example/episodes/2026-W40.json": _Resp(200, {"episode_id": "real"}),
+                "https://cdn.example/episodes/2026-W40.json.bak": _Resp(200, {"episode_id": "bak"}),
+            },
+        )
+        with patch("requests.get", stub):
+            assert cloud_backend.load_episode_strict("2026-W40") == {"episode_id": "real"}
+
+    def test_load_episode_sibling_only_is_absent_not_the_sibling(self, cloud_backend):
+        stub = _Recorder([_Resp(200, {"blobs": [_blob("episodes/2026-W40.json.bak")]})], {})
+        with patch("requests.get", stub), \
+             patch.object(cloud_backend._fs, "load_episode", return_value=None) as fs_load:
+            assert cloud_backend.load_episode("2026-W40") is None
+        fs_load.assert_called_once_with("2026-W40")
+
+    def test_load_episode_picks_the_exact_episode(self, cloud_backend):
+        listing = _Resp(200, {"blobs": [_blob("episodes/2026-W40.json.bak"), _blob("episodes/2026-W40.json")]})
+        stub = _Recorder(
+            [listing],
+            {
+                "https://cdn.example/episodes/2026-W40.json": _Resp(200, {"episode_id": "real"}),
+                "https://cdn.example/episodes/2026-W40.json.bak": _Resp(200, {"episode_id": "bak"}),
+            },
+        )
+        with patch("requests.get", stub):
+            assert cloud_backend.load_episode("2026-W40") == {"episode_id": "real"}
+
+    def test_character_memory_week_sibling_only_is_not_found(self, cloud_backend):
+        from backend.storage import CharacterMemoryUnavailable
+
+        sibling = "character_memory/margaret-chen/2026-W40.json.bak"
+        with patch("requests.get", _Recorder([_Resp(200, {"blobs": [_blob(sibling)]})], {})):
+            with pytest.raises(CharacterMemoryUnavailable, match="not found"):
+                cloud_backend.load_character_memory_week("margaret-chen", "2026-W40")
+
+    def test_character_memory_week_picks_the_exact_blob(self, cloud_backend):
+        real = "character_memory/margaret-chen/2026-W40.json"
+        entry = {"week": "2026-W40", "recipe": "Real Cups", "memory": "the real one"}
+        stub = _Recorder(
+            [_Resp(200, {"blobs": [_blob(real + ".bak"), _blob(real)]})],
+            {
+                f"https://cdn.example/{real}": _Resp(200, entry),
+                f"https://cdn.example/{real}.bak": _Resp(200, {**entry, "memory": "bak"}),
+            },
+        )
+        with patch("requests.get", stub), \
+             patch("backend.storage.validate_character_memory_entry", side_effect=lambda e: e):
+            assert cloud_backend.load_character_memory_week("margaret-chen", "2026-W40") == entry
+
+
+# ---------------------------------------------------------------------------
+# Reader routes degrade loudly on a Blob read failure (#7833 review)
+# ---------------------------------------------------------------------------
+
+
+_BLOB_DOWN = PageReadError("Blob list for 'pages/x' returned HTTP 503")
+_STATIC_CATALOG = (
+    Path(episode_routes.__file__).resolve().parents[2] / "src" / "recipes.json"
+).read_text()
+
+
+def _errors(caplog) -> list[str]:
+    return [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+def _read_fails():
+    return patch.object(episode_routes.storage, "load_page", side_effect=_BLOB_DOWN)
+
+
+class TestReaderRoutesDegradeLoudly:
+    def test_this_week_serves_the_placeholder_and_logs(self, caplog):
+        with _read_fails(), \
+             patch.object(episode_routes.storage, "load_episode", return_value=None), \
+             caplog.at_level(logging.ERROR):
+            resp = asyncio.run(episode_routes.this_week_page())
+        assert resp.status_code == 200
+        assert "<html" in bytes(resp.body).decode().lower()
+        assert any("/this-week" in m and "HTTP 503" in m for m in _errors(caplog))
+
+    def test_this_week_still_503s_when_a_page_is_due(self, caplog):
+        due = {"episode_id": "x", "stages": {"monday": {"status": "complete"}}}
+        with _read_fails(), \
+             patch.object(episode_routes.storage, "load_episode", return_value=due), \
+             caplog.at_level(logging.ERROR):
+            resp = asyncio.run(episode_routes.this_week_page())
+        assert resp.status_code == 503
+        assert any("/this-week" in m for m in _errors(caplog))
+
+    def test_teaser_answers_no_episode_and_logs(self, caplog):
+        with _read_fails(), caplog.at_level(logging.ERROR):
+            resp = asyncio.run(episode_routes.get_episode_teaser())
+        assert resp.status_code == 200
+        assert json.loads(bytes(resp.body)) == {"status": "no_episode"}
+        assert any("pages/latest.json" in m and "HTTP 503" in m for m in _errors(caplog))
+
+    def test_recipes_json_serves_the_static_catalog_and_logs(self, caplog):
+        with _read_fails(), caplog.at_level(logging.ERROR):
+            resp = asyncio.run(episode_routes.recipes_json())
+        assert resp.status_code == 200
+        assert bytes(resp.body).decode() == _STATIC_CATALOG
+        assert any("/recipes.json" in m and "HTTP 503" in m for m in _errors(caplog))
+
+    def test_recipes_hub_renders_from_the_static_catalog_and_logs(self, caplog):
+        with _read_fails(), caplog.at_level(logging.ERROR):
+            resp = asyncio.run(episode_routes.recipes_index())
+        assert resp.status_code == 200
+        first_slug = json.loads(_STATIC_CATALOG)["recipes"][0]["slug"]
+        assert f"/recipes/{first_slug}" in bytes(resp.body).decode()
+        assert any("/recipes" in m and "HTTP 503" in m for m in _errors(caplog))
+
+    def test_recipe_page_still_serves_a_seed_recipe_and_logs(self, caplog):
+        slug = sorted(episode_routes._load_seed_recipes().keys())[0]
+        with _read_fails(), caplog.at_level(logging.ERROR):
+            resp = asyncio.run(episode_routes.recipe_page(slug))
+        assert resp.status_code == 200
+        assert any(slug in m and "HTTP 503" in m for m in _errors(caplog))
+
+    def test_recipe_page_for_a_cron_recipe_errors_instead_of_a_false_404(self, caplog):
+        with _read_fails(), caplog.at_level(logging.ERROR):
+            with pytest.raises(PageReadError):
+                asyncio.run(episode_routes.recipe_page("some-cron-recipe-cups"))
+        assert any("some-cron-recipe-cups" in m for m in _errors(caplog))
+
+    def test_absent_pages_keep_their_old_behaviour_without_error_logs(self, caplog):
+        with patch.object(episode_routes.storage, "load_page", return_value=None), \
+             patch.object(episode_routes.storage, "load_episode", return_value=None), \
+             caplog.at_level(logging.ERROR):
+            assert asyncio.run(episode_routes.this_week_page()).status_code == 200
+            teaser = asyncio.run(episode_routes.get_episode_teaser())
+            assert json.loads(bytes(teaser.body)) == {"status": "no_episode"}
+            assert bytes(asyncio.run(episode_routes.recipes_json()).body).decode() == _STATIC_CATALOG
+            assert asyncio.run(episode_routes.recipe_page("no-such-recipe")).status_code == 404
+        assert _errors(caplog) == []
+
+    def test_sitemap_stays_fail_closed(self):
+        with _read_fails():
+            with pytest.raises(PageReadError):
+                asyncio.run(episode_routes.sitemap_xml())

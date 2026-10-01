@@ -104,7 +104,7 @@ class TestCloudBackendLoadEpisode:
         # Mock list API response
         mock_list = MagicMock()
         mock_list.json.return_value = {
-            "blobs": [{"url": "https://cdn.example.com/ep.json"}]
+            "blobs": [{"url": "https://cdn.example.com/ep.json", "pathname": "episodes/ep-test-001.json"}]
         }
         mock_list.raise_for_status = MagicMock()
 
@@ -127,7 +127,7 @@ class TestCloudBackendLoadEpisode:
 
         mock_list = MagicMock()
         mock_list.json.return_value = {
-            "blobs": [{"url": "https://cdn.example.com/test-ep.json"}]
+            "blobs": [{"url": "https://cdn.example.com/test-ep.json", "pathname": "test/episodes/ep-shared.json"}]
         }
         mock_list.raise_for_status = MagicMock()
         mock_content = MagicMock()
