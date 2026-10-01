@@ -34,7 +34,14 @@ commands) — the monitor needs `RESEND_API_KEY` / `ALERT_EMAIL_TO` /
 that Doppler config, not the local `dev` one. If Doppler isn't authenticated
 on this machine, the job still runs and still exits 0 — a missing credential
 is logged by `backend/utils/alerts.py`, never a crash (see "Never blocks"
-below).
+below). Delivery counts only when **email** accepts the alert
+(`send_alert_confirming_email`); a Discord-only success leaves the failure
+owed and it is retried next run.
+
+The installer refuses (exit 1, nothing written) when `doppler` or `uv` is not
+an absolute executable on `PATH`: launchd runs with a minimal `PATH`, so a
+bare command name would install a job that can never run. `--dry-run` still
+renders and warns.
 
 ## Uninstall
 
@@ -43,8 +50,12 @@ scripts/install_pipeline_monitor.sh --uninstall --dry-run   # inspect first
 scripts/install_pipeline_monitor.sh --uninstall
 ```
 
-Unloads the agent (`launchctl bootout`) and moves the installed plist to the
-Trash via `trash` — never `rm`, per this repo's hygiene rules.
+Unloads the agent (`launchctl bootout gui/<uid>/<label>`, always attempted)
+and moves the installed plist to the Trash via `trash` — never `rm`, per this
+repo's hygiene rules. If the unload fails, it continues only when
+`launchctl print` answers "no such service" (exit 113); any other result exits
+1 and leaves the plist in place, so it never reports success while the job may
+still be loaded.
 
 ## Where things live
 

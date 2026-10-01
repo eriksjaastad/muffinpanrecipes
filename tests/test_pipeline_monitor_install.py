@@ -183,3 +183,44 @@ def test_uninstall_proceeds_when_nothing_was_loaded(tmp_path):
     result, dest, calls = _run_uninstall(tmp_path, bootout_rc=3, print_rc=113)
     assert result.returncode == 0, result.stderr
     assert f"trash {dest}" in calls
+
+
+def test_uninstall_refuses_when_neither_bootout_nor_the_query_confirms(tmp_path):
+    """Gate review on 904d5d4: bootout failed and the query failed for an
+    operational reason (not launchctl's "no such service", exit 113)."""
+    result, dest, calls = _run_uninstall(tmp_path, bootout_rc=5, print_rc=1)
+    assert result.returncode == 1
+    assert "not confirmed unloaded" in result.stderr
+    assert dest.exists()
+    assert "trash" not in calls
+
+
+def _run_install_without_doppler_or_uv(tmp_path: Path, *args: str):
+    import os
+
+    home = tmp_path / "home"
+    home.mkdir()
+    bin_dir, log = _fake_bin(tmp_path, bootout_rc=0, print_rc=113)
+    env = {**os.environ, "HOME": str(home), "PATH": f"{bin_dir}:/usr/bin:/bin"}
+    result = subprocess.run(
+        ["bash", str(SCRIPT), *args],
+        cwd=REPO_ROOT, env=env, capture_output=True, text=True, timeout=30,
+    )
+    return result, home, (log.read_text() if log.exists() else "")
+
+
+def test_install_refuses_when_doppler_or_uv_is_missing(tmp_path):
+    """Gate review on 904d5d4: a bare command name in the plist installs a
+    job launchd can never run, while the script said "Installed"."""
+    result, home, calls = _run_install_without_doppler_or_uv(tmp_path)
+    assert result.returncode == 1
+    assert "Install FAILED" in result.stderr
+    assert not (home / "Library" / "LaunchAgents").exists()
+    assert "bootstrap" not in calls
+
+
+def test_dry_run_still_renders_and_warns_when_a_binary_is_missing(tmp_path):
+    result, _home, calls = _run_install_without_doppler_or_uv(tmp_path, "--dry-run")
+    assert result.returncode == 0, result.stderr
+    assert "a real install would refuse" in result.stderr
+    assert calls == ""

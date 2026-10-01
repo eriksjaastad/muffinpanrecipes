@@ -134,7 +134,7 @@ def _captured_alerts(monkeypatch):
             posts.append({"subject": subject, "body": body, "severity": severity, **kw})
         return posts.deliver
 
-    monkeypatch.setattr(pm, "send_alert", _fake_send_alert)
+    monkeypatch.setattr(pm, "send_alert_confirming_email", _fake_send_alert)
     return posts
 
 
@@ -1482,13 +1482,13 @@ def test_state_is_written_before_the_alert_is_sent(tmp_path, monkeypatch):
     state = tmp_path / "pipeline_status.json"
     seen_at_send = {}
     posts = _captured_alerts(monkeypatch)
-    real_send = pm.send_alert
+    real_send = pm.send_alert_confirming_email
 
     def _send(**kwargs):
         seen_at_send.update(json.loads(state.read_text()))
         return real_send(**kwargs)
 
-    monkeypatch.setattr(pm, "send_alert", _send)
+    monkeypatch.setattr(pm, "send_alert_confirming_email", _send)
     _install_pipeline(monkeypatch, episode_only_failures=["stage A"])
     pm.run(state)
 

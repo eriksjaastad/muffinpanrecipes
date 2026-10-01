@@ -59,7 +59,7 @@ UV_BIN="$(_resolve_bin uv)"
 # target, so it works without the plist) rather than trusting a
 # `launchctl print` query first: a failed query is not proof the job is
 # unloaded. A failed unload counts as "nothing was loaded" only when a
-# follow-up query also finds no such service; otherwise this exits 1 and
+# follow-up query answers "no such service" (exit 113); otherwise this exits 1 and
 # leaves the plist in place.
 _unload_agent() {
   local action="$1"
@@ -67,8 +67,13 @@ _unload_agent() {
   if launchctl bootout "$target" 2>/dev/null; then
     return 0
   fi
-  if launchctl print "$target" >/dev/null 2>&1; then
-    echo "${action} FAILED: launchctl bootout could not unload ${LABEL}, which is still loaded; $DEST left in place" >&2
+  # bootout failed. Only launchctl's own "no such service" answer (exit 113,
+  # "Could not find service") means there was nothing to unload; any other
+  # result, including a query that itself fails, is not proof.
+  local rc=0
+  launchctl print "$target" >/dev/null 2>&1 || rc=$?
+  if [[ "$rc" -ne 113 ]]; then
+    echo "${action} FAILED: launchctl bootout could not unload ${LABEL} and it is not confirmed unloaded (launchctl print exit ${rc}); $DEST left in place" >&2
     exit 1
   fi
 }
@@ -96,15 +101,27 @@ if [[ ! -f "$TEMPLATE" ]]; then
   exit 1
 fi
 
-if [[ -z "$DOPPLER_BIN" ]]; then
-  echo "warning: 'doppler' not found on PATH — rendering with a bare command name;" >&2
-  echo "         fix PATH or install Doppler before relying on this job to alert." >&2
-  DOPPLER_BIN="doppler"
-fi
-if [[ -z "$UV_BIN" ]]; then
-  echo "warning: 'uv' not found on PATH — rendering with a bare command name;" >&2
-  echo "         fix PATH before relying on this job to run at all." >&2
-  UV_BIN="uv"
+# launchd runs with a minimal PATH, so the plist needs absolute paths to
+# executables that exist. A missing one would install a job that can never
+# run while this script reported success, so a real install refuses; a
+# --dry-run still renders (with a bare name) and says so.
+MISSING_BINS=()
+for pair in "doppler:$DOPPLER_BIN" "uv:$UV_BIN"; do
+  name="${pair%%:*}"
+  path="${pair#*:}"
+  if [[ "$path" != /* || ! -x "$path" ]]; then
+    MISSING_BINS+=("$name")
+  fi
+done
+if [[ "${#MISSING_BINS[@]}" -gt 0 ]]; then
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    echo "warning: not found as an absolute executable on PATH: ${MISSING_BINS[*]} (a real install would refuse)" >&2
+    [[ -n "$DOPPLER_BIN" ]] || DOPPLER_BIN="doppler"
+    [[ -n "$UV_BIN" ]] || UV_BIN="uv"
+  else
+    echo "Install FAILED: not found as an absolute executable on PATH: ${MISSING_BINS[*]}" >&2
+    exit 1
+  fi
 fi
 
 RENDERED="$(

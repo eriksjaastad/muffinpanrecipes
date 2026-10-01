@@ -23,9 +23,12 @@ Design constraints carried over from session_pipeline_status.py (per #7006,
      an alert, and must never overwrite an already-known verdict on disk —
      a flaky connection must not erase real history or spam every hour.
 
-Alerting goes through backend/utils/alerts.py::send_alert, the one door
-every operational alert in this project uses (Discord + email, both on
-every severity per #7097) — no new channel is invented here.
+Alerting goes through backend/utils/alerts.py, the one door every
+operational alert in this project uses (Discord + email, both on every
+severity per #7097) — no new channel is invented here. It calls
+`send_alert_confirming_email`, which attempts both channels like
+`send_alert` but reports delivery only when EMAIL accepted: the human reads
+email, so a Discord-only success must not mark a failure as told (round 15).
 
 PER-CHECK FAILURE TRACKING (current design, round 3)
 -----------------------------------------------------
@@ -194,7 +197,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from send2trash import send2trash  # noqa: E402
 
-from backend.utils.alerts import send_alert  # noqa: E402
+from backend.utils.alerts import send_alert_confirming_email  # noqa: E402
 from scripts import session_pipeline_status as sps  # noqa: E402
 
 LABEL = "muffinpanrecipes pipeline"
@@ -641,10 +644,10 @@ def _alert_new_failures(verdict: dict, new_texts: list[str], all_texts: list[str
     body, included = _compose_degraded_body(verdict["summary"], new_texts, still_open)
     try:
         delivered = bool(
-            send_alert(subject=f"{LABEL} DEGRADED", body=body, severity="warning")
+            send_alert_confirming_email(subject=f"{LABEL} DEGRADED", body=body, severity="warning")
         )
     except Exception as e:
-        # send_alert already swallows per-backend failures; this is a last
+        # The sender already swallows per-backend failures; this is a last
         # resort so a totally unexpected error here still can't block main().
         print(f"{LABEL}: alert (degraded) failed ({type(e).__name__}: {e})", file=sys.stderr)
         return 0
@@ -667,7 +670,7 @@ def _alert_recovered(verdict: dict, retired_texts: list[str] | None = None) -> b
             body += line
     try:
         return bool(
-            send_alert(
+            send_alert_confirming_email(
                 subject=f"{LABEL} recovered",
                 body=body,
                 severity="info",

@@ -274,3 +274,33 @@ def test_alert_channel_check_runs_in_main(monkeypatch) -> None:
 
     hc = importlib.import_module("scripts.health_check")
     assert "check_alert_channel(report)" in inspect.getsource(hc.main)
+
+
+@pytest.mark.parametrize("discord_ok, email_ok, expected", [
+    (True, False, False),   # Discord-only success is not delivery
+    (False, True, True),
+    (True, True, True),
+    (False, False, False),
+])
+def test_send_alert_confirming_email_reports_email_only(_outside_pytest, discord_ok, email_ok, expected) -> None:
+    """#7006: the pipeline monitor records an alert as told and never resends
+    it, and the human reads email, so only email acceptance counts. Both
+    channels are still attempted."""
+    calls = []
+
+    def _discord(*a):
+        calls.append("discord")
+        return discord_ok
+
+    def _email(*a):
+        calls.append("email")
+        return email_ok
+
+    with patch.object(alerts, "_BACKENDS", (_discord, _email)), \
+         patch.object(alerts, "_send_email", _email):
+        assert alerts.send_alert_confirming_email("s", "b") is expected
+    assert calls == ["discord", "email"]
+
+
+def test_send_alert_confirming_email_is_gated_in_tests() -> None:
+    assert alerts.send_alert_confirming_email("s", "b") is False
