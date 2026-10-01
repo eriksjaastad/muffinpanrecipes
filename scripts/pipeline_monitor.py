@@ -391,17 +391,24 @@ def _is_current_schema(state: object) -> bool:
     # text whose normalized form is exactly the id's text segment. Otherwise
     # an entry like {<current failure id>: ""} would validate, and the next
     # run would treat a real failure as already alerted (round 7).
-    for failure_id, text in state["alerted_failures"].items():
-        parts = failure_id.split(_ID_SEP, 2) if isinstance(failure_id, str) else []
-        if (
-            len(parts) != 3
-            or parts[0] not in _CHECK_GROUPS
-            or not parts[1]
-            or not isinstance(text, str)
-            or not text.strip()
-            or parts[2] != _normalize_failure(text)
-        ):
-            return False
+    # `pending_failures` (round 11) gets the same checks, must not overlap
+    # `alerted_failures` (a failure is either told or owed, never both), and
+    # may be absent in a file written before it existed.
+    pending = state.get("pending_failures", {})
+    if not isinstance(pending, dict) or set(pending) & set(state["alerted_failures"]):
+        return False
+    for failure_map in (state["alerted_failures"], pending):
+        for failure_id, text in failure_map.items():
+            parts = failure_id.split(_ID_SEP, 2) if isinstance(failure_id, str) else []
+            if (
+                len(parts) != 3
+                or parts[0] not in _CHECK_GROUPS
+                or not parts[1]
+                or not isinstance(text, str)
+                or not text.strip()
+                or parts[2] != _normalize_failure(text)
+            ):
+                return False
     return all(isinstance(group, str) and group in _CHECK_GROUPS for group in state["checks_ran"])
 
 
@@ -672,6 +679,7 @@ def _transition(state_path: Path, episode_id: str | None) -> int:
                     "checks_ran": [],
                     "checked_at": _utc_now_iso(),
                     "alerted_failures": {},
+                    "pending_failures": {},
                     "alerted_at": None,
                 },
             )
@@ -685,68 +693,71 @@ def _transition(state_path: Path, episode_id: str | None) -> int:
 
     previous = read_state(state_path) or {}
     prev_alerted: dict[str, str] = previous.get("alerted_failures") or {}
-    prev_alerted_ids = set(prev_alerted)
+    prev_pending: dict[str, str] = previous.get("pending_failures") or {}
 
-    # A previously-alerted id is cleared only when the check that produces
-    # it ran THIS cycle and no longer reports it. An id whose check did NOT
-    # run this cycle (e.g. catalog down) is left exactly as it was — neither
-    # cleared (unverified) nor re-alerted (already announced once).
-    new_ids = observed_ids - prev_alerted_ids
-    # Clearing happens only on a run with no new failures (Codex round 10).
-    # Otherwise A could clear while B's alert failed or was deferred: the
-    # state would drop A with nobody told it resolved, and if B then cleared
-    # too, there would be nothing left alerted to "recover" from, so no
-    # recovery alert ever went out. Holding A until a quiet run means a
-    # full recovery is always announced by the recovery alert below.
-    cleared_ids = set() if new_ids else {
-        fid
-        for fid in prev_alerted_ids
-        if _failure_id_group(fid) in checks_ran and fid not in observed_ids
+    def _resolved(fid: str) -> bool:
+        # Verified gone: its own check ran this cycle and did not report it.
+        # An id whose check did not run (e.g. catalog down) is unverified and
+        # stays exactly where it is (round 3).
+        return _failure_id_group(fid) in checks_ran and fid not in observed_ids
+
+    # Two sets (round 11 redesign, after rounds 9-11 each found a way for a
+    # failure to slip between "seen" and "told"):
+    #   alerted — failures a DELIVERED alert has told the reader are open.
+    #   pending — failures seen but not yet in a delivered alert (delivery
+    #             failed, or they did not fit the body budget).
+    # A pending failure that resolves is dropped quietly: nobody was told
+    # about it. An alerted failure only clears while nothing is pending, so a
+    # recovery can never be announced while an untold failure might still be
+    # open, and a resolution is never dropped while something is still owed.
+    pending: dict[str, str] = {
+        fid: observed.get(fid, text) for fid, text in prev_pending.items() if not _resolved(fid)
     }
-    after_clear_ids = prev_alerted_ids - cleared_ids
-
-    committed_alerted: dict[str, str] = {i: prev_alerted[i] for i in after_clear_ids}
+    for fid in observed_ids - set(prev_alerted):
+        pending[fid] = observed[fid]
+    alerted: dict[str, str] = dict(prev_alerted)
     alerted_at = previous.get("alerted_at")
 
-    if new_ids:
-        ordered_new_ids = sorted(new_ids)
-        new_texts = [observed[i] for i in ordered_new_ids]
+    # Alert only pending failures this run re-confirmed; an unverified one
+    # waits for its check to run again.
+    to_send = sorted(fid for fid in pending if fid in observed_ids)
+    if to_send:
+        new_texts = [observed[i] for i in to_send]
         all_texts = [observed[i] for i in sorted(observed_ids)]
         shown = _alert_new_failures(verdict, new_texts, all_texts)
         if shown:
-            # Only the failures that were actually in the delivered alert;
-            # any that did not fit stay new and lead the next run's alert.
-            committed_alerted.update({i: observed[i] for i in ordered_new_ids[:shown]})
+            for fid in to_send[:shown]:
+                alerted[fid] = pending.pop(fid)
             alerted_at = _utc_now_iso()
         else:
-            # The NEW ids stay unconfirmed so they're retried next run (round
-            # 1 correction A, generalized to a set); nothing cleared this run
-            # either (round 10), so no resolution goes unannounced.
             print(
                 f"{LABEL}: DEGRADED alert (new failures) was not delivered on any "
                 "channel; left pending for the next run",
                 file=sys.stderr,
             )
-    elif not after_clear_ids and prev_alerted_ids:
-        # Nothing new, and everything previously alerted just cleared: a
-        # full recovery.
-        if _alert_recovered(verdict):
-            committed_alerted = {}
-            alerted_at = _utc_now_iso()
-        else:
-            # Keep the ENTIRE prior set (undo the clearing too) so the same
-            # recovery is retried next run rather than silently applied.
-            committed_alerted = dict(prev_alerted)
-            print(
-                f"{LABEL}: recovery alert was not delivered on any channel; "
-                "left pending for the next run",
-                file=sys.stderr,
-            )
-    # else: no new ids and either nothing cleared, or a PARTIAL clear that
-    # still leaves something outstanding — silent, `committed_alerted`
-    # already reflects whatever cleared (set above).
 
-    status = "degraded" if (observed_ids or committed_alerted) else "ok"
+    if not pending:
+        resolved_alerted = {fid for fid in alerted if _resolved(fid)}
+        if resolved_alerted and not (set(alerted) - resolved_alerted):
+            # Everything that was announced is now verified gone: a full
+            # recovery. If its alert isn't delivered, keep the whole set so
+            # the same recovery is retried next run.
+            if _alert_recovered(verdict):
+                alerted = {}
+                alerted_at = _utc_now_iso()
+            else:
+                print(
+                    f"{LABEL}: recovery alert was not delivered on any channel; "
+                    "left pending for the next run",
+                    file=sys.stderr,
+                )
+        else:
+            # A partial recovery (something announced is still open) clears
+            # silently; the LAST one to clear brings the recovery alert.
+            for fid in resolved_alerted:
+                del alerted[fid]
+
+    status = "degraded" if (observed_ids or alerted or pending) else "ok"
 
     write_state(
         state_path,
@@ -757,7 +768,8 @@ def _transition(state_path: Path, episode_id: str | None) -> int:
             "failures": [observed[i] for i in sorted(observed_ids)],
             "checks_ran": sorted(checks_ran),
             "checked_at": _utc_now_iso(),
-            "alerted_failures": committed_alerted,
+            "alerted_failures": alerted,
+            "pending_failures": pending,
             "alerted_at": alerted_at,
         },
     )

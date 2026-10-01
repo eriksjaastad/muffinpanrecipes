@@ -60,6 +60,7 @@ Trash via `trash` — never `rm`, per this repo's hygiene rules.
     "checks_ran": ["episode"] | ["catalog", "episode"] | [],
     "checked_at": "2026-09-30T18:00:00Z",
     "alerted_failures": {"<failure id>": "<failure text>", "...": "..."},
+    "pending_failures": {"<failure id>": "<failure text>", "...": "..."},
     "alerted_at": "2026-09-30T18:00:00Z" | null
   }
   ```
@@ -102,6 +103,13 @@ Trash via `trash` — never `rm`, per this repo's hygiene rules.
   against which groups the ids in `alerted_failures` belong to (the id's
   first `\x1f`-separated segment) tells a reader whether something "still
   owed" is currently unverified.
+
+  `pending_failures` holds failures that have been seen but are not yet in
+  a delivered alert: the alert failed to send, or they did not fit the
+  body budget. A failure is in one map or the other, never both. A pending
+  failure is alerted on the next run that re-confirms it; if its check
+  confirms it gone first, it is dropped without any alert (nobody was told
+  about it).
 
   A lock file sits beside the state file at the same path plus `.lock`
   (e.g. `pipeline_status.json.lock`) — it holds no data, and its only job is
@@ -168,21 +176,20 @@ The monitor stays silent on:
   outage never blocks A from being alerted on its own if A is new.
 - A failure id that clears while at least one other stays active (a
   **partial** recovery) — the clearing is applied to `alerted_failures`
-  silently, no alert, until the LAST one clears too. Clearing only happens
-  on a run with **no new failures**: on a run that alerts something new, a
-  resolved id is held until the next quiet run, so a resolution can never
-  slip by between an undelivered (or deferred) new alert and the recovery
-  alert.
+  silently, no alert, until the LAST one clears too. Alerted failures only
+  clear while `pending_failures` is empty: while any failure is still owed
+  an alert, resolved ones are held, so a recovery can never be announced
+  while an untold failure may still be open (for example, owed because its
+  alert failed, then unverified because the catalog is down).
 - The exact same set of ids repeating, forever — a monitor that repeats
   itself every hour trains you to ignore it.
 
 **Delivery is confirmed, not assumed.** `send_alert`'s boolean return is
 checked before `alerted_failures` is updated. If every channel is down (or
 credentials are missing):
-- a **new-failure** alert that fails to send adds nothing to
-  `alerted_failures` — the same ids still look "new" next run and are
-  retried (any *unrelated* clearing that happened the same cycle is still
-  applied; it's an independent fact, not a claim that was just announced);
+- a **new-failure** alert that fails to send moves nothing into
+  `alerted_failures`; the failures stay in `pending_failures` and are
+  retried next run, and no alerted failure clears while they are pending;
 - a **recovery** alert that fails to send keeps the **entire** prior
   `alerted_failures` set exactly as it was (undoing even the clearing that
   would have triggered it) — `status` stays `"degraded"` even though

@@ -291,14 +291,14 @@ def test_new_episode_week_failing_the_same_way_alerts_once(tmp_path, monkeypatch
 
     saved = json.loads(state.read_text())
     assert saved["episode_id"] == "2026-W41"
-    # Nothing clears on a run that alerted something new (round 10).
-    assert len(saved["alerted_failures"]) == 2
+    # W41's alert was delivered, so nothing is pending and the old W40 id
+    # rolls off as a silent partial clear.
+    assert len(saved["alerted_failures"]) == 1
+    assert saved["pending_failures"] == {}
 
-    # Running the new week again with the SAME failure goes quiet, and the
-    # old W40 id rolls off on that quiet run.
+    # Running the new week again with the SAME failure goes quiet.
     pm.run(state)
     assert len(posts) == 2
-    assert len(json.loads(state.read_text())["alerted_failures"]) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -1267,8 +1267,14 @@ def test_recovery_is_announced_even_when_the_new_failure_alert_failed(tmp_path, 
     posts.deliver = b_alert == "delivered"
     _install_pipeline(monkeypatch, episode_only_failures=["stage B"])
     pm.run(state)
-    alerted = set(json.loads(state.read_text())["alerted_failures"].values())
-    assert "stage A" in alerted  # held: nothing clears on a run with new failures
+    saved = json.loads(state.read_text())
+    if b_alert == "undelivered":
+        # B is owed, so A is held rather than cleared.
+        assert "stage A" in saved["alerted_failures"].values()
+        assert list(saved["pending_failures"].values()) == ["stage B"]
+    else:
+        # B was told; A clears silently as a partial recovery.
+        assert list(saved["alerted_failures"].values()) == ["stage B"]
 
     # B resolves before the next run: a full recovery must be announced.
     posts.deliver = True
@@ -1291,3 +1297,83 @@ def test_deferred_new_failures_do_not_clear_resolved_ones(tmp_path, monkeypatch)
     _install_pipeline(monkeypatch, episode_only_failures=[])
     pm.run(state)
     assert any("recovered" in p["subject"].lower() for p in posts)
+
+
+
+# ---------------------------------------------------------------------------
+# Round 11 redesign: alerted (told) + pending (owed) sets.
+# ---------------------------------------------------------------------------
+
+
+def test_catalog_outage_cannot_fake_a_recovery_while_a_failure_is_owed(tmp_path, monkeypatch):
+    """Codex round 11: A announced; A resolves as catalog failure B appears
+    but B's alert fails; then the catalog is down. B is unverified, so it
+    must stay owed, A must stay held, and no "recovered" goes out."""
+    state = tmp_path / "pipeline_status.json"
+    posts = _captured_alerts(monkeypatch)
+
+    _install_pipeline(monkeypatch, episode_only_failures=["stage A"])
+    pm.run(state)
+
+    posts.deliver = False
+    _install_pipeline(monkeypatch, catalog_only_failures=["title collision B"])
+    pm.run(state)
+
+    posts.deliver = True
+    _install_pipeline(monkeypatch, catalog_only_failures=["title collision B"], catalog_state="down")
+    pm.run(state)
+    assert not any("recovered" in p["subject"].lower() for p in posts)
+    saved = json.loads(state.read_text())
+    assert saved["status"] == "degraded"
+    assert "stage A" in saved["alerted_failures"].values()
+    assert "title collision B" in saved["pending_failures"].values()
+
+    # Catalog back with B still present: B is finally told, A clears.
+    _install_pipeline(monkeypatch, catalog_only_failures=["title collision B"])
+    pm.run(state)
+    assert "title collision B" in posts[-1]["body"]
+    saved = json.loads(state.read_text())
+    assert list(saved["alerted_failures"].values()) == ["title collision B"]
+    assert saved["pending_failures"] == {}
+
+
+def test_an_owed_failure_that_resolves_is_dropped_without_any_alert(tmp_path, monkeypatch):
+    state = tmp_path / "pipeline_status.json"
+    posts = _captured_alerts(monkeypatch)
+    posts.deliver = False
+    _install_pipeline(monkeypatch, episode_only_failures=["stage A"])
+    pm.run(state)
+    assert list(json.loads(state.read_text())["pending_failures"].values()) == ["stage A"]
+
+    posts.deliver = True
+    _install_pipeline(monkeypatch, episode_only_failures=[])
+    pm.run(state)
+    assert len(posts) == 0  # never told, so no recovery owed either
+    saved = json.loads(state.read_text())
+    assert saved["status"] == "ok"
+    assert saved["pending_failures"] == {} and saved["alerted_failures"] == {}
+
+
+@pytest.mark.parametrize("pending", [
+    "not a dict",
+    {"episode\x1f2026-W40\x1fstage A": ""},
+    {"nope\x1f2026-W40\x1fstage A": "stage A"},
+])
+def test_malformed_pending_failures_is_not_current_schema(pending):
+    state = {"alerted_failures": {}, "pending_failures": pending, "checks_ran": ["episode"]}
+    assert pm._is_current_schema(state) is False
+
+
+def test_a_failure_cannot_be_both_alerted_and_pending():
+    fid = pm._failure_id("episode", "2026-W40", "stage A")
+    state = {
+        "alerted_failures": {fid: "stage A"},
+        "pending_failures": {fid: "stage A"},
+        "checks_ran": ["episode"],
+    }
+    assert pm._is_current_schema(state) is False
+
+
+def test_state_without_pending_failures_is_still_current_schema():
+    fid = pm._failure_id("episode", "2026-W40", "stage A")
+    assert pm._is_current_schema({"alerted_failures": {fid: "stage A"}, "checks_ran": ["episode"]})
