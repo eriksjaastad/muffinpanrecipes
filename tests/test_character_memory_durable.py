@@ -418,7 +418,7 @@ def test_cloud_list_character_memory_weeks_network_failure_raises_unavailable(cl
 
 def test_cloud_load_character_memory_week_fetches_and_validates(cloud_backend):
     mock_list = MagicMock()
-    mock_list.json.return_value = {"blobs": [{"url": "https://cdn.example.com/margaret-2026-W40.json"}]}
+    mock_list.json.return_value = {"blobs": [{"url": "https://cdn.example.com/margaret-2026-W40.json", "pathname": "character_memory/margaret-chen/2026-W40.json"}]}
     mock_list.raise_for_status = MagicMock()
     mock_content = MagicMock()
     mock_content.json.return_value = _entry()
@@ -444,7 +444,7 @@ def test_cloud_load_character_memory_week_schema_violation_raises_unavailable(cl
     """Round-3 review finding 3, on the fetch side: `{}` is valid JSON but
     not a valid memory body."""
     mock_list = MagicMock()
-    mock_list.json.return_value = {"blobs": [{"url": "https://cdn.example.com/margaret-2026-W40.json"}]}
+    mock_list.json.return_value = {"blobs": [{"url": "https://cdn.example.com/margaret-2026-W40.json", "pathname": "character_memory/margaret-chen/2026-W40.json"}]}
     mock_list.raise_for_status = MagicMock()
     mock_content = MagicMock()
     mock_content.json.return_value = {}
@@ -457,7 +457,7 @@ def test_cloud_load_character_memory_week_schema_violation_raises_unavailable(cl
 
 def test_cloud_load_character_memory_week_content_fetch_failure_raises_unavailable(cloud_backend):
     mock_list = MagicMock()
-    mock_list.json.return_value = {"blobs": [{"url": "https://cdn.example.com/margaret-2026-W40.json"}]}
+    mock_list.json.return_value = {"blobs": [{"url": "https://cdn.example.com/margaret-2026-W40.json", "pathname": "character_memory/margaret-chen/2026-W40.json"}]}
     mock_list.raise_for_status = MagicMock()
     mock_content = MagicMock()
     mock_content.raise_for_status.side_effect = Exception("503 Service Unavailable")

@@ -10,6 +10,8 @@ from __future__ import annotations
 import importlib
 from unittest.mock import patch
 
+import requests
+
 hc = importlib.import_module("scripts.health_check")
 
 
@@ -131,12 +133,21 @@ def test_messages_carry_a_utc_timestamp(monkeypatch, tmp_path):
 # (2026-06-22: two false alerts fired during the legitimate pre-cron window).
 # ---------------------------------------------------------------------------
 
-def _run_this_week(*, body_len: int, episode):
+def _http_error(status_code: int) -> requests.HTTPError:
+    response = requests.Response()
+    response.status_code = status_code
+    return requests.HTTPError(f"{status_code} from blob", response=response)
+
+
+def _run_this_week(*, body_len: int, episode, fetch_error: Exception | None = None):
     """Run check_this_week_page with /this-week sized to body_len and the
-    current-week episode JSON stubbed (episode=None simulates a 404)."""
+    current-week episode JSON stubbed (episode=None simulates a 404;
+    fetch_error, when given, is raised by the episode read instead)."""
     def _fake_json(url, timeout=15):
+        if fetch_error is not None:
+            raise fetch_error
         if episode is None:
-            raise RuntimeError("404 not found")
+            raise _http_error(404)
         return episode
 
     report = hc.Report()
@@ -169,6 +180,37 @@ def test_this_week_thin_when_monday_complete_fails():
     ep = {"stages": {"monday": {"status": "complete"}}}
     r = _run_this_week(body_len=1585, episode=ep)
     assert r.failed and r.failed[0][0] == "this_week_renders"
+
+
+# #7833: a Blob read failure is not "no episode yet". Passing it as the
+# expected placeholder hid exactly the render failures this check exists for.
+
+def test_this_week_thin_with_blob_5xx_fails():
+    r = _run_this_week(body_len=1585, episode=None, fetch_error=_http_error(503))
+    assert not r.passed
+    assert r.failed and r.failed[0][0] == "this_week_renders"
+    assert "could not be read from blob" in r.failed[0][1]
+
+
+def test_this_week_thin_with_blob_timeout_fails():
+    r = _run_this_week(
+        body_len=1585, episode=None, fetch_error=requests.Timeout("read timed out")
+    )
+    assert r.failed and r.failed[0][0] == "this_week_renders"
+    assert "Timeout" in r.failed[0][1]
+
+
+def test_this_week_thin_with_unparseable_episode_fails():
+    r = _run_this_week(
+        body_len=1585, episode=None, fetch_error=ValueError("Expecting value")
+    )
+    assert r.failed and r.failed[0][0] == "this_week_renders"
+
+
+def test_this_week_full_page_ignores_blob_failure():
+    # A full page never consults the episode, so a blob outage cannot fail it.
+    r = _run_this_week(body_len=25_000, episode=None, fetch_error=_http_error(503))
+    assert "this_week_renders" in r.passed and not r.failed
 
 
 # ---------------------------------------------------------------------------

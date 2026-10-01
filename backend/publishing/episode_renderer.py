@@ -1287,7 +1287,15 @@ def publish_recipe_to_catalog(episode: dict) -> str | None:
 
     Called by Sunday cron after publish. Prepends the new recipe to the list
     so it becomes the featured recipe (recipes[0]) on the main page.
-    Returns the blob URL or None on failure.
+    Returns the blob URL, or None when the recipe is already in the catalog
+    or the upload failed.
+
+    Raises when the live catalog cannot be read, is corrupt, or is absent from
+    the production namespace (#7833). Those used to re-seed the catalog from
+    src/recipes.json and overwrite pages/recipes.json, erasing every recipe
+    published to Blob since the last deploy. Raising sends the publish down
+    _complete_static_source_handoff's failure path: retry marker, Discord
+    alert, 500, and the live catalog untouched.
     """
     monday = episode.get("stages", {}).get("monday", {})
     recipe = monday.get("recipe_data", {})
@@ -1352,21 +1360,41 @@ def publish_recipe_to_catalog(episode: dict) -> str | None:
         "instructions": instructions,
     }
 
-    # Load existing catalog from blob (or fall back to static seed file)
+    # Load the live catalog. A failed read raises PageReadError out of
+    # load_page; only None means the blob is genuinely absent (#7833).
+    from backend.utils.catalog import CatalogUnavailableError
+
     catalog_json = storage.load_page("pages/recipes.json")
-    if catalog_json:
-        try:
-            catalog = json.loads(catalog_json)
-        except json.JSONDecodeError:
-            catalog = {"recipes": []}
-    else:
-        # First run — seed from static file
+    if catalog_json is None:
+        if not storage.prefix:
+            # Production's first run was 2026-03-15 (#5055). An absent live
+            # catalog now means a misrouted read (RUNBOOK INCIDENT 1) or a
+            # deleted blob, and src/recipes.json is only the catalog as of the
+            # last deploy. Seeding from it would publish success over a
+            # rolled-back catalog, so stop for a human instead.
+            raise CatalogUnavailableError(
+                "live catalog pages/recipes.json is absent; refusing to seed it "
+                "from src/recipes.json. Restore the catalog blob, then re-fire "
+                "/api/cron/sunday."
+            )
+        # Test namespace (test/ prefix, wiped by run_full_week.py --cleanup):
+        # absence is the normal first run and the write cannot reach the
+        # production catalog.
         static_path = os.path.join(os.path.dirname(__file__), "..", "..", "src", "recipes.json")
-        try:
-            with open(static_path) as f:
-                catalog = json.loads(f.read())
-        except Exception:
-            catalog = {"recipes": []}
+        with open(static_path, encoding="utf-8") as f:
+            catalog_json = f.read()
+        logger.info(f"Seeding test catalog {storage.prefix}pages/recipes.json from src/recipes.json")
+    try:
+        catalog = json.loads(catalog_json)
+    except json.JSONDecodeError as e:
+        raise CatalogUnavailableError(
+            f"catalog pages/recipes.json is not valid JSON; refusing to overwrite it: {e}"
+        ) from e
+    if not isinstance(catalog, dict) or not isinstance(catalog.get("recipes"), list):
+        raise CatalogUnavailableError(
+            "catalog pages/recipes.json is malformed (expected an object with a "
+            "'recipes' list); refusing to overwrite it"
+        )
 
     # Don't add duplicates (idempotent re-run and Sunday re-fire defense).
     for existing_entry in catalog.get("recipes", []):
