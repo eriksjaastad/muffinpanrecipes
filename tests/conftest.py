@@ -50,7 +50,10 @@ def _no_live_alert_credentials(monkeypatch):
 @pytest.fixture(autouse=True)
 def _no_live_indexnow_submission(monkeypatch):
     def _blocked(*_args, **_kwargs):
-        raise RuntimeError(
+        # pytest.fail raises a BaseException, so the Sunday hook's
+        # `except Exception` cannot swallow it into a recorded failure and
+        # let the test pass (Codex round 1).
+        pytest.fail(
             "backend.utils.indexnow.requests.post was called without being "
             "mocked. IndexNow submissions must never touch the network in "
             "tests — patch backend.utils.indexnow.requests.post (to test the "

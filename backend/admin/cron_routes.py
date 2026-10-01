@@ -2909,33 +2909,41 @@ def _submit_sunday_indexnow(ep: dict, episode_id: str, concept: str) -> None:
     ``submit_urls`` already reports rather than raises; this wrapper just
     decides what to do with that report).
     """
-    from backend.publishing.episode_renderer import catalog_slug
-
-    # The same slug the catalog (and so the sitemap) uses. URLs match the
-    # sitemap exactly: "/recipes" with no trailing slash, since "/recipes/"
-    # is a 307 to it and IndexNow should get the final URL.
-    slug = catalog_slug(ep)
-    if not slug:
-        return
-    urls = [
-        f"https://muffinpanrecipes.com/recipes/{slug}",
-        "https://muffinpanrecipes.com/",
-        "https://muffinpanrecipes.com/recipes",
-    ]
+    # Everything, from deriving the slug to reading the result, is inside one
+    # guard (Codex round 1): an unexpected error anywhere here would
+    # otherwise reach _run_stage and mark an already-live publish failed.
+    event: str | None = None
     try:
-        result = _indexnow_submit_urls(urls)
+        from backend.publishing.episode_renderer import catalog_slug
+
+        # The same slug the catalog (and so the sitemap) uses. URLs match the
+        # sitemap exactly: "/recipes" with no trailing slash, since
+        # "/recipes/" is a 307 to it and IndexNow should get the final URL.
+        slug = catalog_slug(ep)
+        if not slug:
+            event = "sunday: indexnow skipped (no recipe slug)"
+        else:
+            urls = [
+                f"https://muffinpanrecipes.com/recipes/{slug}",
+                "https://muffinpanrecipes.com/",
+                "https://muffinpanrecipes.com/recipes",
+            ]
+            result = _indexnow_submit_urls(urls)
+            if result.ok:
+                event = f"sunday: indexnow submitted ({len(urls)} urls)"
+            else:
+                logger.warning(f"IndexNow submission for {episode_id} failed: {result.detail}")
+                event = f"sunday: indexnow submission failed ({result.detail})"
     except Exception as exc:  # noqa: BLE001 - the publish already succeeded
-        logger.error(f"IndexNow submission raised unexpectedly (non-fatal): {type(exc).__name__}: {exc}")
-        ep["events"].append(f"sunday: indexnow submission failed ({type(exc).__name__})")
-        return
+        logger.error(
+            f"IndexNow submission raised unexpectedly (non-fatal): {type(exc).__name__}: {exc}"
+        )
+        event = f"sunday: indexnow submission failed ({type(exc).__name__})"
 
-    if result.ok:
-        ep["events"].append(f"sunday: indexnow submitted ({len(urls)} urls)")
-    else:
-        logger.warning(f"IndexNow submission for {episode_id} failed: {result.detail}")
-        ep["events"].append(f"sunday: indexnow submission failed ({result.detail})")
-
+    # Every outcome, including an unexpected error, is persisted, so the
+    # runbook's "check the episode events" verification always has an answer.
     try:
+        ep.setdefault("events", []).append(event)
         storage.save_episode(episode_id, ep)
     except Exception as exc:  # noqa: BLE001 - recording the outcome, not the publish
         logger.error(

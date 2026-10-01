@@ -141,3 +141,58 @@ def test_submitted_recipe_url_uses_the_catalog_slug_for_a_qualified_title():
     slug = episode_renderer.catalog_slug(episode)
     assert slug == episode_renderer._slugify("Make-Ahead Veggie & Sausage Egg Cups")
     assert captured["urls"][0] == f"https://muffinpanrecipes.com/recipes/{slug}"
+
+
+def _published_episode() -> dict:
+    return {
+        "stages": {"monday": {"recipe_data": {"title": "Herbed Sausage Sunrise Cups"}}},
+        "events": [],
+    }
+
+
+def test_an_error_deriving_the_slug_never_raises_and_is_recorded():
+    """Codex round 1: the slug was derived outside the guard, so an error
+    there reached _run_stage and marked a live publish failed."""
+    episode = _published_episode()
+    with patch("backend.publishing.episode_renderer.catalog_slug", side_effect=KeyError("boom")), \
+         patch.object(cron_routes, "_indexnow_submit_urls") as submit, \
+         patch.object(cron_routes.storage, "save_episode") as save_episode:
+        cron_routes._submit_sunday_indexnow(episode, "2026-W20", "c")  # must not raise
+
+    submit.assert_not_called()
+    assert episode["events"] == ["sunday: indexnow submission failed (KeyError)"]
+    save_episode.assert_called_once_with("2026-W20", episode)
+
+
+def test_an_unexpected_submission_error_is_persisted_not_just_appended():
+    """Codex round 1: the exception branch returned before save_episode."""
+    episode = _published_episode()
+    with patch.object(cron_routes, "_indexnow_submit_urls", side_effect=OSError("socket")), \
+         patch.object(cron_routes.storage, "save_episode") as save_episode:
+        cron_routes._submit_sunday_indexnow(episode, "2026-W20", "c")
+
+    assert episode["events"] == ["sunday: indexnow submission failed (OSError)"]
+    save_episode.assert_called_once_with("2026-W20", episode)
+
+
+def test_a_malformed_result_object_never_raises():
+    episode = _published_episode()
+    with patch.object(cron_routes, "_indexnow_submit_urls", return_value=object()), \
+         patch.object(cron_routes.storage, "save_episode") as save_episode:
+        cron_routes._submit_sunday_indexnow(episode, "2026-W20", "c")
+
+    assert episode["events"] == ["sunday: indexnow submission failed (AttributeError)"]
+    save_episode.assert_called_once()
+
+
+def test_the_network_guard_cannot_be_swallowed_by_the_hook():
+    """Codex round 1: the conftest guard raised RuntimeError, which the
+    hook's `except Exception` turned into a recorded failure, so a test that
+    forgot its mock still passed. pytest.fail raises a BaseException."""
+    import pytest
+
+    from backend.utils import indexnow
+
+    with pytest.raises(pytest.fail.Exception) as excinfo:
+        indexnow.requests.post("https://api.indexnow.org/indexnow", json={})
+    assert not isinstance(excinfo.value, Exception)

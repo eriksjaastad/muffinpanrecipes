@@ -44,7 +44,7 @@ import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import quote, quote_plus, urlparse
 
 import requests
 
@@ -69,19 +69,30 @@ class BingApiError(RuntimeError):
 
 
 def _scrub(text: str, api_key: str) -> str:
-    """Remove the apikey query value from anything about to be logged/printed."""
-    return text.replace(api_key, "***")
+    """Remove the apikey query value, raw or URL-encoded, from anything about
+    to be logged/printed."""
+    for form in {api_key, quote(api_key, safe=""), quote_plus(api_key)}:
+        text = text.replace(form, "***")
+    return text
 
 
-def _call(method: str, api_key: str, **params: str) -> dict:
-    """GET one Bing Webmaster API JSON method and return its ``d`` payload."""
+def _call(method: str, api_key: str, expected: type, **params: str):
+    """GET one Bing Webmaster API JSON method and return its ``d`` payload,
+    which must be of the documented type ``expected``.
+
+    Every BingApiError is raised OUTSIDE the ``except`` block that caught the
+    underlying error, so it carries no ``__cause__``/``__context__``: the
+    requests exception embeds the full URL, apikey included, and a chained
+    traceback would print it unscrubbed.
+    """
     query = {"apikey": api_key, "siteUrl": SITE_URL, **params}
+    failure = None
     try:
         response = requests.get(f"{_API_BASE}/{method}", params=query, timeout=_TIMEOUT_SECONDS)
     except requests.RequestException as exc:
-        # requests.RequestException.__str__ (and PreparedRequest.url) embeds
-        # the full URL, apikey included. Scrub before it ever reaches stderr.
-        raise BingApiError(f"{method} request failed: {_scrub(str(exc), api_key)}") from exc
+        failure = f"{method} request failed: {_scrub(f'{type(exc).__name__}: {exc}', api_key)}"
+    if failure:
+        raise BingApiError(failure)
 
     if response.status_code == 429:
         # No sleep-and-retry: a rate limit is a stop-and-report, not a loop.
@@ -92,12 +103,22 @@ def _call(method: str, api_key: str, **params: str) -> dict:
             f"{_scrub(response.text[:500], api_key)}"
         )
 
+    body = None
     try:
         body = response.json()
     except ValueError as exc:
-        raise BingApiError(f"{method}: response was not valid JSON: {exc}") from exc
+        failure = f"{method}: response was not valid JSON: {type(exc).__name__}"
+    if failure:
+        raise BingApiError(failure)
     if not isinstance(body, dict) or "d" not in body:
         raise BingApiError(f"{method}: unexpected response shape (no 'd' key)")
+    # A null or wrong-typed payload is a malformed response, not an empty
+    # result: GetCrawlStats/GetQueryStats return lists, GetUrlInfo an object
+    # (Microsoft's IWebmasterApi reference, cited in the module docstring).
+    if not isinstance(body["d"], expected):
+        raise BingApiError(
+            f"{method}: expected {expected.__name__} in 'd', got {type(body['d']).__name__}"
+        )
     return body["d"]
 
 
@@ -105,9 +126,9 @@ def fetch_baseline(api_key: str) -> dict:
     """Pull crawl stats, query stats, and domain-level index status. Raises on any failure."""
     domain = urlparse(SITE_URL).netloc
     return {
-        "crawl_stats": _call("GetCrawlStats", api_key),
-        "query_stats": _call("GetQueryStats", api_key),
-        "index_status": _call("GetUrlInfo", api_key, url=f"domain:{domain}"),
+        "crawl_stats": _call("GetCrawlStats", api_key, list),
+        "query_stats": _call("GetQueryStats", api_key, list),
+        "index_status": _call("GetUrlInfo", api_key, dict, url=f"domain:{domain}"),
     }
 
 
