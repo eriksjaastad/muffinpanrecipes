@@ -276,11 +276,10 @@ length with no pushback. Each lever is one arm compared head-to-head against the
 | Arm | Lever | Predicted movement | Guard |
 |---|---|---|---|
 | R1 | non-numeric length guidance ("most turns a sentence or two; longer only when you are arguing a point") replacing the HARD LIMIT line (DIALS 2a, line 370) | mean words to 10-30, length_stdev up, pushback kept | arc_resolution, qa_rate |
+| R1b | (Erik, 10-01) a length lever that does not hand every speaker the same number. Numeric caps become the target and every line comes out the same length. Exact form fixed in its own registry row before its first paid call. | length_stdev up vs the S2 winner, mean words down | arc_resolution, pushback |
 | R2 | turn floor = cast size + 1 on open-ended days | cast coverage up on Fri-Sun | turn_taking |
 | R3 | the speakers also see the scenario's `judge_recipe_facts`, the amounts and details the judge scores against. Testbed v3 already gives them the ingredient names and boundaries (PROTOCOL.md 247), so this is the rest of the W39 gap. Baseline arm unchanged; needs P4. | technical_credibility up | title_fidelity |
 | R4 | director scene-setting (#7679, RNG plus no-repeat log; Erik 09-27) | Fri-Sun natural_progression up | no-repeat check |
-
-| R1b | (Erik, 10-01) a length lever that does not hand every speaker the same number. Numeric caps become the target and every line comes out the same length. Exact form fixed in its own registry row before its first paid call. | length_stdev up vs the S2 winner, mean words down | arc_resolution, pushback |
 
 The order is R1, R1b, R2, R3, R4. A lever that is not in this table needs its own registry row
 before it runs.
@@ -321,7 +320,7 @@ EXPERIMENTS.md.
 | S0b | Is the judge biased toward length? (running) | all | V5, ongoing V6 | every judged pair | 3.1 | 3.1 | planned | - | - |
 | S1 | Where are baseline and bundle in absolute terms? | all | both arms of every ab result | no API calls | section 4 metrics | descriptive | planned | - | $0 |
 | S2 | Which of the five changes matter? | Haiku | B + A1, A2, A4, A5 (A3 dropped, D2) | 14 / 42 | win rate vs baseline | section 5.5, Holm | screen done 2026-10-01; A4 moves (D3 rule); not confirmed | Overall W/T/L vs baseline: B 6/3/5, A1 7/3/4, A2 5/4/5, A4 10/2/2 (sign p 0.039 unadjusted, 0.195 Holm x5; 5/7 recipes), A5 8/2/4. B re-screened 6/3/5 vs 9/2/3 in the S0a pilot: a 14-pair screen swings by about 3 pairs on rerun. A4 = bundle with production's 6-10 line count kept: 7.7 lines at 90 words/line (production 8.1 lines at 21). | $10.31 |
-| S3 | Can we keep pushback at chat length? | Haiku | R1-R4, head-to-head (P5) | 14 / 42 | win rate vs S2 winner | section 5.5 | planned | - | - |
+| S3 | Can we keep pushback at chat length? | Haiku | R1, R1b, R2-R4, head-to-head (P5) | 14 / 42 | win rate vs S2 winner | section 5.5 | planned | - | - |
 | S4 | Best config, full week | Haiku | chained | 14 per day / 42 per day that changes | win rate per day | screen; 5.5 per shipped day | planned | - | - |
 | S5-DS | Replication | DeepSeek v4.1 Flash | S1, S2 screen, S4 | as above | as above | as above | planned | - | - |
 | S5-GM | Replication | Gemini | as above | as above | as above | as above | future | - | - |
@@ -339,7 +338,8 @@ EXPERIMENTS.md.
   (`_validate_history_depth_invariant`), so A3 cannot run alongside the 25-tick open-ended cap.
   Without that cap Monday runs at most 10 lines, inside production's 12-line window, so history
   depth has no effect there. History depth is coupled to open-ended length, as the stop check
-  is. Its effect is not separable on Monday and is carried by A4.
+  is. A3 is recorded as UNTESTED: no S2 arm measures production history depth (A4 and B both
+  keep 28, and A4's fixed count of at most 10 lines never reaches either window).
 - **D3 (2026-10-01).** B is re-screened inside the S2 sweep instead of reusing the S0a pilot, so
   that B and every arm are judged against one shared set of control transcripts
   (`ab --sweep`, controls generated once per scenario and run). Variant files are the S0a bundle
