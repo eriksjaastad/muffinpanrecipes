@@ -289,7 +289,10 @@ def _clear_stale_week_off_note_after_late_publish(published_episode_id: str) -> 
         next_id = episode_integrity.week_after(published_episode_id)
         # Strict read: a Blob error must take the logged-skip path below,
         # not look like "the successor week has no episode yet".
-        next_episode = storage.load_episode_strict(next_id)
+        # Copied: the strict reader may hand back its cache's own object, and
+        # popping the note from that would hide it from a retry in this warm
+        # Lambda even though Blob still has it (Codex round 7).
+        next_episode = copy.deepcopy(storage.load_episode_strict(next_id))
         if not next_episode:
             return
         note = next_episode.get("week_off_note")

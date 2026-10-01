@@ -169,9 +169,11 @@ def test_clear_stale_note_removes_it_when_the_successor_blames_this_week():
          patch.object(cron_routes, "regenerate_and_upload") as regenerate:
         cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")
 
-    assert "week_off_note" not in next_episode
-    save_episode.assert_called_once_with("2026-W41", next_episode)
-    regenerate.assert_called_once_with(next_episode, strict=True)
+    cleared = {k: v for k, v in next_episode.items() if k != "week_off_note"}
+    save_episode.assert_called_once_with("2026-W41", cleared)
+    regenerate.assert_called_once_with(cleared, strict=True)
+    # The reader's object itself is left untouched (round 7: it may be cached).
+    assert next_episode["week_off_note"]["missed_week"] == "2026-W40"
 
 
 @pytest.mark.parametrize(
@@ -432,6 +434,26 @@ def test_cron_sunday_late_publish_clears_the_successors_note_end_to_end():
         result = asyncio.run(cron_routes.cron_sunday(_request()))
 
     assert result["published"] is True
-    assert "week_off_note" not in next_episode
-    assert ("2026-W41", next_episode) in save_calls
-    regenerate.assert_any_call(next_episode, strict=True)
+    cleared = {k: v for k, v in next_episode.items() if k != "week_off_note"}
+    assert ("2026-W41", cleared) in save_calls
+    regenerate.assert_any_call(cleared, strict=True)
+
+
+def test_clear_stale_note_never_mutates_the_readers_cached_object():
+    """Codex round 7: load_episode_strict can return its cache's own object.
+    Popping the note from it hid the note from a retry in the same warm
+    Lambda after a failed render. The reader here returns ONE shared object,
+    like the cache does."""
+    cached = {
+        "episode_id": "2026-W41",
+        "stages": {},
+        "week_off_note": {"message": cron_routes.WEEK_OFF_MESSAGE, "missed_week": "2026-W40"},
+    }
+
+    with patch.object(cron_routes.storage, "load_episode_strict", return_value=cached), \
+         patch.object(cron_routes.storage, "save_episode") as save_episode, \
+         patch.object(cron_routes, "regenerate_and_upload", side_effect=RuntimeError("blob write failed")):
+        cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")
+
+    save_episode.assert_not_called()
+    assert cached["week_off_note"]["missed_week"] == "2026-W40"
