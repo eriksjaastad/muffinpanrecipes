@@ -127,6 +127,34 @@ def test_apply_week_off_note_never_fails_monday(failure):
     assert ep["week_off_note"] == {"kept": True}
 
 
+
+@pytest.mark.parametrize("previous", [
+    {"episode_id": "2026-W39", "published_at": "2026-09-27T23:00:00+00:00"},
+    None,
+], ids=["previous-published", "previous-missing"])
+def test_monday_refire_keeps_this_weeks_own_refusal_note(previous):
+    """Codex (#7630): Sunday refused W40 and stamped 'missed W40'; a forced
+    Monday re-fire that repairs W40 must not clear (or replace) that note
+    because W39 published. W40 still has not published."""
+    own = {"message": cron_routes.WEEK_OFF_MESSAGE, "missed_week": "2026-W40"}
+    ep = {"episode_id": "2026-W40", "stages": {}, "week_off_note": dict(own)}
+    with patch.object(storage, "load_episode_strict", return_value=previous) as load:
+        cron_routes._apply_week_off_note("2026-W40", ep)
+    assert ep["week_off_note"] == own
+    load.assert_not_called()
+
+
+def test_own_week_note_is_not_kept_once_the_episode_published():
+    ep = {
+        "episode_id": "2026-W40",
+        "stages": {},
+        "published_at": "2026-10-04T23:00:00+00:00",
+        "week_off_note": {"message": cron_routes.WEEK_OFF_MESSAGE, "missed_week": "2026-W40"},
+    }
+    with patch.object(storage, "load_episode_strict", return_value={"published_at": "x"}):
+        cron_routes._apply_week_off_note("2026-W40", ep)
+    assert "week_off_note" not in ep
+
 def test_week_before_crosses_the_iso_year_boundary():
     from backend.utils.episode_integrity import week_before
     assert week_before("2026-W01") == "2025-W52"

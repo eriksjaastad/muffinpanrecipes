@@ -251,6 +251,16 @@ def _apply_week_off_note(episode_id: str, ep: dict) -> None:
     on a genuine read/network failure — caught below, same as an
     unparseable id — and only returns None for an ACTUAL missing episode.
     """
+    # A note naming THIS week came from Sunday's own refuse-to-publish path,
+    # and stays true until this week publishes. A re-fired Monday must not
+    # replace or clear it on the strength of the previous week (Codex, #7630).
+    existing = ep.get("week_off_note")
+    if (
+        isinstance(existing, dict)
+        and existing.get("missed_week") == episode_id
+        and not ep.get("published_at")
+    ):
+        return
     try:
         previous_id = episode_integrity.week_before(episode_id)
         previous_episode = storage.load_episode_strict(previous_id)
