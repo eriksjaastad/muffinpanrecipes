@@ -1376,6 +1376,15 @@ def publish_recipe_to_catalog(episode: dict) -> str | None:
         return None
 
 
+def mark_latest_published() -> None:
+    """Write the homepage's "published" marker to pages/latest.json: the
+    week's recipe is now the Featured hero, so the teaser (and any
+    week_off_note) steps aside. Raises on a storage failure; callers decide
+    whether that is fatal."""
+    storage.save_page("pages/latest.json", json.dumps({"status": "published"}))
+    logger.info("Cleared teaser: Sunday published, recipe is now Featured hero")
+
+
 def regenerate_and_upload(episode: dict, *, strict: bool = False) -> str | None:
     """Regenerate the episode page HTML and teaser JSON, upload both to blob.
 
@@ -1437,8 +1446,7 @@ def regenerate_and_upload(episode: dict, *, strict: bool = False) -> str | None:
         sunday_complete = episode.get("stages", {}).get("sunday", {}).get("status") == "complete"
         week_off_note = episode.get("week_off_note")
         if sunday_complete:
-            storage.save_page("pages/latest.json", json.dumps({"status": "published"}))
-            logger.info("Cleared teaser: Sunday published, recipe is now Featured hero")
+            mark_latest_published()
         else:
             teaser = get_latest_teaser(episode)
             if teaser:

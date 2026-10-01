@@ -4,6 +4,7 @@ Tests save/load/list operations on _CloudBackend, mocking the Vercel Blob
 REST API to verify correct request structure, caching, and fallback behavior.
 """
 
+import json
 import os
 import re
 from io import BytesIO
@@ -234,6 +235,30 @@ class TestCloudBackendLoadEpisode:
 
         mock_fs.assert_not_called()
 
+
+    def test_strict_load_never_answers_from_a_warm_cache(self, cloud_backend):
+        """Codex (#7630): a warm Lambda cached the previous week as
+        unpublished; another instance then published it. The strict read
+        must fetch, not return the stale cached copy, and the fresh result
+        replaces the cache entry."""
+        cloud_backend._episode_cache[(cloud_backend.prefix, "ep-1")] = {"episode_id": "ep-1"}
+
+        fresh = {"episode_id": "ep-1", "published_at": "2026-09-28T01:00:00Z"}
+        mock_list = MagicMock()
+        mock_list.json.return_value = {"blobs": [{"url": "https://blob/episodes/ep-1.json"}]}
+        mock_list.raise_for_status = MagicMock()
+        mock_content = MagicMock()
+        mock_content.content = json.dumps(fresh).encode("utf-8")
+        mock_content.text = json.dumps(fresh)
+        mock_content.json.return_value = fresh
+        mock_content.raise_for_status = MagicMock()
+
+        with patch("requests.get", side_effect=[mock_list, mock_content]) as get:
+            result = cloud_backend.load_episode_strict("ep-1")
+
+        assert get.call_count == 2
+        assert result == fresh
+        assert cloud_backend._episode_cache[(cloud_backend.prefix, "ep-1")] == fresh
 
 class TestCloudBackendListEpisodes:
     def test_list_returns_sorted_episodes(self, cloud_backend):

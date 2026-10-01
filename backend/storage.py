@@ -841,8 +841,10 @@ class _CloudBackend:
         import requests as _requests
 
         cache_key = (self.prefix, episode_id)
-        if cache_key in self._episode_cache:
-            return self._episode_cache[cache_key]
+        # Never answered from the cache (Codex, #7630): this is the read a
+        # cron DECISION rests on, and a warm Lambda's cached copy can predate
+        # a publish another instance has since made. The fresh result still
+        # refreshes the cache below.
 
         pathname = f"{self.prefix}episodes/{episode_id}.json"
         resp = _requests.get(

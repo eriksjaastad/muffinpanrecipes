@@ -239,6 +239,38 @@ def test_clear_stale_note_render_failure_keeps_the_note_stored_so_a_retry_redoes
     regenerate.assert_called_once()
 
 
+
+
+_real_current_episode_id = cron_routes.episode_integrity.current_episode_id
+
+
+def _now_is(week: str):
+    """Stub "what week is it now" without breaking week_after/week_before,
+    which call current_episode_id with an explicit date."""
+    def _current(when=None):
+        return _real_current_episode_id(when) if when is not None else week
+    return _current
+
+def test_late_publish_after_rollover_with_no_successor_marks_the_homepage_published():
+    """Codex (#7630): W40's refusal put a note on the homepage; W40 then
+    published after Monday 00:00 UTC but before Monday's cron created W41.
+    The writer's gate skipped W40's own latest.json write and there was no
+    W41 episode to clear, so the note stayed up. With W41 current and no W41
+    episode, the published marker is written."""
+    with patch.object(cron_routes.storage, "load_episode_strict", return_value=None), \
+         patch.object(cron_routes.episode_integrity, "current_episode_id", side_effect=_now_is("2026-W41")), \
+         patch.object(cron_routes, "mark_latest_published") as mark:
+        cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")
+    mark.assert_called_once_with()
+
+
+def test_on_time_publish_with_no_successor_writes_nothing_extra():
+    with patch.object(cron_routes.storage, "load_episode_strict", return_value=None), \
+         patch.object(cron_routes.episode_integrity, "current_episode_id", side_effect=_now_is("2026-W40")), \
+         patch.object(cron_routes, "mark_latest_published") as mark:
+        cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")
+    mark.assert_not_called()
+
 def test_clear_stale_note_error_is_logged_and_swallowed(caplog):
     """Best-effort: nothing in this path may turn a successful publish into
     a failed request."""

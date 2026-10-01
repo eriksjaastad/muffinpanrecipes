@@ -45,7 +45,11 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
 from backend.config import config
-from backend.publishing.episode_renderer import _hero_image_url, regenerate_and_upload
+from backend.publishing.episode_renderer import (
+    _hero_image_url,
+    mark_latest_published,
+    regenerate_and_upload,
+)
 from backend.storage import storage
 from backend.utils import episode_integrity
 from backend.utils.catalog import (
@@ -294,6 +298,15 @@ def _clear_stale_week_off_note_after_late_publish(published_episode_id: str) -> 
         # Lambda even though Blob still has it (Codex round 7).
         next_episode = copy.deepcopy(storage.load_episode_strict(next_id))
         if not next_episode:
+            # No successor episode yet. If the successor week is already the
+            # current one (the publish landed after Monday 00:00 UTC but
+            # before Monday's cron created that episode), pages/latest.json
+            # still holds what the week that just published wrote, possibly
+            # its own refusal note, and the writer's current-week gate kept
+            # this publish from replacing it. Nothing newer can be there, so
+            # write the same marker an on-time publish writes (Codex, #7630).
+            if episode_integrity.current_episode_id() == next_id:
+                mark_latest_published()
             return
         note = next_episode.get("week_off_note")
         if not isinstance(note, dict) or note.get("missed_week") != published_episode_id:
