@@ -13,6 +13,8 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 from backend.admin import cron_routes
 from backend.utils.indexnow import IndexNowResult
 
@@ -196,3 +198,83 @@ def test_the_network_guard_cannot_be_swallowed_by_the_hook():
     with pytest.raises(pytest.fail.Exception) as excinfo:
         indexnow.requests.post("https://api.indexnow.org/indexnow", json={})
     assert not isinstance(excinfo.value, Exception)
+
+
+def _run_already_published(episode: dict, body: cron_routes.StageRequest, indexnow_result: IndexNowResult):
+    """Drive cron_sunday through the already-published fast path."""
+    with patch.object(cron_routes, "_verify_cron_secret"), \
+         patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=body)), \
+         patch.object(cron_routes, "_verify_day_of_week"), \
+         patch.object(cron_routes.storage, "load_episode", return_value=episode), \
+         patch.object(cron_routes.storage, "save_episode") as save_episode, \
+         patch.object(cron_routes, "_announce_advisory_publication"), \
+         patch.object(cron_routes, "_indexnow_submit_urls", return_value=indexnow_result) as submit:
+        result = asyncio.run(cron_routes.cron_sunday(_request()))
+    return result, submit, save_episode
+
+
+def _published(**extra) -> dict:
+    episode = _episode()
+    episode["published_at"] = "2026-05-17T23:00:00+00:00"
+    episode.update(extra)
+    return episode
+
+
+def test_first_publish_saves_the_submission_as_owed_then_settles_it(monkeypatch):
+    monkeypatch.delenv("VERCEL_ENV", raising=False)
+    body = cron_routes.StageRequest(episode_id="2026-W20", force=True, test=False)
+    _result, episode, _submit = _run_sunday(
+        body, IndexNowResult(ok=True, status_code=200, detail="submitted")
+    )
+    assert episode["indexnow_pending"] is False
+
+
+def test_resumed_sunday_retries_an_owed_submission(monkeypatch):
+    """Codex round 2: a run that saved published_at but died before the
+    IndexNow outcome was persisted never submitted on the resumed run."""
+    monkeypatch.delenv("VERCEL_ENV", raising=False)
+    episode = _published(indexnow_pending=True)
+    body = cron_routes.StageRequest(episode_id="2026-W20", force=True, test=False)
+
+    result, submit, save_episode = _run_already_published(
+        episode, body, IndexNowResult(ok=True, status_code=200, detail="submitted")
+    )
+
+    assert result["already_published"] is True
+    submit.assert_called_once()
+    saved = save_episode.call_args.args[1]
+    assert saved["indexnow_pending"] is False
+    assert "sunday: indexnow submitted (3 urls)" in saved["events"]
+
+
+@pytest.mark.parametrize("extra", [{}, {"indexnow_pending": False}], ids=["pre-flag-record", "settled"])
+def test_resumed_sunday_does_not_resubmit_a_settled_or_legacy_record(monkeypatch, extra):
+    monkeypatch.delenv("VERCEL_ENV", raising=False)
+    body = cron_routes.StageRequest(episode_id="2026-W20", force=True, test=False)
+    _result, submit, _save = _run_already_published(
+        _published(**extra), body, IndexNowResult(ok=True, status_code=200, detail="submitted")
+    )
+    submit.assert_not_called()
+
+
+def test_resumed_test_mode_sunday_never_submits(monkeypatch):
+    monkeypatch.delenv("VERCEL_ENV", raising=False)
+    body = cron_routes.StageRequest(episode_id="2026-W20", force=True, test=True)
+    _result, submit, _save = _run_already_published(
+        _published(indexnow_pending=True), body, IndexNowResult(ok=True, status_code=200, detail="submitted")
+    )
+    submit.assert_not_called()
+
+
+def test_a_failed_outcome_save_leaves_the_submission_owed():
+    """Codex round 2: a failed save left the outcome only in memory and the
+    catch-up never retried it. Now the episode is untouched on a failed
+    save, so it stays owed in memory and in Blob."""
+    episode = _published(indexnow_pending=True)
+    with patch.object(cron_routes, "_indexnow_submit_urls",
+                      return_value=IndexNowResult(ok=True, status_code=200, detail="submitted")), \
+         patch.object(cron_routes.storage, "save_episode", side_effect=OSError("blob down")):
+        cron_routes._submit_sunday_indexnow(episode, "2026-W20", "c")
+
+    assert episode["indexnow_pending"] is True
+    assert not any("indexnow" in event for event in episode["events"])

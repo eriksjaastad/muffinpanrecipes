@@ -2942,14 +2942,23 @@ def _submit_sunday_indexnow(ep: dict, episode_id: str, concept: str) -> None:
 
     # Every outcome, including an unexpected error, is persisted, so the
     # runbook's "check the episode events" verification always has an answer.
+    # The outcome and `indexnow_pending = False` go into a COPY that is saved
+    # first and applied to `ep` only once the save succeeded: a failed save
+    # leaves the submission owed, in memory and in Blob, for the
+    # already-published catch-up (Codex round 2).
     try:
-        ep.setdefault("events", []).append(event)
-        storage.save_episode(episode_id, ep)
+        updated = copy.deepcopy(ep)
+        updated.setdefault("events", []).append(event)
+        updated["indexnow_pending"] = False
+        storage.save_episode(episode_id, updated)
     except Exception as exc:  # noqa: BLE001 - recording the outcome, not the publish
         logger.error(
             f"Could not persist indexnow event for {episode_id} "
-            f"(error_type={type(exc).__name__})"
+            f"(error_type={type(exc).__name__}); left pending for a retry"
         )
+        return
+    ep.clear()
+    ep.update(updated)
 
 
 # ---------------------------------------------------------------------------
@@ -2982,6 +2991,11 @@ async def cron_sunday(request: Request):
         # announce_pending and the handoff reached source_ready, so this is a
         # no-op once delivered and for records older code already announced.
         _announce_advisory_publication(episode_id, ep, "sunday", concept)
+        # #7806: an IndexNow outcome that was never persisted (the run died,
+        # or its save failed) is retried here. Records published before the
+        # flag existed never carry it, so old weeks are not resubmitted.
+        if ep.get("indexnow_pending") and not body.test and not storage.prefix:
+            _submit_sunday_indexnow(ep, episode_id, concept)
         sunday_stage = ep.get("stages", {}).get("sunday", {})
         return _stage_response("sunday", episode_id, concept, {
             "published": True,
@@ -3142,6 +3156,10 @@ async def cron_sunday(request: Request):
             ep["hero_image_url"] = _hero_image_url(ep)
 
         ep["published_at"] = datetime.now(timezone.utc).isoformat()
+        # Saved with published_at, so a run that dies before the IndexNow
+        # outcome is persisted leaves it owed; the already-published path
+        # retries it (#7806, same shape as announce_pending, #7403).
+        ep["indexnow_pending"] = True
         ep["stages"]["sunday"] = {
             "stage": "publish",
             "status": "complete",
