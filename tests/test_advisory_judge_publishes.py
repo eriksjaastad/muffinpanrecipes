@@ -18,6 +18,17 @@ import pytest
 from fastapi import HTTPException
 
 from backend.admin import cron_routes
+from backend.utils.indexnow import IndexNowResult
+
+
+def _record_indexnow(order: list[str]):
+    """Stub for cron_routes._indexnow_submit_urls that records call order
+    instead of making a real network call (#7806: no IndexNow submission in
+    tests)."""
+    def _fake(*_args, **_kwargs):
+        order.append("indexnow")
+        return IndexNowResult(ok=True, status_code=200, detail="submitted")
+    return _fake
 
 
 def _dialogue(tag: str) -> list[dict]:
@@ -535,7 +546,8 @@ def test_the_handler_claims_publication_only_after_the_episode_is_saved():
                       side_effect=lambda *a, **kw: order.append("handoff")), \
          patch.object(cron_routes, "regenerate_and_upload", create=True), \
          patch.object(cron_routes, "_announce_advisory_publication",
-                      side_effect=lambda *a, **kw: order.append("announce")):
+                      side_effect=lambda *a, **kw: order.append("announce")), \
+         patch.object(cron_routes, "_indexnow_submit_urls", side_effect=_record_indexnow(order)):
         result = asyncio.run(cron_routes.cron_sunday(_sunday_request()))
 
     assert result["published"] is True
@@ -543,10 +555,13 @@ def test_the_handler_claims_publication_only_after_the_episode_is_saved():
     assert record["published"] is True
     assert record["published_at"] == episode["published_at"]
     # Saved carrying published=True, then the reader-facing pages written,
-    # and only then announced. The handoff raises on failure with its own
-    # "pages were NOT written" alert, so announcing before it could
-    # contradict that in the same inbox.
-    assert order[-3:] == ["save:published=True", "handoff", "announce"]
+    # only then announced, and IndexNow submitted last of all (#7806) — a
+    # crawler courtesy, never a publish requirement. _submit_sunday_indexnow
+    # saves the episode again afterward to persist its outcome event, hence
+    # the trailing second save.
+    assert order[-5:] == [
+        "save:published=True", "handoff", "announce", "indexnow", "save:published=True",
+    ]
 
 
 def test_no_advisory_alert_when_the_reader_pages_fail_to_write():
@@ -683,6 +698,8 @@ def test_the_sunday_route_sends_no_alert_when_the_retry_passes():
          patch.object(cron_routes, "_generate_episode_memories"), \
          patch.object(cron_routes, "_set_static_deploy_state"), \
          patch.object(cron_routes, "_complete_static_source_handoff"), \
+         patch.object(cron_routes, "_indexnow_submit_urls",
+                      return_value=IndexNowResult(ok=True, status_code=200, detail="submitted")), \
          patch.object(cron_routes, "notify_judge_advisory") as alert:
         result = asyncio.run(cron_routes.cron_sunday(_sunday_request()))
 

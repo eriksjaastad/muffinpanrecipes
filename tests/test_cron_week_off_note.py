@@ -31,6 +31,7 @@ from fastapi import HTTPException
 
 from backend.admin import cron_routes
 from backend.storage import storage
+from backend.utils.indexnow import IndexNowResult
 
 # Monday of W37 (2026-09-07); W36 (2026-08-31 through 2026-09-06) is the
 # week immediately before it — matches the fixtures in test_episode_integrity.py.
@@ -523,6 +524,8 @@ def test_cron_sunday_does_not_set_week_off_note_when_publish_succeeds():
          )), \
          patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "STATUS: PASS")), \
          patch.object(cron_routes, "_generate_episode_memories"), \
+         patch.object(cron_routes, "_indexnow_submit_urls",
+                      return_value=IndexNowResult(ok=True, status_code=200, detail="submitted")), \
          patch.object(cron_routes, "regenerate_and_upload"), \
          patch("backend.publishing.episode_renderer.publish_recipe_to_catalog"), \
          patch("backend.publishing.episode_renderer.render_episode_page", return_value="<html></html>"):
@@ -577,6 +580,8 @@ def test_cron_sunday_late_publish_clears_the_successors_note_end_to_end():
          )), \
          patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "STATUS: PASS")), \
          patch.object(cron_routes, "_generate_episode_memories"), \
+         patch.object(cron_routes, "_indexnow_submit_urls",
+                      return_value=IndexNowResult(ok=True, status_code=200, detail="submitted")), \
          patch.object(cron_routes, "regenerate_and_upload") as regenerate, \
          patch("backend.publishing.episode_renderer.publish_recipe_to_catalog"), \
          patch("backend.publishing.episode_renderer.render_episode_page", return_value="<html></html>"):

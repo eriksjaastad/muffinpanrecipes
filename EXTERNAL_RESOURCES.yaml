@@ -36,6 +36,17 @@ external_resources:
       - GOOGLE_API_KEY
     notes: Implemented via google-genai image models (e.g., gemini-2.5-flash-image).
 
+  - name: Bing Webmaster Tools API
+    purpose: SEO baseline (crawl stats, query stats, index status) for the apex property https://muffinpanrecipes.com.
+    env_vars:
+      - BING_WEBMASTER_API_KEY
+    notes: Local-only script scripts/bing_webmaster_baseline.py (JSON endpoints at ssl.bing.com/webmaster/api.svc/json); run via doppler run. Output in seo-audits/weekly/<date>/bing_webmaster.json. Not used by the Lambda.
+
+  - name: IndexNow
+    purpose: Notify participating search engines (Bing and others) of new/changed URLs on each Sunday publish.
+    env_vars: []
+    notes: backend/utils/indexnow.py POSTs to https://api.indexnow.org/indexnow. The key is public by design (served at /015dad665f3a6ddeeab4565e96d0dd50.txt from src/), so it is committed rather than kept in Doppler.
+
   - name: Stability AI
     purpose: Production image generation (SDXL).
     env_vars:

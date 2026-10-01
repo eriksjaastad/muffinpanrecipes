@@ -1,7 +1,7 @@
 # SEO_RUNBOOK.md
 
-A recurring operating procedure for the four SEO tools on this site: **Google Search
-Console, GA4, Screaming Frog, and Ahrefs.**
+A recurring operating procedure for the five SEO tools on this site: **Google Search
+Console, GA4, Screaming Frog, Ahrefs, and Bing Webmaster Tools.**
 
 Two things this is trying to fix. First, SEO work here has been episodic — a burst of
 audits in June, another in August, then nothing until someone remembers. Second, and
@@ -17,21 +17,22 @@ procedure by changing that section and nothing else.
 
 ## Who can actually operate each tool
 
-This is the part worth reading before anything else. The four tools do not have the same
+This is the part worth reading before anything else. The five tools do not have the same
 access story, and treating them as if they do is how "run the audit" turns into a week of
 back-and-forth.
 
 | Tool | What it answers | Access route | Who runs it |
 |---|---|---|---|
 | **Screaming Frog** | What a crawler sees on our own HTML | Local CLI, headless | **Agent, directly and unattended.** No Erik. |
+| **Bing Webmaster API** | Bing's crawl stats, index status, and query stats | REST API, `BING_WEBMASTER_API_KEY` in Doppler | **Agent, directly and unattended.** No Erik. |
 | **Google Search Console** | What Google actually *did* — impressions, position, indexing verdicts | Web UI, Erik's Google account | **Agent via Claude-in-Chrome**, in Erik's logged-in session |
 | **GA4** | What humans did once they arrived | Web UI, Erik's Google account | **Agent via Claude-in-Chrome** |
 | **Ahrefs Webmaster Tools** | Backlinks, and a second opinion on the crawl | Web UI, Erik's Ahrefs account | **Agent via Claude-in-Chrome** |
 
-**The short version: exactly one of the four is fully automatable, and it is Screaming
-Frog.** The other three are account-gated web apps with no credentials in Doppler. The
-Chrome extension is what makes them reachable at all — it drives Erik's already-logged-in
-browser, so the agent never sees or handles a password.
+**The short version: two of the five are fully automatable — Screaming Frog and, since
+card #7806, the Bing Webmaster API.** The other three are account-gated web apps with no
+credentials in Doppler. The Chrome extension is what makes them reachable at all — it
+drives Erik's already-logged-in browser, so the agent never sees or handles a password.
 
 ### Screaming Frog — the agent's own tool
 
@@ -62,6 +63,39 @@ survives a Screaming Frog upgrade; a `.seospider` binary does neither.
 
 Buy a licence (£199/yr) when either the crawl approaches 500 URLs or we want the crawl to
 carry GSC/GA4 data. Not before.
+
+### Bing Webmaster API — the agent's other tool
+
+Bing Webmaster Tools is set up with the apex `https://muffinpanrecipes.com` as the
+verified property (`www` 308-redirects to the apex at the Vercel domain level, and
+`/BingSiteAuth.xml` at the site root is the ownership-verification file Bing checked).
+`BING_WEBMASTER_API_KEY` lives in Doppler (project `muffinpanrecipes`, configs `dev` and
+`prd`) — presence-check it with the usual `doppler secrets --only-names`, never print the
+value.
+
+Run the baseline:
+
+```
+doppler run --project muffinpanrecipes --config dev -- \
+    uv run python scripts/bing_webmaster_baseline.py
+```
+
+It calls three JSON/HTTP endpoints (the supported protocol — Bing retired the legacy
+SOAP/POX APIs 2026-08-31, see
+[API Services](https://learn.microsoft.com/en-us/bingwebmaster/api-protocols)):
+`GetCrawlStats`, `GetQueryStats`, and `GetUrlInfo` with a `domain:` prefix on the `url`
+parameter, which the API's own docs note returns index details for the whole property
+rather than one page
+([GetUrlInfo reference](https://learn.microsoft.com/en-us/dotnet/api/microsoft.bing.webmaster.api.interfaces.iwebmasterapi.geturlinfo)).
+A missing key, a non-200 response, or a 429 all exit nonzero with a message on stderr —
+there is no empty-result fallback, and the apikey (a query parameter) is scrubbed out of
+every error path before it can reach stderr or the output file.
+
+Output lands at `seo-audits/weekly/<date>/bing_webmaster.json`, same dated-folder
+convention as the Screaming Frog crawl, and is committed. **First baseline: 2026-09-30.**
+Rerun with the same command; there is no `--against` flag here because the script writes
+one point-in-time snapshot rather than a diff — read the committed JSON files side by side
+to see movement.
 
 ### Search Console, GA4, and Ahrefs — the browser tools
 
@@ -240,6 +274,41 @@ Screaming Frog found 109 URLs on 22 Aug, Ahrefs found 206 on 24 Aug. Two days ap
 is either growth or a crawl-scope difference, and until that is settled neither number is
 a reference count. The 2026-09-04 crawl found 118, which makes plain growth look like the
 weaker explanation.
+
+---
+
+## IndexNow — push notification on every Sunday publish
+
+Card #7806. Separate from the five measurement tools above: IndexNow is not something you
+run, it is something the Sunday publish cron does automatically, and this section is how
+to verify it did.
+
+**How it works.** `backend/utils/indexnow.py` holds a public 32-character key
+(`INDEXNOW_KEY`) and one function, `submit_urls`, that POSTs to the shared multi-engine
+endpoint `https://api.indexnow.org/indexnow` (spec:
+[indexnow.org/documentation](https://www.indexnow.org/documentation)) — one attempt, a 10s
+timeout, no retry. The key is **not a secret**: IndexNow proves site ownership by making
+the key fetchable from the site itself, so the matching file is committed at
+`src/<INDEXNOW_KEY>.txt` and routed at the site root in `vercel.json`, right next to
+`/BingSiteAuth.xml` and before the `www` → apex redirect (a verification file must never
+308 through a redirect first).
+
+In `backend/admin/cron_routes.py`, `cron_sunday` calls `_submit_sunday_indexnow` as the
+very last step of a first-time publish, after the reader pages are confirmed written and
+the advisory alert has gone out. It submits exactly three URLs: the new recipe page, the
+homepage, and the recipes index. It:
+
+- **Never fires in test mode.** Gated on both `not body.test` and `not storage.prefix` —
+  belt and braces, since `_test_mode_scope` sets both from the same flag, but the storage
+  prefix is the structural guarantee RUNBOOK Incident 1 already established.
+- **Never blocks or fails the publish.** `submit_urls` reports an `IndexNowResult` rather
+  than raising; the wrapper logs a warning and appends an episode event
+  (`"sunday: indexnow submitted (...)"` or `"sunday: indexnow submission failed (...)"`) on
+  either outcome and never lets an exception escape into the publish path.
+
+**How to verify it fired.** Check the published episode's `events` list for an `indexnow`
+line, or watch for the warning log on a failure. There is no dashboard on the IndexNow
+side to poll — the protocol is fire-and-forget; 200/202 means accepted, not indexed.
 
 ---
 

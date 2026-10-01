@@ -1269,6 +1269,15 @@ def _catalog_duplicate_reason(new_entry: dict, existing_entry: dict) -> str | No
     return None
 
 
+def catalog_slug(episode: dict) -> str:
+    """The slug this episode's recipe gets in the catalog (and so its
+    /recipes/<slug> URL), or "" when it has no usable title. One derivation
+    for the catalog and every caller that needs the same URL (#7806)."""
+    recipe = episode.get("stages", {}).get("monday", {}).get("recipe_data", {})
+    title = _clean_title(recipe.get("title", ""))
+    return _slugify(title) if title else ""
+
+
 def publish_recipe_to_catalog(episode: dict) -> str | None:
     """Add the finished recipe to recipes.json and upload to blob.
 
@@ -1283,7 +1292,7 @@ def publish_recipe_to_catalog(episode: dict) -> str | None:
         logger.warning("No recipe title — skipping catalog publish")
         return None
 
-    slug = _slugify(title)
+    slug = catalog_slug(episode)
 
     # Build the hero image URL using /blob-images/ rewrite. Store the
     # WebP variant in the catalog so the index page loads ~5% of the PNG
