@@ -5,7 +5,9 @@ REST API to verify correct request structure, caching, and fallback behavior.
 """
 
 import os
+import re
 from io import BytesIO
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -401,37 +403,45 @@ class TestCloudBackendImageSiblings:
         webp_400w = self._response("https://cdn.example.com/images/recipe/hero-400w.webp")
         webp_800w = self._response("https://cdn.example.com/images/recipe/hero-800w.webp")
         social = self._response("https://cdn.example.com/images/recipe/hero.social.jpg")
+        jpeg_fallback = self._response("https://cdn.example.com/images/recipe/hero-1200w.jpg")
 
         with patch(
             "requests.put",
-            side_effect=[canonical, webp, webp_400w, webp_800w, social],
+            side_effect=[canonical, webp, webp_400w, webp_800w, social, jpeg_fallback],
         ) as mock_put:
             result = cloud_backend.save_image(
                 "src/assets/images/recipe/hero.png", self._png_bytes()
             )
 
         assert result == "https://cdn.example.com/images/recipe/hero.png"
-        assert mock_put.call_count == 5
+        assert mock_put.call_count == 6
 
-        canonical_call, webp_call, webp_400_call, webp_800_call, social_call = (
-            mock_put.call_args_list
-        )
+        (
+            canonical_call,
+            webp_call,
+            webp_400_call,
+            webp_800_call,
+            social_call,
+            jpeg_fallback_call,
+        ) = mock_put.call_args_list
         assert [call.args[0] for call in mock_put.call_args_list] == [
             "https://blob.vercel-storage.com/images/recipe/hero.png",
             "https://blob.vercel-storage.com/images/recipe/hero.webp",
             "https://blob.vercel-storage.com/images/recipe/hero-400w.webp",
             "https://blob.vercel-storage.com/images/recipe/hero-800w.webp",
             "https://blob.vercel-storage.com/images/recipe/hero.social.jpg",
+            "https://blob.vercel-storage.com/images/recipe/hero-1200w.jpg",
         ]
 
         assert canonical_call.kwargs["headers"]["Content-Type"] == "image/png"
         assert webp_call.kwargs["headers"]["Content-Type"] == "image/webp"
         assert webp_400_call.kwargs["headers"]["Content-Type"] == "image/webp"
         assert webp_800_call.kwargs["headers"]["Content-Type"] == "image/webp"
+        assert jpeg_fallback_call.kwargs["headers"]["Content-Type"] == "image/jpeg"
         # Variant siblings use the same deterministic-pathname contract as
         # every other sibling upload (#5251) — otherwise the renderer's
-        # srcset string rewrite can't resolve them.
-        for call in (webp_400_call, webp_800_call):
+        # srcset/fallback string rewrite can't resolve them.
+        for call in (webp_400_call, webp_800_call, jpeg_fallback_call):
             assert call.kwargs["headers"]["x-add-random-suffix"] == "0"
             assert call.kwargs["headers"]["x-allow-overwrite"] == "1"
         # 400w variant is actually downscaled, not just re-encoded at full size.
@@ -448,6 +458,10 @@ class TestCloudBackendImageSiblings:
         with Image.open(BytesIO(social_call.kwargs["data"])) as image:
             assert image.format == "JPEG"
             assert image.size == (1200, 630)
+        # JPEG fallback preserves aspect ratio (no crop) unlike the social sibling.
+        with Image.open(BytesIO(jpeg_fallback_call.kwargs["data"])) as image:
+            assert image.format == "JPEG"
+            assert image.width == 1200
 
     def test_sibling_conversion_or_upload_failure_does_not_fail_png_publish(
         self, cloud_backend
@@ -462,6 +476,7 @@ class TestCloudBackendImageSiblings:
                 RuntimeError("400w variant unavailable"),
                 RuntimeError("800w variant unavailable"),
                 RuntimeError("social jpeg unavailable"),
+                RuntimeError("jpeg fallback unavailable"),
             ],
         ) as mock_put:
             result = cloud_backend.save_image(
@@ -469,7 +484,7 @@ class TestCloudBackendImageSiblings:
             )
 
         assert result == "https://cdn.example.com/images/recipe/hero.png"
-        assert mock_put.call_count == 5
+        assert mock_put.call_count == 6
 
         with (
             patch("backend.storage._encode_social_jpeg", side_effect=OSError("bad PNG")),
@@ -480,6 +495,36 @@ class TestCloudBackendImageSiblings:
             )
 
         assert result == "https://cdn.example.com/images/recipe/hero.png"
+
+
+class TestCanonicalPngKey:
+    """_canonical_png_key strips Vercel's legacy random-hash suffix (#7185 review).
+
+    The single shared function _webp_variant_key, _jpeg_fallback_key, and
+    episode_renderer's URL rewriters all route through, so a historical
+    suffixed PNG can never make the probe and the rendered URL disagree.
+    """
+
+    def test_strips_suffix(self):
+        from backend.storage import _canonical_png_key
+
+        assert _canonical_png_key("images/abc-9VSOT4SGhaUDoAUDM3kZPqxd3.png") == (
+            "images/abc.png"
+        )
+
+    def test_clean_key_is_a_no_op(self):
+        from backend.storage import _canonical_png_key
+
+        assert _canonical_png_key("images/recipe/hero.png") == "images/recipe/hero.png"
+
+    def test_short_hyphenated_segment_is_not_mistaken_for_a_suffix(self):
+        """A real deterministic key can contain short hyphenated segments
+        (recipe slugs, round-N variants) — only a 20+ char hash must strip."""
+        from backend.storage import _canonical_png_key
+
+        assert _canonical_png_key("images/2068c0cc/round_1/hero-closeup.png") == (
+            "images/2068c0cc/round_1/hero-closeup.png"
+        )
 
 
 class TestWebpVariantKey:
@@ -500,6 +545,17 @@ class TestWebpVariantKey:
 
         with pytest.raises(ValueError):
             _webp_variant_key("images/recipe/hero.webp", 400)
+
+    def test_strips_vercel_random_suffix_before_building_the_variant_key(self):
+        """#7185 review, HIGH: a historical suffixed PNG key must resolve to
+        the SAME variant key the renderer's stripped URL rewrite expects —
+        otherwise a backfilled/probed variant lives at a key the page never
+        points at."""
+        from backend.storage import _webp_variant_key
+
+        assert _webp_variant_key(
+            "images/abc-9VSOT4SGhaUDoAUDM3kZPqxd3.png", 400
+        ) == "images/abc-400w.webp"
 
 
 class TestEncodeWebpVariant:
@@ -612,6 +668,400 @@ class TestCloudBackendImageVariantsAvailable:
             backend._fs, "image_variants_available", return_value=True
         ) as mock_fs:
             assert backend.image_variants_available("recipe/hero.png") is True
+        mock_fs.assert_called_once_with("recipe/hero.png")
+
+
+class TestJpegFallbackKey:
+    """Deterministic sized-JPEG fallback key naming (#7185)."""
+
+    def test_appends_width_descriptor_before_jpg_extension(self):
+        from backend.storage import JPEG_FALLBACK_WIDTH, _jpeg_fallback_key
+
+        assert _jpeg_fallback_key("images/recipe/hero.png") == (
+            f"images/recipe/hero-{JPEG_FALLBACK_WIDTH}w.jpg"
+        )
+
+    def test_rejects_non_png_key(self):
+        from backend.storage import _jpeg_fallback_key
+
+        with pytest.raises(ValueError):
+            _jpeg_fallback_key("images/recipe/hero.webp")
+
+    def test_distinct_from_social_jpeg_key(self):
+        """The fallback sibling and the social crop must never collide."""
+        from backend.storage import _jpeg_fallback_key, _social_jpeg_key
+
+        assert _jpeg_fallback_key("images/recipe/hero.png") != _social_jpeg_key(
+            "images/recipe/hero.png"
+        )
+
+    def test_strips_vercel_random_suffix_before_building_the_fallback_key(self):
+        """#7185 review, HIGH: for a historical suffixed PNG, the key this
+        function returns is what the uploader, the backfill script, AND the
+        renderer's existence probe all use — it must be the canonical
+        (stripped) key, matching episode_renderer._to_jpeg_fallback_url's
+        rendered URL, or a backfilled sibling lives at a key nothing ever
+        requests."""
+        from backend.storage import JPEG_FALLBACK_WIDTH, _jpeg_fallback_key
+
+        assert _jpeg_fallback_key("images/abc-9VSOT4SGhaUDoAUDM3kZPqxd3.png") == (
+            f"images/abc-{JPEG_FALLBACK_WIDTH}w.jpg"
+        )
+
+
+class TestSourcePngKey:
+    """_source_png_key (#7185 review round 2, HIGH) — the inverse of every
+    sibling-key builder above. Anything reading a hero identity back out of
+    rendered HTML (scripts/pin_published_heroes.py) must route through this
+    before storing it, or a JPEG/WebP URL can get permanently pinned as the
+    hero's "source PNG"."""
+
+    def test_jpeg_fallback_inverts_to_source_png(self):
+        from backend.storage import JPEG_FALLBACK_WIDTH, _source_png_key
+
+        assert _source_png_key(f"images/recipe/hero-{JPEG_FALLBACK_WIDTH}w.jpg") == (
+            "images/recipe/hero.png"
+        )
+
+    def test_webp_width_variant_inverts_to_source_png(self):
+        from backend.storage import _source_png_key
+
+        assert _source_png_key("images/recipe/hero-400w.webp") == "images/recipe/hero.png"
+        assert _source_png_key("images/recipe/hero-800w.webp") == "images/recipe/hero.png"
+
+    def test_bare_full_size_webp_is_left_ambiguous_not_inverted(self):
+        """#7185 review round 3, MEDIUM: a width-less '.webp' is what
+        _upload_webp_sibling names the derived full-size sibling, but a
+        filename alone cannot prove THIS one is that sibling rather than an
+        original, hand-authored webp with no PNG behind it. Resolving that
+        ambiguity needs real I/O (an existence check), which does not belong
+        in this pure storage-layer function — see
+        scripts/pin_published_heroes.py's _webp_source_png_if_it_exists."""
+        from backend.storage import _source_png_key
+
+        assert _source_png_key("images/recipe/hero.webp") == "images/recipe/hero.webp"
+
+    def test_social_jpeg_inverts_to_source_png(self):
+        from backend.storage import _source_png_key
+
+        assert _source_png_key("images/recipe/hero.social.jpg") == "images/recipe/hero.png"
+
+    def test_png_key_passes_through_unchanged(self):
+        """Deliberately does NOT also canonicalize a Vercel suffix here —
+        this is the inverse of the sibling-key builders, not a second copy
+        of _canonical_png_key's job, and scripts/pin_published_heroes.py
+        already round-trips a suffixed PNG unchanged."""
+        from backend.storage import _source_png_key
+
+        assert _source_png_key("images/recipe/hero.png") == "images/recipe/hero.png"
+        assert _source_png_key("images/abc-9VSOT4SGhaUDoAUDM3kZPqxd3.png") == (
+            "images/abc-9VSOT4SGhaUDoAUDM3kZPqxd3.png"
+        )
+
+    def test_unrecognized_format_passes_through_unchanged(self):
+        """A seed .webp with no PNG sibling at all must not be rewritten to
+        a PNG key that was never uploaded."""
+        from backend.storage import _source_png_key
+
+        assert _source_png_key("classic-blueberry-muffins.jpeg") == (
+            "classic-blueberry-muffins.jpeg"
+        )
+
+
+class TestEncodeJpegFallback:
+    """_encode_jpeg_fallback (#7185 review round 4) — a fixed
+    JPEG_FALLBACK_WIDTH x JPEG_FALLBACK_HEIGHT (16:9, HERO_ASPECT) center
+    crop, TRUE BY CONSTRUCTION regardless of the source's own aspect ratio.
+    Round 3 used a fixed SQUARE crop instead — also true by construction,
+    but visually wrong: cropping a wide source to a square first, then
+    having the hero box's own `object-fit: cover` crop that square again to
+    16:9, throws away real content (see the function's docstring)."""
+
+    @staticmethod
+    def _png_bytes(size=(1536, 1536)) -> bytes:
+        image = Image.new("RGBA", size, (10, 20, 30, 255))
+        output = BytesIO()
+        image.save(output, format="PNG")
+        return output.getvalue()
+
+    def test_square_source_encodes_to_the_fallback_16_9(self):
+        from backend.storage import (
+            JPEG_FALLBACK_HEIGHT,
+            JPEG_FALLBACK_WIDTH,
+            _encode_jpeg_fallback,
+        )
+
+        result = _encode_jpeg_fallback(self._png_bytes(size=(1536, 1536)))
+        with Image.open(BytesIO(result)) as image:
+            assert image.format == "JPEG"
+            assert image.size == (JPEG_FALLBACK_WIDTH, JPEG_FALLBACK_HEIGHT)
+            assert image.mode == "RGB"
+
+    def test_wide_2_to_1_source_is_center_cropped_to_the_same_fixed_16_9(self):
+        """The core round-4 regression case: a real, wide 2:1 source must
+        STILL come out exactly 1200x675 — matching the hero box's own 16:9
+        exactly, not a square that the browser would have to crop AGAIN."""
+        from backend.storage import (
+            JPEG_FALLBACK_HEIGHT,
+            JPEG_FALLBACK_WIDTH,
+            _encode_jpeg_fallback,
+        )
+
+        result = _encode_jpeg_fallback(self._png_bytes(size=(1600, 800)))
+        with Image.open(BytesIO(result)) as image:
+            assert image.size == (JPEG_FALLBACK_WIDTH, JPEG_FALLBACK_HEIGHT)
+
+    def test_tall_3_to_4_source_is_center_cropped_to_the_same_fixed_16_9(self):
+        from backend.storage import (
+            JPEG_FALLBACK_HEIGHT,
+            JPEG_FALLBACK_WIDTH,
+            _encode_jpeg_fallback,
+        )
+
+        result = _encode_jpeg_fallback(self._png_bytes(size=(900, 1200)))
+        with Image.open(BytesIO(result)) as image:
+            assert image.size == (JPEG_FALLBACK_WIDTH, JPEG_FALLBACK_HEIGHT)
+
+    def test_transparency_composited_onto_white(self):
+        from backend.storage import _encode_jpeg_fallback
+
+        image = Image.new("RGBA", (1536, 1536), (0, 0, 0, 0))
+        buf = BytesIO()
+        image.save(buf, format="PNG")
+
+        result = _encode_jpeg_fallback(buf.getvalue())
+        with Image.open(BytesIO(result)) as decoded:
+            assert decoded.convert("RGB").getpixel((0, 0)) == (255, 255, 255)
+
+
+# --- CSS-aware hero aspect-ratio checker (#7185 review round 5) ---
+#
+# A plain regex search for the FIRST `.recipe-hero__image { ... }` block
+# (the round-4 version of this guard) only ever sees the top-level rule —
+# a later `@media` override changing the ratio for phones would leave that
+# check green while phones actually lose content. This walks the real CSS
+# structure instead: strip comments, recurse into every brace-nested block
+# (so an @media wrapper is descended into, not skipped), and read the
+# aspect-ratio declaration off every LEAF rule whose selector targets
+# `.recipe-hero__image` specifically (never `-placeholder` or similar).
+
+_HERO_SELECTOR_RE = re.compile(r"\.recipe-hero__image(?![\w-])")
+_ASPECT_RATIO_RE = re.compile(r"aspect-ratio\s*:\s*(\d+)\s*/\s*(\d+)\s*;?")
+
+
+def _iter_css_leaf_rules(css: str):
+    """Yield (selector, declarations) for every CSS rule whose body holds
+    declarations, not further nested rules — at ANY nesting depth. A block
+    whose body itself contains `{` (an @-rule wrapper like @media/@supports)
+    is recursed into instead of yielded, so a selector nested inside it is
+    still found."""
+
+    def scan(text: str):
+        i = 0
+        n = len(text)
+        sel_start = 0
+        while i < n:
+            if text[i] == "{":
+                selector = text[sel_start:i]
+                depth = 1
+                j = i + 1
+                while j < n and depth:
+                    if text[j] == "{":
+                        depth += 1
+                    elif text[j] == "}":
+                        depth -= 1
+                    j += 1
+                body = text[i + 1 : j - 1]
+                if "{" in body:
+                    yield from scan(body)
+                else:
+                    yield selector.strip(), body
+                i = j
+                sel_start = j
+            else:
+                i += 1
+
+    stripped = re.sub(r"/\*.*?\*/", "", css, flags=re.DOTALL)
+    yield from scan(stripped)
+
+
+def _hero_aspect_ratios_in_css(css: str) -> list[tuple[int, int]]:
+    """Every aspect-ratio declared on a rule targeting .recipe-hero__image,
+    in document order, at any nesting depth (including inside @media)."""
+    ratios = []
+    for selector, body in _iter_css_leaf_rules(css):
+        if not _HERO_SELECTOR_RE.search(selector):
+            continue
+        match = _ASPECT_RATIO_RE.search(body)
+        if match:
+            ratios.append((int(match.group(1)), int(match.group(2))))
+    return ratios
+
+
+class TestHeroAspectMatchesCss:
+    """storage.HERO_ASPECT must track src/assets/site.css's actual rule(s)
+    (#7185 review round 4, tightened round 5) — the whole point of
+    _encode_jpeg_fallback's fixed-crop fix is that the fallback's shape
+    matches the hero box's real CSS shape exactly, on EVERY viewport the
+    CSS targets, not just the first rule in the file. If any rule (base or
+    an @media override) ever sets a different ratio without HERO_ASPECT
+    changing too, the fallback silently goes back to being a second, lossy
+    crop inside `object-fit: cover` for whichever viewport that rule
+    targets — this test is the tripwire."""
+
+    def test_recipe_hero_image_aspect_ratio_matches_hero_aspect_everywhere(self):
+        from backend.storage import HERO_ASPECT
+
+        css_path = Path(__file__).resolve().parents[1] / "src" / "assets" / "site.css"
+        css = css_path.read_text()
+
+        ratios = _hero_aspect_ratios_in_css(css)
+        assert ratios, "no .recipe-hero__image rule declares an aspect-ratio in site.css"
+        assert all(ratio == HERO_ASPECT for ratio in ratios), (
+            f"site.css declares aspect-ratio(s) {ratios} for .recipe-hero__image "
+            f"across its rules (including any @media overrides), but "
+            f"storage.HERO_ASPECT is {HERO_ASPECT} — some viewport would show "
+            "a hero box shaped differently than the JPEG fallback's fixed crop; "
+            "update HERO_ASPECT (and re-run scripts/backfill_image_variants.py)."
+        )
+
+        assert (
+            "object-fit: cover" in css or "object-fit:cover" in css
+        ), "the img object-fit:cover rule moved or was removed — re-check this test's assumptions"
+
+    def test_checker_descends_into_media_queries_and_flags_a_disagreeing_override(self):
+        """Proves the guard actually works rather than just looking
+        plausible: a synthetic stylesheet with a base 16:9 rule plus a
+        mobile @media override at a DIFFERENT ratio must yield BOTH values
+        — exactly the drift the real test above exists to catch, and which
+        a first-rule-only regex would have missed entirely."""
+        synthetic_css = """
+        .recipe-hero__image {
+            aspect-ratio: 16 / 9;
+            overflow: hidden;
+        }
+        .recipe-hero__image img { object-fit: cover; }
+        @media (max-width: 480px) {
+            .recipe-hero__image {
+                aspect-ratio: 1 / 1;
+            }
+        }
+        """
+        ratios = _hero_aspect_ratios_in_css(synthetic_css)
+        assert ratios == [(16, 9), (1, 1)]
+        assert len(set(ratios)) > 1, "the checker must be able to detect a disagreement"
+
+    def test_checker_strips_comments_before_matching(self):
+        synthetic_css = """
+        .recipe-hero__image { aspect-ratio: 16 / 9; }
+        /* .recipe-hero__image { aspect-ratio: 1 / 1; } */
+        """
+        assert _hero_aspect_ratios_in_css(synthetic_css) == [(16, 9)]
+
+    def test_checker_ignores_the_placeholder_class(self):
+        """.recipe-hero__image-placeholder must never be mistaken for the
+        hero image container itself."""
+        synthetic_css = """
+        .recipe-hero__image { aspect-ratio: 16 / 9; }
+        .recipe-hero__image-placeholder { aspect-ratio: 4 / 3; }
+        """
+        assert _hero_aspect_ratios_in_css(synthetic_css) == [(16, 9)]
+
+    def test_checker_finds_a_deeply_nested_at_rule_override(self):
+        """@supports wrapping @media (or any other nesting depth) must
+        still be descended into, not just one level of @media."""
+        synthetic_css = """
+        .recipe-hero__image { aspect-ratio: 16 / 9; }
+        @supports (aspect-ratio: 1 / 1) {
+            @media (max-width: 480px) {
+                .recipe-hero__image { aspect-ratio: 1 / 1; }
+            }
+        }
+        """
+        assert _hero_aspect_ratios_in_css(synthetic_css) == [(16, 9), (1, 1)]
+
+
+class TestCloudBackendJpegFallbackAvailable:
+    """storage.jpeg_fallback_available (#7185) — same HEAD-probe contract as
+    image_variants_available, for the single JPEG <img>-fallback sibling.
+    """
+
+    def test_true_when_fallback_blob_exists(self, cloud_backend):
+        from backend.storage import JPEG_FALLBACK_WIDTH
+
+        response = MagicMock()
+        response.status_code = 200
+        with patch("requests.head", return_value=response) as mock_head:
+            assert cloud_backend.jpeg_fallback_available("recipe/hero.png") is True
+
+        assert mock_head.call_args_list[0].args[0] == (
+            "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/"
+            f"images/recipe/hero-{JPEG_FALLBACK_WIDTH}w.jpg"
+        )
+        assert "headers" not in mock_head.call_args_list[0].kwargs, "public probe must not send the token"
+
+    def test_suffixed_historical_key_probes_the_canonical_sibling(self, cloud_backend):
+        """#7185 review, HIGH: a pre-#5251 PNG's lookup key still carries
+        Vercel's random-hash suffix (episode_renderer._variant_lookup_key
+        never strips it) — the probe must still check the canonical
+        (stripped) sibling key, the same one _to_jpeg_fallback_url renders,
+        not a suffixed key nothing ever uploads to."""
+        from backend.storage import JPEG_FALLBACK_WIDTH
+
+        response = MagicMock()
+        response.status_code = 200
+        with patch("requests.head", return_value=response) as mock_head:
+            assert cloud_backend.jpeg_fallback_available(
+                "recipe/hero-9VSOT4SGhaUDoAUDM3kZPqxd3.png"
+            ) is True
+
+        assert mock_head.call_args_list[0].args[0] == (
+            "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/"
+            f"images/recipe/hero-{JPEG_FALLBACK_WIDTH}w.jpg"
+        )
+
+    def test_false_when_fallback_blob_missing(self, cloud_backend):
+        response = MagicMock()
+        response.status_code = 404
+        with patch("requests.head", return_value=response):
+            assert cloud_backend.jpeg_fallback_available("recipe/hero.png") is False
+
+    def test_false_on_network_error(self, cloud_backend):
+        with patch("requests.head", side_effect=Exception("timeout")):
+            assert cloud_backend.jpeg_fallback_available("recipe/hero.png") is False
+
+    def test_false_for_non_png_key_without_a_network_call(self, cloud_backend):
+        with patch("requests.head") as mock_head:
+            assert cloud_backend.jpeg_fallback_available("recipe/hero.webp") is False
+        mock_head.assert_not_called()
+
+    def test_respects_prefix_for_test_mode_isolation(self, cloud_backend):
+        from backend.storage import JPEG_FALLBACK_WIDTH
+
+        cloud_backend.set_prefix("test/")
+        response = MagicMock()
+        response.status_code = 200
+        with patch("requests.head", return_value=response) as mock_head:
+            cloud_backend.jpeg_fallback_available("recipe/hero.png")
+
+        called_url = mock_head.call_args_list[0].args[0]
+        assert called_url == (
+            "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/"
+            f"test/images/recipe/hero-{JPEG_FALLBACK_WIDTH}w.jpg"
+        )
+
+    def test_falls_back_to_filesystem_without_cloud_token(self):
+        from backend.storage import _CloudBackend
+
+        with patch.dict(os.environ, {}, clear=True):
+            os.environ.pop("VERCEL_ENV", None)
+            os.environ.pop("BLOB_READ_WRITE_TOKEN", None)
+            backend = _CloudBackend()
+
+        with patch.object(
+            backend._fs, "jpeg_fallback_available", return_value=True
+        ) as mock_fs:
+            assert backend.jpeg_fallback_available("recipe/hero.png") is True
         mock_fs.assert_called_once_with("recipe/hero.png")
 
 
