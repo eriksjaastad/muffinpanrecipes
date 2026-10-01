@@ -691,13 +691,19 @@ def _transition(state_path: Path, episode_id: str | None) -> int:
     # it ran THIS cycle and no longer reports it. An id whose check did NOT
     # run this cycle (e.g. catalog down) is left exactly as it was — neither
     # cleared (unverified) nor re-alerted (already announced once).
-    cleared_ids = {
+    new_ids = observed_ids - prev_alerted_ids
+    # Clearing happens only on a run with no new failures (Codex round 10).
+    # Otherwise A could clear while B's alert failed or was deferred: the
+    # state would drop A with nobody told it resolved, and if B then cleared
+    # too, there would be nothing left alerted to "recover" from, so no
+    # recovery alert ever went out. Holding A until a quiet run means a
+    # full recovery is always announced by the recovery alert below.
+    cleared_ids = set() if new_ids else {
         fid
         for fid in prev_alerted_ids
         if _failure_id_group(fid) in checks_ran and fid not in observed_ids
     }
     after_clear_ids = prev_alerted_ids - cleared_ids
-    new_ids = observed_ids - prev_alerted_ids
 
     committed_alerted: dict[str, str] = {i: prev_alerted[i] for i in after_clear_ids}
     alerted_at = previous.get("alerted_at")
@@ -713,9 +719,9 @@ def _transition(state_path: Path, episode_id: str | None) -> int:
             committed_alerted.update({i: observed[i] for i in ordered_new_ids[:shown]})
             alerted_at = _utc_now_iso()
         else:
-            # Clearing (unrelated old failures confirmed gone) still applies
-            # regardless — only the NEW ids stay unconfirmed so they're
-            # retried next run (round 1 correction A, generalized to a set).
+            # The NEW ids stay unconfirmed so they're retried next run (round
+            # 1 correction A, generalized to a set); nothing cleared this run
+            # either (round 10), so no resolution goes unannounced.
             print(
                 f"{LABEL}: DEGRADED alert (new failures) was not delivered on any "
                 "channel; left pending for the next run",

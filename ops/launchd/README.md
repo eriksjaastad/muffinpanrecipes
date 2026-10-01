@@ -168,7 +168,11 @@ The monitor stays silent on:
   outage never blocks A from being alerted on its own if A is new.
 - A failure id that clears while at least one other stays active (a
   **partial** recovery) — the clearing is applied to `alerted_failures`
-  silently, no alert, until the LAST one clears too.
+  silently, no alert, until the LAST one clears too. Clearing only happens
+  on a run with **no new failures**: on a run that alerts something new, a
+  resolved id is held until the next quiet run, so a resolution can never
+  slip by between an undelivered (or deferred) new alert and the recovery
+  alert.
 - The exact same set of ids repeating, forever — a monitor that repeats
   itself every hour trains you to ignore it.
 

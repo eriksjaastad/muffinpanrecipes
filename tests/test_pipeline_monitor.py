@@ -291,11 +291,14 @@ def test_new_episode_week_failing_the_same_way_alerts_once(tmp_path, monkeypatch
 
     saved = json.loads(state.read_text())
     assert saved["episode_id"] == "2026-W41"
-    assert len(saved["alerted_failures"]) == 1  # the old W40 id rolled off
+    # Nothing clears on a run that alerted something new (round 10).
+    assert len(saved["alerted_failures"]) == 2
 
-    # Running the new week again with the SAME failure goes quiet.
+    # Running the new week again with the SAME failure goes quiet, and the
+    # old W40 id rolls off on that quiet run.
     pm.run(state)
     assert len(posts) == 2
+    assert len(json.loads(state.read_text())["alerted_failures"]) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -1243,3 +1246,48 @@ def test_compose_counts_only_a_leading_run_of_new_failures():
     body, included = pm._compose_degraded_body("summary", _many_long_failures(), ["old"] * 50)
     assert len(body) <= pm._ALERT_BODY_BUDGET
     assert included == sum(1 for f in _many_long_failures() if f in body)
+
+
+# ---------------------------------------------------------------------------
+# Round 10: A cleared on the same run B appeared, B's alert failed (or was
+# deferred), then B cleared too, and no recovery alert ever went out for A.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("b_alert", ["undelivered", "delivered"])
+def test_recovery_is_announced_even_when_the_new_failure_alert_failed(tmp_path, monkeypatch, b_alert):
+    state = tmp_path / "pipeline_status.json"
+    posts = _captured_alerts(monkeypatch)
+
+    _install_pipeline(monkeypatch, episode_only_failures=["stage A"])
+    pm.run(state)
+    assert len(posts) == 1
+
+    # A resolves as B appears; B's alert may fail.
+    posts.deliver = b_alert == "delivered"
+    _install_pipeline(monkeypatch, episode_only_failures=["stage B"])
+    pm.run(state)
+    alerted = set(json.loads(state.read_text())["alerted_failures"].values())
+    assert "stage A" in alerted  # held: nothing clears on a run with new failures
+
+    # B resolves before the next run: a full recovery must be announced.
+    posts.deliver = True
+    _install_pipeline(monkeypatch, episode_only_failures=[])
+    pm.run(state)
+    assert any("recovered" in p["subject"].lower() for p in posts)
+    assert json.loads(state.read_text())["alerted_failures"] == {}
+
+
+def test_deferred_new_failures_do_not_clear_resolved_ones(tmp_path, monkeypatch):
+    state = tmp_path / "pipeline_status.json"
+    posts = _captured_alerts(monkeypatch)
+    _install_pipeline(monkeypatch, episode_only_failures=["stage A"])
+    pm.run(state)
+
+    _install_pipeline(monkeypatch, episode_only_failures=_many_long_failures())
+    pm.run(state)
+    assert "stage A" in json.loads(state.read_text())["alerted_failures"].values()
+
+    _install_pipeline(monkeypatch, episode_only_failures=[])
+    pm.run(state)
+    assert any("recovered" in p["subject"].lower() for p in posts)
