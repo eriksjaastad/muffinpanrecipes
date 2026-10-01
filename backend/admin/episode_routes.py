@@ -153,10 +153,16 @@ async def sitemap_xml():
         catalog_raw = static.read_text() if static.exists() else '{"recipes": []}'
 
     try:
-        recipes = json.loads(catalog_raw).get("recipes", [])
-    except Exception:
-        logger.error("sitemap: catalog JSON unparseable, emitting site roots only")
-        recipes = []
+        data = json.loads(catalog_raw)
+        recipes = data if isinstance(data, list) else data.get("recipes")
+        if not isinstance(recipes, list):
+            raise ValueError("catalog has no 'recipes' list")
+    except (ValueError, AttributeError):
+        # Raise (500) rather than serve a 200 roots-only sitemap: crawlers
+        # read that as every recipe URL withdrawn (#7833), the same reason
+        # _load_catalog_recipes raises for the /recipes hub.
+        logger.error("sitemap: catalog JSON unparseable or malformed")
+        raise
 
     return Response(content=render_sitemap(recipes), media_type="application/xml")
 

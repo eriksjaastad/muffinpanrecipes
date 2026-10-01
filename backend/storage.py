@@ -366,6 +366,19 @@ class CharacterMemoryUnavailable(Exception):
     """
 
 
+class PageReadError(RuntimeError):
+    """A page READ could not be completed (#7833).
+
+    ``load_page`` returns None only when the page is genuinely absent (the
+    Blob list API answered and listed nothing under that key). A non-OK
+    list or content response, a network error or timeout, or an unusable
+    list payload raises this instead. The two used to share the None
+    return, so one Blob 5xx during the Sunday publish read as "no catalog
+    yet" and the publisher re-seeded the live catalog from src/recipes.json
+    over every cron-published recipe.
+    """
+
+
 _ISO_WEEK_RE = re.compile(r"^(\d{4})-W(\d{2})$")
 
 
@@ -1191,7 +1204,13 @@ class _CloudBackend:
         return blob_url
 
     def load_page(self, pathname: str) -> Optional[str]:
-        """Load a page from Vercel Blob. Returns content or None."""
+        """Load a page from Vercel Blob.
+
+        Returns the content, or None only when the page is genuinely absent
+        (the list API answered OK and listed no blob under the key). Any
+        failed read raises PageReadError — a caller must never mistake a
+        Blob outage for "no such page" (#7833).
+        """
         if not self._has_cloud():
             return self._fs.load_page(pathname)
 
@@ -1204,27 +1223,44 @@ class _CloudBackend:
             return self._page_cache[key]
 
         # List blobs to find the URL
-        resp = _requests.get(
-            self._BLOB_API,
-            params={"prefix": key, "limit": "1"},
-            headers=self._auth_headers(),
-            timeout=15,
-        )
+        try:
+            resp = _requests.get(
+                self._BLOB_API,
+                params={"prefix": key, "limit": "1"},
+                headers=self._auth_headers(),
+                timeout=15,
+            )
+        except _requests.RequestException as e:
+            raise PageReadError(f"Blob list failed for {key!r}: {type(e).__name__}: {e}") from e
         if not resp.ok:
-            return None
+            raise PageReadError(f"Blob list for {key!r} returned HTTP {resp.status_code}")
 
-        blobs = resp.json().get("blobs", [])
+        try:
+            blobs = resp.json().get("blobs")
+        except (ValueError, AttributeError) as e:
+            raise PageReadError(f"Blob list for {key!r} returned an unusable payload: {e}") from e
+        if not isinstance(blobs, list):
+            raise PageReadError(f"Blob list for {key!r} has no 'blobs' list")
         if not blobs:
             return None
 
-        # Fetch content from CDN URL
-        content_resp = _requests.get(blobs[0]["url"], timeout=15)
-        if content_resp.ok:
-            # CRITICAL: Use .content.decode() not .text — requests defaults
-            # to ISO-8859-1 for text/* without explicit charset, which
-            # double-encodes UTF-8 smart quotes/symbols into mojibake.
+        # Fetch content from CDN URL. The list just said the blob exists, so
+        # any non-OK answer here (404 included) is a failed read, not absence.
+        try:
+            content_resp = _requests.get(blobs[0]["url"], timeout=15)
+        except _requests.RequestException as e:
+            raise PageReadError(f"Blob content fetch failed for {key!r}: {type(e).__name__}: {e}") from e
+        except (KeyError, TypeError) as e:
+            raise PageReadError(f"Blob list entry for {key!r} has no url: {e}") from e
+        if not content_resp.ok:
+            raise PageReadError(f"Blob content for {key!r} returned HTTP {content_resp.status_code}")
+        # CRITICAL: Use .content.decode() not .text — requests defaults
+        # to ISO-8859-1 for text/* without explicit charset, which
+        # double-encodes UTF-8 smart quotes/symbols into mojibake.
+        try:
             return content_resp.content.decode("utf-8")
-        return None
+        except UnicodeDecodeError as e:
+            raise PageReadError(f"Blob content for {key!r} is not valid UTF-8: {e}") from e
 
     # --- Images ---
 

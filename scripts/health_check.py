@@ -267,7 +267,21 @@ def check_this_week_page(report: Report, base_url: str = PRODUCTION_BASE_URL) ->
                 if base_url == PRODUCTION_BASE_URL
                 else None
             )
-        except Exception:
+        except Exception as exc:
+            # Same rule as check_episode_integrity: only a 404 means "absent".
+            # A timeout, 5xx or unparseable body is a failed read, and passing
+            # it as the expected placeholder would hide a broken render (#7833).
+            response = getattr(exc, "response", None)
+            if not (
+                isinstance(exc, requests.HTTPError)
+                and response is not None
+                and response.status_code == 404
+            ):
+                raise AssertionError(
+                    f"/this-week is a {len(body)}-byte placeholder and episode "
+                    f"{week_id} could not be read from blob to confirm that is "
+                    f"expected: {type(exc).__name__}: {exc}"
+                ) from exc
             episode = None
         assert not episode_page_is_due(episode), (
             f"/this-week body is {len(body)} bytes, expected > 20000, and "
