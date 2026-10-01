@@ -311,7 +311,7 @@ Rows 5-7 were added 2026-10-01 on Erik's request, from a roleplay-model recommen
 passed on. They are candidates, not commitments. Each one still needs its tier chosen and a
 registry row written before its first paid call. All three are on OpenRouter, so they use the
 lab's existing route. List prices on 2026-10-01, per million input/output tokens: MiMo V2.6 Pro
-$0.435/$0.87, Qwen3.5-27B $0.195/$1.56, Kimi K3 $0.66/$10.00. Haiku 4.5 is $1/$5. Why each was
+$0.435/$0.87, Qwen3.5-27B $0.195/$1.56, Kimi K3 $0.6635/$10.00. Haiku 4.5 is $1/$5. Why each was
 named:
 - **MiMo V2.6 Pro:** said to handle multi-character scenes well and read like a transcript
   rather than generated text.
