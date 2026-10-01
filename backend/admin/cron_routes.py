@@ -2909,18 +2909,18 @@ def _submit_sunday_indexnow(ep: dict, episode_id: str, concept: str) -> None:
     ``submit_urls`` already reports rather than raises; this wrapper just
     decides what to do with that report).
     """
-    monday = ep.get("stages", {}).get("monday", {})
-    recipe_title = monday.get("recipe_data", {}).get("title", "")
-    if not recipe_title:
+    from backend.publishing.episode_renderer import catalog_slug
+
+    # The same slug the catalog (and so the sitemap) uses. URLs match the
+    # sitemap exactly: "/recipes" with no trailing slash, since "/recipes/"
+    # is a 307 to it and IndexNow should get the final URL.
+    slug = catalog_slug(ep)
+    if not slug:
         return
-
-    from backend.publishing.episode_renderer import _slugify
-
-    slug = _slugify(recipe_title)
     urls = [
         f"https://muffinpanrecipes.com/recipes/{slug}",
         "https://muffinpanrecipes.com/",
-        "https://muffinpanrecipes.com/recipes/",
+        "https://muffinpanrecipes.com/recipes",
     ]
     try:
         result = _indexnow_submit_urls(urls)

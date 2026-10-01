@@ -148,6 +148,6 @@ def test_cron_sunday_still_publishes_unpublished_episode(monkeypatch):
     indexnow_submit.assert_called_once_with([
         "https://muffinpanrecipes.com/recipes/herbed-sausage-sunrise-cups",
         "https://muffinpanrecipes.com/",
-        "https://muffinpanrecipes.com/recipes/",
+        "https://muffinpanrecipes.com/recipes",
     ])
     assert any("indexnow submitted" in event for event in episode["events"])

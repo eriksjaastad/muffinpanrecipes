@@ -97,7 +97,7 @@ def test_production_sunday_submits_indexnow(monkeypatch):
     indexnow_submit.assert_called_once_with([
         "https://muffinpanrecipes.com/recipes/herbed-sausage-sunrise-cups",
         "https://muffinpanrecipes.com/",
-        "https://muffinpanrecipes.com/recipes/",
+        "https://muffinpanrecipes.com/recipes",
     ])
     assert any("indexnow submitted" in event for event in episode["events"])
 
@@ -114,3 +114,30 @@ def test_indexnow_failure_is_recorded_and_never_raises(monkeypatch):
     assert result["published"] is True
     indexnow_submit.assert_called_once()
     assert any("indexnow submission failed" in event for event in episode["events"])
+
+
+def test_submitted_recipe_url_uses_the_catalog_slug_for_a_qualified_title():
+    """The catalog strips a trailing parenthetical before slugifying; the
+    IndexNow URL must be that same page, not a slug of the raw title that
+    would 404."""
+    from backend.publishing import episode_renderer
+
+    episode = {
+        "stages": {"monday": {"recipe_data": {
+            "title": "Make-Ahead Veggie & Sausage Egg Cups (Weekly Muffin Pan Breakfast)",
+        }}},
+        "events": [],
+    }
+    captured = {}
+
+    def fake_submit(urls):
+        captured["urls"] = urls
+        return IndexNowResult(ok=True, status_code=200, detail="submitted")
+
+    with patch.object(cron_routes, "_indexnow_submit_urls", side_effect=fake_submit), \
+         patch.object(cron_routes.storage, "save_episode"):
+        cron_routes._submit_sunday_indexnow(episode, "2026-W20", "c")
+
+    slug = episode_renderer.catalog_slug(episode)
+    assert slug == episode_renderer._slugify("Make-Ahead Veggie & Sausage Egg Cups")
+    assert captured["urls"][0] == f"https://muffinpanrecipes.com/recipes/{slug}"
