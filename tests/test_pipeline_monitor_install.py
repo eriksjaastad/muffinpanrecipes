@@ -115,7 +115,7 @@ def test_script_never_shells_out_to_rm():
     )
 
 
-def _fake_bin(tmp_path: Path, bootout_rc: int, print_rc: int = 0) -> tuple[Path, Path]:
+def _fake_bin(tmp_path: Path, bootout_rc: int, print_rc: int = 0, bootstrap_rc: int = 0) -> tuple[Path, Path]:
     """A PATH dir with stub `launchctl` and `trash` that log their calls.
     `print_rc` 0 means "the service is loaded"."""
     bin_dir = tmp_path / "bin"
@@ -126,6 +126,7 @@ def _fake_bin(tmp_path: Path, bootout_rc: int, print_rc: int = 0) -> tuple[Path,
         f'echo "launchctl $*" >> "{log}"\n'
         'if [[ "$1" == "bootout" ]]; then exit ' + str(bootout_rc) + "; fi\n"
         'if [[ "$1" == "print" ]]; then exit ' + str(print_rc) + "; fi\n"
+        'if [[ "$1" == "bootstrap" ]]; then exit ' + str(bootstrap_rc) + "; fi\n"
         "exit 0\n"
     )
     (bin_dir / "trash").write_text(f'#!/bin/bash\necho "trash $*" >> "{log}"\n')
@@ -227,7 +228,8 @@ def test_dry_run_still_renders_and_warns_when_a_binary_is_missing(tmp_path):
 
 
 def _run_install(tmp_path: Path, *, doppler_rc: int, bootout_rc: int = 0, print_rc: int = 113,
-                 existing_plist: str | None = None):
+                 existing_plist: str | None = None, bootstrap_rc: int = 0,
+                 doppler_sleep: int = 0, self_test_seconds: int | None = None):
     """Run a real (non-dry-run) install against stub launchctl/trash/doppler/uv
     and a temporary HOME."""
     import os
@@ -239,12 +241,16 @@ def _run_install(tmp_path: Path, *, doppler_rc: int, bootout_rc: int = 0, print_
         dest.write_text(existing_plist)
     else:
         home.mkdir()
-    bin_dir, log = _fake_bin(tmp_path, bootout_rc, print_rc)
-    (bin_dir / "doppler").write_text(f'#!/bin/bash\necho "doppler $*" >> "{log}"\nexit {doppler_rc}\n')
+    bin_dir, log = _fake_bin(tmp_path, bootout_rc, print_rc, bootstrap_rc)
+    (bin_dir / "doppler").write_text(
+        f'#!/bin/bash\necho "doppler $*" >> "{log}"\nsleep {doppler_sleep}\nexit {doppler_rc}\n'
+    )
     (bin_dir / "uv").write_text(f'#!/bin/bash\necho "uv $*" >> "{log}"\nexit 0\n')
     for name in ("doppler", "uv"):
         (bin_dir / name).chmod(0o755)
     env = {**os.environ, "HOME": str(home), "PATH": f"{bin_dir}:/usr/bin:/bin"}
+    if self_test_seconds is not None:
+        env["MUFFINPAN_SELF_TEST_SECONDS"] = str(self_test_seconds)
     result = subprocess.run(
         ["bash", str(SCRIPT)], cwd=REPO_ROOT, env=env, capture_output=True, text=True, timeout=30,
     )
@@ -256,8 +262,9 @@ def test_install_refuses_when_the_jobs_doppler_command_cannot_run(tmp_path):
     prd access) still printed "Installed and loaded"."""
     result, dest, calls = _run_install(tmp_path, doppler_rc=1)
     assert result.returncode == 1
-    assert "could not start" in result.stderr
+    assert "failed its self-test" in result.stderr
     assert "--config prd" in calls
+    assert "scripts/pipeline_monitor.py --self-test" in calls
     assert not dest.exists()
     assert "launchctl" not in calls
 
@@ -280,3 +287,32 @@ def test_install_succeeds_after_the_preflight_and_unload(tmp_path):
     assert dest.exists() and "{{" not in dest.read_text()
     order = [line.split()[0] + " " + line.split()[1] for line in calls.splitlines() if line.startswith(("doppler", "launchctl"))]
     assert order.index("doppler run") < order.index("launchctl bootout") < order.index("launchctl bootstrap")
+
+
+def test_a_stalled_self_test_fails_the_install_within_its_bound(tmp_path):
+    """Gate review on 333f31f: a stalled Doppler hung the installer."""
+    import time
+
+    started = time.monotonic()
+    result, dest, calls = _run_install(tmp_path, doppler_rc=0, doppler_sleep=20, self_test_seconds=1)
+    assert time.monotonic() - started < 15
+    assert result.returncode == 1
+    assert not dest.exists()
+    assert "launchctl" not in calls
+
+
+def test_a_failed_reinstall_bootstrap_restores_and_reloads_the_old_job(tmp_path):
+    """Gate review on 333f31f: unload succeeded, bootstrap failed, and the
+    old job stayed stopped with its plist overwritten."""
+    result, dest, calls = _run_install(
+        tmp_path, doppler_rc=0, bootstrap_rc=5, existing_plist="<plist>old working</plist>",
+    )
+    assert result.returncode == 1
+    assert dest.read_text() == "<plist>old working</plist>"
+    assert calls.count("launchctl bootstrap") == 2  # the new one, then the restored old one
+
+
+def test_a_failed_fresh_install_leaves_no_plist_for_the_next_login(tmp_path):
+    result, dest, calls = _run_install(tmp_path, doppler_rc=0, bootstrap_rc=5)
+    assert result.returncode == 1
+    assert f"trash {dest}" in calls

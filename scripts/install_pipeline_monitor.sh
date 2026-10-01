@@ -138,20 +138,49 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "$RENDERED"
   echo
   echo "# Would then run:"
+  echo "(cd '$REPO_DIR' && '$DOPPLER_BIN' run --project muffinpanrecipes --config prd -- '$UV_BIN' run python scripts/pipeline_monitor.py --self-test)  # bounded"
+  echo "launchctl bootout gui/$(id -u)/${LABEL}  # if loaded"
   echo "mkdir -p '$LOG_DIR'"
   echo "launchctl bootstrap gui/$(id -u) '$DEST'"
   echo "launchctl enable gui/$(id -u)/${LABEL}"
   exit 0
 fi
 
-# Prove the job's own command can run before installing anything: the
-# plist runs `doppler run --project muffinpanrecipes --config prd -- uv run
-# ...`, and executable paths alone do not show that Doppler is authenticated
-# with access to prd. Runs `uv --version` under that same wrapper; no
-# secret is printed.
-if ! "$DOPPLER_BIN" run --project muffinpanrecipes --config prd -- "$UV_BIN" --version >/dev/null 2>&1; then
-  echo "Install FAILED: '$DOPPLER_BIN run --project muffinpanrecipes --config prd -- $UV_BIN --version' failed; the hourly job could not start (check 'doppler login' and access to the prd config). Nothing was changed." >&2
+# Prove the job's own command can do its job before changing anything: run
+# exactly what launchd will run (same Doppler wrapper, same uv, same script,
+# same working directory) with --self-test, which imports everything and
+# checks the email credentials and the state directory without any network
+# call or alert. Bounded: a stalled Doppler or uv fails the install instead
+# of hanging it (perl, since macOS ships no `timeout`).
+SELF_TEST_SECONDS="${MUFFINPAN_SELF_TEST_SECONDS:-120}"
+# The command runs in its own process group, and the WHOLE group is killed
+# on expiry: Doppler's children (uv, python) would otherwise outlive it.
+_run_bounded() {
+  perl -e '
+    my $seconds = shift @ARGV;
+    my $pid = fork() // die "fork: $!";
+    if ($pid == 0) { setpgrp(0, 0); exec(@ARGV) or die "exec: $!"; }
+    local $SIG{ALRM} = sub {
+      kill("TERM", -$pid); sleep 2; kill("KILL", -$pid);
+      print STDERR "timed out after ${seconds}s\n"; exit 124;
+    };
+    alarm($seconds);
+    waitpid($pid, 0);
+    exit($? & 127 ? 128 + ($? & 127) : $? >> 8);
+  ' "$@"
+}
+if ! (cd "$REPO_DIR" && _run_bounded "$SELF_TEST_SECONDS" \
+      "$DOPPLER_BIN" run --project muffinpanrecipes --config prd -- \
+      "$UV_BIN" run python scripts/pipeline_monitor.py --self-test); then
+  echo "Install FAILED: the job's own command failed its self-test (or took over ${SELF_TEST_SECONDS}s); see the output above. Nothing was changed." >&2
   exit 1
+fi
+
+# Keep the current plist so a failed reinstall can put the working job back.
+BACKUP=""
+if [[ -f "$DEST" ]]; then
+  BACKUP="$(mktemp -t muffinpan-pipeline-monitor-plist)"
+  cp "$DEST" "$BACKUP"
 fi
 
 # Unload any existing copy BEFORE touching its plist, so a failed unload
@@ -163,8 +192,29 @@ mkdir -p "$HOME/Library/LaunchAgents"
 mkdir -p "$LOG_DIR"
 printf '%s\n' "$RENDERED" > "$DEST"
 
-launchctl bootstrap "gui/$(id -u)" "$DEST"
-launchctl enable "gui/$(id -u)/${LABEL}"
+if ! launchctl bootstrap "gui/$(id -u)" "$DEST" || ! launchctl enable "gui/$(id -u)/${LABEL}"; then
+  echo "Install FAILED: launchctl could not load the new job." >&2
+  # Best-effort: clear a half-loaded new job before restoring the old one.
+  # Its result is not trusted either way; the restore below reports its own.
+  launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || true
+  if [[ -n "$BACKUP" ]]; then
+    cp "$BACKUP" "$DEST"
+    if launchctl bootstrap "gui/$(id -u)" "$DEST"; then
+      echo "Restored and reloaded the previous job from $BACKUP." >&2
+    else
+      echo "Could NOT reload the previous job; its plist is restored at $DEST (backup: $BACKUP)." >&2
+    fi
+  else
+    # A fresh install that failed must not leave a plist launchd would
+    # load at the next login.
+    trash "$DEST"
+  fi
+  exit 1
+fi
+
+if [[ -n "$BACKUP" ]]; then
+  trash "$BACKUP"
+fi
 
 echo "Installed and loaded: $DEST"
 echo "Logs: $LOG_DIR"

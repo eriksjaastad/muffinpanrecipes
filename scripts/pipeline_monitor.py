@@ -197,7 +197,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from send2trash import send2trash  # noqa: E402
 
-from backend.utils.alerts import send_alert_confirming_email  # noqa: E402
+from backend.utils.alerts import email_channel_status, send_alert_confirming_email  # noqa: E402
 from scripts import session_pipeline_status as sps  # noqa: E402
 
 LABEL = "muffinpanrecipes pipeline"
@@ -910,5 +910,38 @@ def _safe_main() -> int:
         return 0
 
 
+def self_test(state_path: Path) -> int:
+    """`--self-test`: can THIS command, in THIS environment, do its job?
+
+    Run by the installer through the job's exact launchd command before it
+    changes anything. Reaching this function at all proves the interpreter
+    and every import resolve; it then checks the two things a run needs that
+    imports don't prove: the email channel is configured (Doppler supplied
+    the credentials) and the state directory is writable. No network call,
+    no alert, no state written. Unlike the scheduled path, it exits nonzero
+    on failure: its whole purpose is to report one.
+    """
+    problems = []
+    email = email_channel_status()
+    if not email["configured"]:
+        problems.append(f"email channel not configured (missing: {', '.join(email['missing'])})")
+    state_dir = state_path.parent
+    try:
+        state_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        problems.append(f"cannot create state directory {state_dir} ({type(exc).__name__}: {exc})")
+    else:
+        if not os.access(state_dir, os.W_OK):
+            problems.append(f"state directory {state_dir} is not writable")
+    for problem in problems:
+        print(f"{LABEL}: self-test FAILED: {problem}", file=sys.stderr)
+    if problems:
+        return 1
+    print(f"{LABEL}: self-test passed")
+    return 0
+
+
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--self-test"]:
+        sys.exit(self_test(_default_state_file()))
     sys.exit(_safe_main())

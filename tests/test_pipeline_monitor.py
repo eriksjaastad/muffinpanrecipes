@@ -1533,3 +1533,38 @@ def test_an_unrecordable_delivery_is_resent_at_least_once(tmp_path, monkeypatch,
     pm.run(state)
     assert "at-least-once delivery" in capsys.readouterr().err
     assert list(json.loads(state.read_text())["pending_failures"].values()) == ["stage A"]
+
+
+# ---------------------------------------------------------------------------
+# --self-test: run by the installer through the job's exact launchd command.
+# ---------------------------------------------------------------------------
+
+
+def test_self_test_passes_with_email_configured_and_a_writable_state_dir(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(pm, "email_channel_status", lambda: {"configured": True, "missing": []})
+    assert pm.self_test(tmp_path / "state" / "pipeline_status.json") == 0
+    assert "self-test passed" in capsys.readouterr().out
+
+
+def test_self_test_fails_without_email_credentials(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(
+        pm, "email_channel_status", lambda: {"configured": False, "missing": ["RESEND_API_KEY"]}
+    )
+    assert pm.self_test(tmp_path / "pipeline_status.json") == 1
+    assert "RESEND_API_KEY" in capsys.readouterr().err
+
+
+def test_self_test_fails_when_the_state_dir_is_not_writable(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(pm, "email_channel_status", lambda: {"configured": True, "missing": []})
+    monkeypatch.setattr(pm.os, "access", lambda *_a, **_k: False)
+    assert pm.self_test(tmp_path / "pipeline_status.json") == 1
+    assert "not writable" in capsys.readouterr().err
+
+
+def test_self_test_sends_nothing_and_writes_no_state(tmp_path, monkeypatch):
+    posts = _captured_alerts(monkeypatch)
+    monkeypatch.setattr(pm, "email_channel_status", lambda: {"configured": True, "missing": []})
+    state = tmp_path / "pipeline_status.json"
+    pm.self_test(state)
+    assert posts.attempts == 0
+    assert not state.exists()
