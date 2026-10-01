@@ -5,7 +5,7 @@ Feature: ai-creative-team
 """
 
 import tempfile
-from hypothesis import given, strategies as st
+from hypothesis import given, settings, strategies as st
 from pathlib import Path
 
 from backend.messaging.message_system import MessageSystem
@@ -20,6 +20,9 @@ message_content = st.text(min_size=10, max_size=200)
 
 
 # Feature: ai-creative-team, Property 8: Message Delivery Accuracy
+# Each example writes to a temp directory, so its run time depends on disk and
+# CPU load, not on the code under test. No per-example deadline (#7820).
+@settings(deadline=None)
 @given(
     sender=agent_roles,
     recipient=agent_roles,
@@ -81,6 +84,9 @@ def test_message_delivery_accuracy(
 
 
 # Feature: ai-creative-team, Property 9: Message Logging Completeness
+# Each example writes to a temp directory, so its run time depends on disk and
+# CPU load, not on the code under test. No per-example deadline (#7820).
+@settings(deadline=None)
 @given(
     messages_to_send=st.lists(
         st.tuples(agent_roles, agent_roles, message_content, message_types),
