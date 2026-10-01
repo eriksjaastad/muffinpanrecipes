@@ -828,7 +828,8 @@ def test_write_state_trashes_orphaned_temp_file_on_failure(tmp_path, monkeypatch
 
     monkeypatch.setattr(pm.os, "fdopen", _boom_fdopen)
 
-    pm.write_state(state, {"status": "ok"})
+    with pytest.raises(RuntimeError, match="simulated write failure"):
+        pm.write_state(state, {"status": "ok"})
 
     assert not state.exists()
     assert len(trashed) == 1
@@ -1452,3 +1453,48 @@ def test_retired_failure_is_held_while_the_current_week_is_still_failing(tmp_pat
     assert "recovered" in recovery["subject"].lower()
     assert "[2026-W40: week closed, no longer checked] stage A" in recovery["body"]
     assert "stage B" not in recovery["body"]  # verified resolved, so not listed
+
+
+# ---------------------------------------------------------------------------
+# Gate review on b7065b2: a state write that fails after a delivered alert
+# made the next run send it again. The state is now proven writable before
+# any alert goes out.
+# ---------------------------------------------------------------------------
+
+
+def test_unwritable_state_sends_no_alert(tmp_path, monkeypatch, capsys):
+    state = tmp_path / "pipeline_status.json"
+    posts = _captured_alerts(monkeypatch)
+    _install_pipeline(monkeypatch, episode_only_failures=["stage A"])
+
+    def _cannot_write(path, doc):
+        raise OSError("read-only file system")
+
+    monkeypatch.setattr(pm, "write_state", _cannot_write)
+    assert pm.run(state) == 0
+    assert posts.attempts == 0
+    assert "state not writable" in capsys.readouterr().err
+
+
+def test_state_is_written_before_the_alert_is_sent(tmp_path, monkeypatch):
+    """The pre-alert write records the failure as owed, so even a crash
+    between sending and the final write leaves a truthful state."""
+    state = tmp_path / "pipeline_status.json"
+    seen_at_send = {}
+    posts = _captured_alerts(monkeypatch)
+    real_send = pm.send_alert
+
+    def _send(**kwargs):
+        seen_at_send.update(json.loads(state.read_text()))
+        return real_send(**kwargs)
+
+    monkeypatch.setattr(pm, "send_alert", _send)
+    _install_pipeline(monkeypatch, episode_only_failures=["stage A"])
+    pm.run(state)
+
+    assert list(seen_at_send["pending_failures"].values()) == ["stage A"]
+    assert seen_at_send["alerted_failures"] == {}
+    assert len(posts) == 1
+    final = json.loads(state.read_text())
+    assert list(final["alerted_failures"].values()) == ["stage A"]
+    assert final["pending_failures"] == {}

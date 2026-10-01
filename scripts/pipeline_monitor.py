@@ -514,7 +514,10 @@ def write_state(path: Path, state: dict) -> None:
         os.replace(tmp_name, path)
         tmp_name = None
     except Exception as e:
+        # Raised, not swallowed: a caller must know its state did not land
+        # (gate review on b7065b2). The temp file is still cleaned up below.
         print(f"{LABEL}: state write failed ({type(e).__name__}: {e})", file=sys.stderr)
+        raise
     finally:
         # The repo forbids permanent deletion (AGENTS.md) even for an
         # orphaned temp file — trash it instead, same as
@@ -531,6 +534,17 @@ def write_state(path: Path, state: dict) -> None:
                     f"({type(trash_exc).__name__}: {trash_exc})",
                     file=sys.stderr,
                 )
+
+
+def _write_state_logged(path: Path, state: dict) -> bool:
+    """`write_state` for a write whose failure must not stop the run (it is
+    already reported on stderr by write_state). Returns whether it landed."""
+    try:
+        write_state(path, state)
+        return True
+    except Exception:
+        print(f"{LABEL}: continuing without a saved state this run", file=sys.stderr)
+        return False
 
 
 @contextlib.contextmanager
@@ -690,7 +704,7 @@ def _transition(state_path: Path, episode_id: str | None) -> int:
         # (first-ever run — this is the ONE case "unknown" is ever
         # persisted), so a reader has something rather than nothing.
         if read_state(state_path) is None:
-            write_state(
+            _write_state_logged(
                 state_path,
                 {
                     "status": "unknown",
@@ -756,6 +770,29 @@ def _transition(state_path: Path, episode_id: str | None) -> int:
     alerted: dict[str, str] = dict(prev_alerted)
     alerted_at = previous.get("alerted_at")
 
+    def _state_doc() -> dict:
+        return {
+            "status": "degraded" if (observed_ids or alerted or pending) else "ok",
+            "episode_id": verdict["episode_id"],
+            "summary": verdict["summary"],
+            "failures": [observed[i] for i in sorted(observed_ids)],
+            "checks_ran": sorted(checks_ran),
+            "checked_at": _utc_now_iso(),
+            "alerted_failures": dict(alerted),
+            "pending_failures": dict(pending),
+            "alerted_at": alerted_at,
+        }
+
+    # Prove the state can be written BEFORE any alert goes out, by writing
+    # what is true right now: nothing new delivered, newly seen failures
+    # owed. If that fails, an alert sent now could never be recorded and
+    # would repeat every hour, so the run defers like an unreadable state
+    # file (gate review on b7065b2).
+    try:
+        write_state(state_path, _state_doc())
+    except Exception as exc:
+        raise StateUnavailable(f"state not writable ({type(exc).__name__}: {exc})") from None
+
     # Alert pending failures this run re-confirmed (an unverified one waits
     # for its check to run again), plus retired ones, which can never be
     # re-confirmed and would otherwise never be told at all.
@@ -805,22 +842,11 @@ def _transition(state_path: Path, episode_id: str | None) -> int:
             for fid in resolved_alerted:
                 del alerted[fid]
 
-    status = "degraded" if (observed_ids or alerted or pending) else "ok"
-
-    write_state(
-        state_path,
-        {
-            "status": status,
-            "episode_id": verdict["episode_id"],
-            "summary": verdict["summary"],
-            "failures": [observed[i] for i in sorted(observed_ids)],
-            "checks_ran": sorted(checks_ran),
-            "checked_at": _utc_now_iso(),
-            "alerted_failures": alerted,
-            "pending_failures": pending,
-            "alerted_at": alerted_at,
-        },
-    )
+    # The final write follows a write that succeeded moments ago. If it
+    # still fails, the pre-alert state stays on disk and the next run
+    # re-sends whatever was just delivered: the one residual duplicate,
+    # logged loudly rather than hidden.
+    _write_state_logged(state_path, _state_doc())
     return 0
 
 

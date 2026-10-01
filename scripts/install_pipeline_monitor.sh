@@ -64,7 +64,12 @@ if [[ "$UNINSTALL" -eq 1 ]]; then
   fi
 
   if launchctl print "gui/$(id -u)/${LABEL}" >/dev/null 2>&1; then
-    launchctl bootout "gui/$(id -u)" "$DEST" || true
+    # A failed bootout leaves the hourly job loaded; keep the plist and
+    # say so rather than report a successful uninstall.
+    if ! launchctl bootout "gui/$(id -u)" "$DEST"; then
+      echo "Uninstall FAILED: launchctl bootout did not unload ${LABEL}; $DEST left in place" >&2
+      exit 1
+    fi
   fi
   if [[ -f "$DEST" ]]; then
     trash "$DEST"
@@ -119,7 +124,10 @@ printf '%s\n' "$RENDERED" > "$DEST"
 # actually picks up the new plist instead of launchd keeping the old one
 # loaded (bootstrap alone refuses if the label is already loaded).
 if launchctl print "gui/$(id -u)/${LABEL}" >/dev/null 2>&1; then
-  launchctl bootout "gui/$(id -u)" "$DEST" || true
+  if ! launchctl bootout "gui/$(id -u)" "$DEST"; then
+    echo "Install FAILED: could not unload the existing ${LABEL} to reload it" >&2
+    exit 1
+  fi
 fi
 
 launchctl bootstrap "gui/$(id -u)" "$DEST"

@@ -1,7 +1,8 @@
-"""scripts/install_pipeline_monitor.sh --dry-run (#7006).
+"""scripts/install_pipeline_monitor.sh (#7006).
 
-Only ever exercises --dry-run: no launchctl call, no file written under
-~/Library/LaunchAgents, no `trash` call. Asserts the template itself carries
+Exercises --dry-run, plus --uninstall against stub launchctl/trash binaries
+and a temporary HOME: never the real launchctl, never the real
+~/Library/LaunchAgents, never the real `trash`. Asserts the template carries
 no machine-specific path (M1) and that --dry-run's rendered output has every
 placeholder substituted.
 """
@@ -112,3 +113,54 @@ def test_script_never_shells_out_to_rm():
     assert not any(re.search(r"\brm\b", line) for line in code_lines), (
         "install script must use `trash`, never `rm`"
     )
+
+
+def _fake_bin(tmp_path: Path, bootout_rc: int) -> tuple[Path, Path]:
+    """A PATH dir with stub `launchctl` and `trash` that log their calls."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "calls.log"
+    (bin_dir / "launchctl").write_text(
+        "#!/bin/bash\n"
+        f'echo "launchctl $*" >> "{log}"\n'
+        'if [[ "$1" == "bootout" ]]; then exit ' + str(bootout_rc) + "; fi\n"
+        "exit 0\n"
+    )
+    (bin_dir / "trash").write_text(f'#!/bin/bash\necho "trash $*" >> "{log}"\n')
+    for name in ("launchctl", "trash"):
+        (bin_dir / name).chmod(0o755)
+    return bin_dir, log
+
+
+def _run_uninstall(tmp_path: Path, bootout_rc: int):
+    import os
+
+    home = tmp_path / "home"
+    dest = home / "Library" / "LaunchAgents" / "com.eriksjaastad.muffinpan-pipeline-monitor.plist"
+    dest.parent.mkdir(parents=True)
+    dest.write_text("<plist/>")
+    bin_dir, log = _fake_bin(tmp_path, bootout_rc)
+    env = {**os.environ, "HOME": str(home), "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+    result = subprocess.run(
+        ["bash", str(SCRIPT), "--uninstall"],
+        cwd=REPO_ROOT, env=env, capture_output=True, text=True, timeout=30,
+    )
+    calls = log.read_text() if log.exists() else ""
+    return result, dest, calls
+
+
+def test_uninstall_stops_and_keeps_the_plist_when_bootout_fails(tmp_path):
+    """Gate review on b7065b2: `bootout || true` let uninstall trash the plist
+    and report success while the hourly job stayed loaded."""
+    result, dest, calls = _run_uninstall(tmp_path, bootout_rc=5)
+    assert result.returncode == 1
+    assert "Uninstall FAILED" in result.stderr
+    assert dest.exists()
+    assert "trash" not in calls
+
+
+def test_uninstall_trashes_the_plist_after_a_successful_bootout(tmp_path):
+    result, dest, calls = _run_uninstall(tmp_path, bootout_rc=0)
+    assert result.returncode == 0, result.stderr
+    assert "launchctl bootout" in calls
+    assert f"trash {dest}" in calls
