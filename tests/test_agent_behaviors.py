@@ -17,6 +17,7 @@ from backend.core.task import Task
 from backend.memory.agent_memory import AgentMemory
 from backend.utils import model_router
 
+# governance: allow-silent SF003: opt-in flag for live provider tests; unset means skip, the intended default
 _requires_api_keys = pytest.mark.skipif(
     os.getenv("RUN_LIVE_PROVIDER_TESTS", "").lower() != "true",
     reason="Requires API keys. Set RUN_LIVE_PROVIDER_TESTS=true to run.",

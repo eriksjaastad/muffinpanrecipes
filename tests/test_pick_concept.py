@@ -450,3 +450,26 @@ def test_accented_candidate_collides_with_unaccented_catalog_dish_noun():
     survivors, rejected = rank_candidates([candidate], "Sweet", catalog)
     assert survivors == []
     assert rejected[0][1].startswith("dish_noun_collision")
+
+
+def test_load_recent_concepts_skips_unreadable_episode_but_reads_the_rest(tmp_path, monkeypatch):
+    """A corrupt or wrong-shape local episode is skipped (and logged); valid ones still count."""
+    (tmp_path / "2026-W30.json").write_text('{"concept": "Spinach Feta Cups"}')
+    (tmp_path / "2026-W31.json").write_text("{not json")
+    (tmp_path / "2026-W32.json").write_text('["a list, not an episode"]')
+    monkeypatch.setattr(pc, "EPISODES_DIR", tmp_path)
+
+    assert pc._load_recent_concepts(n=10) == ["spinach feta cups"]
+
+
+def test_load_recent_concepts_propagates_unexpected_errors(tmp_path, monkeypatch):
+    """Only expected read/parse failures are skipped; anything else surfaces."""
+    (tmp_path / "2026-W30.json").write_text('{"concept": "Spinach Feta Cups"}')
+    monkeypatch.setattr(pc, "EPISODES_DIR", tmp_path)
+
+    def _boom(_text):
+        raise RuntimeError("unexpected")
+
+    monkeypatch.setattr(pc.json, "loads", _boom)
+    with pytest.raises(RuntimeError, match="unexpected"):
+        pc._load_recent_concepts(n=10)

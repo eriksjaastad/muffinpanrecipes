@@ -592,13 +592,14 @@ def _generate_dialogue(
             recipe_context=recipe_context,
         )
         return result.get("messages", [])
+    # governance: allow-silent SF002: both callers treat [] as a failure; _generate_and_judge_dialogue and execute_cron_stage_stub raise on an empty dialogue
     except Exception as e:
-        # TRIAGE (#6856): non-fatal HERE, fail-closed in the caller.
-        # This helper has two callers with different contracts:
-        # _generate_and_judge_dialogue (the cron path) treats an empty list as
-        # a hard stage failure, and execute_cron_stage_stub (admin simulation)
-        # tolerates it. Returning [] keeps that split honest; do NOT "fix" the
-        # cron path by swallowing it further down.
+        # TRIAGE (#6856): non-fatal HERE, fail-closed in the callers.
+        # Both callers treat an empty list as a hard failure:
+        # _generate_and_judge_dialogue (the cron path) raises a stage failure,
+        # and execute_cron_stage_stub (admin simulation) raises before it can
+        # save a "complete" stage with no dialogue. Do NOT "fix" either path
+        # by swallowing it further down.
         import traceback
         tb = traceback.format_exc()
         logger.error(f"Dialogue generation FAILED for stage={stage}: {type(e).__name__}: {e}\n{tb}")
@@ -681,7 +682,7 @@ def _parse_judge_json(raw: str) -> dict | None:
         return None
     try:
         parsed = json.loads(raw[start:end + 1])
-    except json.JSONDecodeError:
+    except json.JSONDecodeError:  # governance: allow-silent SF002: None means unparseable verdict; _judge_dialogue retries once then fails closed, never defaulting to PASS
         return None
     return parsed if isinstance(parsed, dict) else None
 
@@ -953,6 +954,7 @@ def _announce_advisory_publication(episode_id: str, episode: dict, stage: str, c
     updated["judge_advisory"][stage]["announced_at"] = announced_at
     try:
         storage.save_episode(episode_id, updated)
+    # governance: allow-silent SF002: returns None like every path here; the alert was delivered and announce_pending stays True in storage so the next Sunday invocation re-sends
     except Exception as exc:  # noqa: BLE001 - the publish already succeeded
         logger.error(
             f"Advisory alert for {episode_id}/{stage} was delivered but its announced marker "
@@ -1007,6 +1009,7 @@ def _score_dialogue_qa(
         ]
         result = score_quality(messages, personas, concept=concept)
         return {"score": result.get("score", 0), "details": result}
+    # governance: allow-silent SF002: descriptive metric, not a gate; both callers skip writing qa_scores when the result is empty and the judge gates publication
     except Exception as e:
         # TRIAGE (#6856): GENUINELY NON-FATAL, logged. QA scoring is a
         # descriptive metric written alongside the dialogue, not a gate — the
@@ -1395,6 +1398,7 @@ def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
         logger.info(f"Auto-fixed recipe: '{fixed['title']}' ({len(fixed['ingredients'])} ingredients)")
         return True
 
+    # governance: allow-silent SF002: False is the failure signal; the Sunday fix loop breaks, then raises HTTP 400 and notify_judge_failure because QA never passed
     except Exception as e:
         # TRIAGE (#6856): NON-FATAL, and the surrounding gate fails closed.
         # Returning False breaks the Sunday auto-fix loop, which then raises
@@ -1444,6 +1448,7 @@ def _recent_catalog_titles(limit: int = 8) -> list[str]:
         from backend.utils.title_validator import load_catalog_titles
 
         return load_catalog_titles()[:limit]
+    # governance: allow-silent SF002: _editorial_qa_review treats [] as degraded, stamps catalog_context_degraded_at and sends notify_pipeline_failure
     except Exception as e:
         logger.error(f"Public-CDN catalog fallback FAILED: {type(e).__name__}: {e}")
         return []
@@ -1913,7 +1918,7 @@ def _catalog_contains_episode(ep: dict) -> bool:
         return False
     try:
         catalog = json.loads(catalog_json)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError:  # governance: allow-silent SF002: False means "not proven present"; _publish_sunday_sources then raises "Recipe catalog write did not complete" (fails closed)
         return False
 
     recipe = ep.get("stages", {}).get("monday", {}).get("recipe_data", {})
@@ -2951,6 +2956,7 @@ def _submit_sunday_indexnow(ep: dict, episode_id: str, concept: str) -> None:
         updated.setdefault("events", []).append(event)
         updated["indexnow_pending"] = False
         storage.save_episode(episode_id, updated)
+    # governance: allow-silent SF002: publish already succeeded; indexnow_pending stays True in storage so the already-published catch-up retries the submission
     except Exception as exc:  # noqa: BLE001 - recording the outcome, not the publish
         logger.error(
             f"Could not persist indexnow event for {episode_id} "
@@ -3270,6 +3276,14 @@ async def execute_cron_stage_stub(stage: str, episode_id: str, concept: str, mod
         stage, ep_concept, model=model,
         recipe_context=_build_recipe_context(recipe_data) or None,
     )
+    if not dialogue:
+        # _generate_dialogue returns [] when generation failed. Saving that as
+        # a "complete" stage would overwrite the episode with an empty day and
+        # report success to the admin run; raise so the caller records it.
+        raise RuntimeError(
+            f"Dialogue simulation produced no messages for {stage}. "
+            f"See the Dialogue generation FAILED log line for the cause."
+        )
     ep.setdefault("stages", {})[stage] = {
         "stage": stage,
         "status": "complete",

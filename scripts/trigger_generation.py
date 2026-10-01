@@ -57,7 +57,7 @@ def _upload_to_r2(local_path: Path, r2_key: str) -> bool:
         )
         client.upload_file(str(local_path), R2_BUCKET_NAME, r2_key)
         return True
-    except (ClientError, BotoCoreError) as exc:
+    except (ClientError, BotoCoreError) as exc:  # governance: allow-silent SF002: False is the failure signal; both main() call sites exit 1 on False
         logger.error("❌ R2 upload failed for %s -> %s: %s", local_path, r2_key, exc)
         return False
 

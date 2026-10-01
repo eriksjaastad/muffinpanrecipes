@@ -32,3 +32,17 @@ def test_build_comparison_html(tmp_path):
     content = out_path.read_text()
     assert "Stability vs Nano Banana" in content
     assert "stability/r1-hero.png" in content
+
+
+def test_cost_override_unset_is_none_and_malformed_raises(monkeypatch):
+    import pytest
+
+    from scripts.compare_image_providers import _cost_from_env, estimate_nano_banana_cost
+
+    monkeypatch.delenv("NANOBANANA_COST_PER_IMAGE", raising=False)
+    assert _cost_from_env("NANOBANANA_COST_PER_IMAGE") is None
+    monkeypatch.setenv("NANOBANANA_COST_PER_IMAGE", "0.04")
+    assert estimate_nano_banana_cost("gemini-2.5-flash-image") == 0.04
+    monkeypatch.setenv("NANOBANANA_COST_PER_IMAGE", "four cents")
+    with pytest.raises(ValueError, match="NANOBANANA_COST_PER_IMAGE must be a number"):
+        estimate_nano_banana_cost("gemini-2.5-flash-image")

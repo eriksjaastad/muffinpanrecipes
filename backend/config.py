@@ -54,6 +54,7 @@ class _Config:
         self._vercel_env: str | None = os.environ.get("VERCEL_ENV")
 
         # LOCAL_DEV=true is set manually when running locally.
+        # governance: allow-silent SF003: unset means not local dev, the safe production default (OAuth enforced, cloud storage)
         self._local_dev: bool = os.environ.get("LOCAL_DEV", "").lower() == "true"
 
     # ------------------------------------------------------------------
@@ -94,6 +95,7 @@ class _Config:
         Returns "filesystem" for local dev, "cloud" on Vercel.
         Override via STORAGE_BACKEND env var if needed.
         """
+        # governance: allow-silent SF003: optional override; empty falls through to the environment-derived backend on the next lines
         override = os.environ.get("STORAGE_BACKEND", "").strip()
         if override:
             return override
@@ -116,6 +118,7 @@ class _Config:
         Set via CLI:      DIALOGUE_MODEL=openai/gpt-5.1 uv run scripts/simulate_dialogue_week.py ...
         Set via API:      pass --model flag or character_models JSON to simulate_dialogue_week
         """
+        # governance: allow-silent SF003: empty is checked on the next line and raises RuntimeError
         override = os.environ.get("DIALOGUE_MODEL", "").strip()
         if not override:
             raise RuntimeError(
@@ -134,6 +137,7 @@ class _Config:
         Same model options as dialogue_model.
         Set via Doppler:  doppler secrets set RECIPE_MODEL "openai/gpt-5.1"
         """
+        # governance: allow-silent SF003: empty is checked on the next line and raises RuntimeError
         override = os.environ.get("RECIPE_MODEL", "").strip()
         if not override:
             raise RuntimeError(
@@ -155,6 +159,7 @@ class _Config:
 
         Set via Doppler:  doppler secrets set JUDGE_MODEL "anthropic/claude-opus-4-6"
         """
+        # governance: allow-silent SF003: optional override; empty selects the documented default judge model, which is in OPENROUTER_JUDGE_ALLOWLIST
         override = os.environ.get("JUDGE_MODEL", "").strip()
         if not override:
             return "anthropic/claude-sonnet-4-6"  # sensible default — cheaper than Opus
@@ -171,6 +176,7 @@ class _Config:
         Set via Doppler:  doppler secrets set RESEND_API_KEY "re_..." \\
           --project muffinpanrecipes --config prd
         """
+        # governance: allow-silent SF003: empty is checked on the next line and raises RuntimeError
         override = os.environ.get("RESEND_API_KEY", "").strip()
         if not override:
             raise RuntimeError(
@@ -188,6 +194,7 @@ class _Config:
         Set via Doppler:  doppler secrets set ALERT_EMAIL_TO "erik@..." \\
           --project muffinpanrecipes --config prd
         """
+        # governance: allow-silent SF003: empty is checked on the next line and raises RuntimeError
         override = os.environ.get("ALERT_EMAIL_TO", "").strip()
         if not override:
             raise RuntimeError(
@@ -206,6 +213,7 @@ class _Config:
         later — has a default, so unlike resend_api_key/alert_email_to it
         does not raise when unset.
         """
+        # governance: allow-silent SF003: optional override; empty selects the documented verified sender address on the next line
         override = os.environ.get("ALERT_EMAIL_FROM", "").strip()
         return override or "alerts@send.synthinsightlabs.com"
 

@@ -500,3 +500,36 @@ def test_static_security_headers_check_lambda_health_route():
 
     assert report.failed
     assert "/health" in report.failed[0][1]
+
+
+def _http_error(status_code: int):
+    import requests
+
+    response = requests.Response()
+    response.status_code = status_code
+    return requests.HTTPError(f"HTTP {status_code}", response=response)
+
+
+def test_episode_integrity_treats_only_404_as_pre_monday_window():
+    def fetch(url, timeout=15):
+        raise _http_error(404)
+
+    report = hc.Report()
+    with patch.object(hc, "_fetch_json", fetch):
+        hc.check_episode_integrity(report)
+    assert report.ok
+
+
+def test_episode_integrity_fails_on_blob_read_error_instead_of_passing():
+    """A 5xx or network failure is a failed read, not 'no episode yet' (#7587)."""
+    import requests
+
+    for exc in (_http_error(503), requests.ConnectionError("blob unreachable")):
+        def fetch(url, timeout=15, _exc=exc):
+            raise _exc
+
+        report = hc.Report()
+        with patch.object(hc, "_fetch_json", fetch):
+            hc.check_episode_integrity(report)
+        assert not report.ok, f"{type(exc).__name__} must fail the check"
+        assert "could not be read from blob" in report.failed[0][1]

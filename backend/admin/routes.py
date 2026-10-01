@@ -95,7 +95,7 @@ def _verify_oauth_state(cookie_value: str, callback_state: str) -> bool:
         if time.time() - ts > _OAUTH_STATE_MAX_AGE:
             logger.warning("OAuth state cookie expired")
             return False
-    except ValueError:
+    except ValueError:  # governance: allow-silent SF002: a non-integer timestamp is a forged/corrupt state cookie; False makes the OAuth callback reject the login (fail closed)
         return False
 
     return True
@@ -1177,8 +1177,13 @@ def create_routes(app: FastAPI):
             try:
                 ep_data = json.loads(ep_path.read_text())
                 concept = ep_data.get("concept", concept)
-            except Exception:
-                pass
+            except (OSError, json.JSONDecodeError) as exc:
+                # An unreadable episode file used to fall through to the
+                # placeholder concept and run the whole week on it.
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Episode file for {episode_id} is unreadable: {type(exc).__name__}: {exc}",
+                ) from exc
 
         # Call each cron stage in order via HTTP (same as Vercel would).
         # In LOCAL_DEV the CRON_SECRET check is bypassed, any bearer value works.

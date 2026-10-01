@@ -797,6 +797,37 @@ def test_load_memories_or_unavailable_listing_failure_is_unavailable(monkeypatch
     assert unavailable is True
 
 
+def test_load_memories_or_unavailable_unreadable_legacy_seed_is_unavailable(tmp_path, monkeypatch):
+    """A corrupt legacy seed is a read failure, not "no history" — it must not
+    feed the false first-meeting opener (silent-failure sweep, #7587)."""
+    import scripts.simulate_dialogue_week as sdw
+    import backend.storage as storage_module
+
+    monkeypatch.setattr(storage_module, "CHARACTER_MEMORY_DIR", tmp_path / "character_memory")
+    chars = tmp_path / "characters"
+    (chars / "margaret-chen").mkdir(parents=True)
+    (chars / "margaret-chen" / "memory.json").write_text("{not json")
+    monkeypatch.setattr(sdw, "CHARACTERS_DIR", chars)
+
+    episodes, unavailable = sdw._load_memories_or_unavailable("Margaret Chen")
+
+    assert episodes == []
+    assert unavailable is True
+
+
+def test_load_memories_or_unavailable_absent_legacy_seed_is_genuinely_empty(tmp_path, monkeypatch):
+    import scripts.simulate_dialogue_week as sdw
+    import backend.storage as storage_module
+
+    monkeypatch.setattr(storage_module, "CHARACTER_MEMORY_DIR", tmp_path / "character_memory")
+    monkeypatch.setattr(sdw, "CHARACTERS_DIR", tmp_path / "characters")
+
+    episodes, unavailable = sdw._load_memories_or_unavailable("Margaret Chen")
+
+    assert episodes == []
+    assert unavailable is False
+
+
 def test_load_memories_or_unavailable_fetch_failure_is_unavailable(tmp_path, monkeypatch):
     import scripts.simulate_dialogue_week as sdw
     import backend.storage as storage_module

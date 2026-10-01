@@ -380,20 +380,20 @@ def _parse_quantity(qty: str | None, frac: str | None) -> float | None:
                 num, _, den = rest.partition("/")
                 total += float(num) / float(den)
                 seen = True
-            except (ValueError, ZeroDivisionError):
+            except (ValueError, ZeroDivisionError):  # governance: allow-silent SF002: None means unparseable quantity; _volumetric_cups deliberately under-counts it so the pan-capacity check flags only certain overflow
                 return None
         elif "/" in qty:
             num, _, den = qty.partition("/")
             try:
                 total += float(num) / float(den)
                 seen = True
-            except (ValueError, ZeroDivisionError):
+            except (ValueError, ZeroDivisionError):  # governance: allow-silent SF002: None means unparseable quantity; _volumetric_cups deliberately under-counts it so the pan-capacity check flags only certain overflow
                 return None
         else:
             try:
                 total += float(qty)
                 seen = True
-            except ValueError:
+            except ValueError:  # governance: allow-silent SF002: None means unparseable quantity; _volumetric_cups deliberately under-counts it so the pan-capacity check flags only certain overflow
                 return None
     if frac and frac in _UNICODE_FRACTIONS:
         total += _UNICODE_FRACTIONS[frac]

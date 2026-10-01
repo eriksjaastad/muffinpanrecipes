@@ -38,7 +38,7 @@ class MessageSystem:
         self.storage_path = storage_path or Path("data/messages")
         try:
             self.storage_path.mkdir(parents=True, exist_ok=True)
-        except OSError:
+        except OSError:  # governance: allow-silent SF001: directory pre-creation only (read-only on Vercel Lambda); history save/load later handle their own I/O errors
             pass  # Read-only filesystem (Vercel Lambda)
         
         # Message queues per agent

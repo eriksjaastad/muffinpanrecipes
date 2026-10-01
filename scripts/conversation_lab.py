@@ -641,6 +641,7 @@ def _cost_summary_or_none() -> dict[str, Any] | None:
     """model_router's running totals, or None if the log cannot be read."""
     try:
         summary = model_router.get_cost_summary()
+    # governance: allow-silent SF002: documented None = cost log unreadable; the one-time stderr warning fires and --max-calls remains the primary spending guard
     except Exception as exc:
         _warn_cost_summary_failure_once(exc)
         return None
@@ -705,6 +706,7 @@ def _total_cost_or_none() -> float | None:
     going through this function."""
     try:
         return _lab_cost_total()
+    # governance: allow-silent SF002: reporting-only total, documented to fail open to None after the stderr warning; _would_exceed_cost reads _lab_cost_total directly
     except Exception as exc:
         _warn_cost_summary_failure_once(exc)
         return None
@@ -738,6 +740,7 @@ def _would_exceed_cost(max_cost: float, baseline: float = 0.0) -> bool:
     except _UntrustedCostEntry as exc:
         _warn_untrusted_cost_entry_once(exc)
         return True
+    # governance: allow-silent SF002: documented: a cost-read failure warns once and defers to --max-calls (always enforced); an untrusted entry fails closed in the handler above
     except Exception as exc:
         _warn_cost_summary_failure_once(exc)
         return False
@@ -943,7 +946,7 @@ def _fetch_openrouter_model_prices() -> dict[str, tuple[float, float]]:
     strings). An entry missing either field, or with a non-numeric price,
     is left out - `_openrouter_preflight` treats an absent id as "no
     price" and fails closed."""
-    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()  # governance: allow-silent SF003: empty is checked on the next line and raises ConversationLabError
     if not api_key:
         raise ConversationLabError("OPENROUTER_API_KEY is not set")
     try:
@@ -1025,7 +1028,7 @@ def _openrouter_worst_case_call_cost(model: str, prompt_bytes: int) -> float:
 
 def _openrouter_fetch_account_balance() -> float:
     """GET OpenRouter's /credits endpoint; return total_credits - total_usage."""
-    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()  # governance: allow-silent SF003: empty is checked on the next line and raises ConversationLabError
     if not api_key:
         raise ConversationLabError("OPENROUTER_API_KEY is not set")
     try:
@@ -1057,7 +1060,7 @@ def _openrouter_fetch_account_balance() -> float:
 
 def _openrouter_fetch_key() -> dict[str, Any]:
     """GET OpenRouter's /key endpoint and return limit, remaining and usage."""
-    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()  # governance: allow-silent SF003: empty is checked on the next line and raises ConversationLabError
     if not api_key:
         raise ConversationLabError("OPENROUTER_API_KEY is not set")
     try:
@@ -2220,7 +2223,7 @@ def _parse_judge_json(raw: str) -> dict[str, Any] | None:
         return None
     try:
         parsed = json.loads(candidate)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError:  # governance: allow-silent SF002: None means unparseable; the judge loop retries, then raises ConversationLabError on persistent None
         return None
     return parsed if isinstance(parsed, dict) else None
 
@@ -2742,7 +2745,7 @@ def _resolve_judge_model() -> str:
     production - a lab experiment must never silently judge on a model
     nobody explicitly chose, so it does not get to inherit that default).
     """
-    judge_model = os.environ.get("JUDGE_MODEL", "").strip()
+    judge_model = os.environ.get("JUDGE_MODEL", "").strip()  # governance: allow-silent SF003: empty is checked on the next line and raises SystemExit
     if not judge_model:
         raise SystemExit(
             "conversation_lab: JUDGE_MODEL is not set. Run under "
@@ -2753,7 +2756,7 @@ def _resolve_judge_model() -> str:
 
 
 def _require_openrouter_key() -> None:
-    if not os.environ.get("OPENROUTER_API_KEY", "").strip():
+    if not os.environ.get("OPENROUTER_API_KEY", "").strip():  # governance: allow-silent SF003: empty raises SystemExit on the next line
         raise SystemExit(
             "conversation_lab: OPENROUTER_API_KEY is not set. Run under "
             "`doppler run -- uv run ...` so OPENROUTER_API_KEY resolves, or pass "
@@ -3329,7 +3332,7 @@ def _effective_max_turns_for_stage(stage: str, variant: dict[str, Any] | None) -
             if isinstance(pair, (list, tuple)) and len(pair) == 2:
                 try:
                     upper = max(upper, int(pair[1]))
-                except (TypeError, ValueError):
+                except (TypeError, ValueError):  # governance: allow-silent SF001: a malformed pair is rejected by validate_variant right after the reservation is computed, before any arm runs or spends
                     pass
         variant_open_ended = variant.get("OPEN_ENDED_MAX_TICKS")
         if isinstance(variant_open_ended, dict):
@@ -5100,6 +5103,7 @@ def _cmd_calibrate_reference_panel(args: argparse.Namespace) -> None:
                 partial_records.remove(pending)
             if aborted:
                 break
+    # governance: allow-silent SF002: budget cap hit; the ABORTED report is published and printed above the return, same as the inline cap checks
     except LabBudgetAbort:
         # #7714 round 2: same reasoning as cmd_calibrate's --from-episode
         # path - a mid-arm budget abort is the SAME event the coarse
@@ -5192,7 +5196,7 @@ def _calls_now() -> int | None:
     """
     try:
         return model_router.get_cost_summary().get("total_calls", 0)
-    except Exception:
+    except Exception:  # governance: allow-silent SF002: documented None = counter unreadable, deliberately distinct from 0 so callers charge the full fallback reservation
         return None
 
 def _spend(budget: CallBudget, fn=None, *, fallback: int = 1, reservation: int | None = None):
@@ -6761,6 +6765,7 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
                 }
             if aborted:
                 break
+    # governance: allow-silent SF002: budget cap hit; the aborted calibrate report is published and printed above the return
     except LabBudgetAbort:
         # #7714 round 2: hitting the cap via the mid-arm guard is the SAME
         # event the coarse would_exceed()/_would_exceed_cost() checks above
@@ -7731,6 +7736,7 @@ class _PairsUIHandler(http.server.BaseHTTPRequestHandler):
             try:
                 position = int(raw)
                 payload = state.pair_payload(position)
+            # governance: allow-silent SF002: bad request; the error is sent to the browser as HTTP 400 before returning
             except (ValueError, IndexError) as exc:
                 self._send_json({"error": str(exc)}, status=400)
                 return
@@ -7753,6 +7759,7 @@ class _PairsUIHandler(http.server.BaseHTTPRequestHandler):
             if not isinstance(position, int) or not isinstance(label, str):
                 raise ValueError("position must be an int and label must be a string")
             new_state = state.apply_pick(position, label)
+        # governance: allow-silent SF002: bad request; the error is sent to the browser as HTTP 400 before returning
         except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
             self._send_json({"error": str(exc)}, status=400)
             return
@@ -7781,7 +7788,7 @@ def cmd_pairs_ui(args: argparse.Namespace) -> None:
     print(f"{state.total} pairs, {len(state._human_picks())} already picked")
     try:
         server.serve_forever()
-    except KeyboardInterrupt:
+    except KeyboardInterrupt:  # governance: allow-silent SF001: Ctrl-C is the documented way to stop the local review server
         pass
     finally:
         server.server_close()
@@ -8387,6 +8394,7 @@ def main(argv: list[str] | None = None) -> None:
                 phase = "calibration" if args.command == "calibrate" else args.command
                 with guard.phase(phase):
                     if not args.dry_run:
+                        # governance: allow-silent SF003: validate_configured_models rejects an empty DIALOGUE_MODEL/JUDGE_MODEL (parse_model fails -> BudgetGuardError) before dispatch
                         guard.validate_configured_models(
                             dialogue_model=(
                                 None if args.command == "calibrate"

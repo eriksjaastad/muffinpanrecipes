@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -59,8 +60,10 @@ def main():
     for p in latest_sim_files():
         try:
             sims.append(load_json(p))
-        except Exception:
-            pass
+        except (OSError, json.JSONDecodeError) as exc:
+            # Skip an unreadable run, but say so: the report's averages are
+            # computed over fewer runs than the file count implies.
+            print(f"skipping unreadable simulation {p.name}: {type(exc).__name__}: {exc}", file=sys.stderr)
 
     best, worst = pick_best_worst(sims)
     weak = weak_characters(sims)
