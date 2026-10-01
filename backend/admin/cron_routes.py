@@ -37,7 +37,7 @@ import json
 import os
 import re
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -49,6 +49,7 @@ from backend.publishing.episode_renderer import (
     _hero_image_url,
     mark_latest_published,
     regenerate_and_upload,
+    upload_latest_json,
 )
 from backend.storage import storage
 from backend.utils import episode_integrity
@@ -212,6 +213,15 @@ def _load_or_create_episode(episode_id: str, concept: str) -> dict:
         "recipe_id": None,
     }
 
+
+# How early the Sunday cron may fire and still count as the week's own
+# Sunday run for the refusal note (#7630).
+_SUNDAY_NOTE_TOLERANCE = timedelta(minutes=5)
+
+
+def _utc_now() -> datetime:
+    """The clock, behind one name so tests can pin it."""
+    return datetime.now(timezone.utc)
 
 def _apply_week_off_note(episode_id: str, ep: dict) -> None:
     """Stamp `ep` with a "kitchen took the week off" note when the week
@@ -2610,6 +2620,16 @@ async def cron_monday(request: Request):
       episode_id = body.episode_id or _current_episode_id()
       ep = _load_or_create_episode(episode_id, body.concept or PLACEHOLDER_CONCEPT)
       _apply_week_off_note(episode_id, ep)
+      # Put the decision on the homepage now, not only at the end of a
+      # successful Monday: a stage failure below would otherwise keep the
+      # note (or its absence) off the homepage until a later stage ran
+      # (#7630). Current week only (the writer's gate); best-effort.
+      try:
+          upload_latest_json(ep)
+      except Exception as exc:  # noqa: BLE001 - cosmetic; Monday must run
+          logger.warning(
+              f"homepage week-off update skipped for {episode_id}: {type(exc).__name__}: {exc}"
+          )
 
       # W15 narrative injection: characters discover the "Party" category
       injected_event: str | None = None
@@ -3090,6 +3110,17 @@ async def cron_sunday(request: Request):
                 # picked up by next Monday's _apply_week_off_note, same as
                 # any other failure mode — duplicating this for every
                 # failure surface inside the stage would not be simple.
+                # Only once the week's own Sunday cron time has arrived: an
+                # early manual force=true re-fire still has time to recover,
+                # so announcing the week off then would be premature (Codex,
+                # #7630). The scheduled run fires at that time; the tolerance
+                # covers a cron that fires a little early.
+                sunday_due = episode_integrity.stage_deadline(episode_id, "sunday")
+                if _utc_now() < sunday_due - _SUNDAY_NOTE_TOLERANCE:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Cannot publish: {day} stage incomplete (status={stage_status!r})",
+                    )
                 ep["week_off_note"] = {
                     "message": WEEK_OFF_MESSAGE, "missed_week": episode_id,
                 }

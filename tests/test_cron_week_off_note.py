@@ -35,6 +35,8 @@ from backend.storage import storage
 # Monday of W37 (2026-09-07); W36 (2026-08-31 through 2026-09-06) is the
 # week immediately before it — matches the fixtures in test_episode_integrity.py.
 MONDAY_W37 = datetime(2026, 9, 7, 14, 30, tzinfo=timezone.utc)
+# W40's Sunday cron time has arrived (Sunday 2026-10-04, evening UTC).
+AFTER_SUNDAY_W40 = datetime(2026, 10, 4, 23, 59, tzinfo=timezone.utc)
 
 
 # ---------------------------------------------------------------------------
@@ -336,7 +338,8 @@ def test_cron_sunday_sets_week_off_note_when_a_required_stage_is_incomplete():
         "events": [],
     }
 
-    with patch.object(cron_routes, "_verify_cron_secret"), \
+    with patch.object(cron_routes, "_utc_now", return_value=AFTER_SUNDAY_W40), \
+         patch.object(cron_routes, "_verify_cron_secret"), \
          patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=_body())), \
          patch.object(cron_routes, "_verify_day_of_week"), \
          patch.object(cron_routes.storage, "load_episode", return_value=episode), \
@@ -383,7 +386,8 @@ def test_refusing_an_older_week_never_rewrites_the_live_latest_json():
         writes[path] = content
         return f"https://blob/{path}"
 
-    with patch.object(cron_routes, "_verify_cron_secret"), \
+    with patch.object(cron_routes, "_utc_now", return_value=AFTER_SUNDAY_W40), \
+         patch.object(cron_routes, "_verify_cron_secret"), \
          patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=_body("2026-W40"))), \
          patch.object(cron_routes, "_verify_day_of_week"), \
          patch.object(cron_routes.storage, "load_episode", return_value=episode), \
@@ -399,6 +403,91 @@ def test_refusing_an_older_week_never_rewrites_the_live_latest_json():
     assert "pages/2026-W40/index.html" in writes  # its own page still rendered
     assert "pages/latest.json" not in writes       # the live homepage teaser, untouched
 
+
+
+def test_an_early_forced_sunday_refusal_does_not_announce_the_week_off():
+    """Codex (#7630): a manual force=true Sunday POST before the week's
+    Sunday cron time still has time to recover; it refuses with the same
+    400 but must not stamp or render the note."""
+    episode = {
+        "episode_id": "2026-W40",
+        "concept": "Some Concept",
+        "stages": {
+            "monday": {"status": "complete", "recipe_data": {"title": "X"}},
+            "tuesday": {"status": "complete"},
+        },
+        "events": [],
+    }
+    early = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)  # Thursday of W40
+
+    with patch.object(cron_routes, "_utc_now", return_value=early), \
+         patch.object(cron_routes, "_verify_cron_secret"), \
+         patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=_body())), \
+         patch.object(cron_routes, "_verify_day_of_week"), \
+         patch.object(cron_routes.storage, "load_episode", return_value=episode), \
+         patch.object(cron_routes.storage, "save_episode"), \
+         patch.object(cron_routes, "regenerate_and_upload") as regenerate:
+        with pytest.raises(HTTPException) as exc_info:
+            asyncio.run(cron_routes.cron_sunday(_request()))
+
+    assert exc_info.value.status_code == 400
+    assert "week_off_note" not in episode
+    regenerate.assert_not_called()
+
+
+def test_monday_puts_its_week_off_decision_on_the_homepage_before_the_stage_runs():
+    """Codex (#7630): a Monday whose stage then failed never wrote the note
+    to pages/latest.json. The decision is written immediately."""
+    order: list[str] = []
+    ep = {"episode_id": "2026-W41", "stages": {}, "events": []}
+
+    def _apply(eid, episode):
+        episode["week_off_note"] = {"message": cron_routes.WEEK_OFF_MESSAGE, "missed_week": "2026-W40"}
+        order.append("decide")
+
+    def _upload(episode):
+        order.append(f"upload:{bool(episode.get('week_off_note'))}")
+        return True
+
+    def _stage_fails(*_args, **_kwargs):
+        order.append("stage")
+        raise RuntimeError("monday stage blew up")
+
+    with patch.object(cron_routes, "_verify_cron_secret"), \
+         patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=_body("2026-W41"))), \
+         patch.object(cron_routes, "_verify_day_of_week"), \
+         patch.object(cron_routes, "_load_or_create_episode", return_value=ep), \
+         patch.object(cron_routes, "_apply_week_off_note", side_effect=_apply), \
+         patch.object(cron_routes, "upload_latest_json", side_effect=_upload), \
+         patch.object(cron_routes, "_run_stage", side_effect=_stage_fails), \
+         patch.object(cron_routes.storage, "save_episode"):
+        with pytest.raises(Exception):
+            asyncio.run(cron_routes.cron_monday(_request()))
+
+    assert order[:2] == ["decide", "upload:True"]
+
+
+def test_monday_homepage_update_failure_never_stops_monday(caplog):
+    ep = {"episode_id": "2026-W41", "stages": {}, "events": []}
+    reached = []
+
+    def _stage(*_args, **_kwargs):
+        reached.append("stage")
+        raise RuntimeError("stop here")
+
+    with patch.object(cron_routes, "_verify_cron_secret"), \
+         patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=_body("2026-W41"))), \
+         patch.object(cron_routes, "_verify_day_of_week"), \
+         patch.object(cron_routes, "_load_or_create_episode", return_value=ep), \
+         patch.object(cron_routes, "_apply_week_off_note"), \
+         patch.object(cron_routes, "upload_latest_json", side_effect=OSError("blob down")), \
+         patch.object(cron_routes, "_run_stage", side_effect=_stage), \
+         patch.object(cron_routes.storage, "save_episode"):
+        with caplog.at_level("WARNING"), pytest.raises(RuntimeError, match="stop here"):
+            asyncio.run(cron_routes.cron_monday(_request()))
+
+    assert reached == ["stage"]
+    assert any("homepage week-off update skipped" in r.message for r in caplog.records)
 
 def test_cron_sunday_does_not_set_week_off_note_when_publish_succeeds():
     """Sanity check: the note-setting code path in the required-stages loop
