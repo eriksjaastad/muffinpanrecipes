@@ -41,7 +41,12 @@ owed and it is retried next run.
 The installer refuses (exit 1, nothing written) when `doppler` or `uv` is not
 an absolute executable on `PATH`: launchd runs with a minimal `PATH`, so a
 bare command name would install a job that can never run. `--dry-run` still
-renders and warns.
+renders and warns. Before changing anything, a real install also runs the
+job's own wrapper (`doppler run --project muffinpanrecipes --config prd --
+uv --version`) and refuses if it fails, since Doppler being installed does
+not mean it is logged in with prd access. A reinstall unloads the old job
+before writing the new plist, so a failed unload leaves the working install
+untouched.
 
 ## Uninstall
 

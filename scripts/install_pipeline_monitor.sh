@@ -144,14 +144,24 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   exit 0
 fi
 
+# Prove the job's own command can run before installing anything: the
+# plist runs `doppler run --project muffinpanrecipes --config prd -- uv run
+# ...`, and executable paths alone do not show that Doppler is authenticated
+# with access to prd. Runs `uv --version` under that same wrapper; no
+# secret is printed.
+if ! "$DOPPLER_BIN" run --project muffinpanrecipes --config prd -- "$UV_BIN" --version >/dev/null 2>&1; then
+  echo "Install FAILED: '$DOPPLER_BIN run --project muffinpanrecipes --config prd -- $UV_BIN --version' failed; the hourly job could not start (check 'doppler login' and access to the prd config). Nothing was changed." >&2
+  exit 1
+fi
+
+# Unload any existing copy BEFORE touching its plist, so a failed unload
+# leaves the working install exactly as it was (bootstrap alone refuses if
+# the label is already loaded, so a reinstall must unload first).
+_unload_agent "Install"
+
 mkdir -p "$HOME/Library/LaunchAgents"
 mkdir -p "$LOG_DIR"
 printf '%s\n' "$RENDERED" > "$DEST"
-
-# Bootout any existing copy first so re-running this script after an edit
-# actually picks up the new plist instead of launchd keeping the old one
-# loaded (bootstrap alone refuses if the label is already loaded).
-_unload_agent "Install"
 
 launchctl bootstrap "gui/$(id -u)" "$DEST"
 launchctl enable "gui/$(id -u)/${LABEL}"

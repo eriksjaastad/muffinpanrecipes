@@ -224,3 +224,59 @@ def test_dry_run_still_renders_and_warns_when_a_binary_is_missing(tmp_path):
     assert result.returncode == 0, result.stderr
     assert "a real install would refuse" in result.stderr
     assert calls == ""
+
+
+def _run_install(tmp_path: Path, *, doppler_rc: int, bootout_rc: int = 0, print_rc: int = 113,
+                 existing_plist: str | None = None):
+    """Run a real (non-dry-run) install against stub launchctl/trash/doppler/uv
+    and a temporary HOME."""
+    import os
+
+    home = tmp_path / "home"
+    dest = home / "Library" / "LaunchAgents" / "com.eriksjaastad.muffinpan-pipeline-monitor.plist"
+    if existing_plist is not None:
+        dest.parent.mkdir(parents=True)
+        dest.write_text(existing_plist)
+    else:
+        home.mkdir()
+    bin_dir, log = _fake_bin(tmp_path, bootout_rc, print_rc)
+    (bin_dir / "doppler").write_text(f'#!/bin/bash\necho "doppler $*" >> "{log}"\nexit {doppler_rc}\n')
+    (bin_dir / "uv").write_text(f'#!/bin/bash\necho "uv $*" >> "{log}"\nexit 0\n')
+    for name in ("doppler", "uv"):
+        (bin_dir / name).chmod(0o755)
+    env = {**os.environ, "HOME": str(home), "PATH": f"{bin_dir}:/usr/bin:/bin"}
+    result = subprocess.run(
+        ["bash", str(SCRIPT)], cwd=REPO_ROOT, env=env, capture_output=True, text=True, timeout=30,
+    )
+    return result, dest, (log.read_text() if log.exists() else "")
+
+
+def test_install_refuses_when_the_jobs_doppler_command_cannot_run(tmp_path):
+    """Gate review on 463f96b: Doppler present but unauthenticated (or no
+    prd access) still printed "Installed and loaded"."""
+    result, dest, calls = _run_install(tmp_path, doppler_rc=1)
+    assert result.returncode == 1
+    assert "could not start" in result.stderr
+    assert "--config prd" in calls
+    assert not dest.exists()
+    assert "launchctl" not in calls
+
+
+def test_a_failed_reinstall_unload_keeps_the_working_plist(tmp_path):
+    """Gate review on 463f96b: the new plist was written before the old job
+    unloaded, so a failed bootout destroyed the working configuration."""
+    result, dest, calls = _run_install(
+        tmp_path, doppler_rc=0, bootout_rc=5, print_rc=0, existing_plist="<plist>old working</plist>",
+    )
+    assert result.returncode == 1
+    assert dest.read_text() == "<plist>old working</plist>"
+    assert "launchctl bootstrap" not in calls
+
+
+def test_install_succeeds_after_the_preflight_and_unload(tmp_path):
+    result, dest, calls = _run_install(tmp_path, doppler_rc=0)
+    assert result.returncode == 0, result.stderr
+    assert "Installed and loaded" in result.stdout
+    assert dest.exists() and "{{" not in dest.read_text()
+    order = [line.split()[0] + " " + line.split()[1] for line in calls.splitlines() if line.startswith(("doppler", "launchctl"))]
+    assert order.index("doppler run") < order.index("launchctl bootout") < order.index("launchctl bootstrap")
