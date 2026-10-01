@@ -303,6 +303,24 @@ S1, S2 (screen) and S4, repeated per dialogue model, same instrument, same testb
 | 2 | deepseek/deepseek-v4.1-flash | small/fast | rerun under Opus 5.5 |
 | 3 | Gemini (small/fast tier, e.g. google/gemini-3.8-flash; top tier gemini-3.1-pro-preview as a secondary arm) | - | future |
 | 4 | GPT (small/fast tier, e.g. openai/gpt-6-luna; larger tier as a secondary arm) | - | future |
+| 5 | xiaomi/mimo-v2.6-pro | - | future |
+| 6 | qwen/qwen3.5-27b | - | future |
+| 7 | moonshotai/kimi-k3 | - | future |
+
+Rows 5-7 were added 2026-10-01 on Erik's request, from a roleplay-model recommendation he
+passed on. They are candidates, not commitments. Each one still needs its tier chosen and a
+registry row written before its first paid call. All three are on OpenRouter, so they use the
+lab's existing route. List prices on 2026-10-01, per million input/output tokens: MiMo V2.6 Pro
+$0.435/$0.87, Qwen3.5-27B $0.195/$1.56, Kimi K3 $0.66/$10.00. Haiku 4.5 is $1/$5. Why each was
+named:
+- **MiMo V2.6 Pro:** said to handle multi-character scenes well and read like a transcript
+  rather than generated text.
+- **Qwen3.5-27B:** said to rank #1 among open-weight models on BenchLM's roleplay leaderboard.
+  It is small, which tests whether size matters for this task. It is open-weight but runs
+  hosted through OpenRouter, so the no-self-hosting rule does not apply.
+- **Kimi K3:** said to write clever, nuanced dialogue, but reportedly fixates on one
+  personality trait unless it is kept on track. That is the same voice-blur failure DIALS.md
+  2(c) describes, so watch for it. Its output price is twice Haiku's.
 
 - The primary cross-model comparison is like-for-like tier. A larger tier is reported
   separately, because "a bigger model wins" is a different claim.
@@ -325,6 +343,9 @@ EXPERIMENTS.md.
 | S5-DS | Replication | DeepSeek v4.1 Flash | S1, S2 screen, S4 | as above | as above | as above | planned | - | - |
 | S5-GM | Replication | Gemini | as above | as above | as above | as above | future | - | - |
 | S5-GPT | Replication | GPT | as above | as above | as above | as above | future | - | - |
+| S5-MM | Replication | MiMo V2.6 Pro | as above | as above | as above | as above | future | - | - |
+| S5-QW | Replication | Qwen3.5-27B | as above | as above | as above | as above | future | - | - |
+| S5-KM | Replication | Kimi K3 | as above | as above | as above | as above | future | - | - |
 
 **Deviations (rule 9).**
 - **D1 (2026-10-01, Erik approved).** S0a failed V6 pooled and V7. The plan names no V6-fail
@@ -387,7 +408,7 @@ A head-to-head pair costs the same as a normal pair.
 | S4 | screen 7 days x 14 = 98 x $0.16 = $16; confirm each changed day 42 x $0.16 = $6.70 (0-7 days; planning assumption 4) | $16-63, plan $43 |
 | S5-DS | S2 screen 84 x $0.07 = $6; S4 screen 98 x $0.07 = $7; 2-4 confirmations x 42 x $0.07 = $6-12 | $19-25 |
 | **Program to S5-DS** | | **$88-154; plan about $120** |
-| S5-GM, S5-GPT | same blocks as S5-DS at each model's price | estimated once their tier is chosen |
+| S5-GM, S5-GPT, S5-MM, S5-QW, S5-KM | same blocks as S5-DS at each model's price | estimated once their tier is chosen |
 
 The OpenRouter key has $32.81 left (09-29). That covers S0a and the S2 screen, with room for
 one S2 confirmation. A top-up is needed before the rest of S2. `--max-cost` stays a runaway
