@@ -9,6 +9,15 @@ from backend.publishing import episode_renderer
 
 
 @pytest.fixture(autouse=True)
+def _missed_week_unpublished(monkeypatch):
+    """The writer re-checks a week_off_note against the missed week's own
+    episode (#7630). Default every test to "that week never published" so
+    nothing here reads the real local episode store; tests of the re-check
+    override it."""
+    monkeypatch.setattr(episode_renderer.storage, "load_episode_strict", lambda _eid: None, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _pin_current_week(monkeypatch):
     """Every fixture in this file uses episode_id "2026-W18". Pin
     current_episode_id() to match so regenerate_and_upload's current-week
@@ -176,6 +185,55 @@ def test_no_teaser_and_no_note_still_overwrites_a_stale_latest_json():
         episode_renderer.regenerate_and_upload(episode)
 
     assert json.loads(writes["pages/latest.json"]) == {"episode_id": "2026-W18"}
+
+
+def _write_with(episode, missed_episode=None, missed_error=None):
+    writes: dict[str, str] = {}
+
+    def fake_save(path, content):
+        writes[path] = content
+        return f"https://blob/{path}"
+
+    def fake_load(_eid):
+        if missed_error:
+            raise missed_error
+        return missed_episode
+
+    with patch.object(episode_renderer.storage, "save_page", side_effect=fake_save), \
+         patch.object(episode_renderer.storage, "load_episode_strict", side_effect=fake_load), \
+         patch.object(episode_renderer, "render_episode_page", return_value="<html></html>"):
+        episode_renderer.regenerate_and_upload(episode)
+    return json.loads(writes["pages/latest.json"])
+
+
+def test_a_note_whose_missed_week_has_since_published_is_not_written():
+    """Codex (#7630): a late publish of the missed week can clear the note
+    while this cron is in flight; the write re-checks and drops it."""
+    episode = _episode({})
+    episode["week_off_note"] = _WEEK_OFF_NOTE
+    payload = _write_with(episode, missed_episode={"published_at": "2026-04-26T23:00:00Z"})
+    assert payload == {"episode_id": "2026-W18"}
+
+
+def test_a_note_whose_missed_week_is_still_unpublished_is_written():
+    episode = _episode({})
+    episode["week_off_note"] = _WEEK_OFF_NOTE
+    payload = _write_with(episode, missed_episode={"episode_id": "2026-W17"})
+    assert payload["week_off_note"] == _WEEK_OFF_NOTE
+
+
+def test_a_recheck_read_error_keeps_the_cron_time_decision():
+    episode = _episode({})
+    episode["week_off_note"] = _WEEK_OFF_NOTE
+    payload = _write_with(episode, missed_error=RuntimeError("blob down"))
+    assert payload["week_off_note"] == _WEEK_OFF_NOTE
+
+
+def test_an_own_week_refusal_note_is_written_until_that_week_publishes():
+    own = {"message": "x", "missed_week": "2026-W18"}
+    episode = _episode({})
+    episode["week_off_note"] = own
+    assert _write_with(episode)["week_off_note"] == own
 
 # ---------------------------------------------------------------------------
 # pages/latest.json is global and belongs to the CURRENT ISO week only

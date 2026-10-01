@@ -1394,6 +1394,33 @@ def mark_latest_published() -> None:
     logger.info("Cleared teaser: Sunday published, recipe is now Featured hero")
 
 
+def _week_off_note_still_true(episode: dict) -> dict | None:
+    """The episode's week_off_note if it is still true at write time, else
+    None (#7630).
+
+    The note was decided earlier in this cron; a late publish of the missed
+    week can land in between (another Lambda), clear the note, and then this
+    write would put the stale copy back. Re-checking right before the write
+    narrows that race to the moment between this read and the write, and
+    every later stage's write re-checks again, so a stale note cannot
+    survive past the next stage. A note about the episode's own week (its
+    Sunday refusal) is true while it has not published. A read error keeps
+    the note as decided: that decision came from a strict read too.
+    """
+    note = episode.get("week_off_note")
+    if not isinstance(note, dict):
+        return None
+    missed = note.get("missed_week")
+    if missed == episode.get("episode_id"):
+        return None if episode.get("published_at") else note
+    try:
+        missed_episode = storage.load_episode_strict(missed)
+    except Exception as exc:  # noqa: BLE001 - keep the cron-time decision
+        logger.warning(f"week_off_note recheck skipped for {missed}: {type(exc).__name__}: {exc}")
+        return note
+    return note if episode_integrity.week_off_note_due(missed_episode) else None
+
+
 def upload_latest_json(episode: dict) -> bool:
     """Write the homepage teaser file pages/latest.json for `episode`.
     Returns False (writing nothing) for any episode that is not the current
@@ -1438,7 +1465,7 @@ def upload_latest_json(episode: dict) -> bool:
     # writes. The published branch below never looks at it, which is
     # what clears the note the moment a week actually publishes.
     sunday_complete = episode.get("stages", {}).get("sunday", {}).get("status") == "complete"
-    week_off_note = episode.get("week_off_note")
+    week_off_note = _week_off_note_still_true(episode)
     if sunday_complete:
         mark_latest_published()
     else:
