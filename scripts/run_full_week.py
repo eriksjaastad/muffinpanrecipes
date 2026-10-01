@@ -123,7 +123,7 @@ def load_episode_via_cron(
         )
         if resp.status_code == 200:
             return resp.json()
-    except Exception:
+    except Exception:  # governance: allow-silent SF001: load_episode_via_cron has no callers in scripts/backend/tests; its documented None result means status unavailable
         pass
     return None
 
@@ -313,8 +313,8 @@ def main():
     args = parser.parse_args()
 
     # Required env vars
-    cron_secret = os.environ.get("CRON_SECRET", "")
-    blob_token = os.environ.get("BLOB_READ_WRITE_TOKEN", "")
+    cron_secret = os.environ.get("CRON_SECRET", "")  # governance: allow-silent SF003: empty is checked below; main() exits 1 unless --cleanup
+    blob_token = os.environ.get("BLOB_READ_WRITE_TOKEN", "")  # governance: allow-silent SF003: empty is checked below and main() exits 1
 
     if not cron_secret and not args.cleanup:
         print("ERROR: CRON_SECRET not set. Run with: doppler run --config prd -- uv run python scripts/run_full_week.py")

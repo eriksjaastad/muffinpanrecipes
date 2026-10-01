@@ -553,7 +553,12 @@ def _load_catalog_safe() -> list:
             return []
         data = json.loads(raw)
         return data if isinstance(data, list) else data.get("recipes", [])
-    except Exception:
+    # governance: allow-silent SF002: related links are optional page decoration; [] omits the related block and the rest of the page renders correctly
+    except Exception as exc:
+        logger.warning(
+            f"Related-recipes catalog unavailable, rendering without related links: "
+            f"{type(exc).__name__}: {exc}"
+        )
         return []
 
 
@@ -1379,6 +1384,7 @@ def publish_recipe_to_catalog(episode: dict) -> str | None:
         url = storage.save_page("pages/recipes.json", content)
         logger.info(f"Published recipe '{slug}' to catalog ({len(catalog['recipes'])} total)")
         return url
+    # governance: allow-silent SF002: sole caller _publish_sunday_sources raises "Recipe catalog write did not complete" on None unless the catalog already holds the episode
     except Exception as e:
         logger.error(f"Failed to publish recipe catalog: {e}")
         return None
@@ -1426,6 +1432,7 @@ def regenerate_and_upload(episode: dict, *, strict: bool = False) -> str | None:
                 logger.info(f"Uploaded teaser: {teaser.get('title', '?')}")
 
         return url
+    # governance: allow-silent SF002: documented contract; Sunday passes strict=True and re-raises, mid-week stages tolerate a missed re-render because the next stage rewrites the page
     except Exception as e:
         logger.error(f"Failed to regenerate episode page for {episode_id}: {e}")
         if strict:

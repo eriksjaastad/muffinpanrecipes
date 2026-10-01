@@ -417,6 +417,25 @@ def test_route_404s_for_unknown_recipe() -> None:
     assert resp.status_code == 404
 
 
+def test_unreadable_seed_file_raises_instead_of_404ing_seed_recipes(tmp_path) -> None:
+    """A missing seed file is a deploy fault, not 'recipe not found' (#7587)."""
+    fake_module = tmp_path / "backend" / "admin" / "episode_routes.py"
+    fake_module.parent.mkdir(parents=True)
+    with patch.object(episode_routes, "_SEED_RECIPES_CACHE", None), \
+         patch.object(episode_routes, "__file__", str(fake_module)), \
+         patch.object(episode_routes.storage, "load_page", return_value=None):
+        with pytest.raises(FileNotFoundError):
+            asyncio.run(episode_routes.recipe_page("classic-blueberry-muffins"))
+        # The failure is not cached: the next request retries the load.
+        assert episode_routes._SEED_RECIPES_CACHE is None
+
+
+def test_recipes_index_raises_on_corrupt_catalog_instead_of_empty_hub() -> None:
+    with patch.object(episode_routes.storage, "load_page", return_value="{not json"):
+        with pytest.raises(json.JSONDecodeError):
+            asyncio.run(episode_routes.recipes_index())
+
+
 # ---------------------------------------------------------------------------
 # Dynamic sitemap
 # ---------------------------------------------------------------------------

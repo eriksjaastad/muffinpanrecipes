@@ -262,6 +262,22 @@ def test_execute_cron_stage_stub_passes_recipe_context_into_dialogue():
     get_orchestrator.assert_not_called()
 
 
+def test_execute_cron_stage_stub_raises_on_empty_dialogue_without_saving():
+    """A failed generation ([] from _generate_dialogue) must not save a 'complete' empty stage."""
+    episode = {"episode_id": "2026-W18", "concept": "Hash brown cups", "stages": {}, "events": []}
+
+    with patch.object(cron_routes, "_load_or_create_episode", return_value=episode), \
+         patch.object(cron_routes, "_generate_dialogue", return_value=[]), \
+         patch.object(cron_routes.storage, "save_episode") as save_episode:
+        with pytest.raises(RuntimeError, match="no messages for tuesday"):
+            asyncio.run(
+                cron_routes.execute_cron_stage_stub("tuesday", "2026-W18", "Hash brown cups")
+            )
+
+    save_episode.assert_not_called()
+    assert "tuesday" not in episode["stages"]
+
+
 def test_judge_dialogue_fails_closed_on_exception():
     """Judge provider errors must not silently approve recipe-fidelity failures."""
     dialogue = [{"character": "Margaret", "message": "This should be judged."}]

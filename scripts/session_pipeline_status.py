@@ -48,6 +48,7 @@ def _get_json(url: str) -> object | None:
         )
         with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS) as resp:
             return json.loads(resp.read().decode("utf-8"))
+    # governance: allow-silent SF002: banner must never block a session; main() prints "unknown" for an unreadable episode and flags a skipped title-collision check for an unreadable catalog
     except Exception:
         # Deliberately silent: a flaky network must never turn into noise in
         # every session banner. The "unknown" verdict below says enough.
@@ -82,7 +83,10 @@ def main() -> int:
     summary = episode_summary(episode)
 
     if not failures:
-        print(f"{LABEL}: OK — {summary}")
+        # An unreadable catalog skips the title-collision check; say so
+        # rather than print a plain OK that implies it ran.
+        caveat = "" if catalog is not None else " (catalog unreadable — title-collision check skipped)"
+        print(f"{LABEL}: OK — {summary}{caveat}")
         return 0
 
     print(f"{LABEL}: DEGRADED — {summary}")

@@ -13,6 +13,7 @@ import pytest
 from pathlib import Path
 import tempfile
 
+# governance: allow-silent SF003: opt-in flag for live provider tests; unset means skip, the intended default
 pytestmark = pytest.mark.skipif(
     os.getenv("RUN_LIVE_PROVIDER_TESTS", "").lower() != "true",
     reason="Requires API keys. Set RUN_LIVE_PROVIDER_TESTS=true to run.",

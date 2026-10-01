@@ -72,7 +72,7 @@ class GoogleOAuth:
         if authorized_emails:
             self.authorized_emails = authorized_emails
         else:
-            emails_str = os.getenv("GOOGLE_AUTHORIZED_EMAILS", "")
+            emails_str = os.getenv("GOOGLE_AUTHORIZED_EMAILS", "")  # governance: allow-silent SF003: unset means no authorized emails; is_email_authorized then denies every login (fail closed) and __init__ logs a warning
             self.authorized_emails = {
                 email.strip() for email in emails_str.split(",") if email.strip()
             }
@@ -149,6 +149,7 @@ class GoogleOAuth:
             logger.info(f"Successful authentication for: {email}")
             return user_info
 
+        # governance: allow-silent SF002: None denies the login; auth_callback raises HTTP 401 and the error is logged with traceback
         except Exception as e:
             logger.error(f"OAuth callback error: {e}", exc_info=True)
             return None
@@ -185,6 +186,7 @@ class GoogleOAuth:
                     logger.error(f"Token exchange failed: {response.status_code} - {response.text}")
                     return None
                     
+            # governance: allow-silent SF002: None makes handle_callback deny the login; auth_callback raises HTTP 401
             except Exception as e:
                 logger.error(f"Token exchange error: {e}", exc_info=True)
                 return None
@@ -230,9 +232,11 @@ class GoogleOAuth:
 
             return decoded
 
+        # governance: allow-silent SF002: an invalid ID token must deny the login; handle_callback returns None and auth_callback raises HTTP 401
         except JWTError as e:
             logger.error(f"ID token verification failed: {e}")
             return None
+        # governance: allow-silent SF002: JWKS/verification errors deny the login (fail closed); auth_callback raises HTTP 401
         except Exception as e:
             logger.error(f"JWKS fetch or token verification error: {e}", exc_info=True)
             return None
@@ -276,6 +280,7 @@ class GoogleOAuth:
                     logger.error(f"User info fetch failed: {response.status_code}")
                     return None
                     
+            # governance: allow-silent SF002: get_user_info has no callers in backend/scripts/tests; None is its documented no-user-info result
             except Exception as e:
                 logger.error(f"User info fetch error: {e}", exc_info=True)
                 return None

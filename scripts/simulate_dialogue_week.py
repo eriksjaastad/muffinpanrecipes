@@ -587,10 +587,11 @@ def _load_legacy_memory_entries(slug: str) -> list[dict]:
     legacy_path = CHARACTERS_DIR / slug / "memory.json"
     if not legacy_path.exists():
         return []
-    try:
-        data = json.loads(legacy_path.read_text())
-    except (json.JSONDecodeError, OSError):
-        return []
+    # An existing but unreadable seed raises (json.JSONDecodeError/OSError):
+    # returning [] here made a read failure look like "no history", which
+    # can produce the false first-meeting opener. The caller maps it to
+    # unavailable.
+    data = json.loads(legacy_path.read_text())
     episodes = data.get("episodes") if isinstance(data, dict) else None
     if not isinstance(episodes, list):
         return []
@@ -602,7 +603,8 @@ def _load_memories_or_unavailable(name: str) -> tuple[list[dict[str, str]], bool
     durable read was unavailable (#6968, redesigned in review round 3).
 
     Returns ``(episodes, unavailable)``. ``unavailable`` is True ONLY when
-    a durable-store LIST or a needed week's FETCH failed — never when the
+    a durable-store LIST or a needed week's FETCH failed, or the legacy
+    seed it falls back to exists but is unreadable — never when the
     character genuinely has no memory yet. A caller deciding whether this
     is truly the cast's first-ever episode (run_simulation's
     `first_episode`) must treat "unavailable" as "unknown", not as
@@ -628,7 +630,11 @@ def _load_memories_or_unavailable(name: str) -> tuple[list[dict[str, str]], bool
 
     if not weeks:
         # Genuine not-found in durable storage (#6968 review finding 2).
-        return _load_legacy_memory_entries(slug), False
+        try:
+            return _load_legacy_memory_entries(slug), False
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"Legacy memory seed unreadable for {name}, using fallback: {type(e).__name__}: {e}")
+            return [], True
 
     latest_weeks = weeks[-PROMPT_MEMORY_WEEKS:]  # weeks is ascending; retention is a read-time choice
     episodes: list[dict] = []

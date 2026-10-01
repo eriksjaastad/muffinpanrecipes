@@ -65,7 +65,7 @@ class RecipeOrchestrator:
         ]:
             try:
                 dir_path.mkdir(parents=True, exist_ok=True)
-            except OSError:
+            except OSError:  # governance: allow-silent SF001: directory pre-creation only (read-only on Vercel Lambda); recipe/story save_to_file calls write later and surface their own errors
                 pass
 
         # Initialize systems

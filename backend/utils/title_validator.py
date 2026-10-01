@@ -67,7 +67,7 @@ def load_catalog_titles() -> list[str]:
     """
     try:
         catalog = _load_catalog()
-    except CatalogUnavailableError as exc:
+    except CatalogUnavailableError as exc:  # governance: allow-silent SF002: steering/QA only; sole caller _recent_catalog_titles returns [] and _editorial_qa_review alerts via notify_pipeline_failure on an empty list. Monday's duplicate gate reads load_published_catalog directly and raises
         logger.error(f"title_validator: catalog unavailable, titles list empty: {exc}")
         return []
 
@@ -92,7 +92,7 @@ def load_recent_cuisines(n: int = 4) -> list[str]:
     """
     try:
         catalog = _load_catalog()
-    except CatalogUnavailableError as exc:
+    except CatalogUnavailableError as exc:  # governance: allow-silent SF002: cuisine steering only, not a gate; Monday's duplicate gates read load_published_catalog directly and raise, so [] only loses variety steering
         logger.error(f"title_validator: catalog unavailable, cuisine steering degraded to []: {exc}")
         return []
 

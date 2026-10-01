@@ -313,7 +313,7 @@ def check_episode_integrity(
         episode_id = expect_episode or current_iso_week_id()
         try:
             episode = _fetch_json(f"{BLOB_CDN}/episodes/{episode_id}.json")
-        except Exception as exc:
+        except Exception as exc:  # governance: allow-silent SF002: returns (check passes) only for a 404 on the current week before Monday's cron; every other read failure raises AssertionError inside this handler
             if expect_episode:
                 # The operator asserted this episode must exist (#6828).
                 raise AssertionError(
@@ -322,6 +322,19 @@ def check_episode_integrity(
                 ) from exc
             # Before Monday's cron the current week legitimately has no
             # episode yet. Same pre-cron window check_this_week_page allows.
+            # Only a 404 means "absent": a timeout, 5xx or unparseable body
+            # is a failed read, and passing it as "pre-Monday" would hide a
+            # broken pipeline for the whole week.
+            response = getattr(exc, "response", None)
+            if not (
+                isinstance(exc, requests.HTTPError)
+                and response is not None
+                and response.status_code == 404
+            ):
+                raise AssertionError(
+                    f"episode {episode_id} could not be read from blob: "
+                    f"{type(exc).__name__}: {exc}"
+                ) from exc
             print(f"    (no episode for {episode_id} yet — pre-Monday window)")
             return
 
@@ -1001,9 +1014,9 @@ def read_last_status() -> str | None:
     """Return the previous run's status ('passed'/'failed'), or None if unknown."""
     try:
         return _state_file().read_text(encoding="utf-8").strip() or None
-    except FileNotFoundError:
+    except FileNotFoundError:  # governance: allow-silent SF002: no state file yet (first run) truthfully means previous status unknown
         return None
-    except Exception as e:
+    except Exception as e:  # governance: allow-silent SF002: state only gates the recovery notice; failure alerts never read it, and the read error is printed to stderr
         print(f"(health state read failed: {e})", file=sys.stderr)
         return None
 

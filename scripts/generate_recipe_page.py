@@ -151,7 +151,7 @@ def main():
     parser.add_argument("--output", default=None, help="Write to local file instead")
     args = parser.parse_args()
 
-    blob_token = os.environ.get("BLOB_READ_WRITE_TOKEN", "")
+    blob_token = os.environ.get("BLOB_READ_WRITE_TOKEN", "")  # governance: allow-silent SF003: empty is checked on the next line and exits 1
     if not blob_token:
         print("ERROR: BLOB_READ_WRITE_TOKEN not set")
         sys.exit(1)

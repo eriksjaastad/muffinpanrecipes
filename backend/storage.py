@@ -395,7 +395,7 @@ def is_valid_iso_week(week: object) -> bool:
     try:
         parse_iso_week(week)
         return True
-    except ValueError:
+    except ValueError:  # governance: allow-silent SF002: predicate; False is the true answer for a string parse_iso_week rejects
         return False
 
 
@@ -646,7 +646,7 @@ class _FilesystemBackend:
             return False
         try:
             variant_keys = [_webp_variant_key(image_key, w) for w in WEBP_VARIANT_WIDTHS]
-        except ValueError:
+        except ValueError:  # governance: allow-silent SF002: existence probe; a key with no derivable variant name has no variants, so the renderer correctly falls back to the single PNG candidate
             return False
         # Every width, not just the smallest: uploads are per-width and
         # best-effort, so one can be missing while another exists (review
@@ -662,7 +662,7 @@ class _FilesystemBackend:
             return False
         try:
             key = _jpeg_fallback_key(image_key)
-        except ValueError:
+        except ValueError:  # governance: allow-silent SF002: existence probe; a key with no derivable fallback name has no JPEG fallback, so the renderer keeps the raw PNG src
             return False
         return (IMAGES_DIR / key).exists()
 
@@ -703,7 +703,7 @@ class _CloudBackend:
     _BLOB_API = "https://blob.vercel-storage.com"
 
     def __init__(self) -> None:
-        self._blob_token = os.environ.get("BLOB_READ_WRITE_TOKEN", "")
+        self._blob_token = os.environ.get("BLOB_READ_WRITE_TOKEN", "")  # governance: allow-silent SF003: empty is checked in __init__ below (raises on Vercel) and _has_cloud() routes every call to the filesystem backend off Vercel
         self._fs = _FilesystemBackend()  # fallback for local data
         self.prefix: str = ""  # "test/" for test mode, "" for production
         # In-memory cache: (storage prefix, episode_id) -> dict. Populated by
@@ -1304,6 +1304,7 @@ class _CloudBackend:
                 buf = BytesIO()
                 im.save(buf, format="WEBP", quality=82, method=6)
                 webp_bytes = buf.getvalue()
+        # governance: allow-silent SF002: WebP sibling is an optional optimization; the canonical PNG is already uploaded and image_variants_available probes before the renderer references a variant
         except Exception as e:
             logger.warning(f"WebP encode failed for {png_key}: {e}")
             return
@@ -1343,6 +1344,7 @@ class _CloudBackend:
         """
         try:
             webp_bytes = _encode_webp(png_bytes, width=width)
+        # governance: allow-silent SF002: WebP variant is an optional optimization; image_variants_available HEAD-checks every width before the renderer emits a srcset
         except Exception as e:
             logger.warning(f"WebP {width}w variant encode failed for {png_key}: {e}")
             return
@@ -1378,6 +1380,7 @@ class _CloudBackend:
         try:
             jpeg_bytes = _encode_social_jpeg(png_bytes)
             social_key = _social_jpeg_key(png_key)
+        # governance: allow-silent SF002: social JPEG is optional metadata; the canonical PNG upload is the only publishing dependency
         except Exception as e:
             logger.warning(f"Social JPEG encode failed for {png_key}: {e}")
             return
@@ -1412,6 +1415,7 @@ class _CloudBackend:
         """
         try:
             jpeg_bytes = _encode_jpeg_fallback(png_bytes)
+        # governance: allow-silent SF002: JPEG fallback is optional; jpeg_fallback_available HEAD-checks it before the renderer references it
         except Exception as e:
             logger.warning(f"JPEG fallback encode failed for {png_key}: {e}")
             return
@@ -1483,7 +1487,7 @@ class _CloudBackend:
             variant_keys = [
                 _webp_variant_key(f"images/{image_key}", w) for w in WEBP_VARIANT_WIDTHS
             ]
-        except ValueError:
+        except ValueError:  # governance: allow-silent SF002: existence probe; no derivable variant key means no variants, renderer falls back to the single PNG candidate
             return False
 
         import requests as _requests
@@ -1498,6 +1502,7 @@ class _CloudBackend:
             key = f"{self.prefix}{variant_key}"
             try:
                 resp = _requests.head(f"{BLOB_PUBLIC_BASE}/{key}", timeout=10, allow_redirects=True)
+            # governance: allow-silent SF002: existence probe; an unverifiable variant must not be emitted in a srcset, so False (single PNG candidate) is the safe answer
             except Exception as e:
                 logger.warning(f"Variant existence check failed for {key}: {e}")
                 return False
@@ -1519,7 +1524,7 @@ class _CloudBackend:
             return False
         try:
             variant_key = _jpeg_fallback_key(f"images/{image_key}")
-        except ValueError:
+        except ValueError:  # governance: allow-silent SF002: existence probe; no derivable fallback key means no JPEG fallback, renderer keeps the raw PNG src
             return False
 
         import requests as _requests
@@ -1527,6 +1532,7 @@ class _CloudBackend:
         key = f"{self.prefix}{variant_key}"
         try:
             resp = _requests.head(f"{BLOB_PUBLIC_BASE}/{key}", timeout=10, allow_redirects=True)
+        # governance: allow-silent SF002: existence probe; an unverifiable fallback must not be emitted, so False (raw PNG src) is the safe answer
         except Exception as e:
             logger.warning(f"JPEG fallback existence check failed for {key}: {e}")
             return False

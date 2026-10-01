@@ -372,6 +372,7 @@ def parse_model(model: str) -> RoutedModel:
 # Allowlist helpers
 # ---------------------------------------------------------------------------
 def _allowed_openai_models() -> set[str]:
+    # governance: allow-silent SF003: optional override; empty selects DEFAULT_OPENAI_ALLOWLIST, never an open allowlist
     raw = os.getenv("OPENAI_MODEL_ALLOWLIST", "").strip()
     if not raw:
         return set(DEFAULT_OPENAI_ALLOWLIST)
@@ -390,6 +391,7 @@ def ensure_openai_model_allowed(model: str) -> None:
 
 
 def _allowed_anthropic_models() -> set[str]:
+    # governance: allow-silent SF003: optional override; empty selects DEFAULT_ANTHROPIC_ALLOWLIST, never an open allowlist
     raw = os.getenv("ANTHROPIC_MODEL_ALLOWLIST", "").strip()
     if not raw:
         return set(DEFAULT_ANTHROPIC_ALLOWLIST)
@@ -408,6 +410,7 @@ def ensure_anthropic_model_allowed(model: str) -> None:
 
 
 def _allowed_google_models() -> set[str]:
+    # governance: allow-silent SF003: optional override; empty selects DEFAULT_GOOGLE_ALLOWLIST, never an open allowlist
     raw = os.getenv("GOOGLE_MODEL_ALLOWLIST", "").strip()
     if not raw:
         return set(DEFAULT_GOOGLE_ALLOWLIST)
@@ -426,6 +429,7 @@ def ensure_google_model_allowed(model: str) -> None:
 
 
 def _allowed_openrouter_models() -> set[str]:
+    # governance: allow-silent SF003: optional override; empty selects DEFAULT_OPENROUTER_ALLOWLIST, never an open allowlist
     raw = os.getenv("OPENROUTER_MODEL_ALLOWLIST", "").strip()
     base = {m.strip() for m in raw.split(",") if m.strip()} if raw else set(DEFAULT_OPENROUTER_ALLOWLIST)
     # Union, not override - a lab model set registered via allow_openrouter_models()

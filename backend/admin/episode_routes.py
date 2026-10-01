@@ -169,9 +169,11 @@ def _load_catalog_recipes() -> list:
         raw = static.read_text() if static.exists() else '{"recipes": []}'
     try:
         data = json.loads(raw)
-    except Exception:
+    except json.JSONDecodeError:
+        # Raise (500) rather than render a 200 hub listing zero recipes,
+        # which crawlers and readers would take as a real, empty catalog.
         logger.error("recipes index: catalog JSON unparseable")
-        return []
+        raise
     return data if isinstance(data, list) else data.get("recipes", [])
 
 
@@ -200,12 +202,14 @@ def _load_seed_recipes() -> dict:
     path = Path(__file__).resolve().parents[2] / "src" / "seed_recipes.json"
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:
+    except (OSError, json.JSONDecodeError) as exc:
         # Do NOT cache the failure — a missing/corrupt file is a deploy bug
-        # that should retry (and keep logging loudly) on the next request,
-        # not silently 404 every seed recipe for the Lambda's lifetime.
+        # that should retry (and keep logging loudly) on the next request.
+        # Raise (500) rather than return {}: an empty map made every seed
+        # recipe answer 404 "Recipe not found", which reads as a real
+        # removal to crawlers instead of a server fault.
         logger.error(f"seed recipes load failed (will retry next request): {exc}")
-        return {}
+        raise
     _SEED_RECIPES_CACHE = data
     return data
 

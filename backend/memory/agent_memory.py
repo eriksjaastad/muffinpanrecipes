@@ -63,7 +63,7 @@ class AgentMemory:
         self.storage_path = storage_path or Path("data/agent_memories")
         try:
             self.storage_path.mkdir(parents=True, exist_ok=True)
-        except OSError:
+        except OSError:  # governance: allow-silent SF001: directory pre-creation only (read-only on Vercel Lambda); save/load of memory files later handle their own I/O errors
             pass  # Read-only filesystem (Vercel Lambda)
 
         # Memory storage
