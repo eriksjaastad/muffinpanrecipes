@@ -1498,3 +1498,38 @@ def test_state_is_written_before_the_alert_is_sent(tmp_path, monkeypatch):
     final = json.loads(state.read_text())
     assert list(final["alerted_failures"].values()) == ["stage A"]
     assert final["pending_failures"] == {}
+
+
+def _write_failing_on(calls_to_fail: set[int], monkeypatch):
+    real_write = pm.write_state
+    count = {"n": 0}
+
+    def _write(path, doc):
+        count["n"] += 1
+        if count["n"] in calls_to_fail:
+            raise OSError("disk hiccup")
+        return real_write(path, doc)
+
+    monkeypatch.setattr(pm, "write_state", _write)
+
+
+def test_a_failed_final_write_is_retried_once(tmp_path, monkeypatch):
+    state = tmp_path / "pipeline_status.json"
+    posts = _captured_alerts(monkeypatch)
+    _install_pipeline(monkeypatch, episode_only_failures=["stage A"])
+    _write_failing_on({2}, monkeypatch)  # 1 = pre-alert, 2 = final, 3 = retry
+    pm.run(state)
+    assert len(posts) == 1
+    assert list(json.loads(state.read_text())["alerted_failures"].values()) == ["stage A"]
+
+
+def test_an_unrecordable_delivery_is_resent_at_least_once(tmp_path, monkeypatch, capsys):
+    """The documented trade-off: if the outcome cannot be recorded, the
+    failure stays owed and is sent again; it is never silently dropped."""
+    state = tmp_path / "pipeline_status.json"
+    posts = _captured_alerts(monkeypatch)
+    _install_pipeline(monkeypatch, episode_only_failures=["stage A"])
+    _write_failing_on({2, 3}, monkeypatch)
+    pm.run(state)
+    assert "at-least-once delivery" in capsys.readouterr().err
+    assert list(json.loads(state.read_text())["pending_failures"].values()) == ["stage A"]

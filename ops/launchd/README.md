@@ -191,6 +191,15 @@ The monitor stays silent on:
 - The exact same set of ids repeating, forever — a monitor that repeats
   itself every hour trains you to ignore it.
 
+**Delivery is at least once.** Each run first writes what is true before
+anything is sent (newly seen failures recorded as owed in
+`pending_failures`); if that write fails, the run sends nothing. After a
+delivered alert the state is written again (retried once). An email send and
+a file write cannot be atomic, so if the disk fails in exactly that gap the
+failure stays owed and the next run sends it again, with a stderr line
+saying so. That is deliberate: recording "alerted" before sending would make
+the same disk failure a *missed* alert instead of a repeated one.
+
 **Delivery is confirmed, not assumed.** `send_alert`'s boolean return is
 checked before `alerted_failures` is updated. If every channel is down (or
 credentials are missing):

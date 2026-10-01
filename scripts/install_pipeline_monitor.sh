@@ -55,22 +55,33 @@ _resolve_bin() {
 DOPPLER_BIN="$(_resolve_bin doppler)"
 UV_BIN="$(_resolve_bin uv)"
 
+# Unload the agent if it is loaded. Always attempts the unload (by service
+# target, so it works without the plist) rather than trusting a
+# `launchctl print` query first: a failed query is not proof the job is
+# unloaded. A failed unload counts as "nothing was loaded" only when a
+# follow-up query also finds no such service; otherwise this exits 1 and
+# leaves the plist in place.
+_unload_agent() {
+  local action="$1"
+  local target="gui/$(id -u)/${LABEL}"
+  if launchctl bootout "$target" 2>/dev/null; then
+    return 0
+  fi
+  if launchctl print "$target" >/dev/null 2>&1; then
+    echo "${action} FAILED: launchctl bootout could not unload ${LABEL}, which is still loaded; $DEST left in place" >&2
+    exit 1
+  fi
+}
+
 if [[ "$UNINSTALL" -eq 1 ]]; then
   if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "# --uninstall --dry-run: would run:"
-    echo "launchctl bootout gui/$(id -u) '$DEST'"
+    echo "launchctl bootout gui/$(id -u)/${LABEL}"
     echo "trash '$DEST'"
     exit 0
   fi
 
-  if launchctl print "gui/$(id -u)/${LABEL}" >/dev/null 2>&1; then
-    # A failed bootout leaves the hourly job loaded; keep the plist and
-    # say so rather than report a successful uninstall.
-    if ! launchctl bootout "gui/$(id -u)" "$DEST"; then
-      echo "Uninstall FAILED: launchctl bootout did not unload ${LABEL}; $DEST left in place" >&2
-      exit 1
-    fi
-  fi
+  _unload_agent "Uninstall"
   if [[ -f "$DEST" ]]; then
     trash "$DEST"
     echo "Uninstalled: unloaded and trashed $DEST"
@@ -123,12 +134,7 @@ printf '%s\n' "$RENDERED" > "$DEST"
 # Bootout any existing copy first so re-running this script after an edit
 # actually picks up the new plist instead of launchd keeping the old one
 # loaded (bootstrap alone refuses if the label is already loaded).
-if launchctl print "gui/$(id -u)/${LABEL}" >/dev/null 2>&1; then
-  if ! launchctl bootout "gui/$(id -u)" "$DEST"; then
-    echo "Install FAILED: could not unload the existing ${LABEL} to reload it" >&2
-    exit 1
-  fi
-fi
+_unload_agent "Install"
 
 launchctl bootstrap "gui/$(id -u)" "$DEST"
 launchctl enable "gui/$(id -u)/${LABEL}"

@@ -842,11 +842,22 @@ def _transition(state_path: Path, episode_id: str | None) -> int:
             for fid in resolved_alerted:
                 del alerted[fid]
 
-    # The final write follows a write that succeeded moments ago. If it
-    # still fails, the pre-alert state stays on disk and the next run
-    # re-sends whatever was just delivered: the one residual duplicate,
-    # logged loudly rather than hidden.
-    _write_state_logged(state_path, _state_doc())
+    # Delivery is AT LEAST ONCE, by choice. An email send and a file write
+    # cannot be made atomic, so one of them has to win when the disk fails
+    # in between. Recording a failure as alerted BEFORE sending would turn
+    # that rare failure into a MISSED alert; recording it after (here) turns
+    # it into a repeated one. For an alerting monitor a duplicate is the
+    # safe failure. The final write follows a write that succeeded moments
+    # ago and is retried once; if both attempts fail, the pre-alert state
+    # (failures owed) stays on disk, the next run re-sends, and stderr says
+    # exactly that.
+    if not _write_state_logged(state_path, _state_doc()):
+        if not _write_state_logged(state_path, _state_doc()):
+            print(
+                f"{LABEL}: this run's outcome could not be recorded; anything it "
+                "delivered will be sent again next run (at-least-once delivery)",
+                file=sys.stderr,
+            )
     return 0
 
 

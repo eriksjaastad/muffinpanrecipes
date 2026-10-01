@@ -115,8 +115,9 @@ def test_script_never_shells_out_to_rm():
     )
 
 
-def _fake_bin(tmp_path: Path, bootout_rc: int) -> tuple[Path, Path]:
-    """A PATH dir with stub `launchctl` and `trash` that log their calls."""
+def _fake_bin(tmp_path: Path, bootout_rc: int, print_rc: int = 0) -> tuple[Path, Path]:
+    """A PATH dir with stub `launchctl` and `trash` that log their calls.
+    `print_rc` 0 means "the service is loaded"."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     log = tmp_path / "calls.log"
@@ -124,6 +125,7 @@ def _fake_bin(tmp_path: Path, bootout_rc: int) -> tuple[Path, Path]:
         "#!/bin/bash\n"
         f'echo "launchctl $*" >> "{log}"\n'
         'if [[ "$1" == "bootout" ]]; then exit ' + str(bootout_rc) + "; fi\n"
+        'if [[ "$1" == "print" ]]; then exit ' + str(print_rc) + "; fi\n"
         "exit 0\n"
     )
     (bin_dir / "trash").write_text(f'#!/bin/bash\necho "trash $*" >> "{log}"\n')
@@ -132,14 +134,14 @@ def _fake_bin(tmp_path: Path, bootout_rc: int) -> tuple[Path, Path]:
     return bin_dir, log
 
 
-def _run_uninstall(tmp_path: Path, bootout_rc: int):
+def _run_uninstall(tmp_path: Path, bootout_rc: int, print_rc: int = 0):
     import os
 
     home = tmp_path / "home"
     dest = home / "Library" / "LaunchAgents" / "com.eriksjaastad.muffinpan-pipeline-monitor.plist"
     dest.parent.mkdir(parents=True)
     dest.write_text("<plist/>")
-    bin_dir, log = _fake_bin(tmp_path, bootout_rc)
+    bin_dir, log = _fake_bin(tmp_path, bootout_rc, print_rc)
     env = {**os.environ, "HOME": str(home), "PATH": f"{bin_dir}:{os.environ['PATH']}"}
     result = subprocess.run(
         ["bash", str(SCRIPT), "--uninstall"],
@@ -163,4 +165,21 @@ def test_uninstall_trashes_the_plist_after_a_successful_bootout(tmp_path):
     result, dest, calls = _run_uninstall(tmp_path, bootout_rc=0)
     assert result.returncode == 0, result.stderr
     assert "launchctl bootout" in calls
+    assert f"trash {dest}" in calls
+
+
+def test_uninstall_attempts_the_unload_even_when_the_query_fails(tmp_path):
+    """Gate review on a010221: a failing `launchctl print` used to skip the
+    bootout entirely, then trash the plist while the job stayed loaded."""
+    result, dest, calls = _run_uninstall(tmp_path, bootout_rc=0, print_rc=1)
+    assert result.returncode == 0, result.stderr
+    assert "launchctl bootout gui/" in calls
+    assert f"trash {dest}" in calls
+
+
+def test_uninstall_proceeds_when_nothing_was_loaded(tmp_path):
+    """bootout fails because there is no such service, and the follow-up
+    query agrees: nothing to unload, so the plist is trashed."""
+    result, dest, calls = _run_uninstall(tmp_path, bootout_rc=3, print_rc=113)
+    assert result.returncode == 0, result.stderr
     assert f"trash {dest}" in calls
