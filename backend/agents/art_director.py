@@ -445,7 +445,7 @@ class ArtDirectorAgent(Agent):
             jobs_file.parent.mkdir(parents=True, exist_ok=True)
             with open(jobs_file, "w") as f:
                 _json.dump(job_data, f, indent=2)
-        except OSError:
+        except OSError:  # governance: allow-silent SF001: legacy job file only feeds the optional R2 handshake (scripts/trigger_generation.py, not in the Lambda bundle); Lambda's filesystem is read-only and direct Stability generation below does not read it
             pass  # Read-only filesystem (Vercel Lambda)
 
         # 2. Trigger Mission Control Handshake (Upload to R2)

@@ -76,7 +76,7 @@ def as_int(value: str | None) -> int:
         return 0
     try:
         return int(value)
-    except ValueError:
+    except ValueError:  # governance: allow-silent SF002: operator-read weekly crawl report; the unparseable cell is printed to stderr before defaulting to 0
         print(f"warning: unparseable numeric cell {value!r}, reading as 0", file=sys.stderr)
         return 0
 

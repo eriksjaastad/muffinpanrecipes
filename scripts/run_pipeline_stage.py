@@ -81,26 +81,27 @@ def _generate_stage_dialogue(
     image_paths: list[str] | None = None,
     photography_context: dict | None = None,
 ) -> list[dict]:
-    """Run the dialogue simulator for a single stage and return messages list."""
-    try:
-        result = run_simulation(
-            concept=concept,
-            default_model=DIALOGUE_MODEL,
-            run_index=1,
-            stage_only=stage,
-            injected_event=None,
-            ticks_per_day=0,       # 0 = use variable TICKS_RANGE per day (natural variation)
-            mode="llm",
-            prompt_style="scene",
-            character_models=None,
-            image_paths=image_paths or [],
-            photography_context=photography_context,
-        )
-        return result.get("messages", [])
-    except Exception as e:
-        # Dialogue failure is non-fatal — log and continue
-        print(f"  [dialogue] Warning: simulation failed for stage '{stage}': {e}")
-        return []
+    """Run the dialogue simulator for a single stage and return messages list.
+
+    A simulation exception propagates (#6856: the dialogue IS the product).
+    main()'s outer handler marks the stage failed, notifies, and re-raises,
+    instead of marking it complete with no dialogue. Work the stage already
+    saved stays saved; only the stage status reflects the failure.
+    """
+    result = run_simulation(
+        concept=concept,
+        default_model=DIALOGUE_MODEL,
+        run_index=1,
+        stage_only=stage,
+        injected_event=None,
+        ticks_per_day=0,       # 0 = use variable TICKS_RANGE per day (natural variation)
+        mode="llm",
+        prompt_style="scene",
+        character_models=None,
+        image_paths=image_paths or [],
+        photography_context=photography_context,
+    )
+    return result.get("messages", [])
 
 
 def _resolve_concept(stage_key: str, arg_concept: str | None, episode_concept: str | None) -> str:
@@ -239,7 +240,7 @@ def main() -> None:
         # --- Generate real dialogue for this stage via simulate_dialogue_week ---
         # Wednesday gets image paths + photography context (reshoot data).
         # Friday gets photography context for hero shot awareness.
-        # Dialogue generation is non-fatal: failure is logged, stage still completes.
+        # A simulation exception fails the stage via the outer handler below (#6856).
         print(f"{prefix}Generating dialogue for {stage_key}...")
         stage_image_paths = stage_entry.get("image_paths") or ep.get("image_paths") or []
 

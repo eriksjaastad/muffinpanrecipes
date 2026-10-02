@@ -114,6 +114,7 @@ def _send_discord(
             f"{response.status_code} - {response.text[:200]}"
         )
         return False
+    # governance: allow-silent SF002: False means not delivered; send_alert aggregates per-channel booleans and returns delivered=False to callers, and an alert channel must not crash the job it reports on
     except Exception as e:
         # An alert channel that raises must not take down the thing it is
         # reporting on. This is the one place in the project where swallowing
@@ -143,7 +144,7 @@ def email_channel_status() -> dict:
     config.py's env names directly rather than calling config.resend_api_key
     / config.alert_email_to, which raise instead of reporting.
     """
-    missing = [name for name in _EMAIL_ENV_NAMES if not os.environ.get(name, "").strip()]
+    missing = [name for name in _EMAIL_ENV_NAMES if not os.environ.get(name, "").strip()]  # governance: allow-silent SF003: empty is the thing being detected; an unset name is reported in the missing list and configured=False
     return {"configured": not missing, "missing": missing}
 
 
@@ -186,6 +187,7 @@ def _send_email(
     try:
         api_key = config.resend_api_key
         to_addr = config.alert_email_to
+    # governance: allow-silent SF002: False means not delivered; the misconfiguration is posted to Discord once via _notify_email_unconfigured and send_alert reports delivery per channel
     except RuntimeError as e:
         logger.error(f"Email alert channel misconfigured, dropping alert {subject!r}: {e}")
         _notify_email_unconfigured()
@@ -217,6 +219,7 @@ def _send_email(
             f"{response.status_code} - {response.text[:200]}"
         )
         return False
+    # governance: allow-silent SF002: False means not delivered; send_alert aggregates per-channel booleans and an alert channel must not crash the job it reports on
     except Exception as e:
         # Same rule as _send_discord: an alert channel that raises must not
         # take down the thing it is reporting on.

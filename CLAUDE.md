@@ -28,15 +28,13 @@ Section 4 is the per-character fix, already specified. That work is card #6966 a
 never been started.
 
 **Do not conclude from that the characters are thinly drawn.** `build_system_prompt`
-(scripts/simulate_dialogue_week.py:536) pastes considerably more per character than
-2(c)'s "bio.md and the relationship text" — among it a per-character voice guide and
-few-shot example messages. Read the function, not the document's summary of it. The
-voices blur anyway, which is why "add more character material" is a hypothesis rather
-than an obvious fix; few-shot depth has already been swept and ruled out (#7206).
+(scripts/simulate_dialogue_week.py) pastes eight per-character blocks, among them a voice
+guide and few-shot example messages; 2(c) lists them and measures how much character
+material reaches the prompt against the shared rules. The voices blur anyway, which is why
+"add more character material" is a hypothesis rather than an obvious fix; few-shot depth
+has already been swept and ruled out (#7206).
 
-Read DIALS.md's measurements in DIALS.md and do not restate them here. Its "1.5-2.5x"
-ratio in particular has no stated denominator and undercounts what reaches the prompt,
-so re-derive it before relying on it; correcting 2(c) is carded.
+Read DIALS.md's measurements in DIALS.md and do not restate them here.
 
 **Do not propose a lever DIALS.md has already evaluated, and do not write a fresh
 analysis of a question it answers.** On 2026-09-22 a session spent an afternoon

@@ -29,7 +29,7 @@ def _get_jwt_secret() -> str:
     In production (Vercel), raises RuntimeError if JWT_SECRET is missing.
     In local dev, falls back to an insecure key with a loud warning.
     """
-    secret = os.environ.get("JWT_SECRET", "")
+    secret = os.environ.get("JWT_SECRET", "")  # governance: allow-silent SF003: empty is checked on the next line; production raises RuntimeError, only local dev uses the fallback key
     if not secret:
         # Import here to avoid circular dependency at module load
         from backend.config import config
@@ -100,7 +100,7 @@ class JWTSessionManager:
                 algorithms=[JWT_ALGORITHM],
             )
             return claims
-        except JWTError as e:
+        except JWTError as e:  # governance: allow-silent SF002: None is the documented invalid/expired-token result; callers treat it as unauthenticated (fail closed)
             logger.debug(f"JWT verification failed: {e}")
             return None
 

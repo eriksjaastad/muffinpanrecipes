@@ -48,6 +48,7 @@ from backend.config import config
 from backend.publishing.episode_renderer import _hero_image_url, regenerate_and_upload
 from backend.storage import storage
 from backend.utils import episode_integrity
+from backend.utils.indexnow import submit_urls as _indexnow_submit_urls
 from backend.utils.catalog import (
     VALID_CATEGORIES,
     catalog_recipes as _catalog_recipes,
@@ -591,13 +592,14 @@ def _generate_dialogue(
             recipe_context=recipe_context,
         )
         return result.get("messages", [])
+    # governance: allow-silent SF002: both callers treat [] as a failure; _generate_and_judge_dialogue and execute_cron_stage_stub raise on an empty dialogue
     except Exception as e:
-        # TRIAGE (#6856): non-fatal HERE, fail-closed in the caller.
-        # This helper has two callers with different contracts:
-        # _generate_and_judge_dialogue (the cron path) treats an empty list as
-        # a hard stage failure, and execute_cron_stage_stub (admin simulation)
-        # tolerates it. Returning [] keeps that split honest; do NOT "fix" the
-        # cron path by swallowing it further down.
+        # TRIAGE (#6856): non-fatal HERE, fail-closed in the callers.
+        # Both callers treat an empty list as a hard failure:
+        # _generate_and_judge_dialogue (the cron path) raises a stage failure,
+        # and execute_cron_stage_stub (admin simulation) raises before it can
+        # save a "complete" stage with no dialogue. Do NOT "fix" either path
+        # by swallowing it further down.
         import traceback
         tb = traceback.format_exc()
         logger.error(f"Dialogue generation FAILED for stage={stage}: {type(e).__name__}: {e}\n{tb}")
@@ -680,7 +682,7 @@ def _parse_judge_json(raw: str) -> dict | None:
         return None
     try:
         parsed = json.loads(raw[start:end + 1])
-    except json.JSONDecodeError:
+    except json.JSONDecodeError:  # governance: allow-silent SF002: None means unparseable verdict; _judge_dialogue retries once then fails closed, never defaulting to PASS
         return None
     return parsed if isinstance(parsed, dict) else None
 
@@ -952,6 +954,7 @@ def _announce_advisory_publication(episode_id: str, episode: dict, stage: str, c
     updated["judge_advisory"][stage]["announced_at"] = announced_at
     try:
         storage.save_episode(episode_id, updated)
+    # governance: allow-silent SF002: returns None like every path here; the alert was delivered and announce_pending stays True in storage so the next Sunday invocation re-sends
     except Exception as exc:  # noqa: BLE001 - the publish already succeeded
         logger.error(
             f"Advisory alert for {episode_id}/{stage} was delivered but its announced marker "
@@ -1006,6 +1009,7 @@ def _score_dialogue_qa(
         ]
         result = score_quality(messages, personas, concept=concept)
         return {"score": result.get("score", 0), "details": result}
+    # governance: allow-silent SF002: descriptive metric, not a gate; both callers skip writing qa_scores when the result is empty and the judge gates publication
     except Exception as e:
         # TRIAGE (#6856): GENUINELY NON-FATAL, logged. QA scoring is a
         # descriptive metric written alongside the dialogue, not a gate — the
@@ -1394,6 +1398,7 @@ def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
         logger.info(f"Auto-fixed recipe: '{fixed['title']}' ({len(fixed['ingredients'])} ingredients)")
         return True
 
+    # governance: allow-silent SF002: False is the failure signal; the Sunday fix loop breaks, then raises HTTP 400 and notify_judge_failure because QA never passed
     except Exception as e:
         # TRIAGE (#6856): NON-FATAL, and the surrounding gate fails closed.
         # Returning False breaks the Sunday auto-fix loop, which then raises
@@ -1443,6 +1448,7 @@ def _recent_catalog_titles(limit: int = 8) -> list[str]:
         from backend.utils.title_validator import load_catalog_titles
 
         return load_catalog_titles()[:limit]
+    # governance: allow-silent SF002: _editorial_qa_review treats [] as degraded, stamps catalog_context_degraded_at and sends notify_pipeline_failure
     except Exception as e:
         logger.error(f"Public-CDN catalog fallback FAILED: {type(e).__name__}: {e}")
         return []
@@ -1912,7 +1918,7 @@ def _catalog_contains_episode(ep: dict) -> bool:
         return False
     try:
         catalog = json.loads(catalog_json)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError:  # governance: allow-silent SF002: False means "not proven present"; _publish_sunday_sources then raises "Recipe catalog write did not complete" (fails closed)
         return False
 
     recipe = ep.get("stages", {}).get("monday", {}).get("recipe_data", {})
@@ -2896,6 +2902,71 @@ async def cron_saturday(request: Request):
     return _stage_response("saturday", episode_id, concept, {"dialogue_messages": len(dialogue)})
 
 
+def _submit_sunday_indexnow(ep: dict, episode_id: str, concept: str) -> None:
+    """Tell IndexNow the published recipe page (and the pages that list it)
+    changed, so participating search engines don't wait for their next crawl.
+
+    TRIAGE (#7806): GENUINELY NON-FATAL, logged and recorded. This runs after
+    ``published_at`` is set and the reader pages are confirmed written — the
+    recipe is already live and correct without this. IndexNow submission is a
+    courtesy to the crawler, never a publish requirement, so a failure here
+    must never raise into the publish path (see backend/utils/indexnow.py:
+    ``submit_urls`` already reports rather than raises; this wrapper just
+    decides what to do with that report).
+    """
+    # Everything, from deriving the slug to reading the result, is inside one
+    # guard (Codex round 1): an unexpected error anywhere here would
+    # otherwise reach _run_stage and mark an already-live publish failed.
+    event: str | None = None
+    try:
+        from backend.publishing.episode_renderer import catalog_slug
+
+        # The same slug the catalog (and so the sitemap) uses. URLs match the
+        # sitemap exactly: "/recipes" with no trailing slash, since
+        # "/recipes/" is a 307 to it and IndexNow should get the final URL.
+        slug = catalog_slug(ep)
+        if not slug:
+            event = "sunday: indexnow skipped (no recipe slug)"
+        else:
+            urls = [
+                f"https://muffinpanrecipes.com/recipes/{slug}",
+                "https://muffinpanrecipes.com/",
+                "https://muffinpanrecipes.com/recipes",
+            ]
+            result = _indexnow_submit_urls(urls)
+            if result.ok:
+                event = f"sunday: indexnow submitted ({len(urls)} urls)"
+            else:
+                logger.warning(f"IndexNow submission for {episode_id} failed: {result.detail}")
+                event = f"sunday: indexnow submission failed ({result.detail})"
+    except Exception as exc:  # noqa: BLE001 - the publish already succeeded
+        logger.error(
+            f"IndexNow submission raised unexpectedly (non-fatal): {type(exc).__name__}: {exc}"
+        )
+        event = f"sunday: indexnow submission failed ({type(exc).__name__})"
+
+    # Every outcome, including an unexpected error, is persisted, so the
+    # runbook's "check the episode events" verification always has an answer.
+    # The outcome and `indexnow_pending = False` go into a COPY that is saved
+    # first and applied to `ep` only once the save succeeded: a failed save
+    # leaves the submission owed, in memory and in Blob, for the
+    # already-published catch-up (Codex round 2).
+    try:
+        updated = copy.deepcopy(ep)
+        updated.setdefault("events", []).append(event)
+        updated["indexnow_pending"] = False
+        storage.save_episode(episode_id, updated)
+    # governance: allow-silent SF002: publish already succeeded; indexnow_pending stays True in storage so the already-published catch-up retries the submission
+    except Exception as exc:  # noqa: BLE001 - recording the outcome, not the publish
+        logger.error(
+            f"Could not persist indexnow event for {episode_id} "
+            f"(error_type={type(exc).__name__}); left pending for a retry"
+        )
+        return
+    ep.clear()
+    ep.update(updated)
+
+
 # ---------------------------------------------------------------------------
 # Sunday — Publish
 # ---------------------------------------------------------------------------
@@ -2926,6 +2997,11 @@ async def cron_sunday(request: Request):
         # announce_pending and the handoff reached source_ready, so this is a
         # no-op once delivered and for records older code already announced.
         _announce_advisory_publication(episode_id, ep, "sunday", concept)
+        # #7806: an IndexNow outcome that was never persisted (the run died,
+        # or its save failed) is retried here. Records published before the
+        # flag existed never carry it, so old weeks are not resubmitted.
+        if ep.get("indexnow_pending") and not body.test and not storage.prefix:
+            _submit_sunday_indexnow(ep, episode_id, concept)
         sunday_stage = ep.get("stages", {}).get("sunday", {})
         return _stage_response("sunday", episode_id, concept, {
             "published": True,
@@ -3086,6 +3162,10 @@ async def cron_sunday(request: Request):
             ep["hero_image_url"] = _hero_image_url(ep)
 
         ep["published_at"] = datetime.now(timezone.utc).isoformat()
+        # Saved with published_at, so a run that dies before the IndexNow
+        # outcome is persisted leaves it owed; the already-published path
+        # retries it (#7806, same shape as announce_pending, #7403).
+        ep["indexnow_pending"] = True
         ep["stages"]["sunday"] = {
             "stage": "publish",
             "status": "complete",
@@ -3151,6 +3231,15 @@ async def cron_sunday(request: Request):
         # carded — which is the lesser harm of the two.
         _announce_advisory_publication(episode_id, ep, "sunday", concept)
 
+        # Last of all: IndexNow is a crawler courtesy, never a publish
+        # requirement, and must never fire against test data (RUNBOOK
+        # Incident 1 was exactly this shape of leak — test-mode data reaching
+        # a real destination). Both `body.test` and the storage prefix are
+        # checked because they are set together by `_test_mode_scope` above,
+        # but the prefix is the structural guarantee; this is belt-and-braces.
+        if not body.test and not storage.prefix:
+            _submit_sunday_indexnow(ep, episode_id, concept)
+
     return _stage_response("sunday", episode_id, concept, {
         "published": True,
         "dialogue_messages": len(dialogue),
@@ -3187,6 +3276,14 @@ async def execute_cron_stage_stub(stage: str, episode_id: str, concept: str, mod
         stage, ep_concept, model=model,
         recipe_context=_build_recipe_context(recipe_data) or None,
     )
+    if not dialogue:
+        # _generate_dialogue returns [] when generation failed. Saving that as
+        # a "complete" stage would overwrite the episode with an empty day and
+        # report success to the admin run; raise so the caller records it.
+        raise RuntimeError(
+            f"Dialogue simulation produced no messages for {stage}. "
+            f"See the Dialogue generation FAILED log line for the cause."
+        )
     ep.setdefault("stages", {})[stage] = {
         "stage": stage,
         "status": "complete",

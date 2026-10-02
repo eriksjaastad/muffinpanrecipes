@@ -106,7 +106,7 @@ class TestJWTSessionManager:
         token = manager.create_token("user@example.com", {})
 
         # Tamper with environment to change the secret
-        old_secret = os.environ.get("JWT_SECRET", "")
+        old_secret = os.environ.get("JWT_SECRET", "")  # governance: allow-silent SF003: test saves the prior value; empty means unset and the finally block pops the variable instead of restoring it
         try:
             os.environ["JWT_SECRET"] = "completely-different-secret"
             manager2 = JWTSessionManager()

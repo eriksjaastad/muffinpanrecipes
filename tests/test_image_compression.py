@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import os
+from io import BytesIO
 from unittest.mock import MagicMock, patch
+
+import pytest
+from PIL import Image
 
 
 def test_seed_webp_dimensions_are_read_from_repository_assets():
@@ -433,6 +437,425 @@ class TestHeroSrcsetWithVariantsAvailable:
         assert 'sizes="(max-width: 768px) 100vw, 720px"' in html
 
 
+class TestToJpegFallbackUrl:
+    """_to_jpeg_fallback_url (#7185): same deterministic-pathname rewrite as
+    _to_webp_url, but to the sized JPEG <img>-fallback sibling."""
+
+    def test_png_path_becomes_sized_jpeg(self):
+        from backend.publishing.episode_renderer import _to_jpeg_fallback_url
+
+        assert _to_jpeg_fallback_url("/blob-images/abc/hero.png") == (
+            "/blob-images/abc/hero-1200w.jpg"
+        )
+
+    def test_preserves_querystring(self):
+        from backend.publishing.episode_renderer import _to_jpeg_fallback_url
+
+        assert _to_jpeg_fallback_url("/blob-images/abc/hero.png?v=1") == (
+            "/blob-images/abc/hero-1200w.jpg?v=1"
+        )
+
+    def test_non_png_passthrough(self):
+        from backend.publishing.episode_renderer import _to_jpeg_fallback_url
+
+        assert _to_jpeg_fallback_url("/blob-images/abc/hero.jpg") == (
+            "/blob-images/abc/hero.jpg"
+        )
+
+    def test_empty_passthrough(self):
+        from backend.publishing.episode_renderer import _to_jpeg_fallback_url
+
+        assert _to_jpeg_fallback_url("") == ""
+
+    def test_strips_vercel_random_suffix(self):
+        from backend.publishing.episode_renderer import _to_jpeg_fallback_url
+
+        url = "images/20d49356-9VSOT4SGhaUDoAUDM3kZPqxd3Hpeyu.png"
+        assert _to_jpeg_fallback_url(url) == "images/20d49356-1200w.jpg"
+
+    def test_delegates_to_storage_jpeg_fallback_key(self):
+        """#7185 review, HIGH: this must call storage._jpeg_fallback_key
+        directly rather than re-deriving the naming convention locally —
+        that is the ONE function the uploader, the backfill script, and the
+        existence probe all also call, so all four can never disagree."""
+        from backend.publishing.episode_renderer import _to_jpeg_fallback_url
+        from backend.storage import _jpeg_fallback_key
+
+        assert _to_jpeg_fallback_url("/blob-images/abc/hero.png") == (
+            "/blob-images/" + _jpeg_fallback_key("abc/hero.png")
+        )
+
+
+class TestJpegFallbackAvailable:
+    """_jpeg_fallback_available (#7185): gates the <img> fallback rewrite on
+    storage confirming the sized JPEG sibling actually exists."""
+
+    def test_false_when_storage_reports_unavailable(self):
+        from backend.publishing.episode_renderer import _jpeg_fallback_available
+
+        with patch(
+            "backend.publishing.episode_renderer.storage.jpeg_fallback_available",
+            return_value=False,
+        ):
+            assert _jpeg_fallback_available("/blob-images/abc/hero.png") is False
+
+    def test_true_when_storage_confirms_it_exists(self):
+        from backend.publishing.episode_renderer import _jpeg_fallback_available
+
+        with patch(
+            "backend.publishing.episode_renderer.storage.jpeg_fallback_available",
+            return_value=True,
+        ):
+            assert _jpeg_fallback_available("/blob-images/abc/hero.png") is True
+
+    def test_non_png_short_circuits_without_calling_storage(self):
+        from backend.publishing.episode_renderer import _jpeg_fallback_available
+
+        with patch(
+            "backend.publishing.episode_renderer.storage.jpeg_fallback_available"
+        ) as mock_available:
+            assert _jpeg_fallback_available("/blob-images/abc/hero.jpg") is False
+        mock_available.assert_not_called()
+
+    def test_per_render_cache_checks_storage_once_and_does_not_collide_with_webp_cache(self):
+        """Shares variant_cache with _variants_available (WebP) under a
+        distinct key — one lookup per image per render, and the two checks
+        must never read/write each other's cached answer."""
+        from backend.publishing.episode_renderer import (
+            _jpeg_fallback_available,
+            _variants_available,
+        )
+
+        cache: dict[str, bool] = {}
+        with (
+            patch(
+                "backend.publishing.episode_renderer.storage.jpeg_fallback_available",
+                return_value=True,
+            ) as mock_jpeg,
+            patch(
+                "backend.publishing.episode_renderer.storage.image_variants_available",
+                return_value=False,
+            ) as mock_webp,
+        ):
+            assert _jpeg_fallback_available("/blob-images/abc/hero.png", cache) is True
+            assert _jpeg_fallback_available("/blob-images/abc/hero.png", cache) is True
+            assert _variants_available("/blob-images/abc/hero.png", cache) is False
+            assert _variants_available("/blob-images/abc/hero.png", cache) is False
+
+        mock_jpeg.assert_called_once()
+        mock_webp.assert_called_once()
+
+    def test_probe_and_rendered_url_agree_for_a_suffixed_historical_png(self):
+        """#7185 review, HIGH, the core regression test: for a pre-#5251 PNG
+        whose URL still carries Vercel's random-hash suffix,
+        _variant_lookup_key does NOT strip it — so whatever key the probe
+        ends up checking in storage must still name the SAME sibling
+        _to_jpeg_fallback_url renders, or a page can point <img> at a JPEG
+        that was never uploaded (storage checked a different, suffixed key
+        and reported it as available)."""
+        from backend.publishing.episode_renderer import (
+            _to_jpeg_fallback_url,
+            _variant_lookup_key,
+        )
+        from backend.storage import _jpeg_fallback_key
+
+        suffixed_url = "/blob-images/recipe/hero-9VSOT4SGhaUDoAUDM3kZPqxd3.png"
+
+        # What _jpeg_fallback_available actually asks storage to check.
+        lookup_key = _variant_lookup_key(suffixed_url)
+        probed_variant_key = _jpeg_fallback_key(f"images/{lookup_key}")
+
+        # What the rendered <img src> actually becomes.
+        rendered_url = _to_jpeg_fallback_url(suffixed_url)
+
+        assert probed_variant_key == "images/recipe/hero-1200w.jpg"
+        assert rendered_url == "/blob-images/recipe/hero-1200w.jpg"
+        assert probed_variant_key.removeprefix("images/") == rendered_url.removeprefix(
+            "/blob-images/"
+        ), "probe and rendered URL must name the identical sibling"
+
+
+class TestHeroJpegFallback:
+    """End-to-end: render_episode_page's hero <img> fallback (#7185)."""
+
+    @staticmethod
+    def _episode():
+        return {
+            "episode_id": "ep-test",
+            "concept": "Test",
+            "stages": {
+                "monday": {
+                    "recipe_data": {
+                        "title": "Test Muffins",
+                        "description": "delicious",
+                        "ingredients": [{"item": "flour", "amount": "1 cup"}],
+                        "instructions": ["mix it", "bake it"],
+                    },
+                },
+            },
+            "image_urls": ["https://example.com/images/foo/hero.png"],
+        }
+
+    def test_img_fallback_uses_sized_jpeg_once_available(self):
+        from backend.publishing import episode_renderer
+
+        with patch.object(
+            episode_renderer.storage, "jpeg_fallback_available", return_value=True
+        ):
+            html = episode_renderer.render_episode_page(
+                self._episode(), image_url="/blob-images/foo/hero.png",
+            )
+
+        assert 'src="/blob-images/foo/hero-1200w.jpg"' in html
+        assert 'src="/blob-images/foo/hero.png"' not in html
+        # The <source> WebP negotiation is unaffected by the fallback change.
+        assert 'type="image/webp"' in html
+
+    def test_img_fallback_stays_on_raw_png_when_not_yet_backfilled(self):
+        """Default/unmocked storage in this test env reports the fallback as
+        unavailable (no real blob), so the pre-#7185 behavior must hold."""
+        from backend.publishing import episode_renderer
+
+        html = episode_renderer.render_episode_page(
+            self._episode(), image_url="/blob-images/foo/hero.png",
+        )
+
+        assert 'src="/blob-images/foo/hero.png"' in html
+        assert "-1200w.jpg" not in html
+
+    def test_img_dimensions_are_the_fixed_fallback_16_9_regardless_of_source_shape(self):
+        """#7185 review round 4, HIGH (dimensions, fourth time — round 3's
+        square was ALSO wrong, just in a new way: true by construction, but
+        a real crop of visible content, since the hero box itself is 16:9
+        with object-fit:cover, not square). storage._encode_jpeg_fallback
+        now center-crops every JPEG fallback to 1200x675 (HERO_ASPECT's
+        16:9) — matching the hero box exactly, so `object-fit: cover` crops
+        nothing further — while still being TRUE BY CONSTRUCTION, so the
+        renderer states width AND height exactly with no per-source guess
+        or omission (satisfying scripts/health_check.py's intrinsic-
+        dimensions check, which round 2's height-omission approach failed)."""
+        from backend.publishing import episode_renderer
+
+        with patch.object(
+            episode_renderer.storage, "jpeg_fallback_available", return_value=True
+        ):
+            html = episode_renderer.render_episode_page(
+                self._episode(), image_url="/blob-images/foo/hero.png",
+            )
+
+        assert 'src="/blob-images/foo/hero-1200w.jpg" width="1200" height="675"' in html
+        assert 'width="1536"' not in html
+        assert 'height="1200"' not in html
+
+    def test_rendered_fallback_passes_health_checks_intrinsic_dimensions_check(self):
+        """Calls the actual health_check function against the rendered page
+        — not a re-implementation of its rule — per #7185 review round 3."""
+        from backend.publishing import episode_renderer
+        from scripts.health_check import _check_intrinsic_image_dimensions
+
+        with patch.object(
+            episode_renderer.storage, "jpeg_fallback_available", return_value=True
+        ):
+            html = episode_renderer.render_episode_page(
+                self._episode(), image_url="/blob-images/foo/hero.png",
+            )
+
+        _check_intrinsic_image_dimensions(html)  # raises AssertionError on failure
+
+    def test_suffixed_historical_hero_gets_a_working_jpeg_fallback(self):
+        """End-to-end version of the probe/render agreement regression test:
+        a pre-#5251 hero URL with a random suffix must still resolve to a
+        JPEG sibling URL that storage was actually asked (and confirmed) to
+        exist."""
+        from backend.publishing import episode_renderer
+
+        ep = self._episode()
+        ep["image_urls"] = [
+            "https://example.com/images/foo/hero-9VSOT4SGhaUDoAUDM3kZPqxd3.png"
+        ]
+        checked_keys = []
+
+        def _fake_available(image_key):
+            checked_keys.append(image_key)
+            return True
+
+        with patch.object(
+            episode_renderer.storage,
+            "jpeg_fallback_available",
+            side_effect=_fake_available,
+        ):
+            html = episode_renderer.render_episode_page(
+                ep, image_url="/blob-images/foo/hero-9VSOT4SGhaUDoAUDM3kZPqxd3.png",
+            )
+
+        assert 'src="/blob-images/foo/hero-1200w.jpg"' in html
+        # The probe was asked about the suffixed identity; storage's own
+        # _jpeg_fallback_key canonicalizes it to the same key the rendered
+        # URL uses (verified directly in TestJpegFallbackAvailable above).
+        assert checked_keys == ["foo/hero-9VSOT4SGhaUDoAUDM3kZPqxd3.png"]
+
+
+class TestHealthCheckReachesTheHeroImgFallback:
+    """scripts.health_check._check_hero_image (#7185 review round 4, MEDIUM).
+
+    _image_references walks every <source> tag (in document order) before
+    any <img>, so a page with 2+ <source> candidates ahead of the hero's own
+    <img> fallback could pass the old [:2] probe without ever requesting the
+    fallback — the exact file a browser that can't decode the <source>'s
+    format actually loads."""
+
+    @staticmethod
+    def _page(hero_img_src: str) -> str:
+        return (
+            "<html><body>"
+            '<div class="recipe-hero__image"><picture>'
+            '<source srcset="/blob-images/foo/hero.webp" type="image/webp">'
+            f'<img src="{hero_img_src}" width="1200" height="675">'
+            "</picture></div>"
+            "</body></html>"
+        )
+
+    def test_hero_img_src_extracted_from_the_hero_container(self):
+        from scripts.health_check import _hero_img_src
+
+        html = self._page("/blob-images/foo/hero-1200w.jpg")
+        assert _hero_img_src(html) == "/blob-images/foo/hero-1200w.jpg"
+
+    def test_none_when_page_has_no_hero_container(self):
+        from scripts.health_check import _hero_img_src
+
+        assert _hero_img_src("<html><body>no hero here</body></html>") is None
+
+    def test_passes_when_source_and_img_fallback_both_load(self):
+        from scripts.health_check import _check_hero_image
+
+        html = self._page("/blob-images/foo/hero-1200w.jpg")
+        ok = MagicMock(status_code=200)
+        with patch("scripts.health_check.requests.head", return_value=ok):
+            _check_hero_image(html, "https://example.com", required=True)  # no raise
+
+    def test_fails_when_the_hero_img_fallback_404s_even_though_the_source_loads(self):
+        """The core round-4 regression case: the <source> WebP is reachable,
+        but the <img> fallback 404s. The check must fail — not pass because
+        the [:2] probe was satisfied entirely by <source> candidates."""
+        from scripts.health_check import _check_hero_image
+
+        html = self._page("/blob-images/foo/hero-1200w.jpg")
+
+        def _fake_head(url, timeout=None, allow_redirects=None):
+            resp = MagicMock()
+            resp.status_code = 404 if url.endswith("hero-1200w.jpg") else 200
+            return resp
+
+        with patch("scripts.health_check.requests.head", side_effect=_fake_head):
+            with pytest.raises(AssertionError, match="hero-1200w.jpg"):
+                _check_hero_image(html, "https://example.com", required=True)
+
+    def test_does_not_add_a_request_when_the_fallback_is_already_checked(self):
+        """Keeps the extra cost to at most one request per page: when the
+        <img> IS the first reference already (no <source> ahead of it),
+        it must not be probed a second time."""
+        from scripts.health_check import _check_hero_image
+
+        html = (
+            '<div class="recipe-hero__image">'
+            '<img src="/blob-images/foo/hero.png" width="1536" height="1536">'
+            "</div>"
+        )
+        ok = MagicMock(status_code=200)
+        with patch("scripts.health_check.requests.head", return_value=ok) as mock_head:
+            _check_hero_image(html, "https://example.com", required=True)
+        assert mock_head.call_count == 1
+
+
+class TestHeroImgSrcConfinedToItsOwnSubtree:
+    """_hero_img_src (#7185 review round 5, MEDIUM) — a round-4 regex
+    matched from 'recipe-hero__image' to the NEXT <img> anywhere later in
+    the document, even past the container's own closing tag. A page whose
+    hero is the "Photo coming Wednesday" placeholder (no <img> inside the
+    hero container at all) plus a later, unrelated gallery <img> would
+    therefore return the GALLERY's URL instead of None. This confines the
+    match to real element nesting via html.parser, not a regex span."""
+
+    def test_placeholder_hero_with_a_later_gallery_img_returns_none(self):
+        """The core round-5 regression case."""
+        from scripts.health_check import _hero_img_src
+
+        html = (
+            '<div class="recipe-hero__image">'
+            '<div class="recipe-hero__image-placeholder">Photo coming Wednesday</div>'
+            "</div>"
+            '<div class="chat-msg__images">'
+            '<img src="/blob-images/foo/round_1/gallery-option.png">'
+            "</div>"
+        )
+        assert _hero_img_src(html) is None
+
+    def test_normal_hero_returns_its_own_img(self):
+        from scripts.health_check import _hero_img_src
+
+        html = (
+            '<div class="recipe-hero__image">'
+            '<img src="/blob-images/foo/hero.png" width="1536" height="1536">'
+            "</div>"
+        )
+        assert _hero_img_src(html) == "/blob-images/foo/hero.png"
+
+    def test_nested_picture_source_inside_hero_returns_the_img_src(self):
+        from scripts.health_check import _hero_img_src
+
+        html = (
+            '<div class="recipe-hero__image"><picture>'
+            '<source srcset="/blob-images/foo/hero.webp" type="image/webp">'
+            '<img src="/blob-images/foo/hero-1200w.jpg" width="1200" height="675">'
+            "</picture></div>"
+        )
+        assert _hero_img_src(html) == "/blob-images/foo/hero-1200w.jpg"
+
+    def test_gallery_img_before_the_hero_container_is_not_mistaken_for_it(self):
+        """A round-4 regex anchored only on 'starts matching from
+        recipe-hero__image' would get this right by luck (it can't match
+        backwards), but a subtree-based parser must too."""
+        from scripts.health_check import _hero_img_src
+
+        html = (
+            '<img src="/blob-images/foo/round_1/gallery-option.png">'
+            '<div class="recipe-hero__image">'
+            '<img src="/blob-images/foo/hero.png">'
+            "</div>"
+        )
+        assert _hero_img_src(html) == "/blob-images/foo/hero.png"
+
+
+class TestJpegFallbackDimensionsConstant:
+    """JPEG_FALLBACK_DIMENSIONS (#7185 review round 4) — the fixed 16:9
+    (HERO_ASPECT) size storage._encode_jpeg_fallback always produces, TRUE
+    BY CONSTRUCTION. Rounds 1-3 each tried something different (a guessed
+    source dimension; a real-or-omitted scaled height; a fixed SQUARE) and
+    each was wrong for a different reason — see episode_renderer's
+    docstring above this constant for the full history.
+    """
+
+    def test_matches_hero_aspect_at_the_fallback_width(self):
+        from backend.publishing.episode_renderer import (
+            JPEG_FALLBACK_DIMENSIONS,
+            JPEG_FALLBACK_HEIGHT,
+            JPEG_FALLBACK_WIDTH,
+        )
+        from backend.storage import HERO_ASPECT
+
+        assert JPEG_FALLBACK_DIMENSIONS == (JPEG_FALLBACK_WIDTH, JPEG_FALLBACK_HEIGHT)
+        assert JPEG_FALLBACK_DIMENSIONS == (1200, 675)
+        assert JPEG_FALLBACK_WIDTH * HERO_ASPECT[1] == JPEG_FALLBACK_HEIGHT * HERO_ASPECT[0]
+
+
+class TestFormatDimensionAttrs:
+    def test_formats_both_attributes(self):
+        from backend.publishing.episode_renderer import _format_dimension_attrs
+
+        assert _format_dimension_attrs(1200, 900) == 'width="1200" height="900"'
+
+
 class TestGallerySrcsetWithVariantsAvailable:
     def test_gallery_emits_full_srcset_and_sizes(self):
         from backend.publishing.episode_renderer import _render_chat_message
@@ -548,6 +971,9 @@ class TestBackfillImageVariantsScript:
         assert "1 distinct published PNGs referenced" in output
         assert "would create: images/abc123/round_1/macro_closeup-400w.webp" in output
         assert "would create: images/abc123/round_1/macro_closeup-800w.webp" in output
+        # #7185 — the sized JPEG <img> fallback is backfilled alongside the
+        # WebP srcset candidates, not by a separate script/invocation.
+        assert "would create: images/abc123/round_1/macro_closeup-1200w.jpg" in output
 
     def test_missing_token_exits_without_any_network_call(self):
         import scripts.backfill_image_variants as backfill
@@ -560,6 +986,62 @@ class TestBackfillImageVariantsScript:
 
         assert exit_code == 2
         mock_get.assert_not_called()
+
+    def test_apply_uploads_missing_webp_and_jpeg_variants(self):
+        """--apply encodes and uploads every missing variant kind for a PNG
+        that predates both #6755 (WebP widths) and #7185 (JPEG fallback) —
+        exercised against synthetic Pillow bytes, no real network/Blob."""
+        import scripts.backfill_image_variants as backfill
+
+        empty_episode_listing = MagicMock()
+        empty_episode_listing.raise_for_status = MagicMock()
+        empty_episode_listing.json.return_value = {"blobs": [], "hasMore": False}
+
+        png_image = Image.new("RGB", (300, 200), (10, 20, 30))
+        png_buf = BytesIO()
+        png_image.save(png_buf, format="PNG")
+
+        fetch_png_response = MagicMock()
+        fetch_png_response.raise_for_status = MagicMock()
+        fetch_png_response.content = png_buf.getvalue()
+
+        get_responses = [
+            self._catalog_response(),
+            self._catalog_content(),
+            self._episode_list_response(),
+            self._episode_content(),
+            empty_episode_listing,
+            self._images_list_response(),
+            fetch_png_response,
+        ]
+
+        def _put_response(url, data=None, headers=None, timeout=None):
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock()
+            resp.json.return_value = {"url": url}
+            return resp
+
+        with (
+            patch.dict(os.environ, {"BLOB_READ_WRITE_TOKEN": "fake-token"}),
+            patch("scripts.backfill_image_variants.requests.get", side_effect=get_responses),
+            patch("scripts.backfill_image_variants.requests.put", side_effect=_put_response) as mock_put,
+        ):
+            exit_code = backfill.main(["--apply"])
+
+        assert exit_code == 0
+        uploaded_paths = [call.args[0] for call in mock_put.call_args_list]
+        assert uploaded_paths == [
+            "https://blob.vercel-storage.com/images/abc123/round_1/macro_closeup-400w.webp",
+            "https://blob.vercel-storage.com/images/abc123/round_1/macro_closeup-800w.webp",
+            "https://blob.vercel-storage.com/images/abc123/round_1/macro_closeup-1200w.jpg",
+        ]
+        content_types = [call.kwargs["headers"]["Content-Type"] for call in mock_put.call_args_list]
+        assert content_types == ["image/webp", "image/webp", "image/jpeg"]
+        # The JPEG upload really is a JPEG at the fallback width, not a
+        # re-encoded WebP wearing a .jpg extension.
+        with Image.open(BytesIO(mock_put.call_args_list[2].kwargs["data"])) as decoded:
+            assert decoded.format == "JPEG"
+            assert decoded.width == 1200
 
 
 def test_backfill_collects_the_confirmed_winner_hero_key():
@@ -594,6 +1076,48 @@ def test_backfill_collects_the_confirmed_winner_hero_key():
         keys = backfill.collect_published_png_keys("fake-token")
 
     assert keys == ["images/2068c0cc.png", "images/2068c0cc/round_1/macro_closeup.png"]
+
+
+def test_backfill_collects_a_pinned_hero_that_differs_from_winner_and_image_urls():
+    """#7185 review finding 3: episode_renderer._hero_image_url checks
+    hero_image_url FIRST, before confirmed_winner or image_urls[0] — a
+    pinned hero (scripts/pin_published_heroes.py, or the Sunday cron) can
+    name a completely different photo than either of those, so a backfill
+    that only walks image_urls/confirmed_winner misses the actual rendered
+    hero entirely."""
+    import scripts.backfill_image_variants as backfill
+
+    catalog = {"recipes": [{"slug": "spanakopita-phyllo-cups", "episode_id": "2026-W28"}]}
+    episode = {
+        "hero_image_url": (
+            "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/"
+            "images/2068c0cc/round_1/hero_threequarter.png"
+        ),
+        "image_urls": [
+            "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/images/2068c0cc/round_1/macro_closeup.png",
+        ],
+        "stages": {
+            "wednesday": {
+                "image_urls": [],
+                "confirmed_winner": {
+                    "featured_image": "src/assets/images/2068c0cc.png",
+                },
+            }
+        },
+    }
+
+    def fake_fetch(_token, pathname):
+        return catalog if pathname == "pages/recipes.json" else episode
+
+    with patch("scripts.backfill_image_variants.fetch_json_blob", side_effect=fake_fetch), \
+         patch("scripts.backfill_image_variants.list_blobs", return_value=[]):
+        keys = backfill.collect_published_png_keys("fake-token")
+
+    assert keys == [
+        "images/2068c0cc.png",
+        "images/2068c0cc/round_1/hero_threequarter.png",
+        "images/2068c0cc/round_1/macro_closeup.png",
+    ]
 
 
 def test_backfill_walks_published_episodes_the_catalog_does_not_name():

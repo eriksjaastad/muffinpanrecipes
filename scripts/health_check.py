@@ -33,6 +33,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit, urlunsplit
 from xml.etree import ElementTree
@@ -266,7 +267,21 @@ def check_this_week_page(report: Report, base_url: str = PRODUCTION_BASE_URL) ->
                 if base_url == PRODUCTION_BASE_URL
                 else None
             )
-        except Exception:
+        except Exception as exc:
+            # Same rule as check_episode_integrity: only a 404 means "absent".
+            # A timeout, 5xx or unparseable body is a failed read, and passing
+            # it as the expected placeholder would hide a broken render (#7833).
+            response = getattr(exc, "response", None)
+            if not (
+                isinstance(exc, requests.HTTPError)
+                and response is not None
+                and response.status_code == 404
+            ):
+                raise AssertionError(
+                    f"/this-week is a {len(body)}-byte placeholder and episode "
+                    f"{week_id} could not be read from blob to confirm that is "
+                    f"expected: {type(exc).__name__}: {exc}"
+                ) from exc
             episode = None
         assert not episode_page_is_due(episode), (
             f"/this-week body is {len(body)} bytes, expected > 20000, and "
@@ -312,7 +327,7 @@ def check_episode_integrity(
         episode_id = expect_episode or current_iso_week_id()
         try:
             episode = _fetch_json(f"{BLOB_CDN}/episodes/{episode_id}.json")
-        except Exception as exc:
+        except Exception as exc:  # governance: allow-silent SF002: returns (check passes) only for a 404 on the current week before Monday's cron; every other read failure raises AssertionError inside this handler
             if expect_episode:
                 # The operator asserted this episode must exist (#6828).
                 raise AssertionError(
@@ -321,6 +336,19 @@ def check_episode_integrity(
                 ) from exc
             # Before Monday's cron the current week legitimately has no
             # episode yet. Same pre-cron window check_this_week_page allows.
+            # Only a 404 means "absent": a timeout, 5xx or unparseable body
+            # is a failed read, and passing it as "pre-Monday" would hide a
+            # broken pipeline for the whole week.
+            response = getattr(exc, "response", None)
+            if not (
+                isinstance(exc, requests.HTTPError)
+                and response is not None
+                and response.status_code == 404
+            ):
+                raise AssertionError(
+                    f"episode {episode_id} could not be read from blob: "
+                    f"{type(exc).__name__}: {exc}"
+                ) from exc
             print(f"    (no episode for {episode_id} yet — pre-Monday window)")
             return
 
@@ -598,6 +626,91 @@ def _image_references(body: str) -> list[str]:
     return references
 
 
+_VOID_ELEMENTS = frozenset({
+    "area", "base", "br", "col", "embed", "hr", "img", "input",
+    "link", "meta", "param", "source", "track", "wbr",
+})
+
+
+class _HeroContainerImgParser(HTMLParser):
+    """First <img src> strictly inside the element whose class list
+    contains 'recipe-hero__image' (#7185 review round 5, MEDIUM).
+
+    A round-4 regex (`recipe-hero__image.*?<img ... src="...">`) matched
+    from the container's class name to the NEXT <img> anywhere later in the
+    document, past the container's own closing tag — so a hero placeholder
+    ("Photo coming Wednesday", which has no <img> inside it at all) would
+    return a later, unrelated gallery image's URL instead of None. This
+    tracks real element nesting with a tag stack: the hero container's
+    start tag records the stack depth at that point, an <img> is only
+    captured while the stack hasn't yet unwound past that depth, and once
+    the container's own end tag pops the stack back to (or below) that
+    depth, no <img> found later can be attributed to it.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._stack: list[str] = []
+        self._hero_stack_depth: int | None = None
+        self.result: str | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if self._hero_stack_depth is not None and self.result is None and tag == "img":
+            for name, value in attrs:
+                if name == "src":
+                    self.result = value
+                    break
+
+        if self._hero_stack_depth is None:
+            for name, value in attrs:
+                if name == "class" and "recipe-hero__image" in (value or "").split():
+                    # Recorded BEFORE this tag is pushed, so its own
+                    # matching end tag pops the stack back to exactly this
+                    # depth — the signal that we've exited the container.
+                    self._hero_stack_depth = len(self._stack)
+                    break
+
+        if tag not in _VOID_ELEMENTS:
+            self._stack.append(tag)
+
+    def handle_endtag(self, tag: str) -> None:
+        if self._stack and self._stack[-1] == tag:
+            self._stack.pop()
+        elif tag in self._stack:
+            # Unbalanced/malformed markup: unwind to the matching opener
+            # rather than leaving the stack permanently desynced.
+            while self._stack and self._stack[-1] != tag:
+                self._stack.pop()
+            if self._stack:
+                self._stack.pop()
+
+        if self._hero_stack_depth is not None and len(self._stack) <= self._hero_stack_depth:
+            self._hero_stack_depth = None
+
+
+def _hero_img_src(body: str) -> str | None:
+    """The recipe hero's own <img src> — the <picture> fallback, whatever
+    format it currently is — or None if the hero container has no <img> at
+    all (e.g. the "Photo coming Wednesday" placeholder) (#7185 review).
+
+    _image_references above walks EVERY <source> tag on the page before any
+    <img>, in document order — a page with two or more <source> tags (the
+    hero's own WebP srcset, plus any BTS gallery <picture> that happens to
+    come first in a re-ordered render) can fill _check_hero_image's [:2]
+    probe entirely with <source> candidates and never touch the hero's <img>
+    fallback at all. That fallback is exactly the file a browser which
+    cannot decode the <source> format actually loads, so a health check that
+    never requests it can pass while that file 404s. This targets the hero
+    specifically (not just any <img> on the page), the same container class
+    scripts/pin_published_heroes.py's hero_src_from_page matches on — but,
+    unlike that regex, confined to the container's own element subtree.
+    """
+    parser = _HeroContainerImgParser()
+    parser.feed(body)
+    parser.close()
+    return parser.result
+
+
 def _check_hero_image(body: str, base_url: str, *, required: bool) -> None:
     references = _image_references(body)
     if not references:
@@ -605,8 +718,18 @@ def _check_hero_image(body: str, base_url: str, *, required: bool) -> None:
             raise AssertionError("page has no hero image URL")
         return
 
+    # #7185 review round 4: the hero's actual <img src> (the fallback) is
+    # appended explicitly, deduplicated against what [:2] already covers, so
+    # this never costs more than one extra request per checked page even
+    # when the fallback happens to already be one of the first two
+    # candidates.
+    checked = list(references[:2])
+    hero_src = _hero_img_src(body)
+    if hero_src and hero_src not in checked:
+        checked.append(hero_src)
+
     broken: list[str] = []
-    for source in references[:2]:
+    for source in checked:
         image_url = _resolve_image_url(source, base_url)
         try:
             status = requests.head(
@@ -905,9 +1028,9 @@ def read_last_status() -> str | None:
     """Return the previous run's status ('passed'/'failed'), or None if unknown."""
     try:
         return _state_file().read_text(encoding="utf-8").strip() or None
-    except FileNotFoundError:
+    except FileNotFoundError:  # governance: allow-silent SF002: no state file yet (first run) truthfully means previous status unknown
         return None
-    except Exception as e:
+    except Exception as e:  # governance: allow-silent SF002: state only gates the recovery notice; failure alerts never read it, and the read error is printed to stderr
         print(f"(health state read failed: {e})", file=sys.stderr)
         return None
 

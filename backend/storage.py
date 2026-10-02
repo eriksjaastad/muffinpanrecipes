@@ -86,12 +86,59 @@ SOCIAL_IMAGE_SUFFIX = ".social.jpg"
 # scripts/backfill_image_variants.py for every already-published image.
 WEBP_VARIANT_WIDTHS: tuple[int, ...] = (400, 800)
 
+# #7185 — sized JPEG sibling for the <picture> <img> fallback. The <source>
+# above already offers a WebP srcset; the <img> is what a browser that
+# cannot decode WebP at all falls through to, and until this shipped that
+# fallback was the raw ~1536px/3-4MB PNG. One width, not a tuple: <img> has
+# exactly one src, unlike <source>'s srcset which offers several candidates
+# for the browser to pick by viewport. Changing this value requires
+# re-running scripts/backfill_image_variants.py for already-published images.
+JPEG_FALLBACK_WIDTH: int = 1200
+
+# The hero's own display shape (#7185 review round 4) — MUST match
+# `.recipe-hero__image { aspect-ratio: 16 / 9; ... overflow: hidden }` /
+# `.recipe-hero__image img { object-fit: cover }` in src/assets/site.css.
+# The fallback is encoded to exactly this aspect ratio (see
+# _encode_jpeg_fallback) so `object-fit: cover` into that box crops NOTHING
+# further — a square (or any other) crop would discard real content for a
+# source whose own aspect ratio differs from the box's (round 3 got this
+# wrong: a 1200x1200 crop of a 1600x800 source throws away half its width
+# before the browser crops again). tests/test_image_compression.py parses
+# site.css's actual rule and fails if it ever drifts from this constant.
+HERO_ASPECT: tuple[int, int] = (16, 9)
+
+# The fallback's height, derived from HERO_ASPECT so it can never disagree
+# with JPEG_FALLBACK_WIDTH's own aspect ratio. round() is defensive — with
+# today's values (1200, (16, 9)) this is already an exact 675.
+JPEG_FALLBACK_HEIGHT: int = round(JPEG_FALLBACK_WIDTH * HERO_ASPECT[1] / HERO_ASPECT[0])
+
 # Public, prefix-free base of the (public) blob store. Existence checks HEAD
 # this host: a HEAD against the API host (https://blob.vercel-storage.com/<key>)
 # returns 404 even for blobs that exist — verified 2026-09-05 against a live
 # variant that the public URL served with 200 — so it must never be used as a
 # presence probe. Same host the catalog and title readers hardcode.
 BLOB_PUBLIC_BASE = "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com"
+
+# Historical uploads from before the deterministic-pathname fix (#5251) landed
+# at Vercel's auto-appended `<stem>-<20+ char hash>.png`, while every sibling
+# (WebP, JPEG fallback) is always keyed off the clean `<stem>.png` identity.
+_VERCEL_RANDOM_SUFFIX_RE = re.compile(r"-[A-Za-z0-9]{20,}\.png$", re.IGNORECASE)
+
+
+def _canonical_png_key(png_key: str) -> str:
+    """Strip Vercel's legacy random-hash suffix from a PNG path or key (#7185 review).
+
+    The ONE place that decides what "clean" means for a PNG identity, so
+    every sibling-key builder below (and episode_renderer's URL rewriters,
+    which import this) always agree on the same key for the same photo —
+    whether the caller is the upload path (already clean, x-add-random-
+    suffix=0), a backfill script walking historical episode JSON (which can
+    still carry the suffix), or the renderer's own existence probe. Before
+    this was centralized, the probe (unstripped) and the rendered <img> src
+    (stripped) could disagree about which JPEG-fallback key existed —
+    HIGH-severity review finding on #7185.
+    """
+    return _VERCEL_RANDOM_SUFFIX_RE.sub(".png", png_key)
 
 
 def _social_jpeg_key(png_key: str) -> str:
@@ -108,11 +155,97 @@ def _webp_variant_key(png_key: str, width: int) -> str:
     suffix (#6755) so the renderer can construct srcset URLs by string
     rewrite alone — same deterministic-pathname contract as #5251
     (x-add-random-suffix=0 / x-allow-overwrite=1, see the comment at
-    save_image's headers below).
+    save_image's headers below). Canonicalizes the input first (#7185
+    review) so a historical suffixed png_key (e.g. from the backfill script
+    walking old episode JSON) still lands on the same key the renderer's
+    stripped rewrite expects.
     """
     if not png_key.lower().endswith(".png"):
         raise ValueError(f"WebP variants require a PNG key: {png_key!r}")
-    return f"{png_key[:-4]}-{width}w.webp"
+    canonical = _canonical_png_key(png_key)
+    return f"{canonical[:-4]}-{width}w.webp"
+
+
+def _jpeg_fallback_key(png_key: str) -> str:
+    """Return the deterministic sized-JPEG fallback key for a PNG key (#7185).
+
+    Distinct from SOCIAL_IMAGE_SUFFIX's '.social.jpg' (a fixed 1200x630 crop
+    for OG/Twitter cards): this sibling preserves the source aspect ratio —
+    same resize semantics as the WebP width variants above — so it is a
+    faithful, smaller stand-in for the full photo, suitable as the <picture>
+    <img> fallback. Mirrors _webp_variant_key's naming: '<stem>-{width}w.jpg'.
+    Canonicalizes the input first — this is the single function the uploader
+    (_upload_jpeg_fallback), the backfill script, the renderer's existence
+    probe (via jpeg_fallback_available), AND the renderer's rendered URL
+    (episode_renderer._to_jpeg_fallback_url calls this directly) all share,
+    so none of the four can ever disagree about the key for a suffixed
+    historical PNG (review finding on #7185).
+    """
+    if not png_key.lower().endswith(".png"):
+        raise ValueError(f"JPEG fallback variant requires a PNG key: {png_key!r}")
+    canonical = _canonical_png_key(png_key)
+    return f"{canonical[:-4]}-{JPEG_FALLBACK_WIDTH}w.jpg"
+
+
+# Matches any width-limited WebP/JPEG variant key this module produces —
+# '-{digits}w.webp' or '-{digits}w.jpg' — regardless of which specific
+# widths WEBP_VARIANT_WIDTHS/JPEG_FALLBACK_WIDTH currently configure, so
+# _source_png_key keeps working if those values ever change.
+_WEBP_SIBLING_SUFFIX_RE = re.compile(r"-\d+w\.webp$", re.IGNORECASE)
+_JPEG_FALLBACK_SUFFIX_RE = re.compile(r"-\d+w\.jpg$", re.IGNORECASE)
+
+
+def _source_png_key(sibling_key: str) -> str:
+    """Return the canonical source-PNG key for any UNAMBIGUOUS upload-time sibling.
+
+    The inverse of _webp_variant_key / _jpeg_fallback_key / _social_jpeg_key:
+    a width-limited WebP variant ('-{N}w.webp'), the sized JPEG <img>
+    fallback ('-{N}w.jpg'), or the social crop ('.social.jpg') can ONLY be
+    one of this module's derived siblings — that exact suffix shape is never
+    used for anything else — so each resolves unambiguously back to the one
+    PNG it was derived FROM. A key that is already a '.png' passes through
+    unchanged (nothing to invert).
+
+    A bare, width-less '.webp' is deliberately NOT inverted here (#7185
+    review round 3, MEDIUM): _upload_webp_sibling names the full-size
+    derived sibling exactly '<stem>.webp', but a filename alone cannot prove
+    a given '.webp' IS that derived sibling rather than an original,
+    hand-authored 'custom.webp' hero with no PNG behind it at all — inverting
+    it unconditionally would pin a hero to a PNG that was never uploaded.
+    scripts/pin_published_heroes.py resolves that one ambiguous case itself,
+    by HEADing the public Blob URL to confirm the candidate PNG actually
+    exists before treating a bare '.webp' as a generated sibling. Any other
+    key (a genuinely unrelated format, or a seed image with no PNG sibling
+    at all) passes through unchanged — nothing here knows how to invert it.
+
+    Anything that reads a hero's identity back out of RENDERED HTML — e.g.
+    pin_published_heroes.py, which reads the live page's <img src> and
+    writes it into episode.hero_image_url — must route through this before
+    storing that value. Since #7185 shipped, that <img src> can be the sized
+    JPEG fallback instead of the raw PNG; storing it verbatim would
+    permanently swap the hero's source of truth from the canonical PNG to a
+    lossy JPEG, and every future render would then derive the WebP <source>
+    and the JPEG fallback FROM that JPEG's own (nonexistent) '.png'-shaped
+    sibling names, silently losing all of them (HIGH finding on #7185
+    review round 2).
+    """
+    lowered = sibling_key.lower()
+    if lowered.endswith(".png"):
+        return sibling_key
+    if lowered.endswith(SOCIAL_IMAGE_SUFFIX):
+        return sibling_key[: -len(SOCIAL_IMAGE_SUFFIX)] + ".png"
+    if lowered.endswith(".webp"):
+        stripped = _WEBP_SIBLING_SUFFIX_RE.sub(".png", sibling_key)
+        if stripped != sibling_key:
+            return stripped
+        # Bare full-size '.webp' — ambiguous, see docstring above. Left
+        # un-inverted; the caller decides (existence-check, etc.).
+        return sibling_key
+    if lowered.endswith(".jpg") or lowered.endswith(".jpeg"):
+        stripped = _JPEG_FALLBACK_SUFFIX_RE.sub(".png", sibling_key)
+        if stripped != sibling_key:
+            return stripped
+    return sibling_key
 
 
 def _encode_webp(png_bytes: bytes, width: int | None = None) -> bytes:
@@ -183,7 +316,41 @@ def _encode_social_jpeg(png_bytes: bytes) -> bytes:
     return _encode_jpeg(png_bytes, SOCIAL_IMAGE_SIZE)
 
 
+def _encode_jpeg_fallback(png_bytes: bytes) -> bytes:
+    """Encode PNG bytes as a fixed HERO_ASPECT-shaped JPEG (#7185 review round 4).
+
+    TRUE BY CONSTRUCTION, not a guess: every fallback is exactly
+    JPEG_FALLBACK_WIDTH x JPEG_FALLBACK_HEIGHT (1200x675 — HERO_ASPECT's
+    16:9, not a square), center-cropped with ImageOps.fit — the same
+    fixed-size crop _encode_social_jpeg already uses for the OG/Twitter
+    sibling, just a different ratio — so the renderer can always state the
+    <img>'s width/height exactly, with no per-source aspect-ratio
+    computation, guess, or omission (round 1 assumed the source's own
+    1536x1536 dimensions; round 2 computed a real scaled height and, failing
+    that, omitted it, which broke scripts/health_check.py's requirement that
+    every <img> carry both width and height; round 3 fixed THAT by cropping
+    to a fixed 1200x1200 SQUARE — true by construction, but WRONG: cropping
+    a 1600x800 source to a square first, then having the browser's
+    `object-fit: cover` crop that square again to fit the hero's real 16:9
+    box, throws away roughly half the source's width before the visible
+    crop even happens — real content disappears for any browser that ends
+    up on this fallback).
+
+    HERO_ASPECT matches `.recipe-hero__image { aspect-ratio: 16 / 9; ...
+    overflow: hidden }` / `.recipe-hero__image img { object-fit: cover }` in
+    src/assets/site.css exactly, so `cover`-ing a 16:9 image into a 16:9 box
+    crops NOTHING further — this fallback is pixel-for-pixel what that box
+    already displays, not a second, lossy crop of it. If that CSS rule's
+    ratio ever changes, HERO_ASPECT must change with it (a test parses the
+    rule and fails on drift).
+    """
+    return _encode_jpeg(png_bytes, (JPEG_FALLBACK_WIDTH, JPEG_FALLBACK_HEIGHT))
+
+
 _CHARACTER_MEMORY_MAX_LIST_PAGES = 20
+# Bound on the prefix listing _CloudBackend._find_exact_blob scans for an
+# exact pathname. Same-prefix siblings are rare; this only stops a runaway.
+_EXACT_BLOB_MAX_LIST_PAGES = 20
 
 
 class CharacterMemoryUnavailable(Exception):
@@ -199,6 +366,19 @@ class CharacterMemoryUnavailable(Exception):
     for a prompt read, fall back to the truthful known-coworker text) and
     never silently substitute the legacy seed or emptiness for real,
     merely-unreadable data.
+    """
+
+
+class PageReadError(RuntimeError):
+    """A page READ could not be completed (#7833).
+
+    ``load_page`` returns None only when the page is genuinely absent (the
+    Blob list API answered and listed nothing under that key). A non-OK
+    list or content response, a network error or timeout, or an unusable
+    list payload raises this instead. The two used to share the None
+    return, so one Blob 5xx during the Sunday publish read as "no catalog
+    yet" and the publisher re-seeded the live catalog from src/recipes.json
+    over every cron-published recipe.
     """
 
 
@@ -231,7 +411,7 @@ def is_valid_iso_week(week: object) -> bool:
     try:
         parse_iso_week(week)
         return True
-    except ValueError:
+    except ValueError:  # governance: allow-silent SF002: predicate; False is the true answer for a string parse_iso_week rejects
         return False
 
 
@@ -451,6 +631,11 @@ class _FilesystemBackend:
                     variant_path.write_bytes(_encode_webp(image_bytes, width=width))
                 except Exception as e:  # noqa: BLE001 - same rationale as above
                     logger.warning(f"WebP {width}w variant write failed for {dest}: {e}")
+            try:
+                jpeg_variant_path = dest.with_name(f"{dest.stem}-{JPEG_FALLBACK_WIDTH}w.jpg")
+                jpeg_variant_path.write_bytes(_encode_jpeg_fallback(image_bytes))
+            except Exception as e:  # noqa: BLE001 - same rationale as above
+                logger.warning(f"JPEG fallback write failed for {dest}: {e}")
 
         # Strip src/ prefix — static mount serves src/ at /static, assets at /assets
         url_path = relative_path.removeprefix("src/")
@@ -477,12 +662,25 @@ class _FilesystemBackend:
             return False
         try:
             variant_keys = [_webp_variant_key(image_key, w) for w in WEBP_VARIANT_WIDTHS]
-        except ValueError:
+        except ValueError:  # governance: allow-silent SF002: existence probe; a key with no derivable variant name has no variants, so the renderer correctly falls back to the single PNG candidate
             return False
         # Every width, not just the smallest: uploads are per-width and
         # best-effort, so one can be missing while another exists (review
         # finding, 2026-09-05) — and one 404 candidate breaks the image.
         return all((IMAGES_DIR / key).exists() for key in variant_keys)
+
+    def jpeg_fallback_available(self, image_key: str) -> bool:
+        """Whether the sized JPEG <img> fallback exists for a rendered image (#7185).
+
+        Same '<subpath>/name.png' identity as image_variants_available.
+        """
+        if not image_key.lower().endswith(".png"):
+            return False
+        try:
+            key = _jpeg_fallback_key(image_key)
+        except ValueError:  # governance: allow-silent SF002: existence probe; a key with no derivable fallback name has no JPEG fallback, so the renderer keeps the raw PNG src
+            return False
+        return (IMAGES_DIR / key).exists()
 
     def cleanup_image_variants(self, recipe_id: str) -> list[str]:
         """Trash the round directories for a recipe. Keeps {recipe_id}.png (the winner).
@@ -521,7 +719,7 @@ class _CloudBackend:
     _BLOB_API = "https://blob.vercel-storage.com"
 
     def __init__(self) -> None:
-        self._blob_token = os.environ.get("BLOB_READ_WRITE_TOKEN", "")
+        self._blob_token = os.environ.get("BLOB_READ_WRITE_TOKEN", "")  # governance: allow-silent SF003: empty is checked in __init__ below (raises on Vercel) and _has_cloud() routes every call to the filesystem backend off Vercel
         self._fs = _FilesystemBackend()  # fallback for local data
         self.prefix: str = ""  # "test/" for test mode, "" for production
         # In-memory cache: (storage prefix, episode_id) -> dict. Populated by
@@ -578,6 +776,57 @@ class _CloudBackend:
         key = key.removeprefix("assets/")
         return key
 
+    def _find_exact_blob(self, key: str) -> Optional[dict]:
+        """Return the listed blob whose pathname is exactly ``key``, or None.
+
+        The list API matches by PREFIX, so ``prefix=pages/recipes.json`` also
+        lists ``pages/recipes.json.bak``. Taking ``blobs[0]`` of a ``limit=1``
+        listing let such a sibling stand in for a missing file, or hide the
+        real one (#7833). Every page of the listing is scanned for an exact
+        pathname match instead.
+
+        None means the list API answered and no blob has exactly this
+        pathname. Any failed or unusable listing raises PageReadError.
+        """
+        import requests as _requests
+
+        cursor: Optional[str] = None
+        for _ in range(_EXACT_BLOB_MAX_LIST_PAGES):
+            params: dict = {"prefix": key, "limit": "100"}
+            if cursor:
+                params["cursor"] = cursor
+            try:
+                resp = _requests.get(
+                    self._BLOB_API,
+                    params=params,
+                    headers=self._auth_headers(),
+                    timeout=15,
+                )
+            except _requests.RequestException as e:
+                raise PageReadError(f"Blob list failed for {key!r}: {type(e).__name__}: {e}") from e
+            if not resp.ok:
+                raise PageReadError(f"Blob list for {key!r} returned HTTP {resp.status_code}")
+            try:
+                payload = resp.json()
+            except ValueError as e:
+                raise PageReadError(f"Blob list for {key!r} returned an unusable payload: {e}") from e
+            if not isinstance(payload, dict) or not isinstance(payload.get("blobs"), list):
+                raise PageReadError(f"Blob list for {key!r} has no 'blobs' list")
+
+            for blob in payload["blobs"]:
+                if isinstance(blob, dict) and blob.get("pathname") == key:
+                    return blob
+
+            if not payload.get("hasMore"):
+                return None
+            next_cursor = payload.get("cursor")
+            if not isinstance(next_cursor, str) or not next_cursor or next_cursor == cursor:
+                raise PageReadError(f"Blob list for {key!r}: hasMore without a new cursor")
+            cursor = next_cursor
+        raise PageReadError(
+            f"Blob list for {key!r} exceeded {_EXACT_BLOB_MAX_LIST_PAGES} pages"
+        )
+
     # --- Episodes ---
 
     def load_episode(self, episode_id: str) -> Optional[dict]:
@@ -600,18 +849,11 @@ class _CloudBackend:
 
         pathname = f"{self.prefix}episodes/{episode_id}.json"
         try:
-            resp = _requests.get(
-                self._BLOB_API,
-                params={"prefix": pathname, "limit": "1"},
-                headers=self._auth_headers(),
-                timeout=15,
-            )
-            resp.raise_for_status()
-            blobs = resp.json().get("blobs", [])
-            if not blobs:
+            blob = self._find_exact_blob(pathname)
+            if blob is None:
                 return self._fs.load_episode(episode_id)
 
-            blob_url = blobs[0]["url"]
+            blob_url = blob["url"]
             content_resp = _requests.get(blob_url, timeout=15)
             content_resp.raise_for_status()
             data = content_resp.json()
@@ -638,17 +880,10 @@ class _CloudBackend:
             return self._episode_cache[cache_key]
 
         pathname = f"{self.prefix}episodes/{episode_id}.json"
-        resp = _requests.get(
-            self._BLOB_API,
-            params={"prefix": pathname, "limit": "1"},
-            headers=self._auth_headers(),
-            timeout=15,
-        )
-        resp.raise_for_status()
-        blobs = resp.json().get("blobs", [])
-        if not blobs:
+        blob = self._find_exact_blob(pathname)
+        if blob is None:
             return None
-        content_resp = _requests.get(blobs[0]["url"], timeout=15)
+        content_resp = _requests.get(blob["url"], timeout=15)
         content_resp.raise_for_status()
         data = content_resp.json()
         self._episode_cache[cache_key] = data
@@ -891,24 +1126,17 @@ class _CloudBackend:
 
         pathname = f"{self.prefix}character_memory/{slug}/{week}.json"
         try:
-            resp = _requests.get(
-                self._BLOB_API,
-                params={"prefix": pathname, "limit": "1"},
-                headers=self._auth_headers(),
-                timeout=15,
-            )
-            resp.raise_for_status()
-            payload = resp.json()
+            blob = self._find_exact_blob(pathname)
         except Exception as e:
             logger.error(f"Blob load_character_memory_week list failed for {slug}/{week}: {type(e).__name__}: {e}")
             raise CharacterMemoryUnavailable(f"list failed for {slug!r}/{week!r}: {e}") from e
 
-        if not isinstance(payload, dict) or not isinstance(payload.get("blobs"), list) or not payload["blobs"]:
-            logger.error(f"Blob load_character_memory_week: {slug}/{week} not found or malformed: {payload!r}")
+        if blob is None:
+            logger.error(f"Blob load_character_memory_week: {slug}/{week} not found")
             raise CharacterMemoryUnavailable(f"blob not found for {slug!r}/{week!r}")
 
         try:
-            content_resp = _requests.get(payload["blobs"][0]["url"], timeout=15)
+            content_resp = _requests.get(blob["url"], timeout=15)
             content_resp.raise_for_status()
             data = content_resp.json()
         except Exception as e:
@@ -1009,7 +1237,13 @@ class _CloudBackend:
         return blob_url
 
     def load_page(self, pathname: str) -> Optional[str]:
-        """Load a page from Vercel Blob. Returns content or None."""
+        """Load a page from Vercel Blob.
+
+        Returns the content, or None only when the page is genuinely absent
+        (the list API answered OK and no blob has exactly this pathname). Any
+        failed read raises PageReadError — a caller must never mistake a
+        Blob outage for "no such page" (#7833).
+        """
         if not self._has_cloud():
             return self._fs.load_page(pathname)
 
@@ -1021,28 +1255,27 @@ class _CloudBackend:
         if key in self._page_cache:
             return self._page_cache[key]
 
-        # List blobs to find the URL
-        resp = _requests.get(
-            self._BLOB_API,
-            params={"prefix": key, "limit": "1"},
-            headers=self._auth_headers(),
-            timeout=15,
-        )
-        if not resp.ok:
+        blob = self._find_exact_blob(key)
+        if blob is None:
             return None
 
-        blobs = resp.json().get("blobs", [])
-        if not blobs:
-            return None
-
-        # Fetch content from CDN URL
-        content_resp = _requests.get(blobs[0]["url"], timeout=15)
-        if content_resp.ok:
-            # CRITICAL: Use .content.decode() not .text — requests defaults
-            # to ISO-8859-1 for text/* without explicit charset, which
-            # double-encodes UTF-8 smart quotes/symbols into mojibake.
+        # Fetch content from CDN URL. The list just said the blob exists, so
+        # any non-OK answer here (404 included) is a failed read, not absence.
+        try:
+            content_resp = _requests.get(blob["url"], timeout=15)
+        except _requests.RequestException as e:
+            raise PageReadError(f"Blob content fetch failed for {key!r}: {type(e).__name__}: {e}") from e
+        except (KeyError, TypeError) as e:
+            raise PageReadError(f"Blob list entry for {key!r} has no url: {e}") from e
+        if not content_resp.ok:
+            raise PageReadError(f"Blob content for {key!r} returned HTTP {content_resp.status_code}")
+        # CRITICAL: Use .content.decode() not .text — requests defaults
+        # to ISO-8859-1 for text/* without explicit charset, which
+        # double-encodes UTF-8 smart quotes/symbols into mojibake.
+        try:
             return content_resp.content.decode("utf-8")
-        return None
+        except UnicodeDecodeError as e:
+            raise PageReadError(f"Blob content for {key!r} is not valid UTF-8: {e}") from e
 
     # --- Images ---
 
@@ -1097,6 +1330,12 @@ class _CloudBackend:
                 # Keep the publishing path safe even if an unexpected
                 # dependency/runtime error escapes the helper's guards.
                 logger.warning(f"Social JPEG sibling pipeline failed for {key}: {e}")
+            # #7185 — sized JPEG <img> fallback, independent of the social
+            # crop above (different aspect ratio, different purpose).
+            try:
+                self._upload_jpeg_fallback(key, image_bytes)
+            except Exception as e:  # noqa: BLE001 - optimization must not block publishing
+                logger.warning(f"JPEG fallback pipeline failed for {key}: {e}")
 
         return blob_url
 
@@ -1116,6 +1355,7 @@ class _CloudBackend:
                 buf = BytesIO()
                 im.save(buf, format="WEBP", quality=82, method=6)
                 webp_bytes = buf.getvalue()
+        # governance: allow-silent SF002: WebP sibling is an optional optimization; the canonical PNG is already uploaded and image_variants_available probes before the renderer references a variant
         except Exception as e:
             logger.warning(f"WebP encode failed for {png_key}: {e}")
             return
@@ -1155,6 +1395,7 @@ class _CloudBackend:
         """
         try:
             webp_bytes = _encode_webp(png_bytes, width=width)
+        # governance: allow-silent SF002: WebP variant is an optional optimization; image_variants_available HEAD-checks every width before the renderer emits a srcset
         except Exception as e:
             logger.warning(f"WebP {width}w variant encode failed for {png_key}: {e}")
             return
@@ -1190,6 +1431,7 @@ class _CloudBackend:
         try:
             jpeg_bytes = _encode_social_jpeg(png_bytes)
             social_key = _social_jpeg_key(png_key)
+        # governance: allow-silent SF002: social JPEG is optional metadata; the canonical PNG upload is the only publishing dependency
         except Exception as e:
             logger.warning(f"Social JPEG encode failed for {png_key}: {e}")
             return
@@ -1213,6 +1455,42 @@ class _CloudBackend:
             )
         except Exception as e:
             logger.warning(f"Social JPEG upload failed for {social_key}: {e}")
+
+    def _upload_jpeg_fallback(self, png_key: str, png_bytes: bytes) -> None:
+        """Best-effort upload of the sized JPEG <img> fallback sibling (#7185).
+
+        Same one-way best-effort shape as _upload_webp_variant/_upload_social_
+        jpeg_sibling: logs and swallows both encode and upload failures so the
+        canonical PNG upload above always remains the only publishing
+        dependency.
+        """
+        try:
+            jpeg_bytes = _encode_jpeg_fallback(png_bytes)
+        # governance: allow-silent SF002: JPEG fallback is optional; jpeg_fallback_available HEAD-checks it before the renderer references it
+        except Exception as e:
+            logger.warning(f"JPEG fallback encode failed for {png_key}: {e}")
+            return
+
+        import requests as _requests
+
+        variant_key = _jpeg_fallback_key(png_key)
+        upload_url = f"https://blob.vercel-storage.com/{variant_key}"
+        headers = {
+            "Authorization": f"Bearer {self._blob_token}",
+            "Content-Type": "image/jpeg",
+            "x-vercel-access": "public",
+            "x-add-random-suffix": "0",
+            "x-allow-overwrite": "1",
+        }
+        try:
+            resp = _requests.put(upload_url, data=jpeg_bytes, headers=headers, timeout=60)
+            resp.raise_for_status()
+            logger.info(
+                f"Uploaded JPEG fallback: {variant_key} "
+                f"({len(jpeg_bytes)}B from {len(png_bytes)}B PNG)"
+            )
+        except Exception as e:
+            logger.warning(f"JPEG fallback upload failed for {variant_key}: {e}")
 
     def get_image_url(self, relative_path: str) -> str:
         if not self._has_cloud():
@@ -1260,7 +1538,7 @@ class _CloudBackend:
             variant_keys = [
                 _webp_variant_key(f"images/{image_key}", w) for w in WEBP_VARIANT_WIDTHS
             ]
-        except ValueError:
+        except ValueError:  # governance: allow-silent SF002: existence probe; no derivable variant key means no variants, renderer falls back to the single PNG candidate
             return False
 
         import requests as _requests
@@ -1275,12 +1553,41 @@ class _CloudBackend:
             key = f"{self.prefix}{variant_key}"
             try:
                 resp = _requests.head(f"{BLOB_PUBLIC_BASE}/{key}", timeout=10, allow_redirects=True)
+            # governance: allow-silent SF002: existence probe; an unverifiable variant must not be emitted in a srcset, so False (single PNG candidate) is the safe answer
             except Exception as e:
                 logger.warning(f"Variant existence check failed for {key}: {e}")
                 return False
             if resp.status_code != 200:
                 return False
         return True
+
+    def jpeg_fallback_available(self, image_key: str) -> bool:
+        """HEAD-check the sized JPEG <img> fallback blob for a rendered image (#7185).
+
+        Same public-host HEAD contract as image_variants_available above — the
+        API host 404s for existing blobs (see BLOB_PUBLIC_BASE) — and the same
+        missing-means-not-backfilled-yet semantics: the renderer falls back to
+        the raw PNG <img> src rather than ever emitting a URL that 404s.
+        """
+        if not self._has_cloud():
+            return self._fs.jpeg_fallback_available(image_key)
+        if not image_key.lower().endswith(".png"):
+            return False
+        try:
+            variant_key = _jpeg_fallback_key(f"images/{image_key}")
+        except ValueError:  # governance: allow-silent SF002: existence probe; no derivable fallback key means no JPEG fallback, renderer keeps the raw PNG src
+            return False
+
+        import requests as _requests
+
+        key = f"{self.prefix}{variant_key}"
+        try:
+            resp = _requests.head(f"{BLOB_PUBLIC_BASE}/{key}", timeout=10, allow_redirects=True)
+        # governance: allow-silent SF002: existence probe; an unverifiable fallback must not be emitted, so False (raw PNG src) is the safe answer
+        except Exception as e:
+            logger.warning(f"JPEG fallback existence check failed for {key}: {e}")
+            return False
+        return resp.status_code == 200
 
     def cleanup_image_variants(self, recipe_id: str) -> list[str]:
         """No-op on cloud storage: round-1 variants are LIVE content, not discards (#6712).

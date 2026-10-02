@@ -123,7 +123,7 @@ def _print_excluded(recipes: list[dict], sets_by_title: dict[str, list], min_ite
 def _run_default(min_items: int, threshold: float) -> int:
     try:
         catalog = load_published_catalog()
-    except CatalogUnavailableError as exc:
+    except CatalogUnavailableError as exc:  # governance: allow-silent SF002: default mode is a documented read-only recalibration report that always exits 0; the load failure is printed to the operator. The gating --episode mode exits 1 on the same error
         print(f"could not load the published catalog: {exc}")
         return 0  # informational tool — never fails a session over a flaky fetch
 

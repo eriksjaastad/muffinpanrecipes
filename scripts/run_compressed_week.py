@@ -104,8 +104,9 @@ def _extract_cost_data(output: str) -> dict | None:
         if line.startswith("COST_SUMMARY:"):
             try:
                 return json.loads(line[len("COST_SUMMARY:"):])
-            except json.JSONDecodeError:
-                pass
+            except json.JSONDecodeError as exc:
+                # The cost table would silently under-count this stage.
+                print(f"WARNING: unparseable COST_SUMMARY line skipped ({exc}): {line[:200]}", file=sys.stderr)
     return None
 
 

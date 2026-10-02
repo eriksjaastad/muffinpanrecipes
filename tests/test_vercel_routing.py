@@ -46,6 +46,7 @@ def test_public_routes_are_present_and_ordered() -> None:
     assert sources == [
         "/(.*)",
         "/BingSiteAuth\\.xml",
+        "/015dad665f3a6ddeeab4565e96d0dd50\\.txt",
         "/(.*)",
         "/api/(.*)",
         "/admin/static/(.*)",
@@ -68,9 +69,39 @@ def test_public_routes_are_present_and_ordered() -> None:
         "/(.*)",
     ]
 
-    assert routes[2]["has"] == [{"type": "host", "value": "www.muffinpanrecipes.com"}]
-    assert routes[2]["status"] == 301
+    assert routes[3]["has"] == [{"type": "host", "value": "www.muffinpanrecipes.com"}]
+    assert routes[3]["status"] == 301
     assert routes[-2] == {"src": "/", "dest": "/src/index.html"}
+
+
+def test_indexnow_key_file_route_precedes_www_redirect_next_to_bing() -> None:
+    """The IndexNow key file (#7806) must be reachable at the site root over
+    the apex, same requirement and same reason as `/BingSiteAuth.xml`: both
+    are ownership-verification files a search engine fetches directly, and
+    both would 308 through the www redirect (`vercel.json` routes/$1) into a
+    2xx-with-a-redirect if placed after it, which some verifiers reject.
+    """
+    routes = _routes()
+    sources = [route.get("src") for route in routes]
+
+    bing_index = sources.index("/BingSiteAuth\\.xml")
+    indexnow_index = sources.index("/015dad665f3a6ddeeab4565e96d0dd50\\.txt")
+    www_redirect_index = next(
+        i for i, route in enumerate(routes)
+        if route.get("has") == [{"type": "host", "value": "www.muffinpanrecipes.com"}]
+    )
+
+    assert bing_index < www_redirect_index
+    assert indexnow_index < www_redirect_index
+    assert routes[indexnow_index]["dest"] == "/src/015dad665f3a6ddeeab4565e96d0dd50.txt"
+
+
+def test_indexnow_key_file_content_matches_the_constant() -> None:
+    from backend.utils.indexnow import INDEXNOW_KEY
+
+    key_file = ROOT / "src" / f"{INDEXNOW_KEY}.txt"
+    assert key_file.exists(), f"missing IndexNow key file at {key_file}"
+    assert key_file.read_text(encoding="utf-8").strip() == INDEXNOW_KEY
 
 
 def test_legacy_headers_run_before_existing_routes() -> None:

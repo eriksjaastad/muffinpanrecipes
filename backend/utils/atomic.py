@@ -68,7 +68,7 @@ def atomic_write(path: Union[str, Path], content: str) -> None:
                 # Fallback for Vercel/Lambda where send2trash isn't available
                 try:
                     Path(temp_path).unlink(missing_ok=True)
-                except OSError:
+                except OSError:  # governance: allow-silent SF001: best-effort temp-file cleanup inside a failure path; the original write error is re-raised on the next line
                     pass
             raise
             

@@ -254,6 +254,7 @@ def _fetch(url: str, timeout: int = _INSPIRATION_PER_REQUEST_TIMEOUT) -> str:
         )
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.read().decode("utf-8", errors="replace")
+    # governance: allow-silent SF002: inspiration scrape is optional prompt flavor and never a candidate source; "" yields no inspiration names and the failure is printed to stderr
     except Exception as e:
         print(f"  [warn] inspiration fetch failed for {url}: {e}", file=sys.stderr)
         return ""
@@ -344,8 +345,13 @@ def _load_recent_concepts(n: int = 4) -> list[str]:
             if c and c.lower() not in seen:
                 seen.add(c.lower())
                 concepts.append(c.lower())
-        except Exception:
-            pass
+        except (OSError, ValueError, AttributeError) as exc:
+            # In-flight weeks are a secondary novelty signal; the published
+            # catalog (load_published_catalog) is the primary defense and raises.
+            logger.warning(
+                f"skipping unreadable local episode {ep_path.name} in recent-concept "
+                f"signal: {type(exc).__name__}: {exc}"
+            )
     return concepts
 
 
@@ -640,6 +646,7 @@ def _parse_brainstorm_json(raw: str) -> list[Candidate]:
         start = raw.index("[")
         end = raw.rindex("]")
         data = json.loads(raw[start : end + 1])
+    # governance: allow-silent SF002: documented contract (#6858); zero brainstorm candidates routes pick_concept to the curated pool through the same gates, and NoConceptAvailableError is raised if nothing survives
     except Exception as exc:
         logger.warning(
             f"brainstorm output unparseable ({type(exc).__name__}: {exc}); "
@@ -678,10 +685,11 @@ def _brainstorm(
         "markdown fences."
     )
     generate_fn = generate or _generate_response
-    model = os.environ.get("CONCEPT_MODEL", "").strip() or config.dialogue_model
+    model = os.environ.get("CONCEPT_MODEL", "").strip() or config.dialogue_model  # governance: allow-silent SF003: optional override; empty falls back to config.dialogue_model, which raises when unset
 
     try:
         raw = generate_fn(prompt, system_prompt, model=model, temperature=0.9)
+    # governance: allow-silent SF002: documented contract (#6858); a failed brainstorm call falls back to the curated pool (logged), and pick_concept raises NoConceptAvailableError if nothing survives
     except Exception as exc:
         logger.warning(
             f"brainstorm call failed ({type(exc).__name__}: {exc}); treating as "

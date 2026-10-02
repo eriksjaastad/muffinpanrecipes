@@ -53,7 +53,9 @@ def _resolve_w10_image(original_url: str) -> str:
     except (ValueError, IndexError):
         return _fix_image_url(original_url)
 
-    token = os.environ.get("BLOB_READ_WRITE_TOKEN", "")
+    # Required: an empty token made the list call unauthenticated, so every
+    # lookup "found no blob" and silently fell back to the guessed URL.
+    token = os.environ["BLOB_READ_WRITE_TOKEN"]
     resp = requests.get(
         "https://blob.vercel-storage.com",
         params={"prefix": f"images/{image_id}"},

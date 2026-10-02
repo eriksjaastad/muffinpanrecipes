@@ -1,0 +1,17 @@
+{
+  "captured_at": "2026-09-30T21:18:37.544234+00:00",
+  "crawl_stats": [],
+  "index_status": {
+    "AnchorCount": 0,
+    "DiscoveryDate": "/Date(-62135596800000)/",
+    "DocumentSize": 0,
+    "HttpStatus": 0,
+    "IsPage": false,
+    "LastCrawledDate": "/Date(-62135596800000)/",
+    "TotalChildUrlCount": 39,
+    "Url": "domain:muffinpanrecipes.com",
+    "__type": "UrlInfo:#Microsoft.Bing.Webmaster.Api"
+  },
+  "query_stats": [],
+  "site_url": "https://muffinpanrecipes.com"
+}

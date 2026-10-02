@@ -58,12 +58,15 @@ from scripts.judge_conversation import (
 
 def list_episodes() -> list[str]:
     """List all production episode IDs from blob."""
-    token = os.environ.get("BLOB_READ_WRITE_TOKEN", "")
+    # Required, and the list call must succeed: an empty token or a rejected
+    # request used to come back as zero blobs, i.e. "no episodes to score".
+    token = os.environ["BLOB_READ_WRITE_TOKEN"]
     resp = requests.get(
         "https://blob.vercel-storage.com",
         params={"prefix": "episodes/2026-W", "limit": 100},
         headers={"Authorization": f"Bearer {token}"},
     )
+    resp.raise_for_status()
     blobs = resp.json().get("blobs", [])
     return sorted(
         b["pathname"].removeprefix("episodes/").removesuffix(".json")
