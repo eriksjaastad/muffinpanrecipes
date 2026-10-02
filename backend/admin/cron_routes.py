@@ -272,6 +272,13 @@ def _apply_week_off_note(episode_id: str, ep: dict) -> None:
         and not ep.get("published_at")
     ):
         return
+    # A Monday re-fired after this week's own Sunday window, on a week that
+    # has not published, is late for its own week: the note Sunday showed
+    # (possibly on the homepage only, for a recipe-less week) still holds,
+    # so it is rebuilt here rather than cleared (Codex, #7630).
+    if not ep.get("published_at") and _sunday_window_reached(episode_id):
+        ep["week_off_note"] = {"message": WEEK_OFF_MESSAGE, "missed_week": episode_id}
+        return
     try:
         previous_id = episode_integrity.week_before(episode_id)
         previous_episode = storage.load_episode_strict(previous_id)

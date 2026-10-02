@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -38,13 +38,21 @@ from backend.utils.indexnow import IndexNowResult
 MONDAY_W37 = datetime(2026, 9, 7, 14, 30, tzinfo=timezone.utc)
 # W40's Sunday cron time has arrived (Sunday 2026-10-04, evening UTC).
 AFTER_SUNDAY_W40 = datetime(2026, 10, 4, 23, 59, tzinfo=timezone.utc)
+# W37's own Monday cron time: an ordinary on-time Monday run.
+MONDAY_W37 = datetime(2026, 9, 7, 14, 30, tzinfo=timezone.utc)
+
+
+@pytest.fixture
+def on_time_monday():
+    with patch.object(cron_routes, "_utc_now", return_value=MONDAY_W37):
+        yield
 
 
 # ---------------------------------------------------------------------------
 # _apply_week_off_note — the Monday-cron decision
 # ---------------------------------------------------------------------------
 
-def test_apply_week_off_note_sets_field_when_previous_week_has_no_episode():
+def test_apply_week_off_note_sets_field_when_previous_week_has_no_episode(on_time_monday):
     """Genuine not-found (load_episode_strict returns None cleanly, no
     exception) -> the note IS set (#7630 finding 2)."""
     ep = {"episode_id": "2026-W37", "stages": {}}
@@ -57,7 +65,7 @@ def test_apply_week_off_note_sets_field_when_previous_week_has_no_episode():
     }
 
 
-def test_apply_week_off_note_sets_field_when_previous_week_unpublished():
+def test_apply_week_off_note_sets_field_when_previous_week_unpublished(on_time_monday):
     previous = {"episode_id": "2026-W36", "stages": {"wednesday": {"status": "failed"}}}
     ep = {"episode_id": "2026-W37", "stages": {}}
     with patch.object(storage, "load_episode_strict", return_value=previous):
@@ -65,7 +73,7 @@ def test_apply_week_off_note_sets_field_when_previous_week_unpublished():
     assert ep["week_off_note"]["missed_week"] == "2026-W36"
 
 
-def test_apply_week_off_note_clears_field_when_previous_week_published():
+def test_apply_week_off_note_clears_field_when_previous_week_published(on_time_monday):
     previous = {"episode_id": "2026-W36", "published_at": "2026-09-06T00:10:00+00:00"}
     ep = {"episode_id": "2026-W37", "stages": {}, "week_off_note": {"stale": "leftover"}}
     with patch.object(storage, "load_episode_strict", return_value=previous):
@@ -73,7 +81,7 @@ def test_apply_week_off_note_clears_field_when_previous_week_published():
     assert "week_off_note" not in ep
 
 
-def test_apply_week_off_note_respects_the_active_prefix():
+def test_apply_week_off_note_respects_the_active_prefix(on_time_monday):
     """A test-mode Monday must read the previous week's episode under
     whatever prefix its caller's _test_mode_scope already established — no
     hardcoded/prefixless path — so it can never see or touch the prod
@@ -693,3 +701,25 @@ def test_a_failed_note_write_keeps_sundays_400_refusal(failing):
 
     assert exc_info.value.status_code == 400
     assert "wednesday" in exc_info.value.detail
+
+
+
+def test_a_monday_refired_after_its_own_sunday_keeps_the_weeks_note():
+    """Codex (#7630): a recipe-less week's note lives only on the homepage.
+    A Monday re-fired after that week's own Sunday window, with the week
+    still unpublished, rebuilds the own-week note instead of clearing it."""
+    ep = {"episode_id": "2026-W40", "stages": {}}
+    with patch.object(cron_routes, "_utc_now", return_value=AFTER_SUNDAY_W40), \
+         patch.object(storage, "load_episode_strict") as load_strict:
+        cron_routes._apply_week_off_note("2026-W40", ep)
+    assert ep["week_off_note"] == {"message": cron_routes.WEEK_OFF_MESSAGE, "missed_week": "2026-W40"}
+    load_strict.assert_not_called()
+
+
+def test_a_published_week_refired_after_sunday_takes_the_ordinary_decision():
+    previous = {"episode_id": "2026-W39", "published_at": "2026-09-28T00:10:00+00:00"}
+    ep = {"episode_id": "2026-W40", "stages": {}, "published_at": "2026-10-05T00:10:00+00:00"}
+    with patch.object(cron_routes, "_utc_now", return_value=AFTER_SUNDAY_W40 + timedelta(days=1)), \
+         patch.object(storage, "load_episode_strict", return_value=previous):
+        cron_routes._apply_week_off_note("2026-W40", ep)
+    assert "week_off_note" not in ep

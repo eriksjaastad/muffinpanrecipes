@@ -909,7 +909,7 @@ class _CloudBackend:
         ``load_episode``.
         """
         if not self._has_cloud():
-            return self._fs.load_episode(episode_id)
+            return self._fs.load_episode_strict(episode_id)
 
         import requests as _requests
 

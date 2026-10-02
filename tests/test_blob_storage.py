@@ -1152,3 +1152,17 @@ def test_filesystem_strict_load_rejects_a_non_object_episode_body(tmp_path, monk
     (tmp_path / "2026-W39.json").write_text(body)
     with pytest.raises(PageReadError):
         _FilesystemBackend().load_episode_strict("2026-W39")
+
+
+
+def test_cloud_backend_without_a_token_uses_the_strict_filesystem_read(tmp_path, monkeypatch):
+    """Codex (#7630): the no-token filesystem fallback of load_episode_strict
+    must reject a non-object body like the cloud path does."""
+    from backend.storage import _CloudBackend
+
+    monkeypatch.setattr("backend.storage.EPISODES_DIR", tmp_path)
+    (tmp_path / "2026-W39.json").write_text("[]")
+    backend = _CloudBackend()
+    assert not backend._has_cloud()
+    with pytest.raises(PageReadError):
+        backend.load_episode_strict("2026-W39")
