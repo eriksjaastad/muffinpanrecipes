@@ -316,3 +316,28 @@ def test_a_failed_fresh_install_leaves_no_plist_for_the_next_login(tmp_path):
     result, dest, calls = _run_install(tmp_path, doppler_rc=0, bootstrap_rc=5)
     assert result.returncode == 1
     assert f"trash {dest}" in calls
+
+
+def test_dry_run_renders_a_repo_path_with_special_characters_as_valid_xml(tmp_path):
+    # sed treated '&' in a path as "the matched text" and '#' as its own
+    # delimiter; the rendered plist must carry the literal path, XML-escaped.
+    import plistlib
+    import shutil
+
+    repo = tmp_path / "R&D #1 <it's>"
+    (repo / "scripts").mkdir(parents=True)
+    (repo / "ops" / "launchd").mkdir(parents=True)
+    shutil.copy(SCRIPT, repo / "scripts" / SCRIPT.name)
+    shutil.copy(TEMPLATE, repo / "ops" / "launchd" / TEMPLATE.name)
+    result = subprocess.run(
+        ["bash", str(repo / "scripts" / SCRIPT.name), "--dry-run"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    body = result.stdout.split("# Rendered plist (would be written to", 1)[1]
+    body = body.split("\n", 1)[1].split("\n# Would then run:", 1)[0]
+    parsed = plistlib.loads(body.strip().encode("utf-8"))
+    assert parsed["WorkingDirectory"] == str(repo.resolve())

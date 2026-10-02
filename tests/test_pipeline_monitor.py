@@ -1568,3 +1568,38 @@ def test_self_test_sends_nothing_and_writes_no_state(tmp_path, monkeypatch):
     pm.self_test(state)
     assert posts.attempts == 0
     assert not state.exists()
+
+
+def test_self_test_fails_when_an_existing_state_file_is_unreadable(tmp_path, monkeypatch, capsys):
+    # Every scheduled run would defer behind StateUnavailable; the install
+    # must not report success over it.
+    monkeypatch.setattr(pm, "email_channel_status", lambda: {"configured": True, "missing": []})
+    state = tmp_path / "pipeline_status.json"
+    state.write_text("{}")
+    state.chmod(0o000)
+    try:
+        assert pm.self_test(state) == 1
+    finally:
+        state.chmod(0o644)
+    assert "state file" in capsys.readouterr().err
+
+
+def test_self_test_fails_when_an_existing_lock_file_cannot_be_opened(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(pm, "email_channel_status", lambda: {"configured": True, "missing": []})
+    state = tmp_path / "pipeline_status.json"
+    lock = tmp_path / "pipeline_status.json.lock"
+    lock.write_text("")
+    lock.chmod(0o444)
+    try:
+        assert pm.self_test(state) == 1
+    finally:
+        lock.chmod(0o644)
+    assert "lock file" in capsys.readouterr().err
+
+
+def test_self_test_passes_with_a_readable_state_file_and_lock(tmp_path, monkeypatch):
+    monkeypatch.setattr(pm, "email_channel_status", lambda: {"configured": True, "missing": []})
+    state = tmp_path / "pipeline_status.json"
+    state.write_text("{}")
+    (tmp_path / "pipeline_status.json.lock").write_text("")
+    assert pm.self_test(state) == 0

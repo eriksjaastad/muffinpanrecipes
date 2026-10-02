@@ -917,9 +917,12 @@ def self_test(state_path: Path) -> int:
     changes anything. Reaching this function at all proves the interpreter
     and every import resolve; it then checks the two things a run needs that
     imports don't prove: the email channel is configured (Doppler supplied
-    the credentials) and the state directory is writable. No network call,
-    no alert, no state written. Unlike the scheduled path, it exits nonzero
-    on failure: its whole purpose is to report one.
+    the credentials), the state directory is writable, and an existing state
+    file and lock file can be opened the way a run opens them (an unreadable
+    one would make every run defer while the install reported success). No
+    network call, no alert, no state written, no lock taken. Unlike the
+    scheduled path, it exits nonzero on failure: its whole purpose is to
+    report one.
     """
     problems = []
     email = email_channel_status()
@@ -933,6 +936,17 @@ def self_test(state_path: Path) -> int:
     else:
         if not os.access(state_dir, os.W_OK):
             problems.append(f"state directory {state_dir} is not writable")
+    if state_path.exists():
+        try:
+            state_path.read_bytes()
+        except Exception as exc:
+            problems.append(f"existing state file {state_path} is unreadable ({type(exc).__name__}: {exc})")
+    lock_path = state_path.with_name(state_path.name + ".lock")
+    if lock_path.exists():
+        try:
+            os.close(os.open(str(lock_path), os.O_RDWR))
+        except Exception as exc:
+            problems.append(f"existing lock file {lock_path} cannot be opened read-write ({type(exc).__name__}: {exc})")
     for problem in problems:
         print(f"{LABEL}: self-test FAILED: {problem}", file=sys.stderr)
     if problems:

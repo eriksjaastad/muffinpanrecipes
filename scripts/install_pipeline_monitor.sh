@@ -124,13 +124,21 @@ if [[ "${#MISSING_BINS[@]}" -gt 0 ]]; then
   fi
 fi
 
+# Substituted as literal text and XML-escaped: a path containing '&', '#',
+# '<' or a quote must render as that path, never as sed syntax or broken XML.
 RENDERED="$(
-  sed \
-    -e "s#{{REPO}}#$REPO_DIR#g" \
-    -e "s#{{HOME}}#$HOME#g" \
-    -e "s#{{UV}}#$UV_BIN#g" \
-    -e "s#{{DOPPLER}}#$DOPPLER_BIN#g" \
-    "$TEMPLATE"
+  MPR_REPO="$REPO_DIR" MPR_HOME="$HOME" MPR_UV="$UV_BIN" MPR_DOPPLER="$DOPPLER_BIN" \
+  perl -pe '
+    BEGIN {
+      for my $k (qw(REPO HOME UV DOPPLER)) {
+        my $v = $ENV{"MPR_$k"};
+        $v =~ s/&/&amp;/g; $v =~ s/</&lt;/g; $v =~ s/>/&gt;/g;
+        $v =~ s/"/&quot;/g; $v =~ s/\x27/&apos;/g;
+        $val{$k} = $v;
+      }
+    }
+    s/\{\{(REPO|HOME|UV|DOPPLER)\}\}/$val{$1}/g;
+  ' "$TEMPLATE"
 )"
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
