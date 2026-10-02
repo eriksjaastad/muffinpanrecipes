@@ -14,6 +14,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PIL import Image
 
+from backend.storage import PageReadError
+
 
 @pytest.fixture(autouse=True)
 def _no_vercel_env(monkeypatch):
@@ -129,7 +131,7 @@ class TestCloudBackendLoadEpisode:
         # Mock list API response
         mock_list = MagicMock()
         mock_list.json.return_value = {
-            "blobs": [{"url": "https://cdn.example.com/ep.json"}]
+            "blobs": [{"url": "https://cdn.example.com/ep.json", "pathname": "episodes/ep-test-001.json"}]
         }
         mock_list.raise_for_status = MagicMock()
 
@@ -152,7 +154,7 @@ class TestCloudBackendLoadEpisode:
 
         mock_list = MagicMock()
         mock_list.json.return_value = {
-            "blobs": [{"url": "https://cdn.example.com/test-ep.json"}]
+            "blobs": [{"url": "https://cdn.example.com/test-ep.json", "pathname": "test/episodes/ep-shared.json"}]
         }
         mock_list.raise_for_status = MagicMock()
         mock_content = MagicMock()
@@ -230,7 +232,7 @@ class TestCloudBackendLoadEpisode:
 
         with patch("requests.get", return_value=mock_list), \
              patch.object(cloud_backend._fs, "load_episode") as mock_fs:
-            with pytest.raises(ValueError, match="malformed"):
+            with pytest.raises(PageReadError):
                 cloud_backend.load_episode_strict("ep-malformed")
 
         mock_fs.assert_not_called()
@@ -245,7 +247,15 @@ class TestCloudBackendLoadEpisode:
 
         fresh = {"episode_id": "ep-1", "published_at": "2026-09-28T01:00:00Z"}
         mock_list = MagicMock()
-        mock_list.json.return_value = {"blobs": [{"url": "https://blob/episodes/ep-1.json"}]}
+        mock_list.ok = True
+        mock_list.json.return_value = {
+            "blobs": [
+                {
+                    "url": "https://blob/episodes/ep-1.json",
+                    "pathname": f"{cloud_backend.prefix}episodes/ep-1.json",
+                }
+            ]
+        }
         mock_list.raise_for_status = MagicMock()
         mock_content = MagicMock()
         mock_content.content = json.dumps(fresh).encode("utf-8")

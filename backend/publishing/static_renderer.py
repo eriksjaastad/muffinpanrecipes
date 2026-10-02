@@ -152,7 +152,7 @@ def _week_lastmod(episode_id: str | None) -> str | None:
         return None
     try:
         return date.fromisocalendar(int(match.group(1)), int(match.group(2)), 7).isoformat()
-    except ValueError:
+    except ValueError:  # governance: allow-silent SF002: an impossible ISO week (e.g. W54) has no Sunday; None makes render_sitemap omit the optional <lastmod>
         return None
 
 

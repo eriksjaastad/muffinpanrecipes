@@ -69,7 +69,7 @@ def _webp_source_png_if_it_exists(webp_key: str) -> str | None:
         resp = requests.head(
             f"{BLOB_PUBLIC_BASE}/images/{candidate}", timeout=10, allow_redirects=True
         )
-    except Exception:
+    except Exception:  # governance: allow-silent SF002: documented contract; None means PNG not confirmed, so the caller keeps the original webp key and nothing is re-pinned
         return None
     return candidate if resp.status_code == 200 else None
 

@@ -418,7 +418,7 @@ def test_cloud_list_character_memory_weeks_network_failure_raises_unavailable(cl
 
 def test_cloud_load_character_memory_week_fetches_and_validates(cloud_backend):
     mock_list = MagicMock()
-    mock_list.json.return_value = {"blobs": [{"url": "https://cdn.example.com/margaret-2026-W40.json"}]}
+    mock_list.json.return_value = {"blobs": [{"url": "https://cdn.example.com/margaret-2026-W40.json", "pathname": "character_memory/margaret-chen/2026-W40.json"}]}
     mock_list.raise_for_status = MagicMock()
     mock_content = MagicMock()
     mock_content.json.return_value = _entry()
@@ -444,7 +444,7 @@ def test_cloud_load_character_memory_week_schema_violation_raises_unavailable(cl
     """Round-3 review finding 3, on the fetch side: `{}` is valid JSON but
     not a valid memory body."""
     mock_list = MagicMock()
-    mock_list.json.return_value = {"blobs": [{"url": "https://cdn.example.com/margaret-2026-W40.json"}]}
+    mock_list.json.return_value = {"blobs": [{"url": "https://cdn.example.com/margaret-2026-W40.json", "pathname": "character_memory/margaret-chen/2026-W40.json"}]}
     mock_list.raise_for_status = MagicMock()
     mock_content = MagicMock()
     mock_content.json.return_value = {}
@@ -457,7 +457,7 @@ def test_cloud_load_character_memory_week_schema_violation_raises_unavailable(cl
 
 def test_cloud_load_character_memory_week_content_fetch_failure_raises_unavailable(cloud_backend):
     mock_list = MagicMock()
-    mock_list.json.return_value = {"blobs": [{"url": "https://cdn.example.com/margaret-2026-W40.json"}]}
+    mock_list.json.return_value = {"blobs": [{"url": "https://cdn.example.com/margaret-2026-W40.json", "pathname": "character_memory/margaret-chen/2026-W40.json"}]}
     mock_list.raise_for_status = MagicMock()
     mock_content = MagicMock()
     mock_content.raise_for_status.side_effect = Exception("503 Service Unavailable")
@@ -795,6 +795,37 @@ def test_load_memories_or_unavailable_listing_failure_is_unavailable(monkeypatch
 
     assert episodes == []
     assert unavailable is True
+
+
+def test_load_memories_or_unavailable_unreadable_legacy_seed_is_unavailable(tmp_path, monkeypatch):
+    """A corrupt legacy seed is a read failure, not "no history" — it must not
+    feed the false first-meeting opener (silent-failure sweep, #7587)."""
+    import scripts.simulate_dialogue_week as sdw
+    import backend.storage as storage_module
+
+    monkeypatch.setattr(storage_module, "CHARACTER_MEMORY_DIR", tmp_path / "character_memory")
+    chars = tmp_path / "characters"
+    (chars / "margaret-chen").mkdir(parents=True)
+    (chars / "margaret-chen" / "memory.json").write_text("{not json")
+    monkeypatch.setattr(sdw, "CHARACTERS_DIR", chars)
+
+    episodes, unavailable = sdw._load_memories_or_unavailable("Margaret Chen")
+
+    assert episodes == []
+    assert unavailable is True
+
+
+def test_load_memories_or_unavailable_absent_legacy_seed_is_genuinely_empty(tmp_path, monkeypatch):
+    import scripts.simulate_dialogue_week as sdw
+    import backend.storage as storage_module
+
+    monkeypatch.setattr(storage_module, "CHARACTER_MEMORY_DIR", tmp_path / "character_memory")
+    monkeypatch.setattr(sdw, "CHARACTERS_DIR", tmp_path / "characters")
+
+    episodes, unavailable = sdw._load_memories_or_unavailable("Margaret Chen")
+
+    assert episodes == []
+    assert unavailable is False
 
 
 def test_load_memories_or_unavailable_fetch_failure_is_unavailable(tmp_path, monkeypatch):

@@ -417,6 +417,25 @@ def test_route_404s_for_unknown_recipe() -> None:
     assert resp.status_code == 404
 
 
+def test_unreadable_seed_file_raises_instead_of_404ing_seed_recipes(tmp_path) -> None:
+    """A missing seed file is a deploy fault, not 'recipe not found' (#7587)."""
+    fake_module = tmp_path / "backend" / "admin" / "episode_routes.py"
+    fake_module.parent.mkdir(parents=True)
+    with patch.object(episode_routes, "_SEED_RECIPES_CACHE", None), \
+         patch.object(episode_routes, "__file__", str(fake_module)), \
+         patch.object(episode_routes.storage, "load_page", return_value=None):
+        with pytest.raises(FileNotFoundError):
+            asyncio.run(episode_routes.recipe_page("classic-blueberry-muffins"))
+        # The failure is not cached: the next request retries the load.
+        assert episode_routes._SEED_RECIPES_CACHE is None
+
+
+def test_recipes_index_raises_on_corrupt_catalog_instead_of_empty_hub() -> None:
+    with patch.object(episode_routes.storage, "load_page", return_value="{not json"):
+        with pytest.raises(json.JSONDecodeError):
+            asyncio.run(episode_routes.recipes_index())
+
+
 # ---------------------------------------------------------------------------
 # Dynamic sitemap
 # ---------------------------------------------------------------------------
@@ -466,12 +485,49 @@ def test_sitemap_falls_back_to_static_catalog_when_blob_empty() -> None:
     assert "spinach-feta-egg-bites" in xml
 
 
-def test_sitemap_survives_corrupt_catalog() -> None:
+def test_sitemap_raises_on_corrupt_catalog_instead_of_roots_only() -> None:
+    """A roots-only 200 tells crawlers every recipe URL was withdrawn (#7833)."""
     with patch.object(episode_routes.storage, "load_page", return_value="{not json"):
+        with pytest.raises(json.JSONDecodeError):
+            asyncio.run(episode_routes.sitemap_xml())
+
+
+@pytest.mark.parametrize("payload", ['{"recipes": "nope"}', "{}", '"a string"'])
+def test_sitemap_raises_on_malformed_catalog(payload) -> None:
+    with patch.object(episode_routes.storage, "load_page", return_value=payload):
+        with pytest.raises((ValueError, AttributeError)):
+            asyncio.run(episode_routes.sitemap_xml())
+
+
+def test_sitemap_raises_on_blob_read_failure() -> None:
+    """A failed Blob read must not fall back to the static catalog (#7833)."""
+    from backend.storage import PageReadError
+
+    with patch.object(
+        episode_routes.storage, "load_page",
+        side_effect=PageReadError("Blob list returned HTTP 503"),
+    ):
+        with pytest.raises(PageReadError):
+            asyncio.run(episode_routes.sitemap_xml())
+
+
+def test_sitemap_corrupt_catalog_is_a_500_over_http() -> None:
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    app.include_router(episode_routes.router)
+    with patch.object(episode_routes.storage, "load_page", return_value="{not json"):
+        resp = TestClient(app, raise_server_exceptions=False).get("/sitemap.xml")
+    assert resp.status_code == 500
+    assert "<urlset" not in resp.text
+
+
+def test_sitemap_empty_catalog_is_still_a_valid_roots_only_sitemap() -> None:
+    """A well-formed empty catalog is not an error."""
+    with patch.object(episode_routes.storage, "load_page", return_value='{"recipes": []}'):
         resp = asyncio.run(episode_routes.sitemap_xml())
-    xml = bytes(resp.body).decode()
-    assert "<loc>https://muffinpanrecipes.com/</loc>" in xml
-    assert xml.count("<url>") == 3  # site roots only: /, /recipes, /this-week
+    assert bytes(resp.body).decode().count("<url>") == 3
 
 
 # ---------------------------------------------------------------------------

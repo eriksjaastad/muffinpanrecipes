@@ -55,10 +55,10 @@ def generate_image(recipe_id, variant_name, prompt):
 
     try:
         response = requests.post(url, headers=headers, json=body, timeout=60)
-    except requests.exceptions.Timeout:
+    except requests.exceptions.Timeout:  # governance: allow-silent SF002: False is the failure signal; main() aborts the batch with exit 1 on any False
         logger.error(f"❌ Timeout error generating {recipe_id} [{variant_name}] after 60 seconds.")
         return False
-    except Exception as e:
+    except Exception as e:  # governance: allow-silent SF002: False is the failure signal; main() aborts the batch with exit 1 on any False
         logger.error(f"❌ Request error for {recipe_id} [{variant_name}]: {e}")
         return False
 

@@ -53,13 +53,15 @@ def select_prompts(entries: list[PromptEntry], count: int, seed: int | None = No
 
 
 def _cost_from_env(var_name: str) -> float | None:
-    raw = os.getenv(var_name, "").strip()
+    raw = os.getenv(var_name, "").strip()  # governance: allow-silent SF003: optional cost override; unset returns None (cost unknown / use the built-in estimate) on the next line
     if not raw:
         return None
     try:
         return float(raw)
-    except ValueError:
-        return None
+    except ValueError as exc:
+        # A typo'd override used to fall back silently to the built-in
+        # estimate, reporting a cost the operator never configured.
+        raise ValueError(f"{var_name} must be a number, got {raw!r}") from exc
 
 
 NANOBANANA_IMAGE_TOKENS = {
@@ -208,6 +210,7 @@ def main() -> None:
     parser.add_argument("--stability-engine", default=os.getenv("STABILITY_ENGINE_ID", "stable-diffusion-xl-1024-v1-0"))
     parser.add_argument("--nano-model", default=os.getenv("NANOBANANA_MODEL", "gemini-2.5-flash-image"))
     parser.add_argument("--nano-aspect-ratio", default=os.getenv("NANOBANANA_ASPECT_RATIO", "1:1"))
+    # governance: allow-silent SF003: optional; empty is converted to None below, meaning the provider default image size
     parser.add_argument("--nano-image-size", default=os.getenv("NANOBANANA_IMAGE_SIZE", ""))
     parser.add_argument("--skip-stability", action="store_true")
     parser.add_argument("--skip-nano", action="store_true")

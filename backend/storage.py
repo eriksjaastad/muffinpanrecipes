@@ -348,6 +348,9 @@ def _encode_jpeg_fallback(png_bytes: bytes) -> bytes:
 
 
 _CHARACTER_MEMORY_MAX_LIST_PAGES = 20
+# Bound on the prefix listing _CloudBackend._find_exact_blob scans for an
+# exact pathname. Same-prefix siblings are rare; this only stops a runaway.
+_EXACT_BLOB_MAX_LIST_PAGES = 20
 
 
 class CharacterMemoryUnavailable(Exception):
@@ -363,6 +366,19 @@ class CharacterMemoryUnavailable(Exception):
     for a prompt read, fall back to the truthful known-coworker text) and
     never silently substitute the legacy seed or emptiness for real,
     merely-unreadable data.
+    """
+
+
+class PageReadError(RuntimeError):
+    """A page READ could not be completed (#7833).
+
+    ``load_page`` returns None only when the page is genuinely absent (the
+    Blob list API answered and listed nothing under that key). A non-OK
+    list or content response, a network error or timeout, or an unusable
+    list payload raises this instead. The two used to share the None
+    return, so one Blob 5xx during the Sunday publish read as "no catalog
+    yet" and the publisher re-seeded the live catalog from src/recipes.json
+    over every cron-published recipe.
     """
 
 
@@ -395,7 +411,7 @@ def is_valid_iso_week(week: object) -> bool:
     try:
         parse_iso_week(week)
         return True
-    except ValueError:
+    except ValueError:  # governance: allow-silent SF002: predicate; False is the true answer for a string parse_iso_week rejects
         return False
 
 
@@ -659,7 +675,7 @@ class _FilesystemBackend:
             return False
         try:
             variant_keys = [_webp_variant_key(image_key, w) for w in WEBP_VARIANT_WIDTHS]
-        except ValueError:
+        except ValueError:  # governance: allow-silent SF002: existence probe; a key with no derivable variant name has no variants, so the renderer correctly falls back to the single PNG candidate
             return False
         # Every width, not just the smallest: uploads are per-width and
         # best-effort, so one can be missing while another exists (review
@@ -675,7 +691,7 @@ class _FilesystemBackend:
             return False
         try:
             key = _jpeg_fallback_key(image_key)
-        except ValueError:
+        except ValueError:  # governance: allow-silent SF002: existence probe; a key with no derivable fallback name has no JPEG fallback, so the renderer keeps the raw PNG src
             return False
         return (IMAGES_DIR / key).exists()
 
@@ -716,7 +732,7 @@ class _CloudBackend:
     _BLOB_API = "https://blob.vercel-storage.com"
 
     def __init__(self) -> None:
-        self._blob_token = os.environ.get("BLOB_READ_WRITE_TOKEN", "")
+        self._blob_token = os.environ.get("BLOB_READ_WRITE_TOKEN", "")  # governance: allow-silent SF003: empty is checked in __init__ below (raises on Vercel) and _has_cloud() routes every call to the filesystem backend off Vercel
         self._fs = _FilesystemBackend()  # fallback for local data
         self.prefix: str = ""  # "test/" for test mode, "" for production
         # In-memory cache: (storage prefix, episode_id) -> dict. Populated by
@@ -773,6 +789,61 @@ class _CloudBackend:
         key = key.removeprefix("assets/")
         return key
 
+    def _find_exact_blob(self, key: str) -> Optional[dict]:
+        """Return the listed blob whose pathname is exactly ``key``, or None.
+
+        The list API matches by PREFIX, so ``prefix=pages/recipes.json`` also
+        lists ``pages/recipes.json.bak``. Taking ``blobs[0]`` of a ``limit=1``
+        listing let such a sibling stand in for a missing file, or hide the
+        real one (#7833). Every page of the listing is scanned for an exact
+        pathname match instead.
+
+        None means the list API answered and no blob has exactly this
+        pathname. Any failed or unusable listing raises PageReadError.
+        """
+        import requests as _requests
+
+        cursor: Optional[str] = None
+        for _ in range(_EXACT_BLOB_MAX_LIST_PAGES):
+            params: dict = {"prefix": key, "limit": "100"}
+            if cursor:
+                params["cursor"] = cursor
+            try:
+                resp = _requests.get(
+                    self._BLOB_API,
+                    params=params,
+                    headers=self._auth_headers(),
+                    timeout=15,
+                )
+            except _requests.RequestException as e:
+                raise PageReadError(f"Blob list failed for {key!r}: {type(e).__name__}: {e}") from e
+            if not resp.ok:
+                raise PageReadError(f"Blob list for {key!r} returned HTTP {resp.status_code}")
+            try:
+                payload = resp.json()
+            except ValueError as e:
+                raise PageReadError(f"Blob list for {key!r} returned an unusable payload: {e}") from e
+            if not isinstance(payload, dict) or not isinstance(payload.get("blobs"), list):
+                raise PageReadError(f"Blob list for {key!r} has no 'blobs' list")
+            # A non-dict entry means the listing itself is unusable; skipping it
+            # could turn a present file into a false not-found (#7630).
+            if not all(isinstance(blob, dict) for blob in payload["blobs"]):
+                raise PageReadError(f"Blob list for {key!r} has a non-object entry")
+
+            for blob in payload["blobs"]:
+                if blob.get("pathname") == key:
+                    return blob
+
+            if not payload.get("hasMore"):
+                return None
+            next_cursor = payload.get("cursor")
+            if not isinstance(next_cursor, str) or not next_cursor or next_cursor == cursor:
+                raise PageReadError(f"Blob list for {key!r}: hasMore without a new cursor")
+            cursor = next_cursor
+        raise PageReadError(
+            f"Blob list for {key!r} exceeded {_EXACT_BLOB_MAX_LIST_PAGES} pages"
+        )
+
     # --- Episodes ---
 
     def load_episode(self, episode_id: str) -> Optional[dict]:
@@ -795,18 +866,11 @@ class _CloudBackend:
 
         pathname = f"{self.prefix}episodes/{episode_id}.json"
         try:
-            resp = _requests.get(
-                self._BLOB_API,
-                params={"prefix": pathname, "limit": "1"},
-                headers=self._auth_headers(),
-                timeout=15,
-            )
-            resp.raise_for_status()
-            blobs = resp.json().get("blobs", [])
-            if not blobs:
+            blob = self._find_exact_blob(pathname)
+            if blob is None:
                 return self._fs.load_episode(episode_id)
 
-            blob_url = blobs[0]["url"]
+            blob_url = blob["url"]
             content_resp = _requests.get(blob_url, timeout=15)
             content_resp.raise_for_status()
             data = content_resp.json()
@@ -847,26 +911,10 @@ class _CloudBackend:
         # refreshes the cache below.
 
         pathname = f"{self.prefix}episodes/{episode_id}.json"
-        resp = _requests.get(
-            self._BLOB_API,
-            params={"prefix": pathname, "limit": "1"},
-            headers=self._auth_headers(),
-            timeout=15,
-        )
-        resp.raise_for_status()
-        payload = resp.json()
-        # A malformed 200 body (e.g. {} or {"blobs": "x"}) is not a genuine
-        # not-found — round-4 review (#7630) found the old `.get("blobs",
-        # [])` treated it as one, which stamps a false week-off note. Same
-        # shape check list_character_memory_weeks uses (#6968/#148): blobs
-        # must be a list of dicts, or this is a malformed-payload error, not
-        # "no episode".
-        blobs = payload.get("blobs") if isinstance(payload, dict) else None
-        if not isinstance(blobs, list) or not all(isinstance(b, dict) for b in blobs):
-            raise ValueError(f"malformed list payload for episode {episode_id!r}: {repr(payload)[:200]}")
-        if not blobs:
+        blob = self._find_exact_blob(pathname)
+        if blob is None:
             return None
-        content_resp = _requests.get(blobs[0]["url"], timeout=15)
+        content_resp = _requests.get(blob["url"], timeout=15)
         content_resp.raise_for_status()
         data = content_resp.json()
         self._episode_cache[cache_key] = data
@@ -1109,24 +1157,17 @@ class _CloudBackend:
 
         pathname = f"{self.prefix}character_memory/{slug}/{week}.json"
         try:
-            resp = _requests.get(
-                self._BLOB_API,
-                params={"prefix": pathname, "limit": "1"},
-                headers=self._auth_headers(),
-                timeout=15,
-            )
-            resp.raise_for_status()
-            payload = resp.json()
+            blob = self._find_exact_blob(pathname)
         except Exception as e:
             logger.error(f"Blob load_character_memory_week list failed for {slug}/{week}: {type(e).__name__}: {e}")
             raise CharacterMemoryUnavailable(f"list failed for {slug!r}/{week!r}: {e}") from e
 
-        if not isinstance(payload, dict) or not isinstance(payload.get("blobs"), list) or not payload["blobs"]:
-            logger.error(f"Blob load_character_memory_week: {slug}/{week} not found or malformed: {payload!r}")
+        if blob is None:
+            logger.error(f"Blob load_character_memory_week: {slug}/{week} not found")
             raise CharacterMemoryUnavailable(f"blob not found for {slug!r}/{week!r}")
 
         try:
-            content_resp = _requests.get(payload["blobs"][0]["url"], timeout=15)
+            content_resp = _requests.get(blob["url"], timeout=15)
             content_resp.raise_for_status()
             data = content_resp.json()
         except Exception as e:
@@ -1227,7 +1268,13 @@ class _CloudBackend:
         return blob_url
 
     def load_page(self, pathname: str) -> Optional[str]:
-        """Load a page from Vercel Blob. Returns content or None."""
+        """Load a page from Vercel Blob.
+
+        Returns the content, or None only when the page is genuinely absent
+        (the list API answered OK and no blob has exactly this pathname). Any
+        failed read raises PageReadError — a caller must never mistake a
+        Blob outage for "no such page" (#7833).
+        """
         if not self._has_cloud():
             return self._fs.load_page(pathname)
 
@@ -1239,28 +1286,27 @@ class _CloudBackend:
         if key in self._page_cache:
             return self._page_cache[key]
 
-        # List blobs to find the URL
-        resp = _requests.get(
-            self._BLOB_API,
-            params={"prefix": key, "limit": "1"},
-            headers=self._auth_headers(),
-            timeout=15,
-        )
-        if not resp.ok:
+        blob = self._find_exact_blob(key)
+        if blob is None:
             return None
 
-        blobs = resp.json().get("blobs", [])
-        if not blobs:
-            return None
-
-        # Fetch content from CDN URL
-        content_resp = _requests.get(blobs[0]["url"], timeout=15)
-        if content_resp.ok:
-            # CRITICAL: Use .content.decode() not .text — requests defaults
-            # to ISO-8859-1 for text/* without explicit charset, which
-            # double-encodes UTF-8 smart quotes/symbols into mojibake.
+        # Fetch content from CDN URL. The list just said the blob exists, so
+        # any non-OK answer here (404 included) is a failed read, not absence.
+        try:
+            content_resp = _requests.get(blob["url"], timeout=15)
+        except _requests.RequestException as e:
+            raise PageReadError(f"Blob content fetch failed for {key!r}: {type(e).__name__}: {e}") from e
+        except (KeyError, TypeError) as e:
+            raise PageReadError(f"Blob list entry for {key!r} has no url: {e}") from e
+        if not content_resp.ok:
+            raise PageReadError(f"Blob content for {key!r} returned HTTP {content_resp.status_code}")
+        # CRITICAL: Use .content.decode() not .text — requests defaults
+        # to ISO-8859-1 for text/* without explicit charset, which
+        # double-encodes UTF-8 smart quotes/symbols into mojibake.
+        try:
             return content_resp.content.decode("utf-8")
-        return None
+        except UnicodeDecodeError as e:
+            raise PageReadError(f"Blob content for {key!r} is not valid UTF-8: {e}") from e
 
     # --- Images ---
 
@@ -1340,6 +1386,7 @@ class _CloudBackend:
                 buf = BytesIO()
                 im.save(buf, format="WEBP", quality=82, method=6)
                 webp_bytes = buf.getvalue()
+        # governance: allow-silent SF002: WebP sibling is an optional optimization; the canonical PNG is already uploaded and image_variants_available probes before the renderer references a variant
         except Exception as e:
             logger.warning(f"WebP encode failed for {png_key}: {e}")
             return
@@ -1379,6 +1426,7 @@ class _CloudBackend:
         """
         try:
             webp_bytes = _encode_webp(png_bytes, width=width)
+        # governance: allow-silent SF002: WebP variant is an optional optimization; image_variants_available HEAD-checks every width before the renderer emits a srcset
         except Exception as e:
             logger.warning(f"WebP {width}w variant encode failed for {png_key}: {e}")
             return
@@ -1414,6 +1462,7 @@ class _CloudBackend:
         try:
             jpeg_bytes = _encode_social_jpeg(png_bytes)
             social_key = _social_jpeg_key(png_key)
+        # governance: allow-silent SF002: social JPEG is optional metadata; the canonical PNG upload is the only publishing dependency
         except Exception as e:
             logger.warning(f"Social JPEG encode failed for {png_key}: {e}")
             return
@@ -1448,6 +1497,7 @@ class _CloudBackend:
         """
         try:
             jpeg_bytes = _encode_jpeg_fallback(png_bytes)
+        # governance: allow-silent SF002: JPEG fallback is optional; jpeg_fallback_available HEAD-checks it before the renderer references it
         except Exception as e:
             logger.warning(f"JPEG fallback encode failed for {png_key}: {e}")
             return
@@ -1519,7 +1569,7 @@ class _CloudBackend:
             variant_keys = [
                 _webp_variant_key(f"images/{image_key}", w) for w in WEBP_VARIANT_WIDTHS
             ]
-        except ValueError:
+        except ValueError:  # governance: allow-silent SF002: existence probe; no derivable variant key means no variants, renderer falls back to the single PNG candidate
             return False
 
         import requests as _requests
@@ -1534,6 +1584,7 @@ class _CloudBackend:
             key = f"{self.prefix}{variant_key}"
             try:
                 resp = _requests.head(f"{BLOB_PUBLIC_BASE}/{key}", timeout=10, allow_redirects=True)
+            # governance: allow-silent SF002: existence probe; an unverifiable variant must not be emitted in a srcset, so False (single PNG candidate) is the safe answer
             except Exception as e:
                 logger.warning(f"Variant existence check failed for {key}: {e}")
                 return False
@@ -1555,7 +1606,7 @@ class _CloudBackend:
             return False
         try:
             variant_key = _jpeg_fallback_key(f"images/{image_key}")
-        except ValueError:
+        except ValueError:  # governance: allow-silent SF002: existence probe; no derivable fallback key means no JPEG fallback, renderer keeps the raw PNG src
             return False
 
         import requests as _requests
@@ -1563,6 +1614,7 @@ class _CloudBackend:
         key = f"{self.prefix}{variant_key}"
         try:
             resp = _requests.head(f"{BLOB_PUBLIC_BASE}/{key}", timeout=10, allow_redirects=True)
+        # governance: allow-silent SF002: existence probe; an unverifiable fallback must not be emitted, so False (raw PNG src) is the safe answer
         except Exception as e:
             logger.warning(f"JPEG fallback existence check failed for {key}: {e}")
             return False

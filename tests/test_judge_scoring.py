@@ -349,7 +349,7 @@ def test_final_fail_verdict_carries_weakest_dims_into_alert():
             cron_routes._generate_and_judge_dialogue(
                 "monday", "Concept", episode, max_retries=0,
             )
-        except cron_routes.JudgeFailedError:
+        except cron_routes.JudgeFailedError:  # governance: allow-silent SF001: test deliberately drives the judge-failure path; the assertions below check the alert, not the raise
             pass
 
     notify.assert_called_once()

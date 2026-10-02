@@ -20,11 +20,34 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from backend.publishing.analytics import GA4_TAG
 from backend.publishing.static_renderer import render_recipes_index, render_sitemap
-from backend.storage import storage
+from backend.storage import PageReadError, storage
 from backend.utils.episode_integrity import current_episode_id, episode_page_is_due
 from backend.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def _load_page_for_reader(pathname: str, route: str) -> str | None:
+    """Reader-route read contract (#7833): degrade, loudly.
+
+    A failed Blob read (PageReadError) is logged at ERROR with the key and
+    cause and then treated exactly like an absent page, so the route serves
+    the same fallback it served before load_page learned to raise. Readers
+    get last-known-good or placeholder content through a Blob blip instead
+    of a 500. Only for public read routes: the catalog WRITE path
+    (publish_recipe_to_catalog) and /sitemap.xml stay fail-closed.
+    """
+    try:
+        return storage.load_page(pathname)
+    # governance: allow-silent SF002: reader-route degradation contract above; logged at ERROR, and None selects the route's pre-#7833 fallback response
+    except PageReadError as exc:
+        logger.error(
+            "%s: Blob read of %s failed, serving the fallback response: %s",
+            route,
+            pathname,
+            exc,
+        )
+        return None
 
 # Two routers: one for the public page, one for the API
 router = APIRouter(tags=["episodes"])
@@ -38,7 +61,9 @@ async def this_week_page():
     pages/{episode_id}/index.html. Progressively grows through the week.
     """
     episode_id = current_episode_id()
-    page_html = storage.load_page(f"pages/{episode_id}/index.html")
+    # Reader contract (#7833): a failed Blob read is logged at ERROR and
+    # handled like a missing page (placeholder / 503 logic below).
+    page_html = _load_page_for_reader(f"pages/{episode_id}/index.html", "/this-week")
     if page_html:
         # Serve the stored page byte-for-byte. Mutating reader responses here
         # would make analytics and other HTML behavior depend on the route
@@ -115,7 +140,9 @@ async def get_episode_teaser():
     episode's own teaser already carries — unchanged in every state, so
     health_check's teaser check needs no special-casing for this feature.
     """
-    teaser_json = storage.load_page("pages/latest.json")
+    # Reader contract (#7833): a failed Blob read is logged at ERROR and
+    # answered like no teaser ({"status": "no_episode"}).
+    teaser_json = _load_page_for_reader("pages/latest.json", "/api/episodes/teaser")
     if teaser_json:
         try:
             data = json.loads(teaser_json)
@@ -135,7 +162,9 @@ async def recipes_json():
     Tries blob first (dynamically updated by Sunday cron),
     falls back to the static src/recipes.json for pre-cron compatibility.
     """
-    content = storage.load_page("pages/recipes.json")
+    # Reader contract (#7833): a failed Blob read is logged at ERROR and
+    # served the static fallback below, as an absent catalog is.
+    content = _load_page_for_reader("pages/recipes.json", "/recipes.json")
     if content:
         return Response(content=content, media_type="application/json")
 
@@ -169,25 +198,38 @@ async def sitemap_xml():
         catalog_raw = static.read_text() if static.exists() else '{"recipes": []}'
 
     try:
-        recipes = json.loads(catalog_raw).get("recipes", [])
-    except Exception:
-        logger.error("sitemap: catalog JSON unparseable, emitting site roots only")
-        recipes = []
+        data = json.loads(catalog_raw)
+        recipes = data if isinstance(data, list) else data.get("recipes")
+        if not isinstance(recipes, list):
+            raise ValueError("catalog has no 'recipes' list")
+    except (ValueError, AttributeError):
+        # Raise (500) rather than serve a 200 roots-only sitemap: crawlers
+        # read that as every recipe URL withdrawn (#7833), the same reason
+        # _load_catalog_recipes raises for the /recipes hub.
+        logger.error("sitemap: catalog JSON unparseable or malformed")
+        raise
 
     return Response(content=render_sitemap(recipes), media_type="application/xml")
 
 
 def _load_catalog_recipes() -> list:
-    """Recipe catalog, blob-first with the static seed file as fallback."""
-    raw = storage.load_page("pages/recipes.json")
+    """Recipe catalog, blob-first with the static seed file as fallback.
+
+    Reader contract (#7833): a failed Blob read is logged at ERROR and
+    served the static fallback, as an absent catalog is. Corrupt JSON still
+    raises (500).
+    """
+    raw = _load_page_for_reader("pages/recipes.json", "/recipes")
     if not raw:
         static = Path(__file__).resolve().parents[2] / "src" / "recipes.json"
         raw = static.read_text() if static.exists() else '{"recipes": []}'
     try:
         data = json.loads(raw)
-    except Exception:
+    except json.JSONDecodeError:
+        # Raise (500) rather than render a 200 hub listing zero recipes,
+        # which crawlers and readers would take as a real, empty catalog.
         logger.error("recipes index: catalog JSON unparseable")
-        return []
+        raise
     return data if isinstance(data, list) else data.get("recipes", [])
 
 
@@ -216,12 +258,14 @@ def _load_seed_recipes() -> dict:
     path = Path(__file__).resolve().parents[2] / "src" / "seed_recipes.json"
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:
+    except (OSError, json.JSONDecodeError) as exc:
         # Do NOT cache the failure — a missing/corrupt file is a deploy bug
-        # that should retry (and keep logging loudly) on the next request,
-        # not silently 404 every seed recipe for the Lambda's lifetime.
+        # that should retry (and keep logging loudly) on the next request.
+        # Raise (500) rather than return {}: an empty map made every seed
+        # recipe answer 404 "Recipe not found", which reads as a real
+        # removal to crawlers instead of a server fault.
         logger.error(f"seed recipes load failed (will retry next request): {exc}")
-        return {}
+        raise
     _SEED_RECIPES_CACHE = data
     return data
 
@@ -251,9 +295,24 @@ async def recipe_page(slug: str):
 
     Blob first (cron-generated recipes), then the original seed recipes
     rendered from data through the shared renderer.
+
+    Reader contract (#7833): a failed Blob read is logged at ERROR and a
+    seed recipe is still served from data, as before. A non-seed slug then
+    raises (500) instead of the "Recipe not found" 404 it used to get: a 404
+    for a live recipe during a Blob blip reads to crawlers as a removal.
     """
     # Try blob (cron-generated recipe pages)
-    page = storage.load_page(f"pages/recipes/{slug}/index.html")
+    read_error: PageReadError | None = None
+    try:
+        page = storage.load_page(f"pages/recipes/{slug}/index.html")
+    except PageReadError as exc:
+        logger.error(
+            "/recipes/%s: Blob read of pages/recipes/%s/index.html failed: %s",
+            slug,
+            slug,
+            exc,
+        )
+        page, read_error = None, exc
     if page:
         return HTMLResponse(content=page)
 
@@ -263,6 +322,9 @@ async def recipe_page(slug: str):
         from backend.publishing.episode_renderer import render_seed_recipe_page
         html = render_seed_recipe_page(seed["recipe_data"], seed.get("image", ""), slug)
         return HTMLResponse(content=html)
+
+    if read_error is not None:
+        raise read_error
 
     return HTMLResponse(
         content="<h1>Recipe not found</h1>",
