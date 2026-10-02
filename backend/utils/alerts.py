@@ -254,3 +254,29 @@ def send_alert(
         if backend(subject, body, severity, fields or (), url):
             delivered = True
     return delivered
+
+
+def send_alert_confirming_email(
+    subject: str,
+    body: str,
+    severity: Severity = "warning",
+    *,
+    fields: Sequence[AlertField] | None = None,
+    url: str | None = None,
+) -> bool:
+    """Like `send_alert` (every channel attempted, none suppresses another),
+    but returns whether EMAIL accepted it.
+
+    For callers that record an alert as delivered and never resend it: the
+    human reads email, not Discord, so a Discord-only success must not count
+    (#7006). `send_alert` keeps its any-channel contract for everyone else.
+    """
+    if _pytest_gate():
+        return False
+
+    email_delivered = False
+    for backend in _BACKENDS:
+        accepted = backend(subject, body, severity, fields or (), url)
+        if backend is _send_email:
+            email_delivered = bool(accepted)
+    return email_delivered
