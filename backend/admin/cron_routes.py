@@ -297,10 +297,11 @@ def _clear_stale_week_off_note_after_late_publish(published_episode_id: str) -> 
     current-week gate already stops X's OWN late publish from touching the
     live pages/latest.json (that belongs to whatever IS the current week),
     but nothing else would ever go back and fix the successor's stale note.
-    Calling regenerate_and_upload on the successor re-derives whatever it
-    should currently be showing; its own gate decides whether that reaches
-    pages/latest.json (it does, when the successor is still the current
-    week — the ordinary case a "late" publish is recovering for).
+    Re-writing the successor's homepage teaser (upload_latest_json, the only
+    place the note is shown) without the note fixes it; the writer's own gate
+    decides whether that reaches pages/latest.json (it does, when the
+    successor is still the current week — the ordinary case a "late" publish
+    is recovering for).
 
     For an ON-TIME publish (X's own Sunday, before the week after X has
     even started) this is a safe, cheap no-op: that episode doesn't exist
@@ -339,8 +340,11 @@ def _clear_stale_week_off_note_after_late_publish(published_episode_id: str) -> 
         # re-checks it strictly (_week_off_note_still_true) and drops it now
         # that this week has published, and it stays the signal that lets
         # the already_published catch-up retry this clear.
+        # Homepage teaser only: the note lives nowhere else, and re-rendering
+        # the successor's episode page from this snapshot could roll back a
+        # newer stage its own cron rendered meanwhile (Codex, #7630).
         next_episode.pop("week_off_note", None)
-        regenerate_and_upload(next_episode, strict=True)
+        upload_latest_json(next_episode)
     except Exception as exc:  # noqa: BLE001 - best-effort, must not fail the publish
         logger.warning(
             f"week-off note clear-after-late-publish skipped for "
@@ -2187,6 +2191,35 @@ def _save_stage_failure(ep: dict, stage: str, error: Exception) -> None:
 
 
 
+def _monday_recipe_ready(ep: dict) -> bool:
+    monday = ep.get("stages", {}).get("monday", {})
+    return bool(monday.get("status") == "complete" and monday.get("recipe_data"))
+
+
+def _note_week_off_without_a_recipe(episode_id: str, ep: dict) -> None:
+    """Sunday's window closed on a week whose Monday never produced a recipe:
+    the week cannot publish, so say so on the homepage now (Codex, #7630).
+
+    Writes pages/latest.json only, through the writer's own current-week
+    gate. Never renders the episode page: with no recipe it would publish
+    placeholder content (the W24 incident _require_monday_recipe guards).
+    Best-effort; the 409 that follows is unchanged. An early forced re-fire
+    (before the week's own Sunday cron time) still has time to recover and
+    announces nothing.
+    """
+    sunday_due = episode_integrity.stage_deadline(episode_id, "sunday")
+    if _utc_now() < sunday_due - _SUNDAY_NOTE_TOLERANCE:
+        return
+    try:
+        ep["week_off_note"] = {"message": WEEK_OFF_MESSAGE, "missed_week": episode_id}
+        storage.save_episode(episode_id, ep)
+        upload_latest_json(ep)
+    except Exception as exc:  # noqa: BLE001 - best-effort cosmetic note, the 409 still fires
+        logger.warning(
+            f"week-off note for recipe-less {episode_id} skipped: {type(exc).__name__}: {exc}"
+        )
+
+
 def _require_monday_recipe(ep: dict, stage: str) -> None:
     """Block downstream stages when Monday never produced a recipe.
 
@@ -3170,6 +3203,8 @@ async def cron_sunday(request: Request):
             "dialogue_messages": len(sunday_stage.get("dialogue", [])),
         })
 
+      if not _monday_recipe_ready(ep):
+          _note_week_off_without_a_recipe(episode_id, ep)
       _require_monday_recipe(ep, "sunday")
 
       with _run_stage(ep, "sunday"):

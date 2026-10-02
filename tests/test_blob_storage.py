@@ -1122,3 +1122,22 @@ class TestCloudBackendCleanupImageVariants:
         with patch.object(cloud_backend, "delete_by_prefix") as mock_delete:
             cloud_backend.cleanup_image_variants("some-recipe-id")
         mock_delete.assert_not_called()
+
+
+@pytest.mark.parametrize("body", [[], "x", 5, None], ids=["list", "string", "number", "null"])
+def test_strict_load_rejects_a_non_object_episode_body(cloud_backend, body):
+    """Codex (#7630): valid JSON that is not an episode object must take the
+    read-error path, never read as an unpublished week."""
+    mock_list = MagicMock()
+    mock_list.ok = True
+    mock_list.json.return_value = {
+        "blobs": [{"url": "https://blob/e.json", "pathname": f"{cloud_backend.prefix}episodes/ep-1.json"}]
+    }
+    mock_content = MagicMock()
+    mock_content.json.return_value = body
+    mock_content.raise_for_status = MagicMock()
+
+    with patch("requests.get", side_effect=[mock_list, mock_content]):
+        with pytest.raises(PageReadError):
+            cloud_backend.load_episode_strict("ep-1")
+    assert (cloud_backend.prefix, "ep-1") not in cloud_backend._episode_cache

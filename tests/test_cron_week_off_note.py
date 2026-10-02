@@ -197,11 +197,15 @@ def test_clear_stale_note_removes_it_when_the_successor_blames_this_week():
 
     with patch.object(cron_routes.storage, "load_episode_strict", return_value=next_episode), \
          patch.object(cron_routes.storage, "save_episode") as save_episode, \
-         patch.object(cron_routes, "regenerate_and_upload") as regenerate:
+         patch.object(cron_routes, "regenerate_and_upload") as regenerate, \
+         patch.object(cron_routes, "upload_latest_json") as upload_latest:
         cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")
 
     cleared = {k: v for k, v in next_episode.items() if k != "week_off_note"}
-    regenerate.assert_called_once_with(cleared, strict=True)
+    upload_latest.assert_called_once_with(cleared)
+    # Teaser only: re-rendering the successor's episode page from this
+    # snapshot could roll back a newer stage (Codex, #7630).
+    regenerate.assert_not_called()
     # Never saved back: the body came through the CDN and may be up to ~60s
     # stale, so saving could overwrite a newer stage write (review, #7630).
     save_episode.assert_not_called()
@@ -255,7 +259,7 @@ def test_clear_stale_note_render_failure_keeps_the_note_stored_so_a_retry_redoes
 
     with patch.object(cron_routes.storage, "load_episode_strict", side_effect=load), \
          patch.object(cron_routes.storage, "save_episode", side_effect=save) as save_episode, \
-         patch.object(cron_routes, "regenerate_and_upload", side_effect=RuntimeError("blob write failed")):
+         patch.object(cron_routes, "upload_latest_json", side_effect=RuntimeError("blob write failed")):
         cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")  # must not raise
 
     save_episode.assert_not_called()
@@ -264,12 +268,11 @@ def test_clear_stale_note_render_failure_keeps_the_note_stored_so_a_retry_redoes
     # The retry (already_published catch-up) now succeeds and clears it.
     with patch.object(cron_routes.storage, "load_episode_strict", side_effect=load), \
          patch.object(cron_routes.storage, "save_episode", side_effect=save) as save_retry, \
-         patch.object(cron_routes, "regenerate_and_upload") as regenerate:
+         patch.object(cron_routes, "upload_latest_json") as upload_latest:
         cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")
 
-    regenerate.assert_called_once_with({"episode_id": "2026-W41", "stages": {}}, strict=True)
+    upload_latest.assert_called_once_with({"episode_id": "2026-W41", "stages": {}})
     save_retry.assert_not_called()
-    regenerate.assert_called_once()
 
 
 
@@ -585,6 +588,7 @@ def test_cron_sunday_late_publish_clears_the_successors_note_end_to_end():
          patch.object(cron_routes, "_indexnow_submit_urls",
                       return_value=IndexNowResult(ok=True, status_code=200, detail="submitted")), \
          patch.object(cron_routes, "regenerate_and_upload") as regenerate, \
+         patch.object(cron_routes, "upload_latest_json") as upload_latest, \
          patch("backend.publishing.episode_renderer.publish_recipe_to_catalog"), \
          patch("backend.publishing.episode_renderer.render_episode_page", return_value="<html></html>"):
         result = asyncio.run(cron_routes.cron_sunday(_request()))
@@ -592,7 +596,8 @@ def test_cron_sunday_late_publish_clears_the_successors_note_end_to_end():
     assert result["published"] is True
     cleared = {k: v for k, v in next_episode.items() if k != "week_off_note"}
     assert [eid for eid, _ in save_calls if eid == "2026-W41"] == []
-    regenerate.assert_any_call(cleared, strict=True)
+    upload_latest.assert_any_call(cleared)
+    assert all(c.args[0].get("episode_id") != "2026-W41" for c in regenerate.call_args_list)
 
 
 def test_clear_stale_note_never_mutates_the_readers_cached_object():
@@ -613,3 +618,33 @@ def test_clear_stale_note_never_mutates_the_readers_cached_object():
 
     save_episode.assert_not_called()
     assert cached["week_off_note"]["missed_week"] == "2026-W40"
+
+
+def test_recipe_less_week_gets_its_note_only_once_sundays_window_arrives():
+    """Codex (#7630): a week whose Monday never produced a recipe cannot
+    publish. Sunday's own run announces it (homepage teaser only, never the
+    episode page); an early forced re-fire does not."""
+    from datetime import timedelta
+
+    from backend.utils import episode_integrity
+
+    def _episode():
+        return {"episode_id": "2026-W40", "concept": "x", "stages": {"monday": {"status": "failed"}}, "events": []}
+
+    due = episode_integrity.stage_deadline("2026-W40", "sunday")
+    for now, expect_note in ((due - timedelta(hours=2), False), (due, True)):
+        ep = _episode()
+        with patch.object(cron_routes, "_utc_now", return_value=now), \
+             patch.object(cron_routes.storage, "save_episode") as save_episode, \
+             patch.object(cron_routes, "upload_latest_json") as upload_latest, \
+             patch.object(cron_routes, "regenerate_and_upload") as regenerate:
+            cron_routes._note_week_off_without_a_recipe("2026-W40", ep)
+        regenerate.assert_not_called()
+        if expect_note:
+            assert ep["week_off_note"] == {"message": cron_routes.WEEK_OFF_MESSAGE, "missed_week": "2026-W40"}
+            save_episode.assert_called_once_with("2026-W40", ep)
+            upload_latest.assert_called_once_with(ep)
+        else:
+            assert "week_off_note" not in ep
+            save_episode.assert_not_called()
+            upload_latest.assert_not_called()

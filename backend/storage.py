@@ -920,6 +920,12 @@ class _CloudBackend:
         content_resp = _requests.get(blob["url"], timeout=15)
         content_resp.raise_for_status()
         data = content_resp.json()
+        # A decision rests on this body: valid JSON that is not an episode
+        # object is an unusable read, never "an unpublished week" (#7630).
+        if not isinstance(data, dict):
+            raise PageReadError(
+                f"episode {episode_id!r} body is {type(data).__name__}, not an object"
+            )
         self._episode_cache[cache_key] = data
         return data
 
