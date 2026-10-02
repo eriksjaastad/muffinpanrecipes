@@ -37,6 +37,13 @@ import pytest
 from scripts import pipeline_monitor as pm
 
 
+@pytest.fixture(autouse=True)
+def _no_absence_probe(monkeypatch):
+    """No test touches the network: the 404 probe defaults to "not
+    confirmed absent". Tests of the missing-episode path override it."""
+    monkeypatch.setattr(pm, "_episode_confirmed_absent", lambda eid: False)
+
+
 def _install_pipeline(
     monkeypatch,
     *,
@@ -1603,3 +1610,106 @@ def test_self_test_passes_with_a_readable_state_file_and_lock(tmp_path, monkeypa
     state.write_text("{}")
     (tmp_path / "pipeline_status.json.lock").write_text("")
     assert pm.self_test(state) == 0
+
+
+# ---------------------------------------------------------------------------
+# A Monday that never created the episode record (the #6857 shape)
+# ---------------------------------------------------------------------------
+
+_MONDAY_DUE = pm.datetime(2026, 9, 28, 16, 0, tzinfo=pm.timezone.utc)  # W40 Monday, past 14:30+45m
+_MONDAY_NOT_DUE = pm.datetime(2026, 9, 28, 14, 0, tzinfo=pm.timezone.utc)
+
+
+class _FrozenDatetime(pm.datetime):
+    frozen = _MONDAY_DUE
+
+    @classmethod
+    def now(cls, tz=None):
+        return cls.frozen
+
+
+def _freeze(monkeypatch, when):
+    _FrozenDatetime.frozen = when
+    monkeypatch.setattr(pm, "datetime", _FrozenDatetime)
+
+
+def test_missing_episode_after_mondays_window_is_a_failure(monkeypatch):
+    _freeze(monkeypatch, _MONDAY_DUE)
+    monkeypatch.setattr(pm.sps, "_get_json", lambda url: None)
+    monkeypatch.setattr(pm, "_episode_confirmed_absent", lambda eid: True)
+    verdict = pm.compute_verdict(episode_id="2026-W40")
+    assert verdict["kind"] == "observed"
+    assert list(verdict["observed_failures"].values()) == [
+        "no episode record for 2026-W40: Monday's cron never created it"
+    ]
+
+
+def test_missing_episode_before_mondays_window_stays_unknown(monkeypatch):
+    _freeze(monkeypatch, _MONDAY_NOT_DUE)
+    monkeypatch.setattr(pm.sps, "_get_json", lambda url: None)
+    probed = []
+    monkeypatch.setattr(pm, "_episode_confirmed_absent", lambda eid: probed.append(eid) or True)
+    assert pm.compute_verdict(episode_id="2026-W40")["kind"] == "unknown"
+    assert probed == []
+
+
+def test_unconfirmed_absence_after_mondays_window_stays_unknown(monkeypatch):
+    # A timeout or 5xx is a read problem, not a missing week.
+    _freeze(monkeypatch, _MONDAY_DUE)
+    monkeypatch.setattr(pm.sps, "_get_json", lambda url: None)
+    assert pm.compute_verdict(episode_id="2026-W40")["kind"] == "unknown"
+
+
+def test_missing_episode_alerts_then_recovers_when_the_record_appears(tmp_path, monkeypatch):
+    state = tmp_path / "pipeline_status.json"
+    posts = _captured_alerts(monkeypatch)
+    _freeze(monkeypatch, _MONDAY_DUE)
+    monkeypatch.setattr(pm.sps, "current_episode_id", lambda: "2026-W40")
+    monkeypatch.setattr(pm.sps, "_get_json", lambda url: None)
+    monkeypatch.setattr(pm, "_episode_confirmed_absent", lambda eid: True)
+
+    pm.run(state)
+    pm.run(state)  # still missing: no repeat
+    assert len(posts) == 1
+    assert "DEGRADED" in posts[0]["subject"]
+    assert "never created it" in posts[0]["body"]
+
+    _install_pipeline(monkeypatch, episode_only_failures=[])
+    pm.run(state)
+    assert len(posts) == 2
+    assert "recovered" in posts[1]["subject"].lower()
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (pm.urllib.error.HTTPError("u", 404, "Not Found", {}, None), True),
+        (pm.urllib.error.HTTPError("u", 503, "Unavailable", {}, None), False),
+        (pm.urllib.error.URLError("timed out"), False),
+        (TimeoutError("slow"), False),
+    ],
+    ids=["404", "503", "url-error", "timeout"],
+)
+def test_absence_probe_is_true_only_for_a_404(monkeypatch, error, expected):
+    monkeypatch.undo()  # drop the autouse stub; exercise the real probe
+
+    def _urlopen(req, timeout):
+        assert timeout == pm.sps.TIMEOUT_SECONDS
+        raise error
+
+    monkeypatch.setattr(pm.urllib.request, "urlopen", _urlopen)
+    assert pm._episode_confirmed_absent("2026-W40") is expected
+
+
+def test_absence_probe_is_false_when_the_episode_is_served(monkeypatch):
+    monkeypatch.undo()
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(pm.urllib.request, "urlopen", lambda req, timeout: _Resp())
+    assert pm._episode_confirmed_absent("2026-W40") is False

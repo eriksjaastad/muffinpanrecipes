@@ -195,9 +195,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import urllib.error  # noqa: E402
+import urllib.request  # noqa: E402
+
 from send2trash import send2trash  # noqa: E402
 
 from backend.utils.alerts import email_channel_status, send_alert_confirming_email  # noqa: E402
+from backend.utils.episode_integrity import stages_due  # noqa: E402
 from scripts import session_pipeline_status as sps  # noqa: E402
 
 LABEL = "muffinpanrecipes pipeline"
@@ -310,6 +314,30 @@ def _valid_catalog(raw_catalog: object) -> list[dict] | None:
     return candidate
 
 
+def _episode_confirmed_absent(eid: str) -> bool:
+    """True only when the Blob CDN answers 404 for this week's episode.
+
+    `sps._get_json` returns None for a 404 and a network failure alike, which
+    is right for the session banner. The monitor needs the difference: a
+    Monday cron that died before creating the record (the #6857 shape)
+    leaves a 404 all week, while a timeout says nothing. Any other outcome,
+    including a failed probe, is False, so a flaky network stays "unknown".
+    """
+    req = urllib.request.Request(
+        f"{sps.BLOB_CDN}/episodes/{eid}.json",
+        headers={"User-Agent": "muffinpanrecipes-pipeline-monitor/1.0"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=sps.TIMEOUT_SECONDS):
+            return False
+    except urllib.error.HTTPError as exc:
+        return exc.code == 404
+    # governance: allow-silent SF002: a failed probe is logged and means "not confirmed absent"; compute_verdict then reports unknown, the documented network-blip path
+    except Exception as exc:
+        print(f"{LABEL}: absence probe for {eid} failed ({type(exc).__name__}: {exc})", file=sys.stderr)
+        return False
+
+
 def compute_verdict(episode_id: str | None = None) -> dict:
     """Reuse session_pipeline_status.py's fetch + verdict logic, structured
     per-check so the caller can tell which checks ran this time.
@@ -331,6 +359,23 @@ def compute_verdict(episode_id: str | None = None) -> dict:
     episode = sps._get_json(f"{sps.BLOB_CDN}/episodes/{eid}.json")
 
     if not isinstance(episode, dict):
+        try:
+            monday_due = "monday" in stages_due(eid, now=datetime.now(timezone.utc))
+        except ValueError:  # not an ISO week id; there is no Monday to be late for
+            monday_due = False
+        if monday_due and _episode_confirmed_absent(eid):
+            # Monday's window has passed and Blob confirms there is no record:
+            # a real failure, not a read problem. Same group and episode as
+            # the integrity checks, so the first run that reads the episode
+            # resolves it.
+            text = f"no episode record for {eid}: Monday's cron never created it"
+            return {
+                "kind": "observed",
+                "episode_id": eid,
+                "summary": f"{eid} missing from blob",
+                "checks_ran": ("episode",),
+                "observed_failures": {_failure_id("episode", eid, text): text},
+            }
         return {
             "kind": "unknown",
             "episode_id": eid,
@@ -956,6 +1001,10 @@ def self_test(state_path: Path) -> int:
 
 
 if __name__ == "__main__":
-    if sys.argv[1:] == ["--self-test"]:
-        sys.exit(self_test(_default_state_file()))
+    if "--self-test" in sys.argv[1:]:
+        _self_test_args = argparse.ArgumentParser(description="pipeline monitor self-test")
+        _self_test_args.add_argument("--self-test", action="store_true")
+        _self_test_args.add_argument("--state-file")
+        _parsed = _self_test_args.parse_args()
+        sys.exit(self_test(Path(_parsed.state_file) if _parsed.state_file else _default_state_file()))
     sys.exit(_safe_main())

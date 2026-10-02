@@ -240,6 +240,12 @@ addition made for concurrency:
 - Always exits 0, including on a total exception (`_safe_main()`'s guard).
 - Inherits the 6s-per-request network bound from
   `session_pipeline_status.py`'s `_get_json`.
+- A current-week episode the Blob CDN answers **404** for, once Monday's
+  cron window plus grace has passed, is a real failure ("no episode record
+  for <week>: Monday's cron never created it"), alerted like any other and
+  resolved by the first run that reads the episode. This is the #6857 shape:
+  a Monday that died before writing the record. Only a confirmed 404 counts;
+  a timeout or any other error stays the "fetch failure" below.
 - An episode fetch failure with NO prior state at all writes `"unknown"`
   (the one case it's ever persisted); with a known verdict already on disk
   it changes nothing — no alert, no overwrite, every existing field kept
