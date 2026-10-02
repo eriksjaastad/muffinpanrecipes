@@ -789,7 +789,7 @@ class _CloudBackend:
         key = key.removeprefix("assets/")
         return key
 
-    def _find_exact_blob(self, key: str) -> Optional[dict]:
+    def _find_exact_blob(self, key: str, *, reject_non_object_entries: bool = False) -> Optional[dict]:
         """Return the listed blob whose pathname is exactly ``key``, or None.
 
         The list API matches by PREFIX, so ``prefix=pages/recipes.json`` also
@@ -800,6 +800,9 @@ class _CloudBackend:
 
         None means the list API answered and no blob has exactly this
         pathname. Any failed or unusable listing raises PageReadError.
+        ``reject_non_object_entries`` also treats a non-object entry as an
+        unusable listing, for a caller whose not-found drives a decision
+        (load_episode_strict, #7630); others skip such entries.
         """
         import requests as _requests
 
@@ -825,13 +828,13 @@ class _CloudBackend:
                 raise PageReadError(f"Blob list for {key!r} returned an unusable payload: {e}") from e
             if not isinstance(payload, dict) or not isinstance(payload.get("blobs"), list):
                 raise PageReadError(f"Blob list for {key!r} has no 'blobs' list")
-            # A non-dict entry means the listing itself is unusable; skipping it
-            # could turn a present file into a false not-found (#7630).
-            if not all(isinstance(blob, dict) for blob in payload["blobs"]):
+            if reject_non_object_entries and not all(
+                isinstance(blob, dict) for blob in payload["blobs"]
+            ):
                 raise PageReadError(f"Blob list for {key!r} has a non-object entry")
 
             for blob in payload["blobs"]:
-                if blob.get("pathname") == key:
+                if isinstance(blob, dict) and blob.get("pathname") == key:
                     return blob
 
             if not payload.get("hasMore"):
@@ -911,7 +914,7 @@ class _CloudBackend:
         # refreshes the cache below.
 
         pathname = f"{self.prefix}episodes/{episode_id}.json"
-        blob = self._find_exact_blob(pathname)
+        blob = self._find_exact_blob(pathname, reject_non_object_entries=True)
         if blob is None:
             return None
         content_resp = _requests.get(blob["url"], timeout=15)

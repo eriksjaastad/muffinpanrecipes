@@ -201,8 +201,10 @@ def test_clear_stale_note_removes_it_when_the_successor_blames_this_week():
         cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")
 
     cleared = {k: v for k, v in next_episode.items() if k != "week_off_note"}
-    save_episode.assert_called_once_with("2026-W41", cleared)
     regenerate.assert_called_once_with(cleared, strict=True)
+    # Never saved back: the body came through the CDN and may be up to ~60s
+    # stale, so saving could overwrite a newer stage write (review, #7630).
+    save_episode.assert_not_called()
     # The reader's object itself is left untouched (round 7: it may be cached).
     assert next_episode["week_off_note"]["missed_week"] == "2026-W40"
 
@@ -235,10 +237,9 @@ def test_clear_stale_note_changes_nothing_when_not_applicable(next_episode):
 
 
 def test_clear_stale_note_render_failure_keeps_the_note_stored_so_a_retry_redoes_it():
-    """Codex round 6: saving the cleared episode before a render that then
-    failed left the homepage showing the note while the stored episode had
-    none, so the already_published retry found nothing to do. Now the save
-    happens only after a successful strict render."""
+    """Codex round 6: the stored note is the signal the already_published
+    retry needs. The clear never saves the successor, so a failed render
+    leaves the note stored and the retry renders again."""
     stored = {
         "episode_id": "2026-W41",
         "stages": {},
@@ -262,11 +263,12 @@ def test_clear_stale_note_render_failure_keeps_the_note_stored_so_a_retry_redoes
 
     # The retry (already_published catch-up) now succeeds and clears it.
     with patch.object(cron_routes.storage, "load_episode_strict", side_effect=load), \
-         patch.object(cron_routes.storage, "save_episode", side_effect=save), \
+         patch.object(cron_routes.storage, "save_episode", side_effect=save) as save_retry, \
          patch.object(cron_routes, "regenerate_and_upload") as regenerate:
         cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")
 
-    assert "week_off_note" not in stored
+    regenerate.assert_called_once_with({"episode_id": "2026-W41", "stages": {}}, strict=True)
+    save_retry.assert_not_called()
     regenerate.assert_called_once()
 
 
@@ -589,7 +591,7 @@ def test_cron_sunday_late_publish_clears_the_successors_note_end_to_end():
 
     assert result["published"] is True
     cleared = {k: v for k, v in next_episode.items() if k != "week_off_note"}
-    assert ("2026-W41", cleared) in save_calls
+    assert [eid for eid, _ in save_calls if eid == "2026-W41"] == []
     regenerate.assert_any_call(cleared, strict=True)
 
 
