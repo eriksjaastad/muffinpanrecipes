@@ -495,9 +495,15 @@ class _FilesystemBackend:
         propagates as a real exception. "Strict" is the filesystem backend's
         only mode, so this exists only so callers that need the not-found
         vs. error distinction (#7630) can call one method name regardless of
-        which backend `storage` resolved to.
+        which backend `storage` resolved to. Valid JSON that is not an
+        episode object raises, as the cloud strict read does (Codex, #7630).
         """
-        return self.load_episode(episode_id)
+        data = self.load_episode(episode_id)
+        if data is not None and not isinstance(data, dict):
+            raise PageReadError(
+                f"episode {episode_id!r} body is {type(data).__name__}, not an object"
+            )
+        return data
 
     def save_episode(self, episode_id: str, data: dict) -> None:
         EPISODES_DIR.mkdir(parents=True, exist_ok=True)

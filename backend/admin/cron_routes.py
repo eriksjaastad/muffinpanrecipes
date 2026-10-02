@@ -3251,15 +3251,24 @@ async def cron_sunday(request: Request):
                 ep["week_off_note"] = {
                     "message": WEEK_OFF_MESSAGE, "missed_week": episode_id,
                 }
-                storage.save_episode(episode_id, ep)
-                # regenerate_and_upload itself only ever touches
-                # pages/latest.json for the CURRENT ISO week (#7630) — a
-                # manual force=true retry of an older incomplete week still
-                # renders/uploads that week's own page here, but can no
-                # longer replace the live homepage teaser with stale
-                # content. No guard needed at this call site any more; the
-                # writer is the single source of truth for the invariant.
-                regenerate_and_upload(ep)
+                # Best-effort: the note is cosmetic, and a failed save or
+                # render must not turn the 400 refusal below into a 500
+                # (Codex, #7630).
+                try:
+                    storage.save_episode(episode_id, ep)
+                    # regenerate_and_upload itself only ever touches
+                    # pages/latest.json for the CURRENT ISO week (#7630) — a
+                    # manual force=true retry of an older incomplete week
+                    # still renders/uploads that week's own page here, but
+                    # can no longer replace the live homepage teaser with
+                    # stale content. The writer is the single source of
+                    # truth for the invariant.
+                    regenerate_and_upload(ep)
+                except Exception as exc:  # noqa: BLE001 - cosmetic note; the refusal stands
+                    logger.warning(
+                        f"week-off note for refused {episode_id} not written: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
                 raise HTTPException(
                     status_code=400,
                     detail=f"Cannot publish: {day} stage incomplete (status={stage_status!r})",

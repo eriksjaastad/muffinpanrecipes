@@ -1141,3 +1141,14 @@ def test_strict_load_rejects_a_non_object_episode_body(cloud_backend, body):
         with pytest.raises(PageReadError):
             cloud_backend.load_episode_strict("ep-1")
     assert (cloud_backend.prefix, "ep-1") not in cloud_backend._episode_cache
+
+
+@pytest.mark.parametrize("body", ["[]", '"x"', "5"], ids=["list", "string", "number"])
+def test_filesystem_strict_load_rejects_a_non_object_episode_body(tmp_path, monkeypatch, body):
+    """Codex (#7630): the filesystem strict read matches the cloud one."""
+    from backend.storage import _FilesystemBackend
+
+    monkeypatch.setattr("backend.storage.EPISODES_DIR", tmp_path)
+    (tmp_path / "2026-W39.json").write_text(body)
+    with pytest.raises(PageReadError):
+        _FilesystemBackend().load_episode_strict("2026-W39")

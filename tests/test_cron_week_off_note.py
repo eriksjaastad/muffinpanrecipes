@@ -665,3 +665,31 @@ def test_non_iso_episode_id_keeps_the_409_and_alert_on_a_recipe_less_sunday():
     assert exc_info.value.status_code == 409
     notify.assert_called_once()
     assert cron_routes._sunday_window_reached("test-20261002-1200") is False
+
+
+@pytest.mark.parametrize("failing", ["save_episode", "regenerate_and_upload"])
+def test_a_failed_note_write_keeps_sundays_400_refusal(failing):
+    """Codex (#7630): the note is cosmetic; a failed save or render must not
+    turn the refusal into a 500."""
+    episode = {
+        "episode_id": "2026-W40",
+        "concept": "Some Concept",
+        "stages": {"monday": {"status": "complete", "recipe_data": {"title": "X"}}},
+        "events": [],
+    }
+    boom = RuntimeError("blob write failed")
+    with patch.object(cron_routes, "_utc_now", return_value=AFTER_SUNDAY_W40), \
+         patch.object(cron_routes, "_verify_cron_secret"), \
+         patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=_body())), \
+         patch.object(cron_routes, "_verify_day_of_week"), \
+         patch.object(cron_routes.storage, "load_episode", return_value=episode), \
+         patch.object(cron_routes.storage, "save_episode",
+                      side_effect=boom if failing == "save_episode" else None), \
+         patch.object(cron_routes, "_current_episode_id", return_value="2026-W40"), \
+         patch.object(cron_routes, "regenerate_and_upload",
+                      side_effect=boom if failing == "regenerate_and_upload" else None):
+        with pytest.raises(HTTPException) as exc_info:
+            asyncio.run(cron_routes.cron_sunday(_request()))
+
+    assert exc_info.value.status_code == 400
+    assert "wednesday" in exc_info.value.detail
