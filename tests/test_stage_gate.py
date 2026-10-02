@@ -84,15 +84,13 @@ def test_stage_blocked_when_monday_failed(day: str, handler) -> None:
     assert "monday" in exc_info.value.detail
     generate_dialogue.assert_not_called()
     get_orchestrator.assert_not_called()
+    save_episode.assert_not_called()
     if day == "sunday":
         # #7630: Sunday's window has closed on a week with no recipe, so the
-        # only write is the week-off note (homepage teaser, no episode page).
-        save_episode.assert_called_once()
-        saved = save_episode.call_args.args[1]
-        assert saved["week_off_note"]["missed_week"] == "2026-W24"
-        upload_latest.assert_called_once_with(saved)
+        # only write is the week-off note on the homepage teaser.
+        upload_latest.assert_called_once()
+        assert upload_latest.call_args.args[0]["week_off_note"]["missed_week"] == "2026-W24"
     else:
-        save_episode.assert_not_called()
         upload_latest.assert_not_called()
     notify.assert_called_once()
     assert notify.call_args.kwargs["stage"] == day

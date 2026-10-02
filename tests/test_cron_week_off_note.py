@@ -640,11 +640,28 @@ def test_recipe_less_week_gets_its_note_only_once_sundays_window_arrives():
              patch.object(cron_routes, "regenerate_and_upload") as regenerate:
             cron_routes._note_week_off_without_a_recipe("2026-W40", ep)
         regenerate.assert_not_called()
+        save_episode.assert_not_called()
+        assert "week_off_note" not in ep  # the caller's episode is untouched
         if expect_note:
-            assert ep["week_off_note"] == {"message": cron_routes.WEEK_OFF_MESSAGE, "missed_week": "2026-W40"}
-            save_episode.assert_called_once_with("2026-W40", ep)
-            upload_latest.assert_called_once_with(ep)
+            upload_latest.assert_called_once_with(
+                {**_episode(), "week_off_note": {"message": cron_routes.WEEK_OFF_MESSAGE, "missed_week": "2026-W40"}}
+            )
         else:
-            assert "week_off_note" not in ep
-            save_episode.assert_not_called()
             upload_latest.assert_not_called()
+
+
+def test_non_iso_episode_id_keeps_the_409_and_alert_on_a_recipe_less_sunday():
+    """Review (#7630): run_full_week.py posts test-<ts> ids. stage_deadline
+    raises for them; that must not turn the 409 + notify into a 500."""
+    from fastapi import HTTPException
+
+    ep = {"episode_id": "test-20261002-1200", "concept": "x", "stages": {}, "events": []}
+    with patch.object(cron_routes, "upload_latest_json") as upload_latest, \
+         patch.object(cron_routes, "notify_pipeline_failure") as notify:
+        cron_routes._note_week_off_without_a_recipe("test-20261002-1200", ep)
+        with pytest.raises(HTTPException) as exc_info:
+            cron_routes._require_monday_recipe(ep, "sunday")
+    upload_latest.assert_not_called()
+    assert exc_info.value.status_code == 409
+    notify.assert_called_once()
+    assert cron_routes._sunday_window_reached("test-20261002-1200") is False

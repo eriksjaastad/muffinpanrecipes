@@ -2191,6 +2191,19 @@ def _save_stage_failure(ep: dict, stage: str, error: Exception) -> None:
 
 
 
+def _sunday_window_reached(episode_id: str) -> bool:
+    """Whether the week's own Sunday cron time has arrived (within the
+    tolerance for a cron that fires a little early). A non-ISO id (the
+    run_full_week.py harness uses test-<ts>) has no Sunday window, so it never
+    announces a week off and its refusal path stays exactly as before."""
+    try:
+        sunday_due = episode_integrity.stage_deadline(episode_id, "sunday")
+    # governance: allow-silent SF002: a non-ISO id is an expected input with no Sunday window; the caller's own refusal (409 + alert, or 400) still runs
+    except ValueError:
+        return False
+    return _utc_now() >= sunday_due - _SUNDAY_NOTE_TOLERANCE
+
+
 def _monday_recipe_ready(ep: dict) -> bool:
     monday = ep.get("stages", {}).get("monday", {})
     return bool(monday.get("status") == "complete" and monday.get("recipe_data"))
@@ -2201,19 +2214,21 @@ def _note_week_off_without_a_recipe(episode_id: str, ep: dict) -> None:
     the week cannot publish, so say so on the homepage now (Codex, #7630).
 
     Writes pages/latest.json only, through the writer's own current-week
-    gate. Never renders the episode page: with no recipe it would publish
+    gate, and never saves the episode. Never renders the episode page: with no recipe it would publish
     placeholder content (the W24 incident _require_monday_recipe guards).
     Best-effort; the 409 that follows is unchanged. An early forced re-fire
     (before the week's own Sunday cron time) still has time to recover and
     announces nothing.
     """
-    sunday_due = episode_integrity.stage_deadline(episode_id, "sunday")
-    if _utc_now() < sunday_due - _SUNDAY_NOTE_TOLERANCE:
+    if not _sunday_window_reached(episode_id):
         return
     try:
-        ep["week_off_note"] = {"message": WEEK_OFF_MESSAGE, "missed_week": episode_id}
-        storage.save_episode(episode_id, ep)
-        upload_latest_json(ep)
+        # Teaser only, on a copy: the episode is not saved. No stage can
+        # write this recipe-less week again, and when Monday never ran at
+        # all `ep` is an unsaved placeholder that must not become a stored
+        # episode (it would change what /this-week serves).
+        noted = {**ep, "week_off_note": {"message": WEEK_OFF_MESSAGE, "missed_week": episode_id}}
+        upload_latest_json(noted)
     except Exception as exc:  # noqa: BLE001 - best-effort cosmetic note, the 409 still fires
         logger.warning(
             f"week-off note for recipe-less {episode_id} skipped: {type(exc).__name__}: {exc}"
@@ -3228,8 +3243,7 @@ async def cron_sunday(request: Request):
                 # so announcing the week off then would be premature (Codex,
                 # #7630). The scheduled run fires at that time; the tolerance
                 # covers a cron that fires a little early.
-                sunday_due = episode_integrity.stage_deadline(episode_id, "sunday")
-                if _utc_now() < sunday_due - _SUNDAY_NOTE_TOLERANCE:
+                if not _sunday_window_reached(episode_id):
                     raise HTTPException(
                         status_code=400,
                         detail=f"Cannot publish: {day} stage incomplete (status={stage_status!r})",
