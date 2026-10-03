@@ -60,8 +60,13 @@ State keeps `alerted_failures`, a `{id: text}` map of every failure id
 covered by the last CONFIRMED delivered alert (never a merely-attempted
 one — see "confirmed delivery" below, inherited from round 1). Each run:
   - `new = observed_ids - alerted_ids`: failures never before announced.
-    Non-empty -> send one alert listing them (plus the full current list for
-    context). Only on a CONFIRMED delivery are they added to
+    Non-empty -> send one short alert ("Pipeline degraded", week and issue
+    count; the count covers every open failure of the checked week without
+    listing each, those whose check did not run marked unverified, #7930).
+    Earlier, closed weeks fold into one count marked closed and unverified;
+    if only those are owed and nothing in the checked week is open, the
+    status is "Previous week closed" / "Earlier weeks closed", never
+    "degraded". Only on a CONFIRMED delivery are the new ones added to
     `alerted_failures`; a failed delivery adds nothing, so the SAME ids
     still look "new" next run and get retried.
   - `cleared = {id in alerted_ids : id's group is in this run's checks_ran
@@ -76,7 +81,10 @@ one — see "confirmed delivery" below, inherited from round 1). Each run:
     (no alert is sent to say "X is fixed" individually) — only a FULL
     recovery (see below) is announced.
   - If nothing is new and clearing empties `alerted_failures` completely
-    (and it was non-empty before): one recovery alert. Confirmed delivery
+    (and it was non-empty before): one recovery alert — "Pipeline
+    recovered" when every id was verified gone, "Previous week closed" (or
+    "Earlier weeks closed") when ids only rolled off with an earlier week
+    (never claimed repaired), or both when both happened. Confirmed delivery
     clears it for real; a failed delivery keeps the full prior set so the
     same recovery is retried next run, exactly like round 1's advisory-alert
     pattern (#7403 — "only a confirmed delivery clears what is owed").
@@ -260,11 +268,6 @@ def _failure_id_group(failure_id: str) -> str:
 
 def _failure_id_episode(failure_id: str) -> str:
     return failure_id.split(_ID_SEP, 2)[1]
-
-
-def _retired_label(failure_id: str, text: str) -> str:
-    """How a failure from a closed week is shown: never as resolved."""
-    return f"[{_failure_id_episode(failure_id)}: week closed, no longer checked] {text}"
 
 
 def _valid_catalog(raw_catalog: object) -> list[dict] | None:
@@ -630,97 +633,102 @@ def _exclusive_lock(lock_path: Path):
         os.close(fd)
 
 
-# Largest alert body that every backend delivers whole: alerts.py cuts the
-# Discord description at 4000 characters. The body is built to fit this
-# budget, never cut after the fact (round 9).
-_ALERT_BODY_BUDGET = 3800
-# One failure longer than this is shortened so a single huge message can't
-# starve every other failure of room. Its id still records it as alerted.
-_ALERT_TEXT_MAX = 1500
+# Monitor alerts are a short status plus ISO week and an issue count (#7930):
+# no failure text, no timestamps, no advice. The failure texts stay in the
+# state file (`failures`, `alerted_failures`, `pending_failures`) and the
+# launchd log. Because the summary names no individual failure, ONE delivered
+# alert acknowledges every id it was sent for (`to_send`), all recorded as
+# alerted together. The checked week's count also includes failures still
+# open but unverified this run (their check did not run), marked
+# "unverified"; those are context, not acknowledged: an owed one stays owed
+# until its own check re-confirms it (Codex cycle 1 on #7930).
+#
+# The body is bounded however large the backlog: the checked week gets its
+# own count, and every earlier (closed, never re-checkable) week is folded
+# into ONE count marked closed and unverified, naming the week only when
+# there is exactly one. A closed week's issues are never presented as part
+# of the current degraded status, nor as repaired.
 
 
-def _compose_degraded_body(summary: str, new_texts: list[str], still_open: list[str]) -> tuple[str, int]:
-    """The DEGRADED alert body and how many of `new_texts` (a leading run,
-    in order) it contains in full or as a marked excerpt.
-
-    Only those are recorded as alerted. A new failure that doesn't fit is
-    left out whole, stays unrecorded, and leads the next run's alert (round
-    9: a cut-off body used to record failures nobody was ever shown).
-    """
-    def _item(text: str) -> str:
-        if len(text) > _ALERT_TEXT_MAX:
-            text = text[:_ALERT_TEXT_MAX] + " … [shortened]"
-        return f"- {text}"
-
-    head = [f"{LABEL}: DEGRADED — {_utc_now_iso()}", "", summary[:500], "", "New:"]
-    # Room kept free for the "more to follow" line, so adding it can never
-    # push the body over budget.
-    more_line_room = 80
-    body = "\n".join(head)
-    included = 0
-    for text in new_texts:
-        line = _item(text)
-        if len(body) + 1 + len(line) > _ALERT_BODY_BUDGET - more_line_room:
-            break
-        body += "\n" + line
-        included += 1
-    deferred = len(new_texts) - included
-    if deferred:
-        body += f"\n({deferred} more new failure(s) follow in the next hourly alert)"
-    if still_open:
-        # Already alerted before, so leaving some out loses nothing.
-        section = "\n\nStill open:"
-        if len(body) + len(section) <= _ALERT_BODY_BUDGET:
-            body += section
-            for text in still_open:
-                line = "\n" + _item(text)
-                if len(body) + len(line) > _ALERT_BODY_BUDGET:
-                    break
-                body += line
-    return body, included
+def _issues(n: int) -> str:
+    return f"{n} issue" if n == 1 else f"{n} issues"
 
 
-def _alert_new_failures(verdict: dict, new_texts: list[str], all_texts: list[str]) -> int:
-    """Announce failures never before alerted. Returns how many of
-    `new_texts` (a leading run, in order) were in a DELIVERED alert — 0 when
-    delivery failed. The caller records only those as sent (round 1
-    correction A; round 9 for the count)."""
-    still_open = [t for t in all_texts if t not in new_texts]
-    body, included = _compose_degraded_body(verdict["summary"], new_texts, still_open)
+def _closed_status(earlier_ids) -> str:
+    weeks = {_failure_id_episode(fid) for fid in earlier_ids}
+    return "Previous week closed" if len(weeks) == 1 else "Earlier weeks closed"
+
+
+def _closed_count(earlier_ids) -> str:
+    """'2026-W39 closed · 2 issues unverified', or for several weeks
+    '12 earlier weeks closed · 30 issues unverified'. Never one entry per week."""
+    weeks = {_failure_id_episode(fid) for fid in earlier_ids}
+    where = next(iter(weeks)) if len(weeks) == 1 else f"{len(weeks)} earlier weeks"
+    return f"{where} closed · {_issues(len(earlier_ids))} unverified"
+
+
+def _current_count(observed: int, unverified: int) -> str:
+    """'3 issues', '1 issue unverified', or '3 issues (1 unverified)'."""
+    if not unverified:
+        return _issues(observed)
+    if not observed:
+        return f"{_issues(unverified)} unverified"
+    return f"{_issues(observed + unverified)} ({unverified} unverified)"
+
+
+def _alert_new_failures(
+    to_send: list[str], observed_ids: set[str], retained_ids: set[str], checked_episode: str
+) -> bool:
+    """Announce failures never before alerted. Returns whether the alert was
+    DELIVERED; the caller then records every id in `to_send` as sent (the
+    counts name the whole group), and nothing on a failed delivery (round 1
+    correction A).
+
+    `to_send` is what this alert acknowledges: checked-week failures this
+    run observed, and earlier-week ones that can no longer be checked.
+    `observed_ids` and `retained_ids` are context only: every checked-week
+    failure still open, observed this run or retained (alerted or owed)
+    because its check did not run. Retained ones are counted as unverified
+    but are NOT acknowledged by this alert. Anything open in the checked
+    week makes the status "Pipeline degraded"; only when nothing is, and
+    only closed weeks are owed, does the status say so instead."""
+    earlier = {fid for fid in to_send if _failure_id_episode(fid) != checked_episode}
+    if not (observed_ids or retained_ids):
+        subject, body = _closed_status(earlier), _closed_count(earlier)
+    else:
+        subject = "Pipeline degraded"
+        body = f"{checked_episode} · {_current_count(len(observed_ids), len(retained_ids))}"
+        if earlier:
+            body += f"; {_closed_count(earlier)}"
     try:
         delivered = bool(
-            send_alert_confirming_email(subject=f"{LABEL} DEGRADED", body=body, severity="warning")
+            send_alert_confirming_email(subject=subject, body=body, severity="warning")
         )
-    except Exception as e:
+    except Exception as e:  # governance: allow-silent SF002: False is the delivery-failure signal; the error is printed to stderr and the caller logs undelivered and keeps the pending IDs for retry
         # The sender already swallows per-backend failures; this is a last
         # resort so a totally unexpected error here still can't block main().
         print(f"{LABEL}: alert (degraded) failed ({type(e).__name__}: {e})", file=sys.stderr)
-        return 0
-    return included if delivered else 0
+        return False
+    return delivered
 
 
-def _alert_recovered(verdict: dict, retired_texts: list[str] | None = None) -> bool:
+def _alert_recovered(verdict: dict, resolved_ids, retired_ids) -> bool:
     """Send the recovery alert. Returns whether it was actually delivered.
 
-    `retired_texts` are earlier-week failures that were announced but can
-    never be rechecked; they are listed as such, not claimed resolved."""
-    body = f"{LABEL}: back to OK — {_utc_now_iso()}\n{verdict['summary'][:500]}"
-    if retired_texts:
-        body += "\n\nNo longer checked (earlier week closed; NOT verified resolved):"
-        for text in retired_texts:
-            line = f"\n- {text[:_ALERT_TEXT_MAX]}"
-            if len(body) + len(line) > _ALERT_BODY_BUDGET - 60:
-                body += f"\n- ...and {len(retired_texts)} in total"
-                break
-            body += line
+    `retired_ids` are earlier-week failures that were announced but can
+    never be rechecked. A closed week is not a repair, so they get their own
+    status, "Previous week closed" (or "Earlier weeks closed"), and never
+    the word "recovered"."""
+    checked = verdict["episode_id"]
+    if not retired_ids:
+        subject, body = "Pipeline recovered", checked
+    elif not resolved_ids:
+        subject, body = _closed_status(retired_ids), _closed_count(retired_ids)
+    else:
+        subject = f"Pipeline recovered · {_closed_status(retired_ids)}"
+        body = f"{checked} recovered; {_closed_count(retired_ids)}"
     try:
-        return bool(
-            send_alert_confirming_email(
-                subject=f"{LABEL} recovered",
-                body=body,
-                severity="info",
-            )
-        )
+        return bool(send_alert_confirming_email(subject=subject, body=body, severity="info"))
     except Exception as e:
         print(f"{LABEL}: alert (recovery) failed ({type(e).__name__}: {e})", file=sys.stderr)
         return False
@@ -805,7 +813,7 @@ def _transition(state_path: Path, episode_id: str | None) -> int:
     # failure to slip between "seen" and "told"):
     #   alerted — failures a DELIVERED alert has told the reader are open.
     #   pending — failures seen but not yet in a delivered alert (delivery
-    #             failed, or they did not fit the body budget).
+    #             failed, or their check has not re-confirmed them yet).
     # A pending failure that resolves is dropped quietly: nobody was told
     # about it. An alerted failure only clears while nothing is pending, so a
     # recovery can never be announced while an untold failure might still be
@@ -846,13 +854,20 @@ def _transition(state_path: Path, episode_id: str | None) -> int:
     # re-confirmed and would otherwise never be told at all.
     to_send = sorted(fid for fid in pending if fid in observed_ids or _retired(fid))
     if to_send:
-        new_texts = [
-            observed[i] if i in observed_ids else _retired_label(i, pending[i]) for i in to_send
-        ]
-        all_texts = [observed[i] for i in sorted(observed_ids)]
-        shown = _alert_new_failures(verdict, new_texts, all_texts)
-        if shown:
-            for fid in to_send[:shown]:
+        # The checked week's open failures, counted for context: observed
+        # this run, plus retained ones (alerted, or owed) whose check did
+        # not run and so are neither resolved nor re-confirmed. A later
+        # week's ids (a manual run of an older week) are not this week's,
+        # and an earlier week's held ids were already told.
+        retained = {
+            fid
+            for fid in set(alerted) | set(pending)
+            if _failure_id_episode(fid) == checked_episode
+            and fid not in observed_ids
+            and not _resolved(fid)
+        }
+        if _alert_new_failures(to_send, observed_ids, retained, checked_episode):
+            for fid in to_send:
                 alerted[fid] = pending.pop(fid)
             alerted_at = _utc_now_iso()
         else:
@@ -868,12 +883,11 @@ def _transition(state_path: Path, episode_id: str | None) -> int:
         closable = resolved_alerted | retired_alerted
         if closable and not (set(alerted) - closable):
             # Everything that was announced is now verified gone or belongs
-            # to a closed week: a full recovery, which names any retired
-            # failures as no longer checked rather than resolved. If its
+            # to a closed week: a full recovery, which reports a retired
+            # week as closed rather than recovered. If its
             # alert isn't delivered, keep the whole set so the same recovery
             # is retried next run.
-            retired_texts = [_retired_label(fid, alerted[fid]) for fid in sorted(retired_alerted)]
-            if _alert_recovered(verdict, retired_texts):
+            if _alert_recovered(verdict, resolved_alerted, retired_alerted):
                 alerted = {}
                 alerted_at = _utc_now_iso()
             else:
@@ -885,7 +899,7 @@ def _transition(state_path: Path, episode_id: str | None) -> int:
         else:
             # A partial recovery (something announced is still open) clears
             # verified-gone failures silently; retired ones are held so the
-            # final recovery alert can name them. The LAST one to clear
+            # final recovery alert can count them. The LAST one to clear
             # brings the recovery alert.
             for fid in resolved_alerted:
                 del alerted[fid]

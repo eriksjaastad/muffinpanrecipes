@@ -185,8 +185,9 @@ def test_notifiers_only_format_and_delegate(_outside_pytest) -> None:
             )
 
     send.assert_called_once()
-    assert send.call_args.kwargs["severity"] == "critical"
-    assert "Custard Tarts" in send.call_args.kwargs["body"]
+    assert send.call_args.kwargs == {
+        "subject": "Pipeline failed", "body": "monday · abc12345", "severity": "critical",
+    }
 
 
 def test_email_is_wired_into_the_backend_list() -> None:
