@@ -61,10 +61,12 @@ covered by the last CONFIRMED delivered alert (never a merely-attempted
 one — see "confirmed delivery" below, inherited from round 1). Each run:
   - `new = observed_ids - alerted_ids`: failures never before announced.
     Non-empty -> send one short alert ("Pipeline degraded", week and issue
-    count; the count covers the whole group without listing each failure,
-    #7930). Earlier, closed weeks fold into one count marked closed and
-    unverified; if only those are owed the status is "Previous week closed"
-    / "Earlier weeks closed", never "degraded". Only on a CONFIRMED delivery are they added to
+    count; the count covers every open failure of the checked week without
+    listing each, those whose check did not run marked unverified, #7930).
+    Earlier, closed weeks fold into one count marked closed and unverified;
+    if only those are owed and nothing in the checked week is open, the
+    status is "Previous week closed" / "Earlier weeks closed", never
+    "degraded". Only on a CONFIRMED delivery are the new ones added to
     `alerted_failures`; a failed delivery adds nothing, so the SAME ids
     still look "new" next run and get retried.
   - `cleared = {id in alerted_ids : id's group is in this run's checks_ran
@@ -635,8 +637,11 @@ def _exclusive_lock(lock_path: Path):
 # no failure text, no timestamps, no advice. The failure texts stay in the
 # state file (`failures`, `alerted_failures`, `pending_failures`) and the
 # launchd log. Because the summary names no individual failure, ONE delivered
-# alert covers every failure id it counts: the count acknowledges the whole
-# group, and all of them are recorded as alerted together.
+# alert acknowledges every id it was sent for (`to_send`), all recorded as
+# alerted together. The checked week's count also includes failures still
+# open but unverified this run (their check did not run), marked
+# "unverified"; those are context, not acknowledged: an owed one stays owed
+# until its own check re-confirms it (Codex cycle 1 on #7930).
 #
 # The body is bounded however large the backlog: the checked week gets its
 # own count, and every earlier (closed, never re-checkable) week is folded
@@ -662,36 +667,49 @@ def _closed_count(earlier_ids) -> str:
     return f"{where} closed · {_issues(len(earlier_ids))} unverified"
 
 
-def _alert_new_failures(to_send: list[str], open_ids: set[str], checked_episode: str) -> int:
-    """Announce failures never before alerted. Returns how many of `to_send`
-    a DELIVERED alert covered — all of them, since the counts name the whole
-    group — or 0 when delivery failed. The caller records only those as sent
-    (round 1 correction A).
+def _current_count(observed: int, unverified: int) -> str:
+    """'3 issues', '1 issue unverified', or '3 issues (1 unverified)'."""
+    if not unverified:
+        return _issues(observed)
+    if not observed:
+        return f"{_issues(unverified)} unverified"
+    return f"{_issues(observed + unverified)} ({unverified} unverified)"
 
-    `to_send` holds only checked-week failures this run observed and
-    earlier-week ones that can no longer be checked. Anything open in the
-    checked week makes the status "Pipeline degraded"; when ONLY closed weeks
-    are owed, the status says so instead of claiming present degradation."""
-    ids = set(to_send) | set(open_ids)
-    current = {fid for fid in ids if _failure_id_episode(fid) == checked_episode}
-    earlier = ids - current
-    if not current:
+
+def _alert_new_failures(
+    to_send: list[str], observed_ids: set[str], retained_ids: set[str], checked_episode: str
+) -> bool:
+    """Announce failures never before alerted. Returns whether the alert was
+    DELIVERED; the caller then records every id in `to_send` as sent (the
+    counts name the whole group), and nothing on a failed delivery (round 1
+    correction A).
+
+    `to_send` is what this alert acknowledges: checked-week failures this
+    run observed, and earlier-week ones that can no longer be checked.
+    `observed_ids` and `retained_ids` are context only: every checked-week
+    failure still open, observed this run or retained (alerted or owed)
+    because its check did not run. Retained ones are counted as unverified
+    but are NOT acknowledged by this alert. Anything open in the checked
+    week makes the status "Pipeline degraded"; only when nothing is, and
+    only closed weeks are owed, does the status say so instead."""
+    earlier = {fid for fid in to_send if _failure_id_episode(fid) != checked_episode}
+    if not (observed_ids or retained_ids):
         subject, body = _closed_status(earlier), _closed_count(earlier)
     else:
         subject = "Pipeline degraded"
-        body = f"{checked_episode} · {_issues(len(current))}"
+        body = f"{checked_episode} · {_current_count(len(observed_ids), len(retained_ids))}"
         if earlier:
             body += f"; {_closed_count(earlier)}"
     try:
         delivered = bool(
             send_alert_confirming_email(subject=subject, body=body, severity="warning")
         )
-    except Exception as e:
+    except Exception as e:  # governance: allow-silent SF002: False is the delivery-failure signal; the error is printed to stderr and the caller logs undelivered and keeps the pending IDs for retry
         # The sender already swallows per-backend failures; this is a last
         # resort so a totally unexpected error here still can't block main().
         print(f"{LABEL}: alert (degraded) failed ({type(e).__name__}: {e})", file=sys.stderr)
-        return 0
-    return len(to_send) if delivered else 0
+        return False
+    return delivered
 
 
 def _alert_recovered(verdict: dict, resolved_ids, retired_ids) -> bool:
@@ -836,9 +854,20 @@ def _transition(state_path: Path, episode_id: str | None) -> int:
     # re-confirmed and would otherwise never be told at all.
     to_send = sorted(fid for fid in pending if fid in observed_ids or _retired(fid))
     if to_send:
-        shown = _alert_new_failures(to_send, observed_ids, checked_episode)
-        if shown:
-            for fid in to_send[:shown]:
+        # The checked week's open failures, counted for context: observed
+        # this run, plus retained ones (alerted, or owed) whose check did
+        # not run and so are neither resolved nor re-confirmed. A later
+        # week's ids (a manual run of an older week) are not this week's,
+        # and an earlier week's held ids were already told.
+        retained = {
+            fid
+            for fid in set(alerted) | set(pending)
+            if _failure_id_episode(fid) == checked_episode
+            and fid not in observed_ids
+            and not _resolved(fid)
+        }
+        if _alert_new_failures(to_send, observed_ids, retained, checked_episode):
+            for fid in to_send:
                 alerted[fid] = pending.pop(fid)
             alerted_at = _utc_now_iso()
         else:

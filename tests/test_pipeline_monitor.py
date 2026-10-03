@@ -1275,7 +1275,9 @@ def test_recovery_is_announced_even_when_the_new_failure_alert_failed(tmp_path, 
         assert "stage A" in saved["alerted_failures"].values()
         assert list(saved["pending_failures"].values()) == ["stage B"]
     else:
-        # B was told; A clears silently as a partial recovery.
+        # B was told; A clears silently as a partial recovery, and A,
+        # verified gone, is not counted as open.
+        assert posts[-1]["body"] == "2026-W40 · 1 issue"
         assert list(saved["alerted_failures"].values()) == ["stage B"]
 
     # B resolves before the next run: a full recovery must be announced.
@@ -1640,6 +1642,155 @@ def test_mixed_recovery_over_many_closed_weeks_stays_short(tmp_path, monkeypatch
     }
     assert len(_words(posts[-1])) <= 20
     assert json.loads(state.read_text())["alerted_failures"] == {}
+
+
+# ---------------------------------------------------------------------------
+# Codex cycle 1 on #7930: the checked week's count must include failures
+# still open but unverified (their check did not run), whether already
+# alerted or still owed. They are counted, marked unverified, and NOT
+# acknowledged by the alert that counts them.
+# ---------------------------------------------------------------------------
+
+_COLLISION = "title collision C"
+
+
+def _owe_closed_week(state, week="2026-W39", n=2):
+    """Add `n` owed failures from an earlier week to an existing state file."""
+    doc = json.loads(state.read_text())
+    texts = [f"{week} stage {i} failed" for i in range(n)]
+    owed = {pm._failure_id("episode", week, t): t for t in texts}
+    doc["pending_failures"].update(owed)
+    state.write_text(json.dumps(doc))
+    return set(owed)
+
+
+def _collision_id(week="2026-W40"):
+    return pm._failure_id("catalog", week, _COLLISION)
+
+
+@pytest.mark.parametrize("collision", ["alerted", "pending"])
+def test_unverified_current_failure_is_counted_beside_a_new_one(tmp_path, monkeypatch, collision):
+    """Reviewer case 1: a catalog collision, then a catalog outage and a new
+    stage failure. Two failures are open, not one."""
+    state = tmp_path / "pipeline_status.json"
+    posts = _captured_alerts(monkeypatch)
+    posts.deliver = collision == "alerted"
+    _install_pipeline(monkeypatch, catalog_only_failures=[_COLLISION])
+    pm.run(state)
+
+    posts.deliver = True
+    _install_pipeline(
+        monkeypatch, episode_only_failures=["stage S"], catalog_only_failures=[_COLLISION],
+        catalog_state="down",
+    )
+    pm.run(state)
+    assert posts[-1] == {
+        "subject": "Pipeline degraded",
+        "body": "2026-W40 · 2 issues (1 unverified)",
+        "severity": "warning",
+    }
+    saved = json.loads(state.read_text())
+    assert "stage S" in saved["alerted_failures"].values()
+    # Counted, not acknowledged: an owed collision stays owed until its own
+    # check re-confirms it; an alerted one stays alerted.
+    bucket = "alerted_failures" if collision == "alerted" else "pending_failures"
+    assert _collision_id() in saved[bucket]
+
+    _install_pipeline(monkeypatch, episode_only_failures=["stage S"], catalog_only_failures=[_COLLISION])
+    pm.run(state)
+    if collision == "pending":
+        assert posts[-1]["body"] == "2026-W40 · 2 issues"  # now re-confirmed and told
+    else:
+        assert len(posts) == 2  # nothing new
+    saved = json.loads(state.read_text())
+    assert _collision_id() in saved["alerted_failures"] and saved["pending_failures"] == {}
+
+
+def test_unverified_current_failure_keeps_degraded_beside_a_closed_week(tmp_path, monkeypatch):
+    """Reviewer case 2: only a closed week's ids are new, but the checked
+    week still has an unverified failure, so the status is degraded, not
+    "Previous week closed", and no recovery is claimed."""
+    state = tmp_path / "pipeline_status.json"
+    deliver = [True]
+    attempts = _every_attempt(monkeypatch, deliver)
+    _install_pipeline(monkeypatch, catalog_only_failures=[_COLLISION])
+    pm.run(state)
+    owed = _owe_closed_week(state)
+
+    expected = {
+        "subject": "Pipeline degraded",
+        "body": "2026-W40 · 1 issue unverified; 2026-W39 closed · 2 issues unverified",
+        "severity": "warning",
+    }
+    _install_pipeline(monkeypatch, catalog_only_failures=[_COLLISION], catalog_state="down")
+    deliver[0] = False
+    pm.run(state)
+    assert attempts[-1] == expected
+    saved = json.loads(state.read_text())
+    assert set(saved["pending_failures"]) == owed  # undelivered: nothing acknowledged
+    assert list(saved["alerted_failures"]) == [_collision_id()]
+
+    deliver[0] = True
+    pm.run(state)
+    assert attempts[-1] == expected  # retried, and nothing else sent
+    assert len(attempts) == 3
+    saved = json.loads(state.read_text())
+    assert saved["pending_failures"] == {}
+    assert set(saved["alerted_failures"]) == owed | {_collision_id()}
+    assert saved["status"] == "degraded"
+
+
+def test_resolved_current_failure_is_not_counted_and_closed_week_stays_closed(tmp_path, monkeypatch):
+    """Neighbour: a current failure verified gone is not open, so a closed
+    week owed on the same run is "Previous week closed", then the final
+    clear is a recovery that keeps the closed week apart."""
+    state = tmp_path / "pipeline_status.json"
+    posts = _captured_alerts(monkeypatch)
+    _install_pipeline(monkeypatch, episode_only_failures=["stage A"])
+    pm.run(state)
+    _owe_closed_week(state, n=1)
+
+    _install_pipeline(monkeypatch, episode_only_failures=[])
+    pm.run(state)
+    assert posts[1:] == [
+        {"subject": "Previous week closed", "body": "2026-W39 closed · 1 issue unverified",
+         "severity": "warning"},
+        {"subject": "Pipeline recovered · Previous week closed",
+         "body": "2026-W40 recovered; 2026-W39 closed · 1 issue unverified", "severity": "info"},
+    ]
+    saved = json.loads(state.read_text())
+    assert saved["alerted_failures"] == {} and saved["pending_failures"] == {}
+
+
+@pytest.mark.parametrize("older_week_failures,expected", [
+    ([], {"subject": "Previous week closed", "body": "2026-W35 closed · 1 issue unverified"}),
+    (["stage M"], {"subject": "Pipeline degraded",
+                   "body": "2026-W36 · 1 issue; 2026-W35 closed · 1 issue unverified"}),
+])
+def test_manual_older_week_check_neither_counts_nor_closes_later_weeks(
+    tmp_path, monkeypatch, older_week_failures, expected
+):
+    """`--episode 2026-W36` with W40 failures (one alerted, one owed with its
+    check down) and a W35 one owed: W40 is a LATER week, so it is neither
+    this week's count nor an earlier closed week, and stays as it was."""
+    state = tmp_path / "pipeline_status.json"
+    posts = _captured_alerts(monkeypatch)
+    _install_pipeline(monkeypatch, episode_only_failures=["stage A"])
+    pm.run(state)
+    posts.deliver = False
+    _install_pipeline(monkeypatch, episode_only_failures=["stage A"], catalog_only_failures=[_COLLISION])
+    pm.run(state)
+    posts.deliver = True
+    owed = _owe_closed_week(state, week="2026-W35", n=1)
+
+    _install_pipeline(monkeypatch, episode_id="2026-W36", episode_only_failures=older_week_failures)
+    pm.run(state)
+    assert posts[1] == {**expected, "severity": "warning"}
+    assert len(posts) == 2  # W40 is still open, so no recovery of any kind
+    saved = json.loads(state.read_text())
+    assert pm._failure_id("episode", "2026-W40", "stage A") in saved["alerted_failures"]
+    assert owed <= set(saved["alerted_failures"])
+    assert list(saved["pending_failures"]) == [_collision_id()]
 
 
 # ---------------------------------------------------------------------------
