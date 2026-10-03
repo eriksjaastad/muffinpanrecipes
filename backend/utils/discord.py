@@ -78,6 +78,26 @@ def notify_recipe_ready(
     )
 
 
+def _short(value: object, default: str = "unknown") -> str:
+    """One identifier for a short alert line, whatever type the caller had.
+
+    Judge metadata is model output and stage names come from many callers, so
+    nothing here may assume a string: formatting must never raise out of an
+    alert path (#7394).
+    """
+    text = " ".join(str(value).split()) if value is not None else ""
+    return text[:60] or default
+
+
+def _day(stage: object) -> str:
+    return _short(stage).title()
+
+
+# Pipeline alerts are a short status and its identifiers only (#7930): Erik
+# wants "Episode paused / 2026-W40 · Friday", not a verdict, score list or
+# error dump. Full evidence stays in the episode, the state file and the logs.
+
+
 def notify_pipeline_failure(
     recipe_id: str,
     concept: str,
@@ -85,15 +105,14 @@ def notify_pipeline_failure(
     error_message: str,
 ) -> bool:
     """Send a loud failure alert so pipeline issues are never silent."""
+    logger.warning(
+        "Pipeline failure alert: recipe=%s stage=%s concept=%s error=%s",
+        recipe_id, stage, concept, error_message,
+    )
     return send_alert(
-        subject="🚨 Pipeline Failure",
-        body=f"Recipe pipeline stopped for **{concept}**",
+        subject="Pipeline failed",
+        body=f"{_short(stage)} · {_short(recipe_id)}",
         severity="critical",
-        fields=[
-            ("Recipe ID", recipe_id, True),
-            ("Failed Stage", stage or "unknown", True),
-            ("Error", error_message[:900] or "unknown error", False),
-        ],
     )
 
 
@@ -106,21 +125,15 @@ def notify_judge_failure(
 ) -> bool:
     """Alert when the judge fails a day's dialogue after all retries.
 
-    This means the conversation had quality issues that couldn't be fixed
-    by regenerating. Episode is paused — needs manual review.
+    The episode is paused. The alert says only that, with the week and day;
+    the verdict is recorded on the episode, not in the alert.
     """
     return send_alert(
-        subject="Judge Failed — Episode Paused",
-        body=f"**{concept}** — {stage.title()} dialogue failed quality review",
+        subject="Episode paused",
+        body=f"{_short(episode_id)} · {_day(stage)}",
         # Warning, not critical: the pipeline stopped on purpose at a quality
         # gate. Nothing crashed and nothing bad shipped.
         severity="warning",
-        fields=[
-            ("Episode", episode_id, True),
-            ("Day", stage.title(), True),
-            ("Attempts", str(attempts), True),
-            ("Last Verdict", verdict[:900], False),
-        ],
     )
 
 
@@ -138,37 +151,17 @@ def notify_judge_advisory(
     The counterpart to notify_judge_failure: on the publish stage the judge is
     advisory, so an exhausted retry loop ships the best-scoring attempt rather
     than withholding the recipe from readers (#7394). The week is NOT paused,
-    so this alert exists to make sure a weak conversation is still seen and
-    tuned instead of passing silently.
+    so this alert exists to make sure a weak conversation is still seen.
+
+    `verdict`, `scores` and `weakest` are accepted for compatibility and
+    deliberately not shown: they are model output recorded on the episode,
+    and an alert that raised while formatting them would escape into
+    _run_stage and fail the publish.
     """
-    # The judge's JSON is model output: `weakest` is only checked to be a
-    # list, never that its entries are strings (cron_routes.py:621-622), and
-    # the verdict builder two lines later already coerces for exactly this
-    # reason. An alert that raises while formatting would escape into
-    # _run_stage and fail the publish — the failure this whole gate exists
-    # to prevent.
-    score_line = (
-        ", ".join(f"{k}: {v}" for k, v in sorted(scores.items(), key=lambda kv: str(kv[0])))
-        if scores
-        else "no structured scores recorded"
-    )
-    weakest_line = ", ".join(str(w) for w in weakest) if weakest else "unknown"
     return send_alert(
-        subject="Judge Failed — Published Anyway",
-        body=(
-            f"**{concept}** — {stage.title()} dialogue failed quality review "
-            f"and was published regardless. The recipe is live; the "
-            f"conversation is below the bar."
-        ),
+        subject="Published · Dialogue below bar",
+        body=f"{_short(episode_id)} · {_day(stage)}",
         severity="warning",
-        fields=[
-            ("Episode", episode_id, True),
-            ("Day", stage.title(), True),
-            ("Attempts", str(attempts), True),
-            ("Weakest", weakest_line, False),
-            ("Scores", score_line, False),
-            ("Last Verdict", verdict[:900], False),
-        ],
     )
 
 

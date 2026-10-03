@@ -118,9 +118,10 @@ def test_judge_failure_reaches_the_inbox(_outside_pytest) -> None:
     resend = [c for c in post.call_args_list if c.args[0] == alerts._RESEND_URL]
     assert len(resend) == 1, "a paused episode must reach the inbox"
     payload = resend[0].kwargs["json"]
-    assert "Judge Failed" in payload["subject"]
-    assert "2026-W37" in payload["text"]
-    assert "thursday" in payload["text"].lower()
+    assert payload["subject"] == "[muffinpanrecipes] warning: Episode paused"
+    assert "2026-W37 · Thursday" in payload["text"]
+    # Status only (#7930): the verdict stays on the episode, not in the inbox.
+    assert "Steph" not in payload["text"]
 
 
 # ---------------------------------------------------------------------------

@@ -287,9 +287,12 @@ def test_a_non_string_weakest_entry_cannot_break_the_alert():
             weakest=[1, None, "turn_taking"],
         )
 
-    fields = dict((name, value) for name, value, _inline in sent.call_args.kwargs["fields"])
-    assert fields["Weakest"] == "1, None, turn_taking"
-    assert "natural_progression: 2" in fields["Scores"]
+    # Status only (#7930): scores, weakest and verdict are on the episode.
+    assert sent.call_args.kwargs == {
+        "subject": "Published · Dialogue below bar",
+        "body": "2026-W99 · Sunday",
+        "severity": "warning",
+    }
 
 
 def test_advisory_keeps_the_forensics_of_every_attempt():

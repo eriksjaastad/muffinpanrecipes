@@ -164,7 +164,7 @@ def test_ok_to_degraded_alerts_once(tmp_path, monkeypatch):
     rc2 = pm.run(state)
     assert rc2 == 0
     assert len(posts) == 1
-    assert "DEGRADED" in posts[0]["subject"]
+    assert posts[0]["subject"] == "Pipeline degraded"
     assert posts[0]["severity"] == "warning"
 
     saved = json.loads(state.read_text())
@@ -183,7 +183,7 @@ def test_first_run_degraded_alerts_immediately(tmp_path, monkeypatch):
     rc = pm.run(state)
     assert rc == 0
     assert len(posts) == 1
-    assert "DEGRADED" in posts[0]["subject"]
+    assert posts[0]["subject"] == "Pipeline degraded"
 
 
 def test_persistent_identical_failure_stays_silent_across_24_runs(tmp_path, monkeypatch):
@@ -209,8 +209,9 @@ def test_a_second_distinct_failure_alerts_once_while_first_persists(tmp_path, mo
     _install_pipeline(monkeypatch, episode_only_failures=["failure A", "failure B"])
     pm.run(state)
     assert len(posts) == 2
-    assert "DEGRADED" in posts[1]["subject"]
-    assert "failure B" in posts[1]["body"]
+    assert posts[1]["subject"] == "Pipeline degraded"
+    assert posts[1]["body"] == "2026-W40 · 2 issues"
+    assert set(json.loads(state.read_text())["alerted_failures"].values()) == {"failure A", "failure B"}
 
     # Steady with both still present -> silent.
     pm.run(state)
@@ -407,7 +408,8 @@ def test_new_stage_failure_while_catalog_down_alerts_immediately(tmp_path, monke
     _install_pipeline(monkeypatch, episode_only_failures=["new stage failure"], catalog_state="down")
     pm.run(state)
     assert len(posts) == 1
-    assert "new stage failure" in posts[0]["body"]
+    assert posts[0]["body"] == "2026-W40 · 1 issue"
+    assert list(json.loads(state.read_text())["alerted_failures"].values()) == ["new stage failure"]
     saved = json.loads(state.read_text())
     assert saved["status"] == "degraded"
     assert saved["checks_ran"] == ["episode"]
@@ -1189,9 +1191,10 @@ def test_unusable_state_moved_aside_still_starts_fresh(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Round 9: the alert body was cut at 1900 chars after composition, and every
-# new failure was recorded as alerted, including the ones cut off. Now the
-# body is built to a budget and only the failures in it are recorded.
+# Round 9 asked that every failure recorded as alerted was really in the
+# delivered alert. #7930 made the alert a short count with no failure text,
+# so the count covers the whole group: one delivered summary records every
+# failure it counts, and an undelivered one records none.
 # ---------------------------------------------------------------------------
 
 
@@ -1199,61 +1202,52 @@ def _many_long_failures(n=9, width=600):
     return [f"{chr(65 + i)} stage failed — " + chr(65 + i) * width for i in range(n)]
 
 
-def test_failures_that_do_not_fit_are_not_recorded_and_follow_next_run(tmp_path, monkeypatch):
+def test_one_delivered_summary_records_every_failure_it_counts(tmp_path, monkeypatch):
     state = tmp_path / "pipeline_status.json"
     posts = _captured_alerts(monkeypatch)
     failures = _many_long_failures()
     _install_pipeline(monkeypatch, episode_only_failures=failures)
 
     pm.run(state)
-    assert len(posts) == 1
-    first_body = posts[0]["body"]
-    assert len(first_body) <= pm._ALERT_BODY_BUDGET
-    recorded = set(json.loads(state.read_text())["alerted_failures"].values())
-    assert 0 < len(recorded) < len(failures)
-    # Everything recorded was really in the delivered body, and nothing in
-    # it was left unrecorded.
-    assert recorded == {f for f in failures if f in first_body}
-    assert "follow in the next hourly alert" in first_body
+    assert posts == [
+        {"subject": "Pipeline degraded", "body": "2026-W40 · 9 issues", "severity": "warning"}
+    ]
+    saved = json.loads(state.read_text())
+    assert set(saved["alerted_failures"].values()) == set(failures)
+    assert saved["pending_failures"] == {}
+    # The detail stays in the state file, not the alert.
+    assert set(saved["failures"]) == set(failures)
 
-    # Next run: the rest go out, and every failure is then recorded.
-    for _ in range(len(failures)):
-        before = len(json.loads(state.read_text())["alerted_failures"])
-        if before == len(failures):
-            break
-        pm.run(state)
-    final = set(json.loads(state.read_text())["alerted_failures"].values())
-    assert final == set(failures)
-    for failure in failures:
-        assert any(failure in p["body"].split("Still open:")[0] for p in posts)
+    pm.run(state)
+    assert len(posts) == 1  # acknowledged as a group, not re-sent
 
 
-def test_budgeted_body_records_nothing_when_delivery_fails(tmp_path, monkeypatch):
+def test_summary_records_nothing_when_delivery_fails(tmp_path, monkeypatch):
     state = tmp_path / "pipeline_status.json"
     posts = _captured_alerts(monkeypatch)
     posts.deliver = False
     _install_pipeline(monkeypatch, episode_only_failures=_many_long_failures())
     pm.run(state)
     assert posts.attempts == 1
-    assert json.loads(state.read_text())["alerted_failures"] == {}
+    saved = json.loads(state.read_text())
+    assert saved["alerted_failures"] == {}
+    assert len(saved["pending_failures"]) == 9
+
+    # Retried next run, still as one summary.
+    posts.deliver = True
+    pm.run(state)
+    assert posts.attempts == 2
+    assert len(json.loads(state.read_text())["alerted_failures"]) == 9
 
 
-def test_one_huge_failure_is_shortened_but_still_sent_and_recorded(tmp_path, monkeypatch):
+def test_summary_counts_new_and_still_open_failures(tmp_path, monkeypatch):
     state = tmp_path / "pipeline_status.json"
     posts = _captured_alerts(monkeypatch)
-    huge = "stage failed: " + "x" * 10_000
-    _install_pipeline(monkeypatch, episode_only_failures=[huge, "small failure"])
+    _install_pipeline(monkeypatch, episode_only_failures=["stage A"])
     pm.run(state)
-    body = posts[0]["body"]
-    assert len(body) <= pm._ALERT_BODY_BUDGET
-    assert "[shortened]" in body and "small failure" in body
-    assert set(json.loads(state.read_text())["alerted_failures"].values()) == {huge, "small failure"}
-
-
-def test_compose_counts_only_a_leading_run_of_new_failures():
-    body, included = pm._compose_degraded_body("summary", _many_long_failures(), ["old"] * 50)
-    assert len(body) <= pm._ALERT_BODY_BUDGET
-    assert included == sum(1 for f in _many_long_failures() if f in body)
+    _install_pipeline(monkeypatch, episode_only_failures=["stage A", "stage B", "stage C"])
+    pm.run(state)
+    assert [p["body"] for p in posts] == ["2026-W40 · 1 issue", "2026-W40 · 3 issues"]
 
 
 # ---------------------------------------------------------------------------
@@ -1292,7 +1286,10 @@ def test_recovery_is_announced_even_when_the_new_failure_alert_failed(tmp_path, 
     assert json.loads(state.read_text())["alerted_failures"] == {}
 
 
-def test_deferred_new_failures_do_not_clear_resolved_ones(tmp_path, monkeypatch):
+def test_resolved_failure_clears_once_the_new_group_is_delivered(tmp_path, monkeypatch):
+    """Round 9 deferred failures that did not fit the body, which held A.
+    The #7930 summary fits every failure, so A clears silently once the new
+    group is delivered, and the final clear still brings the recovery."""
     state = tmp_path / "pipeline_status.json"
     posts = _captured_alerts(monkeypatch)
     _install_pipeline(monkeypatch, episode_only_failures=["stage A"])
@@ -1300,7 +1297,9 @@ def test_deferred_new_failures_do_not_clear_resolved_ones(tmp_path, monkeypatch)
 
     _install_pipeline(monkeypatch, episode_only_failures=_many_long_failures())
     pm.run(state)
-    assert "stage A" in json.loads(state.read_text())["alerted_failures"].values()
+    saved = json.loads(state.read_text())
+    assert set(saved["alerted_failures"].values()) == set(_many_long_failures())
+    assert saved["pending_failures"] == {}
 
     _install_pipeline(monkeypatch, episode_only_failures=[])
     pm.run(state)
@@ -1339,7 +1338,7 @@ def test_catalog_outage_cannot_fake_a_recovery_while_a_failure_is_owed(tmp_path,
     # Catalog back with B still present: B is finally told, A clears.
     _install_pipeline(monkeypatch, catalog_only_failures=["title collision B"])
     pm.run(state)
-    assert "title collision B" in posts[-1]["body"]
+    assert posts[-1]["subject"] == "Pipeline degraded"
     saved = json.loads(state.read_text())
     assert list(saved["alerted_failures"].values()) == ["title collision B"]
     assert saved["pending_failures"] == {}
@@ -1404,17 +1403,36 @@ def test_rollover_never_reports_an_unchecked_week_as_resolved(tmp_path, monkeypa
     _install_pipeline(monkeypatch, episode_id="2026-W41", episode_only_failures=[])
     pm.run(state)
     assert len(posts) == 2
-    recovery = posts[-1]
-    assert "recovered" in recovery["subject"].lower()
-    assert "NOT verified resolved" in recovery["body"]
-    assert "[2026-W40: week closed, no longer checked] stage A" in recovery["body"]
+    assert posts[-1] == {
+        "subject": "Previous week closed",
+        "body": "2026-W40 closed · 1 issue unverified",
+        "severity": "info",
+    }
+    assert "recovered" not in posts[-1]["subject"].lower()
+    assert json.loads(state.read_text())["alerted_failures"] == {}
+
+
+def test_closed_week_notice_is_retried_until_delivered(tmp_path, monkeypatch):
+    state = tmp_path / "pipeline_status.json"
+    posts = _captured_alerts(monkeypatch)
+    _install_pipeline(monkeypatch, episode_id="2026-W40", episode_only_failures=["stage A"])
+    pm.run(state)
+
+    posts.deliver = False
+    _install_pipeline(monkeypatch, episode_id="2026-W41", episode_only_failures=[])
+    pm.run(state)
+    assert "stage A" in json.loads(state.read_text())["alerted_failures"].values()
+
+    posts.deliver = True
+    pm.run(state)
+    assert posts[-1]["subject"] == "Previous week closed"
     assert json.loads(state.read_text())["alerted_failures"] == {}
 
 
 def test_rollover_still_tells_a_failure_whose_alert_never_went_out(tmp_path, monkeypatch):
     """Round 12: W40's failure was pending (alert undelivered); a healthy W41
-    check used to drop it silently. It is now alerted, labelled with its
-    closed week, then named again in the recovery alert."""
+    check used to drop it silently. It is now told under its own closed
+    week, never as present degradation and never as recovered."""
     state = tmp_path / "pipeline_status.json"
     posts = _captured_alerts(monkeypatch)
     posts.deliver = False
@@ -1425,10 +1443,15 @@ def test_rollover_still_tells_a_failure_whose_alert_never_went_out(tmp_path, mon
     posts.deliver = True
     _install_pipeline(monkeypatch, episode_id="2026-W41", episode_only_failures=[])
     pm.run(state)
-    degraded = [p for p in posts if "DEGRADED" in p["subject"]]
-    assert len(degraded) == 1
-    assert "[2026-W40: week closed, no longer checked] stage A" in degraded[0]["body"]
-    assert any("recovered" in p["subject"].lower() for p in posts)
+    # Only delivered alerts are recorded, so posts[0] is the first one out.
+    assert posts[0] == {
+        "subject": "Previous week closed",
+        "body": "2026-W40 closed · 1 issue unverified",
+        "severity": "warning",
+    }
+    assert posts[-1]["subject"] == "Previous week closed"
+    assert not any(p["subject"] == "Pipeline degraded" for p in posts)
+    assert not any("recovered" in p["subject"].lower() for p in posts)
     saved = json.loads(state.read_text())
     assert saved["pending_failures"] == {} and saved["alerted_failures"] == {}
 
@@ -1456,10 +1479,167 @@ def test_retired_failure_is_held_while_the_current_week_is_still_failing(tmp_pat
     pm.run(state)
     _install_pipeline(monkeypatch, episode_id="2026-W41", episode_only_failures=[])
     pm.run(state)
-    recovery = posts[-1]
-    assert "recovered" in recovery["subject"].lower()
-    assert "[2026-W40: week closed, no longer checked] stage A" in recovery["body"]
-    assert "stage B" not in recovery["body"]  # verified resolved, so not listed
+    assert posts[-2]["body"] == "2026-W41 · 1 issue"  # W40 was already told
+    # W41 was verified clean; W40 only closed, and is said to be.
+    assert posts[-1] == {
+        "subject": "Pipeline recovered · Previous week closed",
+        "body": "2026-W41 recovered; 2026-W40 closed · 1 issue unverified",
+        "severity": "info",
+    }
+
+
+# ---------------------------------------------------------------------------
+# #7930 manager review: the summary stays a few words however many weeks of
+# undelivered failures pile up. Closed weeks fold into ONE count marked
+# closed and unverified, and are never called present degradation or repair.
+# ---------------------------------------------------------------------------
+
+
+def _backlog_state(path, weeks, per_week=2, width=200):
+    """A state file owing `per_week` long failures for each of `weeks`."""
+    pending = {}
+    for week in weeks:
+        for i in range(per_week):
+            text = f"{week} stage {i} failed — " + "x" * width
+            pending[pm._failure_id("episode", week, text)] = text
+    path.write_text(
+        json.dumps(
+            {
+                "status": "degraded",
+                "episode_id": weeks[-1],
+                "summary": "",
+                "failures": [],
+                "checks_ran": ["episode"],
+                "checked_at": "2026-10-01T00:00:00Z",
+                "alerted_failures": {},
+                "pending_failures": pending,
+                "alerted_at": None,
+            }
+        )
+    )
+    return set(pending)
+
+
+def _backlog_weeks(n):
+    weeks = [f"{year}-W{week:02d}" for year in range(2021, 2027) for week in range(1, 53)]
+    return [w for w in weeks if w < "2026-W40"][-n:]
+
+
+def _words(post):
+    return [w for w in f"{post['subject']} {post['body']}".split() if w not in ("·", ";")]
+
+
+def _every_attempt(monkeypatch, deliver):
+    attempts = []
+
+    def _send(subject, body, severity="warning", **kw):
+        attempts.append({"subject": subject, "body": body, "severity": severity})
+        return deliver[0]
+
+    monkeypatch.setattr(pm, "send_alert_confirming_email", _send)
+    return attempts
+
+
+def test_many_week_backlog_is_one_short_summary_that_covers_every_id(tmp_path, monkeypatch):
+    state = tmp_path / "pipeline_status.json"
+    weeks = _backlog_weeks(250)
+    owed = _backlog_state(state, weeks)
+    # One entry per week (the old body) would have run far past 4000 chars.
+    assert len("; ".join(f"{w} · 2 issues unverified" for w in weeks)) > 4000
+    current = ["stage A", "stage B", "stage C"]
+    _install_pipeline(monkeypatch, episode_id="2026-W40", episode_only_failures=current)
+    current_ids = {pm._failure_id("episode", "2026-W40", t) for t in current}
+
+    deliver = [False]
+    attempts = _every_attempt(monkeypatch, deliver)
+    pm.run(state)
+    expected = {
+        "subject": "Pipeline degraded",
+        "body": "2026-W40 · 3 issues; 250 earlier weeks closed · 500 issues unverified",
+        "severity": "warning",
+    }
+    assert attempts == [expected]
+    saved = json.loads(state.read_text())
+    assert saved["alerted_failures"] == {}  # an undelivered summary records none
+    assert set(saved["pending_failures"]) == owed | current_ids
+
+    deliver[0] = True
+    pm.run(state)
+    assert attempts[1:] == [expected]
+    assert len(_words(expected)) <= 20
+    saved = json.loads(state.read_text())
+    assert set(saved["alerted_failures"]) == owed | current_ids  # every counted id
+    assert saved["pending_failures"] == {}
+
+
+def test_closed_only_backlog_is_earlier_weeks_closed_not_degraded(tmp_path, monkeypatch):
+    state = tmp_path / "pipeline_status.json"
+    _backlog_state(state, _backlog_weeks(250))
+    _install_pipeline(monkeypatch, episode_id="2026-W40", episode_only_failures=[])
+    posts = _captured_alerts(monkeypatch)
+
+    pm.run(state)
+    assert posts[0] == {
+        "subject": "Earlier weeks closed",
+        "body": "250 earlier weeks closed · 500 issues unverified",
+        "severity": "warning",
+    }
+    assert not any(p["subject"] in ("Pipeline degraded", "Pipeline recovered") for p in posts)
+    assert all(len(_words(p)) <= 20 for p in posts)
+    # Once told, nothing current is open, so the same run closes them out.
+    assert [p["subject"] for p in posts] == ["Earlier weeks closed"] * 2
+    assert posts[1]["severity"] == "info"
+    saved = json.loads(state.read_text())
+    assert saved["pending_failures"] == {} and saved["alerted_failures"] == {}
+
+
+def test_single_closed_pending_week_is_previous_week_closed(tmp_path, monkeypatch):
+    state = tmp_path / "pipeline_status.json"
+    _backlog_state(state, ["2026-W39"], per_week=2)
+    _install_pipeline(monkeypatch, episode_id="2026-W40", episode_only_failures=[])
+    posts = _captured_alerts(monkeypatch)
+
+    pm.run(state)
+    assert posts[0] == {
+        "subject": "Previous week closed",
+        "body": "2026-W39 closed · 2 issues unverified",
+        "severity": "warning",
+    }
+
+
+def test_closed_pending_week_beside_a_current_failure_is_labelled_apart(tmp_path, monkeypatch):
+    state = tmp_path / "pipeline_status.json"
+    _backlog_state(state, ["2026-W39"], per_week=2)
+    _install_pipeline(monkeypatch, episode_id="2026-W40", episode_only_failures=["stage A"])
+    posts = _captured_alerts(monkeypatch)
+
+    pm.run(state)
+    assert posts == [
+        {
+            "subject": "Pipeline degraded",
+            "body": "2026-W40 · 1 issue; 2026-W39 closed · 2 issues unverified",
+            "severity": "warning",
+        }
+    ]
+
+
+def test_mixed_recovery_over_many_closed_weeks_stays_short(tmp_path, monkeypatch):
+    state = tmp_path / "pipeline_status.json"
+    weeks = _backlog_weeks(250)
+    _backlog_state(state, weeks)
+    _install_pipeline(monkeypatch, episode_id="2026-W40", episode_only_failures=["stage A"])
+    posts = _captured_alerts(monkeypatch)
+    pm.run(state)
+
+    _install_pipeline(monkeypatch, episode_id="2026-W40", episode_only_failures=[])
+    pm.run(state)
+    assert posts[-1] == {
+        "subject": "Pipeline recovered · Earlier weeks closed",
+        "body": "2026-W40 recovered; 250 earlier weeks closed · 500 issues unverified",
+        "severity": "info",
+    }
+    assert len(_words(posts[-1])) <= 20
+    assert json.loads(state.read_text())["alerted_failures"] == {}
 
 
 # ---------------------------------------------------------------------------
@@ -1671,8 +1851,9 @@ def test_missing_episode_alerts_then_recovers_when_the_record_appears(tmp_path, 
     pm.run(state)
     pm.run(state)  # still missing: no repeat
     assert len(posts) == 1
-    assert "DEGRADED" in posts[0]["subject"]
-    assert "never created it" in posts[0]["body"]
+    assert posts[0]["subject"] == "Pipeline degraded"
+    assert posts[0]["body"] == "2026-W40 · 1 issue"
+    assert any("never created it" in f for f in json.loads(state.read_text())["failures"])
 
     _install_pipeline(monkeypatch, episode_only_failures=[])
     pm.run(state)

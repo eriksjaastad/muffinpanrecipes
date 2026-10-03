@@ -1020,10 +1020,6 @@ def check_alert_channel(report: Report) -> None:
     report.check("alert_channel_can_send", _check)
 
 
-def _utc_stamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-
-
 def read_last_status() -> str | None:
     """Return the previous run's status ('passed'/'failed'), or None if unknown."""
     try:
@@ -1047,30 +1043,22 @@ def write_status(status: str) -> None:
 def post_alert(report: Report) -> None:
     """Announce a failing run through every configured alert channel.
 
-    Formats only — delivery is backend/utils/alerts.py::send_alert, so when
-    email lands as a second channel this monitor gets it for free.
+    Formats only — delivery is backend/utils/alerts.py::send_alert. The alert
+    is a status and a count (#7930); which checks failed and why is printed
+    by the CLI and kept in its log.
     """
-    # Timestamp so a scrolled-back alert can't be mistaken for a live failure.
-    body = "\n".join(
-        [f"health_check.py FAILED — {_utc_stamp()}", ""]
-        + [f"• **{name}**: {detail[:300]}" for name, detail in report.failed]
-    )
+    total = len(report.failed) + len(report.passed)
     send_alert(
-        subject="🚨 health_check.py FAILED",
-        body=body[:1900],
+        subject="Health check failed",
+        body=f"{len(report.failed)} of {total} checks failing",
         severity="critical",
-        fields=[(name, detail[:300], False) for name, detail in report.failed[:5]],
     )
 
 
 def post_recovery(report: Report) -> None:
-    names = ", ".join(report.passed)
     send_alert(
-        subject="✅ health_check.py RECOVERED",
-        body=(
-            f"{_utc_stamp()} — all {len(report.passed)} checks passing again "
-            f"({names})."
-        )[:1900],
+        subject="Health check recovered",
+        body=f"{len(report.passed)} checks passing",
         severity="info",
     )
 

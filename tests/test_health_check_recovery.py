@@ -92,7 +92,7 @@ def test_failing_run_alerts_and_records_failed(monkeypatch, tmp_path):
     rc, posts = _run(monkeypatch, tmp_path, healthy=False)
     assert rc == 1
     assert len(posts) == 1
-    assert "FAILED" in posts[0]
+    assert posts[0] == "Health check failed\n2 of 9 checks failing"
     assert hc.read_last_status() == "failed"
 
 
@@ -103,8 +103,7 @@ def test_recovery_ping_fires_after_a_failure(monkeypatch, tmp_path):
     rc, posts = _run(monkeypatch, tmp_path, healthy=True)
     assert rc == 0
     assert len(posts) == 1
-    assert "RECOVERED" in posts[0]
-    assert "passing again" in posts[0]
+    assert posts[0] == "Health check recovered\n9 checks passing"
     assert hc.read_last_status() == "passed"
 
 
@@ -121,11 +120,26 @@ def test_first_ever_run_healthy_does_not_announce_recovery(monkeypatch, tmp_path
     assert posts == []  # no state file yet -> not a recovery
 
 
-def test_messages_carry_a_utc_timestamp(monkeypatch, tmp_path):
+def test_alerts_are_status_only_and_the_cli_keeps_the_diagnostics(monkeypatch, tmp_path, capsys):
+    """#7930: the alert is a status and a count; which check failed, and
+    why, stays on the CLI output and in the log, never in the alert."""
     _, fail_posts = _run(monkeypatch, tmp_path, healthy=False)
-    _, ok_posts = _run(monkeypatch, tmp_path, healthy=True)
-    assert "UTC" in fail_posts[0]
-    assert "UTC" in ok_posts[0]
+    for detail in ("drift", "thin page", "catalog_counts_match_baseline", "this_week_renders"):
+        assert detail not in fail_posts[0]
+    assert "Failed: 2" in capsys.readouterr().out
+
+
+def test_post_alert_keeps_its_severities():
+    report = hc.Report(passed=["a"], failed=[("b", "x" * 5000)])
+    with patch.object(hc, "send_alert") as send:
+        hc.post_alert(report)
+        hc.post_recovery(hc.Report(passed=["a", "b"]))
+    assert send.call_args_list[0].kwargs == {
+        "subject": "Health check failed", "body": "1 of 2 checks failing", "severity": "critical",
+    }
+    assert send.call_args_list[1].kwargs == {
+        "subject": "Health check recovered", "body": "2 checks passing", "severity": "info",
+    }
 
 
 # ---------------------------------------------------------------------------
