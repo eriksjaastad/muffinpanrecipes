@@ -906,11 +906,15 @@ def create_routes(app: FastAPI):
                     else:
                         stages_map[day] = "not_started"
 
+                from backend.utils.episode_integrity import episode_is_published
+
                 episodes.append({
                     "episode_id": data.get("episode_id", ""),
                     "concept": data.get("concept", "Unknown"),
                     "created_at": data.get("created_at", ""),
                     "published_at": data.get("published_at"),
+                    # Legacy-aware (published_at OR complete Sunday); no timestamp is invented.
+                    "published": episode_is_published(data),
                     "dry_run": data.get("dry_run", False),
                     "recipe_id": data.get("recipe_id"),
                     "completed_stages": completed,
@@ -972,7 +976,17 @@ def create_routes(app: FastAPI):
                 "published": entry.get("published"),
                 "data": entry,
             })
+        from backend.utils.episode_integrity import episode_is_published
+
         review = _photo_review_view(data, view, ns)
+        published = episode_is_published(data)
+        if data.get("published_at"):
+            published_label = str(data["published_at"])
+        elif published:
+            # A pre-published_at week: published (complete Sunday) with no recorded time.
+            published_label = "Published (legacy week, no timestamp recorded)"
+        else:
+            published_label = "Not published"
         # The review is rendered from the authoritative control, whether or
         # not the episode's Wednesday mirror exists (#7936, Codex cycle 2): a
         # registration whose episode save failed, or a stale stage save that
@@ -985,6 +999,8 @@ def create_routes(app: FastAPI):
             "concept": data.get("concept", ""),
             "created_at": data.get("created_at", ""),
             "published_at": data.get("published_at"),
+            "published": published,
+            "published_label": published_label,
             "dry_run": data.get("dry_run", False),
             "recipe_id": data.get("recipe_id"),
             "events": data.get("events", []),

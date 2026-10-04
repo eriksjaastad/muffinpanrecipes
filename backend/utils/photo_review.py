@@ -716,6 +716,15 @@ def record_decision(
         raise ReviewConflict("The photo review changed while saving; reload and choose again") from exc
 
 
+class NoReviewablePhotos(Exception):
+    """Wednesday completed but left no reviewable photo set: nobody can approve anything.
+
+    Not a hold (there is nothing to wait for) and never a reason to spend:
+    the week needs a Wednesday re-fire. Raised by ``claim_for_publication``
+    before any claim or paid step.
+    """
+
+
 class PhotoHold(Exception):
     """Sunday may not publish: the reason is a hold status."""
 
@@ -745,6 +754,14 @@ def claim_for_publication(store, episode_id: str, verified_ep: dict) -> ControlV
         view = read_view(store, episode_id, verified_ep)
         if view.frozen:
             raise PublicationUnderway(f"photo control is already {view.state}")
+        if view.request is None:
+            # No valid candidates were ever uploaded (or the derived request
+            # does not add up): there is nothing a human could approve, so
+            # this is a failure to report, not an approval to wait for.
+            raise NoReviewablePhotos(
+                "Wednesday left no reviewable photo set (no uploaded candidates with usable URLs); "
+                "nothing can be approved. Re-fire Wednesday to produce photos."
+            )
         reason = hold_reason(view)
         if reason:
             raise PhotoHold(reason, view)

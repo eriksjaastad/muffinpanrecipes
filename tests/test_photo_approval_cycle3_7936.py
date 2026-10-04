@@ -192,8 +192,8 @@ def test_recorded_hold_is_not_recognised_on_a_legacy_published_week():
     ep["publish_hold"] = {"reason": "awaiting_photo_approval", "image_set_id": "0123456789abcdef",
                           "since": PUBLISHED_AT, "notified": True}
     assert recorded_photo_hold(ep) is None
-    assert "awaiting" not in episode_summary(ep) and episode_summary(ep).endswith("published") is False
-    # (legacy weeks report "published" only via published_at in the summary; the hold is simply not a hold)
+    # The summary uses the shared predicate too: a legacy week reads "published", never "awaiting".
+    assert "awaiting" not in episode_summary(ep) and episode_summary(ep).endswith("published")
 
 
 # =============================================================================
@@ -558,10 +558,14 @@ def test_hold_clear_failure_after_approval_records_the_attempt_or_says_it_could_
     env.dialogue.assert_not_called()
     message = env.failure.call_args.kwargs["error_message"]
     assert "could not clear the previous photo hold" in message
-    assert "could NOT be recorded" in message  # same store, same failing save
+    # Only the clear itself was refused (the predicate keys on its event); the failed attempt
+    # is then recorded on the restored hold, and the alert says so truthfully.
+    assert "was recorded on the episode" in message
     assert _control(store)["state"] == "approved" and _control(store)["claim"] is None
-    # Storage still holds the earlier hold; after storage recovers the next run publishes.
-    assert recorded_photo_hold(store.get(EP_ID)) == "awaiting_photo_approval"
+    saved = store.get(EP_ID)
+    assert saved["publish_hold"]["last_attempt"]["outcome"] == "failed"
+    assert "sunday: hold cleared (approved photo claimed)" not in saved["events"]
+    assert recorded_photo_hold(saved) is None, "the monitor reports the failed attempt, not a quiet hold"
     store.fail_save = None
     assert _sunday(store).result["published"] is True
 

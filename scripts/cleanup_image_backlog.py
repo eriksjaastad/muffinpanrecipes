@@ -42,6 +42,7 @@ def protected_image_paths() -> set[str]:
     """
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
+    from backend.utils.episode_integrity import episode_is_published
     from backend.utils.photo_review import protected_image_paths as episode_protected
 
     protected: set[str] = set()
@@ -50,7 +51,9 @@ def protected_image_paths() -> set[str]:
         if not isinstance(ep, dict):
             continue
         protected.update(_image_rel(p) for p in episode_protected(None, ep))
-        if ep.get("published_at"):
+        # published_at OR a complete Sunday (the shared predicate): a legacy
+        # published week keeps every image path even without a confirmed_winner.
+        if episode_is_published(ep):
             wed = (ep.get("stages") or {}).get("wednesday") or {}
             for p in list(ep.get("image_paths") or []) + list(wed.get("image_paths") or []):
                 if p:

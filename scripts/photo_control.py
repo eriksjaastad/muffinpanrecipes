@@ -36,6 +36,7 @@ if str(ROOT) not in sys.path:
 def main(argv: list[str] | None = None) -> int:
     from backend.storage import storage
     from backend.utils import photo_review
+    from backend.utils.episode_integrity import episode_is_published
 
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("command", choices=["show", "reconcile"])
@@ -61,6 +62,8 @@ def main(argv: list[str] | None = None) -> int:
             "version_age_seconds": photo_review.claim_age_seconds(view) if view.raw else None,
             "has_publication_checkpoint": view.publication is not None,
             "episode_published_at": ep.get("published_at"),
+            # published_at OR a complete Sunday: the shared predicate every guard uses.
+            "episode_published": episode_is_published(ep),
             "episode_claim_id": (ep.get("photo_approval") or {}).get("claim_id")
             if isinstance(ep.get("photo_approval"), dict) else None,
         }
@@ -75,6 +78,12 @@ def main(argv: list[str] | None = None) -> int:
                 and ep.get("published_at"):
             print("nothing to reconcile: control and episode agree the week is published")
             return 0
+        if episode_is_published(ep) and not ep.get("published_at"):
+            print(
+                "REFUSED: the episode is a published legacy week (complete Sunday, no published_at) "
+                "and cannot have been published by this claim. Nothing is released. Investigate by hand."
+            )
+            return 2
         if ep.get("published_at"):
             if summary["episode_claim_id"] != summary["claim_id"]:
                 print("REFUSED: the episode is published but not by this claim. Investigate by hand.")

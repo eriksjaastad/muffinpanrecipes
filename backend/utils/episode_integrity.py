@@ -375,7 +375,7 @@ def episode_summary(episode: dict | None) -> str:
         for day in DAY_ORDER
         if (episode.get("stages", {}).get(day) or {}).get("status") == "complete"
     )
-    published = " published" if episode.get("published_at") else ""
+    published = " published" if episode_is_published(episode) else ""
     hold = recorded_photo_hold(episode)
     held = f", not published: {PHOTO_HOLD_LABELS[hold]}" if hold else ""
     return f'{episode_id} "{title}", {complete}/7 stages complete{published}{held}'

@@ -3139,7 +3139,10 @@ def _read_episode_verified(episode_id: str, concept: str, purpose: str) -> dict 
             episode_id, concept,
             f"Sunday could not read a current copy of episode {episode_id} {purpose}: "
             f"{type(exc).__name__}: {exc}. Nothing was published, spent or saved; "
-            "run Sunday again in a minute.",
+            "run Sunday again in a minute. No verified episode is in hand, so this failure "
+            "could not be recorded on it: the monitor only sees the last persisted snapshot "
+            "(an earlier photo hold or status recorded there keeps showing until a Sunday run "
+            "succeeds). Treat this alert as the record.",
         )
 
 
@@ -3170,6 +3173,41 @@ def _record_failed_hold_attempt(episode_id: str, ep: dict, detail: str) -> str:
             "showing the earlier photo hold. Treat this alert as the record."
         )
     return " The failed attempt was recorded on the episode; the monitor reports it."
+
+
+def _no_reviewable_photos_failure(episode_id: str, ep: dict, concept: str, detail: str):
+    """Wednesday is complete but nothing can be approved (#7936, preflight 5).
+
+    Not a hold: no email asks Erik to approve, no "awaiting" status is saved.
+    The Sunday stage is recorded as failed (an earlier hold, now meaningless,
+    is removed) so the monitor reports it, and the alert says what to do:
+    re-fire Wednesday. Nothing is spent. If the record cannot be saved the
+    alert says so rather than claiming it was.
+    """
+    ep.pop("publish_hold", None)
+    ep.setdefault("stages", {})["sunday"] = {
+        "stage": "publish", "status": "failed", "published": False,
+        "error": f"No reviewable photos: {detail}",
+    }
+    ep.setdefault("events", []).append("sunday: failed (no reviewable photos)")
+    try:
+        storage.save_episode(episode_id, ep)
+        recorded = " The failed Sunday was recorded on the episode; the monitor reports it."
+    except Exception as exc:
+        recorded = (
+            f" The failed Sunday could NOT be recorded on the episode ({type(exc).__name__}: {exc}); "
+            "the monitor only sees the last persisted snapshot. Treat this alert as the record."
+        )
+    message = (
+        f"Sunday {episode_id} cannot publish. No reviewable photos: {detail} No paid work ran and "
+        "nothing was published; no approval was requested because there is nothing to approve." + recorded
+    )
+    logger.error(message)
+    notify_pipeline_failure(
+        recipe_id=ep.get("recipe_id") or "unknown", concept=concept or "unknown",
+        stage="sunday (photo review)", error_message=message,
+    )
+    return HTTPException(status_code=400, detail=message)
 
 
 def _hold_for_photo_approval(episode_id: str, ep: dict, concept: str, reason: str, view):
@@ -3530,8 +3568,22 @@ async def cron_sunday(request: Request):
             claimed = photo_review.claim_for_publication(storage, episode_id, ep)
         except photo_review.PhotoHold as hold:
             return _hold_for_photo_approval(episode_id, ep, concept, hold.reason, hold.view)
-        except (photo_review.PublicationUnderway, photo_review.ReviewConflict) as exc:
+        except photo_review.NoReviewablePhotos as exc:
+            raise _no_reviewable_photos_failure(episode_id, ep, concept, str(exc))
+        except photo_review.PublicationUnderway as exc:
             return _publication_underway_response(episode_id, concept, str(exc))
+        except photo_review.ReviewConflict as exc:
+            # The control kept changing under three claim attempts. That is a
+            # conflict, not a rival publisher: alerted, and recorded on any
+            # earlier hold so the monitor does not read the week as waiting.
+            detail = (
+                f"Sunday {episode_id} could not claim the photo control: {exc}. Nothing was "
+                "published or spent; run Sunday again."
+            )
+            raise _sunday_storage_failure(
+                episode_id, concept, detail + _record_failed_hold_attempt(episode_id, ep, detail),
+                status_code=409,
+            )
         except Exception as exc:
             detail = (
                 f"Sunday could not read or claim the photo control for {episode_id}: "
@@ -3549,10 +3601,19 @@ async def cron_sunday(request: Request):
         # and nothing is spent.
         hold_before = ep.pop("publish_hold", None)
         if hold_before is not None:
-            ep.setdefault("events", []).append("sunday: hold cleared (approved photo claimed)")
+            cleared_event = "sunday: hold cleared (approved photo claimed)"
+            events = ep.setdefault("events", [])
+            cleared_index = len(events)  # the slot THIS run's event occupies
+            events.append(cleared_event)
             try:
                 storage.save_episode(episode_id, ep)
             except Exception as exc:
+                # The clear did not persist: the audit trail must not say it
+                # did. Only this run's appended event is withdrawn; an earlier
+                # identical event from a hold that really was cleared is history.
+                if cleared_index < len(events) and events[cleared_index] == cleared_event:
+                    events.pop(cleared_index)
+                events.append("sunday: hold clear NOT persisted (save failed)")
                 _release_photo_claim(episode_id, concept, claimed, "could not clear the previous hold")
                 detail = (
                     f"Sunday {episode_id}: could not clear the previous photo hold before "

@@ -110,6 +110,14 @@ underway. Choices are frozen." and Wednesday refuses to replace the photos (409)
   monitor reports it instead of "awaiting photo approval". A later true hold
   (rejection, new photos) replaces an earlier failed Sunday stage; the QA
   record stays in `editorial_qa` and the events.
+- A Wednesday that completed but left NO reviewable photo set (no uploaded
+  candidates with usable URLs) is not "awaiting approval": nobody can approve
+  anything. Sunday stops before any paid step with a failed Sunday stage
+  ("No reviewable photos …", 400), one pipeline-failure alert and no
+  "Photos ready"/"Publish held" email. Fix: re-fire Wednesday (paid). A claim
+  that loses three compare-and-swap rounds is reported as a conflict (409,
+  alerted, attempt recorded on any earlier hold), never as "another Sunday
+  holds the claim".
 - A hold is quiet only while the LAST Sunday attempt confirmed it. Every
   Sunday that finds an earlier hold writes `publish_hold.last_attempt`:
   `held` when it confirmed the hold, `failed` (with the detail) when it could
@@ -120,6 +128,11 @@ underway. Choices are frozen." and Wednesday refuses to replace the photos (409)
   alert email says so explicitly ("could NOT be recorded"), and the monitor
   will keep showing the earlier hold until a Sunday run succeeds: the alert is
   the record in that case.
+  The same applies when Sunday cannot even read a current copy of the episode:
+  nothing can be saved safely, so the monitor shows the last persisted snapshot
+  and the alert says so. Display surfaces (episode page "Published" field, list,
+  monitor summary) label a legacy complete-Sunday week as published without
+  inventing a timestamp.
 - A claimed/publishing/published control version is checked as a whole at
   the read boundary: a real approved candidate of the current set, a valid
   claim, and (once publishing) a checkpoint that is this claim's own

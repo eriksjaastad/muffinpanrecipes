@@ -730,7 +730,11 @@ def test_local_filesystem_urls_review_and_publish():
 
 
 def test_derived_request_that_does_not_add_up_is_no_request():
-    """A bootstrap view never fabricates a reviewable set from inconsistent episode fields."""
+    """A bootstrap view never fabricates a reviewable set from inconsistent episode fields.
+
+    Since preflight 5 such a week is a truthful failure (nothing can be
+    approved), not an "awaiting approval" hold; see test_photo_approval_preflight5_7936.
+    """
     wed = wednesday_stage()
     wed.pop("photo_review")
     wed["image_urls"] = ["", "", ""]  # uploads recorded with no URLs
@@ -740,9 +744,11 @@ def test_derived_request_that_does_not_add_up_is_no_request():
     view = photo_review.read_view(store, EP_ID, ep)
     assert view.request is None and view.state is None
     env = _sunday(store)
-    assert json.loads(env.result.body)["status"] == "awaiting_photo_approval"
+    assert _status(env) == 400 and "No reviewable photos" in env.error.detail
     env.dialogue.assert_not_called()
+    assert env.held.call_count == 0 and env.failure.call_count == 1
     assert store.read_photo_control(EP_ID) is None
+    assert store.get(EP_ID)["stages"]["sunday"]["status"] == "failed"
 
 
 # =============================================================================
