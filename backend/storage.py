@@ -76,6 +76,32 @@ IMAGES_DIR = ROOT / "src" / "assets" / "images"
 # scripts.simulate_dialogue_week's equivalent.
 CHARACTER_MEMORY_DIR = ROOT / "data" / "character_memory"
 
+# Human photo decisions (#7936). Append-only: every decision is a NEW key,
+# photo_reviews/<episode>/<image_set_id>/<record_id>.json, and the latest
+# record_id wins. Nothing ever overwrites one, so (a) a cron's whole-episode
+# write cannot erase a decision, and (b) a read never meets a CDN-cached older
+# body of the same key. Reads list fresh every time; there is no cache.
+PHOTO_REVIEWS_DIR = ROOT / "data" / "photo_reviews"
+_PHOTO_REVIEW_KEY_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+class PhotoDecisionUnavailable(RuntimeError):
+    """The photo decision store could not be read or written authoritatively."""
+
+
+def _check_photo_review_keys(*parts: str) -> None:
+    for part in parts:
+        if not isinstance(part, str) or not _PHOTO_REVIEW_KEY_RE.match(part):
+            raise ValueError(f"invalid photo review key part: {part!r}")
+
+
+def new_photo_decision_id() -> str:
+    """Time-ordered, unique record id: lexical order is decision order."""
+    import secrets
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ") + "-" + secrets.token_hex(4)
+
 SOCIAL_IMAGE_SIZE = (1200, 630)
 SOCIAL_IMAGE_SUFFIX = ".social.jpg"
 
@@ -486,6 +512,10 @@ class _FilesystemBackend:
             return None
         return json.loads(path.read_text())
 
+    def load_episode_strict(self, episode_id: str, *, use_cache: bool = True) -> Optional[dict]:
+        """Same as load_episode: the filesystem has no cache and no fallback."""
+        return self.load_episode(episode_id)
+
     def save_episode(self, episode_id: str, data: dict) -> None:
         EPISODES_DIR.mkdir(parents=True, exist_ok=True)
         path = EPISODES_DIR / f"{episode_id}.json"
@@ -594,6 +624,35 @@ class _FilesystemBackend:
         path = self._character_memory_dir(slug) / f"{week}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(entry, indent=2))
+
+    # --- Human photo decisions (#7936) ---
+
+    def _photo_decision_dir(self, episode_id: str, image_set_id: str) -> Path:
+        _check_photo_review_keys(episode_id, image_set_id)
+        return PHOTO_REVIEWS_DIR / f"{self.prefix}{episode_id}" / image_set_id
+
+    def add_photo_decision(self, episode_id: str, image_set_id: str, record: dict) -> str:
+        """Write one decision under a new key; never overwrites. Returns its id."""
+        record_id = new_photo_decision_id()
+        directory = self._photo_decision_dir(episode_id, image_set_id)
+        directory.mkdir(parents=True, exist_ok=True)
+        with open(directory / f"{record_id}.json", "x", encoding="utf-8") as f:
+            f.write(json.dumps(record, indent=2))
+        return record_id
+
+    def latest_photo_decision(self, episode_id: str, image_set_id: str) -> Optional[dict]:
+        """The newest decision for this image set, or None. Raises if unreadable."""
+        directory = self._photo_decision_dir(episode_id, image_set_id)
+        if not directory.exists():
+            return None
+        files = sorted(directory.glob("*.json"))
+        if not files:
+            return None
+        try:
+            data = json.loads(files[-1].read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            raise PhotoDecisionUnavailable(f"unreadable photo decision {files[-1].name}: {e}") from e
+        return {**data, "record_id": files[-1].stem} if isinstance(data, dict) else {"record_id": files[-1].stem}
 
     def save_page(self, pathname: str, html_content: str) -> str:
         """Save an HTML page locally and return its URL path."""
@@ -863,20 +922,24 @@ class _CloudBackend:
             logger.warning(f"Blob load_episode failed for {episode_id}, falling back to filesystem: {e}")
             return self._fs.load_episode(episode_id)
 
-    def load_episode_strict(self, episode_id: str) -> Optional[dict]:
+    def load_episode_strict(self, episode_id: str, *, use_cache: bool = True) -> Optional[dict]:
         """Load an episode without masking cloud failures with local data.
 
         Static deployment builds use this authoritative form so a transient
         Blob failure cannot publish a page set assembled from stale disk data.
         Runtime readers retain the compatibility fallback in ``load_episode``.
+        ``use_cache=False`` skips this process's cache (admin review reads and
+        Sunday's publish path, #7936), so a warm Lambda cannot serve its own
+        older copy. It does NOT bypass the Blob CDN: an overwritten episode
+        can still read stale for up to ~60s after the write (Vercel docs).
         """
         if not self._has_cloud():
-            return self._fs.load_episode(episode_id)
+            return self.load_episode(episode_id)
 
         import requests as _requests
 
         cache_key = (self.prefix, episode_id)
-        if cache_key in self._episode_cache:
+        if use_cache and cache_key in self._episode_cache:
             return self._episode_cache[cache_key]
 
         pathname = f"{self.prefix}episodes/{episode_id}.json"
@@ -1194,6 +1257,90 @@ class _CloudBackend:
         except Exception as e:
             logger.error(f"Blob save_character_memory_week failed for {slug!r}/{week!r}: {e}")
             raise
+
+    # --- Human photo decisions (#7936) ---
+
+    def add_photo_decision(self, episode_id: str, image_set_id: str, record: dict) -> str:
+        """PUT one decision under a new key with overwrite refused. Raises on failure."""
+        if not self._has_cloud():
+            return self._fs.add_photo_decision(episode_id, image_set_id, record)
+
+        import requests as _requests
+
+        _check_photo_review_keys(episode_id, image_set_id)
+        record_id = new_photo_decision_id()
+        pathname = f"{self.prefix}photo_reviews/{episode_id}/{image_set_id}/{record_id}.json"
+        headers = {
+            **self._auth_headers(),
+            "Content-Type": "application/json",
+            "x-api-version": "7",
+            "x-content-type": "application/json",
+            "x-add-random-suffix": "0",
+            "x-allow-overwrite": "0",
+        }
+        try:
+            resp = _requests.put(
+                f"{self._BLOB_API}/{pathname}",
+                data=json.dumps(record, indent=2).encode("utf-8"),
+                headers=headers,
+                timeout=30,
+            )
+            resp.raise_for_status()
+        except Exception as e:
+            logger.error(f"Blob add_photo_decision failed for {episode_id}: {type(e).__name__}: {e}")
+            raise PhotoDecisionUnavailable(f"could not save photo decision: {e}") from e
+        return record_id
+
+    def latest_photo_decision(self, episode_id: str, image_set_id: str) -> Optional[dict]:
+        """The newest decision for this image set, or None. Never cached.
+
+        The list API is read fresh on every call, and the record it names was
+        never overwritten, so its body cannot be an older CDN copy. Any listing
+        or fetch failure raises PhotoDecisionUnavailable: callers hold rather
+        than guess.
+        """
+        if not self._has_cloud():
+            return self._fs.latest_photo_decision(episode_id, image_set_id)
+
+        import requests as _requests
+
+        _check_photo_review_keys(episode_id, image_set_id)
+        list_prefix = f"{self.prefix}photo_reviews/{episode_id}/{image_set_id}/"
+        newest: Optional[dict] = None
+        cursor: Optional[str] = None
+        try:
+            for _ in range(_EXACT_BLOB_MAX_LIST_PAGES):
+                params: dict = {"prefix": list_prefix, "limit": "100"}
+                if cursor:
+                    params["cursor"] = cursor
+                resp = _requests.get(self._BLOB_API, params=params, headers=self._auth_headers(), timeout=15)
+                resp.raise_for_status()
+                payload = resp.json()
+                if not isinstance(payload, dict) or not isinstance(payload.get("blobs"), list):
+                    raise ValueError("listing has no 'blobs' list")
+                for blob in payload["blobs"]:
+                    name = blob.get("pathname", "") if isinstance(blob, dict) else ""
+                    if name.startswith(list_prefix) and name.endswith(".json") and "/" not in name[len(list_prefix):]:
+                        if newest is None or name > newest["pathname"]:
+                            newest = blob
+                if not payload.get("hasMore"):
+                    break
+                next_cursor = payload.get("cursor")
+                if not isinstance(next_cursor, str) or not next_cursor or next_cursor == cursor:
+                    raise ValueError("hasMore without a new cursor")
+                cursor = next_cursor
+            else:
+                raise ValueError("too many listing pages")
+            if newest is None:
+                return None
+            content = _requests.get(newest["url"], timeout=15)
+            content.raise_for_status()
+            data = content.json()
+        except Exception as e:
+            logger.error(f"Blob latest_photo_decision failed for {episode_id}: {type(e).__name__}: {e}")
+            raise PhotoDecisionUnavailable(f"could not read photo decision: {e}") from e
+        record_id = newest["pathname"][len(list_prefix):].removesuffix(".json")
+        return {**data, "record_id": record_id} if isinstance(data, dict) else {"record_id": record_id}
 
     # --- Simulations ---
 

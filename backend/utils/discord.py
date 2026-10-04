@@ -188,3 +188,35 @@ def notify_batch_complete(
         severity="info",
         fields=[("Recipes", titles_preview, False)],
     )
+
+
+def build_episode_review_url(episode_id: str, base_url: Optional[str] = None) -> str:
+    """Authenticated admin page where Erik approves the week's photos."""
+    origin = (base_url or ADMIN_BASE_URL).rstrip("/")
+    return f"{origin}/admin/episodes/{episode_id}#photo-review"
+
+
+def notify_photos_ready(episode_id: str, candidate_count: int) -> bool:
+    """Wednesday: the candidate photos are up and Sunday waits for a pick (#7936)."""
+    url = build_episode_review_url(episode_id)
+    return send_alert(
+        subject="Photos ready",
+        body=f"{_short(episode_id)} · {candidate_count} photos · pick one or reject all\n{url}",
+        severity="info",
+        url=url,
+    )
+
+
+def notify_publish_held(episode_id: str, reason: str) -> bool:
+    """Sunday held the publish for photo approval. Sent once per hold."""
+    label = {
+        "photos_rejected": "photos rejected",
+        "photo_review_changed": "photo choice changed while publishing",
+    }.get(reason, "awaiting photo approval")
+    url = build_episode_review_url(episode_id)
+    return send_alert(
+        subject="Publish held",
+        body=f"{_short(episode_id)} · {label}\n{url}",
+        severity="warning",
+        url=url,
+    )

@@ -4,6 +4,41 @@
 
 ---
 
+## Sunday says "awaiting_photo_approval", "photos_rejected" or "photo_review_changed" (#7936)
+
+Expected, not a failure. Sunday publishes only a photo Erik approved for the
+current Wednesday image set, and runs no dialogue, QA or publish until then.
+The monitor shows the week as "not published: awaiting photo approval", not
+as a missing Sunday.
+
+- Review: the "Photos ready" alert links to `/admin/episodes/<week>#photo-review`.
+  Pick one photo or "None usable". Neither action generates images.
+- Decisions are separate append-only records at
+  `photo_reviews/<week>/<image_set_id>/` in Blob. Cron episode saves cannot
+  erase them, and every read lists them fresh.
+- Approved before Sunday's cron: Sunday publishes it as usual.
+- Approved after Sunday held: nothing reruns on its own. To publish, re-fire
+  Sunday by hand (paid: Sunday dialogue + editorial QA), from the repo:
+  `doppler run -- sh -c 'curl -sS -X POST -H "Authorization: Bearer $CRON_SECRET" -H "Content-Type: application/json" -d "{\"episode_id\": \"<week>\", \"force\": true}" https://muffinpanrecipes.com/api/cron/sunday'`.
+  `force` only skips the weekday check; the approval is still required.
+- `photo_review_changed`: the choice changed, or Wednesday replaced the
+  image set, while Sunday was running, after its paid steps. Nothing went
+  live, and Sunday did not save its older copy of the episode. Check the
+  review page, then re-fire.
+- Sunday reads the episode without this process's cache and checks it again
+  just before publishing. The Blob CDN can still serve an episode overwritten
+  in the last ~60s stale (Vercel docs), so a Wednesday rerun finishing within
+  a minute of Sunday's final check may not be seen. Don't re-fire Sunday
+  within a minute of a Wednesday rerun.
+- Decision records are public Blob files. They carry "site editor" and an
+  opaque keyed hash of the account, never an email.
+- Rejected: nothing publishes. New photos mean a paid Wednesday rerun, which
+  starts a fresh review; earlier decisions do not carry over.
+- Automated retries: only the original image criteria can trigger the one
+  paid reshoot. A physical-defect finding, an incomplete review or an
+  unavailable vision model only marks the set for human review.
+- Published weeks keep their pinned hero; changing one is an editorial override.
+
 ## TEMPORARY W39 — Scheduled Thursday–Sunday cron pause (prepared, not active until deployed)
 
 This change prepares an authenticated-GET-only pause for `/api/cron/{thursday,friday,saturday,sunday}` whenever `_current_episode_id()` is `2026-W39`, beginning only after deployment during W39 and expiring at **2026-09-28 00:00 UTC**. The scheduled target days are Thursday 2026-09-24 through Sunday 2026-09-27. After deployment, authenticated GETs to those four routes return HTTP 200 with `status: "paused"`, the stage and episode ID, and a reason. They return before body/day validation, storage, orchestration, generation, publishing, or alerts. The response is an intentional skip, not a completed stage or a health repair. **Until deployment, live behavior is unchanged; this document does not claim the pause is active.**

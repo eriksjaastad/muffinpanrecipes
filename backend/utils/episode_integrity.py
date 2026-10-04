@@ -123,6 +123,44 @@ def episode_page_is_due(episode: object) -> bool:
     )
 
 
+# Reasons cron_sunday records when it holds a publish for photo approval
+# (#7936), with the short status each one shows.
+PHOTO_HOLD_LABELS = {
+    "awaiting_photo_approval": "awaiting photo approval",
+    "photos_rejected": "photos rejected, awaiting new photos",
+    "photo_review_changed": "photo choice changed, awaiting publish",
+}
+
+
+def recorded_photo_hold(episode: dict) -> str | None:
+    """The reason Sunday is deliberately held, or None.
+
+    Recognised only when the hold is the one cron_sunday writes: a known
+    reason, for the episode's CURRENT image set, on an unpublished week
+    whose Wednesday completed, with no Sunday stage recorded. A malformed,
+    stale (rerun image set) or forged hold is not recognised, so the missing
+    Sunday is reported as usual. An expected hold is still not a publication.
+    """
+    from backend.utils.photo_review import current_review
+
+    hold = episode.get("publish_hold")
+    if not isinstance(hold, dict) or hold.get("reason") not in PHOTO_HOLD_LABELS:
+        return None
+    if episode.get("published_at"):
+        return None
+    stages = episode.get("stages") or {}
+    if (stages.get("wednesday") or {}).get("status") != "complete" or stages.get("sunday"):
+        return None
+    review = current_review(episode)
+    if not review or not hold.get("image_set_id") or hold.get("image_set_id") != review.get("image_set_id"):
+        return None
+    try:
+        datetime.fromisoformat(str(hold.get("since")))
+    except ValueError:  # governance: allow-silent SF002: a hold with an unparseable `since` is not one cron_sunday wrote, so it is not recognised and the missing Sunday reports as a normal failure
+        return None
+    return hold["reason"]
+
+
 def _recipe_title(episode: dict) -> str:
     monday = episode.get("stages", {}).get("monday", {})
     return str((monday.get("recipe_data") or {}).get("title") or "").strip()
@@ -216,11 +254,16 @@ def episode_integrity_failures(
                 "picker did not run, so category balancing is off"
             )
 
-    # 3. Every stage whose cron window has passed must be complete.
+    # 3. Every stage whose cron window has passed must be complete. A Sunday
+    #    deliberately held for photo approval (#7936) is expected waiting,
+    #    not a missing stage; episode_summary reports it instead.
+    photo_hold = recorded_photo_hold(episode)
     if episode_id:
         for day in stages_due(episode_id, now=now, grace_minutes=grace_minutes):
             stage_status = (stages.get(day) or {}).get("status")
             if stage_status == "complete":
+                continue
+            if day == "sunday" and photo_hold:
                 continue
             detail = (stages.get(day) or {}).get("error") or ""
             failures.append(
@@ -275,4 +318,6 @@ def episode_summary(episode: dict | None) -> str:
         if (episode.get("stages", {}).get(day) or {}).get("status") == "complete"
     )
     published = " published" if episode.get("published_at") else ""
-    return f'{episode_id} "{title}", {complete}/7 stages complete{published}'
+    hold = recorded_photo_hold(episode)
+    held = f", not published: {PHOTO_HOLD_LABELS[hold]}" if hold else ""
+    return f'{episode_id} "{title}", {complete}/7 stages complete{published}{held}'

@@ -63,6 +63,24 @@ def _no_live_indexnow_submission(monkeypatch):
     monkeypatch.setattr("backend.utils.indexnow.requests.post", _blocked)
 
 
+# Human photo decisions (#7936) live in their own Blob/filesystem records,
+# which Sunday reads on every run. Without this, a Sunday test could read or
+# write data/photo_reviews/ in the repo (or Blob, under doppler run). Every
+# test gets an empty in-memory store on the storage singleton instead;
+# tests/photo_review_helpers.py writes approvals into it. Tests of the real
+# backends build their own _FilesystemBackend/_CloudBackend instances.
+@pytest.fixture(autouse=True)
+def _in_memory_photo_decisions(monkeypatch):
+    from backend.storage import storage
+    from tests import photo_review_helpers
+
+    photo_review_helpers.DECISIONS.clear()
+    monkeypatch.setattr(storage, "add_photo_decision", photo_review_helpers.DECISIONS.add_photo_decision,
+                        raising=False)
+    monkeypatch.setattr(storage, "latest_photo_decision", photo_review_helpers.DECISIONS.latest_photo_decision,
+                        raising=False)
+
+
 # backend.utils.model_router._COST_LOG is a module-level global, and several
 # tests (tests/test_lab_models.py's cost-by-model tests in particular) record
 # synthetic entries into it and reset it only at their OWN start, not at

@@ -758,14 +758,73 @@ def create_routes(app: FastAPI):
     
     # ==================== EPISODE VIEWER ====================
 
-    def _load_episodes(episodes_dir: Path) -> list[dict]:
-        """Load and summarize all episode JSON files, newest first."""
+    def _cloud_storage():
+        from backend.storage import storage
+        return storage
+
+    def _load_cloud_episode(episode_id: str) -> dict:
+        """Read the production episode; a storage failure is an error, never stale disk data.
+
+        Skips this process's episode cache, so a warm Lambda cannot show the
+        review page an image set it cached before a Wednesday rerun.
+        """
+        store = _cloud_storage()
+        strict = getattr(store, "load_episode_strict", None)
+        try:
+            with store.prefix_scope(""):
+                data = strict(episode_id, use_cache=False) if strict else store.load_episode(episode_id)
+        except Exception as exc:
+            logger.error(f"Episode read failed for {episode_id}: {type(exc).__name__}: {exc}")
+            raise HTTPException(status_code=503, detail="Could not read the episode from storage")
+        if not data:
+            raise HTTPException(status_code=404, detail=f"Episode not found: {episode_id}")
+        return data
+
+    def _load_photo_decision(data: dict) -> Optional[dict]:
+        """The current decision, read fresh; a storage failure is a 503."""
+        from backend.utils import photo_review
+
+        store = _cloud_storage()
+        try:
+            with store.prefix_scope(""):
+                return photo_review.load_decision(store, data)
+        except Exception as exc:
+            logger.error(f"Photo decision read failed for {data.get('episode_id')}: {type(exc).__name__}: {exc}")
+            raise HTTPException(status_code=503, detail="Could not read the photo review from storage")
+
+    def _origin_of(url: str) -> str:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url or "")
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            return ""
+        return f"{parsed.scheme}://{parsed.netloc}".lower()
+
+    def _require_same_origin(request: Request) -> None:
+        """Refuse cross-site writes: Origin (or Referer) must be this site.
+
+        Scheme and host both count. Allowed: the configured admin base URL,
+        the origin the app itself was addressed at, and, on Vercel (which
+        terminates TLS and routes by Host), https on the request's Host.
+        X-Forwarded-Host is never trusted.
+        """
+        import os
+
+        from backend.utils.discord import ADMIN_BASE_URL
+
+        source = _origin_of(request.headers.get("origin") or request.headers.get("referer") or "")
+        host = (request.headers.get("host") or "").lower()
+        allowed = {_origin_of(ADMIN_BASE_URL), _origin_of(str(request.base_url))}
+        if host and os.environ.get("VERCEL"):
+            allowed.add(f"https://{host}")
+        if not source or source not in allowed:
+            raise HTTPException(status_code=403, detail="Cross-origin request refused")
+
+    def _load_episodes(raw_episodes: list[dict]) -> list[dict]:
+        """Summarize episode dicts for the list page, newest first."""
         episodes = []
-        if not episodes_dir.exists():
-            return episodes
-        for path in sorted(episodes_dir.glob("*.json"), reverse=True):
+        for data in raw_episodes:
             try:
-                data = json.loads(path.read_text())
                 stages = data.get("stages", {})
                 completed = sum(1 for s in stages.values() if s.get("status") == "complete")
                 failed = sum(1 for s in stages.values() if s.get("status") == "failed")
@@ -805,7 +864,7 @@ def create_routes(app: FastAPI):
                         stages_map[day] = "not_started"
 
                 episodes.append({
-                    "episode_id": data.get("episode_id", path.stem),
+                    "episode_id": data.get("episode_id", ""),
                     "concept": data.get("concept", "Unknown"),
                     "created_at": data.get("created_at", ""),
                     "published_at": data.get("published_at"),
@@ -816,15 +875,12 @@ def create_routes(app: FastAPI):
                     "total_stages": total,
                     "status": ep_status,
                     "stages_map": stages_map,
-                    "filename": path.name,
                 })
-            except (json.JSONDecodeError, KeyError, ValueError) as exc:
-                logger.warning(f"Skipping invalid episode file {path.name}: {exc}")
-            except Exception as exc:
-                logger.error(f"Unexpected error reading episode file {path.name}: {exc}", exc_info=True)
+            except (AttributeError, KeyError, ValueError, TypeError) as exc:
+                logger.warning(f"Skipping invalid episode {data.get('episode_id') if isinstance(data, dict) else '?'}: {exc}")
         return episodes
 
-    def _build_episode_detail(data: dict) -> dict:
+    def _build_episode_detail(data: dict, decision: Optional[dict] = None) -> dict:
         """Build template-friendly detail from raw episode JSON."""
         stages_raw = data.get("stages", {})
         stages = []
@@ -882,6 +938,71 @@ def create_routes(app: FastAPI):
             "recipe_id": data.get("recipe_id"),
             "events": data.get("events", []),
             "stages": stages,
+            "photo_review": _photo_review_view(data, decision),
+            "image_display_urls": _image_display_urls(data),
+        }
+
+    def _image_display_urls(data: dict) -> dict:
+        from backend.publishing.episode_renderer import _to_local_image_url
+
+        wed = data.get("stages", {}).get("wednesday", {}) or {}
+        return {
+            p: _to_local_image_url(u)
+            for p, u in zip(wed.get("image_paths") or [], wed.get("image_urls") or [])
+            if p and u
+        }
+
+    def _automated_notes(data: dict) -> tuple[Optional[str], dict]:
+        """The automated pick and each candidate's recorded defects, by path."""
+        wed = data.get("stages", {}).get("wednesday", {}) or {}
+        winner = wed.get("confirmed_winner") or {}
+        photo = wed.get("photography_data") if isinstance(wed.get("photography_data"), dict) else {}
+        defects: dict = {}
+        for rnd in photo.get("rounds", []) or []:
+            for v in (rnd.get("variants") or []) if isinstance(rnd, dict) else []:
+                scores = v.get("scores") if isinstance(v, dict) else None
+                if isinstance(scores, dict) and isinstance(scores.get("defects"), list):
+                    defects[v.get("path")] = [str(d)[:160] for d in scores["defects"] if d][:5]
+        return (winner.get("path") if isinstance(winner, dict) else None), defects
+
+    def _photo_review_view(data: dict, decision: Optional[dict]) -> dict:
+        from backend.publishing.episode_renderer import _to_local_image_url
+        from backend.utils import photo_review
+
+        state = photo_review.review_state(data, decision)
+        review = state["review"]
+        if review is None:
+            return {"status": None, "candidates": [], "writable": False,
+                    "note": "No current photo set to review."}
+        selected = state["selected"]
+        published = bool(data.get("published_at"))
+        recommended_path, defects = _automated_notes(data)
+        wed = data.get("stages", {}).get("wednesday", {}) or {}
+        automated = (wed.get("photography_data") or {}).get("automated_review_status") \
+            if isinstance(wed.get("photography_data"), dict) else None
+        note = ""
+        if published:
+            note = "Published. The hero is pinned; changes are editorial overrides."
+        elif selected and data.get("publish_hold"):
+            note = "Approved. The scheduled publishing time has passed; publication is still pending."
+        elif data.get("publish_hold"):
+            note = "Sunday did not publish: it is waiting for your photo choice."
+        elif state["status"] == photo_review.INVALID:
+            note = "The saved choice does not match these photos. Choose again."
+        return {
+            "status": state["status"],
+            "image_set_id": review.get("image_set_id"),
+            "selected_path": selected["path"] if selected else None,
+            "decided_at": state.get("decided_at"),
+            "automated_status": automated,
+            "writable": not published,
+            "note": note,
+            "candidates": [
+                {**c, "display_url": _to_local_image_url(c["url"]),
+                 "recommended": c["path"] == recommended_path,
+                 "defects": defects.get(c["path"], [])}
+                for c in review.get("candidates", [])
+            ],
         }
 
     @app.get("/admin/episodes", response_class=HTMLResponse)
@@ -893,8 +1014,15 @@ def create_routes(app: FastAPI):
     ):
         """Browse full-week episode production logs."""
         templates = app.state.templates
-        episodes_dir = app.state.project_root / "data" / "episodes"
-        all_episodes = _load_episodes(episodes_dir)
+        store = _cloud_storage()
+        lister = getattr(store, "list_episodes_strict", None) or store.list_episodes
+        try:
+            with store.prefix_scope(""):
+                raw = lister()
+        except Exception as exc:
+            logger.error(f"Episode list failed: {type(exc).__name__}: {exc}")
+            raise HTTPException(status_code=503, detail="Could not list episodes from storage")
+        all_episodes = _load_episodes(raw)
 
         # Sort newest-first by created_at
         all_episodes.sort(key=lambda e: e.get("created_at", ""), reverse=True)
@@ -929,14 +1057,8 @@ def create_routes(app: FastAPI):
         """Full stage-by-stage viewer for a single episode."""
         _sanitize_id(episode_id, "episode_id")
         templates = app.state.templates
-        episodes_dir = app.state.project_root / "data" / "episodes"
-        ep_path = episodes_dir / f"{episode_id}.json"
-
-        if not ep_path.exists():
-            raise HTTPException(status_code=404, detail=f"Episode not found: {episode_id}")
-
-        data = json.loads(ep_path.read_text())
-        episode = _build_episode_detail(data)
+        data = _load_cloud_episode(episode_id)
+        episode = _build_episode_detail(data, _load_photo_decision(data))
 
         return templates.TemplateResponse(
             "episode_detail.html",
@@ -952,104 +1074,119 @@ def create_routes(app: FastAPI):
 
     # ==================== IMAGE REVIEW ENDPOINTS ====================
 
-    class ImageOverrideRequest(BaseModel):
-        """Request to override image selection with a different variant."""
-        variant_path: str  # relative path to the selected variant image
+    class PhotoReviewRequest(BaseModel):
+        action: str  # "select" | "reject"
+        image_set_id: str
+        path: Optional[str] = None
+
+    def _decision_actor(user: dict) -> dict:
+        """Provenance safe for a public decision record (#7936).
+
+        A role label plus a keyed hash of the account, so two decisions can
+        be told apart by account without storing the email or OAuth subject.
+        """
+        import hashlib
+        import hmac
+
+        from backend.auth.session import _get_jwt_secret
+
+        account = str(user.get("sub") or user.get("email") or "")
+        digest = (
+            hmac.new(_get_jwt_secret().encode(), account.encode(), hashlib.sha256).hexdigest()[:16]
+            if account else None
+        )
+        return {"decided_by": "site editor", "decided_by_id": f"editor-{digest}" if digest else None}
+
+    def _record_photo_decision(
+        episode_id: str, user: dict, *, action: str, image_set: str, path: Optional[str],
+    ) -> dict:
+        """Validate against the cloud episode's candidates, then append the decision (#7936).
+
+        Writes only the separate decision record, never the episode, so no
+        cron save can erase it. Never generates or copies images.
+        """
+        from backend.utils import photo_review
+
+        _sanitize_id(episode_id, "episode_id")
+        data = _load_cloud_episode(episode_id)
+        data.setdefault("episode_id", episode_id)
+        try:
+            record = photo_review.make_decision(
+                data,
+                action=action,
+                image_set=image_set,
+                path=path,
+                **_decision_actor(user),
+            )
+        except photo_review.PhotoReviewError as exc:
+            raise HTTPException(status_code=409 if data.get("published_at") else 400, detail=str(exc))
+        store = _cloud_storage()
+        try:
+            with store.prefix_scope(""):
+                photo_review.save_decision(store, data, record)
+        except Exception as exc:
+            logger.error(f"Photo decision save failed for {episode_id}: {type(exc).__name__}: {exc}")
+            # The write may have landed before the error: do not promise
+            # that nothing changed.
+            raise HTTPException(
+                status_code=503,
+                detail="Could not confirm the save. Reload to check your selection.",
+            )
+        status_value = record["status"]
+        if status_value == "approved" and data.get("publish_hold"):
+            message = "Approved. The scheduled publishing time has passed; publication is still pending."
+        elif status_value == "approved":
+            message = "Approved. Sunday will publish this photo."
+        else:
+            message = "Rejected. Sunday will not publish. No new photos are made."
+        logger.info(f"Photo review for {episode_id}: {status_value}")
+        return {"success": True, "status": status_value, "message": message}
+
+    @app.post("/admin/episodes/{episode_id}/photos/review")
+    async def admin_photo_review(
+        episode_id: str,
+        request_data: PhotoReviewRequest,
+        request: Request,
+        user: dict = Depends(require_auth),
+    ):
+        """Select one candidate photo, or reject all. Sunday publishes only an approval."""
+        _require_same_origin(request)
+        return _record_photo_decision(
+            episode_id, user,
+            action=request_data.action,
+            image_set=request_data.image_set_id,
+            path=request_data.path,
+        )
+
+    def _retired_image_control(episode_id: str) -> None:
+        raise HTTPException(
+            status_code=410,
+            detail=f"Retired. Choose the photo at /admin/episodes/{episode_id}#photo-review.",
+        )
 
     @app.post("/admin/episodes/{episode_id}/images/confirm")
-    async def admin_confirm_image(
-        episode_id: str,
-        user: dict = Depends(require_auth),
-    ):
-        """Lock in the auto-selected winner. Sets image_status → confirmed."""
+    async def admin_confirm_image(episode_id: str, user: dict = Depends(require_auth)):
+        """Retired (#7936): approval goes through the photo review."""
         _sanitize_id(episode_id, "episode_id")
-        episodes_dir = app.state.project_root / "data" / "episodes"
-        ep_path = episodes_dir / f"{episode_id}.json"
-
-        if not ep_path.exists():
-            raise HTTPException(status_code=404, detail=f"Episode not found: {episode_id}")
-
-        data = json.loads(ep_path.read_text())
-        wed = data.get("stages", {}).get("wednesday")
-        if not wed:
-            raise HTTPException(status_code=400, detail="Wednesday stage not complete")
-
-        current_status = wed.get("image_status", "")
-        if current_status in ("cleaned",):
-            raise HTTPException(status_code=400, detail=f"Cannot confirm: images already {current_status}")
-
-        wed["image_status"] = "confirmed"
-        ep_path.write_text(json.dumps(data, indent=2))
-        logger.info(f"Image confirmed for episode {episode_id}")
-
-        return {"success": True, "image_status": "confirmed"}
+        _retired_image_control(episode_id)
 
     @app.post("/admin/episodes/{episode_id}/images/override")
-    async def admin_override_image(
-        episode_id: str,
-        request_data: ImageOverrideRequest,
-        user: dict = Depends(require_auth),
-    ):
-        """Pick a different variant as winner. Copies it to {recipe_id}.png."""
-        import shutil
-
+    async def admin_override_image(episode_id: str, user: dict = Depends(require_auth)):
+        """Retired (#7936): approval goes through the photo review."""
         _sanitize_id(episode_id, "episode_id")
-        episodes_dir = app.state.project_root / "data" / "episodes"
-        ep_path = episodes_dir / f"{episode_id}.json"
-
-        if not ep_path.exists():
-            raise HTTPException(status_code=404, detail=f"Episode not found: {episode_id}")
-
-        data = json.loads(ep_path.read_text())
-        wed = data.get("stages", {}).get("wednesday")
-        if not wed:
-            raise HTTPException(status_code=400, detail="Wednesday stage not complete")
-
-        current_status = wed.get("image_status", "")
-        if current_status in ("cleaned",):
-            raise HTTPException(status_code=400, detail=f"Cannot override: images already {current_status}")
-
-        recipe_id = data.get("recipe_id")
-        if not recipe_id:
-            raise HTTPException(status_code=400, detail="No recipe_id on episode")
-
-        # Validate the variant path exists
-        variant_source = app.state.project_root / request_data.variant_path
-        if not variant_source.exists():
-            # Also try with src/ prefix
-            variant_source = app.state.project_root / "src" / request_data.variant_path
-        if not variant_source.exists():
-            raise HTTPException(status_code=404, detail=f"Variant image not found: {request_data.variant_path}")
-
-        # Validate path stays under project root (prevent traversal)
-        try:
-            variant_source.resolve().relative_to(app.state.project_root.resolve())
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid variant path")
-
-        # Copy to featured image location
-        featured_dest = app.state.project_root / "src" / "assets" / "images" / f"{recipe_id}.png"
-        featured_dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(variant_source, featured_dest)
-
-        # Update episode data
-        wed["image_status"] = "overridden"
-        wed["confirmed_winner"] = {
-            "variant": variant_source.stem,
-            "path": str(variant_source.relative_to(app.state.project_root)),
-            "featured_image": str(featured_dest.relative_to(app.state.project_root)),
-        }
-        ep_path.write_text(json.dumps(data, indent=2))
-        logger.info(f"Image overridden for episode {episode_id}: {request_data.variant_path}")
-
-        return {"success": True, "image_status": "overridden", "new_winner": request_data.variant_path}
+        _retired_image_control(episode_id)
 
     @app.post("/admin/episodes/{episode_id}/images/rerun")
     async def admin_rerun_photography(
         episode_id: str,
         user: dict = Depends(require_auth),
     ):
-        """Re-run the art director photography stage for this episode."""
+        """Re-run the art director photography stage for this episode.
+
+        PAID (image generation). Local-data only and not linked from the photo
+        review page (#7936); the rebuilt stage has no photo review, so Sunday
+        holds until the new set is reviewed.
+        """
         _sanitize_id(episode_id, "episode_id")
         episodes_dir = app.state.project_root / "data" / "episodes"
         ep_path = episodes_dir / f"{episode_id}.json"

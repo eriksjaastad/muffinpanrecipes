@@ -49,9 +49,9 @@ def test_macro_prompt_keeps_tin_out_but_demands_cup_form(agent) -> None:
 def _vision_result(muffin_pan_form: float) -> str:
     return json.dumps({
         "per_image": [{
-            "image": 1, "variety": 4, "quality": 4, "style_adherence": 4,
+            "image": 1, "defects": [], "variety": 4, "quality": 4, "style_adherence": 4,
             "food_appeal": 4, "composition": 4,
-            "muffin_pan_form": muffin_pan_form, "feedback": "ok",
+            "muffin_pan_form": muffin_pan_form, "physical_realism": 5, "feedback": "ok",
         }],
         "set_diversity": 4,
         "passed": True,
@@ -72,6 +72,8 @@ def test_vision_eval_fails_when_form_below_threshold(agent, tmp_path) -> None:
     result = _eval_with_mocked_vision(agent, tmp_path, _vision_result(muffin_pan_form=2))
     assert result["passed"] is False
     assert "muffin" in result["reason"].lower() or result["reason"]
+    # Off-brand form is an ORIGINAL criterion: it may still buy the reshoot.
+    assert result["retry_eligible"] is True
 
 
 def test_vision_eval_passes_on_brand_form(agent, tmp_path) -> None:
@@ -95,12 +97,15 @@ def test_eval_prompt_asks_for_muffin_pan_form(agent, tmp_path) -> None:
     assert "muffinpanrecipes.com" in captured["prompt"]
 
 
-def test_vision_eval_missing_form_key_passes_but_alerts(agent, tmp_path) -> None:
-    """A response that drops muffin_pan_form must not silently disable the brand check."""
+def test_vision_eval_missing_form_key_is_incomplete_and_alerts(agent, tmp_path) -> None:
+    """A response that drops muffin_pan_form must not silently disable the brand check.
+
+    #7936: it is "incomplete" - not a pass, and not worth a paid reshoot.
+    """
     raw = json.dumps({
         "per_image": [{
-            "image": 1, "variety": 4, "quality": 4, "style_adherence": 4,
-            "food_appeal": 4, "composition": 4, "feedback": "ok",
+            "image": 1, "defects": [], "variety": 4, "quality": 4, "style_adherence": 4,
+            "food_appeal": 4, "composition": 4, "physical_realism": 5, "feedback": "ok",
         }],
         "set_diversity": 4, "passed": True, "reason": "", "recommended_winner": 1,
     })
@@ -111,13 +116,15 @@ def test_vision_eval_missing_form_key_passes_but_alerts(agent, tmp_path) -> None
          patch("backend.utils.discord.notify_pipeline_failure") as notify:
         result = agent._evaluate_images_vision(image_paths, "Test Cups")
 
-    assert result["passed"] is True
+    assert result["passed"] is False
+    assert result["review_status"] == "incomplete"
+    assert result["retry_eligible"] is False
     notify.assert_called_once()
     assert "muffin_pan_form" in notify.call_args.kwargs["error_message"]
 
 
 # ---------------------------------------------------------------------------
-# Vision eval errors fall back to pass but NEVER silently
+# Vision eval errors need human review and are NEVER silent
 # ---------------------------------------------------------------------------
 
 def test_vision_eval_error_notifies_discord(agent, tmp_path) -> None:
@@ -130,10 +137,13 @@ def test_vision_eval_error_notifies_discord(agent, tmp_path) -> None:
     ), patch("backend.utils.discord.notify_pipeline_failure") as notify:
         result = agent._evaluate_images_vision(image_paths, "Test Cups")
 
-    assert result["passed"] is True
+    # #7936: an unavailable review is never a pass; the caller stops on it
+    # without a reshoot and the human review decides.
+    assert result["passed"] is False
+    assert result["review_status"] == "unavailable"
     assert result["fallback"] is True
     notify.assert_called_once()
-    assert "unreviewed" in notify.call_args.kwargs["error_message"]
+    assert "human review" in notify.call_args.kwargs["error_message"]
 
 
 # ---------------------------------------------------------------------------

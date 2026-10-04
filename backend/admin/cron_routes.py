@@ -45,7 +45,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
 from backend.config import config
-from backend.publishing.episode_renderer import _hero_image_url, regenerate_and_upload
+from backend.publishing.episode_renderer import regenerate_and_upload
 from backend.storage import storage
 from backend.utils import episode_integrity
 from backend.utils.indexnow import submit_urls as _indexnow_submit_urls
@@ -65,10 +65,13 @@ from backend.utils.recipe_sanity import (
     check_recipe_sanity,
 )
 from backend.utils.title_validator import check_title_conflict
+from backend.utils import photo_review
 from backend.utils.discord import (
     notify_judge_advisory,
     notify_judge_failure,
+    notify_photos_ready,
     notify_pipeline_failure,
+    notify_publish_held,
 )
 from backend.utils.model_router import generate_judge_response, generate_response
 from backend.utils.text_sanitize import sanitize_text, has_encoding_issues
@@ -195,6 +198,10 @@ def _load_or_create_episode(episode_id: str, concept: str) -> dict:
     ep = storage.load_episode(episode_id)
     if ep:
         return ep
+    return _new_episode(episode_id, concept)
+
+
+def _new_episode(episode_id: str, concept: str) -> dict:
     return {
         "episode_id": episode_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -2017,6 +2024,14 @@ def _complete_static_source_handoff(episode_id: str, ep: dict) -> None:
         storage.save_episode(episode_id, ep)
 
 
+_PRESERVED_ON_FAILURE = {
+    "wednesday": (
+        "photography_data", "reshoot_happened", "image_paths", "image_urls",
+        "image_status", "confirmed_winner", "photo_review",
+    ),
+}
+
+
 def _save_stage_failure(ep: dict, stage: str, error: Exception) -> None:
     """Write a failed-stage marker, persist the episode, and alert.
 
@@ -2026,7 +2041,14 @@ def _save_stage_failure(ep: dict, stage: str, error: Exception) -> None:
     on a Monday and the first human signal was Tuesday's 409 — or, if nothing
     downstream tripped, nothing at all.
     """
-    ep.setdefault("stages", {})[stage] = {"status": "failed", "error": str(error)}
+    prior = ep.setdefault("stages", {}).get(stage)
+    failed = {"status": "failed", "error": str(error)}
+    if isinstance(prior, dict):
+        # Paid photos and their review request survive a later failure in
+        # the same stage (#7936): rerunning Wednesday to recover would
+        # regenerate every image.
+        failed.update({k: prior[k] for k in _PRESERVED_ON_FAILURE.get(stage, ()) if k in prior})
+    ep["stages"][stage] = failed
     storage.save_episode(ep["episode_id"], ep)
     if getattr(error, "already_notified", False):
         # The raiser sent a better-targeted alert before raising (see
@@ -2701,18 +2723,13 @@ async def cron_wednesday(request: Request):
                 ),
             )
 
-        dialogue, judge_verdict = _generate_and_judge_dialogue(
-            "wednesday", concept, ep,
-            image_paths=image_paths,
-            photography_context=photography_result if isinstance(photography_result, dict) else None,
-            model=body.model,
-            injected_event=body.injected_event,
-            recipe_data=ep.get("stages", {}).get("monday", {}).get("recipe_data"),
-        )
-
-        ep["stages"]["wednesday"] = {
+        # #7936: the photos are saved and put up for Erik's review BEFORE the
+        # paid dialogue runs, so a dialogue failure cannot lose them and the
+        # review request exists before anything announces it. A new image set
+        # always starts a new review, which invalidates any earlier decision.
+        wed = {
             "stage": "photography",
-            "status": "complete",
+            "status": "photos_ready",
             "concept": concept,
             "photography_data": photography_result,
             "reshoot_happened": photography_result.get("reshoot_happened", False) if isinstance(photography_result, dict) else False,
@@ -2720,13 +2737,43 @@ async def cron_wednesday(request: Request):
             "image_urls": image_urls,
             "image_status": "auto_selected",
             "confirmed_winner": photography_result.get("winner", {}) if isinstance(photography_result, dict) else {},
+        }
+        wed["photo_review"] = photo_review.new_review(wed)
+        ep["stages"]["wednesday"] = wed
+        ep["image_paths"] = image_paths
+        ep["image_urls"] = image_urls
+        ep.pop("publish_hold", None)
+        ep["events"].append("wednesday: photos ready for review")
+        storage.save_episode(episode_id, ep)
+        sent = notify_photos_ready(episode_id, len(wed["photo_review"]["candidates"]))
+        wed["photo_review"]["notification"] = {
+            "status": "sent" if sent else "failed",
+            "at": datetime.now(timezone.utc).isoformat(),
+        }
+        storage.save_episode(episode_id, ep)
+
+        wed_photo_ctx = photography_result if isinstance(photography_result, dict) else None
+        review_ctx = _photo_review_dialogue_context(ep)
+        if wed_photo_ctx is not None and review_ctx:
+            # The team's pick is a recommendation until Erik chooses (#7936).
+            wed_photo_ctx = {**wed_photo_ctx, "human_review": review_ctx}
+        dialogue, judge_verdict = _generate_and_judge_dialogue(
+            "wednesday", concept, ep,
+            image_paths=image_paths,
+            photography_context=wed_photo_ctx,
+            model=body.model,
+            injected_event=body.injected_event,
+            recipe_data=ep.get("stages", {}).get("monday", {}).get("recipe_data"),
+        )
+
+        wed.update({
+            "status": "complete",
             "dialogue": dialogue,
             "judge_verdict": judge_verdict,
             **_judge_meta_fields(ep, "wednesday"),
             "completed_at": datetime.now(timezone.utc).isoformat(),
-        }
-        ep["image_paths"] = image_paths
-        ep["image_urls"] = image_urls
+        })
+        ep["stages"]["wednesday"] = wed
         ep["events"].append("wednesday: complete")
         storage.save_episode(episode_id, ep)
         regenerate_and_upload(ep)
@@ -2768,6 +2815,7 @@ async def cron_thursday(request: Request):
         copy_text = orchestrator._execute_stage_copywriting(recipe_id, concept, recipe_data)
         dialogue, judge_verdict = _generate_and_judge_dialogue(
             "thursday", concept, ep, model=body.model,
+            photography_context=_photo_review_only_context(ep),
             injected_event=body.injected_event,
             recipe_data=recipe_data,
         )
@@ -2823,6 +2871,11 @@ async def cron_friday(request: Request):
         # Pass photography context from Wednesday to Friday dialogue for hero shot awareness
         wed_photo_data = ep.get("stages", {}).get("wednesday", {}).get("photography_data")
         friday_photo_ctx = wed_photo_data if isinstance(wed_photo_data, dict) else None
+        # The actual human review state, so nobody claims an approval that
+        # has not happened (#7936).
+        review_ctx = _photo_review_dialogue_context(ep)
+        if friday_photo_ctx is not None and review_ctx:
+            friday_photo_ctx = {**friday_photo_ctx, "human_review": review_ctx}
         dialogue, judge_verdict = _generate_and_judge_dialogue(
             "friday", concept, ep,
             photography_context=friday_photo_ctx,
@@ -2881,6 +2934,7 @@ async def cron_saturday(request: Request):
         orchestrator._execute_stage_deployment(recipe_id)
         dialogue, judge_verdict = _generate_and_judge_dialogue(
             "saturday", concept, ep, model=body.model,
+            photography_context=_photo_review_only_context(ep),
             injected_event=body.injected_event,
             recipe_data=ep.get("stages", {}).get("monday", {}).get("recipe_data"),
         )
@@ -2971,6 +3025,143 @@ def _submit_sunday_indexnow(ep: dict, episode_id: str, concept: str) -> None:
 # Sunday — Publish
 # ---------------------------------------------------------------------------
 
+_HOLD_MESSAGES = {
+    "awaiting_photo_approval": "Not published: waiting for photo approval.",
+    "photos_rejected": "Not published: all photos were rejected.",
+    "photo_review_changed": "Not published: the photo choice changed while publishing.",
+}
+
+
+def _photo_review_dialogue_context(ep: dict) -> dict | None:
+    """The human review status for a day's dialogue, read fresh (#7936).
+
+    A read failure is stated as "not confirmed", never as an approval, and
+    does not fail the day: the dialogue only mentions it.
+    """
+    try:
+        decision = photo_review.load_decision(storage, ep)
+    except Exception as exc:
+        logger.error(f"Photo decision read failed for dialogue context: {type(exc).__name__}: {exc}")
+        return photo_review.dialogue_context(ep, None, unavailable=True)
+    return photo_review.dialogue_context(ep, decision)
+
+
+def _photo_review_only_context(ep: dict) -> dict | None:
+    """Thu/Sat/Sun: just the review status, or None for weeks without one."""
+    review_ctx = _photo_review_dialogue_context(ep)
+    return {"human_review": review_ctx} if review_ctx else None
+
+
+def _read_episode_uncached(episode_id: str, concept: str, purpose: str) -> dict | None:
+    """The stored episode, never this process's cached copy (#7936).
+
+    A warm Lambda's cache can still hold the image set from before a
+    Wednesday rerun. None means storage answered and the episode does not
+    exist. A read failure alerts and raises a 500 WITHOUT saving anything: the
+    caller's copy may be the stale one, and writing it would overwrite the
+    newer episode. This skips the process cache only; an episode overwritten
+    in the last ~60s can still be served stale by the Blob CDN.
+    """
+    try:
+        return storage.load_episode_strict(episode_id, use_cache=False)
+    except Exception as exc:
+        detail = (
+            f"Sunday could not read episode {episode_id} {purpose}: "
+            f"{type(exc).__name__}: {exc}. Nothing was published or saved."
+        )
+        logger.error(detail)
+        notify_pipeline_failure(
+            recipe_id="unknown", concept=concept or "unknown", stage="sunday", error_message=detail,
+        )
+        raise HTTPException(status_code=500, detail=detail)
+
+
+def _sunday_publish_guard(episode_id: str, ep: dict, photo_decision: dict, concept: str):
+    """Re-read the stored episode and decision just before publishing (#7936).
+
+    Returns None when Sunday may still publish ``ep``, otherwise the response
+    to return. The run's own copy is never saved here: when the week was
+    published by another run, or Wednesday replaced the image set, that copy
+    is out of date. A hold is recorded on the freshly read episode instead.
+    """
+    fresh = _read_episode_uncached(episode_id, concept, "before publishing")
+    if not fresh:
+        detail = f"Episode {episode_id} was not found before publishing. Nothing was published or saved."
+        logger.error(detail)
+        notify_pipeline_failure(
+            recipe_id="unknown", concept=concept or "unknown", stage="sunday", error_message=detail,
+        )
+        raise HTTPException(status_code=500, detail=detail)
+    # The second check runs after this run stamped its own published_at on
+    # ``ep``; only a different stamp in storage is another run's publish.
+    if fresh.get("published_at") and fresh.get("published_at") != ep.get("published_at"):
+        logger.warning(f"Sunday {episode_id}: another run published first; not publishing again")
+        return _stage_response("sunday", episode_id, concept, {
+            "published": True,
+            "already_published": True,
+            "published_at": fresh.get("published_at"),
+            "dialogue_messages": len((fresh.get("stages", {}).get("sunday") or {}).get("dialogue", [])),
+        })
+    ours = (photo_review.current_review(ep) or {}).get("image_set_id")
+    current = (photo_review.current_review(fresh) or {}).get("image_set_id")
+    if not ours or ours != current:
+        fresh.setdefault("events", []).append("sunday: photo set changed during publish; not published")
+        return _hold_for_photo_approval(episode_id, fresh, concept, "photo_review_changed")
+    try:
+        latest = photo_review.load_decision(storage, fresh)
+    except Exception as exc:
+        detail = (
+            f"Sunday could not re-read the photo decision for {episode_id} before publishing: "
+            f"{type(exc).__name__}: {exc}. Nothing was published or saved."
+        )
+        logger.error(detail)
+        notify_pipeline_failure(
+            recipe_id="unknown", concept=concept or "unknown", stage="sunday", error_message=detail,
+        )
+        raise HTTPException(status_code=500, detail=detail)
+    if (
+        photo_review.approved_selection(fresh, latest) is None
+        or (latest or {}).get("record_id") != photo_decision.get("record_id")
+    ):
+        fresh.setdefault("events", []).append("sunday: photo decision changed during publish; not published")
+        return _hold_for_photo_approval(episode_id, fresh, concept, "photo_review_changed")
+    return None
+
+
+def _hold_for_photo_approval(episode_id: str, ep: dict, concept: str, reason: str):
+    """Record and report a photo-approval hold. Expected waiting, not a failure.
+
+    The hold is persisted before the one alert, and re-sent only if an earlier
+    send did not go out or the reason/image set changed.
+    """
+    from fastapi.responses import JSONResponse
+
+    review = photo_review.current_review(ep) or {}
+    image_set = review.get("image_set_id")
+    prior = ep.get("publish_hold") if isinstance(ep.get("publish_hold"), dict) else {}
+    if not (prior.get("reason") == reason and prior.get("image_set_id") == image_set and prior.get("notified")):
+        hold = {
+            "reason": reason,
+            "image_set_id": image_set,
+            "since": prior.get("since") or datetime.now(timezone.utc).isoformat(),
+            "notified": False,
+        }
+        ep["publish_hold"] = hold
+        ep.setdefault("events", []).append(f"sunday: held ({reason})")
+        storage.save_episode(episode_id, ep)
+        hold["notified"] = bool(notify_publish_held(episode_id, reason))
+        storage.save_episode(episode_id, ep)
+
+    return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content={
+        "status": reason,
+        "stage": "sunday",
+        "episode_id": episode_id,
+        "concept": concept,
+        "published": False,
+        "message": _HOLD_MESSAGES[reason],
+    })
+
+
 @router.api_route("/sunday", methods=["GET", "POST"])
 async def cron_sunday(request: Request):
     _verify_cron_secret(request)
@@ -2981,7 +3172,12 @@ async def cron_sunday(request: Request):
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     with _test_mode_scope(body):
       episode_id = body.episode_id or _current_episode_id()
-      ep = _load_or_create_episode(episode_id, body.concept or PLACEHOLDER_CONCEPT)
+      # Uncached (#7936): a warm process must not start from an image set
+      # Wednesday has since replaced. A missing episode still reaches the
+      # Monday gate below (409, alerted); a read failure is a 500.
+      ep = _read_episode_uncached(
+          episode_id, body.concept or PLACEHOLDER_CONCEPT, "at the start of Sunday",
+      ) or _new_episode(episode_id, body.concept or PLACEHOLDER_CONCEPT)
       concept: str = body.concept or ep.get("concept") or PLACEHOLDER_CONCEPT
 
       if ep.get("published_at"):
@@ -3024,8 +3220,19 @@ async def cron_sunday(request: Request):
                     detail=f"Cannot publish: {day} stage incomplete (status={stage_status!r})",
                 )
 
+        # #7936: nothing is published, and no paid dialogue or QA runs, until
+        # Erik has approved one of the CURRENT photos. No reply and a
+        # rejection both hold; there is no force/test bypass. The decision is
+        # read fresh from its own record; a read failure fails the stage
+        # (alerted) rather than guessing.
+        photo_decision = photo_review.load_decision(storage, ep)
+        hold = photo_review.hold_status(ep, photo_decision)
+        if hold:
+            return _hold_for_photo_approval(episode_id, ep, concept, hold)
+
         dialogue, judge_verdict = _generate_and_judge_dialogue(
             "sunday", concept, ep, model=body.model,
+            photography_context=_photo_review_only_context(ep),
             injected_event=body.injected_event,
             recipe_data=ep.get("stages", {}).get("monday", {}).get("recipe_data"),
             # The judge scores Sunday but does not gate it (#7394). A weak
@@ -3083,10 +3290,24 @@ async def cron_sunday(request: Request):
         else:
             ep["events"].append("sunday: editorial QA PASSED")
 
-        # Wire winner image into recipe featured_photo
+        # Re-read the episode and the decision now, after the paid steps:
+        # Erik may have changed or withdrawn his choice, Wednesday may have
+        # replaced the image set, or another run may have published. Any of
+        # those stops this run; publishing a superseded choice would be worse
+        # than a late week (#7936).
+        blocked = _sunday_publish_guard(episode_id, ep, photo_decision, concept)
+        if blocked is not None:
+            return blocked
+        latest_decision = photo_decision
+        approved_photo = photo_review.approved_selection(ep, latest_decision)
+        if approved_photo is None:
+            # The guard confirmed the same approval record for the same set,
+            # so this cannot happen; refuse rather than publish without a photo.
+            raise RuntimeError("approved photo vanished after the publish guard passed")
+
+        # Wire Erik's approved photo into recipe featured_photo (#7936).
         wed_stage = ep.get("stages", {}).get("wednesday", {})
-        confirmed_winner = wed_stage.get("confirmed_winner", {})
-        featured_image_path = confirmed_winner.get("featured_image", "")
+        featured_image_path = approved_photo["path"]
         if featured_image_path:
             # Strip src/ prefix for web serving
             web_image_path = featured_image_path.removeprefix("src/")
@@ -3158,10 +3379,20 @@ async def cron_sunday(request: Request):
         # before any picking logic, so a later re-render — full rebuild,
         # encoding fix — can never swap the picture. Without this, the first
         # live full rebuild (2026-09-05) changed the hero on 20 of 25 pages.
-        if not str(ep.get("hero_image_url") or "").strip():
-            ep["hero_image_url"] = _hero_image_url(ep)
+        # The episode is not published yet, so any existing pin is from before
+        # the review and must not override Erik's choice (#7936).
+        ep["hero_image_url"] = approved_photo["url"]
+        ep["photo_approval"] = {
+            "record_id": latest_decision.get("record_id"),
+            "image_set_id": latest_decision.get("image_set_id"),
+            "decided_at": latest_decision.get("decided_at"),
+            "decided_by": latest_decision.get("decided_by"),
+            "decided_by_id": latest_decision.get("decided_by_id"),
+            **{k: approved_photo[k] for k in ("path", "url", "variant")},
+        }
 
         ep["published_at"] = datetime.now(timezone.utc).isoformat()
+        ep.pop("publish_hold", None)
         # Saved with published_at, so a run that dies before the IndexNow
         # outcome is persisted leaves it owed; the already-published path
         # retries it (#7806, same shape as announce_pending, #7403).
@@ -3215,6 +3446,13 @@ async def cron_sunday(request: Request):
             # Saved in the same write as `published` (#7403): the alert is
             # owed from here until a delivery is confirmed.
             advisory["announce_pending"] = True
+
+        # Memory generation above takes time, so check once more immediately
+        # before the save that publishes (#7936). Character memories written
+        # above stay written if this stops the run.
+        blocked = _sunday_publish_guard(episode_id, ep, photo_decision, concept)
+        if blocked is not None:
+            return blocked
 
         # Persist the published episode before writing the catalog so a crash
         # between authoritative writes and the manual deployment handoff is

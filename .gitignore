@@ -48,6 +48,7 @@ data/pipeline_state/
 data/image_generation_jobs.json
 data/episodes/*.json
 data/character_memory/
+data/photo_reviews/
 
 # OS
 .DS_Store

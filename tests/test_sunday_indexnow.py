@@ -17,6 +17,7 @@ import pytest
 
 from backend.admin import cron_routes
 from backend.utils.indexnow import IndexNowResult
+from tests.photo_review_helpers import approved_wednesday
 
 
 def _request() -> SimpleNamespace:
@@ -38,11 +39,7 @@ def _episode() -> dict:
                     "instructions": ["Whisk and bake."],
                 },
             },
-            "wednesday": {
-                "status": "complete",
-                "confirmed_winner": {},
-                "image_status": "auto_selected",
-            },
+            "wednesday": approved_wednesday(episode_id="2026-W20"),
         },
         "events": [],
         "image_urls": [],
