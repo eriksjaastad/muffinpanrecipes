@@ -11,9 +11,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 import hashlib
+import math
 import os
 import random
+import re
+import secrets
 import shutil
+from datetime import datetime, timezone
 
 import requests
 
@@ -360,7 +364,10 @@ class ArtDirectorAgent(Agent):
             result["per_image"] = per_image
 
             def _score(value: Any) -> float | None:
+                # Strict: a real, finite number in 1..5. No defaults anywhere.
                 if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    return None
+                if not math.isfinite(value) or not 1 <= value <= 5:
                     return None
                 return float(value)
 
@@ -368,28 +375,41 @@ class ArtDirectorAgent(Agent):
             # these decide whether a paid reshoot happens (retry_eligible), so
             # the stricter defect check below cannot buy extra rounds.
             original_dims = ["variety", "quality", "style_adherence", "food_appeal", "composition", "muffin_pan_form"]
-            all_scores = []
+            all_scores: list[float] = []
             any_below_threshold = False
             any_off_brand = False
             form_key_missing = False
+            quality_defects: dict[int, list[str]] = {}
             for img in per_image:
                 for dim in original_dims:
-                    score = _score(img.get(dim, 3.0))
+                    score = _score(img.get(dim))
                     if score is None:
-                        incomplete.append(f"image {img['image']}: {dim} is not a number")
+                        incomplete.append(f"image {img['image']}: {dim} missing or invalid")
                         continue
                     all_scores.append(score)
                     if score < 2.5:
                         any_below_threshold = True
+                    if dim == "muffin_pan_form" and score < 3.0:
+                        any_off_brand = True
                 if "muffin_pan_form" not in img:
                     form_key_missing = True
-                else:
-                    form = _score(img.get("muffin_pan_form"))
-                    if form is not None and form < 3.0:
-                        any_off_brand = True
+
+                # The physical-realism standard (#7936). A listed defect rejects
+                # the image even if the model also scored it 5: the list is the
+                # evidence, the score is a summary. Recorded as a quality
+                # rejection for the human review, never a reshoot trigger.
+                defects = img.get("defects")
+                realism = _score(img.get("physical_realism"))
+                if not isinstance(defects, list):
+                    incomplete.append(f"image {img['image']}: defects missing or not a list")
+                if realism is None:
+                    incomplete.append(f"image {img['image']}: physical_realism missing or invalid")
+                if isinstance(defects, list) and realism is not None:
+                    listed = [str(d) for d in defects if str(d).strip()]
+                    if listed or realism < 3.0:
+                        quality_defects[img["image"]] = listed or [f"physical_realism {realism:g}"]
 
             if form_key_missing:
-                incomplete.append("muffin_pan_form missing")
                 # The model ignored the schema and dropped the brand dimension.
                 # Not a reshoot (spend on a formatting hiccup), but surfaced
                 # loudly: a quietly-missing key would disable the brand check
@@ -412,35 +432,27 @@ class ArtDirectorAgent(Agent):
                 except Exception as notify_exc:
                     logger.error(f"Form-key-missing Discord notify failed: {notify_exc}")
 
-            avg_score = sum(all_scores) / max(len(all_scores), 1)
-            result["avg_score"] = round(avg_score, 2)
-            set_diversity = _score(result.get("set_diversity", 5.0))
+            set_diversity = _score(result.get("set_diversity"))
             if set_diversity is None:
-                incomplete.append("set_diversity is not a number")
-                set_diversity = 5.0
-            criteria_passed = (
-                avg_score >= 3.5
-                and not any_below_threshold
-                and set_diversity >= 3.0
-                and not any_off_brand
-            )
-
-            # The physical-realism standard (#7936). A listed defect rejects
-            # the image even if the model also scored it 5: the list is the
-            # evidence, the score is a summary. Recorded as a quality
-            # rejection for the human review, never a reshoot trigger.
-            quality_defects: dict[int, list[str]] = {}
-            for img in per_image:
-                defects = img.get("defects")
-                realism = _score(img.get("physical_realism"))
-                if not isinstance(defects, list) or realism is None:
-                    incomplete.append(f"image {img['image']}: defects/physical_realism missing")
-                    continue
-                listed = [str(d) for d in defects if str(d).strip()]
-                if listed or realism < 3.0:
-                    quality_defects[img["image"]] = listed or [f"physical_realism {realism:g}"]
+                incomplete.append("set_diversity missing or invalid")
 
             complete = not incomplete
+            if complete:
+                avg_score = sum(all_scores) / len(all_scores)
+                result["avg_score"] = round(avg_score, 2)
+                criteria_passed = (
+                    avg_score >= 3.5
+                    and not any_below_threshold
+                    and set_diversity >= 3.0
+                    and not any_off_brand
+                )
+            else:
+                # Never compute a verdict from partial data.
+                result["avg_score"] = None
+                criteria_passed = False
+                quality_defects = {}
+                any_off_brand = False
+
             result["criteria_passed"] = criteria_passed
             result["quality_defects"] = {str(k): v for k, v in quality_defects.items()}
             result["incomplete_reasons"] = incomplete
@@ -508,12 +520,24 @@ class ArtDirectorAgent(Agent):
 
     _MAX_ROUNDS = 2  # Generate → evaluate → (optional reshoot) → done
 
+    _GENERATION_ID_RE = re.compile(r"^g[0-9A-Za-z-]{6,40}$")
+
+    @staticmethod
+    def _new_generation_id() -> str:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        return f"g{stamp}-{secrets.token_hex(3)}"
+
     def _generate_round(
         self, api_key: str, recipe_title: str, recipe_id: str, round_num: int,
-        feedback: str | None = None,
+        feedback: str | None = None, generation_id: str | None = None,
     ) -> tuple[list[dict[str, Any]], Path]:
-        """Generate 3 variants for a single round. Returns (variant_outputs, round_dir)."""
-        round_dir = self._images_dir() / recipe_id / f"round_{round_num}"
+        """Generate 3 variants for a single round. Returns (variant_outputs, round_dir).
+
+        Paths include the generation id so a rerun never overwrites blobs the
+        CDN may already hold under a 1-year immutable cache (#7936).
+        """
+        gen_id = generation_id or self._new_generation_id()
+        round_dir = self._images_dir() / recipe_id / gen_id / f"round_{round_num}"
         variant_outputs: list[dict[str, Any]] = []
 
         for variant in self._VARIANTS:
@@ -527,7 +551,7 @@ class ArtDirectorAgent(Agent):
             out_path.write_bytes(image_bytes)
 
             # Canonical relative path (always src/assets/images/...) for storage layer
-            canonical = f"src/assets/images/{recipe_id}/round_{round_num}/{variant}.png"
+            canonical = f"src/assets/images/{recipe_id}/{gen_id}/round_{round_num}/{variant}.png"
 
             variant_outputs.append({
                 "variant": variant,
@@ -596,6 +620,13 @@ class ArtDirectorAgent(Agent):
         if not api_key:
             raise RuntimeError("STABILITY_API_KEY not configured; Julian refuses to work with placeholders.")
 
+        override = task.context.get("generation_id")
+        generation_id = (
+            override
+            if isinstance(override, str) and self._GENERATION_ID_RE.fullmatch(override)
+            else self._new_generation_id()
+        )
+
         shot_count = random.randint(35, 55)
         rounds: list[dict[str, Any]] = []
         winner_info: dict[str, Any] | None = None
@@ -606,6 +637,7 @@ class ArtDirectorAgent(Agent):
             
             variant_outputs, round_dir = self._generate_round(
                 api_key, recipe_title, recipe_id, round_num, feedback=feedback,
+                generation_id=generation_id,
             )
 
             # Perceptual hash diversity check (belt-and-suspenders with vision eval)
@@ -665,6 +697,7 @@ class ArtDirectorAgent(Agent):
                 winner_info = {
                     **variant_outputs[winner_idx],
                     "round": round_num,
+                    "generation_id": generation_id,
                 }
                 break
 
@@ -672,7 +705,7 @@ class ArtDirectorAgent(Agent):
         # This is a placeholder for the human review, never an approval.
         if winner_info is None:
             last_variants = rounds[-1]["variants"]
-            winner_info = {**last_variants[0], "round": len(rounds)}
+            winner_info = {**last_variants[0], "round": len(rounds), "generation_id": generation_id}
         automated_review_status = rounds[-1]["vision_evaluation"].get("review_status", "failed")
         winner_info["automated_review_status"] = automated_review_status
 
@@ -710,6 +743,7 @@ class ArtDirectorAgent(Agent):
             success=True,
             output={
                 "recipe_id": recipe_id,
+                "generation_id": generation_id,
                 "total_shots": shot_count,
                 "rounds": rounds,
                 "winner": winner_info,

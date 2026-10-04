@@ -128,7 +128,6 @@ def episode_page_is_due(episode: object) -> bool:
 PHOTO_HOLD_LABELS = {
     "awaiting_photo_approval": "awaiting photo approval",
     "photos_rejected": "photos rejected, awaiting new photos",
-    "photo_review_changed": "photo choice changed, awaiting publish",
 }
 
 
@@ -141,7 +140,7 @@ def recorded_photo_hold(episode: dict) -> str | None:
     stale (rerun image set) or forged hold is not recognised, so the missing
     Sunday is reported as usual. An expected hold is still not a publication.
     """
-    from backend.utils.photo_review import current_review
+    from backend.utils.photo_review import episode_request
 
     hold = episode.get("publish_hold")
     if not isinstance(hold, dict) or hold.get("reason") not in PHOTO_HOLD_LABELS:
@@ -151,7 +150,7 @@ def recorded_photo_hold(episode: dict) -> str | None:
     stages = episode.get("stages") or {}
     if (stages.get("wednesday") or {}).get("status") != "complete" or stages.get("sunday"):
         return None
-    review = current_review(episode)
+    review = episode_request(episode)
     if not review or not hold.get("image_set_id") or hold.get("image_set_id") != review.get("image_set_id"):
         return None
     try:

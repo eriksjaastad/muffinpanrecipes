@@ -20,11 +20,24 @@ from backend.utils.indexnow import IndexNowResult
 from tests.photo_review_helpers import approved_wednesday
 
 
+@pytest.fixture(autouse=True)
+def _test_namespace_as_on_cloud(monkeypatch):
+    """Model cloud storage, where the test prefix separates episodes too.
+
+    Local storage refuses a test-namespace photo review (#7936); here the
+    episode reads are mocked per run, so the test namespace stands in for
+    cloud's prefixed episodes.
+    """
+    from backend.storage import _FilesystemBackend
+
+    monkeypatch.setattr(_FilesystemBackend, "namespaces_episodes", lambda self: True)
+
+
 def _request() -> SimpleNamespace:
     return SimpleNamespace(method="POST", url=SimpleNamespace(path="/api/cron/sunday"))
 
 
-def _episode() -> dict:
+def _episode(prefix: str = "") -> dict:
     return {
         "episode_id": "2026-W20",
         "concept": "Herbed Sausage Sunrise Cups",
@@ -39,7 +52,7 @@ def _episode() -> dict:
                     "instructions": ["Whisk and bake."],
                 },
             },
-            "wednesday": approved_wednesday(episode_id="2026-W20"),
+            "wednesday": approved_wednesday(episode_id="2026-W20", prefix=prefix),
         },
         "events": [],
         "image_urls": [],
@@ -48,7 +61,7 @@ def _episode() -> dict:
 
 def _run_sunday(body: cron_routes.StageRequest, indexnow_result: IndexNowResult):
     """Drive cron_sunday through the full first-time-publish path."""
-    episode = _episode()
+    episode = _episode("test/" if body.test else "")
 
     with patch.object(cron_routes, "_verify_cron_secret"), \
          patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=body)), \

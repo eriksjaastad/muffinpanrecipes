@@ -44,7 +44,7 @@
                     class="text-sm px-3 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 font-medium">
                     ▶ Run Compressed Week
                 </button>
-                {% if not episode.published_at %}
+                {% if not episode.published_at and episode.can_delete %}
                 <button id="delete-btn" data-action="delete-episode" data-episode-id="{{ episode.episode_id }}"
                     class="text-sm px-3 py-2 rounded bg-red-600 text-white hover:bg-red-700 font-medium">
                     🗑 Delete Episode
@@ -52,7 +52,7 @@
                 {% endif %}
                 <a href="/admin/"
                     class="text-sm px-3 py-2 rounded bg-slate-200 text-slate-800 hover:bg-slate-300">Dashboard</a>
-                <a href="/admin/episodes"
+                <a href="/admin/episodes{% if episode.ns %}?ns={{ episode.ns }}{% endif %}"
                     class="text-sm px-3 py-2 rounded bg-slate-200 text-slate-800 hover:bg-slate-300">Episodes</a>
                 <a href="/admin/recipes"
                     class="text-sm px-3 py-2 rounded bg-slate-200 text-slate-800 hover:bg-slate-300">Recipes</a>
@@ -152,20 +152,26 @@
                 {% set review = episode.photo_review %}
 
                 <!-- Photo review (#7936): Sunday publishes only an approved current photo -->
-                <section id="photo-review" class="mb-4 border border-slate-200 rounded-lg p-3">
+                <section id="photo-review" data-ns="{{ episode.ns }}" class="mb-4 border border-slate-200 rounded-lg p-3">
                     <div class="flex items-center gap-2 mb-2">
                         <h3 class="text-sm font-semibold text-slate-800">Photo review</h3>
-                        {% if review.status == 'approved' %}
+                        {% if episode.ns %}<span class="text-xs px-2 py-0.5 rounded-full bg-violet-100 text-violet-700">Test namespace</span>{% endif %}
+                        {% if review.frozen %}
+                        <span class="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">Publishing</span>
+                        {% elif review.status == 'approved' %}
                         <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Approved</span>
                         {% elif review.status == 'rejected' %}
                         <span class="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700">None usable</span>
-                        {% elif review.status in ('awaiting', 'invalid') %}
+                        {% elif review.status == 'awaiting' %}
                         <span class="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Awaiting your pick</span>
                         {% else %}
                         <span class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">No current review</span>
                         {% endif %}
                     </div>
                     {% if review.note %}<p class="text-sm text-slate-600 mb-2">{{ review.note }}</p>{% endif %}
+                    {% if review.evaluation_unavailable %}
+                    <p class="text-xs text-slate-500 mb-2">The automated review for this photo set is not available; there is no team pick or defect list to show.</p>
+                    {% endif %}
                     {% if review.automated_status and review.automated_status != 'passed' %}
                     <p class="text-xs text-slate-500 mb-2">Automated check: {{ review.automated_status }}. It is advice only.</p>
                     {% endif %}
@@ -235,10 +241,14 @@
                         {% set is_winner = confirmed_winner.get('path', '') == variant_path %}
                         <div class="group relative">
                             <div class="aspect-square bg-slate-100 rounded-lg overflow-hidden border-2 {{ 'border-emerald-500 ring-2 ring-emerald-200' if is_winner else 'border-slate-200' }}">
-                                {% set shown = episode.image_display_urls.get(variant_path) or ('/' ~ (variant_path | replace('src/', ''))) %}
+                                {% set shown = episode.image_display_urls.get(variant_path) or ('' if episode.ns == 'test' else '/' ~ (variant_path | replace('src/', ''))) %}
+                                {% if shown %}
                                 <img src="{{ shown }}"
                                     class="img-attachment w-full h-full object-cover cursor-zoom-in"
                                     data-lightbox-src="{{ shown }}" alt="{{ variant_name }}">
+                                {% else %}
+                                <div class="flex items-center justify-center h-full text-slate-400 text-xs text-center p-2">Not shown: not in the current review set</div>
+                                {% endif %}
                             </div>
                             <div class="mt-1 flex items-center justify-between">
                                 <p class="text-xs text-slate-500">{{ variant_name | replace('_', ' ') | title }}</p>
@@ -271,10 +281,21 @@
                         {% for img_path in stage.image_paths %}
                         <div class="group relative">
                             <div class="aspect-square bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
+                                {% if episode.ns == 'test' %}
+                                {% set shown = episode.image_display_urls.get(img_path) %}
+                                {% if shown %}
+                                <img src="{{ shown }}"
+                                    class="img-attachment w-full h-full object-cover cursor-zoom-in"
+                                    data-lightbox-src="{{ shown }}" alt="variant {{ loop.index }}">
+                                {% else %}
+                                <div class="flex items-center justify-center h-full text-slate-400 text-xs text-center p-2">Not shown: not in the current review set</div>
+                                {% endif %}
+                                {% else %}
                                 <img src="/{{ img_path | replace('src/', '') }}"
                                     onerror="this.parentElement.innerHTML='<div class=\'flex items-center justify-center h-full text-slate-400 text-xs text-center p-2\'><div><div class=\'text-2xl mb-1\'>📷</div><div>{{ img_path }}</div></div></div>'"
                                     class="img-attachment w-full h-full object-cover cursor-zoom-in"
                                     data-lightbox-src="/{{ img_path | replace('src/', '') }}" alt="variant {{ loop.index }}">
+                                {% endif %}
                             </div>
                             <p class="mt-1 text-xs text-center text-slate-500">Variant {{ loop.index }}</p>
                         </div>
@@ -464,7 +485,9 @@
             const out = document.getElementById('photo-review-result');
             btn.disabled = true;
             try {
-                const resp = await fetch(`/admin/episodes/${episodeId}/photos/review`, {
+                const ns = document.getElementById('photo-review')?.dataset.ns || '';
+                const query = ns ? `?ns=${encodeURIComponent(ns)}` : '';
+                const resp = await fetch(`/admin/episodes/${episodeId}/photos/review${query}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload),

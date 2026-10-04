@@ -1,51 +1,30 @@
-"""Synthetic Wednesday stages and photo decisions (#7936).
+"""Synthetic Wednesday stages and photo approvals (#7936).
 
-Sunday publishes only an approved current photo, so every offline Sunday
-fixture that expects a publish must carry one. Decisions go to DECISIONS,
-the in-memory store tests/conftest.py installs on the storage singleton for
-every test. No storage or provider calls.
+Sunday publishes only an approved current photo it can claim, so every
+offline Sunday fixture that expects a publish must carry one. Approvals go
+through the real photo-control transitions on the storage singleton, which
+tests/conftest.py points at a per-test temporary directory. No storage or
+provider calls leave the machine.
 """
 
-from backend.storage import new_photo_decision_id
+from backend.storage import storage
 from backend.utils import photo_review
 
 VARIANTS = ("macro_closeup", "overhead_flatlay", "hero_threequarter")
 BLOB = "https://store.public.blob.vercel-storage.com/images"
 
 
-class MemoryDecisions:
-    """Append-only, like the real backends; keyed by (episode, image set)."""
+def wednesday_stage(recipe_id: str = "r1", generation: str = "g20260101T000000Z-aaaaaa", **overrides) -> dict:
+    """A complete Wednesday with three uploaded candidates and a request mirror.
 
-    def __init__(self):
-        self.records: dict[tuple[str, str], list[dict]] = {}
-        self.fail_reads = False
-
-    def clear(self):
-        self.records.clear()
-        self.fail_reads = False
-
-    def add_photo_decision(self, episode_id, image_set_id, record):
-        record_id = new_photo_decision_id()
-        self.records.setdefault((episode_id, image_set_id), []).append({**record, "record_id": record_id})
-        return record_id
-
-    def latest_photo_decision(self, episode_id, image_set_id):
-        if self.fail_reads:
-            from backend.storage import PhotoDecisionUnavailable
-            raise PhotoDecisionUnavailable("blob down")
-        found = self.records.get((episode_id, image_set_id))
-        return dict(found[-1]) if found else None
-
-
-DECISIONS = MemoryDecisions()
-
-
-def wednesday_stage(recipe_id: str = "r1", **overrides) -> dict:
-    """A complete Wednesday with three uploaded candidates and a review request."""
-    paths = [f"src/assets/images/{recipe_id}/round_1/{v}.png" for v in VARIANTS]
-    urls = [f"{BLOB}/{recipe_id}/round_1/{v}.png" for v in VARIANTS]
+    The full request is on ``wed["_request"]`` for ``register``; it is not
+    part of what Wednesday stores on the episode.
+    """
+    paths = [f"src/assets/images/{recipe_id}/{generation}/round_1/{v}.png" for v in VARIANTS]
+    urls = [f"{BLOB}/{recipe_id}/{generation}/round_1/{v}.png" for v in VARIANTS]
     wed = {
         "status": "complete",
+        "completed_at": "2026-01-01T12:00:00+00:00",
         "confirmed_winner": {"variant": VARIANTS[0], "path": paths[0],
                              "featured_image": f"src/assets/images/{recipe_id}.png"},
         "image_status": "auto_selected",
@@ -57,26 +36,45 @@ def wednesday_stage(recipe_id: str = "r1", **overrides) -> dict:
         "image_urls": urls,
     }
     wed.update(overrides)
-    wed["photo_review"] = photo_review.new_review(wed)
+    request = photo_review.new_review(wed)
+    wed["photo_review"] = {k: request[k] for k in ("image_set_id", "generated_at", "requested_at")}
     return wed
 
 
-def decide(ep: dict, action: str = "select", pick: int = 1, store=None) -> dict:
-    """Record a decision for ``ep``'s current set, as the admin endpoint does."""
-    wed = ep["stages"]["wednesday"]
-    record = photo_review.make_decision(
-        ep, action=action, image_set=wed["photo_review"]["image_set_id"],
-        path=wed["image_paths"][pick - 1] if action == "select" else None, decided_by="test",
+def register(episode_id: str, wed: dict, store=None):
+    """Make ``wed``'s set the episode's current request, as Wednesday does."""
+    review = wed["photo_review"]
+    request = {
+        **review,
+        "candidates": photo_review.build_candidates(wed),
+        "image_paths": list(wed["image_paths"]),
+        "image_urls": list(wed["image_urls"]),
+        # Wednesday freezes its evaluation into the request (new_review).
+        "wednesday_snapshot": photo_review._wednesday_snapshot(wed),
+    }
+    return photo_review.register_request(store or storage, episode_id, request)
+
+
+def decide(episode_id: str, ep: dict, action: str = "select", pick: int = 1, store=None):
+    """Record a decision on the current control, as the admin endpoint does."""
+    store = store or storage
+    view = photo_review.read_view(store, episode_id, ep)
+    path = view.request["candidates"][pick - 1]["path"] if action == "select" else None
+    return photo_review.record_decision(
+        store, episode_id, ep, action=action, image_set=view.image_set_id, path=path,
+        decided_by="site editor", decided_by_id="editor-test",
     )
-    return photo_review.save_decision(store or DECISIONS, ep, record)
 
 
 def approved_wednesday(recipe_id: str = "r1", pick: int = 1, episode_id: str = "2026-W41",
-                       action: str = "select", **overrides) -> dict:
-    """A Wednesday stage whose current set already has a decision in DECISIONS.
+                       action: str = "select", prefix: str = "", **overrides) -> dict:
+    """A Wednesday stage whose set is registered and decided in the control.
 
-    ``episode_id`` must match the episode the stage is placed in.
+    ``episode_id`` must match the episode the stage is placed in, and
+    ``prefix`` the storage namespace Sunday runs in ("test/" for test=True).
     """
     wed = wednesday_stage(recipe_id, **overrides)
-    decide({"episode_id": episode_id, "stages": {"wednesday": wed}}, action=action, pick=pick)
+    with storage.prefix_scope(prefix):
+        register(episode_id, wed)
+        decide(episode_id, {"episode_id": episode_id, "stages": {"wednesday": wed}}, action=action, pick=pick)
     return wed

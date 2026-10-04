@@ -762,16 +762,44 @@ def create_routes(app: FastAPI):
         from backend.storage import storage
         return storage
 
-    def _load_cloud_episode(episode_id: str) -> dict:
-        """Read the production episode; a storage failure is an error, never stale disk data.
+    # #7936: the admin viewer serves production ("") or the test namespace
+    # ("test/") only. Every review read and write runs inside that prefix.
+    _NAMESPACES = {"": "", "test": "test/"}
 
-        Skips this process's episode cache, so a warm Lambda cannot show the
-        review page an image set it cached before a Wednesday rerun.
+    def _namespace_prefix(ns: Optional[str]) -> str:
+        if ns is None:
+            return ""
+        if not isinstance(ns, str) or ns not in _NAMESPACES:
+            raise HTTPException(status_code=400, detail="Unknown namespace")
+        prefix = _NAMESPACES[ns]
+        # Local filesystem episodes ignore the storage prefix, so a local
+        # "test" view would show production's episode file. Refuse it
+        # rather than claim an isolation that does not exist.
+        if prefix and not _namespaces_episodes(_cloud_storage()):
+            raise HTTPException(
+                status_code=400,
+                detail="The test namespace exists only on cloud storage; local episodes are not separated.",
+            )
+        return prefix
+
+    def _namespaces_episodes(store) -> bool:
+        check = getattr(store, "namespaces_episodes", None)
+        return bool(check()) if callable(check) else False
+
+    def _is_cloud_store(store) -> bool:
+        has_cloud = getattr(store, "_has_cloud", None)
+        return bool(has_cloud()) if callable(has_cloud) else False
+
+    def _load_cloud_episode(episode_id: str, prefix: str = "") -> dict:
+        """Read the stored episode for DISPLAY; a storage failure is an error, never stale disk data.
+
+        Skips this process's episode cache. Decisions never rely on this
+        copy: they go through the photo control and a verified read.
         """
         store = _cloud_storage()
         strict = getattr(store, "load_episode_strict", None)
         try:
-            with store.prefix_scope(""):
+            with store.prefix_scope(prefix):
                 data = strict(episode_id, use_cache=False) if strict else store.load_episode(episode_id)
         except Exception as exc:
             logger.error(f"Episode read failed for {episode_id}: {type(exc).__name__}: {exc}")
@@ -780,17 +808,32 @@ def create_routes(app: FastAPI):
             raise HTTPException(status_code=404, detail=f"Episode not found: {episode_id}")
         return data
 
-    def _load_photo_decision(data: dict) -> Optional[dict]:
-        """The current decision, read fresh; a storage failure is a 503."""
+    def _load_photo_view(episode_id: str, data: dict, prefix: str = ""):
+        """The authoritative photo control view; a storage failure is a 503."""
         from backend.utils import photo_review
 
         store = _cloud_storage()
         try:
-            with store.prefix_scope(""):
-                return photo_review.load_decision(store, data)
+            with store.prefix_scope(prefix):
+                return photo_review.read_view(store, episode_id, data)
         except Exception as exc:
-            logger.error(f"Photo decision read failed for {data.get('episode_id')}: {type(exc).__name__}: {exc}")
+            logger.error(f"Photo control read failed for {episode_id}: {type(exc).__name__}: {exc}")
             raise HTTPException(status_code=503, detail="Could not read the photo review from storage")
+
+    def _sunday_run_has_passed(episode_id: str) -> Optional[bool]:
+        """Whether the episode's scheduled Sunday cron time is behind us, or None if unknown."""
+        from backend.utils.episode_integrity import stage_deadline
+
+        try:
+            return datetime.now(timezone.utc) >= stage_deadline(episode_id, "sunday")
+        except (ValueError, KeyError, TypeError):  # governance: allow-silent SF002: a non-ISO-week episode id has no schedule; the caller then says publication needs a Sunday run without promising a time
+            return None
+
+    def _approval_message(episode_id: str) -> str:
+        passed = _sunday_run_has_passed(episode_id)
+        if passed is False:
+            return "Approved. Sunday's scheduled run will publish this photo."
+        return "Approved. Sunday's scheduled run has passed; publishing needs a manual Sunday run (RUNBOOK)."
 
     def _origin_of(url: str) -> str:
         from urllib.parse import urlparse
@@ -880,7 +923,7 @@ def create_routes(app: FastAPI):
                 logger.warning(f"Skipping invalid episode {data.get('episode_id') if isinstance(data, dict) else '?'}: {exc}")
         return episodes
 
-    def _build_episode_detail(data: dict, decision: Optional[dict] = None) -> dict:
+    def _build_episode_detail(data: dict, view=None, ns: str = "", can_delete: bool = False) -> dict:
         """Build template-friendly detail from raw episode JSON."""
         stages_raw = data.get("stages", {})
         stages = []
@@ -938,23 +981,55 @@ def create_routes(app: FastAPI):
             "recipe_id": data.get("recipe_id"),
             "events": data.get("events", []),
             "stages": stages,
-            "photo_review": _photo_review_view(data, decision),
-            "image_display_urls": _image_display_urls(data),
+            "photo_review": _photo_review_view(data, view, ns),
+            "image_display_urls": _image_display_urls(data, view, ns),
+            "ns": ns,
+            "can_delete": can_delete,
         }
 
-    def _image_display_urls(data: dict) -> dict:
+    def _image_display_urls(data: dict, view=None, ns: str = "") -> dict:
+        """Same-origin gallery URLs for the Wednesday rounds, by path.
+
+        In the test namespace only images that are candidates of the CURRENT
+        review set (same path and URL) are mapped, through the set-bound
+        proxy; any other path is absent and the template says so instead of
+        showing a broken or another set's image.
+        """
         from backend.publishing.episode_renderer import _to_local_image_url
 
         wed = data.get("stages", {}).get("wednesday", {}) or {}
+        pairs = [(p, u) for p, u in zip(wed.get("image_paths") or [], wed.get("image_urls") or []) if p and u]
+        if ns != "test":
+            return {p: _to_local_image_url(u) for p, u in pairs}
+        if view is None or view.request is None:
+            return {}
+        candidates = {c.get("path"): c for c in view.request.get("candidates") or []}
         return {
-            p: _to_local_image_url(u)
-            for p, u in zip(wed.get("image_paths") or [], wed.get("image_urls") or [])
-            if p and u
+            p: _candidate_display_url(view.episode_id, candidates[p], ns, view.image_set_id)
+            for p, u in pairs
+            if p in candidates and candidates[p].get("url") == u
         }
 
-    def _automated_notes(data: dict) -> tuple[Optional[str], dict]:
+    def _review_evaluation(data: dict, view) -> Optional[dict]:
+        """The automated evaluation OF THE AUTHORITATIVE SET, or None (#7936).
+
+        The control request's own snapshot when it has one. Otherwise the
+        episode's Wednesday fields, but only when the episode mirror is for
+        the same image set: another set's team pick, defects or status is
+        never shown against these photos.
+        """
+        from backend.utils import photo_review
+
+        snap = photo_review.request_snapshot(view.request)
+        if snap is not None:
+            return snap
+        mirrored = photo_review.episode_request(data)
+        if mirrored and mirrored.get("image_set_id") == view.image_set_id:
+            return data.get("stages", {}).get("wednesday", {}) or {}
+        return None
+
+    def _automated_notes(wed: dict) -> tuple[Optional[str], dict]:
         """The automated pick and each candidate's recorded defects, by path."""
-        wed = data.get("stages", {}).get("wednesday", {}) or {}
         winner = wed.get("confirmed_winner") or {}
         photo = wed.get("photography_data") if isinstance(wed.get("photography_data"), dict) else {}
         defects: dict = {}
@@ -965,47 +1040,72 @@ def create_routes(app: FastAPI):
                     defects[v.get("path")] = [str(d)[:160] for d in scores["defects"] if d][:5]
         return (winner.get("path") if isinstance(winner, dict) else None), defects
 
-    def _photo_review_view(data: dict, decision: Optional[dict]) -> dict:
+    def _candidate_display_url(episode_id: str, candidate: dict, ns: str, image_set: Optional[str]) -> str:
+        """Same-origin image URL for a candidate (CSP allows only 'self').
+
+        Production URLs map to the /blob-images/ rewrite. Test-namespace
+        images live under test/images/, which that rewrite cannot reach, so
+        they go through the authenticated proxy below. The proxy URL names
+        the image set: a replacement set's index 1 is a different URL, so a
+        page reviewing one set can never be shown another set's pixels.
+        """
         from backend.publishing.episode_renderer import _to_local_image_url
+
+        if ns == "test":
+            return f"/admin/episodes/{episode_id}/photos/{image_set}/{candidate['index']}/image?ns=test"
+        return _to_local_image_url(candidate["url"])
+
+    def _photo_review_view(data: dict, view, ns: str = "") -> dict:
         from backend.utils import photo_review
 
-        state = photo_review.review_state(data, decision)
-        review = state["review"]
-        if review is None:
+        if view is None or view.request is None:
             return {"status": None, "candidates": [], "writable": False,
                     "note": "No current photo set to review."}
-        selected = state["selected"]
-        published = bool(data.get("published_at"))
-        recommended_path, defects = _automated_notes(data)
-        wed = data.get("stages", {}).get("wednesday", {}) or {}
-        automated = (wed.get("photography_data") or {}).get("automated_review_status") \
-            if isinstance(wed.get("photography_data"), dict) else None
+        selected = view.selected
+        published = bool(data.get("published_at")) or view.state == photo_review.PUBLISHED
+        frozen = view.frozen and not published
+        evaluation = _review_evaluation(data, view)
+        recommended_path, defects = _automated_notes(evaluation) if evaluation is not None else (None, {})
+        automated = (evaluation.get("photography_data") or {}).get("automated_review_status") \
+            if evaluation is not None and isinstance(evaluation.get("photography_data"), dict) else None
+        # An "approved" version whose decision approves nothing valid is
+        # shown as Sunday treats it: still awaiting a choice.
+        if view.state == photo_review.APPROVED:
+            status_value = photo_review.APPROVED if selected else photo_review.AWAITING
+        elif view.state in photo_review.DECIDABLE:
+            status_value = view.state
+        else:
+            status_value = photo_review.APPROVED if selected else view.state
         note = ""
         if published:
             note = "Published. The hero is pinned; changes are editorial overrides."
-        elif selected and data.get("publish_hold"):
-            note = "Approved. The scheduled publishing time has passed; publication is still pending."
-        elif data.get("publish_hold"):
-            note = "Sunday did not publish: it is waiting for your photo choice."
-        elif state["status"] == photo_review.INVALID:
-            note = "The saved choice does not match these photos. Choose again."
-        elif review.get("legacy") and state["status"] == photo_review.AWAITING:
+        elif frozen:
+            note = "Publishing is underway. Choices are frozen."
+        elif selected:
+            note = _approval_message(str(data.get("episode_id") or view.episode_id))
+        elif view.state == photo_review.REJECTED:
+            note = "Rejected. Sunday will not publish. No new photos are made."
+        elif view.legacy:
             note = ("These photos were made before photo review existed, so no "
                     "\"photos ready\" email went out. Sunday publishes only after you choose.")
+        elif _sunday_run_has_passed(view.episode_id):
+            note = "Sunday's scheduled run has passed. After you choose, publishing needs a manual Sunday run."
         return {
-            "status": state["status"],
-            "image_set_id": review.get("image_set_id"),
+            "status": status_value,
+            "frozen": frozen,
+            "image_set_id": view.image_set_id,
             "selected_path": selected["path"] if selected else None,
-            "decided_at": state.get("decided_at"),
+            "decided_at": (view.decision or {}).get("decided_at"),
             "automated_status": automated,
-            "legacy": bool(review.get("legacy")),
-            "writable": not published,
+            "evaluation_unavailable": evaluation is None,
+            "legacy": view.legacy,
+            "writable": not published and not frozen,
             "note": note,
             "candidates": [
-                {**c, "display_url": _to_local_image_url(c["url"]),
+                {**c, "display_url": _candidate_display_url(view.episode_id, c, ns, view.image_set_id),
                  "recommended": c["path"] == recommended_path,
                  "defects": defects.get(c["path"], [])}
-                for c in review.get("candidates", [])
+                for c in view.request.get("candidates", [])
             ],
         }
 
@@ -1015,13 +1115,15 @@ def create_routes(app: FastAPI):
         user: dict = Depends(require_auth),
         page: int = 1,
         page_size: int = 20,
+        ns: Optional[str] = None,
     ):
         """Browse full-week episode production logs."""
         templates = app.state.templates
+        prefix = _namespace_prefix(ns)
         store = _cloud_storage()
         lister = getattr(store, "list_episodes_strict", None) or store.list_episodes
         try:
-            with store.prefix_scope(""):
+            with store.prefix_scope(prefix):
                 raw = lister()
         except Exception as exc:
             logger.error(f"Episode list failed: {type(exc).__name__}: {exc}")
@@ -1049,6 +1151,7 @@ def create_routes(app: FastAPI):
                 "max_page": max_page,
                 "stage_keys": STAGE_ORDER,
                 "stage_labels": {k: STAGE_LABELS.get(k, k[:3].title()) for k in STAGE_ORDER},
+                "ns": ns or "",
             },
         )
 
@@ -1057,12 +1160,18 @@ def create_routes(app: FastAPI):
         request: Request,
         episode_id: str,
         user: dict = Depends(require_auth),
+        ns: Optional[str] = None,
     ):
         """Full stage-by-stage viewer for a single episode."""
         _sanitize_id(episode_id, "episode_id")
+        prefix = _namespace_prefix(ns)
         templates = app.state.templates
-        data = _load_cloud_episode(episode_id)
-        episode = _build_episode_detail(data, _load_photo_decision(data))
+        data = _load_cloud_episode(episode_id, prefix)
+        episode = _build_episode_detail(
+            data, _load_photo_view(episode_id, data, prefix), ns=ns or "",
+            # Delete trashes LOCAL files only; it is not offered for cloud data.
+            can_delete=not _is_cloud_store(_cloud_storage()) and not prefix,
+        )
 
         return templates.TemplateResponse(
             "episode_detail.html",
@@ -1102,32 +1211,44 @@ def create_routes(app: FastAPI):
         return {"decided_by": "site editor", "decided_by_id": f"editor-{digest}" if digest else None}
 
     def _record_photo_decision(
-        episode_id: str, user: dict, *, action: str, image_set: str, path: Optional[str],
+        episode_id: str, user: dict, *, action: str, image_set: str, path: Optional[str], prefix: str,
     ) -> dict:
-        """Validate against the cloud episode's candidates, then append the decision (#7936).
+        """Validate against the CURRENT photo control and append the decision (#7936).
 
-        Writes only the separate decision record, never the episode, so no
-        cron save can erase it. Never generates or copies images.
+        The episode is read freshness-verified (its published state, and the
+        request when no control exists yet). The decision is a compare-and-
+        swap on the control: it cannot interleave with Sunday's claim.
+        Never writes the episode, never generates or copies images.
         """
+        from backend.storage import EpisodeReadStale
         from backend.utils import photo_review
 
         _sanitize_id(episode_id, "episode_id")
-        data = _load_cloud_episode(episode_id)
-        data.setdefault("episode_id", episode_id)
-        try:
-            record = photo_review.make_decision(
-                data,
-                action=action,
-                image_set=image_set,
-                path=path,
-                **_decision_actor(user),
-            )
-        except photo_review.PhotoReviewError as exc:
-            raise HTTPException(status_code=409 if data.get("published_at") else 400, detail=str(exc))
         store = _cloud_storage()
         try:
-            with store.prefix_scope(""):
-                photo_review.save_decision(store, data, record)
+            with store.prefix_scope(prefix):
+                data = store.load_episode_verified(episode_id)
+        except EpisodeReadStale as exc:
+            logger.error(f"Episode read not verified for {episode_id}: {exc}")
+            raise HTTPException(status_code=503, detail="Storage is still updating. Try again in a minute.")
+        except Exception as exc:
+            logger.error(f"Episode read failed for {episode_id}: {type(exc).__name__}: {exc}")
+            raise HTTPException(status_code=503, detail="Could not read the episode from storage")
+        if not data:
+            raise HTTPException(status_code=404, detail=f"Episode not found: {episode_id}")
+        try:
+            with store.prefix_scope(prefix):
+                view = photo_review.record_decision(
+                    store, episode_id, data,
+                    action=action, image_set=image_set, path=path,
+                    **_decision_actor(user),
+                )
+        except photo_review.PhotoReviewError as exc:
+            raise HTTPException(status_code=409 if data.get("published_at") else 400, detail=str(exc))
+        except photo_review.PublicationUnderway:
+            raise HTTPException(status_code=409, detail="Publishing is underway. Choices are frozen.")
+        except photo_review.ReviewConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
         except Exception as exc:
             logger.error(f"Photo decision save failed for {episode_id}: {type(exc).__name__}: {exc}")
             # The write may have landed before the error: do not promise
@@ -1136,15 +1257,13 @@ def create_routes(app: FastAPI):
                 status_code=503,
                 detail="Could not confirm the save. Reload to check your selection.",
             )
-        status_value = record["status"]
-        if status_value == "approved" and data.get("publish_hold"):
-            message = "Approved. The scheduled publishing time has passed; publication is still pending."
-        elif status_value == "approved":
-            message = "Approved. Sunday will publish this photo."
+        status_value = view.state
+        if status_value == photo_review.APPROVED:
+            message = _approval_message(episode_id)
         else:
             message = "Rejected. Sunday will not publish. No new photos are made."
-        logger.info(f"Photo review for {episode_id}: {status_value}")
-        return {"success": True, "status": status_value, "message": message}
+        logger.info(f"Photo review for {episode_id}: {status_value} (control v{view.version})")
+        return {"success": True, "status": status_value, "message": message, "version": view.version}
 
     @app.post("/admin/episodes/{episode_id}/photos/review")
     async def admin_photo_review(
@@ -1152,15 +1271,80 @@ def create_routes(app: FastAPI):
         request_data: PhotoReviewRequest,
         request: Request,
         user: dict = Depends(require_auth),
+        ns: Optional[str] = None,
     ):
         """Select one candidate photo, or reject all. Sunday publishes only an approval."""
         _require_same_origin(request)
+        prefix = _namespace_prefix(ns)
         return _record_photo_decision(
             episode_id, user,
             action=request_data.action,
             image_set=request_data.image_set_id,
             path=request_data.path,
+            prefix=prefix,
         )
+
+    # Test-namespace images are stored under test/images/ in the same public
+    # store; only exact URLs under this origin are ever fetched (#7936).
+    from backend.publishing.episode_renderer import BLOB_CDN_PREFIX as _BLOB_IMAGES
+    _TEST_IMAGES_PREFIX = _BLOB_IMAGES.removesuffix("images/") + "test/images/"
+
+    @app.get("/admin/episodes/{episode_id}/photos/{image_set}/{index}/image")
+    async def admin_test_photo(
+        episode_id: str,
+        image_set: str,
+        index: int,
+        user: dict = Depends(require_auth),
+        ns: Optional[str] = None,
+    ):
+        """Serve one TEST-namespace candidate same-origin, for the review page.
+
+        Production candidates use the public /blob-images/ rewrite; that
+        rewrite maps to images/ only, and the admin CSP allows only
+        same-origin images, so test candidates come through here. The URL
+        names the image set, which must be the authoritative current one:
+        a page still showing a replaced set gets a refusal, never the new
+        set's pixels. The image URL is taken from the control request by
+        index, never from the client, and must sit under the store's
+        test/images/ path. Not cached: each load re-checks the set.
+        """
+        import re
+
+        from fastapi.responses import Response
+        import requests as _requests
+
+        _sanitize_id(episode_id, "episode_id")
+        prefix = _namespace_prefix(ns)
+        if prefix != "test/":
+            raise HTTPException(status_code=404, detail="Only test-namespace photos are served here")
+        if not re.fullmatch(r"[0-9a-f]{16}", image_set):
+            raise HTTPException(status_code=404, detail="No such photo set")
+        data = _load_cloud_episode(episode_id, prefix)
+        view = _load_photo_view(episode_id, data, prefix)
+        if not view.image_set_id or view.image_set_id != image_set:
+            raise HTTPException(status_code=409, detail="The photos changed since this page loaded; reload.")
+        candidate = next(
+            (c for c in (view.request or {}).get("candidates") or [] if c.get("index") == index), None,
+        )
+        url = str((candidate or {}).get("url") or "")
+        rest = url[len(_TEST_IMAGES_PREFIX):]
+        if (
+            not url.startswith(_TEST_IMAGES_PREFIX)
+            or not rest
+            or any(bad in rest for bad in ("..", "?", "#", "//", "\\"))
+        ):
+            raise HTTPException(status_code=404, detail="No such test-namespace photo")
+        try:
+            resp = _requests.get(url, timeout=20)
+            resp.raise_for_status()
+        except Exception as exc:
+            logger.error(f"Test photo fetch failed for {episode_id} #{index}: {type(exc).__name__}: {exc}")
+            raise HTTPException(status_code=502, detail="Could not load the photo from storage")
+        media_type = str(resp.headers.get("Content-Type") or "").split(";")[0].strip()
+        if not media_type.startswith("image/"):
+            raise HTTPException(status_code=502, detail="Storage did not return an image")
+        return Response(content=resp.content, media_type=media_type,
+                        headers={"Cache-Control": "private, no-store"})
 
     def _retired_image_control(episode_id: str) -> None:
         raise HTTPException(
@@ -1203,8 +1387,15 @@ def create_routes(app: FastAPI):
         episode_id: str,
         user: dict = Depends(require_auth),
     ):
-        """Delete a non-published episode and its associated images (moved to trash)."""
+        """Delete a non-published LOCAL episode and its associated images (moved to trash)."""
         _sanitize_id(episode_id, "episode_id")
+        if _is_cloud_store(_cloud_storage()):
+            # The viewer shows cloud episodes (#7936); this only ever trashed
+            # local files, so it would report a deletion that did not happen.
+            raise HTTPException(
+                status_code=409,
+                detail="Delete is local-only and not available for cloud-stored episodes.",
+            )
         episodes_dir = app.state.project_root / "data" / "episodes"
         ep_path = episodes_dir / f"{episode_id}.json"
 

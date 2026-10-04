@@ -130,7 +130,7 @@ def test_scheduled_pause_expires_at_monday_utc_week_boundary(client, monkeypatch
     monkeypatch.setattr(cron_routes, "_test_mode_scope", lambda _body: nullcontext())
     dispatch = Mock(side_effect=HTTPException(status_code=418, detail="normal dispatch reached"))
     # Sunday's first read is the uncached one (#7936).
-    monkeypatch.setattr(cron_routes, "_read_episode_uncached", dispatch)
+    monkeypatch.setattr(cron_routes, "_read_episode_verified", dispatch)
 
     before_expiry = client.get("/api/cron/sunday", headers=_auth_headers())
     assert before_expiry.status_code == 200

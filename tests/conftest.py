@@ -63,22 +63,18 @@ def _no_live_indexnow_submission(monkeypatch):
     monkeypatch.setattr("backend.utils.indexnow.requests.post", _blocked)
 
 
-# Human photo decisions (#7936) live in their own Blob/filesystem records,
-# which Sunday reads on every run. Without this, a Sunday test could read or
-# write data/photo_reviews/ in the repo (or Blob, under doppler run). Every
-# test gets an empty in-memory store on the storage singleton instead;
-# tests/photo_review_helpers.py writes approvals into it. Tests of the real
-# backends build their own _FilesystemBackend/_CloudBackend instances.
+# The photo-approval control log (#7936) is read by Wednesday-Sunday on every
+# run. Without this, a test could read or write data/photo_control/ in the
+# repo (or Blob, under doppler run). Every test gets an empty control
+# directory under tmp_path instead, served by the REAL filesystem backend
+# code (exclusive lock + atomic rename), so tests exercise the actual
+# compare-and-swap. Tests of the cloud backend build their own instance
+# over a fake Blob API.
 @pytest.fixture(autouse=True)
-def _in_memory_photo_decisions(monkeypatch):
-    from backend.storage import storage
-    from tests import photo_review_helpers
+def _isolated_photo_control(monkeypatch, tmp_path):
+    import backend.storage as storage_module
 
-    photo_review_helpers.DECISIONS.clear()
-    monkeypatch.setattr(storage, "add_photo_decision", photo_review_helpers.DECISIONS.add_photo_decision,
-                        raising=False)
-    monkeypatch.setattr(storage, "latest_photo_decision", photo_review_helpers.DECISIONS.latest_photo_decision,
-                        raising=False)
+    monkeypatch.setattr(storage_module, "PHOTO_CONTROL_DIR", tmp_path / "photo_control")
 
 
 # backend.utils.model_router._COST_LOG is a module-level global, and several

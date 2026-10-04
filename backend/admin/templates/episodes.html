@@ -32,7 +32,7 @@
         {% if episodes %}
         <div class="space-y-3">
             {% for ep in episodes %}
-            <a href="/admin/episodes/{{ ep.episode_id }}"
+            <a href="/admin/episodes/{{ ep.episode_id }}{% if ns %}?ns={{ ns }}{% endif %}"
                 class="block bg-white border border-slate-200 rounded-lg px-5 py-4 hover:shadow-md transition-shadow">
                 <div class="flex items-center justify-between gap-4">
                     <div class="min-w-0 flex-1">
@@ -107,7 +107,7 @@
         <nav class="mt-6 flex items-center justify-between">
             <div>
                 {% if page > 1 %}
-                <a href="/admin/episodes?page={{ page - 1 }}&page_size={{ page_size }}"
+                <a href="/admin/episodes?page={{ page - 1 }}&page_size={{ page_size }}{% if ns %}&ns={{ ns }}{% endif %}"
                     class="text-sm px-4 py-2 rounded bg-white border border-slate-200 text-slate-700 hover:bg-slate-50">
                     ← Newer
                 </a>
@@ -115,7 +115,7 @@
             </div>
             <span class="text-sm text-slate-500">Page {{ page }} / {{ max_page }}</span>
             <div>
-                {% if page < max_page %} <a href="/admin/episodes?page={{ page + 1 }}&page_size={{ page_size }}"
+                {% if page < max_page %} <a href="/admin/episodes?page={{ page + 1 }}&page_size={{ page_size }}{% if ns %}&ns={{ ns }}{% endif %}"
                     class="text-sm px-4 py-2 rounded bg-white border border-slate-200 text-slate-700 hover:bg-slate-50">
                     Older →
                     </a>
