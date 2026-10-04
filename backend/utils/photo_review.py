@@ -412,7 +412,7 @@ def _valid_candidate(candidate: object, position: int) -> bool:
         return False
     if not _valid_image_path(candidate.get("path")) or not _valid_image_url(candidate.get("url")):
         return False
-    if not isinstance(candidate.get("variant", ""), str):
+    if not isinstance(candidate.get("variant"), str):
         return False
     rnd = candidate.get("round")
     if rnd is not None and (isinstance(rnd, bool) or not isinstance(rnd, int)):

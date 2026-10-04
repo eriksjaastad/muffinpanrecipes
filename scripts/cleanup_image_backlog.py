@@ -1,8 +1,8 @@
 """One-time cleanup script for accumulated image variant directories.
 
 For each {recipe_id}/ directory under src/assets/images/:
-- If it holds a protected image, skip it (#7936). Protected: any photo a
-  human approved (every local photo-control version), a published or
+- If it holds a protected image, skip it (#7936). Protected: every candidate
+  in a local photo-control request, any photo a human approved, a published or
   pinned hero (episode photo_approval), a legacy confirmed/overridden
   winner, and every image path of a published episode. Since #7936 the
   published hero lives INSIDE the round directory, so the old rule below
@@ -60,7 +60,19 @@ def protected_image_paths() -> set[str]:
                     protected.add(_image_rel(p))
     for path in sorted(PHOTO_CONTROL_DIR.rglob("v*.json")) if PHOTO_CONTROL_DIR.exists() else []:
         ctrl = json.loads(path.read_text())
-        selected = ((ctrl.get("decision") or {}).get("selected") or {}) if isinstance(ctrl, dict) else {}
+        if not isinstance(ctrl, dict):
+            raise ValueError(f"Unreadable photo control: {path}")
+        # Registration can succeed before the episode mirror is saved. Keep
+        # every recorded candidate, including awaiting/rejected requests.
+        request = ctrl.get("request")
+        if request is not None:
+            if not isinstance(request, dict) or not isinstance(request.get("candidates"), list):
+                raise ValueError(f"Unreadable photo request: {path}")
+            for candidate in request["candidates"]:
+                if not isinstance(candidate, dict) or not isinstance(candidate.get("path"), str) or not candidate["path"]:
+                    raise ValueError(f"Unreadable photo candidate: {path}")
+                protected.add(_image_rel(candidate["path"]))
+        selected = (ctrl.get("decision") or {}).get("selected") or {}
         if isinstance(selected, dict) and selected.get("path"):
             protected.add(_image_rel(selected["path"]))
     return protected

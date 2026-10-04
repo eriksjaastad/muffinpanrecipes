@@ -2900,8 +2900,8 @@ async def cron_friday(request: Request):
         # The actual human review state, so nobody claims an approval that
         # has not happened (#7936).
         review_ctx = _photo_review_dialogue_context(episode_id, ep)
-        if friday_photo_ctx is not None and review_ctx:
-            friday_photo_ctx = {**friday_photo_ctx, "human_review": review_ctx}
+        if review_ctx:
+            friday_photo_ctx = {**(friday_photo_ctx or {}), "human_review": review_ctx}
         dialogue, judge_verdict = _generate_and_judge_dialogue(
             "friday", concept, ep,
             photography_context=friday_photo_ctx,

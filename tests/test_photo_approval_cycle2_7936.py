@@ -549,6 +549,8 @@ def _malformed_requests(wed):
         "none_element": [c[0], None],
         "bool_round": [{**c[0], "round": True}],
         "list_variant": [{**c[0], "variant": ["macro"]}],
+        "missing_variant": [{k: v for k, v in c[0].items() if k != "variant"}],
+        "none_variant": [{**c[0], "variant": None}],
         "candidates_string": "src/assets/images/r1/x.png",
         "candidates_dict": {"path": c[0]["path"], "url": c[0]["url"]},
         "candidates_empty": [],
