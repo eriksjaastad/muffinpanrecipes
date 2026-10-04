@@ -55,10 +55,12 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 from backend.storage import (
     PHOTO_CONTROL_MAX_VERSION,
@@ -295,7 +297,10 @@ class ControlView:
 
         The decision itself must be an approval of THIS set: a malformed
         version whose state says approved but whose decision is a reject,
-        lacks a status, or names another set approves nothing.
+        lacks a status, or names another set approves nothing. The selection
+        must name a candidate by non-empty path AND url; an empty or partial
+        selection (``{}``, a missing path) is never a match, whatever the
+        candidates look like.
         """
         if self.state not in (APPROVED,) + FROZEN or not self.decision or not self.request:
             return None
@@ -303,10 +308,10 @@ class ControlView:
                 or self.decision.get("image_set_id") != self.image_set_id:
             return None
         sel = self.decision.get("selected")
-        if not isinstance(sel, dict):
+        if not isinstance(sel, dict) or not _nonempty_str(sel.get("path")) or not _nonempty_str(sel.get("url")):
             return None
         for c in self.request.get("candidates") or []:
-            if c.get("path") == sel.get("path") and c.get("url") == sel.get("url"):
+            if isinstance(c, dict) and c.get("path") == sel["path"] and c.get("url") == sel["url"]:
                 return c
         return None
 
@@ -327,14 +332,113 @@ class ControlView:
         return None
 
 
+_IMAGE_SET_ID_RE = re.compile(r"^[0-9a-f]{16}$")
+# The canonical image path every producer writes (art_director, legacy and
+# generation-scoped alike): src/assets/images/<recipe>[/<generation>]/round_N/<variant>.png,
+# also src/assets/images/<recipe>.png for a featured image. Segments are
+# plain file-name characters; the extension is an image's.
+_IMAGE_PATH_RE = re.compile(
+    r"^src/assets/images/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*\.(?:png|jpe?g|webp)$",
+    re.IGNORECASE,
+)
+_IMAGE_URL_PATH_RE = re.compile(r"(?:^|/)images/.+\.(?:png|jpe?g|webp)$", re.IGNORECASE)
+_URL_FORBIDDEN = set("\\<>\"'`{}|^")
+
+
+def _nonempty_str(value: object) -> bool:
+    return isinstance(value, str) and value.strip() != "" and value == value.strip()
+
+
+def _clean_text(value: str) -> bool:
+    return not any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 or ch in _URL_FORBIDDEN for ch in value)
+
+
+def _valid_image_path(path: object) -> bool:
+    """A canonical repository image path, as ``build_candidates`` emits it."""
+    if not _nonempty_str(path) or not _clean_text(path):
+        return False
+    if not _IMAGE_PATH_RE.match(path):
+        return False
+    return all(segment.strip(".") for segment in path.split("/"))
+
+
+def _valid_image_url(url: object) -> bool:
+    """A URL the review page can load and Sunday can pin as the hero.
+
+    Either an absolute http(s) URL with a real host (the public Blob store,
+    current or W10-era form) or a root-relative same-origin path (the local
+    filesystem backend's "/assets/images/..."). The path must be an image
+    under an ``images/`` segment, with no dot segments, query, fragment,
+    credentials, scheme-relative host or stray characters. Not fetched.
+    """
+    if not _nonempty_str(url) or not _clean_text(url):
+        return False
+    try:
+        parts = urlsplit(url)
+    except ValueError:  # governance: allow-silent SF002: an unparseable URL is simply not a usable candidate URL; the caller fails closed on False
+        return False
+    if parts.query or parts.fragment or parts.username or parts.password:
+        return False
+    if parts.scheme in ("http", "https"):
+        if not parts.hostname:
+            return False
+    elif parts.scheme == "":
+        if not url.startswith("/") or url.startswith("//") or parts.netloc:
+            return False
+    else:
+        return False
+    path = parts.path
+    if not path.startswith("/") or not _IMAGE_URL_PATH_RE.search(path):
+        return False
+    return all(segment.strip(".") or i == 0 for i, segment in enumerate(path.split("/")))
+
+
+def _valid_candidate(candidate: object, position: int) -> bool:
+    """A usable candidate at 1-based ``position`` of a request.
+
+    Exactly what ``build_candidates`` produces: a dict whose ``index`` is
+    the position (an int, never a bool), a canonical image path
+    (``_valid_image_path``), an image URL with a real host or a same-origin
+    root (``_valid_image_url``), a string variant and an int-or-None round.
+    Anything else is unusable, never "close enough".
+    """
+    if not isinstance(candidate, dict):
+        return False
+    index = candidate.get("index")
+    if isinstance(index, bool) or not isinstance(index, int) or index != position:
+        return False
+    if not _valid_image_path(candidate.get("path")) or not _valid_image_url(candidate.get("url")):
+        return False
+    if not isinstance(candidate.get("variant", ""), str):
+        return False
+    rnd = candidate.get("round")
+    if rnd is not None and (isinstance(rnd, bool) or not isinstance(rnd, int)):
+        return False
+    return True
+
+
 def _valid_request(request: object) -> bool:
-    return (
-        isinstance(request, dict)
-        and isinstance(request.get("image_set_id"), str)
-        and bool(request["image_set_id"])
-        and isinstance(request.get("candidates"), list)
-        and bool(request["candidates"])
-    )
+    """Whether ``request`` is complete enough to decide on, claim or publish.
+
+    The authority boundary: a control version, a Wednesday registration or
+    a derived request that fails this is unusable. Callers fail closed on
+    it (the control reads as unavailable); nothing downgrades it to a
+    legacy or empty request, approves from it or spends on it.
+    """
+    if not isinstance(request, dict):
+        return False
+    if not isinstance(request.get("image_set_id"), str) or not _IMAGE_SET_ID_RE.match(request["image_set_id"]):
+        return False
+    if not _nonempty_str(request.get("generated_at")):
+        return False
+    candidates = request.get("candidates")
+    if not isinstance(candidates, list) or not candidates:
+        return False
+    if not all(_valid_candidate(c, i) for i, c in enumerate(candidates, start=1)):
+        return False
+    paths = [c["path"] for c in candidates]
+    urls = [c["url"] for c in candidates]
+    return len(set(paths)) == len(paths) and len(set(urls)) == len(urls)
 
 
 def _view_from_control(episode_id: str, ctrl: dict) -> ControlView:
@@ -355,6 +459,10 @@ def _view_from_control(episode_id: str, ctrl: dict) -> ControlView:
 
 def _derived_view(episode_id: str, ep: dict | None) -> ControlView:
     request = episode_request(ep) if ep else None
+    if request is not None and not _valid_request(request):
+        # The episode's own photo fields do not add up to a reviewable set;
+        # there is nothing to decide on (and nothing to spend on).
+        request = None
     return ControlView(
         episode_id=episode_id,
         state=AWAITING if request else None,
@@ -483,6 +591,8 @@ def record_decision(
 
     selected: dict | None = None
     if action == "select":
+        if not _nonempty_str(path):
+            raise PhotoReviewError("Choose one of this episode's candidate photos")
         match = [c for c in view.request["candidates"] if c.get("path") == path]
         if not match:
             raise PhotoReviewError("Not one of this episode's candidate photos")

@@ -71,11 +71,40 @@ underway. Choices are frozen." and Wednesday refuses to replace the photos (409)
 - Decision records are public Blob files: "site editor" plus an opaque keyed
   hash of the account, never an email or OAuth subject.
 - Published weeks keep their pinned hero; changing one is an editorial override.
-- The admin viewer shows Blob episodes; its Delete button only exists for
-  local filesystem data and the endpoint refuses on cloud storage.
-- Cleanup (`cleanup_image_variants`, `scripts/cleanup_image_backlog.py`) never
-  trashes a directory holding an approved, pinned, published or legacy
-  confirmed photo.
+- The admin viewer shows Blob episodes; its Delete and "Run Compressed Week"
+  buttons only exist for local filesystem data, in the production view, and
+  both endpoints refuse (409) on cloud storage, in any `?ns=`, and (the
+  simulation) for a published week. The simulation writes whole stages
+  through the storage singleton with no namespace of its own, so offered
+  from a `?ns=test` page it overwrote production. Locally it now keeps a
+  Wednesday's photos and review mirror and never touches the photo control;
+  a claimed/publishing week refuses it. Its Sunday is stored with status
+  `simulated`, not `complete`: the site builder, renderer, backfill and
+  fix_encoding all read a `complete` Sunday as published (legacy weeks have
+  no `published_at`), so a stub Sunday must never look like one.
+- The review section renders from the photo-control log whether or not the
+  episode's Wednesday stage shows the set (a registration whose episode save
+  failed, a stale save that dropped Wednesday). The Wednesday card keeps its
+  real status; the section says when the episode record does not show the
+  set. Decisions always target the control's current set.
+- Sunday does NOT trash image variants any more. The automatic cleanup ran
+  on the provisional copy before `mark_publishing`; when that step failed the
+  approval was handed back with the other candidates already in the trash.
+  Every candidate stays until an explicit sweep:
+  `scripts/cleanup_image_backlog.py` (dry run by default) never trashes a
+  directory holding an approved, pinned, published or legacy confirmed photo.
+- `publish_hold` on the episode is cleared (one save) the moment Sunday
+  claims an approval, before any paid step; if that save fails the claim is
+  handed back and nothing is spent. A failure after the claim (editorial QA,
+  dialogue, a lost claim) is therefore recorded as a failed Sunday, and the
+  monitor reports it instead of "awaiting photo approval". A later true hold
+  (rejection, new photos) replaces an earlier failed Sunday stage; the QA
+  record stays in `editorial_qa` and the events.
+- A control version whose request is unusable (a candidate with no path or
+  URL, a bad index, a duplicate, a malformed `image_set_id`) reads as
+  unavailable: the page is a 503, decisions are refused, and Sunday stops
+  with an alerted 503 before any paid step. It is never treated as a legacy
+  or empty review. Inspect the version files by hand.
 
 ### Stuck or lost publication (`claimed`, `publishing`, `published`)
 

@@ -367,7 +367,8 @@ def test_pre_publication_failure_saves_unpublished_and_releases_the_claim(failur
 
 def test_unexpected_error_after_the_published_copy_is_built_saves_unpublished():
     store, ep, _ = _approved_store()
-    with patch.object(cron_routes, "_cleanup_after_publish", side_effect=RuntimeError("bug")):
+    # _set_static_deploy_state runs on the published copy just before mark_publishing.
+    with patch.object(cron_routes, "_set_static_deploy_state", side_effect=RuntimeError("bug")):
         env = _sunday(store)
     assert _status(env) == 500
     assert store.saves, "_run_stage recorded the failure"
@@ -507,11 +508,14 @@ def test_already_published_week_keeps_its_idempotent_fast_path():
     assert _control(store)["state"] == "approved"  # not this claim's publication: untouched
 
 
-def test_legacy_confirmed_cleanup_keeps_the_approved_photo():
+def test_legacy_confirmed_week_publishes_without_automatic_cleanup():
+    """Codex cycle 2: cleanup ran before mark_publishing; now nothing is trashed by Sunday at all."""
     store, ep, wed = _approved_store(pick=2, wed=wednesday_stage(image_status="confirmed"))
-    _sunday(store)
-    (recipe_id, keep), = store.cleanups
-    assert recipe_id == "r1" and wed["image_paths"][1] in keep
+    env = _sunday(store)
+    assert env.result["published"] is True
+    assert store.cleanups == []
+    assert store.get(EP_ID)["stages"]["sunday"]["image_cleaned"] is False
+    assert store.get(EP_ID)["hero_image_url"] == wed["image_urls"][1]
 
 
 # --- Storage: the filesystem control log ------------------------------------

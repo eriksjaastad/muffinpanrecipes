@@ -3151,13 +3151,22 @@ def _hold_for_photo_approval(episode_id: str, ep: dict, concept: str, reason: st
     from fastapi.responses import JSONResponse
 
     image_set = view.image_set_id
-    mirror_changed = False
+    episode_changed = False
     if view.version and view.request:
         before = copy.deepcopy((ep.get("stages") or {}).get("wednesday"))
         photo_review.apply_request_mirror(ep, view.request)
-        mirror_changed = before != ep["stages"]["wednesday"]
+        episode_changed = before != ep["stages"]["wednesday"]
+    # An earlier Sunday that failed after its claim (editorial QA, dialogue)
+    # left a failed stage. This run is deliberately waiting, which is the
+    # current truth; the failure stays in events/editorial_qa. The monitor
+    # does not recognise a hold beside a Sunday stage, so the stale one goes.
+    stale_sunday = (ep.get("stages") or {}).get("sunday")
+    if isinstance(stale_sunday, dict) and stale_sunday.get("status") != "complete":
+        ep["stages"].pop("sunday", None)
+        ep.setdefault("events", []).append("sunday: earlier failed attempt superseded by hold")
+        episode_changed = True
     prior = ep.get("publish_hold") if isinstance(ep.get("publish_hold"), dict) else {}
-    if mirror_changed or not (
+    if episode_changed or not (
         prior.get("reason") == reason and prior.get("image_set_id") == image_set and prior.get("notified")
     ):
         same_hold = prior.get("reason") == reason and prior.get("image_set_id") == image_set
@@ -3399,40 +3408,6 @@ def _write_featured_photo(ep: dict, approved: dict, concept: str, episode_id: st
             break
 
 
-def _cleanup_after_publish(pub: dict, approved: dict) -> bool:
-    """Trash unused local variants for legacy confirmed/overridden weeks.
-
-    The approved photo, a pinned/legacy winner and their siblings are passed
-    as kept paths, so the published hero is never trashed (#7936).
-    """
-    wed_stage = pub.get("stages", {}).get("wednesday", {})
-    if wed_stage.get("image_status", "") not in ("confirmed", "overridden"):
-        return False
-    recipe_id = pub.get("recipe_id")
-    if not recipe_id:
-        return False
-    keep = [approved["path"], *photo_review.protected_image_paths(None, pub)]
-    try:
-        cleaned = storage.cleanup_image_variants(recipe_id, keep_paths=keep)
-        if cleaned:
-            logger.info(f"Cleaned up image variants for {recipe_id}: {cleaned}")
-            wed_stage["image_status"] = "cleaned"
-            return True
-    except Exception as e:
-        # TRIAGE (#6856): GENUINELY NON-FATAL, logged. This only
-        # trashes unused image variants after the winner is
-        # published. Failing leaves orphaned files — a storage
-        # cost, never a reader-visible defect — and blocking the
-        # publish over it would be strictly worse. Not alerted:
-        # a weekly ping about janitorial work is how alerts get
-        # ignored. scripts/cleanup_image_backlog.py sweeps these.
-        logger.error(
-            f"Image cleanup failed for {recipe_id} (orphaned variants "
-            f"left): {type(e).__name__}: {e}"
-        )
-    return False
-
-
 @router.api_route("/sunday", methods=["GET", "POST"])
 async def cron_sunday(request: Request):
     _verify_cron_secret(request)
@@ -3519,6 +3494,25 @@ async def cron_sunday(request: Request):
                 f"Sunday could not read or claim the photo control for {episode_id}: "
                 f"{type(exc).__name__}: {exc}. Nothing was published or spent.",
             )
+        # #7936: the hold an earlier Sunday recorded while waiting is obsolete
+        # the moment an approval is claimed. It is cleared in storage FIRST,
+        # before any other check or paid step, so every failure from here on
+        # (no usable selection, dialogue, editorial QA, a lost claim) is
+        # reported as that failure and never read back as "awaiting photo
+        # approval". If the clear cannot be saved, the claim is handed back
+        # and nothing is spent.
+        if ep.pop("publish_hold", None) is not None:
+            ep.setdefault("events", []).append("sunday: hold cleared (approved photo claimed)")
+            try:
+                storage.save_episode(episode_id, ep)
+            except Exception as exc:
+                _release_photo_claim(episode_id, concept, claimed, "could not clear the previous hold")
+                raise _sunday_storage_failure(
+                    episode_id, concept,
+                    f"Sunday {episode_id}: could not clear the previous photo hold before "
+                    f"publishing ({type(exc).__name__}: {exc}). The approval was handed back; "
+                    "nothing was spent. Run Sunday again in a minute.",
+                )
         approved_photo = claimed.selected
         if approved_photo is None:
             # claim_for_publication only claims an approval of a current
@@ -3571,6 +3565,19 @@ async def cron_sunday(request: Request):
             }
             if not qa_passed:
                 ep["events"].append("sunday: editorial QA FAILED (exhausted retries)")
+                # Recorded as a failed Sunday on the UNPUBLISHED episode so
+                # the monitor reports the QA failure (#7936): the raise below
+                # is an HTTPException, which _run_stage deliberately does not
+                # record. No publication field is touched.
+                ep["stages"]["sunday"] = {
+                    "stage": "publish",
+                    "status": "failed",
+                    "published": False,
+                    "error": (
+                        f"Editorial QA failed after {fix_attempts} auto-fix attempts: "
+                        f"{qa_report[:300]}"
+                    ),
+                }
                 storage.save_episode(episode_id, ep)
                 notify_judge_failure(
                     concept=concept,
@@ -3590,7 +3597,13 @@ async def cron_sunday(request: Request):
 
             _write_featured_photo(ep, approved_photo, concept, episode_id)
             pub = _published_copy(ep, claimed, dialogue, judge_verdict, concept)
-            pub["stages"]["sunday"]["image_cleaned"] = _cleanup_after_publish(pub, approved_photo)
+            # No automatic variant cleanup (#7936, Codex cycle 2). It used to
+            # run here, on the provisional copy, BEFORE mark_publishing: a
+            # failed mark_publishing handed the approval back with the other
+            # candidates already in the trash, and the page then offered them.
+            # Every candidate stays on disk for as long as the request can
+            # become editable; scripts/cleanup_image_backlog.py is the
+            # explicit sweep and never trashes a protected photo.
 
             # Generate per-character memories from the week's dialogue (#5027, #6968)
             try:
@@ -3709,13 +3722,18 @@ async def cron_sunday(request: Request):
 
 
 async def execute_cron_stage_stub(stage: str, episode_id: str, concept: str, model: str | None = None) -> dict:
-    """SIMULATION ONLY — Execute a cron stage stub in-process (no HTTP round-trip).
+    """SIMULATION ONLY — a LOCAL, dialogue-only stage stub (no HTTP round-trip).
 
     IMPORTANT: This function does NOT run the real orchestrator or generate
-    recipes/images. It records dialogue simulation and marks the stage complete
-    in the episode JSON. It exists so the admin 'Run Compressed Week' button
-    works on Vercel (localhost self-calls fail) and in single-worker dev
-    (no deadlock), simulating a week without actual pipeline costs.
+    recipes/images. It records simulated dialogue in the episode JSON for the
+    admin 'Run Compressed Week' button in single-worker local dev. Since
+    #7936 it runs ONLY against local production data: it refuses cloud
+    storage, any storage prefix, a published week and a claimed/publishing
+    photo control, so it can never reach Vercel/Blob data or the human photo
+    gate. Monday-Saturday are stored as ``complete``; Sunday is stored as
+    ``simulated`` (never ``complete``), because the site builder, renderer and
+    maintenance scripts read a complete Sunday as a publication. A simulated
+    Wednesday keeps the existing photos and review mirror.
 
     For the real per-stage pipeline, use the /api/cron/{stage} HTTP endpoints.
 
@@ -3725,8 +3743,23 @@ async def execute_cron_stage_stub(stage: str, episode_id: str, concept: str, mod
     valid_stages = {"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
     if stage not in valid_stages:
         raise ValueError(f"Unknown cron stage: {stage!r}")
+    # Local production data only (#7936, Codex cycle 2). The simulation
+    # writes whole stages through the storage singleton with no namespace of
+    # its own; offered from a test-namespace page it overwrote production.
+    # Refused before anything is read, generated or written.
+    has_cloud = getattr(storage, "_has_cloud", None)
+    if storage.prefix or (callable(has_cloud) and has_cloud()):
+        raise RuntimeError(
+            "The compressed-week simulation runs only against local production data; "
+            "refused for cloud storage and for a namespaced store."
+        )
     # Bypass cron secret verification — caller is already auth'd via admin UI
     ep = _load_or_create_episode(episode_id, concept)
+    if ep.get("published_at"):
+        raise RuntimeError(f"Episode {episode_id} is published; the simulation will not rewrite its history.")
+    # A week whose publication is claimed or underway is frozen; a simulated
+    # stage must not race Sunday's publishing save (raises PublicationUnderway).
+    photo_review.ensure_not_frozen(storage, episode_id)
     ep_concept: str = concept or ep.get("concept") or PLACEHOLDER_CONCEPT
     recipe_data = ep.get("stages", {}).get("monday", {}).get("recipe_data")
     dialogue = _generate_dialogue(
@@ -3741,14 +3774,30 @@ async def execute_cron_stage_stub(stage: str, episode_id: str, concept: str, mod
             f"Dialogue simulation produced no messages for {stage}. "
             f"See the Dialogue generation FAILED log line for the cause."
         )
+    # Paid photos and their review mirror survive a simulated Wednesday
+    # (#7936): the simulation replaces dialogue, never the image set.
+    prior = ep.get("stages", {}).get(stage)
+    preserved = (
+        {k: prior[k] for k in _PRESERVED_ON_FAILURE.get(stage, ()) if k in prior}
+        if isinstance(prior, dict) else {}
+    )
+    # A simulated Sunday is dialogue only. It is stored as "simulated", NOT
+    # "complete": the site builder, the renderer, backfill and fix_encoding
+    # all read ``stages.sunday.status == "complete"`` as "published" (legacy
+    # weeks have no published_at), so a "complete" stub Sunday would publish
+    # a local static build past the human photo gate. The other days keep
+    # "complete" so the week reads as in progress.
     ep.setdefault("stages", {})[stage] = {
+        **preserved,
         "stage": stage,
-        "status": "complete",
+        "status": "simulated" if stage == "sunday" else "complete",
+        "simulation": True,
+        "published": False,
         "concept": ep_concept,
         "dialogue": dialogue,
         "completed_at": datetime.now(timezone.utc).isoformat(),
     }
-    ep.setdefault("events", []).append(f"{stage}: complete")
+    ep.setdefault("events", []).append(f"{stage}: {'simulated' if stage == 'sunday' else 'complete'} (simulation)")
     storage.save_episode(episode_id, ep)
     return {
         "stage": stage,

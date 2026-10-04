@@ -40,10 +40,12 @@
                 <p class="text-sm text-slate-500 mt-0.5">{{ episode.concept }}</p>
             </div>
             <div class="flex gap-3 flex-wrap justify-end">
-                <button id="run-btn" data-action="run-week" data-episode-id="{{ episode.episode_id }}"
+                {% if episode.can_run %}
+                <button id="run-btn" data-action="run-week" data-episode-id="{{ episode.episode_id }}" data-ns="{{ episode.ns }}"
                     class="text-sm px-3 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 font-medium">
                     ▶ Run Compressed Week
                 </button>
+                {% endif %}
                 {% if not episode.published_at and episode.can_delete %}
                 <button id="delete-btn" data-action="delete-episode" data-episode-id="{{ episode.episode_id }}"
                     class="text-sm px-3 py-2 rounded bg-red-600 text-white hover:bg-red-700 font-medium">
@@ -91,6 +93,79 @@
             </div>
         </div>
 
+        {% set review = episode.photo_review %}
+        {% if review.show %}
+        <!-- Photo review (#7936): Sunday publishes only an approved current photo.
+             Rendered from the authoritative control, independent of the Wednesday stage card. -->
+        <!-- Photo review (#7936): Sunday publishes only an approved current photo -->
+        <section id="photo-review" data-ns="{{ episode.ns }}" class="bg-white border border-slate-200 rounded-lg p-4">
+            <div class="flex items-center gap-2 mb-2">
+                <h3 class="text-sm font-semibold text-slate-800">Photo review</h3>
+                {% if episode.ns %}<span class="text-xs px-2 py-0.5 rounded-full bg-violet-100 text-violet-700">Test namespace</span>{% endif %}
+                {% if review.frozen %}
+                <span class="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">Publishing</span>
+                {% elif review.status == 'approved' %}
+                <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Approved</span>
+                {% elif review.status == 'rejected' %}
+                <span class="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700">None usable</span>
+                {% elif review.status == 'awaiting' %}
+                <span class="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Awaiting your pick</span>
+                {% else %}
+                <span class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">No current review</span>
+                {% endif %}
+            </div>
+            {% if review.note %}<p class="text-sm text-slate-600 mb-2">{{ review.note }}</p>{% endif %}
+            {% if review.status and not review.mirror_agrees %}
+            <p class="text-xs text-slate-500 mb-2">The episode's Wednesday record does not show this set; the photos below come from the photo-control log, which is the authority, and your decision applies to them.</p>
+            {% endif %}
+            {% if review.evaluation_unavailable %}
+            <p class="text-xs text-slate-500 mb-2">The automated review for this photo set is not available; there is no team pick or defect list to show.</p>
+            {% endif %}
+            {% if review.automated_status and review.automated_status != 'passed' %}
+            <p class="text-xs text-slate-500 mb-2">Automated check: {{ review.automated_status }}. It is advice only.</p>
+            {% endif %}
+            <p id="photo-review-result" class="text-sm mb-2 hidden" role="status"></p>
+            {% if review.candidates %}
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {% for c in review.candidates %}
+                {% set chosen = review.selected_path == c.path %}
+                <div>
+                    <div class="aspect-square bg-slate-100 rounded-lg overflow-hidden border-2 {{ 'border-emerald-500' if chosen else 'border-slate-200' }}">
+                        <img src="{{ c.display_url }}" alt="{{ c.variant }}"
+                            class="img-attachment w-full h-full object-cover cursor-zoom-in"
+                            data-lightbox-src="{{ c.display_url }}">
+                    </div>
+                    <div class="mt-1 flex items-center justify-between">
+                        <p class="text-xs text-slate-500">{{ c.index }}. {{ c.variant | replace('_', ' ') }}{% if c.round %} · r{{ c.round }}{% endif %}{% if c.recommended %} · <span class="text-blue-700 font-medium">Team pick</span>{% endif %}</p>
+                        {% if chosen %}
+                        <span class="text-xs px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-medium">Selected</span>
+                        {% elif review.writable %}
+                        <button data-action="photo-select" data-episode-id="{{ episode.episode_id }}"
+                            data-image-set="{{ review.image_set_id }}" data-path="{{ c.path }}"
+                            class="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 hover:bg-blue-200 font-medium">
+                            Use this
+                        </button>
+                        {% endif %}
+                    </div>
+                    {% if c.defects %}
+                    <ul class="mt-1 text-xs text-red-700 list-disc list-inside">
+                        {% for d in c.defects %}<li>{{ d }}</li>{% endfor %}
+                    </ul>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% if review.writable and review.status != 'rejected' %}
+            <button data-action="photo-reject" data-episode-id="{{ episode.episode_id }}"
+                data-image-set="{{ review.image_set_id }}"
+                class="mt-3 text-sm px-3 py-1.5 rounded bg-slate-200 text-slate-800 hover:bg-slate-300 font-medium">
+                None usable
+            </button>
+            {% endif %}
+            {% endif %}
+        </section>
+        {% endif %}
+
         <!-- Stage cards -->
         {% for stage in episode.stages %}
         <section class="bg-white border border-slate-200 rounded-lg overflow-hidden">
@@ -114,6 +189,8 @@
                     <span class="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700">❌ Failed</span>
                     {% elif stage.status == 'in_progress' %}
                     <span class="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">🔵 Running</span>
+                    {% elif stage.status == 'simulated' %}
+                    <span class="text-xs px-2 py-0.5 rounded-full bg-violet-100 text-violet-700">🧪 Simulated (not published)</span>
                     {% endif %}
 
                     {% if stage.key == 'wednesday' and stage.image_paths %}
@@ -149,72 +226,6 @@
                 {% set confirmed_winner = stage.data.get('confirmed_winner', {}) %}
                 {% set photography_data = stage.data.get('photography_data', {}) %}
                 {% set rounds = photography_data.get('rounds', []) if photography_data is mapping else [] %}
-                {% set review = episode.photo_review %}
-
-                <!-- Photo review (#7936): Sunday publishes only an approved current photo -->
-                <section id="photo-review" data-ns="{{ episode.ns }}" class="mb-4 border border-slate-200 rounded-lg p-3">
-                    <div class="flex items-center gap-2 mb-2">
-                        <h3 class="text-sm font-semibold text-slate-800">Photo review</h3>
-                        {% if episode.ns %}<span class="text-xs px-2 py-0.5 rounded-full bg-violet-100 text-violet-700">Test namespace</span>{% endif %}
-                        {% if review.frozen %}
-                        <span class="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">Publishing</span>
-                        {% elif review.status == 'approved' %}
-                        <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Approved</span>
-                        {% elif review.status == 'rejected' %}
-                        <span class="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700">None usable</span>
-                        {% elif review.status == 'awaiting' %}
-                        <span class="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Awaiting your pick</span>
-                        {% else %}
-                        <span class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">No current review</span>
-                        {% endif %}
-                    </div>
-                    {% if review.note %}<p class="text-sm text-slate-600 mb-2">{{ review.note }}</p>{% endif %}
-                    {% if review.evaluation_unavailable %}
-                    <p class="text-xs text-slate-500 mb-2">The automated review for this photo set is not available; there is no team pick or defect list to show.</p>
-                    {% endif %}
-                    {% if review.automated_status and review.automated_status != 'passed' %}
-                    <p class="text-xs text-slate-500 mb-2">Automated check: {{ review.automated_status }}. It is advice only.</p>
-                    {% endif %}
-                    <p id="photo-review-result" class="text-sm mb-2 hidden" role="status"></p>
-                    {% if review.candidates %}
-                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        {% for c in review.candidates %}
-                        {% set chosen = review.selected_path == c.path %}
-                        <div>
-                            <div class="aspect-square bg-slate-100 rounded-lg overflow-hidden border-2 {{ 'border-emerald-500' if chosen else 'border-slate-200' }}">
-                                <img src="{{ c.display_url }}" alt="{{ c.variant }}"
-                                    class="img-attachment w-full h-full object-cover cursor-zoom-in"
-                                    data-lightbox-src="{{ c.display_url }}">
-                            </div>
-                            <div class="mt-1 flex items-center justify-between">
-                                <p class="text-xs text-slate-500">{{ c.index }}. {{ c.variant | replace('_', ' ') }}{% if c.round %} · r{{ c.round }}{% endif %}{% if c.recommended %} · <span class="text-blue-700 font-medium">Team pick</span>{% endif %}</p>
-                                {% if chosen %}
-                                <span class="text-xs px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-medium">Selected</span>
-                                {% elif review.writable %}
-                                <button data-action="photo-select" data-episode-id="{{ episode.episode_id }}"
-                                    data-image-set="{{ review.image_set_id }}" data-path="{{ c.path }}"
-                                    class="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 hover:bg-blue-200 font-medium">
-                                    Use this
-                                </button>
-                                {% endif %}
-                            </div>
-                            {% if c.defects %}
-                            <ul class="mt-1 text-xs text-red-700 list-disc list-inside">
-                                {% for d in c.defects %}<li>{{ d }}</li>{% endfor %}
-                            </ul>
-                            {% endif %}
-                        </div>
-                        {% endfor %}
-                    </div>
-                    {% if review.writable and review.status != 'rejected' %}
-                    <button data-action="photo-reject" data-episode-id="{{ episode.episode_id }}"
-                        data-image-set="{{ review.image_set_id }}"
-                        class="mt-3 text-sm px-3 py-1.5 rounded bg-slate-200 text-slate-800 hover:bg-slate-300 font-medium">
-                        None usable
-                    </button>
-                    {% endif %}
-                    {% endif %}
-                </section>
 
                 <h3 class="text-xs uppercase tracking-wide text-slate-500 font-semibold mb-2">Automated review (advisory)</h3>
 
@@ -429,7 +440,7 @@
             const episodeId = btn.dataset.episodeId;
 
             if (action === 'run-week' && episodeId) {
-                runCompressedWeek(episodeId);
+                runCompressedWeek(episodeId, btn.dataset.ns || '');
             } else if (action === 'delete-episode' && episodeId) {
                 deleteEpisode(episodeId);
             } else if (action === 'photo-select' && episodeId) {
@@ -450,7 +461,7 @@
             document.getElementById('lightbox').classList.add('hidden');
         }
 
-        async function runCompressedWeek(episodeId) {
+        async function runCompressedWeek(episodeId, ns) {
             const btn = document.getElementById('run-btn');
             const banner = document.getElementById('run-banner');
             const statusText = document.getElementById('run-status-text');
@@ -462,7 +473,8 @@
             statusText.textContent = 'Compressed week run started — this may take several minutes. Refresh the page to see stage results as they complete.';
 
             try {
-                const resp = await fetch(`/admin/episodes/${episodeId}/run`, { method: 'POST' });
+                const query = ns ? `?ns=${encodeURIComponent(ns)}` : '';
+                const resp = await fetch(`/admin/episodes/${episodeId}/run${query}`, { method: 'POST' });
                 const data = await resp.json();
                 if (resp.ok) {
                     statusText.textContent = `✅ Run complete: ${data.message || 'All stages finished.'}`;

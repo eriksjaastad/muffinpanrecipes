@@ -923,7 +923,8 @@ def create_routes(app: FastAPI):
                 logger.warning(f"Skipping invalid episode {data.get('episode_id') if isinstance(data, dict) else '?'}: {exc}")
         return episodes
 
-    def _build_episode_detail(data: dict, view=None, ns: str = "", can_delete: bool = False) -> dict:
+    def _build_episode_detail(data: dict, view=None, ns: str = "", can_delete: bool = False,
+                              can_run: bool = False) -> dict:
         """Build template-friendly detail from raw episode JSON."""
         stages_raw = data.get("stages", {})
         stages = []
@@ -972,6 +973,14 @@ def create_routes(app: FastAPI):
                 "published": entry.get("published"),
                 "data": entry,
             })
+        review = _photo_review_view(data, view, ns)
+        # The review is rendered from the authoritative control, whether or
+        # not the episode's Wednesday mirror exists (#7936, Codex cycle 2): a
+        # registration whose episode save failed, or a stale stage save that
+        # dropped Wednesday, still has a set to decide on. With no request
+        # the section appears only where a Wednesday record exists.
+        review["show"] = bool(view is not None and view.request is not None) \
+            or isinstance(stages_raw.get("wednesday"), dict)
         return {
             "episode_id": data.get("episode_id", ""),
             "concept": data.get("concept", ""),
@@ -981,10 +990,11 @@ def create_routes(app: FastAPI):
             "recipe_id": data.get("recipe_id"),
             "events": data.get("events", []),
             "stages": stages,
-            "photo_review": _photo_review_view(data, view, ns),
+            "photo_review": review,
             "image_display_urls": _image_display_urls(data, view, ns),
             "ns": ns,
             "can_delete": can_delete,
+            "can_run": can_run,
         }
 
     def _image_display_urls(data: dict, view=None, ns: str = "") -> dict:
@@ -1065,6 +1075,8 @@ def create_routes(app: FastAPI):
         published = bool(data.get("published_at")) or view.state == photo_review.PUBLISHED
         frozen = view.frozen and not published
         evaluation = _review_evaluation(data, view)
+        mirrored = photo_review.episode_request(data) if view.version else None
+        mirror_agrees = bool(view.version == 0 or (mirrored and mirrored.get("image_set_id") == view.image_set_id))
         recommended_path, defects = _automated_notes(evaluation) if evaluation is not None else (None, {})
         automated = (evaluation.get("photography_data") or {}).get("automated_review_status") \
             if evaluation is not None and isinstance(evaluation.get("photography_data"), dict) else None
@@ -1098,6 +1110,7 @@ def create_routes(app: FastAPI):
             "decided_at": (view.decision or {}).get("decided_at"),
             "automated_status": automated,
             "evaluation_unavailable": evaluation is None,
+            "mirror_agrees": mirror_agrees,
             "legacy": view.legacy,
             "writable": not published and not frozen,
             "note": note,
@@ -1167,10 +1180,14 @@ def create_routes(app: FastAPI):
         prefix = _namespace_prefix(ns)
         templates = app.state.templates
         data = _load_cloud_episode(episode_id, prefix)
+        local_production = not _is_cloud_store(_cloud_storage()) and not prefix
         episode = _build_episode_detail(
             data, _load_photo_view(episode_id, data, prefix), ns=ns or "",
             # Delete trashes LOCAL files only; it is not offered for cloud data.
-            can_delete=not _is_cloud_store(_cloud_storage()) and not prefix,
+            can_delete=local_production,
+            # The compressed-week simulation writes production stages with no
+            # namespace of its own (#7936): local, production view, unpublished.
+            can_run=local_production and not data.get("published_at"),
         )
 
         return templates.TemplateResponse(
@@ -1236,6 +1253,10 @@ def create_routes(app: FastAPI):
             raise HTTPException(status_code=503, detail="Could not read the episode from storage")
         if not data:
             raise HTTPException(status_code=404, detail=f"Episode not found: {episode_id}")
+        # The control must be readable and well-formed BEFORE anything is
+        # decided (#7936, Codex cycle 2): a malformed version is a 503 that
+        # says so, never a decision and never a "could not confirm the save".
+        _load_photo_view(episode_id, data, prefix)
         try:
             with store.prefix_scope(prefix):
                 view = photo_review.record_decision(
@@ -1443,9 +1464,29 @@ def create_routes(app: FastAPI):
     async def admin_episode_run(
         episode_id: str,
         user: dict = Depends(require_auth),
+        ns: Optional[str] = None,
     ):
-        """Trigger a compressed full-week run by calling /api/cron/{stage} routes sequentially."""
+        """Simulate a compressed week on LOCAL production data (dialogue stubs only).
+
+        The simulation writes whole stages through the storage singleton
+        with no namespace of its own (#7936, Codex cycle 2): offered from a
+        test-namespace page it overwrote production. Like Delete it is a
+        local-filesystem action: refused (409) on cloud storage, in any
+        namespace and for a published week, before anything runs.
+        """
         _sanitize_id(episode_id, "episode_id")
+        prefix = _namespace_prefix(ns)
+        store = _cloud_storage()
+        if prefix or getattr(store, "prefix", ""):
+            raise HTTPException(
+                status_code=409,
+                detail="The compressed-week simulation is local production-only; it is not available in the test namespace.",
+            )
+        if _is_cloud_store(store):
+            raise HTTPException(
+                status_code=409,
+                detail="The compressed-week simulation is local-only and not available for cloud-stored episodes.",
+            )
 
         # Read episode file to get the concept
         project_root = app.state.project_root
@@ -1462,6 +1503,11 @@ def create_routes(app: FastAPI):
                     status_code=500,
                     detail=f"Episode file for {episode_id} is unreadable: {type(exc).__name__}: {exc}",
                 ) from exc
+            if isinstance(ep_data, dict) and ep_data.get("published_at"):
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Episode {episode_id} is published; the simulation will not rewrite its history.",
+                )
 
         # Call each cron stage in order via HTTP (same as Vercel would).
         # In LOCAL_DEV the CRON_SECRET check is bypassed, any bearer value works.
