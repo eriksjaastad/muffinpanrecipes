@@ -41,6 +41,7 @@ import pytest
 from pathlib import Path
 
 from backend.admin import cron_routes
+from tests.photo_review_helpers import approved_wednesday
 from backend.storage import (
     CharacterMemoryUnavailable,
     is_valid_iso_week,
@@ -654,7 +655,7 @@ def test_cron_sunday_records_memory_events(monkeypatch):
         "recipe_id": None,
         "stages": {
             "monday": {"status": "complete", "recipe_data": {"title": "Test"}},
-            "wednesday": {"status": "complete", "confirmed_winner": {}, "image_status": ""},
+            "wednesday": approved_wednesday(episode_id="2026-W40"),
         },
         "events": [],
     }
@@ -673,7 +674,6 @@ def test_cron_sunday_records_memory_events(monkeypatch):
          patch.object(cron_routes, "_generate_and_judge_dialogue", return_value=([], "STATUS: PASS")), \
          patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "STATUS: PASS")), \
          patch.object(cron_routes, "_complete_static_source_handoff"), \
-         patch.object(cron_routes, "_hero_image_url", return_value="https://example.com/hero.png"), \
          patch.object(
              cron_routes,
              "_generate_episode_memories",

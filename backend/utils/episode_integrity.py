@@ -123,6 +123,95 @@ def episode_page_is_due(episode: object) -> bool:
     )
 
 
+def episode_is_published(episode: object) -> bool:
+    """THE publication predicate, legacy-aware: ``published_at`` OR a complete Sunday.
+
+    This is exactly what ``backend.publishing.site_builder`` has always used
+    to decide which weeks the static site includes. Weeks published before
+    ``published_at`` existed have only the complete Sunday. Every guard that
+    protects a published week from being edited, simulated, released or
+    re-decided (#7936) must use this, never ``published_at`` alone, or a
+    historical week can be demoted to "unpublished" and rewritten. A
+    ``simulated`` Sunday (the local compressed-week stub) is not complete and
+    is therefore not a publication.
+    """
+    if not isinstance(episode, dict):
+        return False
+    stages = episode.get("stages") or {}
+    sunday = stages.get("sunday") if isinstance(stages, dict) else None
+    return bool(
+        episode.get("published_at")
+        or (isinstance(sunday, dict) and sunday.get("status") == "complete")
+    )
+
+
+# Reasons cron_sunday records when it holds a publish for photo approval
+# (#7936), with the short status each one shows.
+PHOTO_HOLD_LABELS = {
+    "awaiting_photo_approval": "awaiting photo approval",
+    "photos_rejected": "photos rejected, awaiting new photos",
+}
+
+
+def recorded_photo_hold(episode: dict) -> str | None:
+    """The reason Sunday is deliberately held, or None.
+
+    Recognised only when the hold is the one cron_sunday writes: a known
+    reason, for the episode's CURRENT image set, on an unpublished week
+    whose Wednesday completed, with no Sunday stage recorded. A malformed,
+    stale (rerun image set) or forged hold is not recognised, so the missing
+    Sunday is reported as usual. An expected hold is still not a publication.
+    """
+    from backend.utils.photo_review import episode_request
+
+    hold = episode.get("publish_hold")
+    if not isinstance(hold, dict) or hold.get("reason") not in PHOTO_HOLD_LABELS:
+        return None
+    if episode_is_published(episode):
+        return None
+    # A hold is quiet only while the LAST Sunday attempt confirmed it. A
+    # later attempt that could not read the photo authority (or failed in any
+    # other way before deciding) is recorded on the hold; that failure is
+    # reported by failed_hold_attempt and the hold no longer counts as waiting.
+    if failed_hold_attempt(episode):
+        return None
+    stages = episode.get("stages") or {}
+    if (stages.get("wednesday") or {}).get("status") != "complete" or stages.get("sunday"):
+        return None
+    review = episode_request(episode)
+    if not review or not hold.get("image_set_id") or hold.get("image_set_id") != review.get("image_set_id"):
+        return None
+    try:
+        datetime.fromisoformat(str(hold.get("since")))
+    except ValueError:  # governance: allow-silent SF002: a hold with an unparseable `since` is not one cron_sunday wrote, so it is not recognised and the missing Sunday reports as a normal failure
+        return None
+    return hold["reason"]
+
+
+def failed_hold_attempt(episode: dict) -> str | None:
+    """The detail of a Sunday attempt that failed AFTER a photo hold was recorded, or None.
+
+    cron_sunday writes ``publish_hold.last_attempt`` on every entry that finds
+    a hold: ``outcome: "held"`` when it confirmed the hold, ``outcome:
+    "failed"`` with ``detail`` when it could not read or claim the photo
+    authority. A failed attempt means the week is NOT quietly waiting.
+    """
+    hold = episode.get("publish_hold")
+    if not isinstance(hold, dict):
+        return None
+    attempt = hold.get("last_attempt")
+    if not isinstance(attempt, dict) or attempt.get("outcome") != "failed":
+        return None
+    # A recorded Sunday stage is a later, more specific truth: a real run got
+    # past the hold (its failure or completion is reported by the stage
+    # checks). The attempt record then no longer speaks for the week.
+    if (episode.get("stages") or {}).get("sunday"):
+        return None
+    detail = str(attempt.get("detail") or "no detail recorded")
+    at = str(attempt.get("at") or "unknown time")
+    return f"{detail} (attempt at {at})"
+
+
 def _recipe_title(episode: dict) -> str:
     monday = episode.get("stages", {}).get("monday", {})
     return str((monday.get("recipe_data") or {}).get("title") or "").strip()
@@ -216,11 +305,23 @@ def episode_integrity_failures(
                 "picker did not run, so category balancing is off"
             )
 
-    # 3. Every stage whose cron window has passed must be complete.
+    # 3. Every stage whose cron window has passed must be complete. A Sunday
+    #    deliberately held for photo approval (#7936) is expected waiting,
+    #    not a missing stage; episode_summary reports it instead.
+    photo_hold = recorded_photo_hold(episode)
+    #    A Sunday attempt that failed after a hold was recorded is a real
+    #    failure whatever the calendar says: the hold must not keep it quiet.
+    attempt_failure = failed_hold_attempt(episode) if not episode_is_published(episode) else None
+    if attempt_failure:
+        failures.append(
+            f"sunday attempt after the photo hold failed — {attempt_failure[:300]}"
+        )
     if episode_id:
         for day in stages_due(episode_id, now=now, grace_minutes=grace_minutes):
             stage_status = (stages.get(day) or {}).get("status")
             if stage_status == "complete":
+                continue
+            if day == "sunday" and (photo_hold or attempt_failure):
                 continue
             detail = (stages.get(day) or {}).get("error") or ""
             failures.append(
@@ -274,5 +375,7 @@ def episode_summary(episode: dict | None) -> str:
         for day in DAY_ORDER
         if (episode.get("stages", {}).get(day) or {}).get("status") == "complete"
     )
-    published = " published" if episode.get("published_at") else ""
-    return f'{episode_id} "{title}", {complete}/7 stages complete{published}'
+    published = " published" if episode_is_published(episode) else ""
+    hold = recorded_photo_hold(episode)
+    held = f", not published: {PHOTO_HOLD_LABELS[hold]}" if hold else ""
+    return f'{episode_id} "{title}", {complete}/7 stages complete{published}{held}'

@@ -2061,6 +2061,40 @@ def _distribute_images_wednesday(
             julian_msgs[-1].attachments = image_paths[2:3]
 
 
+def _photo_review_line(photography_context: dict | None) -> str:
+    """One factual sentence about the human photo review, or '' (#7936).
+
+    Present only when the cron passes ``human_review``; historical and lab
+    runs never carry it, so their prompts are unchanged.
+    """
+    review = (photography_context or {}).get("human_review")
+    if not isinstance(review, dict):
+        return ""
+    if review.get("status") == "approved" and review.get("selected_variant"):
+        return f"The site editor picked the '{review['selected_variant']}' shot as the hero."
+    if review.get("status") == "rejected":
+        return "The site editor rejected every Wednesday photo; there is no usable hero yet."
+    if review.get("status") == "unknown":
+        return "The site editor's hero photo pick is not confirmed yet."
+    return "The hero photo is still waiting on the site editor's pick."
+
+
+def _with_review_line(text: str, photography_context: dict | None) -> str:
+    """Append the review sentence when the cron supplied one; else unchanged."""
+    line = _photo_review_line(photography_context)
+    return f"{text} {line}" if line else text
+
+
+def _hero_landing(winner_variant: str, photography_context: dict | None) -> str:
+    """Wednesday's convergence. With a human review it is only a recommendation."""
+    if isinstance((photography_context or {}).get("human_review"), dict):
+        return (
+            f"they land on '{winner_variant}' as their recommendation; "
+            "the site editor makes the final pick"
+        )
+    return f"they land on '{winner_variant}'"
+
+
 def _build_dynamic_arc(day: str, concept: str, photography_context: dict | None = None) -> str:
     """Enrich static DAY_ARC with concept-specific tension."""
     base = DAY_ARC[day]
@@ -2085,7 +2119,8 @@ def _build_dynamic_arc(day: str, concept: str, photography_context: dict | None 
             return (
                 f"Julian has distinct shots of '{concept}'. Each character has a different favorite. "
                 f"Margaret wants food shown honestly. Julian wants the artistic angle. "
-                f"Steph thinks about feed performance. After real debate, they land on '{winner_variant}'. "
+                f"Steph thinks about feed performance. After real debate, "
+                f"{_hero_landing(winner_variant, photography_context)}. "
                 f"{base}"
             )
         return (
@@ -2095,12 +2130,20 @@ def _build_dynamic_arc(day: str, concept: str, photography_context: dict | None 
             f"{base}"
         )
     elif day == "thursday":
-        return (
+        return _with_review_line((
             f"Marcus shares copy for '{concept}'. It's too long, too literary, or too something. "
             f"Margaret edits it harshly. Steph tries to mediate. "
             f"{base}"
-        )
+        ), photography_context)
     elif day == "friday":
+        review_line = _photo_review_line(photography_context)
+        if review_line:
+            return (
+                f"Final review of '{concept}'. {review_line} "
+                f"Now the full package - recipe, copy, hero image - gets one last look. "
+                f"Someone has a note. It matters. "
+                f"{base}"
+            )
         winner_variant = ""
         reshoot_happened = False
         if photography_context:
@@ -2127,15 +2170,15 @@ def _build_dynamic_arc(day: str, concept: str, photography_context: dict | None 
             f"{base}"
         )
     elif day == "saturday":
-        return (
+        return _with_review_line((
             f"Devon is staging '{concept}' for deployment. It's mostly quiet. "
             f"{base}"
-        )
+        ), photography_context)
     elif day == "sunday":
-        return (
+        return _with_review_line((
             f"Publish window for '{concept}'. The week's work comes to a point. "
             f"{base}"
-        )
+        ), photography_context)
     return base
 
 
@@ -2266,6 +2309,16 @@ def _select_next_speaker(
     return names[-1]
 
 
+def _scene_hero_landing(winner_variant: str, photography_context: dict | None) -> str:
+    """Wednesday scene close. With a human review it is only a recommendation."""
+    if isinstance((photography_context or {}).get("human_review"), dict):
+        return (
+            f"After real debate, they recommend '{winner_variant}' as the hero; "
+            "the site editor makes the final pick."
+        )
+    return f"After real debate, they land on '{winner_variant}' as the hero."
+
+
 def _build_photography_scene_direction(photography_context: dict | None, day: str) -> str | None:
     """Build dynamic scene direction based on photography results.
 
@@ -2305,7 +2358,7 @@ def _build_photography_scene_direction(photography_context: dict | None, day: st
                 f"He delivers a second batch with three new angles: {shots_text}. "
                 "Now the team has to pick the hero image. Each character has a different favorite. "
                 "They argue about which shot tells the right story for this recipe. "
-                f"After real debate, they land on '{winner_variant}' as the hero."
+                + _scene_hero_landing(winner_variant, photography_context)
             )
         else:
             return (
@@ -2314,9 +2367,15 @@ def _build_photography_scene_direction(photography_context: dict | None, day: st
                 "Each character has a strong opinion about which shot should lead. "
                 "Julian has his artistic preference. Margaret cares about showing the food honestly. "
                 "Steph is thinking about what performs in feed. They disagree before converging. "
-                f"After real debate, they land on '{winner_variant}' as the hero."
+                + _scene_hero_landing(winner_variant, photography_context)
             )
     elif day == "friday":
+        review_line = _photo_review_line(photography_context)
+        if review_line:
+            return (
+                f"Final review. {review_line} "
+                "Devon Park joins to confirm deployment readiness. Approvals hinge on tiny fixes."
+            )
         if reshoot_happened:
             return (
                 f"Final review is tense. Julian's rush reshoot on Wednesday saved the week - "

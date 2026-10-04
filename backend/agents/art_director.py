@@ -11,9 +11,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 import hashlib
+import math
 import os
 import random
+import re
+import secrets
 import shutil
+from datetime import datetime, timezone
 
 import requests
 
@@ -202,16 +206,41 @@ class ArtDirectorAgent(Agent):
         style_guide_path = self._repo_root() / "Documents" / "core" / "IMAGE_STYLE_GUIDE.md"
         return style_guide_path.read_text(encoding="utf-8") if style_guide_path.exists() else ""
 
+    @staticmethod
+    def _recipe_facts(task: Task) -> str:
+        """Short factual recipe summary for the vision judge, or ''."""
+        ctx = task.context if isinstance(task.context, dict) else {}
+        recipe = ctx.get("recipe_data") if isinstance(ctx.get("recipe_data"), dict) else {}
+        names: list[str] = []
+        for ing in recipe.get("ingredients") or []:
+            if isinstance(ing, dict):
+                name = ing.get("item") or ing.get("name") or ing.get("ingredient")
+            else:
+                name = ing
+            if name:
+                names.append(str(name)[:40])
+        parts = []
+        if recipe.get("description"):
+            parts.append(f"Description: {str(recipe['description'])[:200]}")
+        if names:
+            parts.append("Ingredients: " + ", ".join(names[:12]))
+        return "\n".join(parts)
+
     def _evaluate_images_vision(
-        self, image_paths: list[dict[str, Any]], recipe_title: str
+        self, image_paths: list[dict[str, Any]], recipe_title: str, recipe_facts: str = ""
     ) -> dict[str, Any]:
         """Evaluate images using a vision model. Returns per-image scores and pass/fail.
 
-        Falls back to a basic pass if the vision call fails (don't block the pipeline).
+        ``review_status`` is the honest label: passed | failed | incomplete |
+        unavailable. Only "passed" is an automated pass, and even that is
+        advisory: Sunday publishes only a human-approved photo (#7936). An
+        unavailable review returns passed=False but must not trigger a
+        reshoot; the caller stops on it.
         """
         import json as _json
 
         images_bytes: list[bytes] = []
+        missing_files: list[str] = []
         for info in image_paths:
             local = Path(info.get("local_path", ""))
             if local.exists():
@@ -221,17 +250,36 @@ class ArtDirectorAgent(Agent):
                 full_path = self._repo_root() / info["path"]
                 if full_path.exists():
                     images_bytes.append(full_path.read_bytes())
+                else:
+                    missing_files.append(str(info.get("variant") or info.get("path")))
 
         if not images_bytes:
-            logger.warning("Vision eval: no image files found, falling back to pass")
-            return {"passed": True, "fallback": True, "per_image": [], "reason": "no images to evaluate"}
+            logger.warning("Vision eval: no image files found; needs human review")
+            return {"passed": False, "review_status": "unavailable", "retry_eligible": False,
+                    "fallback": True, "per_image": [], "reason": "no images to evaluate"}
+        if missing_files:
+            # Image N in the prompt would no longer be variant N: a ranking of
+            # this set would be misattributed. Not ranked, no reshoot.
+            logger.warning(f"Vision eval: image files missing for {missing_files}; needs human review")
+            return {"passed": False, "review_status": "incomplete", "retry_eligible": False,
+                    "fallback": True, "per_image": [],
+                    "reason": f"image files missing for {', '.join(missing_files)}; set not ranked"}
 
         variant_labels = ", ".join(f"Image {i+1}: {info['variant']}" for i, info in enumerate(image_paths))
 
+        facts_block = f"Recipe facts:\n{recipe_facts}\n\n" if recipe_facts else ""
         eval_prompt = (
             f"You are a professional food photography art director evaluating images for '{recipe_title}'.\n\n"
+            f"{facts_block}"
             f"There are {len(images_bytes)} images. {variant_labels}.\n\n"
-            "Score EACH image on these 6 dimensions (1-5 scale):\n"
+            "FIRST, for each image, list its concrete physical defects (empty list if none). "
+            "Check: (a) any muffin pan is a coherent standard pan - consistent, evenly spaced, "
+            "non-overlapping round wells in regular rows under consistent perspective; fused, "
+            "merged, missing-wall, warped or impossibly placed wells are defects; (b) the finished "
+            "food matches the recipe facts - intended filling present, fully baked/set, not raw or "
+            "underfilled shells; (c) no inexplicable liquid pooled in bare wells and no invented "
+            "pastry, crust or garnish the recipe does not have. Empty wells alone are fine.\n\n"
+            "Then score EACH image on these 7 dimensions (1-5 scale):\n"
             "1. variety - How different is this from the other images? (angle, distance, composition)\n"
             "2. quality - Technical quality (focus, exposure, lighting)\n"
             "3. style_adherence - Does it match the requested style/angle?\n"
@@ -244,21 +292,28 @@ class ArtDirectorAgent(Agent):
             "be visible in the shot, and an in-tin shot is not worth more than a well-shot "
             "plated one. Sheet-pan squares, bars, slices, flat discs, loaves, or anything "
             "that merely looks 'small' scores 1-2. This site is muffinpanrecipes.com — the "
-            "muffin-cup shape IS the brand (the pan itself is not required in frame).\n\n"
+            "muffin-cup shape IS the brand (the pan itself is not required in frame).\n"
+            "7. physical_realism - Could this exist in a real kitchen? Score 1-2 for any "
+            "defect from your list above (impossible pan geometry, fused wells, raw or "
+            "underfilled food, stray liquid, invented pastry). Score 5 only with no defects.\n"
+            "Score dimensions 1-6 exactly as you would without the defect check; defects "
+            "belong in the defect list and physical_realism only.\n\n"
             "Then provide a SET-LEVEL score:\n"
-            "7. set_diversity (1-5) - How different are these images from EACH OTHER? "
+            "8. set_diversity (1-5) - How different are these images from EACH OTHER? "
             "Consider angle, distance, composition, styling. "
             "Score 1 = nearly identical shots, 5 = clearly distinct perspectives.\n\n"
             "Then decide:\n"
             "- PASS if average per-image score >= 3.5 AND no image scores below 2.5 on any dimension "
-            "AND set_diversity >= 3.0 AND every image scores >= 3 on muffin_pan_form\n"
+            "AND set_diversity >= 3.0 AND every image scores >= 3 on muffin_pan_form "
+            "AND every image scores >= 3 on physical_realism\n"
             "- FAIL if images look too similar, set_diversity is low, any image has serious issues, "
-            "or any image fails the muffin-pan form check\n\n"
+            "any image fails the muffin-pan form check, or any image has a physical defect\n\n"
             "If FAIL, explain what went wrong in 1-2 sentences (this will be used as dialogue).\n"
-            "Pick a recommended winner (best overall image number).\n\n"
+            "Pick a recommended winner: the best defect-free image number (any of them, including 1).\n\n"
             "Respond ONLY with valid JSON:\n"
-            '{"per_image": [{"image": 1, "variety": X, "quality": X, "style_adherence": X, '
-            '"food_appeal": X, "composition": X, "muffin_pan_form": X, "feedback": "..."}], '
+            '{"per_image": [{"image": 1, "defects": ["..."], "variety": X, "quality": X, '
+            '"style_adherence": X, "food_appeal": X, "composition": X, "muffin_pan_form": X, '
+            '"physical_realism": X, "feedback": "..."}], '
             '"set_diversity": X, "passed": true/false, "reason": "...", "recommended_winner": 1}'
         )
 
@@ -281,29 +336,84 @@ class ArtDirectorAgent(Agent):
 
             result = _json.loads(cleaned)
 
-            # Validate pass criteria ourselves as a safety check
-            per_image = result.get("per_image", [])
-            dimensions = ["variety", "quality", "style_adherence", "food_appeal", "composition", "muffin_pan_form"]
-            all_scores = []
+            if not isinstance(result, dict):
+                raise ValueError("vision eval response is not a JSON object")
+            n_images = len(images_bytes)
+
+            # Every image needs exactly one record, by its 1-based index. A
+            # missing, duplicate or out-of-range record means the scores
+            # cannot be trusted to describe the right image: incomplete.
+            incomplete: list[str] = []
+            raw_per_image = result.get("per_image")
+            if not isinstance(raw_per_image, list):
+                incomplete.append("per_image missing")
+                raw_per_image = []
+            by_index: dict[int, dict] = {}
+            for img in raw_per_image:
+                idx = img.get("image") if isinstance(img, dict) else None
+                if not isinstance(idx, int) or isinstance(idx, bool) or not 1 <= idx <= n_images:
+                    incomplete.append(f"bad image index {idx!r}")
+                elif idx in by_index:
+                    incomplete.append(f"duplicate record for image {idx}")
+                else:
+                    by_index[idx] = img
+            absent = [i for i in range(1, n_images + 1) if i not in by_index]
+            if absent:
+                incomplete.append(f"no record for image(s) {absent}")
+            per_image = [by_index[i] for i in sorted(by_index)]
+            result["per_image"] = per_image
+
+            def _score(value: Any) -> float | None:
+                # Strict: a real, finite number in 1..5. No defaults anywhere.
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    return None
+                if not math.isfinite(value) or not 1 <= value <= 5:
+                    return None
+                return float(value)
+
+            # The ORIGINAL criteria, computed exactly as before #7936. Only
+            # these decide whether a paid reshoot happens (retry_eligible), so
+            # the stricter defect check below cannot buy extra rounds.
+            original_dims = ["variety", "quality", "style_adherence", "food_appeal", "composition", "muffin_pan_form"]
+            all_scores: list[float] = []
             any_below_threshold = False
             any_off_brand = False
             form_key_missing = False
+            quality_defects: dict[int, list[str]] = {}
             for img in per_image:
-                for dim in dimensions:
-                    score = img.get(dim, 3.0)
+                for dim in original_dims:
+                    score = _score(img.get(dim))
+                    if score is None:
+                        incomplete.append(f"image {img['image']}: {dim} missing or invalid")
+                        continue
                     all_scores.append(score)
                     if score < 2.5:
                         any_below_threshold = True
+                    if dim == "muffin_pan_form" and score < 3.0:
+                        any_off_brand = True
                 if "muffin_pan_form" not in img:
                     form_key_missing = True
-                elif img.get("muffin_pan_form", 3.0) < 3.0:
-                    any_off_brand = True
+
+                # The physical-realism standard (#7936). A listed defect rejects
+                # the image even if the model also scored it 5: the list is the
+                # evidence, the score is a summary. Recorded as a quality
+                # rejection for the human review, never a reshoot trigger.
+                defects = img.get("defects")
+                realism = _score(img.get("physical_realism"))
+                if not isinstance(defects, list):
+                    incomplete.append(f"image {img['image']}: defects missing or not a list")
+                if realism is None:
+                    incomplete.append(f"image {img['image']}: physical_realism missing or invalid")
+                if isinstance(defects, list) and realism is not None:
+                    listed = [str(d) for d in defects if str(d).strip()]
+                    if listed or realism < 3.0:
+                        quality_defects[img["image"]] = listed or [f"physical_realism {realism:g}"]
 
             if form_key_missing:
                 # The model ignored the schema and dropped the brand dimension.
-                # Don't fail the set (reshoot spend on a formatting hiccup),
-                # but surface it loudly — a quietly-missing key would disable
-                # the brand check exactly like the dead-vision-eval incident.
+                # Not a reshoot (spend on a formatting hiccup), but surfaced
+                # loudly: a quietly-missing key would disable the brand check
+                # exactly like the dead-vision-eval incident.
                 logger.error(
                     "Vision eval response missing muffin_pan_form — brand "
                     "check not applied to this set"
@@ -322,21 +432,44 @@ class ArtDirectorAgent(Agent):
                 except Exception as notify_exc:
                     logger.error(f"Form-key-missing Discord notify failed: {notify_exc}")
 
-            avg_score = sum(all_scores) / max(len(all_scores), 1)
-            result["avg_score"] = round(avg_score, 2)
-            set_diversity = result.get("set_diversity", 5.0)
-            result["passed"] = (
-                avg_score >= 3.5
-                and not any_below_threshold
-                and set_diversity >= 3.0
-                and not any_off_brand
+            set_diversity = _score(result.get("set_diversity"))
+            if set_diversity is None:
+                incomplete.append("set_diversity missing or invalid")
+
+            complete = not incomplete
+            if complete:
+                avg_score = sum(all_scores) / len(all_scores)
+                result["avg_score"] = round(avg_score, 2)
+                criteria_passed = (
+                    avg_score >= 3.5
+                    and not any_below_threshold
+                    and set_diversity >= 3.0
+                    and not any_off_brand
+                )
+            else:
+                # Never compute a verdict from partial data.
+                result["avg_score"] = None
+                criteria_passed = False
+                quality_defects = {}
+                any_off_brand = False
+
+            result["criteria_passed"] = criteria_passed
+            result["quality_defects"] = {str(k): v for k, v in quality_defects.items()}
+            result["incomplete_reasons"] = incomplete
+            result["passed"] = complete and criteria_passed and not quality_defects
+            result["review_status"] = (
+                "incomplete" if not complete else "passed" if result["passed"] else "failed"
             )
+            result["retry_eligible"] = complete and not criteria_passed
             if any_off_brand and not result.get("reason"):
                 result["reason"] = (
                     "Food does not read as muffin-tin-made (off-brand form: "
                     "sheet-pan squares, flat discs, or similar)."
                 )
-
+            if quality_defects and not result.get("reason"):
+                result["reason"] = "Physical defects in the pan or food (see per-image defects)."
+            if not complete and not result.get("reason"):
+                result["reason"] = "Automated review incomplete: " + "; ".join(incomplete[:3])
             return result
 
         except Exception as e:
@@ -344,7 +477,7 @@ class ArtDirectorAgent(Agent):
             # reshoot rounds — but NEVER silently. A quiet version of this
             # fallback left image QA dead for weeks (gpt-5-mini temperature
             # 400) while off-brand sheet-pan photos shipped to the live site.
-            logger.error(f"Vision evaluation failed, falling back to pass: {e}")
+            logger.error(f"Vision evaluation failed; images need human review: {e}")
             try:
                 from backend.utils.discord import notify_pipeline_failure
                 notify_pipeline_failure(
@@ -352,13 +485,14 @@ class ArtDirectorAgent(Agent):
                     concept=recipe_title,
                     stage="wednesday (vision eval)",
                     error_message=(
-                        f"Vision evaluation errored and FELL BACK TO PASS — "
-                        f"images are shipping unreviewed. Error: {e}"
+                        f"Vision evaluation errored; no automated review, "
+                        f"no reshoot. Photos need human review. Error: {e}"
                     ),
                 )
             except Exception as notify_exc:
                 logger.error(f"Vision-eval fallback Discord notify also failed: {notify_exc}")
-            return {"passed": True, "fallback": True, "per_image": [], "reason": f"vision eval error: {e}"}
+            return {"passed": False, "review_status": "unavailable", "retry_eligible": False,
+                    "fallback": True, "per_image": [], "reason": f"vision eval error: {e}"}
 
     def _call_stability(self, api_key: str, prompt: str, variant: str | None = None) -> bytes:
         base_negative = "people, hands, text, watermark, clutter, stacked food, piled food, food on top of food, flat high-key white studio lighting"
@@ -386,12 +520,24 @@ class ArtDirectorAgent(Agent):
 
     _MAX_ROUNDS = 2  # Generate → evaluate → (optional reshoot) → done
 
+    _GENERATION_ID_RE = re.compile(r"^g[0-9A-Za-z-]{6,40}$")
+
+    @staticmethod
+    def _new_generation_id() -> str:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        return f"g{stamp}-{secrets.token_hex(3)}"
+
     def _generate_round(
         self, api_key: str, recipe_title: str, recipe_id: str, round_num: int,
-        feedback: str | None = None,
+        feedback: str | None = None, generation_id: str | None = None,
     ) -> tuple[list[dict[str, Any]], Path]:
-        """Generate 3 variants for a single round. Returns (variant_outputs, round_dir)."""
-        round_dir = self._images_dir() / recipe_id / f"round_{round_num}"
+        """Generate 3 variants for a single round. Returns (variant_outputs, round_dir).
+
+        Paths include the generation id so a rerun never overwrites blobs the
+        CDN may already hold under a 1-year immutable cache (#7936).
+        """
+        gen_id = generation_id or self._new_generation_id()
+        round_dir = self._images_dir() / recipe_id / gen_id / f"round_{round_num}"
         variant_outputs: list[dict[str, Any]] = []
 
         for variant in self._VARIANTS:
@@ -405,7 +551,7 @@ class ArtDirectorAgent(Agent):
             out_path.write_bytes(image_bytes)
 
             # Canonical relative path (always src/assets/images/...) for storage layer
-            canonical = f"src/assets/images/{recipe_id}/round_{round_num}/{variant}.png"
+            canonical = f"src/assets/images/{recipe_id}/{gen_id}/round_{round_num}/{variant}.png"
 
             variant_outputs.append({
                 "variant": variant,
@@ -474,6 +620,13 @@ class ArtDirectorAgent(Agent):
         if not api_key:
             raise RuntimeError("STABILITY_API_KEY not configured; Julian refuses to work with placeholders.")
 
+        override = task.context.get("generation_id")
+        generation_id = (
+            override
+            if isinstance(override, str) and self._GENERATION_ID_RE.fullmatch(override)
+            else self._new_generation_id()
+        )
+
         shot_count = random.randint(35, 55)
         rounds: list[dict[str, Any]] = []
         winner_info: dict[str, Any] | None = None
@@ -484,6 +637,7 @@ class ArtDirectorAgent(Agent):
             
             variant_outputs, round_dir = self._generate_round(
                 api_key, recipe_title, recipe_id, round_num, feedback=feedback,
+                generation_id=generation_id,
             )
 
             # Perceptual hash diversity check (belt-and-suspenders with vision eval)
@@ -491,17 +645,31 @@ class ArtDirectorAgent(Agent):
             visually_diverse = _check_visual_diversity(phash_paths)
 
             # Vision evaluation
-            vision_eval = self._evaluate_images_vision(variant_outputs, recipe_title)
+            vision_eval = self._evaluate_images_vision(
+                variant_outputs, recipe_title, self._recipe_facts(task),
+            )
+            vision_eval.setdefault("review_status", "passed" if vision_eval.get("passed", True) else "failed")
+            vision_eval.setdefault(
+                "retry_eligible",
+                vision_eval["review_status"] == "failed" and not vision_eval.get("passed", True),
+            )
             if not visually_diverse:
                 vision_eval["passed"] = False
                 vision_eval["phash_failed"] = True
+                if vision_eval["review_status"] not in ("unavailable", "incomplete"):
+                    vision_eval["review_status"] = "failed"
+                    # The hash check is an original criterion; it may still
+                    # buy the reshoot it always could.
+                    vision_eval["retry_eligible"] = True
                 vision_eval.setdefault("reason", "Images are perceptually near-identical (hash check)")
 
-            # Attach per-image scores to variant outputs
-            per_image = vision_eval.get("per_image", [])
+            # Attach per-image scores to variant outputs, by image number
+            scores_by_image = {
+                img.get("image"): img for img in vision_eval.get("per_image", []) if isinstance(img, dict)
+            }
             for i, vo in enumerate(variant_outputs):
-                if i < len(per_image):
-                    vo["scores"] = per_image[i]
+                if scores_by_image.get(i + 1):
+                    vo["scores"] = scores_by_image[i + 1]
 
             round_data = {
                 "round": round_num,
@@ -514,28 +682,32 @@ class ArtDirectorAgent(Agent):
 
             rounds.append(round_data)
 
-            if vision_eval.get("passed", True):
-                # Hero variety: rotate which composition leads across recipes so the
-                # catalog stops being all macro-in-pan (every recent hero was
-                # macro_closeup because the vision default was image 1). Deterministic
-                # by recipe_id so re-renders stay stable. All variants here passed QA,
-                # so the rotated pick is on-brand. If the vision model named a specific
-                # winner (>1), honor it; otherwise rotate.
+            # Only a complete review failing the ORIGINAL criteria buys a
+            # reshoot. A quality-only rejection (defects), an incomplete or an
+            # unavailable review stops here: the human review decides (#7936).
+            if vision_eval.get("passed", True) or not vision_eval.get("retry_eligible"):
+                # A valid recommendation (including #1) is the judge's quality
+                # call and is honoured. Only without one does the hero-variety
+                # rotation pick, deterministic by recipe_id.
                 rec = vision_eval.get("recommended_winner")
-                if isinstance(rec, int) and rec > 1:
-                    winner_idx = min(rec - 1, len(variant_outputs) - 1)
+                if isinstance(rec, int) and not isinstance(rec, bool) and 1 <= rec <= len(variant_outputs):
+                    winner_idx = rec - 1
                 else:
                     winner_idx = int(hashlib.sha1(recipe_id.encode()).hexdigest(), 16) % len(variant_outputs)
                 winner_info = {
                     **variant_outputs[winner_idx],
                     "round": round_num,
+                    "generation_id": generation_id,
                 }
                 break
 
-        # If no winner after all rounds, pick first variant from last round
+        # If no winner after all rounds, pick first variant from last round.
+        # This is a placeholder for the human review, never an approval.
         if winner_info is None:
             last_variants = rounds[-1]["variants"]
-            winner_info = {**last_variants[0], "round": len(rounds)}
+            winner_info = {**last_variants[0], "round": len(rounds), "generation_id": generation_id}
+        automated_review_status = rounds[-1]["vision_evaluation"].get("review_status", "failed")
+        winner_info["automated_review_status"] = automated_review_status
 
         # Copy winner to featured image location (local temp or repo)
         winner_source = Path(winner_info["local_path"])
@@ -571,11 +743,13 @@ class ArtDirectorAgent(Agent):
             success=True,
             output={
                 "recipe_id": recipe_id,
+                "generation_id": generation_id,
                 "total_shots": shot_count,
                 "rounds": rounds,
                 "winner": winner_info,
                 "handshake": handshake_msg,
                 "reshoot_happened": reshoot_happened,
+                "automated_review_status": automated_review_status,
                 "selected_shots": all_paths,  # backward compat
                 "generated_with": "stability_api_core",
                 "lighting_setups": random.randint(4, 7),

@@ -188,3 +188,41 @@ def notify_batch_complete(
         severity="info",
         fields=[("Recipes", titles_preview, False)],
     )
+
+
+def build_episode_review_url(episode_id: str, base_url: Optional[str] = None, namespace: str = "") -> str:
+    """Authenticated admin page where Erik approves the week's photos.
+
+    ``namespace`` "test" points at the test-prefix week (#7936); the page
+    reads and writes that namespace only.
+    """
+    origin = (base_url or ADMIN_BASE_URL).rstrip("/")
+    query = "?ns=test" if namespace == "test" else ""
+    return f"{origin}/admin/episodes/{episode_id}{query}#photo-review"
+
+
+def notify_photos_ready(episode_id: str, candidate_count: int, namespace: str = "") -> bool:
+    """Wednesday: the candidate photos are up and Sunday waits for a pick (#7936)."""
+    url = build_episode_review_url(episode_id, namespace=namespace)
+    label = f"{_short(episode_id)} (test)" if namespace == "test" else _short(episode_id)
+    return send_alert(
+        subject="Photos ready",
+        body=f"{label} · {candidate_count} photos · pick one or reject all\n{url}",
+        severity="info",
+        url=url,
+    )
+
+
+def notify_publish_held(episode_id: str, reason: str, namespace: str = "") -> bool:
+    """Sunday held the publish for photo approval. Sent once per hold."""
+    label = {
+        "photos_rejected": "photos rejected",
+    }.get(reason, "awaiting photo approval")
+    url = build_episode_review_url(episode_id, namespace=namespace)
+    name = f"{_short(episode_id)} (test)" if namespace == "test" else _short(episode_id)
+    return send_alert(
+        subject="Publish held",
+        body=f"{name} · {label}\n{url}",
+        severity="warning",
+        url=url,
+    )

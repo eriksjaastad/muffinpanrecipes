@@ -63,6 +63,20 @@ def _no_live_indexnow_submission(monkeypatch):
     monkeypatch.setattr("backend.utils.indexnow.requests.post", _blocked)
 
 
+# The photo-approval control log (#7936) is read by Wednesday-Sunday on every
+# run. Without this, a test could read or write data/photo_control/ in the
+# repo (or Blob, under doppler run). Every test gets an empty control
+# directory under tmp_path instead, served by the REAL filesystem backend
+# code (exclusive lock + atomic rename), so tests exercise the actual
+# compare-and-swap. Tests of the cloud backend build their own instance
+# over a fake Blob API.
+@pytest.fixture(autouse=True)
+def _isolated_photo_control(monkeypatch, tmp_path):
+    import backend.storage as storage_module
+
+    monkeypatch.setattr(storage_module, "PHOTO_CONTROL_DIR", tmp_path / "photo_control")
+
+
 # backend.utils.model_router._COST_LOG is a module-level global, and several
 # tests (tests/test_lab_models.py's cost-by-model tests in particular) record
 # synthetic entries into it and reset it only at their OWN start, not at

@@ -4,6 +4,201 @@
 
 ---
 
+## Photo approval: Sunday says "awaiting_photo_approval", "photos_rejected" or "publication_underway" (#7936)
+
+Expected, not a failure. Sunday publishes only a photo Erik approved from the
+CURRENT Wednesday image set, and runs no dialogue, QA or publish until then.
+The monitor shows the week as "not published: awaiting photo approval", not
+as a missing Sunday.
+
+**One authority: the photo-control log.** `photo_control/<week>/vNNNNNN.json`
+in Blob (`test/photo_control/...` for test weeks; `data/photo_control/production/` locally).
+Every version holds the whole state: the current image-set request, Erik's
+decision and Sunday's publication claim. A change creates the next version with
+overwrite refused, so two writers can never both win. Nothing is deleted; the
+versions are the audit trail. The episode's `stages.wednesday.photo_review` is a
+display mirror only. A stale cron save that puts an older set back on the
+episode cannot change what is approved or published. The request also stores
+Wednesday's evaluation of its own set (team pick, defects, automated status),
+so the page, Sunday's hold record and the published episode always show the
+evaluation of the photos actually under review; a request without one shows
+"automated review ... not available" rather than another set's.
+
+States: `awaiting` → `approved`/`rejected` (Erik) → `claimed` (Sunday, before
+any paid step) → `publishing` (just before the save that publishes) →
+`published`. From `claimed` on, choices are frozen: the page says "Publishing is
+underway. Choices are frozen." and Wednesday refuses to replace the photos (409).
+
+- Review: the "Photos ready" alert links to `/admin/episodes/<week>#photo-review`
+  (`?ns=test` for test weeks). Pick one photo or "None usable". Neither action
+  generates images.
+- Test weeks are cloud-only. Their photos live under `test/images/`, which the
+  public `/blob-images/` rewrite does not reach, so the page loads them through
+  the authenticated `/admin/episodes/<week>/photos/<image_set_id>/<n>/image?ns=test`
+  route (same origin, URL taken from the control by index, not cached). A URL
+  naming a replaced image set gets a 409, so a tab left open on an old set
+  shows broken images rather than the new set's photos: reload the page. In the
+  test namespace the stage gallery below shows only the current set's photos
+  and labels any others "not in the current review set". Local storage does not
+  separate test episodes from production, so locally `?ns=test` is refused
+  (400) and a local `test=true` Wednesday/Sunday stops with a 503 before any
+  paid step.
+- Each Wednesday run stores its photos under a new generation directory
+  (`images/<recipe>/<generation>/round_N/`), so a rerun never overwrites the
+  URLs of an earlier set and the page shows exactly the pixels being approved.
+- Approved before Sunday's scheduled run: Sunday publishes it.
+- Approved after Sunday's scheduled run (the page and the save message say so,
+  based on the week's schedule): nothing reruns on its own. To publish, re-fire
+  Sunday by hand (paid: Sunday dialogue + editorial QA), from the repo:
+  `doppler run -- sh -c 'curl -sS -X POST -H "Authorization: Bearer $CRON_SECRET" -H "Content-Type: application/json" -d "{\"episode_id\": \"<week>\", \"force\": true}" https://muffinpanrecipes.com/api/cron/sunday'`.
+  `force` only skips the weekday check; the approval is still required.
+- `publication_underway` (409): another Sunday run holds the claim. Nothing
+  was spent. Wait for it, or see "Stuck claim" below.
+- "Storage is still updating" (admin 503) or a Sunday 503 "could not read a
+  current copy": the episode body the CDN served did not carry the stored
+  version's ETag (Blob caches overwritten files for up to ~60s). Nothing was
+  approved, spent or saved. Retry in a minute.
+- Rejected: nothing publishes. New photos mean a paid Wednesday rerun, which
+  starts a fresh review: `.../api/cron/wednesday` with the same curl. The old
+  admin `images/rerun` endpoint is retired (410).
+- Weeks whose Wednesday completed before this deploy: no migration and no
+  paid recovery. The page derives the request from the photos already
+  uploaded; the first decision creates control version 1 (never replacing an
+  existing control). No "Photos ready" alert was sent for them.
+- Automated retries: only the original image criteria can trigger the one paid
+  reshoot. A physical-defect finding, an incomplete or non-finite score, or an
+  unavailable vision model only marks the set for human review.
+- Decision records are public Blob files: "site editor" plus an opaque keyed
+  hash of the account, never an email or OAuth subject.
+- Published weeks keep their pinned hero; changing one is an editorial override.
+- The admin viewer shows Blob episodes. Its "Run Compressed Week" button
+  exists only for local filesystem data, in the production view, for a week
+  that is not published (`published_at` OR a complete Sunday, the same
+  legacy-aware predicate the static builder uses, so a historical week is
+  never demoted); the endpoint refuses (409) on cloud storage, in any
+  `?ns=`, and for a published week. The simulation keeps a Wednesday's photos
+  and review mirror and never touches the photo control; a claimed/publishing
+  week refuses it. Its Sunday is stored with status `simulated`, not
+  `complete`: the site builder, renderer, backfill and fix_encoding all read a
+  `complete` Sunday as published, so a stub Sunday must never look like one.
+- **Delete Episode is retired (410).** It trashed a local episode file and
+  its whole image directory after checking `published_at` only, which could
+  run (or race) while the photo control was claimed/publishing and left the
+  next Sunday restoring a checkpoint whose images were in the trash. Local
+  cleanup is a manual operator step: first
+  `doppler run -- uv run python scripts/photo_control.py show <week>` and
+  confirm the control is `awaiting`/`approved`/`rejected` (never
+  `claimed`/`publishing`/`published`) and the episode is not published, then
+  move `data/episodes/<week>.json` and `src/assets/images/<recipe>/` with
+  `trash` (recoverable), never `rm`. `scripts/cleanup_image_backlog.py`
+  remains the protected sweep for orphaned variant directories.
+- The review section renders from the photo-control log whether or not the
+  episode's Wednesday stage shows the set (a registration whose episode save
+  failed, a stale save that dropped Wednesday). The Wednesday card keeps its
+  real status; the section says when the episode record does not show the
+  set. Decisions always target the control's current set.
+- Sunday does NOT trash image variants any more. The automatic cleanup ran
+  on the provisional copy before `mark_publishing`; when that step failed the
+  approval was handed back with the other candidates already in the trash.
+  Every candidate stays until an explicit sweep:
+  `scripts/cleanup_image_backlog.py` (dry run by default) never trashes a
+  directory holding an approved, pinned, published or legacy confirmed photo.
+- `publish_hold` on the episode is cleared (one save) the moment Sunday
+  claims an approval, before any paid step; if that save fails the claim is
+  handed back and nothing is spent. A failure after the claim (editorial QA,
+  dialogue, a lost claim) is therefore recorded as a failed Sunday, and the
+  monitor reports it instead of "awaiting photo approval". A later true hold
+  (rejection, new photos) replaces an earlier failed Sunday stage; the QA
+  record stays in `editorial_qa` and the events.
+- A Wednesday that completed but left NO reviewable photo set (no uploaded
+  candidates with usable URLs) is not "awaiting approval": nobody can approve
+  anything. Sunday stops before any paid step with a failed Sunday stage
+  ("No reviewable photos …", 400), one pipeline-failure alert and no
+  "Photos ready"/"Publish held" email. Fix: re-fire Wednesday (paid). A claim
+  that loses three compare-and-swap rounds is reported as a conflict (409,
+  alerted, attempt recorded on any earlier hold), never as "another Sunday
+  holds the claim".
+- A hold is quiet only while the LAST Sunday attempt confirmed it. Every
+  Sunday that finds an earlier hold writes `publish_hold.last_attempt`:
+  `held` when it confirmed the hold, `failed` (with the detail) when it could
+  not read or claim the photo control before deciding. The monitor reports a
+  failed attempt as "sunday attempt after the photo hold failed — …" and no
+  longer shows the week as waiting; the next confirmed hold makes it quiet
+  again. If storage is so broken that even that record cannot be saved, the
+  alert email says so explicitly ("could NOT be recorded"), and the monitor
+  will keep showing the earlier hold until a Sunday run succeeds: the alert is
+  the record in that case.
+  The same applies when Sunday cannot even read a current copy of the episode:
+  nothing can be saved safely, so the monitor shows the last persisted snapshot
+  and the alert says so. Display surfaces (episode page "Published" field, list,
+  monitor summary) label a legacy complete-Sunday week as published without
+  inventing a timestamp.
+- A claimed/publishing/published control version is checked as a whole at
+  the read boundary: a real approved candidate of the current set, a valid
+  claim, and (once publishing) a checkpoint that is this claim's own
+  publication (same episode, hero pinned to the approved URL, `photo_approval`
+  naming this claim, set and candidate). An inconsistent frozen version reads
+  as unavailable everywhere (admin 503, Sunday 503 before any paid step,
+  operator script refuses); nothing restores, releases or re-decides it.
+  The claim must tie to its version (a `claimed` version is exactly
+  `claim.from_version + 1`; publishing/published come after it) and the
+  checkpoint's `photo_approval.control_version` must be that claimed version,
+  with a complete, published Sunday stage, exactly as `_published_copy`
+  writes it. Every new version is validated BEFORE it is written, so an
+  inconsistent body never reaches the log. Inspect the version files by hand.
+- The monitor reports the most recent truth: a recorded Sunday stage (failed
+  or complete) outranks an older `publish_hold.last_attempt`, and a published
+  week never reports one.
+- A control version whose request is unusable (a candidate with no path or
+  URL, a bad index, a duplicate, a malformed `image_set_id`) reads as
+  unavailable: the page is a 503, decisions are refused, and Sunday stops
+  with an alerted 503 before any paid step. It is never treated as a legacy
+  or empty review. Inspect the version files by hand.
+
+### Stuck or lost publication (`claimed`, `publishing`, `published`)
+
+`claimed` → can be released. A Sunday that fails BEFORE publishing releases
+its own claim. If that release failed (alert: "could not release its photo
+claim"), release it by hand. Age is not a condition: the release is a
+compare-and-swap, so a Sunday run that still holds the claim loses its
+`claimed` → `publishing` step and publishes nothing (its paid dialogue is
+wasted, never published). After a release, re-fire Sunday as above.
+
+`publishing` / `published` → never released or re-decided, however much time
+has passed. The `publishing` version carries an immutable checkpoint: the
+exact episode the publishing save writes. Re-fire Sunday (the curl above). If
+the episode does not show that publication (the publishing save failed, its
+outcome was unknown, or a stale whole-episode save from a slow daily run or a
+released Sunday later removed `published_at`/hero/`photo_approval`), Sunday
+writes the checkpoint back, marks the control `published`, and redoes the
+source handoff, advisory alert and IndexNow. No dialogue, QA, image or other
+paid call. Response: `completed_from_checkpoint: true`.
+
+Until that re-fire, a stale-save regression is real: the episode reads as
+unpublished and the monitor reports the missing Sunday. Nothing repairs it on
+its own.
+
+Idempotency: a slow original run that resumes writes the same checkpoint body
+and loses its `published` mark (logged). Either run may write the static source
+handoff; it rewrites the same pages and catalog entry, and a regressed
+`static_deploy` state (back to `pending`) is finished by the next Sunday's
+already-published path. A checkpoint restored after the original run had
+completed carries `announce_pending`/`indexnow_pending` again, so the advisory
+alert and IndexNow ping can be sent once more.
+
+```
+doppler run -- uv run python scripts/photo_control.py show <week>          # add --test for test weeks
+doppler run -- uv run python scripts/photo_control.py reconcile <week>     # dry run
+doppler run -- uv run python scripts/photo_control.py reconcile <week> --execute
+```
+
+`reconcile` reads the episode with the ETag freshness check, then either
+records `published` (the episode is published by THIS claim), or releases a
+`claimed` control back to `approved` (episode not published), or refuses. It
+refuses to release `publishing`/`published` and says to re-fire Sunday. An
+already-published episode whose control still says `publishing` is also
+reconciled automatically by the next Sunday run's already-published path.
+
 ## TEMPORARY W39 — Scheduled Thursday–Sunday cron pause (prepared, not active until deployed)
 
 This change prepares an authenticated-GET-only pause for `/api/cron/{thursday,friday,saturday,sunday}` whenever `_current_episode_id()` is `2026-W39`, beginning only after deployment during W39 and expiring at **2026-09-28 00:00 UTC**. The scheduled target days are Thursday 2026-09-24 through Sunday 2026-09-27. After deployment, authenticated GETs to those four routes return HTTP 200 with `status: "paused"`, the stage and episode ID, and a reason. They return before body/day validation, storage, orchestration, generation, publishing, or alerts. The response is an intentional skip, not a completed stage or a health repair. **Until deployment, live behavior is unchanged; this document does not claim the pause is active.**
