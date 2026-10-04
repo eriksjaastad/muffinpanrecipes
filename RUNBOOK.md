@@ -32,8 +32,19 @@ as a missing Sunday.
   within a minute of a Wednesday rerun.
 - Decision records are public Blob files. They carry "site editor" and an
   opaque keyed hash of the account, never an email.
+- Weeks whose Wednesday completed before this deploy: no migration and no
+  paid recovery. The review page derives the request from the photos already
+  uploaded and Wednesday's `completed_at`, so they can be picked or rejected
+  like any week. No "Photos ready" alert was sent for them; open
+  `/admin/episodes/<week>#photo-review` directly. A Wednesday that saved no
+  uploaded photo URLs has nothing to review: that week needs a reshoot.
+  Published weeks are untouched.
 - Rejected: nothing publishes. New photos mean a paid Wednesday rerun, which
-  starts a fresh review; earlier decisions do not carry over.
+  starts a fresh review; earlier decisions do not carry over. The rerun is a
+  manual cron re-fire (paid: image generation + Wednesday dialogue):
+  `doppler run -- sh -c 'curl -sS -X POST -H "Authorization: Bearer $CRON_SECRET" -H "Content-Type: application/json" -d "{\"episode_id\": \"<week>\", \"force\": true}" https://muffinpanrecipes.com/api/cron/wednesday'`.
+  The old admin `images/rerun` endpoint is retired (410): it wrote only a
+  local file that no cloud review could see.
 - Automated retries: only the original image criteria can trigger the one
   paid reshoot. A physical-defect finding, an incomplete review or an
   unavailable vision model only marks the set for human review.

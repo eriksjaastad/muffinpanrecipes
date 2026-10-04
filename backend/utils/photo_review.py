@@ -10,7 +10,8 @@ Two records, two writers:
 * The REQUEST lives on the episode at ``stages.wednesday.photo_review`` and
   only Wednesday writes it: candidates, ``image_set_id`` (fingerprint of the
   set; a Wednesday rerun changes it, which orphans every earlier decision),
-  ``requested_at`` and ``notification``.
+  ``requested_at`` and ``notification``. A Wednesday that completed before
+  this existed has no request; ``legacy_review`` derives one, read-only.
 * The DECISION is a separate append-only record per episode + image set
   (``storage.add_photo_decision``). Only the admin review endpoint writes it.
   A cron's whole-episode save cannot erase it, and every reader lists it
@@ -101,14 +102,48 @@ def new_review(wed: dict) -> dict:
     }
 
 
+def legacy_review(wed: dict) -> dict | None:
+    """The implied request for a Wednesday that completed before #7936.
+
+    Such a stage has its uploaded photos but no ``photo_review``, so without
+    this its week could never be approved. The request is derived, not stored:
+    the same candidates as ``build_candidates`` and the stage's own
+    ``completed_at`` as the fingerprint timestamp, so every reader computes the
+    same ``image_set_id`` and a GET stays read-only. A rerun changes the set
+    and the timestamp, which orphans earlier decisions exactly as an explicit
+    request does. No "photos ready" notification was sent for it, and none is
+    claimed. Generates nothing.
+    """
+    completed_at = wed.get("completed_at")
+    if wed.get("status") != "complete" or not isinstance(completed_at, str) or not completed_at:
+        return None
+    candidates = build_candidates(wed)
+    if not candidates:
+        return None
+    return {
+        "image_set_id": image_set_id(candidates, completed_at),
+        "generated_at": completed_at,
+        "requested_at": None,
+        "candidates": candidates,
+        "legacy": True,
+    }
+
+
 def current_review(ep: dict) -> dict | None:
     """The review request, or None if it no longer matches the stored images.
 
     A Wednesday rerun replaces the image set; a request whose fingerprint no
     longer matches the stage's actual candidates is stale and approves nothing.
+    A stage with no ``photo_review`` key at all predates #7936 and gets the
+    derived ``legacy_review``. An explicit request, even a malformed or stale
+    one, is authoritative: it never falls back to the derived one.
     """
     wed = (ep.get("stages") or {}).get("wednesday") or {}
-    review = wed.get("photo_review") if isinstance(wed, dict) else None
+    if not isinstance(wed, dict):
+        return None
+    if "photo_review" not in wed:
+        return legacy_review(wed)
+    review = wed.get("photo_review")
     if not isinstance(review, dict):
         return None
     candidates = build_candidates(wed)

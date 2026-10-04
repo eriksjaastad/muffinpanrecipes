@@ -530,7 +530,7 @@ def test_storage_failure_is_reported_not_hidden(fail_load, fail_save):
         assert "None usable</span>" in page.text
 
 
-@pytest.mark.parametrize("route", ["confirm", "override"])
+@pytest.mark.parametrize("route", ["confirm", "override", "rerun"])
 def test_legacy_image_controls_are_retired(route):
     ep = _episode(wednesday_stage())
     store = _FakeStore({"2026-W41": ep})
@@ -1106,3 +1106,185 @@ def test_stale_forged_or_superseded_hold_is_still_reported(tamper):
     failures, summary = _integrity(ep)
     assert any(f.startswith("sunday stage is") for f in failures)
     assert "awaiting photo approval" not in summary
+
+
+# --- Weeks whose Wednesday completed before #7936 ---------------------------
+
+_PRE_DEPLOY_COMPLETED_AT = "2026-10-07T17:04:12.551203+00:00"
+
+
+def _pre_deploy_wednesday(**overrides) -> dict:
+    """Wednesday exactly as cron_wednesday stored it before #7936: no photo_review."""
+    wed = wednesday_stage()
+    del wed["photo_review"]
+    wed.update({
+        "stage": "photography",
+        "concept": "Spinach Feta Egg Cups",
+        "reshoot_happened": False,
+        "dialogue": [{"character": "Julian Torres", "message": "The macro reads best."}],
+        "judge_verdict": "PASS",
+        "completed_at": _PRE_DEPLOY_COMPLETED_AT,
+    })
+    wed.update(overrides)
+    return wed
+
+
+def _legacy_set_id(ep: dict) -> str:
+    return photo_review.current_review(ep)["image_set_id"]
+
+
+def test_pre_deploy_wednesday_gets_a_stable_derived_review():
+    ep = _episode(_pre_deploy_wednesday())
+    before = copy.deepcopy(ep)
+    review = photo_review.current_review(ep)
+    assert review["legacy"] is True
+    assert [c["url"] for c in review["candidates"]] == ep["stages"]["wednesday"]["image_urls"]
+    assert review["generated_at"] == _PRE_DEPLOY_COMPLETED_AT
+    # No request was sent for it, and none is claimed.
+    assert review["requested_at"] is None and "notification" not in review
+    # Deterministic for every reader, and derived without writing anything.
+    assert photo_review.current_review(copy.deepcopy(ep))["image_set_id"] == review["image_set_id"]
+    assert ep == before
+    assert photo_review.hold_status(ep, None) == "awaiting_photo_approval"
+    with patch.object(cron_routes.photo_review, "load_decision", return_value=None):
+        assert cron_routes._photo_review_dialogue_context(ep) == {"status": "awaiting", "selected_variant": None}
+
+
+def test_pre_deploy_week_shows_controls_and_an_approval_persists_and_publishes():
+    ep = _episode(_pre_deploy_wednesday())
+    store = _FakeStore({"2026-W41": ep})
+    client, patcher = _client(store)
+    try:
+        page = client.get("/admin/episodes/2026-W41")
+        resp = _post(client, {"action": "select", "image_set_id": _legacy_set_id(ep),
+                              "path": ep["stages"]["wednesday"]["image_paths"][1]})
+        after = client.get("/admin/episodes/2026-W41")
+    finally:
+        patcher.stop()
+    assert page.status_code == 200
+    assert page.text.count('data-action="photo-select"') == 3
+    assert 'data-action="photo-reject"' in page.text
+    assert "made before photo review existed" in page.text
+    assert resp.status_code == 200, resp.text
+    assert store.saved["2026-W41"]["image_set_id"] == _legacy_set_id(ep)
+    # The episode was never rewritten (the fake store raises on save_episode).
+    assert "photo_review" not in ep["stages"]["wednesday"]
+    assert "Approved</span>" in after.text
+
+    result, env = _run_sunday(ep)
+    assert result["published"] is True
+    chosen = ep["stages"]["wednesday"]["image_urls"][1]
+    assert ep["hero_image_url"] == chosen
+    assert env.catalog.call_args.args[0]["hero_image_url"] == chosen
+    env.held.assert_not_called()
+
+
+def test_pre_deploy_week_without_a_choice_holds_and_reads_as_awaiting():
+    ep = _episode(_pre_deploy_wednesday())
+    result, env = _run_sunday(ep)
+    assert result.status_code == 202
+    assert json.loads(result.body)["status"] == "awaiting_photo_approval"
+    env.dialogue.assert_not_called()
+    assert ep["publish_hold"]["image_set_id"] == _legacy_set_id(ep)
+
+    ep["stages"].update({d: {"status": "complete"} for d in ("tuesday", "thursday", "friday", "saturday")})
+    ep["stages"]["monday"]["target_category"] = ep["target_category"] = "savory"
+    failures, summary = _integrity(ep)
+    assert not [f for f in failures if f.startswith("sunday")]
+    assert summary.endswith("not published: awaiting photo approval")
+
+
+@pytest.mark.parametrize("rerun", ["new_photos", "same_urls_overwritten", "explicit_wednesday_rerun"])
+def test_pre_deploy_approval_does_not_survive_a_changed_photo_set(rerun):
+    wed = _pre_deploy_wednesday()
+    ep = _episode(wed)
+    record = photo_review.make_decision(ep, action="select", image_set=_legacy_set_id(ep),
+                                        path=wed["image_paths"][0], decided_by="test")
+    photo_review.save_decision(DECISIONS, ep, record)
+    assert photo_review.hold_status(ep, photo_review.load_decision(DECISIONS, ep)) is None
+
+    if rerun == "new_photos":
+        wed["image_urls"] = [u.replace("round_1", "round_1_v2") for u in wed["image_urls"]]
+        wed["completed_at"] = "2026-10-08T09:00:00+00:00"
+    elif rerun == "same_urls_overwritten":
+        # Reshot images saved over the same canonical blob paths.
+        wed["completed_at"] = "2026-10-08T09:00:00+00:00"
+    else:
+        ep["stages"]["wednesday"] = wed = _rerun_wednesday(wed)
+    assert photo_review.load_decision(DECISIONS, ep) is None
+    assert photo_review.hold_status(ep, photo_review.load_decision(DECISIONS, ep)) == "awaiting_photo_approval"
+
+
+@pytest.mark.parametrize("explicit", [None, "not-a-dict", {}, {"image_set_id": "0000000000000000"}])
+def test_explicit_request_is_authoritative_even_when_malformed_or_stale(explicit):
+    ep = _episode(_pre_deploy_wednesday(photo_review=explicit))
+    implied = photo_review.legacy_review(ep["stages"]["wednesday"])["image_set_id"]
+    assert photo_review.current_review(ep) is None
+    assert photo_review.hold_status(ep, None) == "awaiting_photo_approval"
+    # The id a missing request would have derived approves nothing here.
+    with pytest.raises(photo_review.PhotoReviewError):
+        photo_review.make_decision(ep, action="reject", image_set=implied, path=None, decided_by="test")
+
+
+@pytest.mark.parametrize("overrides", [
+    {"image_urls": ["", "", ""]},       # nothing was uploaded
+    {"image_urls": []},
+    {"status": "failed"},
+    {"completed_at": None},
+])
+def test_pre_deploy_week_without_uploaded_photos_has_nothing_to_approve(overrides):
+    ep = _episode(_pre_deploy_wednesday(**overrides))
+    assert photo_review.current_review(ep) is None
+    assert photo_review.hold_status(ep, None) == "awaiting_photo_approval"
+    store = _FakeStore({"2026-W41": ep})
+    client, patcher = _client(store)
+    try:
+        page = client.get("/admin/episodes/2026-W41")
+        resp = _post(client, {"action": "reject", "image_set_id": "0000000000000000"})
+    finally:
+        patcher.stop()
+    assert "No current photo set to review." in page.text
+    assert 'data-action="photo-select"' not in page.text
+    assert resp.status_code == 400 and store.saved == {}
+
+
+def test_published_pre_deploy_week_cannot_be_edited():
+    ep = _episode(_pre_deploy_wednesday(), published_at="2026-10-04T00:01:00+00:00",
+                  hero_image_url=f"{BLOB}/pinned.png")
+    store = _FakeStore({"2026-W41": ep})
+    client, patcher = _client(store)
+    try:
+        page = client.get("/admin/episodes/2026-W41")
+        resp = _post(client, {"action": "select", "image_set_id": _legacy_set_id(ep),
+                              "path": ep["stages"]["wednesday"]["image_paths"][1]})
+    finally:
+        patcher.stop()
+    assert 'data-action="photo-select"' not in page.text
+    assert 'data-action="photo-reject"' not in page.text
+    assert "Published. The hero is pinned" in page.text
+    assert resp.status_code == 409 and store.saved == {} and DECISIONS.records == {}
+
+    result, env = _run_sunday(ep)
+    assert result["already_published"] is True
+    env.held.assert_not_called()
+    assert ep["hero_image_url"] == f"{BLOB}/pinned.png"
+
+
+def test_retired_rerun_endpoint_generates_and_writes_nothing(tmp_path):
+    ep = _episode(_pre_deploy_wednesday())
+    store = _FakeStore({"2026-W41": ep})
+    client, patcher = _client(store)
+    client.app.state.project_root = tmp_path
+    (tmp_path / "data" / "episodes").mkdir(parents=True)
+    local = tmp_path / "data" / "episodes" / "2026-W41.json"
+    local.write_text(json.dumps(ep))
+    try:
+        with patch("backend.orchestrator.RecipeOrchestrator") as orchestrator:
+            resp = client.post("/admin/episodes/2026-W41/images/rerun", headers=_SAME_ORIGIN)
+    finally:
+        patcher.stop()
+    assert resp.status_code == 410
+    assert "Wednesday re-fire" in resp.json()["detail"]
+    orchestrator.assert_not_called()
+    assert json.loads(local.read_text()) == ep
+    assert store.saved == {}

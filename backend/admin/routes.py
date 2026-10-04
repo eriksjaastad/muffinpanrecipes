@@ -989,12 +989,16 @@ def create_routes(app: FastAPI):
             note = "Sunday did not publish: it is waiting for your photo choice."
         elif state["status"] == photo_review.INVALID:
             note = "The saved choice does not match these photos. Choose again."
+        elif review.get("legacy") and state["status"] == photo_review.AWAITING:
+            note = ("These photos were made before photo review existed, so no "
+                    "\"photos ready\" email went out. Sunday publishes only after you choose.")
         return {
             "status": state["status"],
             "image_set_id": review.get("image_set_id"),
             "selected_path": selected["path"] if selected else None,
             "decided_at": state.get("decided_at"),
             "automated_status": automated,
+            "legacy": bool(review.get("legacy")),
             "writable": not published,
             "note": note,
             "candidates": [
@@ -1177,76 +1181,22 @@ def create_routes(app: FastAPI):
         _retired_image_control(episode_id)
 
     @app.post("/admin/episodes/{episode_id}/images/rerun")
-    async def admin_rerun_photography(
-        episode_id: str,
-        user: dict = Depends(require_auth),
-    ):
-        """Re-run the art director photography stage for this episode.
+    async def admin_rerun_photography(episode_id: str, user: dict = Depends(require_auth)):
+        """Retired (#7936): it wrote a local stage no cloud review could see.
 
-        PAID (image generation). Local-data only and not linked from the photo
-        review page (#7936); the rebuilt stage has no photo review, so Sunday
-        holds until the new set is reviewed.
+        Generates nothing and writes nothing. A paid reshoot is a manual
+        Wednesday re-fire (RUNBOOK, the "awaiting_photo_approval" section),
+        which registers a new review.
         """
         _sanitize_id(episode_id, "episode_id")
-        episodes_dir = app.state.project_root / "data" / "episodes"
-        ep_path = episodes_dir / f"{episode_id}.json"
-
-        if not ep_path.exists():
-            raise HTTPException(status_code=404, detail=f"Episode not found: {episode_id}")
-
-        data = json.loads(ep_path.read_text())
-        concept = data.get("concept", "Weekly Muffin Pan Recipe")
-        recipe_data = data.get("stages", {}).get("monday", {}).get("recipe_data", {})
-        recipe_id = data.get("recipe_id")
-
-        if not recipe_id:
-            raise HTTPException(status_code=400, detail="No recipe_id on episode")
-
-        current_status = data.get("stages", {}).get("wednesday", {}).get("image_status", "")
-        if current_status in ("cleaned",):
-            raise HTTPException(status_code=400, detail=f"Cannot re-run: images already {current_status}")
-
-        try:
-            from backend.orchestrator import RecipeOrchestrator
-            from backend.storage import EPISODES_DIR
-            orchestrator = RecipeOrchestrator(data_dir=EPISODES_DIR.parent)
-            orchestrator.pipeline.start_recipe(recipe_id, concept)
-
-            photography_result = orchestrator._execute_stage_photography(recipe_id, recipe_data)
-            image_paths = photography_result.get("selected_shots", []) if isinstance(photography_result, dict) else []
-
-            from backend.storage import storage
-            image_urls = [storage.get_image_url(p) for p in image_paths]
-
-            data["stages"]["wednesday"] = {
-                "stage": "photography",
-                "status": "complete",
-                "concept": concept,
-                "photography_data": photography_result,
-                "reshoot_happened": photography_result.get("reshoot_happened", False) if isinstance(photography_result, dict) else False,
-                "image_paths": image_paths,
-                "image_urls": image_urls,
-                "image_status": "auto_selected",
-                "confirmed_winner": photography_result.get("winner", {}) if isinstance(photography_result, dict) else {},
-                "dialogue": data.get("stages", {}).get("wednesday", {}).get("dialogue", []),
-                "completed_at": datetime.now(timezone.utc).isoformat(),
-                "rerun": True,
-            }
-            data["image_paths"] = image_paths
-            data["image_urls"] = image_urls
-            data.setdefault("events", []).append("wednesday: re-run photography")
-            ep_path.write_text(json.dumps(data, indent=2))
-
-            logger.info(f"Photography re-run complete for episode {episode_id}: {len(image_paths)} images")
-            return {
-                "success": True,
-                "images_generated": len(image_paths),
-                "image_status": "auto_selected",
-            }
-
-        except Exception as e:
-            logger.error(f"Photography re-run failed for {episode_id}: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Re-run failed: {e}")
+        raise HTTPException(
+            status_code=410,
+            detail=(
+                "Retired. Existing photos are reviewed at "
+                f"/admin/episodes/{episode_id}#photo-review; a reshoot is a manual "
+                "Wednesday re-fire (see RUNBOOK)."
+            ),
+        )
 
     @app.delete("/admin/episodes/{episode_id}")
     async def admin_episode_delete(
