@@ -923,8 +923,7 @@ def create_routes(app: FastAPI):
                 logger.warning(f"Skipping invalid episode {data.get('episode_id') if isinstance(data, dict) else '?'}: {exc}")
         return episodes
 
-    def _build_episode_detail(data: dict, view=None, ns: str = "", can_delete: bool = False,
-                              can_run: bool = False) -> dict:
+    def _build_episode_detail(data: dict, view=None, ns: str = "", can_run: bool = False) -> dict:
         """Build template-friendly detail from raw episode JSON."""
         stages_raw = data.get("stages", {})
         stages = []
@@ -993,7 +992,6 @@ def create_routes(app: FastAPI):
             "photo_review": review,
             "image_display_urls": _image_display_urls(data, view, ns),
             "ns": ns,
-            "can_delete": can_delete,
             "can_run": can_run,
         }
 
@@ -1071,8 +1069,10 @@ def create_routes(app: FastAPI):
         if view is None or view.request is None:
             return {"status": None, "candidates": [], "writable": False,
                     "note": "No current photo set to review."}
+        from backend.utils.episode_integrity import episode_is_published
+
         selected = view.selected
-        published = bool(data.get("published_at")) or view.state == photo_review.PUBLISHED
+        published = episode_is_published(data) or view.state == photo_review.PUBLISHED
         frozen = view.frozen and not published
         evaluation = _review_evaluation(data, view)
         mirrored = photo_review.episode_request(data) if view.version else None
@@ -1179,15 +1179,17 @@ def create_routes(app: FastAPI):
         _sanitize_id(episode_id, "episode_id")
         prefix = _namespace_prefix(ns)
         templates = app.state.templates
+        from backend.utils.episode_integrity import episode_is_published
+
         data = _load_cloud_episode(episode_id, prefix)
         local_production = not _is_cloud_store(_cloud_storage()) and not prefix
         episode = _build_episode_detail(
             data, _load_photo_view(episode_id, data, prefix), ns=ns or "",
-            # Delete trashes LOCAL files only; it is not offered for cloud data.
-            can_delete=local_production,
             # The compressed-week simulation writes production stages with no
-            # namespace of its own (#7936): local, production view, unpublished.
-            can_run=local_production and not data.get("published_at"),
+            # namespace of its own (#7936): local, production view, and never a
+            # published week (published_at OR complete Sunday, the legacy-aware
+            # predicate the static builder uses).
+            can_run=local_production and not episode_is_published(data),
         )
 
         return templates.TemplateResponse(
@@ -1265,7 +1267,9 @@ def create_routes(app: FastAPI):
                     **_decision_actor(user),
                 )
         except photo_review.PhotoReviewError as exc:
-            raise HTTPException(status_code=409 if data.get("published_at") else 400, detail=str(exc))
+            from backend.utils.episode_integrity import episode_is_published
+
+            raise HTTPException(status_code=409 if episode_is_published(data) else 400, detail=str(exc))
         except photo_review.PublicationUnderway:
             raise HTTPException(status_code=409, detail="Publishing is underway. Choices are frozen.")
         except photo_review.ReviewConflict as exc:
@@ -1408,57 +1412,25 @@ def create_routes(app: FastAPI):
         episode_id: str,
         user: dict = Depends(require_auth),
     ):
-        """Delete a non-published LOCAL episode and its associated images (moved to trash)."""
+        """Retired (#7936, Codex cycle 3). Deletes nothing.
+
+        This trashed a LOCAL episode file and its whole image directory
+        after a check of ``published_at`` only. That check-then-trash could
+        run while the photo control was claimed/publishing (a failed
+        publishing save leaves the episode unpublished but its checkpoint
+        committed), and raced a concurrent claim, so the next Sunday restored
+        a publication whose images were in the trash. The action is retired
+        rather than fenced: local cleanup is a manual operator step
+        (RUNBOOK, "Photo approval", local cleanup).
+        """
         _sanitize_id(episode_id, "episode_id")
-        if _is_cloud_store(_cloud_storage()):
-            # The viewer shows cloud episodes (#7936); this only ever trashed
-            # local files, so it would report a deletion that did not happen.
-            raise HTTPException(
-                status_code=409,
-                detail="Delete is local-only and not available for cloud-stored episodes.",
-            )
-        episodes_dir = app.state.project_root / "data" / "episodes"
-        ep_path = episodes_dir / f"{episode_id}.json"
-
-        if not ep_path.exists():
-            raise HTTPException(status_code=404, detail=f"Episode not found: {episode_id}")
-
-        data = json.loads(ep_path.read_text())
-        if data.get("published_at"):
-            raise HTTPException(status_code=403, detail="Cannot delete a published episode.")
-
-        from send2trash import send2trash
-        trashed: list[str] = []
-        errors: list[str] = []
-
-        recipe_id = data.get("recipe_id")
-        if recipe_id:
-            recipe_id = _sanitize_id(recipe_id, "recipe_id")
-        images_base = app.state.project_root / "src" / "assets" / "images"
-        paths_to_trash: list[Path] = [ep_path]
-        if recipe_id:
-            image_dir = images_base / recipe_id
-            featured = images_base / f"{recipe_id}.png"
-            if image_dir.exists():
-                paths_to_trash.append(image_dir)
-            if featured.exists():
-                paths_to_trash.append(featured)
-
-        for p in paths_to_trash:
-            try:
-                send2trash(str(p))
-                trashed.append(str(p))
-            except Exception as exc:
-                errors.append(f"{p}: {exc}")
-
-        if errors:
-            logger.warning(f"Episode delete partial errors for {episode_id}: {errors}")
-
-        return JSONResponse({
-            "message": f"Episode {episode_id} deleted ({len(trashed)} items trashed).",
-            "trashed": trashed,
-            "errors": errors,
-        })
+        raise HTTPException(
+            status_code=410,
+            detail=(
+                "Retired. The admin viewer no longer deletes episodes or images. Local cleanup is a "
+                "manual operator step after checking the photo control (RUNBOOK: photo approval)."
+            ),
+        )
 
     @app.post("/admin/episodes/{episode_id}/run")
     async def admin_episode_run(
@@ -1503,7 +1475,9 @@ def create_routes(app: FastAPI):
                     status_code=500,
                     detail=f"Episode file for {episode_id} is unreadable: {type(exc).__name__}: {exc}",
                 ) from exc
-            if isinstance(ep_data, dict) and ep_data.get("published_at"):
+            from backend.utils.episode_integrity import episode_is_published
+
+            if episode_is_published(ep_data):
                 raise HTTPException(
                     status_code=409,
                     detail=f"Episode {episode_id} is published; the simulation will not rewrite its history.",

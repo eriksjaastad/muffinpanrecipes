@@ -386,7 +386,11 @@ def _monitor(ep):
     return episode_integrity_failures(ep, now=AFTER_SUNDAY), episode_summary(ep)
 
 
-@pytest.mark.parametrize("failure", ["editorial_qa", "dialogue", "claim_lost", "no_selection"])
+# "no usable selection after the claim" is no longer a reachable post-claim
+# failure: since Codex cycle 3 a claimed version without a valid approved
+# candidate is inconsistent and fails closed at the read boundary
+# (tests/test_photo_approval_cycle3_7936.py), so Sunday never holds such a claim.
+@pytest.mark.parametrize("failure", ["editorial_qa", "dialogue", "claim_lost"])
 def test_post_claim_failure_is_reported_not_masked_by_the_old_hold(failure):
     store, wed = _held_then_approved()
     kw: dict = {}
@@ -396,16 +400,8 @@ def test_post_claim_failure_is_reported_not_masked_by_the_old_hold(failure):
         extra = patch.object(cron_routes, "_auto_fix_recipe", return_value=False)
     elif failure == "dialogue":
         kw = {"dialogue_effect": RuntimeError("provider down")}
-    elif failure == "claim_lost":
-        extra = patch.object(photo_review, "mark_publishing", side_effect=PhotoControlConflict("released"))
     else:
-        # The claimed version approves nothing usable (selection lost between
-        # the claim and the read-back): refused, claim released.
-        real_selected = photo_review.ControlView.selected
-        extra = patch.object(
-            photo_review.ControlView, "selected",
-            property(lambda self: None if self.state == photo_review.CLAIMED else real_selected.fget(self)),
-        )
+        extra = patch.object(photo_review, "mark_publishing", side_effect=PhotoControlConflict("released"))
     with extra:
         env = _sunday(store, **kw)
     assert _status(env) in (400, 409, 500)
@@ -424,9 +420,6 @@ def test_post_claim_failure_is_reported_not_masked_by_the_old_hold(failure):
         assert sunday["status"] == "failed" and "Editorial QA" in sunday["error"]
         assert any("Editorial QA" in f for f in failures)
         assert saved["editorial_qa"]["passed"] is False
-    if failure == "no_selection":
-        store_view = photo_review.read_view(store, EP_ID, None)
-        assert store_view.state == "approved"
     assert _control(store)["state"] == "approved" and _control(store)["claim"] is None
 
 

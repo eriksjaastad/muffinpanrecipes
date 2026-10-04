@@ -117,8 +117,10 @@ def _episode_slug(episode: dict) -> str:
 
 
 def _episode_is_published(episode: dict) -> bool:
-    sunday = episode.get("stages", {}).get("sunday", {})
-    return bool(episode.get("published_at") or sunday.get("status") == "complete")
+    """published_at OR a complete Sunday; the one shared predicate (#7936)."""
+    from backend.utils.episode_integrity import episode_is_published
+
+    return episode_is_published(episode)
 
 
 def _current_episode_id() -> str:

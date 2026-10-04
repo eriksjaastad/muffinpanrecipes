@@ -979,21 +979,21 @@ def test_awaiting_note_after_the_scheduled_run_explains_manual_continuation():
     assert "After you choose, publishing needs a manual Sunday run." in html.unescape(page)
 
 
-@pytest.mark.parametrize("cloud,shown", [(True, False), (False, True)])
-def test_delete_is_local_only(cloud, shown, tmp_path):
+@pytest.mark.parametrize("cloud", [True, False])
+def test_delete_is_retired_everywhere(cloud):
+    """Codex cycle 3: the local Delete could trash a frozen publication's images; it is gone (410)."""
     store, _ = _registered_store()
     store.cloud = cloud
     client, patcher = _client(store)
     try:
         page = client.get(f"/admin/episodes/{EP_ID}").text
         with patch("send2trash.send2trash") as trash:
-            resp = client.delete(f"/admin/episodes/{EP_ID}") if cloud else None
+            resp = client.delete(f"/admin/episodes/{EP_ID}")
     finally:
         patcher.stop()
-    assert ('id="delete-btn"' in page) is shown
-    if cloud:
-        assert resp.status_code == 409 and "local-only" in resp.json()["detail"]
-        trash.assert_not_called()
+    assert 'id="delete-btn"' not in page and "delete-episode" not in page and "deleteEpisode" not in page
+    assert resp.status_code == 410 and "Retired" in resp.json()["detail"]
+    trash.assert_not_called()
 
 
 @pytest.mark.parametrize("route", ["confirm", "override", "rerun"])
@@ -1262,8 +1262,9 @@ def test_reconcile_script_is_dry_run_by_default_and_releases_only_claimed(capsys
         assert photo_control.main(["reconcile", EP_ID, "--execute"]) == 0
     assert _control(store)["state"] == "approved"
     # The run that held the claim now loses it before publishing.
+    body = cron_routes._published_copy(store.get(EP_ID), claimed, [], "PASS", "Spinach Feta Egg Cups")
     with pytest.raises(PhotoControlConflict):
-        photo_review.mark_publishing(store, claimed, {"published_at": "2026-10-11T12:00:00+00:00"})
+        photo_review.mark_publishing(store, claimed, body)
 
 
 def test_reconcile_script_never_releases_publishing_or_published(capsys):
@@ -1271,7 +1272,8 @@ def test_reconcile_script_never_releases_publishing_or_published(capsys):
 
     store, ep, _ = _approved_store()
     claimed = photo_review.claim_for_publication(store, EP_ID, ep)
-    photo_review.mark_publishing(store, claimed, {**store.get(EP_ID), "published_at": "2026-10-11T12:00:00+00:00"})
+    body = cron_routes._published_copy(store.get(EP_ID), claimed, [], "PASS", "Spinach Feta Egg Cups")
+    photo_review.mark_publishing(store, claimed, body)
     with patch("backend.storage.storage", store):
         assert photo_control.main(["reconcile", EP_ID, "--execute"]) == 2
     assert _control(store)["state"] == "publishing"
@@ -1283,9 +1285,7 @@ def test_reconcile_script_records_a_publication_the_episode_proves():
 
     store, ep, _ = _approved_store()
     claimed = photo_review.claim_for_publication(store, EP_ID, ep)
-    published = store.get(EP_ID)
-    published.update(published_at="2026-10-11T12:00:00+00:00",
-                     photo_approval={"claim_id": claimed.claim["claim_id"]})
+    published = cron_routes._published_copy(store.get(EP_ID), claimed, [], "PASS", "Spinach Feta Egg Cups")
     store.put(EP_ID, published)
     with patch("backend.storage.storage", store):
         assert photo_control.main(["reconcile", EP_ID, "--execute"]) == 0
@@ -1675,9 +1675,23 @@ def test_a_malformed_approval_selects_nothing_and_sunday_holds(bad, state):
         decision["image_set_id"] = "0123456789abcdef"
     else:
         decision.pop("image_set_id")
-    photo_review._append(store, view, state=state, request=view.request, decision=decision,
-                         claim={"claim_id": "c1"} if state == photo_review.CLAIMED else None,
-                         event="malformed")
+    claim = {"claim_id": "c1c1c1c1c1c1c1c1", "claimed_at": "2026-10-11T00:00:00+00:00", "from_version": 2}
+    body = {"schema": 1, "episode_id": EP_ID, "version": view.version + 1, "write_id": "x", "state": state,
+            "request": view.request, "decision": decision,
+            "claim": claim if state == photo_review.CLAIMED else None, "event": "malformed", "at": "2026-10-11T00:00:00+00:00"}
+    store.create_photo_control_version(EP_ID, view.version + 1, body)
+    if state == photo_review.CLAIMED:
+        # A claimed version that approves nothing is inconsistent: it fails
+        # closed at the read boundary (Codex cycle 3) rather than reading as
+        # "claimed but selects nothing".
+        with pytest.raises(PhotoControlUnavailable, match="inconsistent"):
+            photo_review.read_view(store, EP_ID, None)
+        env = _sunday(store)
+        assert _status(env) == 503
+        env.dialogue.assert_not_called()
+        _never_published(store)
+        assert _control(store)["version"] == view.version + 1
+        return
     bad_view = photo_review.read_view(store, EP_ID, None)
     assert bad_view.selected is None
     assert photo_review.protected_image_paths(bad_view) == []

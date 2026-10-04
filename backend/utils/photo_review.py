@@ -67,6 +67,7 @@ from backend.storage import (
     PhotoControlConflict,
     PhotoControlUnavailable,
 )
+from backend.utils.episode_integrity import episode_is_published
 
 AWAITING = "awaiting"
 APPROVED = "approved"
@@ -328,6 +329,8 @@ class ControlView:
         """The immutable publication checkpoint (publishing/published), or None."""
         pub = (self.raw or {}).get("publication")
         if self.state in (PUBLISHING, PUBLISHED) and isinstance(pub, dict) and pub.get("published_at"):
+            # _view_from_control has already proven this checkpoint is this
+            # claim's own publication (checkpoint_mismatch).
             return pub
         return None
 
@@ -441,12 +444,95 @@ def _valid_request(request: object) -> bool:
     return len(set(paths)) == len(paths) and len(set(urls)) == len(urls)
 
 
+def _valid_claim(claim: object) -> bool:
+    if not isinstance(claim, dict) or not _nonempty_str(claim.get("claim_id")):
+        return False
+    if not _nonempty_str(claim.get("claimed_at")):
+        return False
+    from_version = claim.get("from_version")
+    return isinstance(from_version, int) and not isinstance(from_version, bool) and from_version >= 0
+
+
+def checkpoint_mismatch(view: ControlView, publication: object) -> str | None:
+    """Why ``publication`` is NOT the published episode of ``view``'s approved claim, or None.
+
+    The checkpoint (and a published episode offered as proof of one) must be
+    the week this control approved and claimed: same episode, a published_at,
+    the hero pinned to the approved candidate's URL, and a ``photo_approval``
+    naming this claim, this image set and this candidate. Anything else is a
+    foreign or inconsistent publication and is never restored or recorded.
+    """
+    selected = view.selected
+    if selected is None:
+        return "no valid approved candidate"
+    if not _valid_claim(view.claim):
+        return "no valid publication claim"
+    if not isinstance(publication, dict):
+        return "checkpoint is not an episode"
+    if publication.get("episode_id") != view.episode_id:
+        return "checkpoint is for another episode"
+    if not _nonempty_str(publication.get("published_at")):
+        return "checkpoint has no published_at"
+    if publication.get("hero_image_url") != selected["url"]:
+        return "checkpoint hero is not the approved photo"
+    approval = publication.get("photo_approval")
+    if not isinstance(approval, dict):
+        return "checkpoint has no photo_approval record"
+    expected = {
+        "claim_id": view.claim["claim_id"],
+        "image_set_id": view.image_set_id,
+        "path": selected["path"],
+        "url": selected["url"],
+        # _published_copy stamps the CLAIMED version (claim.from_version + 1).
+        "control_version": view.claim["from_version"] + 1,
+    }
+    for key, value in expected.items():
+        if approval.get(key) != value or isinstance(approval.get(key), bool) != isinstance(value, bool):
+            return f"checkpoint photo_approval.{key} does not match the control"
+    sunday = (publication.get("stages") or {}).get("sunday") if isinstance(publication.get("stages"), dict) else None
+    if not isinstance(sunday, dict) or sunday.get("status") != "complete" or sunday.get("published") is not True:
+        return "checkpoint Sunday stage is not a completed publication"
+    return None
+
+
+def frozen_inconsistency(view: ControlView) -> str | None:
+    """Why a claimed/publishing/published version is unusable, or None when it is sound.
+
+    Enforced at the single read boundary (``_view_from_control``), so no
+    reader, writer or recovery path ever acts on a frozen record that lacks a
+    real approved candidate of the current set, a valid claim, or (once
+    publishing) a checkpoint that is this claim's own publication.
+    """
+    if view.state not in FROZEN:
+        return None
+    if view.selected is None:
+        return "frozen without a valid approved candidate of the current set"
+    if not _valid_claim(view.claim):
+        return "frozen without a valid claim"
+    # The claim was taken FROM an approved version and created the next one:
+    # a CLAIMED version is exactly from_version + 1, and publishing/published
+    # versions come after it. A claim from the future or from an unrelated
+    # version is not this control's claim.
+    claimed_version = view.claim["from_version"] + 1
+    if view.state == CLAIMED and view.version != claimed_version:
+        return "claim version does not match this claimed version"
+    if view.state in (PUBLISHING, PUBLISHED) and not (claimed_version < view.version):
+        return "claim version is not earlier than this frozen version"
+    if view.state in (PUBLISHING, PUBLISHED):
+        reason = checkpoint_mismatch(view, (view.raw or {}).get("publication"))
+        if reason:
+            return reason
+        if view.state == PUBLISHED and (view.raw or {}).get("published_at") != view.raw["publication"]["published_at"]:
+            return "published_at disagrees with the checkpoint"
+    return None
+
+
 def _view_from_control(episode_id: str, ctrl: dict) -> ControlView:
     state = ctrl.get("state")
     request = ctrl.get("request")
     if state not in STATES or not _valid_request(request):
         raise PhotoControlUnavailable(f"photo control {episode_id} v{ctrl.get('version')} is malformed")
-    return ControlView(
+    view = ControlView(
         episode_id=episode_id,
         state=state,
         request=request,
@@ -455,6 +541,14 @@ def _view_from_control(episode_id: str, ctrl: dict) -> ControlView:
         version=int(ctrl["version"]),
         raw=ctrl,
     )
+    # A frozen record that is not internally consistent fails closed here:
+    # it is never read as approved, legacy, editable or publishable.
+    problem = frozen_inconsistency(view)
+    if problem:
+        raise PhotoControlUnavailable(
+            f"photo control {episode_id} v{ctrl.get('version')} ({state}) is inconsistent: {problem}"
+        )
+    return view
 
 
 def _derived_view(episode_id: str, ep: dict | None) -> ControlView:
@@ -510,13 +604,20 @@ def _append(store, view: ControlView, *, state: str, request: dict | None, decis
         "at": _now(),
         **extra,
     }
+    # The proposed version is validated BEFORE it is persisted: the log is
+    # immutable, so an inconsistent body must never reach it. Every
+    # transition goes through here, so this is the single write boundary.
+    try:
+        new_view = _view_from_control(view.episode_id, body)
+    except PhotoControlUnavailable as exc:
+        raise PhotoReviewError(f"refusing to write an inconsistent control version: {exc}") from exc
     try:
         store.create_photo_control_version(view.episode_id, version, body)
     except PhotoControlUnavailable:
         latest = store.read_photo_control(view.episode_id)
         if not (latest and latest.get("version") == version and latest.get("write_id") == body["write_id"]):
             raise
-    return _view_from_control(view.episode_id, body)
+    return new_view
 
 
 # --- Transitions -----------------------------------------------------------------
@@ -579,7 +680,7 @@ def record_decision(
     view = read_view(store, episode_id, verified_ep)
     if view.frozen:
         raise PublicationUnderway("Publishing is underway; the photo choice is frozen.")
-    if verified_ep and verified_ep.get("published_at"):
+    if verified_ep and episode_is_published(verified_ep):
         raise PhotoReviewError(
             "Episode is already published; its hero is pinned. "
             "Changing it is an editorial override, not a review."
@@ -669,14 +770,20 @@ def mark_publishing(store, claimed: ControlView, publication: dict) -> ControlVi
     """
     if claimed.state != CLAIMED:
         raise PhotoReviewError(f"cannot publish from a {claimed.state} control")
-    if not isinstance(publication, dict) or not publication.get("published_at"):
-        raise PhotoReviewError("the publication checkpoint must be a published episode")
+    problem = checkpoint_mismatch(claimed, publication)
+    if problem:
+        raise PhotoReviewError(f"refusing to publish: {problem}")
     return _append(store, claimed, state=PUBLISHING, request=claimed.request, decision=claimed.decision,
                    claim=claimed.claim, event="sunday: publishing",
                    publication=copy.deepcopy(publication))
 
 
 def mark_published(store, publishing: ControlView, published_at: str) -> ControlView:
+    """``publishing`` -> ``published`` for the checkpoint's own published_at only."""
+    if publishing.state != PUBLISHING or publishing.publication is None:
+        raise PhotoReviewError(f"cannot mark a {publishing.state} control published")
+    if published_at != publishing.publication.get("published_at"):
+        raise PhotoReviewError("published_at does not match the publication checkpoint")
     return _append(store, publishing, state=PUBLISHED, request=publishing.request,
                    decision=publishing.decision, claim=publishing.claim,
                    event="sunday: published", published_at=published_at,
@@ -723,7 +830,7 @@ def operator_release(store, episode_id: str, verified_ep: dict) -> ControlView:
         )
     if view.state != CLAIMED:
         raise PhotoReviewError(f"control is {view.state}; nothing to release")
-    if verified_ep.get("published_at"):
+    if episode_is_published(verified_ep):
         raise PhotoReviewError("episode is published; investigate by hand before releasing")
     return _append(store, view, state=APPROVED, request=view.request, decision=view.decision,
                    claim=None, event="operator: released claimed control")
@@ -740,17 +847,19 @@ def reconcile_published(store, episode_id: str, ep: dict) -> ControlView | None:
     if ctrl is None:
         return None
     view = _view_from_control(episode_id, ctrl)
-    claim_id = ((ep.get("photo_approval") or {}) if isinstance(ep.get("photo_approval"), dict) else {}).get("claim_id")
-    if (
-        view.state in (CLAIMED, PUBLISHING)
-        and ep.get("published_at")
-        and claim_id
-        and claim_id == (view.claim or {}).get("claim_id")
-    ):
-        return _append(store, view, state=PUBLISHED, request=view.request, decision=view.decision,
-                       claim=view.claim, event="reconciled: episode shows this claim published",
-                       published_at=ep.get("published_at"), publication=view.publication)
-    return None
+    if view.state not in (CLAIMED, PUBLISHING) or not ep.get("published_at"):
+        return None
+    # The episode is proof only when it IS this claim's publication: hero,
+    # claim, image set and candidate all match (checkpoint_mismatch). A week
+    # published by something else is left alone for the operator.
+    if checkpoint_mismatch(view, ep):
+        return None
+    checkpoint = view.publication if view.publication is not None else copy.deepcopy(ep)
+    if checkpoint.get("published_at") != ep.get("published_at"):
+        return None
+    return _append(store, view, state=PUBLISHED, request=view.request, decision=view.decision,
+                   claim=view.claim, event="reconciled: episode shows this claim published",
+                   published_at=ep.get("published_at"), publication=checkpoint)
 
 
 # --- Read-side helpers ------------------------------------------------------------

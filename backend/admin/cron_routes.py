@@ -142,6 +142,9 @@ def _verify_cron_secret(request: Request) -> None:
 # the health check and the session-start surface assert against the same
 # literal this module writes.
 PLACEHOLDER_CONCEPT = episode_integrity.PLACEHOLDER_CONCEPT
+# THE publication predicate (#7936): published_at OR a complete Sunday, as the
+# static builder has always decided it. Every published-week guard uses it.
+episode_is_published = episode_integrity.episode_is_published
 
 # Temporary containment for the remainder of W39. This applies only to
 # authenticated scheduled GETs; manual POST recovery remains available.
@@ -3065,7 +3068,9 @@ def _refuse_wednesday_on_frozen_photos(episode_id: str, ep: dict, concept: str) 
     Checked before the paid generation. A control read failure is a 503:
     without it Wednesday cannot know whether publication has begun.
     """
-    if ep.get("published_at"):
+    if episode_is_published(ep):
+        # published_at OR a complete Sunday: the legacy-aware predicate, so a
+        # historical week's photos are never replaced either.
         raise HTTPException(
             status_code=409,
             detail=f"Episode {episode_id} is already published; Wednesday will not replace its photos.",
@@ -3138,6 +3143,35 @@ def _read_episode_verified(episode_id: str, concept: str, purpose: str) -> dict 
         )
 
 
+def _record_failed_hold_attempt(episode_id: str, ep: dict, detail: str) -> str:
+    """A Sunday that found an earlier hold and then failed before deciding (#7936).
+
+    Marks ``publish_hold.last_attempt`` failed and saves, so the integrity
+    monitor stops reading the week as quietly "awaiting photo approval" and
+    reports this failure instead. Returns a sentence for the alert: either
+    that the attempt was recorded, or that it could NOT be (the monitor will
+    then still show the hold, which the alert says plainly).
+    """
+    hold = ep.get("publish_hold")
+    if not isinstance(hold, dict):
+        return ""
+    hold["last_attempt"] = {
+        "at": datetime.now(timezone.utc).isoformat(),
+        "outcome": "failed",
+        "detail": detail[:500],
+    }
+    ep.setdefault("events", []).append("sunday: attempt after hold failed")
+    try:
+        storage.save_episode(episode_id, ep)
+    except Exception as exc:
+        return (
+            " The failed attempt could NOT be recorded on the episode either "
+            f"({type(exc).__name__}: {exc}); until a Sunday run succeeds, the monitor will keep "
+            "showing the earlier photo hold. Treat this alert as the record."
+        )
+    return " The failed attempt was recorded on the episode; the monitor reports it."
+
+
 def _hold_for_photo_approval(episode_id: str, ep: dict, concept: str, reason: str, view):
     """Record and report a photo-approval hold. Expected waiting, not a failure.
 
@@ -3166,6 +3200,11 @@ def _hold_for_photo_approval(episode_id: str, ep: dict, concept: str, reason: st
         ep.setdefault("events", []).append("sunday: earlier failed attempt superseded by hold")
         episode_changed = True
     prior = ep.get("publish_hold") if isinstance(ep.get("publish_hold"), dict) else {}
+    prior_attempt = prior.get("last_attempt") if isinstance(prior.get("last_attempt"), dict) else {}
+    if prior_attempt.get("outcome") == "failed":
+        # This run reached the hold decision, so the earlier failed attempt
+        # is superseded; the hold is quiet again.
+        episode_changed = True
     if episode_changed or not (
         prior.get("reason") == reason and prior.get("image_set_id") == image_set and prior.get("notified")
     ):
@@ -3175,6 +3214,7 @@ def _hold_for_photo_approval(episode_id: str, ep: dict, concept: str, reason: st
             "image_set_id": image_set,
             "since": prior.get("since") or datetime.now(timezone.utc).isoformat(),
             "notified": bool(same_hold and prior.get("notified")),
+            "last_attempt": {"at": datetime.now(timezone.utc).isoformat(), "outcome": "held"},
         }
         ep["publish_hold"] = hold
         ep.setdefault("events", []).append(f"sunday: held ({reason})")
@@ -3260,10 +3300,12 @@ def _complete_checkpointed_publication(episode_id: str, ep: dict, concept: str, 
     try:
         view = photo_review.read_view(storage, episode_id, ep)
     except Exception as exc:
-        raise _sunday_storage_failure(
-            episode_id, concept,
+        detail = (
             f"Sunday could not read the photo control for {episode_id}: "
-            f"{type(exc).__name__}: {exc}. Nothing was published, spent or saved.",
+            f"{type(exc).__name__}: {exc}. Nothing was published or spent."
+        )
+        raise _sunday_storage_failure(
+            episode_id, concept, detail + _record_failed_hold_attempt(episode_id, ep, detail),
         )
     if view.state not in (photo_review.PUBLISHING, photo_review.PUBLISHED):
         return None
@@ -3426,7 +3468,9 @@ async def cron_sunday(request: Request):
       ) or _new_episode(episode_id, body.concept or PLACEHOLDER_CONCEPT)
       concept: str = body.concept or ep.get("concept") or PLACEHOLDER_CONCEPT
 
-      if ep.get("published_at"):
+      # Legacy-aware (#7936): a historical week with a complete Sunday and no
+      # published_at is published and is never re-decided or overwritten.
+      if episode_is_published(ep):
         handoff_status = _static_deploy_state(ep).get("status")
         if handoff_status == "pending" or (
             handoff_status == "failed"
@@ -3489,10 +3533,12 @@ async def cron_sunday(request: Request):
         except (photo_review.PublicationUnderway, photo_review.ReviewConflict) as exc:
             return _publication_underway_response(episode_id, concept, str(exc))
         except Exception as exc:
-            raise _sunday_storage_failure(
-                episode_id, concept,
+            detail = (
                 f"Sunday could not read or claim the photo control for {episode_id}: "
-                f"{type(exc).__name__}: {exc}. Nothing was published or spent.",
+                f"{type(exc).__name__}: {exc}. Nothing was published or spent."
+            )
+            raise _sunday_storage_failure(
+                episode_id, concept, detail + _record_failed_hold_attempt(episode_id, ep, detail),
             )
         # #7936: the hold an earlier Sunday recorded while waiting is obsolete
         # the moment an approval is claimed. It is cleared in storage FIRST,
@@ -3501,17 +3547,23 @@ async def cron_sunday(request: Request):
         # reported as that failure and never read back as "awaiting photo
         # approval". If the clear cannot be saved, the claim is handed back
         # and nothing is spent.
-        if ep.pop("publish_hold", None) is not None:
+        hold_before = ep.pop("publish_hold", None)
+        if hold_before is not None:
             ep.setdefault("events", []).append("sunday: hold cleared (approved photo claimed)")
             try:
                 storage.save_episode(episode_id, ep)
             except Exception as exc:
                 _release_photo_claim(episode_id, concept, claimed, "could not clear the previous hold")
-                raise _sunday_storage_failure(
-                    episode_id, concept,
+                detail = (
                     f"Sunday {episode_id}: could not clear the previous photo hold before "
                     f"publishing ({type(exc).__name__}: {exc}). The approval was handed back; "
-                    "nothing was spent. Run Sunday again in a minute.",
+                    "nothing was spent. Run Sunday again in a minute."
+                )
+                # The hold is still in storage; put the failed attempt on it
+                # (same store, so this usually fails too and the alert says so).
+                ep["publish_hold"] = hold_before
+                raise _sunday_storage_failure(
+                    episode_id, concept, detail + _record_failed_hold_attempt(episode_id, ep, detail),
                 )
         approved_photo = claimed.selected
         if approved_photo is None:
@@ -3755,7 +3807,9 @@ async def execute_cron_stage_stub(stage: str, episode_id: str, concept: str, mod
         )
     # Bypass cron secret verification — caller is already auth'd via admin UI
     ep = _load_or_create_episode(episode_id, concept)
-    if ep.get("published_at"):
+    if episode_is_published(ep):
+        # published_at OR a complete Sunday (legacy weeks): the shared predicate
+        # the static builder uses, so a historical week is never demoted.
         raise RuntimeError(f"Episode {episode_id} is published; the simulation will not rewrite its history.")
     # A week whose publication is claimed or underway is frozen; a simulated
     # stage must not race Sunday's publishing save (raises PublicationUnderway).
