@@ -153,8 +153,37 @@ def _http_error(status_code: int) -> requests.HTTPError:
     return requests.HTTPError(f"{status_code} from blob", response=response)
 
 
-def _run_this_week(*, body_len: int, episode, fetch_error: Exception | None = None):
-    """Run check_this_week_page with /this-week sized to body_len and the
+def _episode_page(lines: int) -> str:
+    """A real /this-week page: Monday complete with `lines` dialogue lines,
+    rendered by the production renderer."""
+    from backend.publishing.episode_renderer import render_episode_page
+
+    cast = ["Margaret Chen", "Julian Torres", "Marcus Reid"]
+    return render_episode_page(
+        {
+            "episode_id": "2026-W41",
+            "concept": "Black Sesame Popovers",
+            "stages": {"monday": {
+                "status": "complete",
+                "recipe_data": {"title": "Black Sesame Popover Cups"},
+                "dialogue": [
+                    {"day": "monday", "character": cast[i % 3], "message": f"Line {i}."}
+                    for i in range(lines)
+                ],
+            }},
+        },
+        catalog=[],
+    )
+
+
+def _placeholder() -> str:
+    from backend.admin.episode_routes import _placeholder_page
+
+    return _placeholder_page("2026-W41", in_progress=True)
+
+
+def _run_this_week(*, body: str, episode, fetch_error: Exception | None = None):
+    """Run check_this_week_page with /this-week serving `body` and the
     current-week episode JSON stubbed (episode=None simulates a 404;
     fetch_error, when given, is raised by the episode read instead)."""
     def _fake_json(url, timeout=15):
@@ -165,42 +194,68 @@ def _run_this_week(*, body_len: int, episode, fetch_error: Exception | None = No
         return episode
 
     report = hc.Report()
-    with patch.object(hc, "_fetch_text", lambda url, timeout=15: (200, "x" * body_len)), \
+    with patch.object(hc, "_fetch_text", lambda url, timeout=15: (200, body)), \
          patch.object(hc, "_fetch_json", _fake_json):
         hc.check_this_week_page(report)
     return report
 
 
 def test_this_week_full_page_passes():
-    r = _run_this_week(body_len=25_000, episode=None)
+    r = _run_this_week(body=_episode_page(10), episode=None)
     assert "this_week_renders" in r.passed and not r.failed
 
 
 def test_this_week_thin_before_monday_cron_passes():
     # New ISO week, episode not generated yet (404) -> placeholder is expected.
-    r = _run_this_week(body_len=1585, episode=None)
+    r = _run_this_week(body=_placeholder(), episode=None)
     assert "this_week_renders" in r.passed and not r.failed
 
 
 def test_this_week_thin_with_monday_incomplete_passes():
     # Episode exists but Monday not complete yet -> still the pre-cron window.
     ep = {"stages": {"monday": {"status": None}}}
-    r = _run_this_week(body_len=1585, episode=ep)
+    r = _run_this_week(body=_placeholder(), episode=ep)
     assert "this_week_renders" in r.passed and not r.failed
 
 
 def test_this_week_thin_when_monday_complete_fails():
     # Monday IS complete but the page is thin -> a REAL render failure.
     ep = {"stages": {"monday": {"status": "complete"}}}
-    r = _run_this_week(body_len=1585, episode=ep)
+    r = _run_this_week(body=_placeholder(), episode=ep)
     assert r.failed and r.failed[0][0] == "this_week_renders"
+
+
+def test_this_week_short_real_page_passes():
+    # W41 (2026-10-05): a correct 7-line Monday page was 18,928 bytes, and the
+    # old 20,000-byte floor failed it as a render failure. Length is not health.
+    body = _episode_page(6)
+    assert hc.EPISODE_PAGE_MARKER in body
+    ep = {"stages": {"monday": {"status": "complete"}}}
+    r = _run_this_week(body=body, episode=ep)
+    assert "this_week_renders" in r.passed and not r.failed
+
+
+def test_this_week_large_page_without_conversation_when_due_fails():
+    # Size never vouches for a page: a big body with no rendered dialogue is
+    # not an episode page once a stage has completed.
+    ep = {"stages": {"monday": {"status": "complete"}}}
+    r = _run_this_week(body=_placeholder() + "<!--" + "x" * 30_000 + "-->", episode=ep)
+    assert r.failed and r.failed[0][0] == "this_week_renders"
+    assert "no rendered conversation" in r.failed[0][1]
+
+
+def test_placeholder_never_carries_the_episode_marker():
+    for in_progress in (True, False):
+        from backend.admin.episode_routes import _placeholder_page
+
+        assert hc.EPISODE_PAGE_MARKER not in _placeholder_page("2026-W41", in_progress)
 
 
 # #7833: a Blob read failure is not "no episode yet". Passing it as the
 # expected placeholder hid exactly the render failures this check exists for.
 
 def test_this_week_thin_with_blob_5xx_fails():
-    r = _run_this_week(body_len=1585, episode=None, fetch_error=_http_error(503))
+    r = _run_this_week(body=_placeholder(), episode=None, fetch_error=_http_error(503))
     assert not r.passed
     assert r.failed and r.failed[0][0] == "this_week_renders"
     assert "could not be read from blob" in r.failed[0][1]
@@ -208,7 +263,7 @@ def test_this_week_thin_with_blob_5xx_fails():
 
 def test_this_week_thin_with_blob_timeout_fails():
     r = _run_this_week(
-        body_len=1585, episode=None, fetch_error=requests.Timeout("read timed out")
+        body=_placeholder(), episode=None, fetch_error=requests.Timeout("read timed out")
     )
     assert r.failed and r.failed[0][0] == "this_week_renders"
     assert "Timeout" in r.failed[0][1]
@@ -216,14 +271,14 @@ def test_this_week_thin_with_blob_timeout_fails():
 
 def test_this_week_thin_with_unparseable_episode_fails():
     r = _run_this_week(
-        body_len=1585, episode=None, fetch_error=ValueError("Expecting value")
+        body=_placeholder(), episode=None, fetch_error=ValueError("Expecting value")
     )
     assert r.failed and r.failed[0][0] == "this_week_renders"
 
 
 def test_this_week_full_page_ignores_blob_failure():
     # A full page never consults the episode, so a blob outage cannot fail it.
-    r = _run_this_week(body_len=25_000, episode=None, fetch_error=_http_error(503))
+    r = _run_this_week(body=_episode_page(10), episode=None, fetch_error=_http_error(503))
     assert "this_week_renders" in r.passed and not r.failed
 
 

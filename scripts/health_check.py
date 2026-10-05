@@ -237,17 +237,25 @@ def check_teaser_current_week(report: Report, base_url: str = PRODUCTION_BASE_UR
     report.check("teaser_is_current_iso_week", _check)
 
 
+# A rendered episode page carries one of these per dialogue line
+# (episode_renderer._render_message); the placeholder never does. This used to
+# be a 20,000-byte floor, which a real but short page fell under: W41's 7-line
+# Monday rendered correctly at 18,928 bytes and still failed as "likely a real
+# render failure".
+EPISODE_PAGE_MARKER = '<div class="chat-msg">'
+
+
 def check_this_week_page(report: Report, base_url: str = PRODUCTION_BASE_URL) -> None:
     def _check():
         status, body = _fetch_text(_url(base_url, "/this-week"))
         assert status == 200, f"/this-week returned HTTP {status}"
-        if len(body) > 20_000:
-            return  # full episode page rendered — healthy
+        if EPISODE_PAGE_MARKER in body:
+            return  # episode page with its conversation rendered — healthy
 
-        # Thin page. A placeholder is LEGITIMATE in two windows: early in a new
-        # ISO week before Monday's cron (14:30 UTC Mon), and for as long as a
-        # week stays paused on a failed stage. Only treat thin-ness as a
-        # failure once a stage has actually completed, because that is the
+        # No conversation on the page. A placeholder is LEGITIMATE in two
+        # windows: early in a new ISO week before Monday's cron (14:30 UTC
+        # Mon), and for as long as a week stays paused on a failed stage. Only
+        # treat it as a failure once a stage has actually completed, because that is the
         # point a real page was owed — otherwise we alert on the expected
         # window (that was the Monday-morning false alarm).
         #
@@ -284,7 +292,7 @@ def check_this_week_page(report: Report, base_url: str = PRODUCTION_BASE_URL) ->
                 ) from exc
             episode = None
         assert not episode_page_is_due(episode), (
-            f"/this-week body is {len(body)} bytes, expected > 20000, and "
+            f"/this-week ({len(body)} bytes) has no rendered conversation, and "
             f"{week_id} has a completed stage — likely a real render failure."
         )
         print(
