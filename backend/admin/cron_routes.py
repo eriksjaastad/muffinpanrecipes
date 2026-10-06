@@ -282,10 +282,19 @@ def _apply_week_off_note(episode_id: str, ep: dict) -> None:
     ):
         return
     # A Monday re-fired after this week's own Sunday window, on a week that
-    # has not published, is late for its own week: the note Sunday showed
-    # (possibly on the homepage only, for a recipe-less week) still holds,
-    # so it is rebuilt here rather than cleared (Codex, #7630).
-    if not episode_integrity.episode_is_published(ep) and _sunday_window_reached(episode_id):
+    # has not published AND still has no Monday recipe, is late for its own
+    # week: Sunday's recipe-less refusal put the note on the homepage only
+    # (_note_week_off_without_a_recipe saves no episode), so it is rebuilt
+    # here rather than cleared (Codex, #7630). The missing recipe is the
+    # evidence of that refusal, never the clock alone: a week WITH a recipe
+    # that missed Sunday (held for photo approval, or failed after
+    # Wednesday) shows no own-week note (Erik, 2026-10-05, decision 1), and
+    # a Wednesday-incomplete refusal is already kept by the check above.
+    if (
+        not episode_integrity.episode_is_published(ep)
+        and not _monday_recipe_ready(ep)
+        and _sunday_window_reached(episode_id)
+    ):
         ep["week_off_note"] = {"message": WEEK_OFF_MESSAGE, "missed_week": episode_id}
         return
     try:

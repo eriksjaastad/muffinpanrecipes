@@ -218,6 +218,7 @@ def test_cron_sunday_sets_week_off_note_when_a_required_stage_is_incomplete():
          patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=_body())), \
          patch.object(cron_routes, "_verify_day_of_week"), \
          patch.object(cron_routes.storage, "load_episode", return_value=episode), \
+         patch.object(cron_routes.storage, "load_episode_verified", return_value=episode), \
          patch.object(cron_routes.storage, "save_episode") as save_episode, \
          patch.object(cron_routes, "_current_episode_id", return_value="2026-W40"), \
          patch.object(cron_routes, "regenerate_and_upload") as regenerate:
@@ -266,6 +267,7 @@ def test_refusing_an_older_week_never_rewrites_the_live_latest_json():
          patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=_body("2026-W40"))), \
          patch.object(cron_routes, "_verify_day_of_week"), \
          patch.object(cron_routes.storage, "load_episode", return_value=episode), \
+         patch.object(cron_routes.storage, "load_episode_verified", return_value=episode), \
          patch.object(cron_routes.storage, "save_episode") as save_episode, \
          patch.object(cron_routes.storage, "save_page", side_effect=fake_save_page), \
          patch.object(cron_routes.episode_integrity, "current_episode_id", return_value="2026-W41"), \
@@ -274,6 +276,7 @@ def test_refusing_an_older_week_never_rewrites_the_live_latest_json():
             asyncio.run(cron_routes.cron_sunday(_request()))
 
     assert exc_info.value.status_code == 400
+    assert "wednesday" in exc_info.value.detail
     save_episode.assert_called_once_with("2026-W40", episode)
     assert "pages/2026-W40/index.html" in writes  # its own page still rendered
     assert "pages/latest.json" not in writes       # the live homepage teaser, untouched
@@ -300,12 +303,14 @@ def test_an_early_forced_sunday_refusal_does_not_announce_the_week_off():
          patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=_body())), \
          patch.object(cron_routes, "_verify_day_of_week"), \
          patch.object(cron_routes.storage, "load_episode", return_value=episode), \
+         patch.object(cron_routes.storage, "load_episode_verified", return_value=episode), \
          patch.object(cron_routes.storage, "save_episode"), \
          patch.object(cron_routes, "regenerate_and_upload") as regenerate:
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(cron_routes.cron_sunday(_request()))
 
     assert exc_info.value.status_code == 400
+    assert "wednesday" in exc_info.value.detail
     assert "week_off_note" not in episode
     regenerate.assert_not_called()
 
@@ -391,6 +396,7 @@ def test_cron_sunday_does_not_set_week_off_note_when_publish_succeeds():
          patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=_body())), \
          patch.object(cron_routes, "_verify_day_of_week"), \
          patch.object(cron_routes.storage, "load_episode", return_value=episode), \
+         patch.object(cron_routes.storage, "load_episode_verified", return_value=episode), \
          patch.object(cron_routes.storage, "save_episode"), \
          patch.object(cron_routes.storage, "save_page"), \
          patch.object(cron_routes, "_generate_and_judge_dialogue", return_value=(
@@ -537,6 +543,7 @@ def test_a_failed_note_write_keeps_sundays_400_refusal(failing):
          patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=_body())), \
          patch.object(cron_routes, "_verify_day_of_week"), \
          patch.object(cron_routes.storage, "load_episode", return_value=episode), \
+         patch.object(cron_routes.storage, "load_episode_verified", return_value=episode), \
          patch.object(cron_routes.storage, "save_episode",
                       side_effect=boom if failing == "save_episode" else None), \
          patch.object(cron_routes, "_current_episode_id", return_value="2026-W40"), \
@@ -560,6 +567,23 @@ def test_a_monday_refired_after_its_own_sunday_keeps_the_weeks_note():
         cron_routes._apply_week_off_note("2026-W40", ep)
     assert ep["week_off_note"] == {"message": cron_routes.WEEK_OFF_MESSAGE, "missed_week": "2026-W40"}
     load_strict.assert_not_called()
+
+
+def test_a_monday_refired_after_sunday_during_a_photo_hold_builds_no_own_week_note():
+    """Codex on e6b1fc3 / Erik decision 1: a week WITH a recipe that missed
+    Sunday only because it is held for photo approval is not off. A Monday
+    re-fired after its Sunday window must not invent an own-week note from
+    the clock; it takes the ordinary previous-week decision instead."""
+    previous = {"episode_id": "2026-W39", "published_at": "2026-09-28T00:10:00+00:00"}
+    ep = {
+        "episode_id": "2026-W40",
+        "stages": {"monday": {"status": "complete", "recipe_data": {"title": "Held Cups"}}},
+    }
+    with patch.object(cron_routes, "_utc_now", return_value=AFTER_SUNDAY_W40), \
+         patch.object(storage, "load_episode_verified", return_value=previous) as load:
+        cron_routes._apply_week_off_note("2026-W40", ep)
+    assert "week_off_note" not in ep
+    load.assert_called_once_with("2026-W39")
 
 
 def test_a_published_week_refired_after_sunday_takes_the_ordinary_decision():
