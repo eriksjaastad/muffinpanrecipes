@@ -1447,7 +1447,7 @@ def _week_off_note_still_true(episode: dict) -> dict | None:
         return None
     missed = note.get("missed_week")
     if missed == episode.get("episode_id"):
-        return None if episode.get("published_at") else note
+        return None if episode_integrity.episode_is_published(episode) else note
     try:
         missed_episode = storage.load_episode_verified(missed)
     except Exception as exc:  # noqa: BLE001 - keep the cron-time decision

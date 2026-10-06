@@ -121,7 +121,9 @@ def week_after(episode_id: str) -> str:
 
 def week_off_note_due(episode: object) -> bool:
     """True when a week owes the "kitchen took the week off" note (#7630):
-    `episode` is missing or has no `published_at`.
+    `episode` is missing or not published by `episode_is_published` (a
+    `published_at`, or a complete Sunday for weeks published before that
+    field existed — #7936's legacy-aware predicate).
 
     Pure and cheap on purpose — this used to also decide WHEN to ask the
     question (a time-window check against the homepage request clock), which
@@ -131,7 +133,7 @@ def week_off_note_due(episode: object) -> bool:
     cron writes to pages/latest.json — this function is only ever called
     from cron code now, not from the read path.
     """
-    return not (isinstance(episode, dict) and episode.get("published_at"))
+    return not episode_is_published(episode)
 
 
 def episode_page_is_due(episode: object) -> bool:

@@ -240,7 +240,7 @@ def _apply_week_off_note(episode_id: str, ep: dict) -> None:
     Decided ONCE, at the start of Monday's cron — by then the previous
     week's Sunday window has necessarily already closed (see
     episode_integrity.week_before), so this is a plain
-    `published_at` check, no time-window arithmetic. Stored on the CURRENT
+    published check (episode_is_published), no time-window arithmetic. Stored on the CURRENT
     week's episode itself, not written straight to pages/latest.json:
     every later stage this week that calls regenerate_and_upload reads it
     off this same `ep` (reloaded from storage each time), so it carries
@@ -279,14 +279,14 @@ def _apply_week_off_note(episode_id: str, ep: dict) -> None:
     if (
         isinstance(existing, dict)
         and existing.get("missed_week") == episode_id
-        and not ep.get("published_at")
+        and not episode_integrity.episode_is_published(ep)
     ):
         return
     # A Monday re-fired after this week's own Sunday window, on a week that
     # has not published, is late for its own week: the note Sunday showed
     # (possibly on the homepage only, for a recipe-less week) still holds,
     # so it is rebuilt here rather than cleared (Codex, #7630).
-    if not ep.get("published_at") and _sunday_window_reached(episode_id):
+    if not episode_integrity.episode_is_published(ep) and _sunday_window_reached(episode_id):
         ep["week_off_note"] = {"message": WEEK_OFF_MESSAGE, "missed_week": episode_id}
         return
     try:
@@ -3588,6 +3588,10 @@ def _complete_checkpointed_publication(episode_id: str, ep: dict, concept: str, 
             logger.error(f"Photo control not marked published for {episode_id}: {type(exc).__name__}: {exc}")
     _complete_static_source_handoff(episode_id, ep)
     _announce_advisory_publication(episode_id, ep, "sunday", concept)
+    # #7630: completing a checkpoint is a late publish too. A successor week
+    # whose Monday already blamed this week must lose that note now, not at
+    # its next stage write. Best-effort; it logs and swallows its failures.
+    _clear_stale_week_off_note_after_late_publish(episode_id)
     if ep.get("indexnow_pending") and not body.test and not storage.prefix:
         _submit_sunday_indexnow(ep, episode_id, concept)
     sunday_stage = ep.get("stages", {}).get("sunday", {})

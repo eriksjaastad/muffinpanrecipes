@@ -32,6 +32,7 @@ from fastapi import HTTPException
 from backend.admin import cron_routes
 from tests.photo_review_helpers import approved_wednesday
 from backend.storage import storage
+from backend.utils import episode_integrity
 from backend.utils.indexnow import IndexNowResult
 
 # Monday of W37 (2026-09-07); W36 (2026-08-31 through 2026-09-06) is the
@@ -747,3 +748,52 @@ def test_a_published_week_refired_after_sunday_takes_the_ordinary_decision():
          patch.object(storage, "load_episode_verified", return_value=previous):
         cron_routes._apply_week_off_note("2026-W40", ep)
     assert "week_off_note" not in ep
+
+
+# ---------------------------------------------------------------------------
+# Merge with #7936 (2026-10-05 preflight): legacy-aware publication check and
+# the checkpoint-completion recovery publish.
+# ---------------------------------------------------------------------------
+
+LEGACY_PUBLISHED = {"episode_id": "2026-W20", "stages": {"sunday": {"status": "complete"}}}
+
+
+def test_a_legacy_published_week_owes_no_note():
+    """Weeks published before published_at existed have only a complete
+    Sunday; episode_is_published counts them, so no false note."""
+    assert episode_integrity.week_off_note_due(LEGACY_PUBLISHED) is False
+    assert episode_integrity.week_off_note_due({"stages": {"sunday": {"status": "simulated"}}}) is True
+    assert episode_integrity.week_off_note_due(None) is True
+
+
+def test_monday_after_a_legacy_published_week_sets_no_note(on_time_monday):
+    ep = {"episode_id": "2026-W37", "stages": {}, "week_off_note": {"message": "x", "missed_week": "2026-W36"}}
+    with patch.object(storage, "load_episode_verified", return_value=LEGACY_PUBLISHED):
+        cron_routes._apply_week_off_note("2026-W37", ep)
+    assert "week_off_note" not in ep
+
+
+def test_recheck_drops_an_own_week_note_once_the_week_is_legacy_published():
+    from backend.publishing import episode_renderer
+
+    own = {"message": cron_routes.WEEK_OFF_MESSAGE, "missed_week": "2026-W20"}
+    episode = dict(LEGACY_PUBLISHED, week_off_note=own)
+    assert episode_renderer._week_off_note_still_true(episode) is None
+
+
+def test_checkpoint_completion_clears_the_successors_note():
+    """A Sunday re-fire that completes a #7936 checkpoint is a late publish:
+    it must clear a successor note that blamed this week, as the ordinary
+    and already-published paths do."""
+    from tests.test_photo_approval_7936 import EP_ID, _approved_store, _control, _sunday
+
+    store, _ep, _wed = _approved_store(pick=2)
+    store.fail_save = lambda data: bool(data.get("published_at"))
+    env = _sunday(store)
+    assert _control(store)["state"] == "publishing"
+
+    store.fail_save = None
+    with patch.object(cron_routes, "_clear_stale_week_off_note_after_late_publish") as clear:
+        env = _sunday(store)
+    assert env.result["completed_from_checkpoint"] is True
+    clear.assert_called_once_with(EP_ID)
