@@ -61,6 +61,7 @@ from backend.utils.catalog import (
 )
 from backend.utils.logging import get_logger
 from backend.utils.muffin_pan_form import check_muffin_pan_form
+from backend.utils.recipe_copy import generate_intro, recent_openers, recipe_pitch
 from backend.utils.recipe_overlap import check_ingredient_overlap
 from backend.utils.recipe_sanity import (
     OVEN_TEMP_MAX_F,
@@ -481,7 +482,9 @@ def _build_recipe_context(recipe_data: dict | None) -> str:
     # each muffin cup... crisp edges, tender centers" - the only texture in the
     # field. Descriptions run two or three sentences; the cap, not a sentence
     # count, is what keeps this from becoming a recitation.
-    description = " ".join((recipe_data.get("description") or "").split())
+    # #7853: the pitch, not the published description, so the speakers see
+    # the same Monday text whether or not Marcus's intro exists yet.
+    description = " ".join(recipe_pitch(recipe_data).split())
     if description:
         anchor = description
         if len(anchor) > RECIPE_CONTEXT_ANCHOR_MAX:
@@ -612,7 +615,8 @@ def _build_judge_recipe_facts(recipe_data: dict | None) -> str:
     cuisine = (recipe_data.get("cuisine") or "").strip()
     if category:
         lines.append(f"Category: {category}" + (f" | Cuisine: {cuisine}" if cuisine else ""))
-    description = " ".join((recipe_data.get("description") or "").split())
+    # #7853: the pitch, held constant for the judge (see the speakers' anchor).
+    description = " ".join(recipe_pitch(recipe_data).split())
     if description:
         lines.append(f"Description: {description}")
 
@@ -2982,14 +2986,20 @@ async def cron_thursday(request: Request):
       recipe_data = ep.get("stages", {}).get("monday", {}).get("recipe_data", {})
 
       with _run_stage(ep, "thursday"):
-        RecipeOrchestrator = _get_orchestrator()
-        from backend.storage import EPISODES_DIR
-        orchestrator = RecipeOrchestrator(data_dir=EPISODES_DIR.parent)
-        recipe_id = ep.get("recipe_id") or "unknown"
-        # active_recipes check removed: orchestrator is per-request, so list is always empty
-        orchestrator.pipeline.start_recipe(recipe_id, concept)
-
-        copy_text = orchestrator._execute_stage_copywriting(recipe_id, concept, recipe_data)
+        # #7853: Marcus's intro, written as if he just tasted the dish, becomes
+        # the published description. It replaces the 600-800-word essay this
+        # stage used to pay for and never publish. No fallback text: a failed
+        # call or a rule-breaking intro fails the stage (IntroError) and
+        # Sunday will not publish without an intro. Openers of the last 10
+        # published descriptions are banned (live catalog; unavailable ->
+        # the stage fails rather than guessing).
+        banned_openers = recent_openers(load_published_catalog()["recipes"])
+        intro = generate_intro(recipe_data, banned_openers)
+        # A week whose Monday ran before #7853 has its Monday one-liner in
+        # `description`; keep it as the pitch before the intro replaces it.
+        recipe_data.setdefault("pitch", recipe_data.get("description", ""))
+        recipe_data["description"] = intro
+        copy_text = {"body": intro, "kind": "intro", "banned_openers": banned_openers}
         dialogue, judge_verdict = _generate_and_judge_dialogue(
             "thursday", concept, ep, model=body.model,
             photography_context=_photo_review_only_context(episode_id, ep),
@@ -3754,6 +3764,24 @@ async def cron_sunday(request: Request):
                     status_code=400,
                     detail=f"Cannot publish: {day} stage incomplete (status={stage_status!r})",
                 )
+
+        # #7853: the published description is Marcus's Thursday intro. A week
+        # without one (Thursday failed or never ran) must not publish the
+        # placeholder or an empty description; refuse before any paid work.
+        # Weeks whose Monday ran before #7853 carry Monday's one-liner here
+        # and publish as they always did. No week-off note: the week has a
+        # recipe (Erik, 2026-10-05, decision 1).
+        _published_description = (
+            ep.get("stages", {}).get("monday", {}).get("recipe_data", {}).get("description") or ""
+        ).strip()
+        if not _published_description:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Cannot publish: Marcus's intro is missing (Thursday did not write it). "
+                    "Re-fire /api/cron/thursday, then Sunday."
+                ),
+            )
 
         # #7936: nothing is published, and no paid dialogue or QA runs, until
         # this run holds the exclusive publication claim on an approval of

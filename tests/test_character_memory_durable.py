@@ -654,7 +654,7 @@ def test_cron_sunday_records_memory_events(monkeypatch):
         "concept": "Test Concept",
         "recipe_id": None,
         "stages": {
-            "monday": {"status": "complete", "recipe_data": {"title": "Test"}},
+            "monday": {"status": "complete", "recipe_data": {"title": "Test", "description": "Marcus's intro for the test week."}},
             "wednesday": approved_wednesday(episode_id="2026-W40"),
         },
         "events": [],

@@ -8,7 +8,6 @@ because it wasn't the dream.
 
 import os
 import random
-from typing import Any, Dict
 
 from backend.core.agent import Agent
 from backend.core.task import Task, TaskResult, TaskApproach
@@ -82,8 +81,21 @@ class CopywriterAgent(Agent):
             )
             logger.info(f"Marcus: Wrote {description_data.get('word_count', 0)} words (target was {target_words})")
         except Exception as e:
+            # #7853: no canned paragraph. A failed call fails the task, so the
+            # caller (the orchestrator raises on success=False) never ships
+            # placeholder copy as Marcus's writing.
             logger.error(f"Marcus: LLM generation failed: {e}")
-            description_data = self._fallback_description(recipe_title, target_words)
+            return TaskResult(
+                task_id=task.id,
+                success=False,
+                output={
+                    "error": f"description generation failed: {type(e).__name__}: {e}",
+                    "quality": "failed",
+                    "word_count": 0,
+                },
+                insights=[],
+                personality_notes=[],
+            )
 
         # Add Marcus's characteristic elements
         actual_words = description_data.get("word_count", 0)
@@ -120,17 +132,6 @@ class CopywriterAgent(Agent):
                 "Checked thesaurus 7 times",
             ],
         )
-
-    def _fallback_description(self, recipe_title: str, target_words: int) -> Dict[str, Any]:
-        """Fallback description when LLM is unavailable."""
-        logger.warning(f"Using fallback description for: {recipe_title}")
-        return {
-            "body": f"There is a certain poetry in the simple act of cooking. {recipe_title} represents more than mere sustenance—it is a meditation on the intersection of tradition and innovation, of comfort and creativity. The muffin tin, that most humble of vessels, transforms ingredients into something greater than the sum of their parts.",
-            "word_count": 52,
-            "target_word_count": target_words,
-            "quality": "placeholder - LLM unavailable",
-            "exceeded_target_by": 52 - target_words,
-        }
 
     def _edit_copy(
         self, task: Task, approach: TaskApproach, context: MemoryContext

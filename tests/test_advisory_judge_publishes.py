@@ -447,7 +447,7 @@ def _sunday_episode() -> dict:
         "concept": "Cardamom Cinnamon Spiral Bites",
         "recipe_id": "abc123",
         "stages": {
-            "monday": {"status": "complete", "recipe_data": {"title": "Spiral Bites"}},
+            "monday": {"status": "complete", "recipe_data": {"title": "Spiral Bites", "description": "Marcus's intro for the test week."}},
             "wednesday": approved_wednesday(episode_id="2026-W99"),
         },
         "events": [],

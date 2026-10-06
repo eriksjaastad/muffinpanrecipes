@@ -114,6 +114,7 @@ def _episode(wed: dict | None = None, **extra) -> dict:
         "stages": {
             "monday": {"status": "complete", "recipe_data": {
                 "title": "Spinach Feta Egg Cups",
+                "description": "Marcus's intro for the test week.",
                 "ingredients": [{"amount": "6", "item": "eggs"}],
                 "instructions": ["Whisk and bake."],
             }},
@@ -1200,7 +1201,7 @@ def test_backlog_cleanup_skips_directories_holding_approved_or_published_photos(
 def _held_week(**hold_overrides):
     stages = {d: {"status": "complete"} for d in ("monday", "tuesday", "thursday", "friday", "saturday")}
     stages["monday"] = {"status": "complete", "target_category": "savory",
-                        "recipe_data": {"title": "Spinach Feta Egg Cups"}}
+                        "recipe_data": {"title": "Spinach Feta Egg Cups", "description": "Marcus's intro for the test week."}}
     ep = _episode(wednesday_stage())
     ep["stages"].update(stages)
     ep["target_category"] = "savory"

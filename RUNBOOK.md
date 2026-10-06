@@ -4,6 +4,40 @@
 
 ---
 
+## Marcus's intro: Thursday failed, or Sunday says "Marcus's intro is missing" (#7853)
+
+The published description is Marcus's intro, written on Thursday after he
+"tastes" the dish. Monday's one-line DESCRIPTION is kept as the internal
+`recipe_data.pitch`. It feeds dialogue, the judge and the muffin-pan form gate,
+and is never published. Until Thursday, the in-progress page shows "Marcus adds
+his intro on Thursday after tasting the new recipe."
+
+- **Thursday writes it:** one model call with `config.recipe_model`, plus one
+  retry when the intro breaks a rule (30–50 words in two sentences; it must not
+  open with any word that opened one of the last 10 published descriptions).
+  It stores the text in `recipe_data.description` and in
+  `stages.thursday.copy_text` (`kind: intro`, with the banned openers).
+- **There is no fallback text.** A failed call, a second rule break, or an
+  unreadable live catalog (needed for the opener ban) fails Thursday with a
+  pipeline alert.
+- **Sunday refuses a week with no intro.** It returns 400 "Cannot publish:
+  Marcus's intro is missing" before any paid work. A week whose Monday ran
+  before #7853 has Monday's text as its description and publishes as before.
+
+**Recovery:** re-fire Thursday, then Sunday. Thursday re-runs its dialogue too
+(paid, about the same as one normal Thursday).
+
+```bash
+WEEK=2026-W41
+doppler run --project muffinpanrecipes --config prd -- sh -lc \
+  "curl -s -m 280 -X POST https://muffinpanrecipes.com/api/cron/thursday \
+    -H \"Authorization: Bearer \$CRON_SECRET\" -H 'Content-Type: application/json' \
+    -d '{\"episode_id\":\"$WEEK\",\"force\":true}'"
+# then the same call to /api/cron/sunday
+```
+
+---
+
 ## Photo approval: Sunday says "awaiting_photo_approval", "photos_rejected" or "publication_underway" (#7936)
 
 Expected, not a failure. Sunday publishes only a photo Erik approved from the
