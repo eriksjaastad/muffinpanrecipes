@@ -412,9 +412,10 @@ def test_cron_sunday_does_not_set_week_off_note_when_publish_succeeds():
 def test_cron_sunday_late_publish_leaves_the_successors_note_alone():
     """Full wiring check through the real success path: Monday already
     stamped W41 with 'missed W40' because W40 hadn't published at that
-    point. A (recovered/late) W40 publish must clear it and re-render W41 —
-    the end-to-end companion to the unit tests above, which exercise
-    _clear_stale_week_off_note_after_late_publish directly."""
+    point. A (recovered/late) W40 publish must NOT touch W41: no read-modify
+    of its episode, no teaser or page write for it (option c, Erik
+    2026-10-05). W41's next stage write drops the note via
+    episode_renderer._week_off_note_still_true."""
     episode = {
         "episode_id": "2026-W40",
         "concept": "Some Concept",

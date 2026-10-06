@@ -552,10 +552,10 @@ Vercel cron delivery is at-least-once. On 2026-05-17 (W20), Sunday could be invo
 PR #45 fixed the production behavior:
 
 - `cron_sunday` checks `ep["published_at"]` before generating dialogue, running editorial QA, saving episode data, rendering pages, or updating the catalog.
-- If `published_at` exists, Sunday returns `already_published=true` and never regenerates dialogue, re-runs editorial QA, or re-publishes, even when the request body has `force=true`. It does three bounded catch-up steps, all of which are no-ops once complete:
+- If `published_at` exists, Sunday returns `already_published=true` and never regenerates dialogue, re-runs editorial QA, or re-publishes, even when the request body has `force=true`. It does two bounded catch-up steps, both no-ops once complete:
   - finishes a static source handoff left `pending` or `failed` in the sources phase (writes the reader pages and catalog, and alerts if that fails);
   - sends an advisory "published below the judge bar" alert that is still owed (`judge_advisory.sunday.announce_pending` is true and the handoff reached `source_ready`), then records `announced_at` (#7403). Records published before 2026-09-30 never carry `announce_pending` and are never re-announced;
-  - clears a stale "kitchen took the week off" note on the SUCCESSOR week if it still blames this episode (#7630 — see "Late/recovered Sunday publish clears next week's homepage note" below).
+  - It does NOT touch a "kitchen took the week off" note on the successor week (#7630, see "Late/recovered Sunday publish and next week's homepage note" below).
 - Catalog publish dedup is no longer slug-only.
 
 ### How to verify this is the incident you're looking at
@@ -650,11 +650,17 @@ WEEK=2026-W20 doppler run --project muffinpanrecipes --config prd -- \
 
 After the rerun, verify `published_at_present: True` with the first Blob check above.
 
-**Late/recovered Sunday publish clears next week's homepage note**
+**Late/recovered Sunday publish and next week's homepage note**
 
-If the week you just force-republished (call it W) had ALREADY missed its own Sunday window — Monday's cron for the week after W (`week_after(W)`, ISO-safe across a year boundary) had already run and, finding W unpublished, stamped that next episode with `week_off_note: {"missed_week": "W", ...}` — this recovery publish now clears it automatically. `cron_sunday` looks up `week_after(W)`'s own episode right after W's publish succeeds (both on the direct success path and, as a bounded catch-up, on a retried `already_published=true` call); if that episode's `week_off_note.missed_week` still equals W, the field is removed, the episode is saved, and `regenerate_and_upload` is called on it so `pages/latest.json` reflects the change immediately if that successor is still the current week. This is best-effort and never fails the publish — an error here is logged and swallowed, so a stuck note after a recovery is a "check the logs for `week-off note clear-after-late-publish skipped`" situation, not a publish failure.
+Suppose the week you just force-republished (call it W) had already missed its own Sunday window, and the next week's Monday cron had already run. Finding W unpublished, that Monday stamped the next episode with `week_off_note: {"missed_week": "W", ...}`, and the homepage shows "The kitchen took the week off".
 
-For an ordinary ON-TIME Sunday publish this is a silent no-op: `week_after(W)`'s episode doesn't exist yet.
+**The recovery publish does NOT clear that note** (#7630, Erik's decision on 2026-10-05). An automatic clear could erase a recipe-less next week's own valid note.
+
+The note drops at the next week's next stage write. Every stage write re-checks it (`episode_renderer._week_off_note_still_true`) with a verified Blob read and removes it once W is published. Expect the homepage to keep the note until the next daily cron, typically within a day. A failed or stale read keeps the note, which is logged as `week_off_note recheck skipped for <W>`.
+
+Do not re-fire a completed stage to clear the note sooner. That repeats paid work and can replace the stage's content (a re-fired Wednesday reshoots the photos). Wait for the next scheduled stage.
+
+A related rule from the same decision: a week held for photo approval (or failing after Wednesday) shows no note on Sunday. If it never publishes, the next Monday notes it.
 
 ### Verify recovery
 
