@@ -34,6 +34,23 @@ warm, cozy, and appetizing — moody but inviting, artisanal, full of character.
 - `hero_threequarter` — 85mm f/2.8, 2–3 items on a rustic board (out of the pan),
   one broken open. **This is the pulled-back / outside-the-pan look.**
 
+## Physical Realism (judge records concrete defects before ranking)
+- Any muffin pan shown is a coherent standard pan: consistent, evenly spaced,
+  non-overlapping round wells in regular rows under one perspective. Fused,
+  merged, warped, or impossibly placed wells fail.
+- Finished food matches the recipe: intended filling present, fully baked/set,
+  never raw or underfilled shells.
+- No unexplained liquid pooled in bare wells; no invented pastry, crust or
+  garnish the recipe does not have. Empty wells alone are fine.
+- A listed defect rejects the image even if its score is high. Missing or
+  misnumbered per-image records make the review "incomplete", never a pass.
+- Budget: these checks never trigger a reshoot. Only the original criteria
+  (scores, set diversity, muffin-pan form, hash diversity) can buy the one
+  paid second round; a defect finding, an incomplete review or an unavailable
+  vision model goes to human review instead.
+- The automated review is advisory. Sunday publishes only a photo Erik approved
+  on the admin review page; an unavailable or failed review is never an approval.
+
 ## Negative Constraints
 - No people, hands, text, or watermarks.
 - No stacked or piled food.

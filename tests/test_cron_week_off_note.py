@@ -30,6 +30,7 @@ import pytest
 from fastapi import HTTPException
 
 from backend.admin import cron_routes
+from tests.photo_review_helpers import approved_wednesday
 from backend.storage import storage
 from backend.utils.indexnow import IndexNowResult
 
@@ -40,6 +41,16 @@ MONDAY_W37 = datetime(2026, 9, 7, 14, 30, tzinfo=timezone.utc)
 AFTER_SUNDAY_W40 = datetime(2026, 10, 4, 23, 59, tzinfo=timezone.utc)
 # W37's own Monday cron time: an ordinary on-time Monday run.
 MONDAY_W37 = datetime(2026, 9, 7, 14, 30, tzinfo=timezone.utc)
+# Thursday of W40, before W40's own Sunday window.
+THURSDAY_W40 = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
+
+
+@pytest.fixture
+def before_sunday_w40():
+    """These tests were written on 2026-10-02 against the real clock and
+    silently assumed W40's Sunday had not arrived; pin that instead."""
+    with patch.object(cron_routes, "_utc_now", return_value=THURSDAY_W40):
+        yield
 
 
 @pytest.fixture
@@ -53,10 +64,10 @@ def on_time_monday():
 # ---------------------------------------------------------------------------
 
 def test_apply_week_off_note_sets_field_when_previous_week_has_no_episode(on_time_monday):
-    """Genuine not-found (load_episode_strict returns None cleanly, no
+    """Genuine not-found (load_episode_verified returns None cleanly, no
     exception) -> the note IS set (#7630 finding 2)."""
     ep = {"episode_id": "2026-W37", "stages": {}}
-    with patch.object(storage, "load_episode_strict", return_value=None) as load_episode:
+    with patch.object(storage, "load_episode_verified", return_value=None) as load_episode:
         cron_routes._apply_week_off_note("2026-W37", ep)
     load_episode.assert_called_once_with("2026-W36")
     assert ep["week_off_note"] == {
@@ -68,7 +79,7 @@ def test_apply_week_off_note_sets_field_when_previous_week_has_no_episode(on_tim
 def test_apply_week_off_note_sets_field_when_previous_week_unpublished(on_time_monday):
     previous = {"episode_id": "2026-W36", "stages": {"wednesday": {"status": "failed"}}}
     ep = {"episode_id": "2026-W37", "stages": {}}
-    with patch.object(storage, "load_episode_strict", return_value=previous):
+    with patch.object(storage, "load_episode_verified", return_value=previous):
         cron_routes._apply_week_off_note("2026-W37", ep)
     assert ep["week_off_note"]["missed_week"] == "2026-W36"
 
@@ -76,7 +87,7 @@ def test_apply_week_off_note_sets_field_when_previous_week_unpublished(on_time_m
 def test_apply_week_off_note_clears_field_when_previous_week_published(on_time_monday):
     previous = {"episode_id": "2026-W36", "published_at": "2026-09-06T00:10:00+00:00"}
     ep = {"episode_id": "2026-W37", "stages": {}, "week_off_note": {"stale": "leftover"}}
-    with patch.object(storage, "load_episode_strict", return_value=previous):
+    with patch.object(storage, "load_episode_verified", return_value=previous):
         cron_routes._apply_week_off_note("2026-W37", ep)
     assert "week_off_note" not in ep
 
@@ -92,7 +103,7 @@ def test_apply_week_off_note_respects_the_active_prefix(on_time_monday):
         seen_prefixes.append(storage.prefix)
         return {"published_at": "2026-09-06T00:10:00+00:00"}
 
-    with patch.object(storage, "load_episode_strict", side_effect=fake_load_episode):
+    with patch.object(storage, "load_episode_verified", side_effect=fake_load_episode):
         with storage.prefix_scope("test/"):
             cron_routes._apply_week_off_note("2026-W37", {"episode_id": "2026-W37", "stages": {}})
         with storage.prefix_scope(""):
@@ -101,26 +112,28 @@ def test_apply_week_off_note_respects_the_active_prefix(on_time_monday):
     assert seen_prefixes == ["test/", ""]
 
 
-def test_apply_week_off_note_on_an_older_week_refire_asks_about_the_week_before_it():
-    """Codex review of 7668ff4: a manual Monday re-fire of W40 while W41 is
-    current must check W39 (the week before W40), not W40 itself, so it
-    never stamps a false 'missed W40' note that Monday's writer would then
-    put on the live homepage."""
-    ep = {"episode_id": "2026-W40", "stages": {}}
-    with patch.object(storage, "load_episode_strict", return_value={"published_at": "x"}) as load_episode:
-        cron_routes._apply_week_off_note("2026-W40", ep)
-    load_episode.assert_called_once_with("2026-W39")
+def test_apply_week_off_note_on_an_older_week_refire_asks_about_the_week_before_it(before_sunday_w40):
+    """Codex review of 7668ff4: a manual Monday re-fire of a PUBLISHED W38
+    while W40 is current must check W37 (the week before W38), not the
+    clock's previous week, so it never stamps a false note that Monday's
+    writer would then put on the live homepage. (An unpublished week
+    re-fired after its own Sunday keeps its own note instead; see
+    test_a_published_week_refired_after_sunday_takes_the_ordinary_decision.)"""
+    ep = {"episode_id": "2026-W38", "stages": {}, "published_at": "2026-09-20T23:00:00+00:00"}
+    with patch.object(storage, "load_episode_verified", return_value={"published_at": "x"}) as load_episode:
+        cron_routes._apply_week_off_note("2026-W38", ep)
+    load_episode.assert_called_once_with("2026-W37")
     assert "week_off_note" not in ep
 
 
-def test_apply_week_off_note_unchanged_on_a_read_error_with_a_warning(caplog):
+def test_apply_week_off_note_unchanged_on_a_read_error_with_a_warning(caplog, before_sunday_w40):
     """#7630 finding 2: a cloud read ERROR (not a genuine not-found) must
     take the logged-skip path, never be mistaken for "no previous episode".
-    load_episode_strict raises on a read/network failure (unlike plain
+    load_episode_verified raises on a read/network failure (unlike plain
     load_episode, which would swallow it and return None) — caught here,
     the field is left exactly as it was, and a warning is logged."""
     ep = {"episode_id": "2026-W40", "stages": {}, "week_off_note": {"kept": True}}
-    with patch.object(storage, "load_episode_strict", side_effect=RuntimeError("blob down")):
+    with patch.object(storage, "load_episode_verified", side_effect=RuntimeError("blob down")):
         with caplog.at_level("WARNING"):
             cron_routes._apply_week_off_note("2026-W40", ep)
     assert ep["week_off_note"] == {"kept": True}
@@ -128,12 +141,12 @@ def test_apply_week_off_note_unchanged_on_a_read_error_with_a_warning(caplog):
 
 
 @pytest.mark.parametrize("failure", ["bad-id", "read-error"])
-def test_apply_week_off_note_never_fails_monday(failure):
+def test_apply_week_off_note_never_fails_monday(failure, before_sunday_w40):
     ep = {"episode_id": "2026-W40", "stages": {}, "week_off_note": {"kept": True}}
     if failure == "bad-id":
         cron_routes._apply_week_off_note("2026-W99", ep)
     else:
-        with patch.object(storage, "load_episode_strict", side_effect=RuntimeError("blob down")):
+        with patch.object(storage, "load_episode_verified", side_effect=RuntimeError("blob down")):
             cron_routes._apply_week_off_note("2026-W40", ep)
     assert ep["week_off_note"] == {"kept": True}
 
@@ -149,7 +162,7 @@ def test_monday_refire_keeps_this_weeks_own_refusal_note(previous):
     because W39 published. W40 still has not published."""
     own = {"message": cron_routes.WEEK_OFF_MESSAGE, "missed_week": "2026-W40"}
     ep = {"episode_id": "2026-W40", "stages": {}, "week_off_note": dict(own)}
-    with patch.object(storage, "load_episode_strict", return_value=previous) as load:
+    with patch.object(storage, "load_episode_verified", return_value=previous) as load:
         cron_routes._apply_week_off_note("2026-W40", ep)
     assert ep["week_off_note"] == own
     load.assert_not_called()
@@ -162,7 +175,7 @@ def test_own_week_note_is_not_kept_once_the_episode_published():
         "published_at": "2026-10-04T23:00:00+00:00",
         "week_off_note": {"message": cron_routes.WEEK_OFF_MESSAGE, "missed_week": "2026-W40"},
     }
-    with patch.object(storage, "load_episode_strict", return_value={"published_at": "x"}):
+    with patch.object(storage, "load_episode_verified", return_value={"published_at": "x"}):
         cron_routes._apply_week_off_note("2026-W40", ep)
     assert "week_off_note" not in ep
 
@@ -203,7 +216,7 @@ def test_clear_stale_note_removes_it_when_the_successor_blames_this_week():
         "week_off_note": {"message": cron_routes.WEEK_OFF_MESSAGE, "missed_week": "2026-W40"},
     }
 
-    with patch.object(cron_routes.storage, "load_episode_strict", return_value=next_episode), \
+    with patch.object(cron_routes.storage, "load_episode_verified", return_value=next_episode), \
          patch.object(cron_routes.storage, "save_episode") as save_episode, \
          patch.object(cron_routes, "regenerate_and_upload") as regenerate, \
          patch.object(cron_routes, "upload_latest_json") as upload_latest:
@@ -237,14 +250,23 @@ def test_clear_stale_note_removes_it_when_the_successor_blames_this_week():
 def test_clear_stale_note_changes_nothing_when_not_applicable(next_episode):
     original = copy.deepcopy(next_episode) if next_episode is not None else None
 
-    with patch.object(cron_routes.storage, "load_episode_strict", return_value=next_episode), \
+    # W40 publishing on time: its successor W41 is not the current week yet.
+    # Pin only the clock: week_after() calls current_episode_id(now=...) itself.
+    real_current = cron_routes.episode_integrity.current_episode_id
+    with patch.object(cron_routes.storage, "load_episode_verified", return_value=next_episode), \
+         patch.object(cron_routes.episode_integrity, "current_episode_id",
+                      side_effect=lambda now=None: real_current(now) if now else "2026-W40"), \
          patch.object(cron_routes.storage, "save_episode") as save_episode, \
-         patch.object(cron_routes, "regenerate_and_upload") as regenerate:
+         patch.object(cron_routes, "regenerate_and_upload") as regenerate, \
+         patch.object(cron_routes, "upload_latest_json") as upload_latest, \
+         patch.object(cron_routes, "mark_latest_published") as mark_published:
         cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")
 
     assert next_episode == original
     save_episode.assert_not_called()
     regenerate.assert_not_called()
+    upload_latest.assert_not_called()
+    mark_published.assert_not_called()
 
 
 
@@ -265,7 +287,7 @@ def test_clear_stale_note_render_failure_keeps_the_note_stored_so_a_retry_redoes
         stored.clear()
         stored.update(copy.deepcopy(data))
 
-    with patch.object(cron_routes.storage, "load_episode_strict", side_effect=load), \
+    with patch.object(cron_routes.storage, "load_episode_verified", side_effect=load), \
          patch.object(cron_routes.storage, "save_episode", side_effect=save) as save_episode, \
          patch.object(cron_routes, "upload_latest_json", side_effect=RuntimeError("blob write failed")):
         cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")  # must not raise
@@ -274,7 +296,7 @@ def test_clear_stale_note_render_failure_keeps_the_note_stored_so_a_retry_redoes
     assert stored["week_off_note"]["missed_week"] == "2026-W40"
 
     # The retry (already_published catch-up) now succeeds and clears it.
-    with patch.object(cron_routes.storage, "load_episode_strict", side_effect=load), \
+    with patch.object(cron_routes.storage, "load_episode_verified", side_effect=load), \
          patch.object(cron_routes.storage, "save_episode", side_effect=save) as save_retry, \
          patch.object(cron_routes, "upload_latest_json") as upload_latest:
         cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")
@@ -301,7 +323,7 @@ def test_late_publish_after_rollover_with_no_successor_marks_the_homepage_publis
     The writer's gate skipped W40's own latest.json write and there was no
     W41 episode to clear, so the note stayed up. With W41 current and no W41
     episode, the published marker is written."""
-    with patch.object(cron_routes.storage, "load_episode_strict", return_value=None), \
+    with patch.object(cron_routes.storage, "load_episode_verified", return_value=None), \
          patch.object(cron_routes.episode_integrity, "current_episode_id", side_effect=_now_is("2026-W41")), \
          patch.object(cron_routes, "mark_latest_published") as mark:
         cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")
@@ -309,7 +331,7 @@ def test_late_publish_after_rollover_with_no_successor_marks_the_homepage_publis
 
 
 def test_on_time_publish_with_no_successor_writes_nothing_extra():
-    with patch.object(cron_routes.storage, "load_episode_strict", return_value=None), \
+    with patch.object(cron_routes.storage, "load_episode_verified", return_value=None), \
          patch.object(cron_routes.episode_integrity, "current_episode_id", side_effect=_now_is("2026-W40")), \
          patch.object(cron_routes, "mark_latest_published") as mark:
         cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")
@@ -318,7 +340,7 @@ def test_on_time_publish_with_no_successor_writes_nothing_extra():
 def test_clear_stale_note_error_is_logged_and_swallowed(caplog):
     """Best-effort: nothing in this path may turn a successful publish into
     a failed request."""
-    with patch.object(cron_routes.storage, "load_episode_strict", side_effect=RuntimeError("blob down")):
+    with patch.object(cron_routes.storage, "load_episode_verified", side_effect=RuntimeError("blob down")):
         with caplog.at_level("WARNING"):
             cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")  # must not raise
 
@@ -520,7 +542,7 @@ def test_cron_sunday_does_not_set_week_off_note_when_publish_succeeds():
                     "instructions": ["Whisk and bake."],
                 },
             },
-            "wednesday": {"status": "complete", "confirmed_winner": {}, "image_status": "auto_selected"},
+            "wednesday": approved_wednesday(episode_id="2026-W40"),
         },
         "events": [],
         "image_urls": [],
@@ -568,7 +590,7 @@ def test_cron_sunday_late_publish_clears_the_successors_note_end_to_end():
                     "instructions": ["Whisk and bake."],
                 },
             },
-            "wednesday": {"status": "complete", "confirmed_winner": {}, "image_status": "auto_selected"},
+            "wednesday": approved_wednesday(episode_id="2026-W40"),
         },
         "events": [],
         "image_urls": [],
@@ -585,7 +607,7 @@ def test_cron_sunday_late_publish_clears_the_successors_note_end_to_end():
          patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=_body())), \
          patch.object(cron_routes, "_verify_day_of_week"), \
          patch.object(cron_routes.storage, "load_episode", side_effect=lambda eid: episodes_by_id.get(eid)), \
-         patch.object(cron_routes.storage, "load_episode_strict", side_effect=lambda eid: episodes_by_id.get(eid)), \
+         patch.object(cron_routes.storage, "load_episode_verified", side_effect=lambda eid: episodes_by_id.get(eid)), \
          patch.object(cron_routes.storage, "save_episode", side_effect=lambda eid, data: save_calls.append((eid, data))), \
          patch.object(cron_routes.storage, "save_page"), \
          patch.object(cron_routes, "_generate_and_judge_dialogue", return_value=(
@@ -609,7 +631,7 @@ def test_cron_sunday_late_publish_clears_the_successors_note_end_to_end():
 
 
 def test_clear_stale_note_never_mutates_the_readers_cached_object():
-    """Codex round 7: load_episode_strict can return its cache's own object.
+    """Codex round 7: load_episode_verified can return its cache's own object.
     Popping the note from it hid the note from a retry in the same warm
     Lambda after a failed render. The reader here returns ONE shared object,
     like the cache does."""
@@ -619,11 +641,13 @@ def test_clear_stale_note_never_mutates_the_readers_cached_object():
         "week_off_note": {"message": cron_routes.WEEK_OFF_MESSAGE, "missed_week": "2026-W40"},
     }
 
-    with patch.object(cron_routes.storage, "load_episode_strict", return_value=cached), \
+    # The clear renders through upload_latest_json (homepage teaser only).
+    with patch.object(cron_routes.storage, "load_episode_verified", return_value=cached), \
          patch.object(cron_routes.storage, "save_episode") as save_episode, \
-         patch.object(cron_routes, "regenerate_and_upload", side_effect=RuntimeError("blob write failed")):
+         patch.object(cron_routes, "upload_latest_json", side_effect=RuntimeError("blob write failed")) as upload_latest:
         cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")
 
+    upload_latest.assert_called_once()
     save_episode.assert_not_called()
     assert cached["week_off_note"]["missed_week"] == "2026-W40"
 
@@ -710,7 +734,7 @@ def test_a_monday_refired_after_its_own_sunday_keeps_the_weeks_note():
     still unpublished, rebuilds the own-week note instead of clearing it."""
     ep = {"episode_id": "2026-W40", "stages": {}}
     with patch.object(cron_routes, "_utc_now", return_value=AFTER_SUNDAY_W40), \
-         patch.object(storage, "load_episode_strict") as load_strict:
+         patch.object(storage, "load_episode_verified") as load_strict:
         cron_routes._apply_week_off_note("2026-W40", ep)
     assert ep["week_off_note"] == {"message": cron_routes.WEEK_OFF_MESSAGE, "missed_week": "2026-W40"}
     load_strict.assert_not_called()
@@ -720,6 +744,6 @@ def test_a_published_week_refired_after_sunday_takes_the_ordinary_decision():
     previous = {"episode_id": "2026-W39", "published_at": "2026-09-28T00:10:00+00:00"}
     ep = {"episode_id": "2026-W40", "stages": {}, "published_at": "2026-10-05T00:10:00+00:00"}
     with patch.object(cron_routes, "_utc_now", return_value=AFTER_SUNDAY_W40 + timedelta(days=1)), \
-         patch.object(storage, "load_episode_strict", return_value=previous):
+         patch.object(storage, "load_episode_verified", return_value=previous):
         cron_routes._apply_week_off_note("2026-W40", ep)
     assert "week_off_note" not in ep

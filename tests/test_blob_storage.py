@@ -4,7 +4,6 @@ Tests save/load/list operations on _CloudBackend, mocking the Vercel Blob
 REST API to verify correct request structure, caching, and fallback behavior.
 """
 
-import json
 import os
 import re
 from io import BytesIO
@@ -238,33 +237,25 @@ class TestCloudBackendLoadEpisode:
         mock_fs.assert_not_called()
 
 
-    def test_strict_load_never_answers_from_a_warm_cache(self, cloud_backend):
-        """Codex (#7630): a warm Lambda cached the previous week as
-        unpublished; another instance then published it. The strict read
-        must fetch, not return the stale cached copy, and the fresh result
-        replaces the cache entry."""
+    def test_verified_load_never_answers_from_a_warm_cache(self, cloud_backend):
+        """#7630 now decides on load_episode_verified: a warm Lambda cached the
+        previous week as unpublished; another instance then published it. The
+        verified read must fetch the current version, not return the cached
+        copy, and the fresh result replaces the cache entry."""
         cloud_backend._episode_cache[(cloud_backend.prefix, "ep-1")] = {"episode_id": "ep-1"}
 
         fresh = {"episode_id": "ep-1", "published_at": "2026-09-28T01:00:00Z"}
-        mock_list = MagicMock()
-        mock_list.ok = True
-        mock_list.json.return_value = {
-            "blobs": [
-                {
-                    "url": "https://blob/episodes/ep-1.json",
-                    "pathname": f"{cloud_backend.prefix}episodes/ep-1.json",
-                }
-            ]
+        meta = MagicMock(status_code=200, ok=True)
+        meta.json.return_value = {
+            "pathname": f"{cloud_backend.prefix}episodes/ep-1.json",
+            "url": "https://blob/episodes/ep-1.json",
+            "etag": '"v2"',
         }
-        mock_list.raise_for_status = MagicMock()
-        mock_content = MagicMock()
-        mock_content.content = json.dumps(fresh).encode("utf-8")
-        mock_content.text = json.dumps(fresh)
-        mock_content.json.return_value = fresh
-        mock_content.raise_for_status = MagicMock()
+        content = MagicMock(status_code=200, ok=True, headers={"etag": '"v2"'})
+        content.json.return_value = fresh
 
-        with patch("requests.get", side_effect=[mock_list, mock_content]) as get:
-            result = cloud_backend.load_episode_strict("ep-1")
+        with patch("requests.get", side_effect=[meta, content]) as get:
+            result = cloud_backend.load_episode_verified("ep-1")
 
         assert get.call_count == 2
         assert result == fresh
@@ -1166,3 +1157,31 @@ def test_cloud_backend_without_a_token_uses_the_strict_filesystem_read(tmp_path,
     assert not backend._has_cloud()
     with pytest.raises(PageReadError):
         backend.load_episode_strict("2026-W39")
+
+
+def test_filesystem_verified_read_rejects_a_non_object_body(tmp_path, monkeypatch):
+    """#7630's decision reads use load_episode_verified; a local body that is
+    valid JSON but not an episode object is an unusable read, not a week."""
+    from backend.storage import EpisodeReadStale, _FilesystemBackend
+
+    monkeypatch.setattr("backend.storage.EPISODES_DIR", tmp_path)
+    (tmp_path / "2026-W39.json").write_text("[]")
+    with pytest.raises(EpisodeReadStale):
+        _FilesystemBackend().load_episode_verified("2026-W39")
+    (tmp_path / "2026-W40.json").write_text('{"episode_id": "2026-W40"}')
+    assert _FilesystemBackend().load_episode_verified("2026-W40") == {"episode_id": "2026-W40"}
+    assert _FilesystemBackend().load_episode_verified("2026-W41") is None
+
+
+def test_cloud_backend_without_a_token_uses_the_filesystem_verified_read(tmp_path, monkeypatch):
+    """The no-token fallback of load_episode_verified must reject a non-object
+    body like the filesystem and cloud paths do (Codex's #7630 strict-read
+    finding, carried to the verified read)."""
+    from backend.storage import EpisodeReadStale, _CloudBackend
+
+    monkeypatch.setattr("backend.storage.EPISODES_DIR", tmp_path)
+    (tmp_path / "2026-W39.json").write_text("[]")
+    backend = _CloudBackend()
+    assert not backend._has_cloud()
+    with pytest.raises(EpisodeReadStale):
+        backend.load_episode_verified("2026-W39")

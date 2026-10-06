@@ -1438,8 +1438,9 @@ def _week_off_note_still_true(episode: dict) -> dict | None:
     narrows that race to the moment between this read and the write, and
     every later stage's write re-checks again, so a stale note cannot
     survive past the next stage. A note about the episode's own week (its
-    Sunday refusal) is true while it has not published. A read error keeps
-    the note as decided: that decision came from a strict read too.
+    Sunday refusal) is true while it has not published. A failed or stale
+    read keeps the note as decided: that decision came from a verified read
+    too, and acting on a stale copy could drop a note that is still true.
     """
     note = episode.get("week_off_note")
     if not isinstance(note, dict):
@@ -1448,7 +1449,7 @@ def _week_off_note_still_true(episode: dict) -> dict | None:
     if missed == episode.get("episode_id"):
         return None if episode.get("published_at") else note
     try:
-        missed_episode = storage.load_episode_strict(missed)
+        missed_episode = storage.load_episode_verified(missed)
     except Exception as exc:  # noqa: BLE001 - keep the cron-time decision
         logger.warning(f"week_off_note recheck skipped for {missed}: {type(exc).__name__}: {exc}")
         return note

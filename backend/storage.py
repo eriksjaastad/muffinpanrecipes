@@ -76,6 +76,77 @@ IMAGES_DIR = ROOT / "src" / "assets" / "images"
 # scripts.simulate_dialogue_week's equivalent.
 CHARACTER_MEMORY_DIR = ROOT / "data" / "character_memory"
 
+# Photo-approval control log (#7936). One log per episode:
+# photo_control/<episode>/v000001.json, v000002.json, ... Each version is
+# the WHOLE state (current image-set request, human decision, publication
+# claim) and is written with create-if-absent, never overwritten:
+#
+# * Compare-and-swap. A writer that read version N creates N+1. If anyone
+#   else created N+1 first the create fails (Blob: x-allow-overwrite: 0,
+#   which the Vercel SDK documents as S3 If-None-Match; filesystem: an
+#   exclusive lock plus an existence check, then an atomic rename). So a
+#   decision, a Wednesday replacement and Sunday's publication claim are
+#   serialised no matter how stale the writer's read was.
+# * Fresh bodies. A version's body is never overwritten, so the CDN cannot
+#   serve an older copy of it. Which version is latest comes from the list
+#   API (authenticated, not CDN). A stale listing can only make a writer
+#   lose its create, never win with old state.
+# * Nothing is deleted: the log is the audit history.
+PHOTO_CONTROL_DIR = ROOT / "data" / "photo_control"
+_PHOTO_CONTROL_EPISODE_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_PHOTO_CONTROL_VERSION_RE = re.compile(r"^v(\d{6})\.json$")
+PHOTO_CONTROL_MAX_VERSION = 999_999
+
+
+class PhotoControlUnavailable(RuntimeError):
+    """The photo control log could not be read or written authoritatively.
+
+    For a write this means the outcome is UNKNOWN: the version may exist.
+    """
+
+
+class PhotoControlConflict(RuntimeError):
+    """Another writer created this version first (compare-and-swap lost)."""
+
+
+class EpisodeReadStale(RuntimeError):
+    """The episode body could not be proven to be the current stored version."""
+
+
+def _check_photo_control_args(episode_id: str, version: int | None = None) -> None:
+    if not isinstance(episode_id, str) or not _PHOTO_CONTROL_EPISODE_RE.match(episode_id):
+        raise ValueError(f"invalid photo control episode id: {episode_id!r}")
+    if version is not None and (
+        isinstance(version, bool) or not isinstance(version, int)
+        or not 1 <= version <= PHOTO_CONTROL_MAX_VERSION
+    ):
+        raise ValueError(f"invalid photo control version: {version!r}")
+
+
+def _photo_control_name(version: int) -> str:
+    return f"v{version:06d}.json"
+
+
+def _validated_control_body(data: object, episode_id: str, version: int) -> dict:
+    """A version body must name its own episode and version, or it is unusable."""
+    if (
+        not isinstance(data, dict)
+        or data.get("episode_id") != episode_id
+        or data.get("version") != version
+    ):
+        raise PhotoControlUnavailable(
+            f"photo control {episode_id} v{version} has an unexpected body"
+        )
+    return data
+
+
+def _normalise_etag(value: object) -> str:
+    text = str(value or "").strip()
+    if text.startswith("W/"):
+        text = text[2:]
+    return text.strip().strip('"')
+
+
 SOCIAL_IMAGE_SIZE = (1200, 630)
 SOCIAL_IMAGE_SUFFIX = ".social.jpg"
 
@@ -486,23 +557,28 @@ class _FilesystemBackend:
             return None
         return json.loads(path.read_text())
 
-    def load_episode_strict(self, episode_id: str) -> Optional[dict]:
-        """Same as load_episode.
+    def load_episode_strict(self, episode_id: str, *, use_cache: bool = True) -> Optional[dict]:
+        """Same as load_episode: the filesystem has no cache and no fallback.
 
-        The filesystem backend has no cloud fallback path to mask a read
-        failure with — a missing file already returns None cleanly, and any
-        other failure (a malformed JSON file, a permissions error) already
-        propagates as a real exception. "Strict" is the filesystem backend's
-        only mode, so this exists only so callers that need the not-found
-        vs. error distinction (#7630) can call one method name regardless of
-        which backend `storage` resolved to. Valid JSON that is not an
-        episode object raises, as the cloud strict read does (Codex, #7630).
+        Valid JSON that is not an episode object raises, as the cloud strict
+        read does (Codex, #7630).
         """
         data = self.load_episode(episode_id)
         if data is not None and not isinstance(data, dict):
             raise PageReadError(
                 f"episode {episode_id!r} body is {type(data).__name__}, not an object"
             )
+        return data
+
+    def load_episode_verified(self, episode_id: str) -> Optional[dict]:
+        """Same as load_episode: a local file read is always the current version.
+
+        A body that is not an episode object raises, as the cloud verified
+        read does (#7630).
+        """
+        data = self.load_episode(episode_id)
+        if data is not None and not isinstance(data, dict):
+            raise EpisodeReadStale(f"episode {episode_id} body is not an object")
         return data
 
     def save_episode(self, episode_id: str, data: dict) -> None:
@@ -614,6 +690,85 @@ class _FilesystemBackend:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(entry, indent=2))
 
+    # --- Photo-approval control log (#7936) ---
+
+    def namespaces_episodes(self) -> bool:
+        """Whether episodes are separated by the storage prefix. Locally they are not."""
+        return False
+
+    def _photo_control_dir(self, episode_id: str) -> Path:
+        _check_photo_control_args(episode_id)
+        # Local episodes ignore the prefix, so a local test-mode week shares
+        # production's episode file. A separate test control would pair it
+        # with production's photos and claim an isolation that does not
+        # exist: refuse instead (#7936). The test namespace is cloud-only.
+        if self.prefix and not self.namespaces_episodes():
+            raise PhotoControlUnavailable(
+                "the test namespace's photo review is cloud-only: local episodes are not "
+                "separated from production"
+            )
+        namespace = self.prefix.strip("/") or "production"
+        if not _PHOTO_CONTROL_EPISODE_RE.match(namespace):
+            raise ValueError(f"invalid storage prefix for photo control: {self.prefix!r}")
+        return PHOTO_CONTROL_DIR / namespace / episode_id
+
+    def read_photo_control(self, episode_id: str) -> Optional[dict]:
+        """The latest control version, or None when the episode has none.
+
+        Raises PhotoControlUnavailable when it cannot be read.
+        """
+        directory = self._photo_control_dir(episode_id)
+        try:
+            if not directory.exists():
+                return None
+            versions = sorted(
+                int(m.group(1))
+                for m in (_PHOTO_CONTROL_VERSION_RE.match(p.name) for p in directory.iterdir())
+                if m
+            )
+            if not versions:
+                return None
+            latest = versions[-1]
+            data = json.loads((directory / _photo_control_name(latest)).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            raise PhotoControlUnavailable(f"could not read photo control for {episode_id}: {e}") from e
+        return _validated_control_body(data, episode_id, latest)
+
+    def create_photo_control_version(self, episode_id: str, version: int, body: dict) -> None:
+        """Create version ``version``; PhotoControlConflict if it already exists.
+
+        An exclusive lock serialises writers, the body is written to a
+        temporary file and renamed into place, so a reader never sees a
+        partial version and nothing is ever replaced or deleted.
+        """
+        import fcntl
+        import tempfile
+
+        _check_photo_control_args(episode_id, version)
+        directory = self._photo_control_dir(episode_id)
+        target = directory / _photo_control_name(version)
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            with open(directory / ".lock", "a+") as lock:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+                try:
+                    if target.exists():
+                        raise PhotoControlConflict(f"photo control {episode_id} v{version} already exists")
+                    if version > 1 and not (directory / _photo_control_name(version - 1)).exists():
+                        raise PhotoControlConflict(
+                            f"photo control {episode_id} v{version - 1} does not exist"
+                        )
+                    fd, tmp = tempfile.mkstemp(dir=directory, prefix=".tmp-", suffix=".json")
+                    with os.fdopen(fd, "w", encoding="utf-8") as f:
+                        f.write(json.dumps(body, indent=2))
+                    os.replace(tmp, target)
+                finally:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        except PhotoControlConflict:
+            raise
+        except OSError as e:
+            raise PhotoControlUnavailable(f"could not write photo control for {episode_id}: {e}") from e
+
     def save_page(self, pathname: str, html_content: str) -> str:
         """Save an HTML page locally and return its URL path."""
         dest = ROOT / pathname
@@ -701,23 +856,59 @@ class _FilesystemBackend:
             return False
         return (IMAGES_DIR / key).exists()
 
-    def cleanup_image_variants(self, recipe_id: str) -> list[str]:
-        """Trash the round directories for a recipe. Keeps {recipe_id}.png (the winner).
+    def cleanup_image_variants(self, recipe_id: str, keep_paths: tuple[str, ...] | list[str] = ()) -> list[str]:
+        """Trash unused round directories for a recipe. Keeps {recipe_id}.png.
 
-        Returns list of paths that were trashed.
+        ``keep_paths`` are canonical image paths (src/assets/images/...) that
+        must survive: the human-approved hero and anything else published
+        from inside the recipe's directory (#7936). A directory holding one
+        of them is never trashed, and neither is any directory above it;
+        its siblings (WebP/JPEG variants) live in the same directory, so
+        they survive with it. Only whole sibling directories with no kept
+        file are trashed. Returns the paths that were trashed.
         """
         from send2trash import send2trash
 
         variant_dir = IMAGES_DIR / recipe_id
         trashed: list[str] = []
+        if not (variant_dir.exists() and variant_dir.is_dir()):
+            return trashed
 
-        if variant_dir.exists() and variant_dir.is_dir():
+        kept_dirs: set[Path] = set()
+        for path in keep_paths or ():
+            if not path:
+                continue
+            rel = str(path).removeprefix("src/").removeprefix("assets/").removeprefix("images/")
+            kept = (IMAGES_DIR / rel).resolve()
+            if kept.is_relative_to(variant_dir.resolve()):
+                kept_dirs.add(kept.parent)
+
+        def _holds_kept(directory: Path) -> bool:
+            resolved = directory.resolve()
+            return any(k == resolved or k.is_relative_to(resolved) for k in kept_dirs)
+
+        targets = [variant_dir] if not kept_dirs else []
+        if kept_dirs:
+            # Walk down only through directories that hold a kept file.
+            stack = [variant_dir]
+            while stack:
+                current = stack.pop()
+                for child in sorted(current.iterdir()):
+                    if not child.is_dir():
+                        continue
+                    if _holds_kept(child):
+                        if child.resolve() not in kept_dirs:
+                            stack.append(child)
+                    else:
+                        targets.append(child)
+
+        for target in targets:
             try:
-                send2trash(str(variant_dir))
-                trashed.append(str(variant_dir))
-                logger.info(f"Trashed image variants directory: {variant_dir}")
+                send2trash(str(target))
+                trashed.append(str(target))
+                logger.info(f"Trashed image variants directory: {target}")
             except Exception as e:
-                logger.warning(f"Failed to trash {variant_dir}: {e}")
+                logger.warning(f"Failed to trash {target}: {e}")
 
         return trashed
 
@@ -782,6 +973,10 @@ class _CloudBackend:
 
     def _has_cloud(self) -> bool:
         return bool(self._blob_token)
+
+    def namespaces_episodes(self) -> bool:
+        """Blob keys carry the prefix; the local fallback does not."""
+        return self._has_cloud()
 
     def _auth_headers(self) -> dict:
         return {"Authorization": f"Bearer {self._blob_token}"}
@@ -889,24 +1084,18 @@ class _CloudBackend:
             logger.warning(f"Blob load_episode failed for {episode_id}, falling back to filesystem: {e}")
             return self._fs.load_episode(episode_id)
 
-    def load_episode_strict(self, episode_id: str) -> Optional[dict]:
+    def load_episode_strict(self, episode_id: str, *, use_cache: bool = True) -> Optional[dict]:
         """Load an episode without masking cloud failures with local data.
 
         Static deployment builds use this authoritative form so a transient
         Blob failure cannot publish a page set assembled from stale disk data.
         Runtime readers retain the compatibility fallback in ``load_episode``.
 
-        Also used by cron_routes._apply_week_off_note (#7630): a read error
-        here must be distinguishable from a genuine "no episode for that
-        week" — ``load_episode``'s fallback-on-any-exception behavior would
-        turn a transient Blob outage into a false "the week never published"
-        note. Not found (an empty ``blobs`` list from a SUCCESSFUL API call
-        with a well-formed body) returns ``None``; any read/network/API
-        failure, OR a malformed 200 body (not a dict, ``blobs`` not a list,
-        or a non-dict item in it — e.g. ``{}`` or ``{"blobs": "x"}``) raises
-        instead of returning ``None``, so callers that need the not-found
-        vs. error distinction get it for free by calling this instead of
-        ``load_episode``.
+        ``use_cache=False`` skips this process's cache (admin review reads and
+        Sunday's publish path, #7936), so a warm Lambda cannot serve its own
+        older copy. It does NOT bypass the Blob CDN: an overwritten episode
+        can still read stale for up to ~60s after the write (Vercel docs).
+        Decisions that must not act on a stale copy use load_episode_verified.
         """
         if not self._has_cloud():
             return self._fs.load_episode_strict(episode_id)
@@ -914,10 +1103,8 @@ class _CloudBackend:
         import requests as _requests
 
         cache_key = (self.prefix, episode_id)
-        # Never answered from the cache (Codex, #7630): this is the read a
-        # cron DECISION rests on, and a warm Lambda's cached copy can predate
-        # a publish another instance has since made. The fresh result still
-        # refreshes the cache below.
+        if use_cache and cache_key in self._episode_cache:
+            return self._episode_cache[cache_key]
 
         pathname = f"{self.prefix}episodes/{episode_id}.json"
         blob = self._find_exact_blob(pathname, reject_non_object_entries=True)
@@ -1240,6 +1427,208 @@ class _CloudBackend:
         except Exception as e:
             logger.error(f"Blob save_character_memory_week failed for {slug!r}/{week!r}: {e}")
             raise
+
+    # --- Photo-approval control log (#7936) ---
+
+    # Current Blob API version of @vercel/storage's blob SDK (api.ts,
+    # BLOB_API_VERSION). Used for the metadata call, whose ``etag`` field
+    # is what conditional writes and freshness checks compare against.
+    _BLOB_METADATA_API_VERSION = "12"
+
+    def _blob_metadata(self, pathname: str) -> Optional[dict]:
+        """Authoritative metadata for one pathname, or None if it does not exist.
+
+        This is the SDK's ``head()``: an authenticated GET of
+        ``{API}/?url=<pathname>`` (not an HTTP HEAD, not the CDN). Raises
+        EpisodeReadStale on any other failure.
+        """
+        import requests as _requests
+
+        try:
+            resp = _requests.get(
+                self._BLOB_API,
+                params={"url": pathname},
+                headers={**self._auth_headers(), "x-api-version": self._BLOB_METADATA_API_VERSION},
+                timeout=15,
+            )
+        except _requests.RequestException as e:
+            raise EpisodeReadStale(f"Blob metadata failed for {pathname!r}: {type(e).__name__}: {e}") from e
+        if resp.status_code == 404:
+            return None
+        if not resp.ok:
+            raise EpisodeReadStale(f"Blob metadata for {pathname!r} returned HTTP {resp.status_code}")
+        try:
+            meta = resp.json()
+        except ValueError as e:
+            raise EpisodeReadStale(f"Blob metadata for {pathname!r} is not JSON: {e}") from e
+        if (
+            not isinstance(meta, dict)
+            or meta.get("pathname") != pathname
+            or not _normalise_etag(meta.get("etag"))
+            or not isinstance(meta.get("url"), str)
+            or not meta["url"]
+        ):
+            raise EpisodeReadStale(f"Blob metadata for {pathname!r} lacks pathname/etag/url")
+        return meta
+
+    def load_episode_verified(self, episode_id: str) -> Optional[dict]:
+        """The episode as currently stored, PROVEN current, or an exception.
+
+        ``use_cache=False`` only skips this process; an overwritten blob can
+        still come back stale from the CDN for ~60s. So this reads the
+        authoritative metadata first, then the body, and accepts the body
+        only if the ETag it was served with equals the metadata ETag. A
+        missing or different ETag raises EpisodeReadStale: the caller must
+        not approve, claim or spend on it. None means the episode does not
+        exist. Used before legacy bootstrap, accepting a photo decision and
+        Sunday's paid work.
+        """
+        if not self._has_cloud():
+            return self._fs.load_episode_verified(episode_id)
+
+        import requests as _requests
+
+        pathname = f"{self.prefix}episodes/{episode_id}.json"
+        meta = self._blob_metadata(pathname)
+        if meta is None:
+            return None
+        try:
+            content = _requests.get(meta["url"], timeout=15)
+        except _requests.RequestException as e:
+            raise EpisodeReadStale(f"episode {episode_id} body fetch failed: {type(e).__name__}: {e}") from e
+        if not content.ok:
+            raise EpisodeReadStale(f"episode {episode_id} body returned HTTP {content.status_code}")
+        served = _normalise_etag(content.headers.get("etag"))
+        if not served or served != _normalise_etag(meta.get("etag")):
+            raise EpisodeReadStale(
+                f"episode {episode_id} body is not the current version "
+                f"(served ETag {served or 'missing'}); storage is still updating"
+            )
+        try:
+            data = content.json()
+        except ValueError as e:
+            raise EpisodeReadStale(f"episode {episode_id} body is not JSON: {e}") from e
+        if not isinstance(data, dict):
+            raise EpisodeReadStale(f"episode {episode_id} body is not an object")
+        self._episode_cache[(self.prefix, episode_id)] = data
+        return data
+
+    def _photo_control_prefix(self, episode_id: str) -> str:
+        _check_photo_control_args(episode_id)
+        return f"{self.prefix}photo_control/{episode_id}/"
+
+    def _list_photo_control(self, episode_id: str) -> dict[int, dict]:
+        """version -> listed blob, from the authenticated list API."""
+        import requests as _requests
+
+        list_prefix = self._photo_control_prefix(episode_id)
+        found: dict[int, dict] = {}
+        cursor: Optional[str] = None
+        for _ in range(_EXACT_BLOB_MAX_LIST_PAGES):
+            params: dict = {"prefix": list_prefix, "limit": "1000"}
+            if cursor:
+                params["cursor"] = cursor
+            resp = _requests.get(self._BLOB_API, params=params, headers=self._auth_headers(), timeout=15)
+            resp.raise_for_status()
+            payload = resp.json()
+            if not isinstance(payload, dict) or not isinstance(payload.get("blobs"), list):
+                raise ValueError("listing has no 'blobs' list")
+            for blob in payload["blobs"]:
+                name = blob.get("pathname", "") if isinstance(blob, dict) else ""
+                match = _PHOTO_CONTROL_VERSION_RE.match(name[len(list_prefix):]) if name.startswith(list_prefix) else None
+                if match and isinstance(blob.get("url"), str) and blob["url"]:
+                    found[int(match.group(1))] = blob
+            if not payload.get("hasMore"):
+                return found
+            next_cursor = payload.get("cursor")
+            if not isinstance(next_cursor, str) or not next_cursor or next_cursor == cursor:
+                raise ValueError("hasMore without a new cursor")
+            cursor = next_cursor
+        raise ValueError("too many listing pages")
+
+    def _fetch_control_body(self, episode_id: str, version: int, url: str) -> dict:
+        import requests as _requests
+
+        resp = _requests.get(url, timeout=15)
+        resp.raise_for_status()
+        return _validated_control_body(resp.json(), episode_id, version)
+
+    def read_photo_control(self, episode_id: str) -> Optional[dict]:
+        """The latest control version, or None. Never cached.
+
+        The version list comes from the API; the body is an immutable key
+        and must name its own episode and version. Any failure raises
+        PhotoControlUnavailable: callers hold or refuse, never guess.
+        """
+        if not self._has_cloud():
+            with self._fs.prefix_scope(self.prefix):
+                return self._fs.read_photo_control(episode_id)
+        try:
+            listed = self._list_photo_control(episode_id)
+            if not listed:
+                return None
+            latest = max(listed)
+            return self._fetch_control_body(episode_id, latest, listed[latest]["url"])
+        except PhotoControlUnavailable:
+            raise
+        except Exception as e:
+            logger.error(f"Blob read_photo_control failed for {episode_id}: {type(e).__name__}: {e}")
+            raise PhotoControlUnavailable(f"could not read photo control: {e}") from e
+
+    def create_photo_control_version(self, episode_id: str, version: int, body: dict) -> None:
+        """Create version ``version`` with overwrite refused.
+
+        A refused or failed PUT is resolved by listing: the version exists
+        with our ``write_id`` (the PUT landed), exists with another
+        (PhotoControlConflict), or does not exist (PhotoControlUnavailable).
+        """
+        if not self._has_cloud():
+            with self._fs.prefix_scope(self.prefix):
+                self._fs.create_photo_control_version(episode_id, version, body)
+            return
+
+        import requests as _requests
+
+        _check_photo_control_args(episode_id, version)
+        pathname = self._photo_control_prefix(episode_id) + _photo_control_name(version)
+        headers = {
+            **self._auth_headers(),
+            "Content-Type": "application/json",
+            "x-api-version": "7",
+            "x-content-type": "application/json",
+            "x-add-random-suffix": "0",
+            "x-allow-overwrite": "0",
+        }
+        put_error: Optional[str] = None
+        try:
+            resp = _requests.put(
+                f"{self._BLOB_API}/{pathname}",
+                data=json.dumps(body, indent=2).encode("utf-8"),
+                headers=headers,
+                timeout=30,
+            )
+            if resp.ok:
+                return
+            put_error = f"HTTP {resp.status_code}"
+        except _requests.RequestException as e:
+            put_error = f"{type(e).__name__}: {e}"
+        try:
+            listed = self._list_photo_control(episode_id)
+            existing = listed.get(version)
+            if existing is None:
+                raise PhotoControlUnavailable(
+                    f"photo control {episode_id} v{version} was not written ({put_error})"
+                )
+            landed = self._fetch_control_body(episode_id, version, existing["url"])
+        except (PhotoControlUnavailable, PhotoControlConflict):
+            raise
+        except Exception as e:
+            raise PhotoControlUnavailable(
+                f"photo control {episode_id} v{version}: write outcome unknown ({put_error}; {e})"
+            ) from e
+        if landed.get("write_id") == body.get("write_id"):
+            return
+        raise PhotoControlConflict(f"photo control {episode_id} v{version} already exists")
 
     # --- Simulations ---
 
@@ -1635,7 +2024,7 @@ class _CloudBackend:
             return False
         return resp.status_code == 200
 
-    def cleanup_image_variants(self, recipe_id: str) -> list[str]:
+    def cleanup_image_variants(self, recipe_id: str, keep_paths: tuple[str, ...] | list[str] = ()) -> list[str]:
         """No-op on cloud storage: round-1 variants are LIVE content, not discards (#6712).
 
         The original bug — this delegated to the filesystem backend's

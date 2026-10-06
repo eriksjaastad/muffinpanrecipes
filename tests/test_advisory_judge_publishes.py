@@ -19,6 +19,7 @@ from fastapi import HTTPException
 
 from backend.admin import cron_routes
 from backend.utils.indexnow import IndexNowResult
+from tests.photo_review_helpers import approved_wednesday
 
 
 def _record_indexnow(order: list[str]):
@@ -287,9 +288,12 @@ def test_a_non_string_weakest_entry_cannot_break_the_alert():
             weakest=[1, None, "turn_taking"],
         )
 
-    fields = dict((name, value) for name, value, _inline in sent.call_args.kwargs["fields"])
-    assert fields["Weakest"] == "1, None, turn_taking"
-    assert "natural_progression: 2" in fields["Scores"]
+    # Status only (#7930): scores, weakest and verdict are on the episode.
+    assert sent.call_args.kwargs == {
+        "subject": "Published · Dialogue below bar",
+        "body": "2026-W99 · Sunday",
+        "severity": "warning",
+    }
 
 
 def test_advisory_keeps_the_forensics_of_every_attempt():
@@ -444,7 +448,7 @@ def _sunday_episode() -> dict:
         "recipe_id": "abc123",
         "stages": {
             "monday": {"status": "complete", "recipe_data": {"title": "Spiral Bites"}},
-            "wednesday": {"status": "complete"},
+            "wednesday": approved_wednesday(episode_id="2026-W99"),
         },
         "events": [],
     }
@@ -539,7 +543,6 @@ def test_the_handler_claims_publication_only_after_the_episode_is_saved():
          patch.object(cron_routes, "_generate_and_judge_dialogue",
                       return_value=([{"character": "Devon Park", "message": "live"}], "FAIL")), \
          patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "clean")), \
-         patch.object(cron_routes, "_hero_image_url", return_value="https://x/hero.png"), \
          patch.object(cron_routes, "_generate_episode_memories"), \
          patch.object(cron_routes, "_set_static_deploy_state"), \
          patch.object(cron_routes, "_complete_static_source_handoff",
@@ -578,7 +581,6 @@ def test_no_advisory_alert_when_the_reader_pages_fail_to_write():
          patch.object(cron_routes, "_generate_and_judge_dialogue",
                       return_value=([{"character": "Devon Park", "message": "live"}], "FAIL")), \
          patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "clean")), \
-         patch.object(cron_routes, "_hero_image_url", return_value="https://x/hero.png"), \
          patch.object(cron_routes, "_generate_episode_memories"), \
          patch.object(cron_routes, "_set_static_deploy_state"), \
          patch.object(cron_routes, "notify_pipeline_failure"), \
@@ -694,7 +696,6 @@ def test_the_sunday_route_sends_no_alert_when_the_retry_passes():
          patch.object(cron_routes, "_judge_dialogue", lambda *a, **kw: (True, "PASS")), \
          patch.object(cron_routes, "_score_dialogue_qa", lambda *a, **kw: {}), \
          patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "clean")), \
-         patch.object(cron_routes, "_hero_image_url", return_value="https://x/hero.png"), \
          patch.object(cron_routes, "_generate_episode_memories"), \
          patch.object(cron_routes, "_set_static_deploy_state"), \
          patch.object(cron_routes, "_complete_static_source_handoff"), \

@@ -237,17 +237,25 @@ def check_teaser_current_week(report: Report, base_url: str = PRODUCTION_BASE_UR
     report.check("teaser_is_current_iso_week", _check)
 
 
+# A rendered episode page carries one of these per dialogue line
+# (episode_renderer._render_message); the placeholder never does. This used to
+# be a 20,000-byte floor, which a real but short page fell under: W41's 7-line
+# Monday rendered correctly at 18,928 bytes and still failed as "likely a real
+# render failure".
+EPISODE_PAGE_MARKER = '<div class="chat-msg">'
+
+
 def check_this_week_page(report: Report, base_url: str = PRODUCTION_BASE_URL) -> None:
     def _check():
         status, body = _fetch_text(_url(base_url, "/this-week"))
         assert status == 200, f"/this-week returned HTTP {status}"
-        if len(body) > 20_000:
-            return  # full episode page rendered — healthy
+        if EPISODE_PAGE_MARKER in body:
+            return  # episode page with its conversation rendered — healthy
 
-        # Thin page. A placeholder is LEGITIMATE in two windows: early in a new
-        # ISO week before Monday's cron (14:30 UTC Mon), and for as long as a
-        # week stays paused on a failed stage. Only treat thin-ness as a
-        # failure once a stage has actually completed, because that is the
+        # No conversation on the page. A placeholder is LEGITIMATE in two
+        # windows: early in a new ISO week before Monday's cron (14:30 UTC
+        # Mon), and for as long as a week stays paused on a failed stage. Only
+        # treat it as a failure once a stage has actually completed, because that is the
         # point a real page was owed — otherwise we alert on the expected
         # window (that was the Monday-morning false alarm).
         #
@@ -284,7 +292,7 @@ def check_this_week_page(report: Report, base_url: str = PRODUCTION_BASE_URL) ->
                 ) from exc
             episode = None
         assert not episode_page_is_due(episode), (
-            f"/this-week body is {len(body)} bytes, expected > 20000, and "
+            f"/this-week ({len(body)} bytes) has no rendered conversation, and "
             f"{week_id} has a completed stage — likely a real render failure."
         )
         print(
@@ -1020,10 +1028,6 @@ def check_alert_channel(report: Report) -> None:
     report.check("alert_channel_can_send", _check)
 
 
-def _utc_stamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-
-
 def read_last_status() -> str | None:
     """Return the previous run's status ('passed'/'failed'), or None if unknown."""
     try:
@@ -1047,30 +1051,22 @@ def write_status(status: str) -> None:
 def post_alert(report: Report) -> None:
     """Announce a failing run through every configured alert channel.
 
-    Formats only — delivery is backend/utils/alerts.py::send_alert, so when
-    email lands as a second channel this monitor gets it for free.
+    Formats only — delivery is backend/utils/alerts.py::send_alert. The alert
+    is a status and a count (#7930); which checks failed and why is printed
+    by the CLI and kept in its log.
     """
-    # Timestamp so a scrolled-back alert can't be mistaken for a live failure.
-    body = "\n".join(
-        [f"health_check.py FAILED — {_utc_stamp()}", ""]
-        + [f"• **{name}**: {detail[:300]}" for name, detail in report.failed]
-    )
+    total = len(report.failed) + len(report.passed)
     send_alert(
-        subject="🚨 health_check.py FAILED",
-        body=body[:1900],
+        subject="Health check failed",
+        body=f"{len(report.failed)} of {total} checks failing",
         severity="critical",
-        fields=[(name, detail[:300], False) for name, detail in report.failed[:5]],
     )
 
 
 def post_recovery(report: Report) -> None:
-    names = ", ".join(report.passed)
     send_alert(
-        subject="✅ health_check.py RECOVERED",
-        body=(
-            f"{_utc_stamp()} — all {len(report.passed)} checks passing again "
-            f"({names})."
-        )[:1900],
+        subject="Health check recovered",
+        body=f"{len(report.passed)} checks passing",
         severity="info",
     )
 

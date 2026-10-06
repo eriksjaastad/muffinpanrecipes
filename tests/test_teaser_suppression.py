@@ -14,7 +14,7 @@ def _missed_week_unpublished(monkeypatch):
     episode (#7630). Default every test to "that week never published" so
     nothing here reads the real local episode store; tests of the re-check
     override it."""
-    monkeypatch.setattr(episode_renderer.storage, "load_episode_strict", lambda _eid: None, raising=False)
+    monkeypatch.setattr(episode_renderer.storage, "load_episode_verified", lambda _eid: None, raising=False)
 
 
 @pytest.fixture(autouse=True)
@@ -200,7 +200,7 @@ def _write_with(episode, missed_episode=None, missed_error=None):
         return missed_episode
 
     with patch.object(episode_renderer.storage, "save_page", side_effect=fake_save), \
-         patch.object(episode_renderer.storage, "load_episode_strict", side_effect=fake_load), \
+         patch.object(episode_renderer.storage, "load_episode_verified", side_effect=fake_load), \
          patch.object(episode_renderer, "render_episode_page", return_value="<html></html>"):
         episode_renderer.regenerate_and_upload(episode)
     return json.loads(writes["pages/latest.json"])
