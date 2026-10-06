@@ -424,3 +424,19 @@ def test_a_new_format_week_whose_description_is_not_thursdays_intro_is_refused()
 def test_a_new_format_week_with_thursdays_intro_passes_the_guard():
     status, env = _new_format_sunday(INTRO, INTRO)
     assert status == 200 and env.result["published"] is True
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("1.5 cups of oats. Serve at 350 F.", 2),
+    ('He said "yum." Then ate.', 2),
+    ('First sentence ends here." Second one.', 2),
+    ("A crisp shell (and a soft middle.) Serve warm.", 2),
+    ("Rich, e.g. butter. Good warm.", 2),
+    ("Melted 2 oz. cheese on top. Bake at 400 F.", 2),
+    ("One sentence only.", 1),
+    ("Wow! Really? Yes.", 3),
+])
+def test_sentence_count_handles_closers_decimals_and_abbreviations(text, expected):
+    from backend.utils.recipe_copy import sentence_count
+
+    assert sentence_count(text) == expected

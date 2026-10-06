@@ -79,10 +79,17 @@ def recent_openers(catalog_recipes: Iterable[dict[str, Any]], window: int = OPEN
     return sorted({opener_word(r["description"]) for r in weekly[:window]} - {""})
 
 
+# Abbreviations whose periods do not end a sentence.
+_ABBREVIATIONS = re.compile(r"\b(?:e\.g|i\.e|etc|vs|approx|oz|lb|tbsp|tsp)\.", re.IGNORECASE)
+# A sentence ends at . ! or ?, optionally followed by closing quotes or
+# brackets, then whitespace. Decimals ("1.5") have no whitespace after the dot.
+_SENTENCE_END = re.compile(r"[.!?][\"'”’)\]]*\s+")
+
+
 def sentence_count(text: str) -> int:
     """Sentences ending in . ! or ? (a trailing fragment counts as one)."""
-    parts = [p for p in re.split(r"(?<=[.!?])\s+", text.strip()) if p.strip()]
-    return len(parts)
+    plain = _ABBREVIATIONS.sub(lambda m: m.group(0).replace(".", ""), text.strip())
+    return len([part for part in _SENTENCE_END.split(plain) if part.strip()])
 
 
 def intro_problems(text: str, banned_openers: Iterable[str]) -> list[str]:
