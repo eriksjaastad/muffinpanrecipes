@@ -75,6 +75,7 @@ def test_stage_blocked_when_monday_failed(day: str, handler) -> None:
          patch.object(cron_routes.storage, "save_episode") as save_episode, \
          patch.object(cron_routes, "_generate_and_judge_dialogue") as generate_dialogue, \
          patch.object(cron_routes, "_get_orchestrator") as get_orchestrator, \
+         patch.object(cron_routes, "upload_latest_json") as upload_latest, \
          patch.object(cron_routes, "notify_pipeline_failure") as notify:
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(handler(_request(day)))
@@ -84,6 +85,13 @@ def test_stage_blocked_when_monday_failed(day: str, handler) -> None:
     generate_dialogue.assert_not_called()
     get_orchestrator.assert_not_called()
     save_episode.assert_not_called()
+    if day == "sunday":
+        # #7630: Sunday's window has closed on a week with no recipe, so the
+        # only write is the week-off note on the homepage teaser.
+        upload_latest.assert_called_once()
+        assert upload_latest.call_args.args[0]["week_off_note"]["missed_week"] == "2026-W24"
+    else:
+        upload_latest.assert_not_called()
     notify.assert_called_once()
     assert notify.call_args.kwargs["stage"] == day
 

@@ -558,12 +558,28 @@ class _FilesystemBackend:
         return json.loads(path.read_text())
 
     def load_episode_strict(self, episode_id: str, *, use_cache: bool = True) -> Optional[dict]:
-        """Same as load_episode: the filesystem has no cache and no fallback."""
-        return self.load_episode(episode_id)
+        """Same as load_episode: the filesystem has no cache and no fallback.
+
+        Valid JSON that is not an episode object raises, as the cloud strict
+        read does (Codex, #7630).
+        """
+        data = self.load_episode(episode_id)
+        if data is not None and not isinstance(data, dict):
+            raise PageReadError(
+                f"episode {episode_id!r} body is {type(data).__name__}, not an object"
+            )
+        return data
 
     def load_episode_verified(self, episode_id: str) -> Optional[dict]:
-        """Same as load_episode: a local file read is always the current version."""
-        return self.load_episode(episode_id)
+        """Same as load_episode: a local file read is always the current version.
+
+        A body that is not an episode object raises, as the cloud verified
+        read does (#7630).
+        """
+        data = self.load_episode(episode_id)
+        if data is not None and not isinstance(data, dict):
+            raise EpisodeReadStale(f"episode {episode_id} body is not an object")
+        return data
 
     def save_episode(self, episode_id: str, data: dict) -> None:
         EPISODES_DIR.mkdir(parents=True, exist_ok=True)
@@ -974,7 +990,7 @@ class _CloudBackend:
         key = key.removeprefix("assets/")
         return key
 
-    def _find_exact_blob(self, key: str) -> Optional[dict]:
+    def _find_exact_blob(self, key: str, *, reject_non_object_entries: bool = False) -> Optional[dict]:
         """Return the listed blob whose pathname is exactly ``key``, or None.
 
         The list API matches by PREFIX, so ``prefix=pages/recipes.json`` also
@@ -985,6 +1001,9 @@ class _CloudBackend:
 
         None means the list API answered and no blob has exactly this
         pathname. Any failed or unusable listing raises PageReadError.
+        ``reject_non_object_entries`` also treats a non-object entry as an
+        unusable listing, for a caller whose not-found drives a decision
+        (load_episode_strict, #7630); others skip such entries.
         """
         import requests as _requests
 
@@ -1010,6 +1029,10 @@ class _CloudBackend:
                 raise PageReadError(f"Blob list for {key!r} returned an unusable payload: {e}") from e
             if not isinstance(payload, dict) or not isinstance(payload.get("blobs"), list):
                 raise PageReadError(f"Blob list for {key!r} has no 'blobs' list")
+            if reject_non_object_entries and not all(
+                isinstance(blob, dict) for blob in payload["blobs"]
+            ):
+                raise PageReadError(f"Blob list for {key!r} has a non-object entry")
 
             for blob in payload["blobs"]:
                 if isinstance(blob, dict) and blob.get("pathname") == key:
@@ -1067,13 +1090,15 @@ class _CloudBackend:
         Static deployment builds use this authoritative form so a transient
         Blob failure cannot publish a page set assembled from stale disk data.
         Runtime readers retain the compatibility fallback in ``load_episode``.
+
         ``use_cache=False`` skips this process's cache (admin review reads and
         Sunday's publish path, #7936), so a warm Lambda cannot serve its own
         older copy. It does NOT bypass the Blob CDN: an overwritten episode
         can still read stale for up to ~60s after the write (Vercel docs).
+        Decisions that must not act on a stale copy use load_episode_verified.
         """
         if not self._has_cloud():
-            return self.load_episode(episode_id)
+            return self._fs.load_episode_strict(episode_id)
 
         import requests as _requests
 
@@ -1082,12 +1107,18 @@ class _CloudBackend:
             return self._episode_cache[cache_key]
 
         pathname = f"{self.prefix}episodes/{episode_id}.json"
-        blob = self._find_exact_blob(pathname)
+        blob = self._find_exact_blob(pathname, reject_non_object_entries=True)
         if blob is None:
             return None
         content_resp = _requests.get(blob["url"], timeout=15)
         content_resp.raise_for_status()
         data = content_resp.json()
+        # A decision rests on this body: valid JSON that is not an episode
+        # object is an unusable read, never "an unpublished week" (#7630).
+        if not isinstance(data, dict):
+            raise PageReadError(
+                f"episode {episode_id!r} body is {type(data).__name__}, not an object"
+            )
         self._episode_cache[cache_key] = data
         return data
 
@@ -1453,7 +1484,7 @@ class _CloudBackend:
         Sunday's paid work.
         """
         if not self._has_cloud():
-            return self.load_episode(episode_id)
+            return self._fs.load_episode_verified(episode_id)
 
         import requests as _requests
 

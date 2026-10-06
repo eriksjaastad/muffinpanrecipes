@@ -12,7 +12,7 @@ the channel. The "healthy" cases below are the ones that keep it credible.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -25,6 +25,7 @@ from backend.utils.episode_integrity import (
     parse_episode_id,
     stage_deadline,
     stages_due,
+    week_off_note_due,
 )
 
 # Saturday 2026-09-05, 17:00 UTC — the moment the W36 duplicate was found by
@@ -315,6 +316,44 @@ def test_episode_page_is_due(episode, expected):
 def test_episode_page_is_due_never_raises_on_junk(episode):
     """It reads blob JSON that a failed write can leave in any shape."""
     assert episode_page_is_due(episode) is False
+
+
+# ---------------------------------------------------------------------------
+# week_before / week_off_note_due — the homepage "kitchen took the
+# week off" note (#7630)
+#
+# Both are now cron-time-only helpers (see cron_routes._apply_week_off_note
+# and cron_sunday's own refuse-to-publish path): the note is decided once
+# when a cron runs and carried in whatever it writes to pages/latest.json,
+# never recomputed per homepage request. An earlier version of this feature
+# put a time-window check (`sunday_window_closed`/`relevant_week_id`) on the
+# READ path instead; that required an extra Blob read on most homepage views
+# to answer a question the cron already knows the answer to for free, so it
+# was removed along with these tests.
+# ---------------------------------------------------------------------------
+
+# W36 spans 2026-08-31 (Mon) through 2026-09-06 (Sun). W35 (2026-08-24
+# through 2026-08-30) is the week immediately before it.
+MONDAY_W36 = datetime(2026, 8, 31, 14, 30, tzinfo=timezone.utc)
+
+
+def test_week_off_note_due_when_unpublished() -> None:
+    assert week_off_note_due(None) is True
+    assert week_off_note_due({"episode_id": "2026-W36"}) is True
+
+
+def test_week_off_note_not_due_once_published() -> None:
+    published = {
+        "episode_id": "2026-W36",
+        "published_at": "2026-09-06T00:10:00+00:00",
+    }
+    assert week_off_note_due(published) is False
+
+
+@pytest.mark.parametrize("episode", [[], "nope", 7])
+def test_week_off_note_due_never_raises_on_junk(episode) -> None:
+    """It reads the same blob JSON episode_page_is_due does — any shape."""
+    assert week_off_note_due(episode) is True
 
 
 def test_route_and_monitor_read_the_same_predicate():

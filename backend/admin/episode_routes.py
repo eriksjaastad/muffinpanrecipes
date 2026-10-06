@@ -123,6 +123,22 @@ async def get_episode_teaser():
     here at read time. This is the authoritative check — keeping it
     on the read side means a code deploy is enough to fix prod even
     if a stale `pages/latest.json` blob still says `stage: sunday`.
+
+    "Kitchen took the week off" note (#7630): decided at CRON time, not
+    here. cron_routes._apply_week_off_note (Monday) and cron_sunday's own
+    refuse-to-publish path stamp a `week_off_note` field into whatever they
+    write to `pages/latest.json` when the previous week never published; a
+    successful Sunday publish's bare `{"status": "published"}` write never
+    carries it, which is what clears the note. This endpoint does zero
+    extra work and zero extra Blob reads to decide the note — an earlier
+    version tried to compute it here per request and needed a second Blob
+    read to do it correctly, which is both the wrong cost trade-off (a read
+    on every homepage view) and the wrong place to decide it (the read
+    path can't know things the cron already knows for free). It just
+    passes `week_off_note` through unchanged, exactly like every other
+    field in this blob, and `episode_id` stays whatever the current
+    episode's own teaser already carries — unchanged in every state, so
+    health_check's teaser check needs no special-casing for this feature.
     """
     # Reader contract (#7833): a failed Blob read is logged at ERROR and
     # answered like no teaser ({"status": "no_episode"}).

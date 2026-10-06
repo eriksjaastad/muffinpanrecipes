@@ -30,6 +30,7 @@ from backend.storage import (
     _jpeg_fallback_key,
     storage,
 )
+from backend.utils import episode_integrity
 from backend.utils.logging import get_logger
 from backend.utils.text_sanitize import sanitize_text
 
@@ -1418,6 +1419,121 @@ def publish_recipe_to_catalog(episode: dict) -> str | None:
         return None
 
 
+def mark_latest_published() -> None:
+    """Write the homepage's "published" marker to pages/latest.json: the
+    week's recipe is now the Featured hero, so the teaser (and any
+    week_off_note) steps aside. Raises on a storage failure; callers decide
+    whether that is fatal."""
+    storage.save_page("pages/latest.json", json.dumps({"status": "published"}))
+    logger.info("Cleared teaser: Sunday published, recipe is now Featured hero")
+
+
+def _week_off_note_still_true(episode: dict) -> dict | None:
+    """The episode's week_off_note if it is still true at write time, else
+    None (#7630).
+
+    The note was decided earlier (Monday's cron); a late publish of the
+    missed week can land since then. A late publish does not clear the note
+    itself (Erik, 2026-10-05, option c), so this re-check is what drops it:
+    every stage's write re-checks, so a stale note cannot survive past the
+    successor week's next stage. A note about the episode's own week (its
+    Sunday refusal) is true while it has not published. A failed or stale
+    read keeps the note as decided: that decision came from a verified read
+    too, and acting on a stale copy could drop a note that is still true.
+    """
+    note = episode.get("week_off_note")
+    if not isinstance(note, dict):
+        return None
+    missed = note.get("missed_week")
+    if missed == episode.get("episode_id"):
+        return None if episode_integrity.episode_is_published(episode) else note
+    try:
+        missed_episode = storage.load_episode_verified(missed)
+    except Exception as exc:  # noqa: BLE001 - keep the cron-time decision
+        logger.warning(f"week_off_note recheck skipped for {missed}: {type(exc).__name__}: {exc}")
+        return note
+    return note if episode_integrity.week_off_note_due(missed_episode) else None
+
+
+def upload_latest_json(episode: dict) -> bool:
+    """Write the homepage teaser file pages/latest.json for `episode`.
+    Returns False (writing nothing) for any episode that is not the current
+    ISO week. Raises on a storage failure.
+
+    Split out of regenerate_and_upload so Monday can publish its week-off
+    decision before the rest of the stage runs (#7630): a Monday that then
+    failed used to leave the note off the homepage entirely.
+    """
+    episode_id = episode.get("episode_id", "unknown")
+    # Upload teaser JSON for main page.
+    # Once Sunday publishes, the recipe becomes the homepage Featured hero
+    # (top of recipes.json), so the teaser must step aside to avoid the
+    # same recipe appearing twice. Frontend hides on missing title.
+    #
+    # pages/latest.json is GLOBAL and belongs to the CURRENT ISO week
+    # only (#7630 — Codex review of 2d0567b/6b86ede). Every caller here
+    # runs against whatever episode it was handed, and that is not
+    # always the current week: a manual force=true re-fire or publish of
+    # an OLDER (or a not-yet-current) week still renders and uploads THAT
+    # episode's own page (regenerate_and_upload), but must never replace the live homepage
+    # teaser with stale or premature content, and a late publish of an
+    # older week must not silently claim the current week's spot either.
+    # The invariant lives here, once, rather than in every caller: write
+    # nothing — no teaser, no published marker — for
+    # any episode that isn't the current week. health_check's
+    # current-week teaser check is unaffected either way, since it only
+    # ever reads whatever the CURRENT week last legitimately wrote.
+    if episode_id != episode_integrity.current_episode_id():
+        logger.info(
+            f"Skipped pages/latest.json for {episode_id}: not the "
+            f"current ISO week — its own page was still rendered above."
+        )
+        return False
+
+    # week_off_note (#7630): a "kitchen took the week off" note that
+    # cron_routes._apply_week_off_note (Monday) or cron_sunday's own
+    # refuse-to-publish path stamps onto `episode` when the PREVIOUS
+    # week never published. It is decided at cron time, never here or
+    # on the read path — this just forwards whatever is already on
+    # `episode` into whichever pages/latest.json shape this call
+    # writes. The published branch below never looks at it, which is
+    # what clears the note the moment a week actually publishes.
+    sunday_complete = episode.get("stages", {}).get("sunday", {}).get("status") == "complete"
+    week_off_note = _week_off_note_still_true(episode)
+    if sunday_complete:
+        mark_latest_published()
+    else:
+        teaser = get_latest_teaser(episode)
+        if teaser:
+            teaser["page_url"] = "/this-week"
+            if week_off_note:
+                teaser["week_off_note"] = week_off_note
+            teaser_json = json.dumps(teaser)
+            storage.save_page("pages/latest.json", teaser_json)
+            logger.info(f"Uploaded teaser: {teaser.get('title', '?')}")
+        elif week_off_note:
+            # No dialogue yet to build a normal teaser from (e.g. right
+            # after Sunday's own refuse-to-publish path fires before any
+            # dialogue exists for a brand new week), but the note itself
+            # must still reach the homepage. episode_id keeps this
+            # consistent with health_check's teaser check, which expects
+            # it in every non-"published" state.
+            storage.save_page(
+                "pages/latest.json",
+                json.dumps({"episode_id": episode_id, "week_off_note": week_off_note}),
+            )
+            logger.info("Uploaded week_off_note with no teaser content available")
+        else:
+            # Neither a teaser nor a note: still write, so a note (or
+            # teaser) from an earlier write can never outlive the state
+            # that produced it (Codex round 6 on #7630). No title means
+            # the homepage shows nothing; episode_id keeps health_check's
+            # current-week teaser check passing.
+            storage.save_page("pages/latest.json", json.dumps({"episode_id": episode_id}))
+            logger.info("Cleared teaser: no teaser content or week_off_note yet")
+    return True
+
+
 def regenerate_and_upload(episode: dict, *, strict: bool = False) -> str | None:
     """Regenerate the episode page HTML and teaser JSON, upload both to blob.
 
@@ -1443,21 +1559,8 @@ def regenerate_and_upload(episode: dict, *, strict: bool = False) -> str | None:
         url = storage.save_page(pathname, page_html)
         logger.info(f"Uploaded episode page: {pathname} ({len(page_html)} bytes)")
 
-        # 2. Upload teaser JSON for main page.
-        # Once Sunday publishes, the recipe becomes the homepage Featured hero
-        # (top of recipes.json), so the teaser must step aside to avoid the
-        # same recipe appearing twice. Frontend hides on missing title.
-        sunday_complete = episode.get("stages", {}).get("sunday", {}).get("status") == "complete"
-        if sunday_complete:
-            storage.save_page("pages/latest.json", json.dumps({"status": "published"}))
-            logger.info("Cleared teaser: Sunday published, recipe is now Featured hero")
-        else:
-            teaser = get_latest_teaser(episode)
-            if teaser:
-                teaser["page_url"] = "/this-week"
-                teaser_json = json.dumps(teaser)
-                storage.save_page("pages/latest.json", teaser_json)
-                logger.info(f"Uploaded teaser: {teaser.get('title', '?')}")
+        # 2. Upload teaser JSON for the main page (current week only).
+        upload_latest_json(episode)
 
         return url
     # governance: allow-silent SF002: documented contract; Sunday passes strict=True and re-raises, mid-week stages tolerate a missed re-render because the next stage rewrites the page

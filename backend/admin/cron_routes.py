@@ -37,7 +37,7 @@ import json
 import os
 import re
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -45,7 +45,10 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
 from backend.config import config
-from backend.publishing.episode_renderer import regenerate_and_upload
+from backend.publishing.episode_renderer import (
+    regenerate_and_upload,
+    upload_latest_json,
+)
 from backend.storage import storage
 from backend.utils import episode_integrity
 from backend.utils.indexnow import submit_urls as _indexnow_submit_urls
@@ -146,6 +149,11 @@ PLACEHOLDER_CONCEPT = episode_integrity.PLACEHOLDER_CONCEPT
 # static builder has always decided it. Every published-week guard uses it.
 episode_is_published = episode_integrity.episode_is_published
 
+# In-character homepage note for a week that never published (#7630).
+# Defined in episode_integrity so episode_routes' read path and this
+# module's write path share exactly one copy of the text.
+WEEK_OFF_MESSAGE = episode_integrity.WEEK_OFF_MESSAGE
+
 # Temporary containment for the remainder of W39. This applies only to
 # authenticated scheduled GETs; manual POST recovery remains available.
 _SCHEDULED_PAUSE_EPISODE_ID = "2026-W39"
@@ -213,6 +221,94 @@ def _new_episode(episode_id: str, concept: str) -> dict:
         "events": [],
         "recipe_id": None,
     }
+
+
+# How early the Sunday cron may fire and still count as the week's own
+# Sunday run for the refusal note (#7630).
+_SUNDAY_NOTE_TOLERANCE = timedelta(minutes=5)
+
+
+def _utc_now() -> datetime:
+    """The clock, behind one name so tests can pin it."""
+    return datetime.now(timezone.utc)
+
+def _apply_week_off_note(episode_id: str, ep: dict) -> None:
+    """Stamp `ep` with a "kitchen took the week off" note when the week
+    that just ended never published (#7630).
+
+    Decided ONCE, at the start of Monday's cron — by then the previous
+    week's Sunday window has necessarily already closed (see
+    episode_integrity.week_before), so this is a plain
+    published check (episode_is_published), no time-window arithmetic. Stored on the CURRENT
+    week's episode itself, not written straight to pages/latest.json:
+    every later stage this week that calls regenerate_and_upload reads it
+    off this same `ep` (reloaded from storage each time), so it carries
+    forward through Tuesday-Saturday for free, and through a Monday retry
+    on a warm Lambda for the same reason. A successful Sunday publish never
+    looks at this field at all (its write is a bare
+    ``{"status": "published"}``), which is what clears the note.
+
+    Only ever called from inside a cron handler's `_test_mode_scope(body)`
+    block, so it reads and writes through whatever prefix (`""` or
+    `"test/"`) that handler already established — a test-mode Monday can
+    only ever see test-prefixed data here, never the prod previous week.
+
+    The previous week is derived from `episode_id` itself, never the clock:
+    a manual force=true re-fire of an older week asks about the week before
+    THAT episode, so it cannot stamp a false note for the current week.
+
+    The note is cosmetic: nothing here may fail Monday. An unparseable
+    episode id or a failed read of the previous week is logged and leaves
+    the field exactly as it was (ops still see the failure through their own
+    alerts and health checks).
+
+    Uses `load_episode_verified`, not the ordinary `load_episode` (#7630): a
+    Blob outage must not be mistaken for "the previous week never
+    published". `load_episode` intentionally falls back to (empty) local
+    filesystem data on ANY cloud error and returns None either way, which
+    would stamp a false note during an outage. `load_episode_verified`
+    returns None only for an ACTUAL missing episode, and raises on a failed
+    read or on a body the Blob CDN served stale (its ETag differs from the
+    stored version's, #7936) — caught below, same as an unparseable id.
+    """
+    # A note naming THIS week came from Sunday's own refuse-to-publish path,
+    # and stays true until this week publishes. A re-fired Monday must not
+    # replace or clear it on the strength of the previous week (Codex, #7630).
+    existing = ep.get("week_off_note")
+    if (
+        isinstance(existing, dict)
+        and existing.get("missed_week") == episode_id
+        and not episode_integrity.episode_is_published(ep)
+    ):
+        return
+    # A Monday re-fired after this week's own Sunday window, on a week that
+    # has not published AND still has no Monday recipe, is late for its own
+    # week: Sunday's recipe-less refusal put the note on the homepage only
+    # (_note_week_off_without_a_recipe saves no episode), so it is rebuilt
+    # here rather than cleared (Codex, #7630). The missing recipe is the
+    # evidence of that refusal, never the clock alone: a week WITH a recipe
+    # that missed Sunday (held for photo approval, or failed after
+    # Wednesday) shows no own-week note (Erik, 2026-10-05, decision 1), and
+    # a Wednesday-incomplete refusal is already kept by the check above.
+    if (
+        not episode_integrity.episode_is_published(ep)
+        and not _monday_recipe_ready(ep)
+        and _sunday_window_reached(episode_id)
+    ):
+        ep["week_off_note"] = {"message": WEEK_OFF_MESSAGE, "missed_week": episode_id}
+        return
+    try:
+        previous_id = episode_integrity.week_before(episode_id)
+        previous_episode = storage.load_episode_verified(previous_id)
+    except Exception as exc:  # noqa: BLE001 - best-effort cosmetic note
+        logger.warning(
+            f"week-off note check skipped for {episode_id}: {type(exc).__name__}: {exc}"
+        )
+        return
+    if episode_integrity.week_off_note_due(previous_episode):
+        ep["week_off_note"] = {"message": WEEK_OFF_MESSAGE, "missed_week": previous_id}
+    else:
+        ep.pop("week_off_note", None)
 
 
 # Cap for the texture/identity anchor in _build_recipe_context (#7104). Long
@@ -2069,6 +2165,50 @@ def _save_stage_failure(ep: dict, stage: str, error: Exception) -> None:
 
 
 
+def _sunday_window_reached(episode_id: str) -> bool:
+    """Whether the week's own Sunday cron time has arrived (within the
+    tolerance for a cron that fires a little early). A non-ISO id (the
+    run_full_week.py harness uses test-<ts>) has no Sunday window, so it never
+    announces a week off and its refusal path stays exactly as before."""
+    try:
+        sunday_due = episode_integrity.stage_deadline(episode_id, "sunday")
+    # governance: allow-silent SF002: a non-ISO id is an expected input with no Sunday window; the caller's own refusal (409 + alert, or 400) still runs
+    except ValueError:
+        return False
+    return _utc_now() >= sunday_due - _SUNDAY_NOTE_TOLERANCE
+
+
+def _monday_recipe_ready(ep: dict) -> bool:
+    monday = ep.get("stages", {}).get("monday", {})
+    return bool(monday.get("status") == "complete" and monday.get("recipe_data"))
+
+
+def _note_week_off_without_a_recipe(episode_id: str, ep: dict) -> None:
+    """Sunday's window closed on a week whose Monday never produced a recipe:
+    the week cannot publish, so say so on the homepage now (Codex, #7630).
+
+    Writes pages/latest.json only, through the writer's own current-week
+    gate, and never saves the episode. Never renders the episode page: with no recipe it would publish
+    placeholder content (the W24 incident _require_monday_recipe guards).
+    Best-effort; the 409 that follows is unchanged. An early forced re-fire
+    (before the week's own Sunday cron time) still has time to recover and
+    announces nothing.
+    """
+    if not _sunday_window_reached(episode_id):
+        return
+    try:
+        # Teaser only, on a copy: the episode is not saved. No stage can
+        # write this recipe-less week again, and when Monday never ran at
+        # all `ep` is an unsaved placeholder that must not become a stored
+        # episode (it would change what /this-week serves).
+        noted = {**ep, "week_off_note": {"message": WEEK_OFF_MESSAGE, "missed_week": episode_id}}
+        upload_latest_json(noted)
+    except Exception as exc:  # noqa: BLE001 - best-effort cosmetic note, the 409 still fires
+        logger.warning(
+            f"week-off note for recipe-less {episode_id} skipped: {type(exc).__name__}: {exc}"
+        )
+
+
 def _require_monday_recipe(ep: dict, stage: str) -> None:
     """Block downstream stages when Monday never produced a recipe.
 
@@ -2509,6 +2649,17 @@ async def cron_monday(request: Request):
     with _test_mode_scope(body):
       episode_id = body.episode_id or _current_episode_id()
       ep = _load_or_create_episode(episode_id, body.concept or PLACEHOLDER_CONCEPT)
+      _apply_week_off_note(episode_id, ep)
+      # Put the decision on the homepage now, not only at the end of a
+      # successful Monday: a stage failure below would otherwise keep the
+      # note (or its absence) off the homepage until a later stage ran
+      # (#7630). Current week only (the writer's gate); best-effort.
+      try:
+          upload_latest_json(ep)
+      except Exception as exc:  # noqa: BLE001 - cosmetic; Monday must run
+          logger.warning(
+              f"homepage week-off update skipped for {episode_id}: {type(exc).__name__}: {exc}"
+          )
 
       # W15 narrative injection: characters discover the "Party" category
       injected_event: str | None = None
@@ -3539,11 +3690,14 @@ async def cron_sunday(request: Request):
 
       # #7936: a publication the control already committed to (publishing
       # or published, with its checkpoint) is completed, never re-decided or
-      # re-generated, even when the episode no longer shows it.
+      # re-generated, even when the episode no longer shows it. It runs before
+      # the #7630 week-off note so a committed publication is never noted off.
       completed = _complete_checkpointed_publication(episode_id, ep, concept, body)
       if completed is not None:
           return completed
 
+      if not _monday_recipe_ready(ep):
+          _note_week_off_without_a_recipe(episode_id, ep)
       _require_monday_recipe(ep, "sunday")
 
       with _run_stage(ep, "sunday"):
@@ -3553,6 +3707,49 @@ async def cron_sunday(request: Request):
         for day in required_stages:
             stage_status = ep.get("stages", {}).get(day, {}).get("status")
             if stage_status != "complete":
+                # #7630: this IS the week's Sunday window closing without a
+                # publish — the card's own motivating case — so set the
+                # "kitchen took the week off" note right here rather than
+                # waiting for next Monday's cron to notice it. Every OTHER
+                # way Sunday can fail to publish (an uncaught exception
+                # later in this stage, after this check passes) is instead
+                # picked up by next Monday's _apply_week_off_note, same as
+                # any other failure mode — duplicating this for every
+                # failure surface inside the stage would not be simple.
+                # That includes a week held for Erik's photo approval
+                # (#7936): it is waiting on him, not off, so Sunday shows no
+                # note for it (Erik, 2026-10-05, accepted behaviour).
+                # Only once the week's own Sunday cron time has arrived: an
+                # early manual force=true re-fire still has time to recover,
+                # so announcing the week off then would be premature (Codex,
+                # #7630). The scheduled run fires at that time; the tolerance
+                # covers a cron that fires a little early.
+                if not _sunday_window_reached(episode_id):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Cannot publish: {day} stage incomplete (status={stage_status!r})",
+                    )
+                ep["week_off_note"] = {
+                    "message": WEEK_OFF_MESSAGE, "missed_week": episode_id,
+                }
+                # Best-effort: the note is cosmetic, and a failed save or
+                # render must not turn the 400 refusal below into a 500
+                # (Codex, #7630).
+                try:
+                    storage.save_episode(episode_id, ep)
+                    # regenerate_and_upload itself only ever touches
+                    # pages/latest.json for the CURRENT ISO week (#7630) — a
+                    # manual force=true retry of an older incomplete week
+                    # still renders/uploads that week's own page here, but
+                    # can no longer replace the live homepage teaser with
+                    # stale content. The writer is the single source of
+                    # truth for the invariant.
+                    regenerate_and_upload(ep)
+                except Exception as exc:  # noqa: BLE001 - cosmetic note; the refusal stands
+                    logger.warning(
+                        f"week-off note for refused {episode_id} not written: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
                 raise HTTPException(
                     status_code=400,
                     detail=f"Cannot publish: {day} stage incomplete (status={stage_status!r})",
@@ -3813,6 +4010,11 @@ async def cron_sunday(request: Request):
         # same inbox. Skipping the advisory alert on that path loses it —
         # carded — which is the lesser harm of the two.
         _announce_advisory_publication(episode_id, ep, "sunday", concept)
+        # #7630 (Erik, 2026-10-05, option c): a late publish does NOT clear
+        # a successor week's note that blamed this week. That clear could
+        # erase a recipe-less successor's own valid note. A stale note is
+        # dropped instead at the successor's next stage write, which
+        # re-checks it (episode_renderer._week_off_note_still_true).
 
         # Last of all: IndexNow is a crawler courtesy, never a publish
         # requirement, and must never fire against test data (RUNBOOK

@@ -13,6 +13,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PIL import Image
 
+from backend.storage import PageReadError
+
 
 @pytest.fixture(autouse=True)
 def _no_vercel_env(monkeypatch):
@@ -39,6 +41,30 @@ def sample_episode():
         "messages": [{"character": "Steph", "message": "Let's go!", "day": "monday"}],
         "created_at": "2026-03-14T00:00:00Z",
     }
+
+
+class TestFilesystemBackendLoadEpisodeStrict:
+    """#7630: cron_routes._apply_week_off_note calls load_episode_strict
+    uniformly regardless of which backend `storage` resolved to — the
+    filesystem backend needs the method to exist, even though it has no
+    cloud-fallback failure mode to be "strict" about."""
+
+    def test_returns_none_for_a_missing_episode(self, tmp_path, monkeypatch):
+        from backend.storage import _FilesystemBackend
+
+        monkeypatch.setattr("backend.storage.EPISODES_DIR", tmp_path)
+        backend = _FilesystemBackend()
+        assert backend.load_episode_strict("nope") is None
+
+    def test_returns_the_episode_when_present(self, tmp_path, monkeypatch, sample_episode):
+        import json as _json
+
+        from backend.storage import _FilesystemBackend
+
+        monkeypatch.setattr("backend.storage.EPISODES_DIR", tmp_path)
+        (tmp_path / f"{sample_episode['episode_id']}.json").write_text(_json.dumps(sample_episode))
+        backend = _FilesystemBackend()
+        assert backend.load_episode_strict(sample_episode["episode_id"]) == sample_episode
 
 
 class TestCloudBackendSaveEpisode:
@@ -171,6 +197,69 @@ class TestCloudBackendLoadEpisode:
 
         mock_fs.assert_not_called()
 
+    def test_strict_load_returns_none_on_genuine_not_found(self, cloud_backend):
+        """#7630: the not-found vs error distinction load_episode_strict
+        exists for. A SUCCESSFUL list call that legitimately finds nothing
+        (empty blobs) is not an error — it must return None cleanly, not
+        raise, and must not fall back to the filesystem either (unlike the
+        non-strict load_episode)."""
+        mock_list = MagicMock()
+        mock_list.json.return_value = {"blobs": []}
+        mock_list.raise_for_status = MagicMock()
+
+        with patch("requests.get", return_value=mock_list), \
+             patch.object(cloud_backend._fs, "load_episode") as mock_fs:
+            result = cloud_backend.load_episode_strict("ep-missing")
+
+        assert result is None
+        mock_fs.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "malformed_payload",
+        [{}, {"blobs": "x"}, {"blobs": [1]}],
+        ids=["missing-blobs-key", "blobs-not-a-list", "blobs-item-not-a-dict"],
+    )
+    def test_strict_load_raises_on_a_malformed_200_body(self, cloud_backend, malformed_payload):
+        """Round-4 review (#7630): a malformed 200 body — {}, blobs not a
+        list, or a non-dict item in it — is not a genuine not-found (the old
+        `.get("blobs", [])` treated it as one, which stamps a false
+        week-off note). It must raise, and must not fall back to the
+        filesystem (unlike the non-strict load_episode)."""
+        mock_list = MagicMock()
+        mock_list.json.return_value = malformed_payload
+        mock_list.raise_for_status = MagicMock()
+
+        with patch("requests.get", return_value=mock_list), \
+             patch.object(cloud_backend._fs, "load_episode") as mock_fs:
+            with pytest.raises(PageReadError):
+                cloud_backend.load_episode_strict("ep-malformed")
+
+        mock_fs.assert_not_called()
+
+
+    def test_verified_load_never_answers_from_a_warm_cache(self, cloud_backend):
+        """#7630 now decides on load_episode_verified: a warm Lambda cached the
+        previous week as unpublished; another instance then published it. The
+        verified read must fetch the current version, not return the cached
+        copy, and the fresh result replaces the cache entry."""
+        cloud_backend._episode_cache[(cloud_backend.prefix, "ep-1")] = {"episode_id": "ep-1"}
+
+        fresh = {"episode_id": "ep-1", "published_at": "2026-09-28T01:00:00Z"}
+        meta = MagicMock(status_code=200, ok=True)
+        meta.json.return_value = {
+            "pathname": f"{cloud_backend.prefix}episodes/ep-1.json",
+            "url": "https://blob/episodes/ep-1.json",
+            "etag": '"v2"',
+        }
+        content = MagicMock(status_code=200, ok=True, headers={"etag": '"v2"'})
+        content.json.return_value = fresh
+
+        with patch("requests.get", side_effect=[meta, content]) as get:
+            result = cloud_backend.load_episode_verified("ep-1")
+
+        assert get.call_count == 2
+        assert result == fresh
+        assert cloud_backend._episode_cache[(cloud_backend.prefix, "ep-1")] == fresh
 
 class TestCloudBackendListEpisodes:
     def test_list_returns_sorted_episodes(self, cloud_backend):
@@ -1024,3 +1113,75 @@ class TestCloudBackendCleanupImageVariants:
         with patch.object(cloud_backend, "delete_by_prefix") as mock_delete:
             cloud_backend.cleanup_image_variants("some-recipe-id")
         mock_delete.assert_not_called()
+
+
+@pytest.mark.parametrize("body", [[], "x", 5, None], ids=["list", "string", "number", "null"])
+def test_strict_load_rejects_a_non_object_episode_body(cloud_backend, body):
+    """Codex (#7630): valid JSON that is not an episode object must take the
+    read-error path, never read as an unpublished week."""
+    mock_list = MagicMock()
+    mock_list.ok = True
+    mock_list.json.return_value = {
+        "blobs": [{"url": "https://blob/e.json", "pathname": f"{cloud_backend.prefix}episodes/ep-1.json"}]
+    }
+    mock_content = MagicMock()
+    mock_content.json.return_value = body
+    mock_content.raise_for_status = MagicMock()
+
+    with patch("requests.get", side_effect=[mock_list, mock_content]):
+        with pytest.raises(PageReadError):
+            cloud_backend.load_episode_strict("ep-1")
+    assert (cloud_backend.prefix, "ep-1") not in cloud_backend._episode_cache
+
+
+@pytest.mark.parametrize("body", ["[]", '"x"', "5"], ids=["list", "string", "number"])
+def test_filesystem_strict_load_rejects_a_non_object_episode_body(tmp_path, monkeypatch, body):
+    """Codex (#7630): the filesystem strict read matches the cloud one."""
+    from backend.storage import _FilesystemBackend
+
+    monkeypatch.setattr("backend.storage.EPISODES_DIR", tmp_path)
+    (tmp_path / "2026-W39.json").write_text(body)
+    with pytest.raises(PageReadError):
+        _FilesystemBackend().load_episode_strict("2026-W39")
+
+
+
+def test_cloud_backend_without_a_token_uses_the_strict_filesystem_read(tmp_path, monkeypatch):
+    """Codex (#7630): the no-token filesystem fallback of load_episode_strict
+    must reject a non-object body like the cloud path does."""
+    from backend.storage import _CloudBackend
+
+    monkeypatch.setattr("backend.storage.EPISODES_DIR", tmp_path)
+    (tmp_path / "2026-W39.json").write_text("[]")
+    backend = _CloudBackend()
+    assert not backend._has_cloud()
+    with pytest.raises(PageReadError):
+        backend.load_episode_strict("2026-W39")
+
+
+def test_filesystem_verified_read_rejects_a_non_object_body(tmp_path, monkeypatch):
+    """#7630's decision reads use load_episode_verified; a local body that is
+    valid JSON but not an episode object is an unusable read, not a week."""
+    from backend.storage import EpisodeReadStale, _FilesystemBackend
+
+    monkeypatch.setattr("backend.storage.EPISODES_DIR", tmp_path)
+    (tmp_path / "2026-W39.json").write_text("[]")
+    with pytest.raises(EpisodeReadStale):
+        _FilesystemBackend().load_episode_verified("2026-W39")
+    (tmp_path / "2026-W40.json").write_text('{"episode_id": "2026-W40"}')
+    assert _FilesystemBackend().load_episode_verified("2026-W40") == {"episode_id": "2026-W40"}
+    assert _FilesystemBackend().load_episode_verified("2026-W41") is None
+
+
+def test_cloud_backend_without_a_token_uses_the_filesystem_verified_read(tmp_path, monkeypatch):
+    """The no-token fallback of load_episode_verified must reject a non-object
+    body like the filesystem and cloud paths do (Codex's #7630 strict-read
+    finding, carried to the verified read)."""
+    from backend.storage import EpisodeReadStale, _CloudBackend
+
+    monkeypatch.setattr("backend.storage.EPISODES_DIR", tmp_path)
+    (tmp_path / "2026-W39.json").write_text("[]")
+    backend = _CloudBackend()
+    assert not backend._has_cloud()
+    with pytest.raises(EpisodeReadStale):
+        backend.load_episode_verified("2026-W39")

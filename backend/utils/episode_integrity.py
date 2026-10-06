@@ -25,6 +25,13 @@ from datetime import date, datetime, timedelta, timezone
 # defense. cron_routes imports this so there is exactly one copy.
 PLACEHOLDER_CONCEPT = "Weekly Muffin Pan Recipe"
 
+# In-character homepage note for a week that never published (#7630). Set at
+# CRON time (see cron_routes._apply_week_off_note) and carried in whatever
+# the cron writes to pages/latest.json — never computed per homepage
+# request. cron_routes and episode_routes both import this so there is
+# exactly one copy.
+WEEK_OFF_MESSAGE = "The kitchen took the week off — back next Sunday."
+
 DAY_ORDER = [
     "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
 ]
@@ -85,6 +92,34 @@ def stages_due(
     now = now or datetime.now(timezone.utc)
     grace = timedelta(minutes=grace_minutes)
     return [d for d in DAY_ORDER if now >= stage_deadline(episode_id, d) + grace]
+
+
+def week_before(episode_id: str) -> str:
+    """ISO week id of the week immediately before `episode_id` (#7630).
+
+    Derived from the episode's own id, never the clock, so a manual re-fire
+    of an older week asks about the week before THAT episode.
+    """
+    iso_year, iso_week = parse_episode_id(episode_id)
+    monday = date.fromisocalendar(iso_year, iso_week, 1)
+    return current_episode_id(datetime(monday.year, monday.month, monday.day, tzinfo=timezone.utc) - timedelta(days=7))
+
+
+def week_off_note_due(episode: object) -> bool:
+    """True when a week owes the "kitchen took the week off" note (#7630):
+    `episode` is missing or not published by `episode_is_published` (a
+    `published_at`, or a complete Sunday for weeks published before that
+    field existed — #7936's legacy-aware predicate).
+
+    Pure and cheap on purpose — this used to also decide WHEN to ask the
+    question (a time-window check against the homepage request clock), which
+    meant the answer had to be recomputed on every homepage view. It is now
+    decided once, at cron time (cron_routes._apply_week_off_note, and
+    cron_sunday's own refuse-to-publish path), and carried in whatever the
+    cron writes to pages/latest.json — this function is only ever called
+    from cron code now, not from the read path.
+    """
+    return not episode_is_published(episode)
 
 
 def episode_page_is_due(episode: object) -> bool:
