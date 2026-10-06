@@ -227,6 +227,10 @@ def _parse_recipe_response(response: str, concept: str) -> Dict[str, Any]:
     result: Dict[str, Any] = {
         "title": concept,
         "description": "",
+        # #7853: always present on a recipe Monday wrote with this code, even
+        # if empty; Sunday reads the key as "this week's description must be
+        # Marcus's Thursday intro".
+        "pitch": "",
         "servings": 12,
         "prep_time": 15,
         "cook_time": 20,
@@ -256,7 +260,10 @@ def _parse_recipe_response(response: str, concept: str) -> Dict[str, Any]:
         if control_line.startswith("TITLE:"):
             result["title"] = control_line.replace("TITLE:", "").strip()
         elif control_line.startswith("DESCRIPTION:"):
-            result["description"] = control_line.replace("DESCRIPTION:", "").strip()
+            # #7853: Margaret's one-liner is the internal pitch (dialogue and
+            # judge context, form gate). The published description is
+            # Marcus's Thursday intro (backend/utils/recipe_copy.py).
+            result["pitch"] = control_line.replace("DESCRIPTION:", "").strip()
         elif control_line.startswith("SERVINGS:"):
             match = re.search(r"\d+", control_line)
             if match:

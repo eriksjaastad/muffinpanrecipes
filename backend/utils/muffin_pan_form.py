@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from backend.utils.recipe_copy import recipe_pitch
+
 LOOSE_OR_INCIDENTAL_PATTERNS = (
     r"\bloose fillings?\b",
     r"\bloose mixture\b",
@@ -54,7 +56,9 @@ BIND_OR_RELEASE_PATTERNS = (
 def _flatten_recipe_text(recipe: dict[str, Any]) -> str:
     parts: list[str] = [
         str(recipe.get("title", "")),
-        str(recipe.get("description", "")),
+        # #7853: the Monday pitch, not Marcus's intro, so the gate reads the
+        # same text on Monday and in Sunday's editorial QA as before.
+        recipe_pitch(recipe),
         str(recipe.get("chef_notes", "")),
     ]
     for ingredient in recipe.get("ingredients", []) or []:

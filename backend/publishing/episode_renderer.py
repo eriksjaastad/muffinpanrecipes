@@ -31,6 +31,7 @@ from backend.storage import (
     storage,
 )
 from backend.utils import episode_integrity
+from backend.utils.recipe_copy import INTRO_PLACEHOLDER
 from backend.utils.logging import get_logger
 from backend.utils.text_sanitize import sanitize_text
 
@@ -683,6 +684,11 @@ def render_episode_page(
     recipe = monday.get("recipe_data", {})
     title = sanitize_text(recipe.get("title", concept))
     description = sanitize_text(recipe.get("description", ""))
+    if not description and not episode_integrity.episode_is_published(episode):
+        # #7853: Marcus writes the description on Thursday; until then the
+        # in-progress page says so. A published page never shows this:
+        # Sunday refuses to publish without an intro.
+        description = INTRO_PLACEHOLDER
     category = recipe.get("category", "savory").title()
     prep_time = recipe.get("prep_time", 15)
     cook_time = recipe.get("cook_time", 20)

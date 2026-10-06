@@ -61,6 +61,7 @@ from backend.utils.catalog import (
 )
 from backend.utils.logging import get_logger
 from backend.utils.muffin_pan_form import check_muffin_pan_form
+from backend.utils.recipe_copy import generate_intro, recent_openers, recipe_pitch
 from backend.utils.recipe_overlap import check_ingredient_overlap
 from backend.utils.recipe_sanity import (
     OVEN_TEMP_MAX_F,
@@ -481,7 +482,9 @@ def _build_recipe_context(recipe_data: dict | None) -> str:
     # each muffin cup... crisp edges, tender centers" - the only texture in the
     # field. Descriptions run two or three sentences; the cap, not a sentence
     # count, is what keeps this from becoming a recitation.
-    description = " ".join((recipe_data.get("description") or "").split())
+    # #7853: the pitch, not the published description, so the speakers see
+    # the same Monday text whether or not Marcus's intro exists yet.
+    description = " ".join(recipe_pitch(recipe_data).split())
     if description:
         anchor = description
         if len(anchor) > RECIPE_CONTEXT_ANCHOR_MAX:
@@ -612,7 +615,8 @@ def _build_judge_recipe_facts(recipe_data: dict | None) -> str:
     cuisine = (recipe_data.get("cuisine") or "").strip()
     if category:
         lines.append(f"Category: {category}" + (f" | Cuisine: {cuisine}" if cuisine else ""))
-    description = " ".join((recipe_data.get("description") or "").split())
+    # #7853: the pitch, held constant for the judge (see the speakers' anchor).
+    description = " ".join(recipe_pitch(recipe_data).split())
     if description:
         lines.append(f"Description: {description}")
 
@@ -1498,6 +1502,17 @@ def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
         if not fixed.get("title") or not fixed.get("ingredients") or not fixed.get("instructions"):
             logger.warning("Auto-fix returned incomplete recipe — skipping")
             return False
+
+        # #7853: the description is Marcus's intro and the pitch is Monday's
+        # internal one-liner. Neither is the recipe fixer's to rewrite or drop:
+        # carry both over from the recipe that went in. (A QA failure about the
+        # intro itself therefore cannot be "fixed" here; QA fails again and
+        # Sunday refuses, which is the fail-closed outcome.)
+        for owned in ("description", "pitch"):
+            if owned in recipe:
+                fixed[owned] = recipe[owned]
+            else:
+                fixed.pop(owned, None)
 
         # Update recipe data in place
         monday["recipe_data"] = fixed
@@ -2982,14 +2997,23 @@ async def cron_thursday(request: Request):
       recipe_data = ep.get("stages", {}).get("monday", {}).get("recipe_data", {})
 
       with _run_stage(ep, "thursday"):
-        RecipeOrchestrator = _get_orchestrator()
-        from backend.storage import EPISODES_DIR
-        orchestrator = RecipeOrchestrator(data_dir=EPISODES_DIR.parent)
-        recipe_id = ep.get("recipe_id") or "unknown"
-        # active_recipes check removed: orchestrator is per-request, so list is always empty
-        orchestrator.pipeline.start_recipe(recipe_id, concept)
-
-        copy_text = orchestrator._execute_stage_copywriting(recipe_id, concept, recipe_data)
+        # #7853: Marcus's intro, written as if he just tasted the dish, becomes
+        # the published description. It replaces the 600-800-word essay this
+        # stage used to pay for and never publish. No fallback text: a failed
+        # call or a rule-breaking intro fails the stage (IntroError) and
+        # Sunday will not publish without an intro. Openers of the last 10
+        # published descriptions are banned (live catalog; unavailable ->
+        # the stage fails rather than guessing).
+        if episode_is_published(ep):
+            # A published week's description is frozen reader-facing text: a
+            # forced re-fire keeps it and the copy that produced it, and pays
+            # for no new intro (Codex, #7853).
+            intro = None
+            copy_text = ep.get("stages", {}).get("thursday", {}).get("copy_text")
+        else:
+            banned_openers = recent_openers(load_published_catalog()["recipes"])
+            intro = generate_intro(recipe_data, banned_openers)
+            copy_text = {"body": intro, "kind": "intro", "banned_openers": banned_openers}
         dialogue, judge_verdict = _generate_and_judge_dialogue(
             "thursday", concept, ep, model=body.model,
             photography_context=_photo_review_only_context(episode_id, ep),
@@ -2997,6 +3021,13 @@ async def cron_thursday(request: Request):
             recipe_data=recipe_data,
         )
 
+        # Applied only once the stage has succeeded, so a failed Thursday leaves
+        # no intro behind (Sunday's guard then refuses the week). A week whose
+        # Monday ran before #7853 has its Monday one-liner in `description`;
+        # keep it as the pitch before the intro replaces it.
+        if intro is not None:
+            recipe_data.setdefault("pitch", recipe_data.get("description", ""))
+            recipe_data["description"] = intro
         ep["stages"]["thursday"] = {
             "stage": "copywriting",
             "status": "complete",
@@ -3754,6 +3785,36 @@ async def cron_sunday(request: Request):
                     status_code=400,
                     detail=f"Cannot publish: {day} stage incomplete (status={stage_status!r})",
                 )
+
+        # #7853: the published description is Marcus's Thursday intro. A week
+        # without one (Thursday failed or never ran) must not publish the
+        # placeholder or an empty description; refuse before any paid work.
+        # Weeks whose Monday ran before #7853 carry Monday's one-liner here
+        # and publish as they always did. No week-off note: the week has a
+        # recipe (Erik, 2026-10-05, decision 1).
+        _recipe = ep.get("stages", {}).get("monday", {}).get("recipe_data", {}) or {}
+        _published_description = (_recipe.get("description") or "").strip()
+        _thursday_copy = ep.get("stages", {}).get("thursday", {}).get("copy_text")
+        _thursday_intro = (
+            (_thursday_copy.get("body") or "").strip()
+            if isinstance(_thursday_copy, dict) and _thursday_copy.get("kind") == "intro"
+            else ""
+        )
+        # A recipe Monday wrote with #7853 always carries a `pitch` key; its
+        # description must be exactly the intro Thursday recorded, never other
+        # text that happens to be there (e.g. a fallback recipe's line).
+        if not _published_description or (
+            "pitch" in _recipe and _published_description != _thursday_intro
+        ):
+            _no_intro = (
+                "Cannot publish: Marcus's intro is missing (Thursday did not write it). "
+                "Re-fire /api/cron/thursday, then Sunday."
+            )
+            # _run_stage passes an HTTPException through untouched, so record
+            # the failed Sunday and alert here: a scheduled Sunday's 400 goes to
+            # a cron runner that discards it.
+            _save_stage_failure(ep, "sunday", RuntimeError(_no_intro))
+            raise HTTPException(status_code=400, detail=_no_intro)
 
         # #7936: nothing is published, and no paid dialogue or QA runs, until
         # this run holds the exclusive publication claim on an approval of
