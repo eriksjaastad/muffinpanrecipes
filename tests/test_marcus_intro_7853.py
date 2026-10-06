@@ -279,3 +279,69 @@ def test_the_page_shows_the_placeholder_until_thursday_and_never_once_published(
     week["stages"]["monday"]["recipe_data"]["description"] = ""
     week["published_at"] = "2026-10-11T23:00:00+00:00"
     assert INTRO_PLACEHOLDER not in render_episode_page(week, catalog=[])
+
+
+# --- preflight on 9ed4f4e ---------------------------------------------------------------
+
+@pytest.mark.parametrize("fixer_description", [None, "A rewrite by the recipe fixer."])
+def test_sunday_auto_fix_never_drops_or_rewrites_marcus_intro_or_the_pitch(fixer_description):
+    import json
+
+    fixed = {"title": "Spiral Cups", "ingredients": [{"item": "flour", "amount": "1 cup"}],
+             "instructions": ["Bake."]}
+    if fixer_description is not None:
+        fixed["description"] = fixer_description
+    episode = _week({"title": "Spiral Cups", "pitch": PITCH, "description": INTRO,
+                     "ingredients": [{"item": "flour", "amount": "2 cups"}], "instructions": ["Bake."]})
+    with patch.object(cron_routes, "generate_response", return_value=json.dumps(fixed)):
+        assert cron_routes._auto_fix_recipe(episode, "STATUS: FAIL\nISSUES:\n  - quantity mismatch") is True
+    recipe = episode["stages"]["monday"]["recipe_data"]
+    assert recipe["description"] == INTRO and recipe["pitch"] == PITCH
+    assert recipe["ingredients"][0]["amount"] == "1 cup"  # the fix itself applied
+
+
+def test_sunday_without_an_intro_records_a_failed_sunday_and_alerts():
+    from tests.test_photo_approval_7936 import EP_ID, _approved_store, _status, _sunday
+
+    store, _ep, _wed = _approved_store()
+    stored = store.get(EP_ID)
+    stored["stages"]["monday"]["recipe_data"]["description"] = ""
+    store.put(EP_ID, stored)
+    env = _sunday(store)  # the harness patches notify_pipeline_failure as env.failure
+    assert _status(env) == 400
+    sunday = store.get(EP_ID)["stages"]["sunday"]
+    assert sunday["status"] == "failed" and "Marcus's intro is missing" in sunday["error"]
+    assert any("Marcus's intro is missing" in str(c) for c in env.failure.call_args_list)
+
+
+def test_a_thursday_whose_dialogue_fails_leaves_no_intro_behind():
+    ep = _week({"title": "Spiral Cups", "pitch": PITCH, "description": ""})
+    body = cron_routes.StageRequest(episode_id="2026-W41", force=True)
+    with patch.object(cron_routes, "_verify_cron_secret"), \
+            patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=body)), \
+            patch.object(cron_routes, "_verify_day_of_week"), \
+            patch.object(cron_routes, "_load_or_create_episode", return_value=ep), \
+            patch.object(cron_routes.storage, "save_episode"), \
+            patch.object(cron_routes, "regenerate_and_upload"), \
+            patch.object(cron_routes, "_photo_review_only_context", return_value=""), \
+            patch.object(cron_routes, "load_published_catalog", return_value={"recipes": _catalog(["These"])}), \
+            patch.object(cron_routes, "generate_intro", return_value=INTRO), \
+            patch.object(cron_routes, "_generate_and_judge_dialogue", side_effect=RuntimeError("judge down")), \
+            pytest.raises(Exception) as raised:
+        asyncio.run(cron_routes.cron_thursday(
+            SimpleNamespace(method="POST", url=SimpleNamespace(path="/api/cron/thursday"))
+        ))
+    assert getattr(raised.value, "status_code", None) == 500
+    assert ep["stages"]["thursday"]["status"] == "failed"
+    assert ep["stages"]["monday"]["recipe_data"]["description"] == ""
+
+
+def test_recent_openers_skips_entries_without_an_episode_or_description():
+    catalog = [
+        {"episode_id": "2026-W40", "description": "Golden bites."},
+        {"episode_id": "2026-W39"},
+        {"episode_id": "2026-W38", "description": ""},
+        {"description": "Seed only."},
+        "not a dict",
+    ]
+    assert recent_openers(catalog) == ["golden"]

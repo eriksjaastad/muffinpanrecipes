@@ -1503,6 +1503,17 @@ def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
             logger.warning("Auto-fix returned incomplete recipe — skipping")
             return False
 
+        # #7853: the description is Marcus's intro and the pitch is Monday's
+        # internal one-liner. Neither is the recipe fixer's to rewrite or drop:
+        # carry both over from the recipe that went in. (A QA failure about the
+        # intro itself therefore cannot be "fixed" here; QA fails again and
+        # Sunday refuses, which is the fail-closed outcome.)
+        for owned in ("description", "pitch"):
+            if owned in recipe:
+                fixed[owned] = recipe[owned]
+            else:
+                fixed.pop(owned, None)
+
         # Update recipe data in place
         monday["recipe_data"] = fixed
         logger.info(f"Auto-fixed recipe: '{fixed['title']}' ({len(fixed['ingredients'])} ingredients)")
@@ -2995,10 +3006,6 @@ async def cron_thursday(request: Request):
         # the stage fails rather than guessing).
         banned_openers = recent_openers(load_published_catalog()["recipes"])
         intro = generate_intro(recipe_data, banned_openers)
-        # A week whose Monday ran before #7853 has its Monday one-liner in
-        # `description`; keep it as the pitch before the intro replaces it.
-        recipe_data.setdefault("pitch", recipe_data.get("description", ""))
-        recipe_data["description"] = intro
         copy_text = {"body": intro, "kind": "intro", "banned_openers": banned_openers}
         dialogue, judge_verdict = _generate_and_judge_dialogue(
             "thursday", concept, ep, model=body.model,
@@ -3007,6 +3014,12 @@ async def cron_thursday(request: Request):
             recipe_data=recipe_data,
         )
 
+        # Applied only once the stage has succeeded, so a failed Thursday leaves
+        # no intro behind (Sunday's guard then refuses the week). A week whose
+        # Monday ran before #7853 has its Monday one-liner in `description`;
+        # keep it as the pitch before the intro replaces it.
+        recipe_data.setdefault("pitch", recipe_data.get("description", ""))
+        recipe_data["description"] = intro
         ep["stages"]["thursday"] = {
             "stage": "copywriting",
             "status": "complete",
@@ -3775,13 +3788,15 @@ async def cron_sunday(request: Request):
             ep.get("stages", {}).get("monday", {}).get("recipe_data", {}).get("description") or ""
         ).strip()
         if not _published_description:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Cannot publish: Marcus's intro is missing (Thursday did not write it). "
-                    "Re-fire /api/cron/thursday, then Sunday."
-                ),
+            _no_intro = (
+                "Cannot publish: Marcus's intro is missing (Thursday did not write it). "
+                "Re-fire /api/cron/thursday, then Sunday."
             )
+            # _run_stage passes an HTTPException through untouched, so record
+            # the failed Sunday and alert here: a scheduled Sunday's 400 goes to
+            # a cron runner that discards it.
+            _save_stage_failure(ep, "sunday", RuntimeError(_no_intro))
+            raise HTTPException(status_code=400, detail=_no_intro)
 
         # #7936: nothing is published, and no paid dialogue or QA runs, until
         # this run holds the exclusive publication claim on an approval of
