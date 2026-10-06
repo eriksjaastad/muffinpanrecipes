@@ -227,6 +227,10 @@ def _parse_recipe_response(response: str, concept: str) -> Dict[str, Any]:
     result: Dict[str, Any] = {
         "title": concept,
         "description": "",
+        # #7853: always present on a recipe Monday wrote with this code, even
+        # if empty; Sunday reads the key as "this week's description must be
+        # Marcus's Thursday intro".
+        "pitch": "",
         "servings": 12,
         "prep_time": 15,
         "cook_time": 20,

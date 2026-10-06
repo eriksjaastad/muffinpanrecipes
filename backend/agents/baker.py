@@ -141,7 +141,10 @@ class BakerAgent(Agent):
         return {
             "title": concept,
             "concept": concept,
-            "description": f"A reliable muffin-tin build for {concept}, designed for crispy edges and a tender center.",
+            # #7853: Monday's text is the internal pitch; the published
+            # description is only ever Marcus's Thursday intro.
+            "description": "",
+            "pitch": f"A reliable muffin-tin build for {concept}, designed for crispy edges and a tender center.",
             "servings": 12,
             "prep_time": 20,
             "cook_time": 22,

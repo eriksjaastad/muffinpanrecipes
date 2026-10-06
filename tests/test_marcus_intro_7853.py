@@ -85,7 +85,7 @@ def test_intro_problems_names_each_rule_broken():
     assert intro_problems(INTRO, ["these"]) == []
     assert intro_problems("", []) == ["the intro is empty"]
     assert "words" in intro_problems("Too short.", [])[0]
-    assert any("feather-soft" in p for p in intro_problems(INTRO, ["feather-soft"]))
+    assert any('"feather"' in p for p in intro_problems(INTRO, ["feather"]))
 
 
 def test_generate_intro_returns_a_valid_intro_on_the_first_call():
@@ -345,3 +345,82 @@ def test_recent_openers_skips_entries_without_an_episode_or_description():
         "not a dict",
     ]
     assert recent_openers(catalog) == ["golden"]
+
+
+# --- Codex on 139a2de ------------------------------------------------------------------
+
+def test_a_hyphenated_opener_is_compared_by_its_first_word():
+    assert opener_word("Golden-brown cups crackle.") == "golden"
+    assert opener_word("Golden-crisp edges.") == "golden"
+    assert opener_word("Baker’s secret.") == "baker’s"
+    gold = "Golden-crisp " + INTRO.split(" ", 1)[1]
+    assert any('"golden"' in p for p in intro_problems(gold, ["golden"]))
+
+
+@pytest.mark.parametrize("text, problem", [
+    (" ".join(["word"] * 40) + ".", "1 sentences"),
+    ("One sentence here with words. Two sentences here with words. " + " ".join(["more"] * 20) + ".", "3 sentences"),
+    (" ".join(["word"] * 30) + ". " + " ".join(["word"] * 31) + ".", "61 words"),
+    ("Short one. Short two.", "4 words"),
+])
+def test_the_enforced_shape_is_two_sentences_of_25_to_60_words(text, problem):
+    assert any(problem in p for p in intro_problems(text, []))
+
+
+def test_the_probe_shaped_intro_passes_the_enforced_shape():
+    assert intro_problems(INTRO, []) == []
+    edge = " ".join(["word"] * 12) + ". " + " ".join(["word"] * 13) + "."  # 25 words
+    assert intro_problems(edge, []) == []
+
+
+def test_an_empty_monday_pitch_never_falls_back_to_marcus_intro():
+    assert recipe_pitch({"pitch": "", "description": INTRO}) == ""
+
+
+def test_monday_without_a_description_line_still_marks_the_new_format():
+    from backend.utils.recipe_prompts import _parse_recipe_response
+
+    parsed = _parse_recipe_response("TITLE: Spiral Cups\n", "Spiral Cups")
+    assert parsed["pitch"] == "" and parsed["description"] == ""
+
+
+def test_the_bakers_fallback_recipe_carries_no_publishable_description():
+    from backend.agents.baker import BakerAgent  # noqa: F401 - import proves the module loads
+    from backend.agents.factory import create_agent
+
+    try:
+        margaret = create_agent("baker")
+    except Exception as exc:  # noqa: BLE001 - factory needs data files in some setups
+        pytest.skip(f"baker agent unavailable here: {exc}")
+    fallback = margaret._fallback_recipe("Spiral Cups")
+    assert fallback["description"] == ""
+    assert "muffin-tin build" in fallback["pitch"]
+
+
+def _new_format_sunday(description: str, thursday_intro: str | None):
+    from tests.test_photo_approval_7936 import EP_ID, _approved_store, _status, _sunday
+
+    store, _ep, _wed = _approved_store()
+    stored = store.get(EP_ID)
+    recipe = stored["stages"]["monday"]["recipe_data"]
+    recipe["pitch"] = PITCH
+    recipe["description"] = description
+    if thursday_intro is not None:
+        stored["stages"]["thursday"] = {"status": "complete", "copy_text": {"body": thursday_intro, "kind": "intro"}}
+    store.put(EP_ID, stored)
+    env = _sunday(store)
+    return _status(env), env
+
+
+def test_a_new_format_week_whose_description_is_not_thursdays_intro_is_refused():
+    status, env = _new_format_sunday("A fallback recipe's canned line.", None)
+    assert status == 400 and "Marcus's intro is missing" in env.error.detail
+    env.dialogue.assert_not_called()
+
+    status, env = _new_format_sunday("Some other text.", INTRO)
+    assert status == 400 and "Marcus's intro is missing" in env.error.detail
+
+
+def test_a_new_format_week_with_thursdays_intro_passes_the_guard():
+    status, env = _new_format_sunday(INTRO, INTRO)
+    assert status == 200 and env.result["published"] is True

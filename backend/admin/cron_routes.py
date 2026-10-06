@@ -3784,10 +3784,20 @@ async def cron_sunday(request: Request):
         # Weeks whose Monday ran before #7853 carry Monday's one-liner here
         # and publish as they always did. No week-off note: the week has a
         # recipe (Erik, 2026-10-05, decision 1).
-        _published_description = (
-            ep.get("stages", {}).get("monday", {}).get("recipe_data", {}).get("description") or ""
-        ).strip()
-        if not _published_description:
+        _recipe = ep.get("stages", {}).get("monday", {}).get("recipe_data", {}) or {}
+        _published_description = (_recipe.get("description") or "").strip()
+        _thursday_copy = ep.get("stages", {}).get("thursday", {}).get("copy_text")
+        _thursday_intro = (
+            (_thursday_copy.get("body") or "").strip()
+            if isinstance(_thursday_copy, dict) and _thursday_copy.get("kind") == "intro"
+            else ""
+        )
+        # A recipe Monday wrote with #7853 always carries a `pitch` key; its
+        # description must be exactly the intro Thursday recorded, never other
+        # text that happens to be there (e.g. a fallback recipe's line).
+        if not _published_description or (
+            "pitch" in _recipe and _published_description != _thursday_intro
+        ):
             _no_intro = (
                 "Cannot publish: Marcus's intro is missing (Thursday did not write it). "
                 "Re-fire /api/cron/thursday, then Sunday."

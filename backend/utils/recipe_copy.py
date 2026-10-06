@@ -7,10 +7,11 @@ muffin-pan form gate, and is never published. The published description is
 Marcus's intro, written on Thursday as if he had just tasted the dish. Until
 then the page shows INTRO_PLACEHOLDER.
 
-The intro shape (2 sentences, 30-50 words) was chosen from a 5-call probe on
-2026-10-05 against W35-W40 (card #7853): it matches the size of the
-descriptions it replaces (median 45 words, ~285 characters), which feed the
-homepage card, the meta description and the recipe JSON-LD.
+The intro shape was chosen from a 5-call probe on 2026-10-05 against W35-W40
+(card #7853): the prompt asks for 2 sentences of 30-50 words, and the code
+accepts exactly 2 sentences of 25-60 words (see INTRO_MIN_WORDS). That keeps it
+the size of the descriptions it replaces (median 45 words, ~285 characters),
+which feed the homepage card, the meta description and the recipe JSON-LD.
 
 There is no fallback text. A failed model call, or an intro that still breaks
 the rules after its retry, raises IntroError: a canned paragraph must never
@@ -28,11 +29,18 @@ INTRO_PLACEHOLDER = "Marcus adds his intro on Thursday after tasting the new rec
 # no opener word on more than 2 of the last 10). Banning all of them is
 # stricter: no opener repeats inside the window at all.
 OPENER_WINDOW = 10
-INTRO_MIN_WORDS = 20
-INTRO_MAX_WORDS = 70
+# The prompt asks for 30-50 words. Enforcement accepts 25-60: the 5-call probe
+# landed at 46-54, so a hard 50 would turn ordinary output into retries and
+# failed Thursdays, while 25-60 still keeps the card/meta/JSON-LD slot the
+# size of the descriptions it replaces (median 45 words).
+INTRO_MIN_WORDS = 25
+INTRO_MAX_WORDS = 60
+INTRO_SENTENCES = 2
 INTRO_ATTEMPTS = 2
 
-_OPENER_RE = re.compile(r"\W*([A-Za-zÀ-ÿ'’-]+)")
+# Letters and apostrophes only: "Golden-brown" and "Golden-crisp" both open
+# with "golden".
+_OPENER_RE = re.compile(r"[^A-Za-zÀ-ÿ]*([A-Za-zÀ-ÿ'’]+)")
 
 
 class IntroError(RuntimeError):
@@ -42,10 +50,14 @@ class IntroError(RuntimeError):
 def recipe_pitch(recipe: dict[str, Any]) -> str:
     """The recipe's internal one-line pitch (context only, never published).
 
-    Episodes from before #7853 have no ``pitch``; their Monday description is
-    the same text, so it stands in.
+    Episodes from before #7853 have no ``pitch`` key; their Monday description
+    is the same text, so it stands in. A present key wins even when empty:
+    falling back then would hand Marcus's intro to the dialogue and judge
+    after Thursday, changing their inputs mid-week.
     """
-    return str(recipe.get("pitch") or recipe.get("description") or "")
+    if "pitch" in recipe:
+        return str(recipe.get("pitch") or "")
+    return str(recipe.get("description") or "")
 
 
 def opener_word(text: str) -> str:
@@ -67,6 +79,12 @@ def recent_openers(catalog_recipes: Iterable[dict[str, Any]], window: int = OPEN
     return sorted({opener_word(r["description"]) for r in weekly[:window]} - {""})
 
 
+def sentence_count(text: str) -> int:
+    """Sentences ending in . ! or ? (a trailing fragment counts as one)."""
+    parts = [p for p in re.split(r"(?<=[.!?])\s+", text.strip()) if p.strip()]
+    return len(parts)
+
+
 def intro_problems(text: str, banned_openers: Iterable[str]) -> list[str]:
     """Rule violations for a candidate intro; empty means acceptable."""
     problems: list[str] = []
@@ -75,6 +93,9 @@ def intro_problems(text: str, banned_openers: Iterable[str]) -> list[str]:
         return ["the intro is empty"]
     if words < INTRO_MIN_WORDS or words > INTRO_MAX_WORDS:
         problems.append(f"it is {words} words; write 30 to 50")
+    sentences = sentence_count(text)
+    if sentences != INTRO_SENTENCES:
+        problems.append(f"it has {sentences} sentences; write exactly 2")
     opener = opener_word(text)
     if opener in set(banned_openers):
         problems.append(f'it opens with "{opener}", which a recent intro already used')
