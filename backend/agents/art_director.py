@@ -24,6 +24,7 @@ import requests
 from backend.core.agent import Agent
 from backend.core.task import Task, TaskResult, TaskApproach
 from backend.core.types import EmotionalResponse, MemoryContext
+from backend.utils.recipe_copy import recipe_pitch
 from backend.utils.logging import get_logger
 from backend.utils.model_router import generate_vision_response
 
@@ -220,8 +221,10 @@ class ArtDirectorAgent(Agent):
             if name:
                 names.append(str(name)[:40])
         parts = []
-        if recipe.get("description"):
-            parts.append(f"Description: {str(recipe['description'])[:200]}")
+        # #7853: the Monday pitch (Wednesday runs before Marcus's intro exists).
+        pitch = recipe_pitch(recipe)
+        if pitch:
+            parts.append(f"Description: {pitch[:200]}")
         if names:
             parts.append("Ingredients: " + ", ".join(names[:12]))
         return "\n".join(parts)

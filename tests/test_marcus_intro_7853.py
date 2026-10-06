@@ -440,3 +440,29 @@ def test_sentence_count_handles_closers_decimals_and_abbreviations(text, expecte
     from backend.utils.recipe_copy import sentence_count
 
     assert sentence_count(text) == expected
+
+
+# --- Codex on c4b23c5 -------------------------------------------------------------------
+
+def test_wednesdays_photo_judge_reads_the_monday_pitch():
+    from backend.agents.art_director import ArtDirectorAgent
+    from backend.core.task import Task
+
+    task = Task(type="evaluate_images", content="x", context={"recipe_data": {
+        "title": "Spiral Cups", "pitch": PITCH, "description": "",
+        "ingredients": [{"item": "flour"}],
+    }})
+    facts = ArtDirectorAgent._recipe_facts(task)
+    assert f"Description: {PITCH}" in facts
+
+
+def test_a_thursday_refire_on_a_published_week_keeps_its_description_frozen():
+    published_copy = {"body": "The published intro.", "kind": "intro", "banned_openers": []}
+    ep = _week({"title": "Spiral Cups", "pitch": PITCH, "description": "The published intro."})
+    ep["published_at"] = "2026-10-11T23:00:00+00:00"
+    ep["stages"]["thursday"] = {"status": "complete", "copy_text": published_copy}
+    result, generate, _saved = _thursday(ep)
+    generate.assert_not_called()  # no paid intro for a published week
+    assert ep["stages"]["monday"]["recipe_data"]["description"] == "The published intro."
+    assert ep["stages"]["thursday"]["copy_text"] == published_copy
+    assert ep["stages"]["thursday"]["status"] == "complete"

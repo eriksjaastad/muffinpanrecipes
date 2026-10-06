@@ -3004,9 +3004,16 @@ async def cron_thursday(request: Request):
         # Sunday will not publish without an intro. Openers of the last 10
         # published descriptions are banned (live catalog; unavailable ->
         # the stage fails rather than guessing).
-        banned_openers = recent_openers(load_published_catalog()["recipes"])
-        intro = generate_intro(recipe_data, banned_openers)
-        copy_text = {"body": intro, "kind": "intro", "banned_openers": banned_openers}
+        if episode_is_published(ep):
+            # A published week's description is frozen reader-facing text: a
+            # forced re-fire keeps it and the copy that produced it, and pays
+            # for no new intro (Codex, #7853).
+            intro = None
+            copy_text = ep.get("stages", {}).get("thursday", {}).get("copy_text")
+        else:
+            banned_openers = recent_openers(load_published_catalog()["recipes"])
+            intro = generate_intro(recipe_data, banned_openers)
+            copy_text = {"body": intro, "kind": "intro", "banned_openers": banned_openers}
         dialogue, judge_verdict = _generate_and_judge_dialogue(
             "thursday", concept, ep, model=body.model,
             photography_context=_photo_review_only_context(episode_id, ep),
@@ -3018,8 +3025,9 @@ async def cron_thursday(request: Request):
         # no intro behind (Sunday's guard then refuses the week). A week whose
         # Monday ran before #7853 has its Monday one-liner in `description`;
         # keep it as the pitch before the intro replaces it.
-        recipe_data.setdefault("pitch", recipe_data.get("description", ""))
-        recipe_data["description"] = intro
+        if intro is not None:
+            recipe_data.setdefault("pitch", recipe_data.get("description", ""))
+            recipe_data["description"] = intro
         ep["stages"]["thursday"] = {
             "stage": "copywriting",
             "status": "complete",
