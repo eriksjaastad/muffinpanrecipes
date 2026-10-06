@@ -21,7 +21,6 @@ and the Sunday-side insertion.
 from __future__ import annotations
 
 import asyncio
-import copy
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -185,167 +184,6 @@ def test_week_before_crosses_the_iso_year_boundary():
     assert week_before("2026-W01") == "2025-W52"
     assert week_before("2021-W01") == "2020-W53"
     assert week_before("2026-W40") == "2026-W39"
-
-
-def test_week_after_crosses_the_iso_year_boundary():
-    from backend.utils.episode_integrity import week_after
-    assert week_after("2025-W52") == "2026-W01"
-    assert week_after("2020-W53") == "2021-W01"
-    assert week_after("2026-W39") == "2026-W40"
-
-
-def test_week_after_is_the_exact_inverse_of_week_before():
-    from backend.utils.episode_integrity import week_after, week_before
-    for episode_id in ["2026-W01", "2020-W53", "2026-W40", "2025-W52"]:
-        assert week_before(week_after(episode_id)) == episode_id
-        assert week_after(week_before(episode_id)) == episode_id
-
-
-# ---------------------------------------------------------------------------
-# _clear_stale_week_off_note_after_late_publish — a late/recovered Sunday
-# publish must clear a false note it left on the SUCCESSOR week (#7630)
-# ---------------------------------------------------------------------------
-
-def test_clear_stale_note_removes_it_when_the_successor_blames_this_week():
-    """Monday stamped W41 with 'missed W40' because W40 hadn't published
-    yet at that point. A late W40 publish must clear it and re-render W41's
-    page (the writer's own current-week gate decides whether that reaches
-    pages/latest.json)."""
-    next_episode = {
-        "episode_id": "2026-W41",
-        "stages": {},
-        "week_off_note": {"message": cron_routes.WEEK_OFF_MESSAGE, "missed_week": "2026-W40"},
-    }
-
-    with patch.object(cron_routes.storage, "load_episode_verified", return_value=next_episode), \
-         patch.object(cron_routes.storage, "save_episode") as save_episode, \
-         patch.object(cron_routes, "regenerate_and_upload") as regenerate, \
-         patch.object(cron_routes, "upload_latest_json") as upload_latest:
-        cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")
-
-    cleared = {k: v for k, v in next_episode.items() if k != "week_off_note"}
-    upload_latest.assert_called_once_with(cleared)
-    # Teaser only: re-rendering the successor's episode page from this
-    # snapshot could roll back a newer stage (Codex, #7630).
-    regenerate.assert_not_called()
-    # Never saved back: the body came through the CDN and may be up to ~60s
-    # stale, so saving could overwrite a newer stage write (review, #7630).
-    save_episode.assert_not_called()
-    # The reader's object itself is left untouched (round 7: it may be cached).
-    assert next_episode["week_off_note"]["missed_week"] == "2026-W40"
-
-
-@pytest.mark.parametrize(
-    "next_episode",
-    [
-        None,  # successor doesn't exist yet — the ordinary on-time-publish case
-        {"episode_id": "2026-W41", "stages": {}},  # exists, no note at all
-        {  # exists, but the note blames a DIFFERENT week
-            "episode_id": "2026-W41",
-            "stages": {},
-            "week_off_note": {"message": "x", "missed_week": "2026-W39"},
-        },
-    ],
-    ids=["no-successor-episode", "no-note", "note-for-a-different-week"],
-)
-def test_clear_stale_note_changes_nothing_when_not_applicable(next_episode):
-    original = copy.deepcopy(next_episode) if next_episode is not None else None
-
-    # W40 publishing on time: its successor W41 is not the current week yet.
-    # Pin only the clock: week_after() calls current_episode_id(now=...) itself.
-    real_current = cron_routes.episode_integrity.current_episode_id
-    with patch.object(cron_routes.storage, "load_episode_verified", return_value=next_episode), \
-         patch.object(cron_routes.episode_integrity, "current_episode_id",
-                      side_effect=lambda now=None: real_current(now) if now else "2026-W40"), \
-         patch.object(cron_routes.storage, "save_episode") as save_episode, \
-         patch.object(cron_routes, "regenerate_and_upload") as regenerate, \
-         patch.object(cron_routes, "upload_latest_json") as upload_latest, \
-         patch.object(cron_routes, "mark_latest_published") as mark_published:
-        cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")
-
-    assert next_episode == original
-    save_episode.assert_not_called()
-    regenerate.assert_not_called()
-    upload_latest.assert_not_called()
-    mark_published.assert_not_called()
-
-
-
-def test_clear_stale_note_render_failure_keeps_the_note_stored_so_a_retry_redoes_it():
-    """Codex round 6: the stored note is the signal the already_published
-    retry needs. The clear never saves the successor, so a failed render
-    leaves the note stored and the retry renders again."""
-    stored = {
-        "episode_id": "2026-W41",
-        "stages": {},
-        "week_off_note": {"message": cron_routes.WEEK_OFF_MESSAGE, "missed_week": "2026-W40"},
-    }
-
-    def load(_eid):
-        return copy.deepcopy(stored)
-
-    def save(eid, data):
-        stored.clear()
-        stored.update(copy.deepcopy(data))
-
-    with patch.object(cron_routes.storage, "load_episode_verified", side_effect=load), \
-         patch.object(cron_routes.storage, "save_episode", side_effect=save) as save_episode, \
-         patch.object(cron_routes, "upload_latest_json", side_effect=RuntimeError("blob write failed")):
-        cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")  # must not raise
-
-    save_episode.assert_not_called()
-    assert stored["week_off_note"]["missed_week"] == "2026-W40"
-
-    # The retry (already_published catch-up) now succeeds and clears it.
-    with patch.object(cron_routes.storage, "load_episode_verified", side_effect=load), \
-         patch.object(cron_routes.storage, "save_episode", side_effect=save) as save_retry, \
-         patch.object(cron_routes, "upload_latest_json") as upload_latest:
-        cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")
-
-    upload_latest.assert_called_once_with({"episode_id": "2026-W41", "stages": {}})
-    save_retry.assert_not_called()
-
-
-
-
-_real_current_episode_id = cron_routes.episode_integrity.current_episode_id
-
-
-def _now_is(week: str):
-    """Stub "what week is it now" without breaking week_after/week_before,
-    which call current_episode_id with an explicit date."""
-    def _current(when=None):
-        return _real_current_episode_id(when) if when is not None else week
-    return _current
-
-def test_late_publish_after_rollover_with_no_successor_marks_the_homepage_published():
-    """Codex (#7630): W40's refusal put a note on the homepage; W40 then
-    published after Monday 00:00 UTC but before Monday's cron created W41.
-    The writer's gate skipped W40's own latest.json write and there was no
-    W41 episode to clear, so the note stayed up. With W41 current and no W41
-    episode, the published marker is written."""
-    with patch.object(cron_routes.storage, "load_episode_verified", return_value=None), \
-         patch.object(cron_routes.episode_integrity, "current_episode_id", side_effect=_now_is("2026-W41")), \
-         patch.object(cron_routes, "mark_latest_published") as mark:
-        cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")
-    mark.assert_called_once_with()
-
-
-def test_on_time_publish_with_no_successor_writes_nothing_extra():
-    with patch.object(cron_routes.storage, "load_episode_verified", return_value=None), \
-         patch.object(cron_routes.episode_integrity, "current_episode_id", side_effect=_now_is("2026-W40")), \
-         patch.object(cron_routes, "mark_latest_published") as mark:
-        cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")
-    mark.assert_not_called()
-
-def test_clear_stale_note_error_is_logged_and_swallowed(caplog):
-    """Best-effort: nothing in this path may turn a successful publish into
-    a failed request."""
-    with patch.object(cron_routes.storage, "load_episode_verified", side_effect=RuntimeError("blob down")):
-        with caplog.at_level("WARNING"):
-            cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")  # must not raise
-
-    assert any("blob down" in record.message for record in caplog.records)
 
 
 # ---------------------------------------------------------------------------
@@ -571,7 +409,7 @@ def test_cron_sunday_does_not_set_week_off_note_when_publish_succeeds():
     assert "week_off_note" not in episode
 
 
-def test_cron_sunday_late_publish_clears_the_successors_note_end_to_end():
+def test_cron_sunday_late_publish_leaves_the_successors_note_alone():
     """Full wiring check through the real success path: Monday already
     stamped W41 with 'missed W40' because W40 hadn't published at that
     point. A (recovered/late) W40 publish must clear it and re-render W41 —
@@ -624,33 +462,15 @@ def test_cron_sunday_late_publish_clears_the_successors_note_end_to_end():
          patch("backend.publishing.episode_renderer.render_episode_page", return_value="<html></html>"):
         result = asyncio.run(cron_routes.cron_sunday(_request()))
 
+    # Option c (Erik, 2026-10-05): a late publish never touches the successor.
+    # Its note is dropped by the successor's own next stage write instead
+    # (episode_renderer._week_off_note_still_true), so a recipe-less
+    # successor's valid note can never be erased by this publish.
     assert result["published"] is True
-    cleared = {k: v for k, v in next_episode.items() if k != "week_off_note"}
+    assert next_episode["week_off_note"]["missed_week"] == "2026-W40"
     assert [eid for eid, _ in save_calls if eid == "2026-W41"] == []
-    upload_latest.assert_any_call(cleared)
+    assert all(c.args[0].get("episode_id") != "2026-W41" for c in upload_latest.call_args_list)
     assert all(c.args[0].get("episode_id") != "2026-W41" for c in regenerate.call_args_list)
-
-
-def test_clear_stale_note_never_mutates_the_readers_cached_object():
-    """Codex round 7: load_episode_verified can return its cache's own object.
-    Popping the note from it hid the note from a retry in the same warm
-    Lambda after a failed render. The reader here returns ONE shared object,
-    like the cache does."""
-    cached = {
-        "episode_id": "2026-W41",
-        "stages": {},
-        "week_off_note": {"message": cron_routes.WEEK_OFF_MESSAGE, "missed_week": "2026-W40"},
-    }
-
-    # The clear renders through upload_latest_json (homepage teaser only).
-    with patch.object(cron_routes.storage, "load_episode_verified", return_value=cached), \
-         patch.object(cron_routes.storage, "save_episode") as save_episode, \
-         patch.object(cron_routes, "upload_latest_json", side_effect=RuntimeError("blob write failed")) as upload_latest:
-        cron_routes._clear_stale_week_off_note_after_late_publish("2026-W40")
-
-    upload_latest.assert_called_once()
-    save_episode.assert_not_called()
-    assert cached["week_off_note"]["missed_week"] == "2026-W40"
 
 
 def test_recipe_less_week_gets_its_note_only_once_sundays_window_arrives():
@@ -781,19 +601,19 @@ def test_recheck_drops_an_own_week_note_once_the_week_is_legacy_published():
     assert episode_renderer._week_off_note_still_true(episode) is None
 
 
-def test_checkpoint_completion_clears_the_successors_note():
-    """A Sunday re-fire that completes a #7936 checkpoint is a late publish:
-    it must clear a successor note that blamed this week, as the ordinary
-    and already-published paths do."""
-    from tests.test_photo_approval_7936 import EP_ID, _approved_store, _control, _sunday
+def test_a_sunday_held_for_photo_approval_shows_no_week_off_note():
+    """Erik, 2026-10-05 (option c): a week waiting on his photo approval is
+    not "off". Sunday holds it with no note on the episode or the homepage;
+    if it never publishes, next Monday's _apply_week_off_note notes it."""
+    from tests.photo_review_helpers import register, wednesday_stage
+    from tests.test_photo_approval_7936 import EP_ID, _episode, _status, _Store, _sunday
 
-    store, _ep, _wed = _approved_store(pick=2)
-    store.fail_save = lambda data: bool(data.get("published_at"))
-    env = _sunday(store)
-    assert _control(store)["state"] == "publishing"
-
-    store.fail_save = None
-    with patch.object(cron_routes, "_clear_stale_week_off_note_after_late_publish") as clear:
+    wed = wednesday_stage()
+    store = _Store()
+    store.put(EP_ID, _episode(wed), "")
+    register(EP_ID, wed, store)
+    with patch.object(cron_routes, "_utc_now", return_value=datetime(2026, 10, 12, 0, 30, tzinfo=timezone.utc)):
         env = _sunday(store)
-    assert env.result["completed_from_checkpoint"] is True
-    clear.assert_called_once_with(EP_ID)
+    assert _status(env) == 202
+    assert "week_off_note" not in store.get(EP_ID)
+    assert not any("week_off_note" in saved for saved in store.saves)

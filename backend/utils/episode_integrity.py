@@ -105,20 +105,6 @@ def week_before(episode_id: str) -> str:
     return current_episode_id(datetime(monday.year, monday.month, monday.day, tzinfo=timezone.utc) - timedelta(days=7))
 
 
-def week_after(episode_id: str) -> str:
-    """ISO week id of the week immediately after `episode_id` (#7630).
-
-    The ISO-safe inverse of `week_before` — ``week_before(week_after(x)) ==
-    x`` for every x, including across an ISO year boundary (e.g. a week 52
-    or 53 rolling into next year's W01). Used by a late Sunday recovery
-    publish to find the episode whose week-off note (if any) claims THIS
-    week as the one it missed, so that note can be cleared.
-    """
-    iso_year, iso_week = parse_episode_id(episode_id)
-    monday = date.fromisocalendar(iso_year, iso_week, 1)
-    return current_episode_id(datetime(monday.year, monday.month, monday.day, tzinfo=timezone.utc) + timedelta(days=7))
-
-
 def week_off_note_due(episode: object) -> bool:
     """True when a week owes the "kitchen took the week off" note (#7630):
     `episode` is missing or not published by `episode_is_published` (a

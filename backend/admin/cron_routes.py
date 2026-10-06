@@ -46,7 +46,6 @@ from pydantic import BaseModel
 
 from backend.config import config
 from backend.publishing.episode_renderer import (
-    mark_latest_published,
     regenerate_and_upload,
     upload_latest_json,
 )
@@ -301,73 +300,6 @@ def _apply_week_off_note(episode_id: str, ep: dict) -> None:
         ep["week_off_note"] = {"message": WEEK_OFF_MESSAGE, "missed_week": previous_id}
     else:
         ep.pop("week_off_note", None)
-
-
-def _clear_stale_week_off_note_after_late_publish(published_episode_id: str) -> None:
-    """After `published_episode_id` (X) successfully publishes, clear a
-    week_off_note on X's SUCCESSOR's episode if it was blaming X (#7630).
-
-    Handles a late/recovered Sunday publish: if Monday's cron already ran
-    for the week after X and stamped it "the kitchen took the week off"
-    because X hadn't published YET at that point, X's late publish here
-    must clear that note on the successor's own episode — the writer's
-    current-week gate already stops X's OWN late publish from touching the
-    live pages/latest.json (that belongs to whatever IS the current week),
-    but nothing else would ever go back and fix the successor's stale note.
-    Re-writing the successor's homepage teaser (upload_latest_json, the only
-    place the note is shown) without the note fixes it; the writer's own gate
-    decides whether that reaches pages/latest.json (it does, when the
-    successor is still the current week — the ordinary case a "late" publish
-    is recovering for).
-
-    For an ON-TIME publish (X's own Sunday, before the week after X has
-    even started) this is a safe, cheap no-op: that episode doesn't exist
-    yet, so there's nothing to look up.
-
-    Best-effort and called AFTER X's own publish has already succeeded and
-    persisted: any failure here is logged and swallowed. It must never turn
-    a successful publish into a failed request.
-    """
-    try:
-        next_id = episode_integrity.week_after(published_episode_id)
-        # Verified read (#7936): a Blob error or a stale CDN copy must take
-        # the logged-skip path below, not look like "the successor week has
-        # no episode yet" or hand back an older stage's teaser.
-        # Copied: the reader stores its result in the process cache, and
-        # popping the note from that object would hide it from a retry in this
-        # warm Lambda even though Blob still has it (Codex round 7).
-        next_episode = copy.deepcopy(storage.load_episode_verified(next_id))
-        if not next_episode:
-            # No successor episode yet. If the successor week is already the
-            # current one (the publish landed after Monday 00:00 UTC but
-            # before Monday's cron created that episode), pages/latest.json
-            # still holds what the week that just published wrote, possibly
-            # its own refusal note, and the writer's current-week gate kept
-            # this publish from replacing it. Nothing newer can be there, so
-            # write the same marker an on-time publish writes (Codex, #7630).
-            if episode_integrity.current_episode_id() == next_id:
-                mark_latest_published()
-            return
-        note = next_episode.get("week_off_note")
-        if not isinstance(note, dict) or note.get("missed_week") != published_episode_id:
-            return
-        # Render only; never save the successor back. The body was current
-        # when read, but the successor's own cron can write between that read
-        # and this upload, so saving it could overwrite stage data. The
-        # stored note is harmless: every later write of the successor
-        # re-checks it with a verified read (_week_off_note_still_true) and drops it now
-        # that this week has published, and it stays the signal that lets
-        # the already_published catch-up retry this clear.
-        # Homepage teaser only: the note lives nowhere else, and re-rendering
-        # the successor's episode page from this snapshot could roll back a
-        # newer stage its own cron rendered meanwhile (Codex, #7630).
-        next_episode.pop("week_off_note", None)
-        upload_latest_json(next_episode)
-    except Exception as exc:  # noqa: BLE001 - best-effort, must not fail the publish
-        logger.warning(
-            f"week-off note clear-after-late-publish skipped for "
-            f"{published_episode_id}: {type(exc).__name__}: {exc}"
-        )
 
 
 # Cap for the texture/identity anchor in _build_recipe_context (#7104). Long
@@ -3588,10 +3520,6 @@ def _complete_checkpointed_publication(episode_id: str, ep: dict, concept: str, 
             logger.error(f"Photo control not marked published for {episode_id}: {type(exc).__name__}: {exc}")
     _complete_static_source_handoff(episode_id, ep)
     _announce_advisory_publication(episode_id, ep, "sunday", concept)
-    # #7630: completing a checkpoint is a late publish too. A successor week
-    # whose Monday already blamed this week must lose that note now, not at
-    # its next stage write. Best-effort; it logs and swallows its failures.
-    _clear_stale_week_off_note_after_late_publish(episode_id)
     if ep.get("indexnow_pending") and not body.test and not storage.prefix:
         _submit_sunday_indexnow(ep, episode_id, concept)
     sunday_stage = ep.get("stages", {}).get("sunday", {})
@@ -3735,12 +3663,6 @@ async def cron_sunday(request: Request):
         # announce_pending and the handoff reached source_ready, so this is a
         # no-op once delivered and for records older code already announced.
         _announce_advisory_publication(episode_id, ep, "sunday", concept)
-        # #7630: bounded catch-up, same spirit as the two calls above — if
-        # the one-shot clear below (on the original successful publish)
-        # itself failed transiently, a retry through this idempotent branch
-        # gets another chance. A no-op once the successor's note is already
-        # clear (or was never about this episode).
-        _clear_stale_week_off_note_after_late_publish(episode_id)
         # #7806: an IndexNow outcome that was never persisted (the run died,
         # or its save failed) is retried here. Records published before the
         # flag existed never carry it, so old weeks are not resubmitted.
@@ -3785,6 +3707,9 @@ async def cron_sunday(request: Request):
                 # picked up by next Monday's _apply_week_off_note, same as
                 # any other failure mode — duplicating this for every
                 # failure surface inside the stage would not be simple.
+                # That includes a week held for Erik's photo approval
+                # (#7936): it is waiting on him, not off, so Sunday shows no
+                # note for it (Erik, 2026-10-05, accepted behaviour).
                 # Only once the week's own Sunday cron time has arrived: an
                 # early manual force=true re-fire still has time to recover,
                 # so announcing the week off then would be premature (Codex,
@@ -4076,12 +4001,11 @@ async def cron_sunday(request: Request):
         # same inbox. Skipping the advisory alert on that path loses it —
         # carded — which is the lesser harm of the two.
         _announce_advisory_publication(episode_id, ep, "sunday", concept)
-        # A late/recovered publish of THIS week may have left a stale
-        # "kitchen took the week off" note on the week after it, stamped by
-        # a Monday that ran before this publish happened (#7630). Clear it
-        # now that the truth has changed; a safe no-op for an on-time
-        # publish, since that successor episode doesn't exist yet.
-        _clear_stale_week_off_note_after_late_publish(episode_id)
+        # #7630 (Erik, 2026-10-05, option c): a late publish does NOT clear
+        # a successor week's note that blamed this week. That clear could
+        # erase a recipe-less successor's own valid note. A stale note is
+        # dropped instead at the successor's next stage write, which
+        # re-checks it (episode_renderer._week_off_note_still_true).
 
         # Last of all: IndexNow is a crawler courtesy, never a publish
         # requirement, and must never fire against test data (RUNBOOK

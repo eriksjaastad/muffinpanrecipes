@@ -1432,12 +1432,11 @@ def _week_off_note_still_true(episode: dict) -> dict | None:
     """The episode's week_off_note if it is still true at write time, else
     None (#7630).
 
-    The note was decided earlier in this cron; a late publish of the missed
-    week can land in between (another Lambda), clear the note, and then this
-    write would put the stale copy back. Re-checking right before the write
-    narrows that race to the moment between this read and the write, and
-    every later stage's write re-checks again, so a stale note cannot
-    survive past the next stage. A note about the episode's own week (its
+    The note was decided earlier (Monday's cron); a late publish of the
+    missed week can land since then. A late publish does not clear the note
+    itself (Erik, 2026-10-05, option c), so this re-check is what drops it:
+    every stage's write re-checks, so a stale note cannot survive past the
+    successor week's next stage. A note about the episode's own week (its
     Sunday refusal) is true while it has not published. A failed or stale
     read keeps the note as decided: that decision came from a verified read
     too, and acting on a stale copy could drop a note that is still true.
