@@ -77,6 +77,47 @@ def _isolated_photo_control(monkeypatch, tmp_path):
     monkeypatch.setattr(storage_module, "PHOTO_CONTROL_DIR", tmp_path / "photo_control")
 
 
+# The central API cost tracker (#8065). With the dev extra installed,
+# model_router._central_track and image_generation.log_call ARE the real
+# api_cost_tracker client: a test that reached them POSTed a synthetic row to
+# the production tracker, or, without COST_TRACKER_API_KEY, buffered it under
+# ~/.local/share/api_trust_tracker for the next flush to send. 91 such rows
+# reached prod on 2026-10-08, from two incidental tests.
+#
+# Both backend entry points become no-op recorders, so tests that merely pass
+# through a tracked call keep working and record nothing. The client's own
+# network and buffer functions become loud failures: the backstop for an entry
+# point added later. pytest.fail raises a BaseException, so the client's
+# `except` cannot swallow it. A test that exercises the real client patches
+# api_cost_tracker.tracker._post_to_server itself, which shadows this.
+@pytest.fixture(autouse=True)
+def _no_live_cost_tracking(monkeypatch):
+    from backend.utils import image_generation, model_router
+
+    monkeypatch.delenv("COST_TRACKER_API_KEY", raising=False)
+    monkeypatch.setattr(model_router, "_central_track", lambda response, *_a, **_k: response)
+    monkeypatch.setattr(image_generation, "log_call", lambda *_a, **_k: None)
+    try:
+        from api_cost_tracker import buffer, tracker
+    except ImportError:  # governance: allow-silent SF002: dev extra not installed, so no real tracker client exists to reach; both backend entry points are already stubbed above
+        return
+
+    def _blocked(*_args, **_kwargs):
+        pytest.fail(
+            "the real api_cost_tracker client was reached from a test. Tests must "
+            "never post to, or buffer for, the production cost tracker (#8065). "
+            "Patch api_cost_tracker.tracker._post_to_server to test the client itself."
+        )
+
+    for module, name in (
+        (tracker, "_post_to_server"),
+        (tracker, "buffer_record"),
+        (buffer, "buffer_record"),
+        (buffer, "flush_buffer"),
+    ):
+        monkeypatch.setattr(module, name, _blocked)
+
+
 # backend.utils.model_router._COST_LOG is a module-level global, and several
 # tests (tests/test_lab_models.py's cost-by-model tests in particular) record
 # synthetic entries into it and reset it only at their OWN start, not at
