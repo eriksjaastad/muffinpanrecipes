@@ -107,6 +107,10 @@ def main() -> None:
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
     out = Path(args.out)
+    # One run per directory: a resumed run could pick a different pan and
+    # leave plan.json disagreeing with images already on disk.
+    if out.exists() and any(out.iterdir()):
+        raise SystemExit(f"{out} is not empty; give each run a fresh output directory")
     out.mkdir(parents=True, exist_ok=True)
 
     ad = ArtDirectorAgent  # the prompt builder only reads class constants
@@ -134,10 +138,6 @@ def main() -> None:
     failures = []
     for arm, variant, prompt in plan:
         stem = out / f"{arm}_{variant}"
-        existing = [p for p in (stem.with_suffix(".png"), stem.with_suffix(".jpg")) if p.exists()]
-        if existing:
-            print(f"skip {existing[0].name} (exists)")
-            continue
         try:
             if arm == "C":
                 data = generate_nano_banana_image(prompt, google_key, model=GEMINI_MODEL, timeout_s=90)
