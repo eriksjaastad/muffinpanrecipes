@@ -1,0 +1,76 @@
+{
+  "version": "panV1-draft",
+  "sources": [
+    "https://quakeroats.com/cooking-and-recipes/baking-101/muffins/special-equipment-for-muffins",
+    "https://preppykitchen.com/cupcake-pan-sizes-and-types/",
+    "https://www.onceuponachef.com/pan-sizes",
+    "https://www.chefsdeal.com/p/muffin-cupcake-pans/winco-amf-6ns",
+    "https://www.bobvila.com/articles/best-muffin-pan/",
+    "https://castironcollector.com/gems.php",
+    "https://lollygag.co/collections/vintage/products/vintage-large-starburst-muffin-tinware-12-cup",
+    "https://webstaurant.com/usa-pan-6-cup-5-oz-non-stick-aluminized-steel-popover-pan-26100-11-1-8-x-15-3-4/32626100.html"
+  ],
+  "sizes": {
+    "mini": {
+      "label": "24-cup mini muffin pan",
+      "geometry": "24 identical round wells in a precise 4-by-6 grid, each well about 1 3/4 inches across the top, tapering to about 1 1/4 inches at the base, about 7/8 inch deep, holding about 2 tablespoons; the whole pan is about 15 by 10 inches"
+    },
+    "standard": {
+      "label": "12-cup standard muffin pan",
+      "geometry": "12 identical round wells in a precise 3-by-4 grid, each well about 2 3/4 inches across the top, tapering to about 2 inches at the base, about 1 3/8 inches deep, holding about 1/2 cup; the whole pan is about 14 by 10.5 inches with a flat frame around the wells"
+    },
+    "jumbo": {
+      "label": "6-cup jumbo muffin pan",
+      "geometry": "6 identical round wells in a precise 2-by-3 grid, each well about 3 1/2 inches across the top, tapering to about 2 1/2 inches at the base, about 1 3/4 inches deep, holding about 1 cup; the whole pan is about 14 by 10 inches"
+    },
+    "muffin_top": {
+      "label": "6-cup muffin top pan (specialty)",
+      "specialty": true,
+      "geometry": "6 identical wide, shallow round wells in a 2-by-3 grid, each about 4 inches across and only about 1/2 inch deep, like shallow saucers pressed into a flat sheet"
+    },
+    "popover": {
+      "label": "6-cup popover pan (specialty)",
+      "specialty": true,
+      "geometry": "6 identical deep, narrow, steep-sided cups about 2 3/4 inches across and about 2 1/2 inches deep, each a separate cup held in a 2-by-3 arrangement by a welded wire frame with open space between the cups"
+    }
+  },
+  "materials": {
+    "light_aluminized_steel": {
+      "sizes": ["mini", "standard", "jumbo", "muffin_top", "popover"],
+      "description": "light silver-gold aluminized steel with a faintly corrugated, fluted surface between the wells, satin finish, crisp rolled rim along the outer edge"
+    },
+    "dark_nonstick": {
+      "sizes": ["mini", "standard", "jumbo", "muffin_top", "popover"],
+      "description": "matte charcoal-black nonstick-coated carbon steel, smooth and uniform, slightly raised flat rim, faint wear on the rim from use"
+    },
+    "commercial_aluminum": {
+      "sizes": ["mini", "standard", "jumbo"],
+      "description": "heavy-gauge natural commercial bakery aluminum, dull satin silver with a mottled, darkened patina from years of use, wide flat flanges at each end, thick wired rim"
+    },
+    "gold_nonstick": {
+      "sizes": ["mini", "standard"],
+      "description": "champagne-gold nonstick-coated steel with a soft metallic sheen, smooth wells, neat rolled rim"
+    },
+    "stainless_steel": {
+      "sizes": ["standard"],
+      "description": "bright brushed stainless steel with soft reflections in the wells, clean rolled rim"
+    },
+    "cast_iron_gem_pan": {
+      "sizes": ["standard"],
+      "description": "seasoned black cast iron with a slightly pebbled, glossy-oiled surface, the round cups cast as one heavy piece and joined by thick cast bars with open gaps between the cups, a short cast handle at each end, in the style of an antique gem pan"
+    },
+    "vintage_starburst_tin": {
+      "sizes": ["mini", "standard"],
+      "description": "vintage tinned steel, dull silver with spotted age patina and a few darkened bake marks, each well pressed with a swirling starburst of fluted ridges, thin rolled edge, 1940s kitchenware"
+    },
+    "stoneware": {
+      "sizes": ["standard"],
+      "description": "unglazed sand-colored stoneware, thick matte walls and rounded rim, darkened seasoning blush inside the wells from use, heavy and solid"
+    },
+    "silicone": {
+      "sizes": ["mini", "standard", "jumbo"],
+      "description": "flexible matte silicone in a muted sage green, soft rounded rim, sitting on a plain metal baking sheet for support"
+    }
+  },
+  "pan_clause_template": "THE PAN - wherever any part of the pan appears, it is this exact real pan: a {size_label} made of {material}. It has {geometry}. It is a real, rigid, manufactured baking pan: perfectly regular grid, every well identical, straight rows, no extra or missing wells, no mesh, no wire racks, no grates, no paper liners. "
+}
