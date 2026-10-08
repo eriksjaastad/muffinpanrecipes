@@ -91,7 +91,7 @@ def generate_nano_banana_image(
     prompt: str,
     api_key: str,
     *,
-    model: str = "gemini-2.5-flash-image",
+    model: str = "gemini-3.1-flash-image",
     aspect_ratio: str = "1:1",
     image_size: str | None = None,
     temperature: float = 0.4,

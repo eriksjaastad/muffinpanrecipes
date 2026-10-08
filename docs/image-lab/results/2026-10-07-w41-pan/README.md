@@ -5,8 +5,8 @@ fine; the pan was wrong in all three live shots (mesh discs instead of wells, 30
 wells with liners, a 20-well riveted grid). The production image prompt describes the
 food and never the pan.
 
-Recipe: Black Sesame Popover Cups (W41), standard 12-cup pan. Pan library:
-`docs/image-lab/pan_library.json` (panV1-draft). The photographer (claude-haiku-4-5)
+Recipe: Black Sesame Popover Cups (W41), standard 12-cup pan. Pan library as tested:
+`pan_library.json` in this folder (panV1-draft, frozen; production copy is `backend/utils/pan_library.py`). The photographer (claude-haiku-4-5)
 picked `dark_nonstick`. B and C share that pan clause byte for byte; `plan.json` has
 every prompt sent.
 

@@ -267,18 +267,22 @@ class RecipeOrchestrator:
 
         return result.output
 
-    def _execute_stage_photography(self, recipe_id: str, recipe_data: Dict) -> Dict:
+    def _execute_stage_photography(
+        self, recipe_id: str, recipe_data: Dict, episode_id: Optional[str] = None
+    ) -> Dict:
         """Execute art director's photography stage.
 
         Returns the full photography output dict containing rounds, vision
         evaluation, reshoot data, winner, and selected_shots for backward compat.
+        ``episode_id`` (YYYY-Www) picks the week's pan; without it the art
+        director uses the current week.
         """
         art_director = self.agents["art_director"]
 
         task = Task(
             type="photograph_recipe",
             content="Photograph this recipe",
-            context={"recipe_id": recipe_id, "recipe_data": recipe_data}
+            context={"recipe_id": recipe_id, "recipe_data": recipe_data, "episode_id": episode_id}
         )
 
         result = art_director.process_task(task)
