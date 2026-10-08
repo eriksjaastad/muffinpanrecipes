@@ -41,6 +41,9 @@ _IMAGE_MODEL = "gemini-3.1-flash-image"
 # 2K keeps the source above the 1536px the site's largest derivative serves.
 _IMAGE_SIZE = "2K"
 _MAX_IMAGE_PX = 1536
+# A 2K render took 22.7s on 2026-10-07. Wednesday makes up to six calls in
+# series inside a 300s function, so a stalled call must fail, not hang.
+_IMAGE_TIMEOUT_S = 60
 
 
 def _average_hash(image_path: Path, hash_size: int = 8) -> int:
@@ -511,7 +514,9 @@ class ArtDirectorAgent(Agent):
 
         from PIL import Image
 
-        raw = generate_nano_banana_image(prompt, api_key, model=_IMAGE_MODEL, image_size=_IMAGE_SIZE)
+        raw = generate_nano_banana_image(
+            prompt, api_key, model=_IMAGE_MODEL, image_size=_IMAGE_SIZE, timeout_s=_IMAGE_TIMEOUT_S,
+        )
         with Image.open(BytesIO(raw)) as img:
             img = img.convert("RGB")
             if max(img.size) > _MAX_IMAGE_PX:

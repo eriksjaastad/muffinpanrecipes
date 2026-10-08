@@ -124,3 +124,83 @@ def test_orchestrator_hands_the_episode_id_to_the_art_director():
         orch.agents["art_director"].process_task = capture
         assert orch._execute_stage_photography("rid", {}, episode_id="2026-W41") == {"ok": True}
         assert seen["episode_id"] == "2026-W41"
+
+
+def test_the_gemini_request_carries_a_timeout(monkeypatch):
+    from google.genai import types
+
+    from backend.utils import image_generation
+
+    seen = {}
+
+    class _Client:
+        def __init__(self, api_key, http_options=None):
+            seen["http_options"] = http_options
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+        class models:  # noqa: N801
+            @staticmethod
+            def generate_content(**_k):
+                raise RuntimeError("stop after the client is built")
+
+    monkeypatch.setattr("google.genai.Client", _Client)
+    with pytest.raises(RuntimeError, match="stop after"):
+        image_generation.generate_nano_banana_image("p", "k", timeout_s=60)
+    assert isinstance(seen["http_options"], types.HttpOptions)
+    assert seen["http_options"].timeout == 60_000
+
+
+def test_art_director_asks_for_a_bounded_call(monkeypatch):
+    seen = {}
+
+    def fake(prompt, api_key, **kwargs):
+        seen.update(kwargs)
+        return _jpeg_bytes()
+
+    monkeypatch.setattr(art_director_module, "generate_nano_banana_image", fake)
+    create_agent("art_director")._call_image_model("k", "p")
+    assert seen["timeout_s"] == 60
+
+
+def _shoot(agent, tmp_path, monkeypatch, image_call, evaluations):
+    monkeypatch.setattr(agent, "_repo_root", lambda: tmp_path)
+    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+    monkeypatch.setattr(agent, "_call_image_model", image_call)
+    monkeypatch.setattr(art_director_module, "_check_visual_diversity", lambda _p: True)
+    queue = list(evaluations)
+    monkeypatch.setattr(agent, "_evaluate_images_vision", lambda *_a: dict(queue.pop(0)))
+    return agent.process_task(Task(
+        type="photograph_recipe", content="shoot",
+        context={"recipe_id": "rid", "recipe_data": {"title": "Egg Cups"}, "episode_id": "2026-W42"},
+    ))
+
+
+def test_a_gemini_failure_fails_the_shoot_loudly(tmp_path: Path, monkeypatch):
+    def boom(_key, _prompt):
+        raise RuntimeError("No inline image data found in Nano Banana response")
+
+    with pytest.raises(RuntimeError, match="No inline image data"):
+        _shoot(create_agent("art_director"), tmp_path, monkeypatch, boom, [])
+
+
+def test_the_reshoot_round_keeps_the_weeks_pan(tmp_path: Path, monkeypatch):
+    prompts = []
+    png = BytesIO()
+    Image.new("RGB", (4, 4)).save(png, format="PNG")
+    result = _shoot(
+        create_agent("art_director"), tmp_path, monkeypatch,
+        lambda _key, prompt: prompts.append(prompt) or png.getvalue(),
+        [
+            {"passed": False, "review_status": "failed", "retry_eligible": True, "reason": "pan unclear"},
+            {"passed": True, "recommended_winner": 1},
+        ],
+    )
+    assert len(result.output["rounds"]) == 2 and len(prompts) == 6
+    clause = pan_for_week("2026-W42").clause
+    assert all(clause in p for p in prompts)
+    assert all("RESHOOT NOTE" in p for p in prompts[3:])

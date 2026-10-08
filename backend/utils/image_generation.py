@@ -91,12 +91,17 @@ def generate_nano_banana_image(
     prompt: str,
     api_key: str,
     *,
-    model: str = "gemini-3.1-flash-image",
+    model: str = "gemini-2.5-flash-image",
     aspect_ratio: str = "1:1",
     image_size: str | None = None,
     temperature: float = 0.4,
+    timeout_s: float | None = None,
 ) -> bytes:
-    """Generate a single image via Gemini image models (Nano Banana)."""
+    """Generate a single image via Gemini image models (Nano Banana).
+
+    ``timeout_s`` bounds the HTTP request; google-genai has no default
+    timeout, so a stalled call would otherwise run until the host kills it.
+    """
     try:
         from google import genai
         from google.genai import types
@@ -113,7 +118,8 @@ def generate_nano_banana_image(
         image_config=types.ImageConfig(**image_config_kwargs),
     )
 
-    with genai.Client(api_key=api_key) as client:
+    http_options = types.HttpOptions(timeout=int(timeout_s * 1000)) if timeout_s else None
+    with genai.Client(api_key=api_key, http_options=http_options) as client:
         response = client.models.generate_content(
             model=model,
             contents=[prompt],

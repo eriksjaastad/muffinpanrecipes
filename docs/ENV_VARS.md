@@ -21,9 +21,9 @@ Single source of truth for every environment variable the muffinpanrecipes codeb
 |---|---|---|---|
 | `OPENAI_API_KEY` | R, S | `backend/utils/model_router.py:267,454`, `scripts/list_openai_models.py:21` | OpenAI API auth for GPT-5.1 recipe generation + vision eval |
 | `ANTHROPIC_API_KEY` | R, S | `backend/utils/model_router.py:358,501` | Anthropic API auth for Haiku 4.5 dialogue + Opus 4.6 judge |
-| `GOOGLE_API_KEY` | O, S | `backend/utils/model_router.py:401`, `scripts/compare_image_providers.py:137` | Google API auth |
+| `GOOGLE_API_KEY` | R, S | `backend/agents/art_director.py` (`_photograph_recipe`), `backend/utils/model_router.py:401`, `scripts/compare_image_providers.py:137` | Google API auth. Required for the Wednesday photography stage (Gemini image generation, #8068) |
 | `NANOBANANA_API_KEY` | O, S | `scripts/compare_image_providers.py:137`, `tests/test_integration_providers.py:23` | Nano Banana image-gen auth (same upstream as Google) |
-| `STABILITY_API_KEY` | R, S | `scripts/validate_env.py:12`, `scripts/direct_harvest.py:21`, `backend/agents/art_director.py:334` | Stability AI auth for image generation. Required for photography stage |
+| `STABILITY_API_KEY` | O, S | `scripts/validate_env.py`, `scripts/direct_harvest.py:21` | Stability AI auth, used only by `scripts/direct_harvest.py`; the photography stage moved to Gemini in #8068 |
 | `BLOB_READ_WRITE_TOKEN` | R, S | `backend/storage.py:200`, `backend/publishing/site_builder.py`, `scripts/backfill_webp.py:102`, `scripts/fix_catalog.py:56`, `scripts/run_full_week.py:317`, `scripts/score_episodes.py:59`, `scripts/generate_recipe_page.py:527` | Vercel Blob auth for episode + image persistence and the static build's authoritative source reads. `_CloudBackend` crashes on start if missing on Vercel; the Vercel build must receive it at build time |
 | `CRON_SECRET` | R, S | `scripts/run_full_week.py:316`, `backend/admin/cron_routes.py` (via header check) | Vercel cron endpoint shared secret |
 | `JWT_SECRET` | R, S | `backend/auth/session.py:32`, `tests/test_auth.py:109` | Admin UI session token signing |
