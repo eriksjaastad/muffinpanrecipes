@@ -1088,6 +1088,20 @@ def test_wednesday_passes_the_episode_id_so_the_pan_follows_the_week(tmp_path):
     assert kwargs["episode_id"] == EP_ID
 
 
+def test_a_shoot_out_of_time_fails_the_wednesday_stage_and_alerts(tmp_path):
+    from backend.agents.art_director import ShootBudgetExceeded
+
+    store = _Store()
+    orch = MagicMock()
+    orch.return_value._execute_stage_photography.side_effect = ShootBudgetExceeded("image budget (180s) exhausted")
+    run = _wednesday(store, tmp_path, orch=orch)
+    assert run.error is not None
+    wed = store.get(EP_ID)["stages"]["wednesday"]
+    assert wed["status"] == "failed"
+    assert "image budget" in str(wed.get("error", ""))
+    assert run.failure.called
+
+
 def test_wednesday_rerun_voids_the_approval_and_uses_new_urls(tmp_path):
     store = _Store()
     _wednesday(store, tmp_path, generation="g20261007T000000Z-aaaaaa")

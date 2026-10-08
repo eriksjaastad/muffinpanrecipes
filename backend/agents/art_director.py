@@ -17,6 +17,7 @@ import random
 import re
 import secrets
 import shutil
+import time
 from datetime import datetime, timezone
 
 from backend.core.agent import Agent
@@ -44,6 +45,18 @@ _MAX_IMAGE_PX = 1536
 # A 2K render took 22.7s on 2026-10-07. Wednesday makes up to six calls in
 # series inside a 300s function, so a stalled call must fail, not hang.
 _IMAGE_TIMEOUT_S = 60
+# The whole shoot's image calls share one budget, because a per-call bound
+# alone still lets six 60s calls outlast the function. The last Stability
+# Wednesday ran ~114s end to end, so ~90s of vision review, uploads and
+# dialogue follow the images: 180 + 90 stays under 300.
+_SHOOT_BUDGET_S = 180
+# A call with less time left than this cannot finish (a 2K call takes ~23s).
+_MIN_CALL_S = 20
+_clock = time.monotonic
+
+
+class ShootBudgetExceeded(RuntimeError):
+    """The Wednesday shoot ran out of its image-generation time budget."""
 
 
 def _average_hash(image_path: Path, hash_size: int = 8) -> int:
@@ -502,7 +515,7 @@ class ArtDirectorAgent(Agent):
             return {"passed": False, "review_status": "unavailable", "retry_eligible": False,
                     "fallback": True, "per_image": [], "reason": f"vision eval error: {e}"}
 
-    def _call_image_model(self, api_key: str, prompt: str) -> bytes:
+    def _call_image_model(self, api_key: str, prompt: str, timeout_s: float = _IMAGE_TIMEOUT_S) -> bytes:
         """One image from the Gemini image model, returned as PNG at most 1536px.
 
         Gemini answers with JPEG, and every stored path, blob and derivative
@@ -515,7 +528,7 @@ class ArtDirectorAgent(Agent):
         from PIL import Image
 
         raw = generate_nano_banana_image(
-            prompt, api_key, model=_IMAGE_MODEL, image_size=_IMAGE_SIZE, timeout_s=_IMAGE_TIMEOUT_S,
+            prompt, api_key, model=_IMAGE_MODEL, image_size=_IMAGE_SIZE, timeout_s=timeout_s,
         )
         with Image.open(BytesIO(raw)) as img:
             img = img.convert("RGB")
@@ -537,7 +550,7 @@ class ArtDirectorAgent(Agent):
     def _generate_round(
         self, api_key: str, recipe_title: str, recipe_id: str, round_num: int,
         feedback: str | None = None, generation_id: str | None = None,
-        pan_clause: str = "",
+        pan_clause: str = "", deadline: float | None = None,
     ) -> tuple[list[dict[str, Any]], Path]:
         """Generate 3 variants for a single round. Returns (variant_outputs, round_dir).
 
@@ -553,7 +566,22 @@ class ArtDirectorAgent(Agent):
             if feedback and round_num > 1:
                 prompt += f" RESHOOT NOTE: Previous batch rejected. Feedback: {feedback}"
 
-            image_bytes = self._call_image_model(api_key, prompt)
+            timeout_s: float = _IMAGE_TIMEOUT_S
+            if deadline is not None:
+                remaining = deadline - _clock()
+                if remaining < _MIN_CALL_S:
+                    raise ShootBudgetExceeded(
+                        f"image budget ({_SHOOT_BUDGET_S}s) exhausted before {variant} in round {round_num}"
+                    )
+                timeout_s = min(timeout_s, remaining)
+            try:
+                image_bytes = self._call_image_model(api_key, prompt, timeout_s=timeout_s)
+            except Exception as exc:
+                if deadline is not None and _clock() >= deadline - 1:
+                    raise ShootBudgetExceeded(
+                        f"image budget ({_SHOOT_BUDGET_S}s) ran out during {variant} in round {round_num}"
+                    ) from exc
+                raise
             out_path = round_dir / f"{variant}.png"
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_path.write_bytes(image_bytes)
@@ -641,14 +669,33 @@ class ArtDirectorAgent(Agent):
         rounds: list[dict[str, Any]] = []
         winner_info: dict[str, Any] | None = None
 
+        deadline = _clock() + _SHOOT_BUDGET_S
         for round_num in range(1, self._MAX_ROUNDS + 1):
             feedback = rounds[-1]["vision_evaluation"].get("reason") if rounds else None
+            # A reshoot starts only if another round like the last one still
+            # fits the budget; otherwise the set goes to the human review
+            # unreshot, which is where an exhausted reshoot ends anyway.
+            if rounds and deadline - _clock() < rounds[-1]["generation_s"]:
+                rounds[-1]["reshoot_skipped"] = "time budget"
+                logger.warning("Julian: reshoot skipped, not enough of the image budget left")
+                break
             logger.info(f"Julian: Starting generation round {round_num}")
-            
-            variant_outputs, round_dir = self._generate_round(
-                api_key, recipe_title, recipe_id, round_num, feedback=feedback,
-                generation_id=generation_id, pan_clause=pan.clause,
-            )
+
+            round_started = _clock()
+            try:
+                variant_outputs, round_dir = self._generate_round(
+                    api_key, recipe_title, recipe_id, round_num, feedback=feedback,
+                    generation_id=generation_id, pan_clause=pan.clause, deadline=deadline,
+                )
+            except ShootBudgetExceeded as exc:
+                if not rounds:
+                    raise
+                # Round 1's set is complete and reviewable; losing it to an
+                # unfinished reshoot would turn a weak set into no set.
+                rounds[-1]["reshoot_skipped"] = f"time budget: {exc}"
+                logger.warning(f"Julian: reshoot abandoned: {exc}")
+                break
+            generation_s = round(_clock() - round_started, 1)
 
             # Perceptual hash diversity check (belt-and-suspenders with vision eval)
             phash_paths = [Path(vo["local_path"]) for vo in variant_outputs]
@@ -683,6 +730,7 @@ class ArtDirectorAgent(Agent):
 
             round_data = {
                 "round": round_num,
+                "generation_s": generation_s,
                 "variants": variant_outputs,
                 "vision_evaluation": vision_eval,
                 "passed": vision_eval.get("passed", True),
@@ -747,6 +795,8 @@ class ArtDirectorAgent(Agent):
         if reshoot_happened:
             insights.append(f"Round 1 rejected: {rounds[0].get('rejection_reason', 'unknown')}")
             insights.append("Rush reshoot completed under deadline pressure")
+        if rounds[-1].get("reshoot_skipped"):
+            insights.append("No time left for a reshoot; the set goes to human review as shot")
 
         return TaskResult(
             task_id=task.id,

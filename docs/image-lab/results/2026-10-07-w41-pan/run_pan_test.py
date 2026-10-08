@@ -28,6 +28,38 @@ LIB = json.loads((HERE / "pan_library.json").read_text())
 TITLE = "Black Sesame Popover Cups"
 RECIPE_SIZE = "standard"  # the W41 recipe is written for a 12-cup pan
 GEMINI_MODEL = "gemini-3.1-flash-image"
+
+# Stability Core as production called it until #8068 removed it, kept here so
+# arms A and B stay reproducible.
+_STABILITY_BASE_NEGATIVE = (
+    "people, hands, text, watermark, clutter, stacked food, piled food, food on top of food, "
+    "flat high-key white studio lighting"
+)
+_STABILITY_VARIANT_NEGATIVES = {
+    "macro_closeup": "full tin visible, bird's eye view, overhead angle, multiple items, wide shot",
+    "overhead_flatlay": "shallow depth of field, bokeh, single item, macro, close-up, low angle",
+    "hero_threequarter": "extreme close-up, overhead, bird's eye, flat lay, 90 degree angle, macro",
+}
+
+
+def call_stability(api_key: str, prompt: str, variant: str) -> bytes:
+    import requests
+
+    response = requests.post(
+        "https://api.stability.ai/v2beta/stable-image/generate/core",
+        headers={"authorization": f"Bearer {api_key}", "accept": "image/*"},
+        data={
+            "prompt": prompt,
+            "negative_prompt": f"{_STABILITY_BASE_NEGATIVE}, {_STABILITY_VARIANT_NEGATIVES[variant]}",
+            "output_format": "png",
+            "aspect_ratio": "1:1",
+        },
+        files={"none": "none"},
+        timeout=90,
+    )
+    if response.status_code != 200:
+        raise RuntimeError(f"Stability API error {response.status_code}: {response.text[:200]}")
+    return response.content
 MAX_IMAGE_CALLS = 10
 
 
@@ -77,7 +109,7 @@ def main() -> None:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
-    ad = ArtDirectorAgent  # prompt/negative builders only read class constants
+    ad = ArtDirectorAgent  # the prompt builder only reads class constants
     material, reason = pick_pan(args.dry_run)
     clause = pan_clause(material)
     plan = []
@@ -108,7 +140,7 @@ def main() -> None:
             if arm == "C":
                 data = generate_nano_banana_image(prompt, google_key, model=GEMINI_MODEL)
             else:
-                data = ad._call_stability(ad, stability_key, prompt, variant=variant)
+                data = call_stability(stability_key, prompt, variant)
         except Exception as exc:  # report and continue; no retries
             print(f"FAILED {arm} {variant}: {exc}")
             continue

@@ -22,7 +22,7 @@ def test_art_director_generates_three_variants_and_featured_image(tmp_path: Path
 
     monkeypatch.setattr(agent, "_repo_root", lambda: tmp_path)
     monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
-    monkeypatch.setattr(agent, "_call_image_model", lambda _key, _prompt: _png_bytes())
+    monkeypatch.setattr(agent, "_call_image_model", lambda _key, _prompt, **_k: _png_bytes())
     monkeypatch.setattr(
         agent, "_evaluate_images_vision",
         lambda _variants, _title, _facts="": {"passed": True, "recommended_winner": 1},
@@ -76,7 +76,7 @@ def test_art_director_fails_without_google_key(tmp_path: Path, monkeypatch) -> N
 def _run_photograph(agent, tmp_path, monkeypatch, extra_context=None):
     monkeypatch.setattr(agent, "_repo_root", lambda: tmp_path)
     monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
-    monkeypatch.setattr(agent, "_call_image_model", lambda _key, _prompt: _png_bytes())
+    monkeypatch.setattr(agent, "_call_image_model", lambda _key, _prompt, **_k: _png_bytes())
     monkeypatch.setattr(
         agent, "_evaluate_images_vision",
         lambda _variants, _title, _facts="": {"passed": True, "recommended_winner": 1},

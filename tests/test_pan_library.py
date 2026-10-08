@@ -89,7 +89,7 @@ def test_every_shot_prompt_describes_the_weeks_pan(tmp_path: Path, monkeypatch):
     Image.new("RGB", (4, 4)).save(png, format="PNG")
     monkeypatch.setattr(agent, "_repo_root", lambda: tmp_path)
     monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
-    monkeypatch.setattr(agent, "_call_image_model", lambda _key, prompt: prompts.append(prompt) or png.getvalue())
+    monkeypatch.setattr(agent, "_call_image_model", lambda _key, prompt, **_k: prompts.append(prompt) or png.getvalue())
     monkeypatch.setattr(art_director_module, "_check_visual_diversity", lambda _p: True)
     monkeypatch.setattr(agent, "_evaluate_images_vision",
                         lambda *_a: {"passed": True, "recommended_winner": 1})
@@ -181,7 +181,7 @@ def _shoot(agent, tmp_path, monkeypatch, image_call, evaluations):
 
 
 def test_a_gemini_failure_fails_the_shoot_loudly(tmp_path: Path, monkeypatch):
-    def boom(_key, _prompt):
+    def boom(_key, _prompt, **_k):
         raise RuntimeError("No inline image data found in Nano Banana response")
 
     with pytest.raises(RuntimeError, match="No inline image data"):
@@ -194,7 +194,7 @@ def test_the_reshoot_round_keeps_the_weeks_pan(tmp_path: Path, monkeypatch):
     Image.new("RGB", (4, 4)).save(png, format="PNG")
     result = _shoot(
         create_agent("art_director"), tmp_path, monkeypatch,
-        lambda _key, prompt: prompts.append(prompt) or png.getvalue(),
+        lambda _key, prompt, **_k: prompts.append(prompt) or png.getvalue(),
         [
             {"passed": False, "review_status": "failed", "retry_eligible": True, "reason": "pan unclear"},
             {"passed": True, "recommended_winner": 1},
@@ -204,3 +204,72 @@ def test_the_reshoot_round_keeps_the_weeks_pan(tmp_path: Path, monkeypatch):
     clause = pan_for_week("2026-W42").clause
     assert all(clause in p for p in prompts)
     assert all("RESHOOT NOTE" in p for p in prompts[3:])
+
+
+class _Clock:
+    """Fake monotonic clock; each image call advances it by ``per_call`` seconds."""
+
+    def __init__(self, per_call: float):
+        self.now = 1000.0
+        self.per_call = per_call
+        self.timeouts: list[float] = []
+
+    def __call__(self) -> float:
+        return self.now
+
+    def image(self, _key, _prompt, timeout_s=60):
+        self.timeouts.append(timeout_s)
+        self.now += self.per_call
+        png = BytesIO()
+        Image.new("RGB", (4, 4)).save(png, format="PNG")
+        return png.getvalue()
+
+
+_RESHOOT = {"passed": False, "review_status": "failed", "retry_eligible": True, "reason": "pan unclear"}
+
+
+def test_round_one_out_of_budget_fails_the_shoot(tmp_path: Path, monkeypatch):
+    clock = _Clock(per_call=85)  # two calls use 170s; 10s left is under the 20s minimum
+    monkeypatch.setattr(art_director_module, "_clock", clock)
+    with pytest.raises(art_director_module.ShootBudgetExceeded):
+        _shoot(create_agent("art_director"), tmp_path, monkeypatch, clock.image, [])
+    assert len(clock.timeouts) == 2
+    assert clock.timeouts == [60, 60]
+
+
+def test_per_call_timeout_is_clipped_to_the_remaining_budget(tmp_path: Path, monkeypatch):
+    clock = _Clock(per_call=70)  # 70s, 70s, then 40s left for the third call
+    monkeypatch.setattr(art_director_module, "_clock", clock)
+    _shoot(create_agent("art_director"), tmp_path, monkeypatch, clock.image,
+           [{"passed": True, "recommended_winner": 1}])
+    assert clock.timeouts == [60, 60, 40]
+
+
+def test_reshoot_is_skipped_when_another_round_will_not_fit(tmp_path: Path, monkeypatch):
+    clock = _Clock(per_call=35)  # round 1 takes 105s; 75s left < 105s
+    monkeypatch.setattr(art_director_module, "_clock", clock)
+    result = _shoot(create_agent("art_director"), tmp_path, monkeypatch, clock.image, [_RESHOOT])
+    rounds = result.output["rounds"]
+    assert len(rounds) == 1 and rounds[0]["reshoot_skipped"] == "time budget"
+    assert len(clock.timeouts) == 3
+    assert result.output["automated_review_status"] == "failed"  # the human review decides
+    assert result.output["winner"]["round"] == 1
+
+
+def test_a_reshoot_that_runs_out_keeps_round_one_for_review(tmp_path: Path, monkeypatch):
+    clock = _Clock(per_call=25)  # round 1 = 75s; 105s left >= 75s, so round 2 starts
+    monkeypatch.setattr(art_director_module, "_clock", clock)
+    agent = create_agent("art_director")
+    calls = {"n": 0}
+
+    def slow_reshoot(key, prompt, timeout_s=60):
+        calls["n"] += 1
+        if calls["n"] == 4:
+            clock.per_call = 90  # round 2 stalls: 90s, then too little left
+        return clock.image(key, prompt, timeout_s)
+
+    result = _shoot(agent, tmp_path, monkeypatch, slow_reshoot, [_RESHOOT])
+    rounds = result.output["rounds"]
+    assert len(rounds) == 1 and rounds[0]["reshoot_skipped"].startswith("time budget:")
+    assert result.output["winner"]["round"] == 1
+    assert result.output["reshoot_happened"] is False
