@@ -8,9 +8,13 @@ def validate():
     missing = []
     warnings = []
     
-    # 1. STABILITY_API_KEY (Required for direct_harvest.py)
+    # 1. GOOGLE_API_KEY (Required for the Wednesday photography stage, #8068)
+    if not os.getenv("GOOGLE_API_KEY"):
+        missing.append("GOOGLE_API_KEY (Set in Doppler; run with `doppler run -- ...`)")
+
+    # 1b. STABILITY_API_KEY (Optional; only scripts/direct_harvest.py uses it)
     if not os.getenv("STABILITY_API_KEY"):
-        missing.append("STABILITY_API_KEY (Set in Doppler; run with `doppler run -- ...`)")
+        warnings.append("STABILITY_API_KEY not set (needed only for scripts/direct_harvest.py)")
     
     # 2. PROJECT_ROOT (Optional; scripts default to repo root when unset)
     project_root = os.getenv("PROJECT_ROOT")

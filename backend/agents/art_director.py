@@ -17,21 +17,46 @@ import random
 import re
 import secrets
 import shutil
+import time
 from datetime import datetime, timezone
-
-import requests
 
 from backend.core.agent import Agent
 from backend.core.task import Task, TaskResult, TaskApproach
 from backend.core.types import EmotionalResponse, MemoryContext
 from backend.utils.recipe_copy import recipe_pitch
+from backend.utils.image_generation import generate_nano_banana_image
 from backend.utils.logging import get_logger
+from backend.utils.pan_library import PAN_LIBRARY_VERSION, pan_for_week
 from backend.utils.model_router import generate_vision_response
 
 logger = get_logger(__name__)
 
 # Vision evaluation model — cheap, vision-capable
 _VISION_MODEL = os.getenv("VISION_EVAL_MODEL", "openai/gpt-5-mini")
+
+# Image generation (#8068): Gemini replaced Stability Core on 2026-10-07. In
+# the W41 test the same pan description that Stability ignored produced a
+# real pan, and each shot followed its own composition brief.
+# docs/image-lab/results/2026-10-07-w41-pan/README.md
+_IMAGE_MODEL = "gemini-3.1-flash-image"
+# 2K keeps the source above the 1536px the site's largest derivative serves.
+_IMAGE_SIZE = "2K"
+_MAX_IMAGE_PX = 1536
+# A 2K render took 22.7s on 2026-10-07. Wednesday makes up to six calls in
+# series inside a 300s function, so a stalled call must fail, not hang.
+_IMAGE_TIMEOUT_S = 60
+# The whole shoot's image calls share one budget, because a per-call bound
+# alone still lets six 60s calls outlast the function. The last Stability
+# Wednesday ran ~114s end to end, so ~90s of vision review, uploads and
+# dialogue follow the images: 180 + 90 stays under 300.
+_SHOOT_BUDGET_S = 180
+# A call with less time left than this cannot finish (a 2K call takes ~23s).
+_MIN_CALL_S = 20
+_clock = time.monotonic
+
+
+class ShootBudgetExceeded(RuntimeError):
+    """The Wednesday shoot ran out of its image-generation time budget."""
 
 
 def _average_hash(image_path: Path, hash_size: int = 8) -> int:
@@ -84,13 +109,6 @@ class ArtDirectorAgent(Agent):
     """
 
     _VARIANTS: tuple[str, ...] = ("macro_closeup", "overhead_flatlay", "hero_threequarter")
-
-    # Per-variant negative prompts to prevent convergence
-    _VARIANT_NEGATIVES: dict[str, str] = {
-        "macro_closeup": "full tin visible, bird's eye view, overhead angle, multiple items, wide shot",
-        "overhead_flatlay": "shallow depth of field, bokeh, single item, macro, close-up, low angle",
-        "hero_threequarter": "extreme close-up, overhead, bird's eye, flat lay, 90 degree angle, macro",
-    }
 
     def execute_task_with_personality(
         self, task: Task, approach: TaskApproach, context: MemoryContext
@@ -164,11 +182,11 @@ class ArtDirectorAgent(Agent):
         "Not sterile, not clinical, not flat high-key white. "
     )
 
-    def _build_prompt(self, recipe_title: str, variant: str) -> str:
+    def _build_prompt(self, recipe_title: str, variant: str, pan_clause: str = "") -> str:
         variant_prompts = {
             "macro_closeup": (
                 f"Extreme close-up food photography of {recipe_title}. "
-                f"{self._MUFFIN_FORM_CLAUSE}"
+                f"{self._MUFFIN_FORM_CLAUSE}{pan_clause}"
                 "15-degree low angle, ONE single item filling the entire frame. "
                 "Visible crumb structure, glistening texture detail. "
                 "Shot on 100mm macro lens, f/2.0, razor-thin depth of field. "
@@ -180,7 +198,7 @@ class ArtDirectorAgent(Agent):
             ),
             "overhead_flatlay": (
                 f"True 90-degree overhead bird's-eye food photography of {recipe_title} in a rustic muffin tin. "
-                f"{self._MUFFIN_FORM_CLAUSE}"
+                f"{self._MUFFIN_FORM_CLAUSE}{pan_clause}"
                 "Full tin visible from directly above, portions still seated in the muffin cups, "
                 "scattered ingredient garnishes around the tin. "
                 "Shot on 35mm lens, f/5.6, everything in sharp focus. "
@@ -191,7 +209,7 @@ class ArtDirectorAgent(Agent):
             ),
             "hero_threequarter": (
                 f"Classic hero food photography of {recipe_title} at 30-45 degree angle. "
-                f"{self._MUFFIN_FORM_CLAUSE}"
+                f"{self._MUFFIN_FORM_CLAUSE}{pan_clause}"
                 "2-3 items arranged on a rustic wooden board, one broken open showing interior cross-section, "
                 "each unbroken item showing its round molded muffin-cup silhouette. "
                 "Shot on 85mm lens, f/2.8, soft background blur. "
@@ -497,29 +515,28 @@ class ArtDirectorAgent(Agent):
             return {"passed": False, "review_status": "unavailable", "retry_eligible": False,
                     "fallback": True, "per_image": [], "reason": f"vision eval error: {e}"}
 
-    def _call_stability(self, api_key: str, prompt: str, variant: str | None = None) -> bytes:
-        base_negative = "people, hands, text, watermark, clutter, stacked food, piled food, food on top of food, flat high-key white studio lighting"
-        variant_negative = self._VARIANT_NEGATIVES.get(variant or "", "")
-        negative_prompt = f"{base_negative}, {variant_negative}" if variant_negative else base_negative
+    def _call_image_model(self, api_key: str, prompt: str, timeout_s: float = _IMAGE_TIMEOUT_S) -> bytes:
+        """One image from the Gemini image model, returned as PNG at most 1536px.
 
-        response = requests.post(
-            "https://api.stability.ai/v2beta/stable-image/generate/core",
-            headers={
-                "authorization": f"Bearer {api_key}",
-                "accept": "image/*",
-            },
-            data={
-                "prompt": prompt,
-                "negative_prompt": negative_prompt,
-                "output_format": "png",
-                "aspect_ratio": "1:1",
-            },
-            files={"none": "none"},
-            timeout=90,
+        Gemini answers with JPEG, and every stored path, blob and derivative
+        is named ``.png``, so the bytes are re-encoded rather than mislabelled.
+        A 2K render is downscaled to the 1536px Stability used to deliver: a
+        2048px PNG is ~8MB, twice the old blob size for no visible gain.
+        """
+        from io import BytesIO
+
+        from PIL import Image
+
+        raw = generate_nano_banana_image(
+            prompt, api_key, model=_IMAGE_MODEL, image_size=_IMAGE_SIZE, timeout_s=timeout_s,
         )
-        if response.status_code != 200:
-            raise RuntimeError(f"Stability API error {response.status_code}: {response.text[:200]}")
-        return response.content
+        with Image.open(BytesIO(raw)) as img:
+            img = img.convert("RGB")
+            if max(img.size) > _MAX_IMAGE_PX:
+                img.thumbnail((_MAX_IMAGE_PX, _MAX_IMAGE_PX), Image.Resampling.LANCZOS)
+            out = BytesIO()
+            img.save(out, format="PNG")
+        return out.getvalue()
 
     _MAX_ROUNDS = 2  # Generate → evaluate → (optional reshoot) → done
 
@@ -533,6 +550,7 @@ class ArtDirectorAgent(Agent):
     def _generate_round(
         self, api_key: str, recipe_title: str, recipe_id: str, round_num: int,
         feedback: str | None = None, generation_id: str | None = None,
+        pan_clause: str = "", deadline: float | None = None,
     ) -> tuple[list[dict[str, Any]], Path]:
         """Generate 3 variants for a single round. Returns (variant_outputs, round_dir).
 
@@ -544,11 +562,26 @@ class ArtDirectorAgent(Agent):
         variant_outputs: list[dict[str, Any]] = []
 
         for variant in self._VARIANTS:
-            prompt = self._build_prompt(recipe_title, variant)
+            prompt = self._build_prompt(recipe_title, variant, pan_clause)
             if feedback and round_num > 1:
                 prompt += f" RESHOOT NOTE: Previous batch rejected. Feedback: {feedback}"
 
-            image_bytes = self._call_stability(api_key, prompt, variant=variant)
+            timeout_s: float = _IMAGE_TIMEOUT_S
+            if deadline is not None:
+                remaining = deadline - _clock()
+                if remaining < _MIN_CALL_S:
+                    raise ShootBudgetExceeded(
+                        f"image budget ({_SHOOT_BUDGET_S}s) exhausted before {variant} in round {round_num}"
+                    )
+                timeout_s = min(timeout_s, remaining)
+            try:
+                image_bytes = self._call_image_model(api_key, prompt, timeout_s=timeout_s)
+            except Exception as exc:
+                if deadline is not None and _clock() >= deadline - 1:
+                    raise ShootBudgetExceeded(
+                        f"image budget ({_SHOOT_BUDGET_S}s) ran out during {variant} in round {round_num}"
+                    ) from exc
+                raise
             out_path = round_dir / f"{variant}.png"
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_path.write_bytes(image_bytes)
@@ -570,7 +603,7 @@ class ArtDirectorAgent(Agent):
     ) -> TaskResult:
         """
         Julian's high-stakes photography session.
-        Now actually connects to the real Stability API and prepares the
+        Generates with the Gemini image model and prepares the
         Mission Control (R2/RunPod) handshake.
         """
         import json as _json
@@ -578,11 +611,13 @@ class ArtDirectorAgent(Agent):
 
         recipe_id = str(task.context.get("recipe_id") or task.id)
         recipe_title = self._recipe_title(task)
-        api_key = os.getenv("STABILITY_API_KEY")
+        api_key = os.getenv("GOOGLE_API_KEY")
+        episode_id = task.context.get("episode_id")
+        pan = pan_for_week(episode_id if isinstance(episode_id, str) else None)
 
         # 1. Prepare the Job File for Mission Control (R2 / RunPod)
         # This is the "canonical" way the project tracks generation intent
-        prompts = {variant: self._build_prompt(recipe_title, variant) for variant in self._VARIANTS}
+        prompts = {variant: self._build_prompt(recipe_title, variant, pan.clause) for variant in self._VARIANTS}
         job_data = [{
             "recipe_id": recipe_id,
             "recipe_title": recipe_title,
@@ -594,7 +629,7 @@ class ArtDirectorAgent(Agent):
             jobs_file.parent.mkdir(parents=True, exist_ok=True)
             with open(jobs_file, "w") as f:
                 _json.dump(job_data, f, indent=2)
-        except OSError:  # governance: allow-silent SF001: legacy job file only feeds the optional R2 handshake (scripts/trigger_generation.py, not in the Lambda bundle); Lambda's filesystem is read-only and direct Stability generation below does not read it
+        except OSError:  # governance: allow-silent SF001: legacy job file only feeds the optional R2 handshake (scripts/trigger_generation.py, not in the Lambda bundle); Lambda's filesystem is read-only and direct image generation below does not read it
             pass  # Read-only filesystem (Vercel Lambda)
 
         # 2. Trigger Mission Control Handshake (Upload to R2)
@@ -618,10 +653,10 @@ class ArtDirectorAgent(Agent):
                 logger.error(f"Julian: Mission Control Handshake FAILED: {e}")
                 handshake_msg = f"FAILED: {e}"
 
-        # 3. Generate Images (Direct Stability API)
+        # 3. Generate Images (direct Gemini image API)
         # We do this so the pipeline can continue even if we aren't waiting for the RunPod cron
         if not api_key:
-            raise RuntimeError("STABILITY_API_KEY not configured; Julian refuses to work with placeholders.")
+            raise RuntimeError("GOOGLE_API_KEY not configured; Julian refuses to work with placeholders.")
 
         override = task.context.get("generation_id")
         generation_id = (
@@ -634,14 +669,33 @@ class ArtDirectorAgent(Agent):
         rounds: list[dict[str, Any]] = []
         winner_info: dict[str, Any] | None = None
 
+        deadline = _clock() + _SHOOT_BUDGET_S
         for round_num in range(1, self._MAX_ROUNDS + 1):
             feedback = rounds[-1]["vision_evaluation"].get("reason") if rounds else None
+            # A reshoot starts only if another round like the last one still
+            # fits the budget; otherwise the set goes to the human review
+            # unreshot, which is where an exhausted reshoot ends anyway.
+            if rounds and deadline - _clock() < rounds[-1]["generation_s"]:
+                rounds[-1]["reshoot_skipped"] = "time budget"
+                logger.warning("Julian: reshoot skipped, not enough of the image budget left")
+                break
             logger.info(f"Julian: Starting generation round {round_num}")
-            
-            variant_outputs, round_dir = self._generate_round(
-                api_key, recipe_title, recipe_id, round_num, feedback=feedback,
-                generation_id=generation_id,
-            )
+
+            round_started = _clock()
+            try:
+                variant_outputs, round_dir = self._generate_round(
+                    api_key, recipe_title, recipe_id, round_num, feedback=feedback,
+                    generation_id=generation_id, pan_clause=pan.clause, deadline=deadline,
+                )
+            except ShootBudgetExceeded as exc:
+                if not rounds:
+                    raise
+                # Round 1's set is complete and reviewable; losing it to an
+                # unfinished reshoot would turn a weak set into no set.
+                rounds[-1]["reshoot_skipped"] = f"time budget: {exc}"
+                logger.warning(f"Julian: reshoot abandoned: {exc}")
+                break
+            generation_s = round(_clock() - round_started, 1)
 
             # Perceptual hash diversity check (belt-and-suspenders with vision eval)
             phash_paths = [Path(vo["local_path"]) for vo in variant_outputs]
@@ -676,6 +730,7 @@ class ArtDirectorAgent(Agent):
 
             round_data = {
                 "round": round_num,
+                "generation_s": generation_s,
                 "variants": variant_outputs,
                 "vision_evaluation": vision_eval,
                 "passed": vision_eval.get("passed", True),
@@ -740,6 +795,8 @@ class ArtDirectorAgent(Agent):
         if reshoot_happened:
             insights.append(f"Round 1 rejected: {rounds[0].get('rejection_reason', 'unknown')}")
             insights.append("Rush reshoot completed under deadline pressure")
+        if rounds[-1].get("reshoot_skipped"):
+            insights.append("No time left for a reshoot; the set goes to human review as shot")
 
         return TaskResult(
             task_id=task.id,
@@ -754,7 +811,8 @@ class ArtDirectorAgent(Agent):
                 "reshoot_happened": reshoot_happened,
                 "automated_review_status": automated_review_status,
                 "selected_shots": all_paths,  # backward compat
-                "generated_with": "stability_api_core",
+                "generated_with": _IMAGE_MODEL,
+                "pan": {"size": pan.size, "material": pan.material, "library": PAN_LIBRARY_VERSION},
                 "lighting_setups": random.randint(4, 7),
                 "styling_notes": [
                     "Explored the negative space on the plate",

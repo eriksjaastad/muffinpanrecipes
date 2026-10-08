@@ -21,8 +21,8 @@ def test_art_director_generates_three_variants_and_featured_image(tmp_path: Path
     agent = create_agent("art_director")
 
     monkeypatch.setattr(agent, "_repo_root", lambda: tmp_path)
-    monkeypatch.setenv("STABILITY_API_KEY", "test-key")
-    monkeypatch.setattr(agent, "_call_stability", lambda _key, _prompt, variant=None: _png_bytes())
+    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+    monkeypatch.setattr(agent, "_call_image_model", lambda _key, _prompt, **_k: _png_bytes())
     monkeypatch.setattr(
         agent, "_evaluate_images_vision",
         lambda _variants, _title, _facts="": {"passed": True, "recommended_winner": 1},
@@ -37,7 +37,7 @@ def test_art_director_generates_three_variants_and_featured_image(tmp_path: Path
     result = agent.process_task(task)
 
     assert result.success
-    assert result.output["generated_with"] == "stability_api_core"
+    assert result.output["generated_with"] == "gemini-3.1-flash-image"
 
     # Images written to src/assets/images/{recipe_id}/{generation_id}/round_1/{variant}.png
     generation_id = result.output["generation_id"]
@@ -58,10 +58,10 @@ def test_art_director_generates_three_variants_and_featured_image(tmp_path: Path
     assert featured.exists()
 
 
-def test_art_director_fails_without_stability_key(tmp_path: Path, monkeypatch) -> None:
+def test_art_director_fails_without_google_key(tmp_path: Path, monkeypatch) -> None:
     agent = create_agent("art_director")
     monkeypatch.setattr(agent, "_repo_root", lambda: tmp_path)
-    monkeypatch.delenv("STABILITY_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
 
     task = Task(
         type="photograph_recipe",
@@ -69,14 +69,14 @@ def test_art_director_fails_without_stability_key(tmp_path: Path, monkeypatch) -
         context={"recipe_id": "missing-key", "recipe_data": {"title": "No Key Muffins"}},
     )
 
-    with pytest.raises(RuntimeError, match="STABILITY_API_KEY"):
+    with pytest.raises(RuntimeError, match="GOOGLE_API_KEY"):
         agent.process_task(task)
 
 
 def _run_photograph(agent, tmp_path, monkeypatch, extra_context=None):
     monkeypatch.setattr(agent, "_repo_root", lambda: tmp_path)
-    monkeypatch.setenv("STABILITY_API_KEY", "test-key")
-    monkeypatch.setattr(agent, "_call_stability", lambda _key, _prompt, variant=None: _png_bytes())
+    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+    monkeypatch.setattr(agent, "_call_image_model", lambda _key, _prompt, **_k: _png_bytes())
     monkeypatch.setattr(
         agent, "_evaluate_images_vision",
         lambda _variants, _title, _facts="": {"passed": True, "recommended_winner": 1},

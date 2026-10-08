@@ -179,7 +179,8 @@ Vercel via the Doppler → Vercel integration (set up once).
 
 | Secret | Purpose | Doppler config |
 |--------|---------|----------------|
-| `STABILITY_API_KEY` | Stability AI image generation | `prd`, `stg` |
+| `GOOGLE_API_KEY` | Gemini image generation (Wednesday photos) | `prd`, `stg` |
+| `STABILITY_API_KEY` | Stability AI, used only by `scripts/direct_harvest.py` since #8068 | `prd`, `stg` |
 | `OPENAI_API_KEY` | `gpt-5-mini` dialogue | `prd`, `stg` |
 | `GOOGLE_CLIENT_ID` | OAuth login | `prd`, `stg` |
 | `GOOGLE_CLIENT_SECRET` | OAuth login | `prd`, `stg` |

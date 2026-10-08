@@ -58,8 +58,8 @@ def _photograph(art_director, tmp_path, monkeypatch, evaluation):
     from backend.core.task import Task
 
     monkeypatch.setattr(art_director, "_repo_root", lambda: tmp_path)
-    monkeypatch.setenv("STABILITY_API_KEY", "test-key")
-    monkeypatch.setattr(art_director, "_call_stability", lambda *_a, **_k: b"png")
+    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+    monkeypatch.setattr(art_director, "_call_image_model", lambda *_a, **_k: b"png")
     monkeypatch.setattr("backend.agents.art_director._check_visual_diversity", lambda _p: True)
     calls = []
     monkeypatch.setattr(art_director, "_evaluate_images_vision",

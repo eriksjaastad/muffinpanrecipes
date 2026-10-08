@@ -194,9 +194,9 @@ def main() -> None:
             # Wednesday = Photography: generate 3 image variants, vision eval, optional reshoot
             recipe_data = ep["stages"].get("monday", {}).get("recipe_data", {})
             if dry_run:
-                # Skip Stability AI call in dry-run mode; use placeholders
+                # Skip the image model call in dry-run mode; use placeholders
                 # so downstream dialogue still gets image context.
-                print(f"{prefix}Skipping Stability AI photography (dry-run mode)")
+                print(f"{prefix}Skipping Gemini photography (dry-run mode)")
                 image_paths: list[str] = [
                     "placeholder_1.png",
                     "placeholder_2.png",
@@ -204,7 +204,9 @@ def main() -> None:
                 ]
                 stage_entry["photography_data"] = "dry-run-placeholder"
             else:
-                result = orchestrator._execute_stage_photography(recipe_id, recipe_data)
+                result = orchestrator._execute_stage_photography(
+                    recipe_id, recipe_data, episode_id=args.episode,
+                )
                 # result is now a full dict with rounds, vision eval, winner, selected_shots
                 image_paths = result.get("selected_shots", []) if isinstance(result, dict) else []
                 stage_entry["photography_data"] = result

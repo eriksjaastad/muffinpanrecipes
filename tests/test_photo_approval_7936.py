@@ -1078,6 +1078,30 @@ def test_wednesday_registers_the_request_before_one_photos_ready_alert(tmp_path)
     assert wed["photo_review"]["notification"]["status"] == "sent"
 
 
+def test_wednesday_passes_the_episode_id_so_the_pan_follows_the_week(tmp_path):
+    store = _Store()
+    orch = MagicMock()
+    orch.return_value._execute_stage_photography.return_value = _photography_result(tmp_path, "g20261007T000000Z-abcdef")
+    run = _wednesday(store, tmp_path, orch=orch)
+    assert run.error is None
+    _, kwargs = orch.return_value._execute_stage_photography.call_args
+    assert kwargs["episode_id"] == EP_ID
+
+
+def test_a_shoot_out_of_time_fails_the_wednesday_stage_and_alerts(tmp_path):
+    from backend.agents.art_director import ShootBudgetExceeded
+
+    store = _Store()
+    orch = MagicMock()
+    orch.return_value._execute_stage_photography.side_effect = ShootBudgetExceeded("image budget (180s) exhausted")
+    run = _wednesday(store, tmp_path, orch=orch)
+    assert run.error is not None
+    wed = store.get(EP_ID)["stages"]["wednesday"]
+    assert wed["status"] == "failed"
+    assert "image budget" in str(wed.get("error", ""))
+    assert run.failure.called
+
+
 def test_wednesday_rerun_voids_the_approval_and_uses_new_urls(tmp_path):
     store = _Store()
     _wednesday(store, tmp_path, generation="g20261007T000000Z-aaaaaa")

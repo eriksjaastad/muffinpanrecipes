@@ -17,4 +17,4 @@ health:
 	doppler run -- uv run python scripts/health_check.py
 
 preflight:
-	doppler run -- sh -lc 'if [ -n "$$STABILITY_API_KEY" ]; then echo "STABILITY_API_KEY: present"; else echo "STABILITY_API_KEY: missing"; exit 1; fi'
+	doppler run -- sh -lc 'if [ -n "$$GOOGLE_API_KEY" ]; then echo "GOOGLE_API_KEY: present"; else echo "GOOGLE_API_KEY: missing"; exit 1; fi'

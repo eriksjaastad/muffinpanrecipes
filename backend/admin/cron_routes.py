@@ -12,7 +12,7 @@ Unauthorized requests are rejected with 401.
 
 Timeout budget:
   - monday/tuesday/thursday/friday/saturday/sunday: ~30-60s (OpenAI dialogue)
-  - wednesday: ~3-4 min (3x Stability AI images + dialogue)
+  - wednesday: ~3-4 min (3x Gemini images + dialogue)
   Vercel Pro plan allows up to 300s function timeout — set in vercel.json.
 
 Usage:
@@ -2834,7 +2834,9 @@ async def cron_wednesday(request: Request):
         # active_recipes check removed: orchestrator is per-request, so list is always empty
         orchestrator.pipeline.start_recipe(recipe_id, concept)
 
-        photography_result = orchestrator._execute_stage_photography(recipe_id, recipe_data)
+        photography_result = orchestrator._execute_stage_photography(
+            recipe_id, recipe_data, episode_id=episode_id,
+        )
         # photography_result is now a full dict with rounds, vision eval, winner, selected_shots
         image_paths: list[str] = photography_result.get("selected_shots", []) if isinstance(photography_result, dict) else []
 
