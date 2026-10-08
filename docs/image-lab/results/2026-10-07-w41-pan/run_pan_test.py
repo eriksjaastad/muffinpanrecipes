@@ -131,22 +131,28 @@ def main() -> None:
 
     stability_key = os.environ["STABILITY_API_KEY"]
     google_key = os.environ["GOOGLE_API_KEY"]
+    failures = []
     for arm, variant, prompt in plan:
-        dest = out / f"{arm}_{variant}.png"
-        if dest.exists():
-            print(f"skip {dest.name} (exists)")
+        stem = out / f"{arm}_{variant}"
+        existing = [p for p in (stem.with_suffix(".png"), stem.with_suffix(".jpg")) if p.exists()]
+        if existing:
+            print(f"skip {existing[0].name} (exists)")
             continue
         try:
             if arm == "C":
                 data = generate_nano_banana_image(prompt, google_key, model=GEMINI_MODEL)
             else:
                 data = call_stability(stability_key, prompt, variant)
-        except Exception as exc:  # report and continue; no retries
+        except Exception as exc:  # attempt every arm, no retries, then exit nonzero
             print(f"FAILED {arm} {variant}: {exc}")
+            failures.append(f"{arm} {variant}")
             continue
+        # Gemini answers with JPEG and Stability with PNG; name the file by its bytes.
+        dest = stem.with_suffix(".png" if data.startswith(b"\x89PNG\r\n\x1a\n") else ".jpg")
         dest.write_bytes(data)
         print(f"wrote {dest.name} ({len(data)} bytes)")
-
+    if failures:
+        raise SystemExit(f"incomplete comparison, {len(failures)} arm image(s) failed: {', '.join(failures)}")
 
 if __name__ == "__main__":
     main()
