@@ -112,6 +112,11 @@ def main() -> None:
     if out.exists() and any(out.iterdir()):
         raise SystemExit(f"{out} is not empty; give each run a fresh output directory")
     out.mkdir(parents=True, exist_ok=True)
+    if not args.dry_run:
+        # Check every key before the paid photographer call and the plan write.
+        missing = [k for k in ("STABILITY_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY") if not os.environ.get(k)]
+        if missing:
+            raise SystemExit(f"missing env: {', '.join(missing)}")
 
     ad = ArtDirectorAgent  # the prompt builder only reads class constants
     material, reason = pick_pan(args.dry_run)
@@ -145,6 +150,10 @@ def main() -> None:
                 data = call_stability(stability_key, prompt, variant)
         except Exception as exc:  # attempt every arm, no retries, then exit nonzero
             print(f"FAILED {arm} {variant}: {exc}")
+            failures.append(f"{arm} {variant}")
+            continue
+        if not data:
+            print(f"FAILED {arm} {variant}: empty image body")
             failures.append(f"{arm} {variant}")
             continue
         # Gemini answers with JPEG and Stability with PNG; name the file by its bytes.
