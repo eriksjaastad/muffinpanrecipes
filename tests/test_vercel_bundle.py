@@ -14,6 +14,7 @@ duplicate check switched off.
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -139,3 +140,69 @@ def test_scratch_is_excluded_because_the_hygiene_contract_does_not_cover_uploads
     this line keeps it out of a deploy.
     """
     assert ".scratch" in _ignored_directories()
+
+
+# --------------------------------------------------------------------------
+# Runtime data files (#8113).
+#
+# `backend/data/` ships whole: it is runtime data, re-included by name. A
+# later `*.md` rule silently took the Markdown back out of it, so every
+# character bio.md was missing from the Lambda and the dialogue prompt fell
+# back to a 600-character backstory with no error. The string checks above
+# cannot see an interaction between rules, so these evaluate .vercelignore
+# with git's own gitignore matcher, the semantics the Vercel CLI applies.
+# --------------------------------------------------------------------------
+
+
+def _vercel_ignored(paths: list[str], tmp_path: Path) -> set[str]:
+    """The subset of ``paths`` that .vercelignore excludes from the upload."""
+    repo = tmp_path / "rules"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True, timeout=30)
+    (repo / ".gitignore").write_text(VERCELIGNORE.read_text(encoding="utf-8"), encoding="utf-8")
+    for rel in paths:
+        target = repo / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.touch()
+    result = subprocess.run(
+        ["git", "-C", str(repo), "check-ignore", "--no-index", "--stdin"],
+        input="\n".join(paths), capture_output=True, text=True, timeout=30,
+    )
+    # check-ignore exits 0 when something is ignored, 1 when nothing is.
+    assert result.returncode in (0, 1), result.stderr
+    return set(result.stdout.split())
+
+
+def _tracked_runtime_data() -> list[str]:
+    return sorted(
+        str(p.relative_to(ROOT))
+        for p in (BACKEND / "data").rglob("*")
+        if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc"
+    )
+
+
+def test_the_rule_evaluator_sees_markdown_exclusions(tmp_path: Path) -> None:
+    """Guard the guard: docs really are excluded, so an empty result below is real."""
+    assert _vercel_ignored(["docs/PRD.md", "RUNBOOK.md"], tmp_path) == {"docs/PRD.md", "RUNBOOK.md"}
+
+
+def test_every_runtime_data_file_ships(tmp_path: Path) -> None:
+    paths = _tracked_runtime_data()
+    assert any(p.endswith("bio.md") for p in paths), "no bios found; the check would be vacuous"
+    ignored = _vercel_ignored(paths, tmp_path)
+    assert not ignored, (
+        "these backend/data files are excluded from the Vercel upload, so the "
+        f"Lambda never sees them: {sorted(ignored)}"
+    )
+
+
+def test_every_bio_the_dialogue_prompt_loads_ships(tmp_path: Path) -> None:
+    from scripts.simulate_dialogue_week import CHARACTERS_DIR, _char_dir_slug, load_personas
+
+    bios = [
+        str((CHARACTERS_DIR / _char_dir_slug(name) / "bio.md").relative_to(ROOT))
+        for name in load_personas()
+    ]
+    missing = [b for b in bios if not (ROOT / b).exists()]
+    assert not missing, f"cast members without a bio.md: {missing}"
+    assert not _vercel_ignored(bios, tmp_path)
