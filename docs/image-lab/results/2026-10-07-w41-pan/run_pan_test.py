@@ -140,7 +140,7 @@ def main() -> None:
             continue
         try:
             if arm == "C":
-                data = generate_nano_banana_image(prompt, google_key, model=GEMINI_MODEL)
+                data = generate_nano_banana_image(prompt, google_key, model=GEMINI_MODEL, timeout_s=90)
             else:
                 data = call_stability(stability_key, prompt, variant)
         except Exception as exc:  # attempt every arm, no retries, then exit nonzero
