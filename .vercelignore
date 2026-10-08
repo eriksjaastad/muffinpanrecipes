@@ -8,6 +8,12 @@ docs/
 .agent/
 *.md
 !README.md
+# backend/data/ is runtime data and ships whole, Markdown included: the
+# dialogue prompt reads backend/data/characters/<slug>/bio.md. Without this
+# line the `*.md` rule above dropped every bio from the Lambda, and
+# _load_bio fell back to a truncated backstory with no error (#8113).
+# tests/test_vercel_bundle.py fails if any tracked backend/data file is ignored.
+!backend/data/**/*.md
 # Exclude generated images from upload: variant dirs (UUIDs) AND accumulated
 # top-level winner PNGs (~87MB of local runtime artifacts — canonical copies
 # live in Vercel Blob; on Lambda the art director writes to /tmp, never here).
