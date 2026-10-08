@@ -19,7 +19,7 @@ from typing import Any, Optional
 from backend.utils.logging import get_logger
 
 try:
-    from api_trust_tracker import track as _central_track
+    from api_cost_tracker import track as _central_track
 except ImportError:
     def _central_track(resp, *a, **kw):
         return resp

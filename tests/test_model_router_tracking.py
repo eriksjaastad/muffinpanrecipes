@@ -1,4 +1,4 @@
-"""api_trust_tracker instrumentation in the model router."""
+"""api_cost_tracker instrumentation in the model router."""
 
 from __future__ import annotations
 

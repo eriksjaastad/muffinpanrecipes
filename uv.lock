@@ -53,12 +53,12 @@ wheels = [
 ]
 
 [[package]]
-name = "api-trust-tracker"
-version = "0.1.1"
+name = "api-cost-tracker"
+version = "0.2.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/00/48/88ff41ecc5bd627c365d4d2b824855a38d7885a1c3e4985c1526ec6ebeaa/api_trust_tracker-0.1.1.tar.gz", hash = "sha256:60da08f4db44fbb78d087441ed49fff4b8a7b5a8762e9c7e44b1957d216614d3", size = 4458, upload-time = "2026-04-09T00:13:01.01Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b2/4c/39c24e4e3a8f8195d28e6e1f2bf0b5cf16dc4e8ffebc2ec87174153e3aba/api_cost_tracker-0.2.0.tar.gz", hash = "sha256:a53836d32ebaeb8c61e5a07c5c226e038bfecdb9ff19f460303c8671b6dc852f", size = 5776, upload-time = "2026-10-08T01:47:31.302Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/01/72/f84527b571da0be74eff24bd03a974d37278c3d835aa257827b65bcbf4b1/api_trust_tracker-0.1.1-py3-none-any.whl", hash = "sha256:cf7acd49d9caa2848d872e18fe8f25b2baa4ff36a583dd70b845d10e64b37821", size = 5712, upload-time = "2026-04-09T00:13:00.005Z" },
+    { url = "https://files.pythonhosted.org/packages/a8/26/20a84be7a400f0aeb859fc6facac83dcaab8ce05f1baef0bfe7ccec70638/api_cost_tracker-0.2.0-py3-none-any.whl", hash = "sha256:298c4411995e2128868773e2cedf90513c3a8601a0a445f11290b9f864d4954a", size = 6958, upload-time = "2026-10-08T01:47:32.2Z" },
 ]
 
 [[package]]
@@ -895,7 +895,7 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
-    { name = "api-trust-tracker" },
+    { name = "api-cost-tracker" },
     { name = "black" },
     { name = "deptry" },
     { name = "mypy" },
@@ -913,7 +913,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", specifier = ">=0.39.0" },
-    { name = "api-trust-tracker", marker = "extra == 'dev'", specifier = ">=0.1.0" },
+    { name = "api-cost-tracker", marker = "extra == 'dev'", specifier = ">=0.2.0" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
     { name = "boto3", specifier = ">=1.35.0,<2.0.0" },
     { name = "deptry", marker = "extra == 'dev'", specifier = ">=0.20.0" },

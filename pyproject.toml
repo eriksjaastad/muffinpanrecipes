@@ -23,7 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "api-trust-tracker>=0.1.0",
+    "api-cost-tracker>=0.2.0",
     "black>=23.0.0",
     "deptry>=0.20.0",
     "ruff>=0.1.0",
