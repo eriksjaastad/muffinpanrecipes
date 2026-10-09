@@ -148,8 +148,6 @@ life_events: [{ agent_id: string, event: string, impact: string }]
 
 ### Recipe Pipeline
 
-**See full workflow diagram:** [Documents/WORKFLOW_DIAGRAM.md](Documents/WORKFLOW_DIAGRAM.md)
-
 **Summary of 7-Stage Pipeline:**
 
 | Stage | Agent | Function |
