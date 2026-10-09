@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from backend.admin import cron_routes
+from backend.admin.cron import editorial_qa
 from backend.utils import recipe_copy
 from backend.utils.recipe_copy import (
     INTRO_PLACEHOLDER,
@@ -293,7 +294,7 @@ def test_sunday_auto_fix_never_drops_or_rewrites_marcus_intro_or_the_pitch(fixer
         fixed["description"] = fixer_description
     episode = _week({"title": "Spiral Cups", "pitch": PITCH, "description": INTRO,
                      "ingredients": [{"item": "flour", "amount": "2 cups"}], "instructions": ["Bake."]})
-    with patch.object(cron_routes, "generate_response", return_value=json.dumps(fixed)):
+    with patch.object(editorial_qa, "generate_response", return_value=json.dumps(fixed)):
         assert cron_routes._auto_fix_recipe(episode, "STATUS: FAIL\nISSUES:\n  - quantity mismatch") is True
     recipe = episode["stages"]["monday"]["recipe_data"]
     assert recipe["description"] == INTRO and recipe["pitch"] == PITCH

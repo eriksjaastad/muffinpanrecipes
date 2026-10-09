@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 
 
-from backend.admin.cron_routes import _RECIPE_FIX_SYSTEM_PROMPT
+from backend.admin.cron.editorial_qa import _RECIPE_FIX_SYSTEM_PROMPT
 from backend.utils.recipe_prompts import (
     _build_recipe_system_prompt,
     _build_recipe_user_prompt,
