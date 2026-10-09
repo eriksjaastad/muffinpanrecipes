@@ -6,12 +6,9 @@ An AI-driven experimental recipe platform focused exclusively on "Muffin Tin Mea
 > **The Vision:** "If it fits in a muffin pan, it belongs here."
 > **Core Tenets:** Encapsulation, Structural Layering, Modular Scalability, and Medium-Agnosticism (Oven, Fridge, Freezer).
 
-## 🏗️ Architectural Decisions (ADR Summary)
+## 🏗️ Decisions
 
-- **AD 001: Pre-rendered pages** - Recipe pages are rendered when a week publishes and served as static, mobile-first HTML (vanilla CSS). Episode data lives in Vercel Blob.
-- **AD 002: Manual Vercel deploys** - Deploy a preview, health-check it, then promote it; see [DEPLOYMENT.md](DEPLOYMENT.md).
-- **AD 003: "No-Fluff" UI** - Prioritizes "Jump to Recipe" and core content; eliminates clutter common in food blogs.
-- **AD 004: Vercel Root Directory** - `src/` is the web root to keep scripts and raw data private.
+Architectural decisions, including the founding ones, are in [DECISIONS.md](DECISIONS.md).
 
 ## 🚀 Quick Start
 
@@ -40,7 +37,7 @@ python3 -m venv venv
 ### Development
 1. Clone the repository.
 2. Run the bootstrap steps above.
-3. Open `src/index.html` in your browser to view the prototype.
+3. Run the app with its secrets: `doppler run -- uv run python -m backend.admin.app` (see below).
 
 ### Secrets Runtime (Doppler)
 
@@ -54,10 +51,11 @@ doppler run -- uv run python -m backend.admin.app
 
 ## 🛠️ Project Structure
 
-- `backend/` - [AI Creative Team Orchestration](backend/README.md) (Python/FastAPI)
-- `src/` - [Static Site Source](src/README.md) (HTML/Tailwind/Recipes)
-- `scripts/` - [Automation & Image Pipeline](scripts/README.md) (Python/Shell)
-- `data/` - Recipe storage and simulation logs
+- `backend/` - the FastAPI app: the Mon-Sun cron stages (`admin/cron_routes.py`), storage, rendering and the admin dashboard
+- `src/` - the static site: committed published pages, `recipes.json`, the sitemap and CSS
+- `scripts/` - the dialogue engine (`simulate_dialogue_week.py`), the conversation lab, health checks and operator tools; each has a module docstring or `--help`
+- `data/` - local data and seed recipes
+- `docs/` - product, creative and lab documents (see [docs/README.md](docs/README.md))
 
 ## 📡 Image Generation
 Wednesday's cron shoots the week's photos with Gemini (`backend/agents/art_director.py`), each

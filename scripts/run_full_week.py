@@ -29,6 +29,14 @@ Usage:
 
     # Dry run (check current state only)
     doppler run --config prd -- uv run python scripts/run_full_week.py --dry-run
+
+Test mode fires the REAL cron routes at --base-url (production by default)
+with ``test=true`` in each body, and makes real paid calls. The handlers'
+``_test_mode_scope`` puts every write under the ``test/`` Blob prefix, so
+the episode lands at ``test/episodes/test-YYYYMMDD-HHMMSS.json`` and its
+images under ``test/images/``; production paths are untouched.
+``--cleanup`` deletes every blob under ``test/``. Prefer a preview deploy
+for --base-url.
 """
 
 from __future__ import annotations

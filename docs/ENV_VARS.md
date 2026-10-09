@@ -49,9 +49,9 @@ Single source of truth for every environment variable the muffinpanrecipes codeb
 |---|---|---|---|---|
 | `DIALOGUE_MODEL` | R | `backend/config.py` (`dialogue_model`), `scripts/run_pipeline_stage.py` | none for the app: `config.dialogue_model` raises if unset (Doppler prd sets `anthropic/claude-haiku-4-5`); `run_pipeline_stage.py` alone falls back to `openai/gpt-5-mini` | Dialogue generation model |
 | `CONCEPT_MODEL` | O | `scripts/pick_concept.py:672` | falls back to `config.dialogue_model` | Optional override for the concept-brainstorm model; unset means "use whatever dialogue is using" |
-| `RECIPE_MODEL` | O | `backend/config.py:137`, `backend/agents/baker.py:201,253`, `creative_director.py:84,136,170`, `copywriter.py:164,224` | `openai/gpt-5-mini` | Recipe content model (baker + creative director + copywriter) |
+| `RECIPE_MODEL` | R | `backend/config.py` (`recipe_model`), used by the baker, creative director and copywriter agents | none: `config.recipe_model` raises if unset | Recipe content model (baker + creative director + copywriter) |
 | `JUDGE_MODEL` | O | `backend/config.py` (`judge_model`) | `anthropic/claude-sonnet-4-6` when unset | Dialogue QA judge |
-| `VISION_EVAL_MODEL` | O | `backend/agents/art_director.py:28` | `openai/gpt-5-mini` | Image round quality evaluator |
+| `VISION_EVAL_MODEL` | O | `backend/agents/art_director.py` (`_VISION_MODEL`) | `openai/gpt-5-mini` | Image round quality evaluator |
 | `OPENAI_MODEL_ALLOWLIST` | O | `backend/utils/model_router.py:205` | unset → permissive | Comma-separated whitelist of OpenAI models the router may use |
 | `ANTHROPIC_MODEL_ALLOWLIST` | O | `backend/utils/model_router.py:223` | unset → permissive | Same for Anthropic |
 | `GOOGLE_MODEL_ALLOWLIST` | O | `backend/utils/model_router.py:241` | unset → permissive | Same for Google |

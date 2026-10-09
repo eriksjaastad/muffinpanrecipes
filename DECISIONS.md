@@ -1,3 +1,35 @@
+## Founding Decisions (2026-01)
+
+Folded in from the original ADR list (README and `_docs_archive/core/ARCHITECTURAL_DECISIONS.md`, #8144).
+
+### 2026-01-03: The muffin pan is the product's constraint
+
+**Decision:** Only muffin-tin meals. The pan is a rigid, modular vessel: every meal is a self-contained unit; the vessel allows layering (a bacon strip as a basket for an egg); what fits one cup fits twelve; and it works in the oven, fridge and freezer alike.
+
+**Status:** In effect. The Monday muffin-pan form gate (`backend/utils/muffin_pan_form.py`) enforces it.
+
+### 2026-01-03: Static pages, fast and mobile-first (AD 001)
+
+**Decision:** Serve recipes as static HTML; originally Tailwind, with recipes stored as Markdown.
+
+**Status:** Superseded in its details. Pages use vanilla CSS, episode data lives in Vercel Blob, and published pages are committed static artifacts with a Lambda fallback (2026-09-05, #6684, below).
+
+### 2026-01-03: Deploy on every push via Vercel's GitHub integration (AD 002)
+
+**Status:** Superseded. Auto-deploy is off; deploys are manual (preview, health check, promote) and capped at 5 a day. See `DEPLOYMENT.md`.
+
+### 2026-01-03: "No-fluff" recipe pages (AD 003)
+
+**Decision:** Put "Jump to Recipe" and the ingredients and instructions first; no long preambles.
+
+**Status:** In effect.
+
+### 2026-01-04: `src/` as the Vercel root directory (AD 004)
+
+**Decision:** Make `src/` the web root so scripts and raw data are never served.
+
+**Status:** Superseded in mechanism. `vercel.json` sits at the repo root and builds `src/**` as static files plus the FastAPI Lambda; `.vercelignore` decides what is uploaded. Scripts and data are still not served as pages.
+
 ## Project-Specific Decisions (Post-Scaffold)
 
 ### 2026-02-25: Branch-only execution for Codex changes
