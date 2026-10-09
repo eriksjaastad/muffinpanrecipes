@@ -34,7 +34,7 @@ def generate_recipe(
     Args:
         concept: Recipe concept (e.g. "Savory Breakfast Egg Muffins")
         personality_context: Baker's personality dict (name, backstory, quirks, core_traits)
-        model: Override model (default: RECIPE_MODEL env var or openai/gpt-5-mini)
+        model: Override model (default: config.recipe_model, i.e. RECIPE_MODEL; raises if unset)
         target_category: If set, steer the LLM toward this category
                          (e.g. "Party", "Breakfast", "Sweet", "Savory")
         recent_cuisines: Recently published cuisines to steer away from,
@@ -419,7 +419,7 @@ def generate_description(
         recipe_data: Full recipe dict (ingredients, instructions, etc.).
         personality_context: Copywriter's personality dict.
         target_word_count: Requested word count (Marcus will exceed this).
-        model: Override model (default: RECIPE_MODEL env var or openai/gpt-5-mini).
+        model: Override model (default: config.recipe_model, i.e. RECIPE_MODEL; raises if unset).
 
     Returns:
         Dict with body, word_count, quality, etc.

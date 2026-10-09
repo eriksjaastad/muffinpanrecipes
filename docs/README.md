@@ -19,7 +19,6 @@ Product, creative, lab and research documents for muffinpanrecipes.
 - `CREATIVE_BIBLE.md`: the characters, their voices and the content rules
 - `DIRECTION.md`: the current direction
 - `ENV_VARS.md`: every environment variable the code reads
-- `COMPRESSED_TIMELINE_SPEC.md`: the compressed-week test harness
 - `OPENCLAW_PREFLIGHT.md`: the Doppler presence preflight before env-dependent runs
 - `conversation-lab/`: the dialogue lab. Read `DIALS.md` before proposing any dialogue change; `EXPERIMENTS.md` records what has been tried.
 - `image-lab/results/`: image experiments, with their evidence
