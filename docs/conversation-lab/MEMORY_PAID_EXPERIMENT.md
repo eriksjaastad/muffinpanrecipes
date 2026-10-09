@@ -2,7 +2,7 @@
 
 This is the guarded execution layer for the frozen, offline W35 artifact made
 by [`scripts/memory_write_experiment.py`](../../scripts/memory_write_experiment.py), following the prompt
-design in [`MEMORY_WRITE_EXPERIMENT.md`](MEMORY_WRITE_EXPERIMENT.md). Its normal mode only verifies the
+design in the `scripts/memory_write_experiment.py` docstring. Its normal mode only verifies the
 artifact and prints a 12-request plan. It does not import or instantiate the
 Anthropic client. Paid execution requires `--execute`, the exact artifact
 SHA-256, a new ledger path, and a new checkpoint path. No calls have been run

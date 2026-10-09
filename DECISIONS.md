@@ -141,3 +141,13 @@ Folded in from the original ADR list (README and `_docs_archive/core/ARCHITECTUR
 **Reasoning:** The 09-05 reasoning — "if everything emails, the channel dies the way Discord did" — was defending against a volume problem this project does not have. There are six `send_alert` call sites in the entire codebase: two `critical`, one `warning`, three `info`. A normal week is one to three emails. Against that, the filter cost a full publishing week, which on an SEO play built on weekly cadence is the expensive failure. The rule going forward is inverted: if an alert would be noise in an inbox, do not send that alert — do not add a severity filter back.
 
 **Alternatives considered:** Raising `notify_judge_failure` to `critical` (rejected: fixes one call site and leaves the same trap for the next `warning` alert someone adds, and the severity is honest — the pipeline stopped deliberately at a quality gate). Keeping the filter but adding a digest of non-critical alerts (rejected: more machinery than six call sites justify).
+
+### 2026-04-15: Dependency audit - nothing removed; test frameworks do not belong in runtime deps (#5813)
+
+**Context:** Report-only audit of the 15 direct runtime dependencies in `[project.dependencies]`, classified by grep evidence (grep outranked `deptry`). Result: 13 KEEP, 2 INVESTIGATE, 0 REMOVE.
+
+**Decision:** No dependency was removed. The two INVESTIGATE rows were `pytest` and `hypothesis`: imported only under `tests/`, never from `backend/` or `scripts/`, so they belong in a dev group, not in the Vercel Lambda bundle. `deptry` also flagged `jinja2` as unused (DEP002), a false positive: its only import is `fastapi.templating.Jinja2Templates`, which needs `jinja2` at import time while FastAPI does not declare it, so removing it would break `backend/admin/app.py`. Other `deptry` noise was dev tooling plus dangling `router`/`scaffold`/`botocore` imports in four scripts (`art_director.py`, `generate_image_prompts.py`, `validate_project.py`, `trigger_generation.py`), not runtime dependencies. The audit also noted `requirements.txt` is regenerated on release with `uv export --no-dev --no-hashes --no-editable` and was stale against `pyproject.toml`.
+
+**Status:** `pytest` and `hypothesis` now live in `[dependency-groups].dev` in `pyproject.toml` (see the #6514 comment there), leaving 13 runtime dependencies. Adding `deptry` to CI was suggested and left open.
+
+Full log: `git show eb90b0f:docs/research/DEPENDENCY_AUDIT_5813.md`

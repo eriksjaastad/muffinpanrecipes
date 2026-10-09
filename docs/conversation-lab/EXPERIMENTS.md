@@ -593,6 +593,133 @@ Erik's `pairs --show` read. All of that exists already and none of it was run
 here. Attribution is also unavailable by construction: swapping the model changes
 everything at once.
 
+## Folded-in research logs (#8144)
+
+These entries were `docs/research/*.md` and `docs/conversation-lab/{SPEAKER_ATTRIBUTION,MEMORY_*}.md` until #8144 folded them here so prior results sit in one findable place. Numbers are copied from the source logs unchanged. Every entry ends with the `git show` command that prints the original, pinned to commit `eb90b0f`. The mechanics of the memory scripts (inputs, flags, guards) moved into those scripts' module docstrings; only the experiment design and results are here.
+
+### 2026-03-03 to 2026-03-04 — Dialogue bookends: opener/closer directives v1 to v3
+
+What was tested: character-driven opening greetings and closing sign-offs for each day's conversation, with no extra messages (only better direction of the first and last turns that already exist). Code: `_DAY_OPENER_CONTEXT`, `_DAY_CLOSER_CONTEXT`, `_CHARACTER_EXAMPLE_MESSAGES`, and `is_last_turn` in `generate_turn()` of `scripts/simulate_dialogue_week.py`. No card number in the source. Setup: full-week runs; Tests 1-4 one run each, Test 5 three runs.
+
+- Test 1, GPT-5.1, v1 soft directives ("Start with a brief, natural greeting or arrival moment..."; "Wrap up naturally..."), Mini Shepherd's Pies: openers ~60% (4 clear, 1 borderline, 2 missed), closers ~15% (1 clear, 1 borderline, 5 missed), QA 75. Models summarized decisions and forgot to say goodbye; openers failed where voice dominated (Margaret, Steph). Decision: tighten the language before switching models.
+- Test 2, GPT-5.1, v2 explicit structure ("STRUCTURE: Your FIRST sentence must be a greeting...", "Your FINAL sentence must be a goodbye", with concrete examples such as "logging off"), same concept: openers ~70% (5 clear, 1 borderline, 1 missed), closers ~70% (5 of 7), QA 76. Devon's "efficient" voice resisted the greeting; Margaret closed 5 of 7 days.
+- Test 3, claude-sonnet-4-6, v2, same concept: openers ~70%, closers ~70%, QA 66 (10 below GPT-5.1's 76). Marcus's closers echoed the directive examples (the source table: Mon "Good brainstorm today, heading out.", Tue "Good session, see you tomorrow.", Thu "Good session, heading out."; its prose calls this repetition): the examples over-anchored. Friday Devon's closer was just "both" (possible degenerate output; not investigated).
+- Test 4, GPT-5.1, v2, Brown Butter Pecan Tassies (variance check): openers ~60% (4 clear, 1 borderline, 2 missed), closers ~57% (4 of 7), QA 76. The source concludes Test 2's 70/70 "was partially lucky"; characters with efficient or anxious voices (Margaret, Devon, Steph) resisted most.
+- Test 5, GPT-5.1, v3 few-shot anchoring, Tassies, 3 runs (21 day-runs): openers 20/21 = 95%, closers 18/21 = 86%, QA 78-80 on the two valid runs (Run 1 had qa=0 / `real_inference=False`, a probable template fallback, and is called unreliable). v3 = 3 example messages per character with the LAST always a greeting/arrival ("Last Example Weight"), motivation-based opener ("You just arrived. Your first words should reflect that arrival in YOUR voice."), and character-filtered closer ("You're leaving. End with a departure in YOUR voice.") with the prescriptive sign-off examples removed.
+
+| Metric | v1 (soft) | v2 (explicit) | v2 (diff concept) | v3 (few-shot) |
+|---|---|---|---|---|
+| Openers | ~60% | ~70% | ~60% | **95%** |
+| Closers | ~15% | ~70% | ~57% | **86%** |
+| QA Score | 75 | 76 | 76 | 78-80 |
+| Sample size | n=14 | n=14 | n=14 | n=42 |
+
+Caveats the source states: Test 5 misses were Run 1 Tuesday opener (Margaret, "New plan for today:"), Run 1 Mon/Tue closers (Marcus, pure summaries) and Run 2 Monday closer (Steph, conditional plan); Marcus's remaining failure is that his voice guide ("always one sentence too many") makes his last sentence another thought, not a goodbye. Bookend compliance did not move QA in v1 to v2 (75 to 76). The v3 ideas came from a Gemini Deep Research essay (its "Last Example Weight", "Internal Motivation" and "Character-filtered sign-offs" sections), described as "confirmed effective" by Test 5.
+
+Recommendations / open items in the source: Test 6 (Gemini comparison, pending API key) and Test 7 (Marcus-specific closer example, "if we want to push past 86%") were both unchecked. The source does not say whether v3 shipped; the anti-repetition log below ran with v3 directives.
+
+Full log: `git show eb90b0f:docs/research/BOOKEND_TESTING_LOG.md`
+
+### 2026-03-05 — Self-awareness anti-repetition and concept-aware phrase scoring (#5031)
+
+What changed: `generate_turn()` in `simulate_dialogue_week.py` now shows each character what they already said that day ("You already said today: ... Do NOT repeat these phrases, ideas, or sentence structures. Say something new."). Setup: concept Jalapeno Corn Dog Bites, v3 bookend directives, 3 full-week GPT-5.1 runs plus 1 Claude Haiku 4.5 run.
+
+| Run | QA | Prohibited | Cross-char penalty | Notes |
+|---|---|---|---|---|
+| GPT-5.1 #1 | 81 | 0 | 20 | Strong bookends, good voice variety |
+| GPT-5.1 #2 | 75 | 0 | 20 | Marcus "logging off" closer works |
+| GPT-5.1 #3 | 64 | 1 | 20 | one prohibited phrase, 2 formal-name uses |
+| GPT-5.1 avg | **73** | | | |
+| Haiku #1 | 78 | 0 | 20 | voice-pattern bonus 6 vs 2, rhythm 35 vs 20, conflict bonus 5 vs 2 |
+
+Against the pre-anti-repetition v3 runs (BOOKEND Test 5): QA 78-80 without, 73 with (GPT-5.1 avg), 78 Haiku; openers 95% / ~95% (visual check) / ~85%; closers 86% / ~90% (visual check) / ~70%.
+
+Findings and the QA scorer fix:
+- The 20-point cross-character phrase penalty was a false positive in every run: characters repeat the recipe name. Fix: `_cross_char_phrase_penalty()` now excludes the concept name, Unicode-normalized (jalapeno / jalapeño).
+- Re-scored with the fix: GPT-5.1 #1 81 to 92 (penalty 9, was 20); #2 stays 75 and #3 stays 64 (penalty 20, "genuinely repetitive"); Haiku #1 stays 78 (penalty 20, after accent normalization). Fresh runs with both fixes: GPT-5.1 89 and 77 ("some genuine cross-char repetition remains").
+- Anti-repetition "is working but hard to A/B quantitatively": it stops the "Love it Marcus" broken-record problem, but QA was slightly lower (73 vs 78-80). The source offers two explanations, less varied voice-pattern matching or run variance (n=3 is small), and tests neither.
+- One Haiku hallucination: Margaret said "brown butter" on Sunday (wrong recipe). Margaret occasionally skips greetings (voice-guide conflict). GPT-5.1 QA spread 64-81 over three runs is wide.
+
+Limits of the setup: n=3 GPT-5.1 and n=1 Haiku, one concept; the ~95% and ~90% opener/closer figures for GPT-5.1 are labelled visual checks in the source. Open items from the source (unchecked): more Haiku runs (n=3) for confidence, consider Haiku for cheaper daily runs, investigate remaining cross-character repeats ("just make sure", "state fair vibes").
+
+Full log: `git show eb90b0f:docs/research/ANTI_REPETITION_TEST_RESULTS.md`
+
+### 2026-03-05 — GPT-5.1 vs Claude Haiku 4.5, generation model head-to-head
+
+Setup: concept Jalapeno Corn Dog Bites; v3 bookend directives + anti-repetition + concept-aware QA scoring; GPT-5.1 n=5, Haiku 4.5 n=7. The 2026-09-23 voice-distinctiveness report (below) states that this generation comparison really happened and that the March 14 model swap concerned compression; that corrects the banner at the top of this file, which says the generation model was never compared.
+
+| Metric | GPT-5.1 (n=5) | Haiku 4.5 (n=7) | Source's winner |
+|---|---|---|---|
+| QA mean | 77.2 | 77.9 | Tie |
+| QA stdev | 9.1 | **4.0** | Haiku |
+| QA range | 64-89 | 73-86 | Haiku (tighter) |
+| Prohibited hits | 0.2/run | 0/run | Haiku |
+| Formal name penalty | 0.8 | 0.6 | Haiku |
+| Rhythm variation | **40.6** | 36.6 | GPT-5.1 |
+| Voice pattern bonus | **7.6** | 5.4 | GPT-5.1 |
+| Conflict bonus | 4.8 | 4.6 | Tie |
+| Distinctiveness spread | **23.0** | 17.0 | GPT-5.1 |
+| Participation penalty | 3.6 | **3.1** | Haiku |
+
+Per-run QA: GPT-5.1 81, 75, 64, 89 (fresh), 77 (fresh); Haiku 78, 77, 73, 86, 78, 77, 76. Both models still trigger cross-character phrase penalties (~18-19 points average). GPT-5.1 top repeats: "corn dog bites" (12x), "jalapeno corn dog" (11x), mostly the recipe name. Haiku top repeats: "the bite shot" (3x), "the torn edge" (3x). No Haiku hallucinations in the 6 new runs (the "brown butter" slip from run 1 did not recur). Cost per 42-message run: GPT-5.1 ~$0.15-0.20 ($1.00 in / $3.00 out per M tokens), Haiku 4.5 ~$0.15-0.25 ($0.80 / $4.00), GPT-5-mini ~$0.05-0.08 ($0.30 / $1.20); the source calls GPT-5.1 and Haiku roughly equivalent in cost.
+
+Verdict in the source: Haiku is more consistent, GPT-5.1 has the higher ceiling (best 89 vs 86) and more distinct voices. Recommendation: Haiku 4.5 for production daily runs ("consistency > peak performance"; zero prohibited-phrase risk; similar cost); GPT-5.1 for special episodes or quality sweeps; GPT-5-mini not recommended (tested Mar 4, characters sound generic). The source does not say whether it shipped; the banner at the top of this file records Haiku 4.5 as the standing dialogue model.
+
+Coverage gaps the source states: Gemini blocked (no API key; needed #5034, add a Google/Gemini provider to `model_router`); Claude Sonnet only one run (QA 66, Mar 3), needs 5+; GPT-5-mini not in the head-to-head (Mar 4 run used a different scorer and was accidental). Earlier runs are not comparable (older scorer, other message counts): Feb 26 gpt-4o-mini 79-97 (14 messages, 5 concepts); Mar 3 gpt-5.1 Mini Shepherd's Pies 75-76; Mar 3 claude-sonnet-4-6 66; Mar 4 gpt-5.1 Brown Butter Pecan Tassies 76-80; Mar 4 gpt-5-mini 74-77.
+
+Full log: `git show eb90b0f:docs/research/MODEL_COMPARISON_REPORT.md`
+
+### 2026-09-22 — Speaker attribution baseline (leave-one-out content-word classifier)
+
+What was measured: whether word choice alone identifies the speaker in published transcripts. The method (per-week leave-one-out multinomial Naive Bayes on content words, candidate and exclusion rules) is documented in the `speaker_attribution` docstring in `scripts/conversation_metrics.py`. Run: `collect_corpus()` (`scripts/conversation_heatmap.py`) with `include_unpublished=False` and no week filter, against the prepared local corpus `.scratch/attribution-corpus/` (canonical local episode files plus refreshed CDN copies for W37, W38, W39).
+
+Headline: weighted weekly accuracy **26.85%** against weighted chance **17.16%**, over 26 published weeks. Equal-week macro accuracy **26.85%** against **17.18%** macro chance. 999 dialogue lines, 998 scored (99.9% coverage; W24 scored 39 of 40, 97.5%). Included weeks: W11, W13-W21, W23-W38 (26 weeks). Excluded: W12 and W39 as unpublished; W10 present but no dialogue; W22 absent. Candidates per week: 5 (W11, W13, W14, W24) or 6 (all others). Per-week accuracy ranges from 17.24% (W14, chance 20.00%) to 44.74% (W27, chance 16.67%); highest are W27 44.74%, W28 43.59%, W32 39.02%, W29 36.11%, W24 35.90%. Three weeks fall below chance: W11 17.95% (20.00%), W13 17.50% (20.00%), W14 17.24% (20.00%). Latest three weeks: W36 23.26%, W37 19.51%, W38 31.71%. The full 26-row per-week table (lines, scored/coverage, accuracy, chance, candidates) is in `results/speaker-attribution-baseline-20260922.json`, values rounded to four decimals. Weighted summaries weight each week by scored lines; macro summaries weight weeks equally; both summarize per-week models, not one model trained across all weeks.
+
+What this does not prove (source): a small same-week lexical prediction task, 29-44 lines per week, with differing candidate counts per week. A classifier can exploit recurring role language. The score says nothing directly about personality quality, voice consistency across weeks, or whether a reader would recognize a character without names. Treat the weekly values as a baseline for controlled experiments, not a quality grade. See the voice-distinctiveness entry below for what the metric does and does not capture.
+
+Full log: `git show eb90b0f:docs/conversation-lab/SPEAKER_ATTRIBUTION.md`
+
+### 2026-09-23 — Voice distinctiveness: evidence and next measurements (#7522)
+
+Research only, nothing spent; #7522 owns it, #7469 owns the lexical attribution metric (PR #126), #7521 records the future Haiku 4.5 / Opus 5.5 / large-DeepSeek comparison. It "does not establish a dialogue improvement or authorize a production change."
+
+Three separate questions, each needing its own evidence: (1) can a reader tell speakers apart within a scene (repeated speech, adequate coverage, blind reader judgments; job nouns or message lengths alone do not establish it); (2) does each speaker match the intended character (explicit references; within-scene separability alone does not establish it); (3) is the conversation worth reading (coherence, motivated disagreement, resolution, factual credibility, human preference; neither attribution accuracy nor rubric compliance alone). A consistent permutation of speaker names preserves anonymous separability yet can violate identity, so a test expecting scores to fall just because names changed tests the wrong property.
+
+Local evidence at source `2b426d40ca16ab0c603f023cb029afda2fc902ae`:
+- The pairwise judge merges separability and identity in one `voice_distinctiveness` description, but `_build_pairwise_prompt` supplies names, roster, recipe facts and transcripts, not character voice guides.
+- The 2026-09-23 W25 Thursday calibration (entry in the Experiments section above) used five turns, four speakers, only Marcus twice. `_rotate_speakers` shifts the sequence of turn labels, not a consistent mapping; all three seeds produce the same transformation, so three trials are not three different degraded conversations. The original result has three combined ties, and the code discarded completed pairs' orientation records, so a combined tie could be two explicit ties or order disagreement, and missing verdict fields can default to ties. The archived data cannot tell. Do not retroactively assign raw answers or claim the judge failed to see a proven degradation. Original artifacts stay unchanged.
+- The attribution baseline's 26.85% vs 17.16% is a lexical signal, not a voice-quality grade; role vocabulary can supply it. Offline probe of PR #126 source `e8af4ae928bb95b884ef2ef84b6e78e6717f1428`:
+
+| Constructed probe | Accuracy | Reading |
+|---|---:|---|
+| Three groups, deliberately different vocabularies | 100% | detects lexical separation |
+| Same messages, consistent anonymous renaming | 100% | does not establish identity fidelity |
+| Two speakers, identical sentence templates, different job nouns | 100% | topic alone can give a perfect score |
+| Same content-word bags, different word order | 50%, equal to chance | unigrams do not measure syntax |
+| Actual five-line W25 Thursday | unavailable; 2/5 lines scored | too little repeated-speaker evidence |
+
+Inputs, outputs and source hashes: `results/20260923-voice-attribution-audit.json` (rotation section keeps the exact original/rotated transcripts and shows identical outputs for seeds 1, 2, 3). To reproduce, load `speaker_attribution` from the recorded PR #126 source and call it on each scenario's `messages` (the W25 scenario uses `source_turns`).
+- `build_system_prompt` already supplies substantial character material (biography, contradictions, relationships, voice guide, examples, memories or first-week fallback, signature phrases, triggers); the four numeric traits are not rendered. The DIALS.md 2(c) denominator/coverage issue is #7430; its ratio is not used as evidence here. Wednesday's opener gets a predetermined photography winner and a later wind-down line says the decision is made; the photography path floors the scene at seven turns without a reshoot, ten with one (plausible limits on disagreement and resolution, not proof that longer dialogue or hidden information would help; see #7161, #7352; keep the authorization gate on automatic injected events).
+
+Research that fits (all "does not prove" for our case): InCharacter (Wang et al., ACL 2024) separates behavioral fidelity from surface recognizability, but its scales are not validated for this cast; CharacterEval (Tu et al., ACL 2024) says ground scores in reviewed human examples, not import its Chinese-language leaderboard; Topic Confusion Task (Altakrori et al., Findings of EMNLP 2021) says validate with same-topic characters and topic-shift controls; Shi et al. 2024 (arXiv 2406.07791) says keep both orientations and report order disagreement, since two orders with different winners are uncertain evidence even if our rule calls them a tie; PersonaWeaver (Qraitem et al., 2026 preprint) is a lead for #7161, vary how a character responds for a concrete reason instead of adding biography or catchphrases; SOTOPIA (Zhou et al., arXiv 2310.11667 and EMNLP 2024) shows omniscient simulation overstates performance, but recipe facts are needed for credibility, so it is not evidence that withholding them would help.
+
+Measurement plan before another quality claim: (1) make judge records inspectable (complete verdict fields, exact inputs, raw answers, arm mappings, both orientations, order disagreement reported separately; keep the conservative decision rule); (2) build a small reference set of real scenes and labelled synthetic controls (identical-pair ties, consistent renaming, inconsistent label mixing, same-topic different styles, different-topic same styles, weak/strong discourse), with expected outcomes treated as hypotheses; (3) Erik reviews character references and ambiguous examples, separate refinement and held-out cases, report valid-response coverage, order consistency, repeatability, agreement per property, thresholds chosen before spending; (4) freeze panel, prompts, model IDs, evaluator and rubric (a changed evaluator is a new scoring version; re-score a common saved set; the v3 panel and production eight-dimension scores stay the baseline); (5) only then resume one authorized prompt experiment, keeping #7472 (rules ablation), #7161 (behavior hypothesis), #6966 (unbound numeric traits) and #7521 (model tests) separate, under the shared $5 ledger.
+
+Historical correction: the March 5 generation comparison happened (five GPT-5.1 and seven Haiku 4.5 runs, entry above). The March 14 model comparison concerned compression. The September 17 high-reasoning Astra probe measured structure without a quality verdict. No isolated reasoning-effort experiment was found in the records read. The lab's empty completed-A/B table does not mean models or prompts were never tested. Model facts as of that date: Opus 5.5 released 2026-09-22; DeepSeek's API docs list `deepseek-v4-pro` and `deepseek-flash`; #7521 must identify the large-model deployment Erik uses before a test. Model and reasoning-effort comparisons are separate experiments with one fixed evaluator and explicit budgets before paid calls.
+
+Full log: `git show eb90b0f:docs/research/VOICE_DISTINCTIVENESS_2026-09-23.md`
+
+### 2026-09-23 — Character memory experiments (#7545): evidence pass, prompt dry run, paid pilot, chain plan
+
+Four stages, all scaffolding; no paid call and no memory-vs-no-memory result existed at the time of the source docs (2026-09-23/24). Mechanics live in the module docstrings of `scripts/memory_lab.py`, `memory_write_experiment.py` and `memory_chain_experiment.py`; the paid runner's are still in [`MEMORY_PAID_EXPERIMENT.md`](MEMORY_PAID_EXPERIMENT.md).
+
+- Stage 1, evidence pass (`memory_lab.py`): offline manifest over three completed weeks (the source suggests copies of W35, W36, W37). It is "preparation for these experiments, not evidence that any memory format improves the dialogue." Next-test questions, to be run holding the writer prompt and model fixed and varying one choice at a time: (1) what a character should notice (self-only, dialogue addressed to them, or all accepted dialogue they witnessed); (2) how perception should differ by role and personality while each claim stays traceable to source messages; (3) which length budget (80, 160, 300, then other justified values) carries continuity without crowding the dialogue prompt; (4) in later weeks, whether low-salience memories should be omitted from prompt selection while impactful ones stay available. Compare recall accuracy, continuity of opinions and relationships, voice, and rendered prompt cost. Treat fading as a selection policy and keep the underlying source and memory record. Prior finding the source cites: full raw-history prompting performed worse than curated highlights, and forced callbacks sounded unnatural, so memories should help when relevant rather than require a callback. Adding the canonical roster and explicit addressed-to detection are separate measured choices.
+- Stage 2, W35 prompt dry run (`memory_write_experiment.py`): six A/B prompt pairs (one per character), model planned `claude-haiku-4-5-20251001`, 80-120 token memory-prose target, 220-token response cap. The two arms are bundled memory-writing policies: A = two-sentence third-person recap plus an evidence map; B = source-linked perspective card (Observed / Inference / Stance / Open thread). They differ in structure, perspective, content requirements and citation obligations together, so any gain belongs to the bundle and "cannot identify which individual mechanism caused it"; it is not a format-only test. Length handling in a future paid run: keep `usage.output_tokens` as the billable count; measure prose separately with the same extraction and `count_tokens` method in both arms minus the empty-message baseline (call it normalized prose length); compare quality only at matched prose lengths and report unmatched outputs separately; never pad an unsupported memory to hit the band. The W35 prompt artifact used for sizing has SHA-256 `1919bcd838743d4c53678672fa53848ec66e84040f51c21393db1251a36a5e52`.
+- Stage 3, guarded paid pilot (`memory_paid_experiment.py`): 12 requests (6 characters x 2 arms), not run. Sizing from the source for the actual W35 source: all twelve prompt pairs total 92,356 UTF-8 bytes and 18,666 local regex-estimated tokens (largest pair 10,820 bytes / 2,205 estimated tokens); applying the guard's reservation formula to those local estimates (the UTF-8 byte floor is larger for all twelve) gives 141,508 input-reservation tokens plus 2,640 output-reservation tokens, or $0.154708 at the guard's recorded Haiku rates. This is a reference projection, "not a conservative upper bound or a provider-token measurement"; exact `count_tokens` could reserve more. Maximum exposure is the $5.00 ledger ceiling. Predeclared scoring: show A/B in randomized order per character with names retained; hard gate first for unsupported factual claims or citations that do not support them; then score whether interpretation is grounded and character-specific and whether the memory could help future dialogue without forcing a callback (no supported stance change or open thread is acceptable). Pairwise preference only when both normalized prose lengths are 80-120 tokens and differ by at most 15 (`matched_prose_lengths()` in the script). Advance one bundle to a separate length test only if there are no source-grounding hard defects and at least 5 of 6 scorable matched-length pairs prefer it for perspective/usefulness; fewer than 5 scorable pairs, any grounding defect, or no bundle meeting the threshold means "inconclusive". Even 5 of 6 is exploratory because all six pairs share one episode. The pilot does not test memory length, fading or downstream dialogue effects. Paid execution awaited explicit authorization; any spend needs the exact artifact hash and a separately reviewed cost projection.
+- Stage 4, three-week chain (`memory_chain_experiment.py`), planned, not run: fixed weeks, concepts and seeds (constants in the script), paired arms `control_no_persistent_memory` (nothing carried) and `weekly_character_memory` (one short source-linked memory per character, written after each week and visible only to that character's next week). Measures: voice distinctiveness by named character, grounding against cited source turns, whether a prior memory changes later-week dialogue, prompt and memory token counts per character and week. Sequencing in the source: the memory-length comparison should follow the memory-format experiment, holding the selected format fixed while varying the rendered memory budget; the chain then tests whether short character-specific memories change later dialogue without inventing unsupported events or perspectives. It stops before a full-week simulation adapter; a test adapter must be separately reviewed to replace every provider call and route every write, and a separate cost decision is needed before any paid call.
+
+Full logs: `git show eb90b0f:docs/conversation-lab/MEMORY_LAB.md`, `git show eb90b0f:docs/conversation-lab/MEMORY_WRITE_EXPERIMENT.md`, `git show eb90b0f:docs/conversation-lab/MEMORY_CHAIN_EXPERIMENT.md`
+
 ## Benchmarks
 
 Single-arm characterization runs (`conversation_lab.py bench`). A row here is a baseline another run gets compared against, not a decision.
