@@ -486,6 +486,12 @@ def test_openrouter_ab_end_to_end_records_costs_and_key_before_after(tmp_path, m
         {"limit": 10.0, "limit_remaining": 9.4, "usage": 0.1},
     ])
     monkeypatch.setattr(cl, "_openrouter_fetch_key", lambda: next(key_calls))
+    # Price the default set so the price preflight never calls OpenRouter's
+    # live /models endpoint (#8159).
+    monkeypatch.setattr(cl, "_fetch_openrouter_model_prices", lambda: {
+        cl._DEFAULT_LAB_MODEL_SET.dialogue: (0.0000008, 0.000004),
+        cl._DEFAULT_LAB_MODEL_SET.judge: (0.000004, 0.00002),
+    })
 
     seen_default_models = []
 

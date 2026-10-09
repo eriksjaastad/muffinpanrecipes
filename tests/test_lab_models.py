@@ -232,6 +232,16 @@ def test_model_router_does_not_touch_the_filesystem_at_import(monkeypatch):
 # conversation_lab: --models flag resolution and refusals
 # ---------------------------------------------------------------------------
 
+def _stub_model_prices(monkeypatch, set_name):
+    """Price the named lab set's two models so the run's price preflight never
+    calls OpenRouter's live /models endpoint (#8159)."""
+    model_set = cl._LAB_MODELS.get(set_name)
+    monkeypatch.setattr(cl, "_fetch_openrouter_model_prices", lambda: {
+        model_set.dialogue: (0.0000008, 0.000004),
+        model_set.judge: (0.000004, 0.00002),
+    })
+
+
 def _args(models=None, provider="openrouter", dry_run=False, command="ab"):
     return SimpleNamespace(models=models, provider=provider, dry_run=dry_run, command=command)
 
@@ -446,6 +456,7 @@ def test_ab_models_deepseek_sends_deepseek_ids_to_dialogue_and_judge_calls(tmp_p
     monkeypatch.setattr(sdw, "STOP_CHECK", {**sdw.STOP_CHECK, "provider": "jev"})
     monkeypatch.setattr(cl, "_openrouter_fetch_key", lambda: {"limit": 10.0, "limit_remaining": 9.5, "usage": 0.0})
     monkeypatch.setattr(cl, "_openrouter_fetch_account_balance", lambda: 100.0)
+    _stub_model_prices(monkeypatch, "deepseek")
     model_router.reset_cost_log()
 
     seen_default_models = []
@@ -515,6 +526,7 @@ def test_ab_models_deepseek_refuses_before_any_call_when_stop_check_is_haiku(tmp
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
     monkeypatch.setattr(cl, "_openrouter_fetch_key", lambda: {"limit": 10.0, "limit_remaining": 9.5, "usage": 0.0})
     monkeypatch.setattr(cl, "_openrouter_fetch_account_balance", lambda: 100.0)
+    _stub_model_prices(monkeypatch, "deepseek")
 
     def fail_generation(**kwargs):
         raise AssertionError("generation must not start when STOP_CHECK/--models conflict")
@@ -541,6 +553,7 @@ def test_ab_testbed_models_deepseek_with_check_jev_variant_proceeds_past_stop_ch
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
     monkeypatch.setattr(cl, "_openrouter_fetch_key", lambda: {"limit": 10.0, "limit_remaining": 9.5, "usage": 0.0})
     monkeypatch.setattr(cl, "_openrouter_fetch_account_balance", lambda: 100.0)
+    _stub_model_prices(monkeypatch, "deepseek")
     model_router.reset_cost_log()
 
     run_simulation_calls = []

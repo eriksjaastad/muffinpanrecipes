@@ -448,6 +448,8 @@ def test_preview_main_failure_has_no_alert_or_status_side_effects(monkeypatch):
          patch.object(hc, "check_sitemap_pages", _fail), \
          patch.object(hc, "check_static_security_headers", _fail), \
          patch.object(hc, "check_unmatched_url_404", _fail), \
+         patch.object(hc, "check_episode_integrity", _fail), \
+         patch.object(hc, "check_character_bios", _fail), \
          patch.object(hc, "post_alert") as alert, \
          patch.object(hc, "post_recovery") as recovery, \
          patch.object(hc, "write_status") as write_status, \
