@@ -63,18 +63,26 @@ def _no_live_indexnow_submission(monkeypatch):
     monkeypatch.setattr("backend.utils.indexnow.requests.post", _blocked)
 
 
-# The photo-approval control log (#7936) is read by Wednesday-Sunday on every
-# run. Without this, a test could read or write data/photo_control/ in the
-# repo (or Blob, under doppler run). Every test gets an empty control
-# directory under tmp_path instead, served by the REAL filesystem backend
-# code (exclusive lock + atomic rename), so tests exercise the actual
+# The filesystem backend's local data directories. The photo-approval control
+# log (#7936) is read by Wednesday-Sunday on every run, and a cloud backend
+# also writes a local cache copy of every episode it saves (#8169): without
+# this, tests wrote fixture episodes into the repo's data/episodes/, where
+# test_local_episode_corpus_is_clear_when_present then read them. Every test
+# gets empty directories under tmp_path instead, served by the REAL filesystem
+# backend code (exclusive lock + atomic rename), so tests exercise the actual
 # compare-and-swap. Tests of the cloud backend build their own instance
 # over a fake Blob API.
 @pytest.fixture(autouse=True)
-def _isolated_photo_control(monkeypatch, tmp_path):
+def _isolated_local_data(monkeypatch, tmp_path):
     import backend.storage as storage_module
 
-    monkeypatch.setattr(storage_module, "PHOTO_CONTROL_DIR", tmp_path / "photo_control")
+    for name, sub in (
+        ("PHOTO_CONTROL_DIR", "photo_control"),
+        ("EPISODES_DIR", "episodes"),
+        ("SIMULATIONS_DIR", "simulations"),
+        ("CHARACTER_MEMORY_DIR", "character_memory"),
+    ):
+        monkeypatch.setattr(storage_module, name, tmp_path / sub)
 
 
 # The central API cost tracker (#8065). With the dev extra installed,

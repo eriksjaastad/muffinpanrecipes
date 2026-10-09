@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 from backend.admin import cron_routes
 from backend.admin.cron import editorial_qa
 from backend.admin.cron import concept as cron_concept
+from backend.utils import title_validator
 from backend.utils.muffin_pan_form import check_muffin_pan_form
 
 
@@ -173,7 +174,9 @@ def test_cron_monday_retries_baker_when_form_gate_fails():
         "events": [],
         "recipe_id": None,
     }
-    catalog = Mock(return_value={"recipes": []})  # shared by cron_routes and cron.concept
+    # Shared by cron_routes, cron.concept and the cuisine steering read, so no
+    # catalog read reaches the live CDN (#8159).
+    catalog = Mock(return_value={"recipes": []})
 
     with patch.object(cron_routes, "_verify_cron_secret"), \
          patch.object(
@@ -190,6 +193,7 @@ def test_cron_monday_retries_baker_when_form_gate_fails():
          patch.object(cron_routes, "_get_orchestrator", return_value=FakeOrchestrator), \
          patch.object(cron_routes, "load_published_catalog", new=catalog), \
          patch.object(cron_concept, "load_published_catalog", new=catalog), \
+         patch.object(title_validator, "_load_catalog", new=catalog), \
          patch.object(cron_routes, "_generate_and_judge_dialogue", return_value=(
              [{"character": "Margaret", "message": "These hold together."}],
              "PASS",

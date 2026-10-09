@@ -8,6 +8,16 @@ from backend.agents.factory import create_agent
 from backend.core.task import Task
 
 
+@pytest.fixture(autouse=True)
+def _featured_image_under_tmp(tmp_path, monkeypatch):
+    # The art director also saves the winner through the storage singleton,
+    # whose filesystem backend writes under storage.ROOT (#8169); keep that
+    # copy and its WebP/JPEG siblings out of the repo's src/assets/images.
+    import backend.storage as storage_module
+
+    monkeypatch.setattr(storage_module, "ROOT", tmp_path)
+
+
 def _png_bytes() -> bytes:
     # 1x1 transparent PNG
     return (
