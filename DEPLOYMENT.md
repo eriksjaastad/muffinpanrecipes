@@ -6,8 +6,9 @@
 |-------|-----------|-------------------|
 | Pipeline trigger | `crontab` → `run_compressed_week.py` | Vercel Cron → `/api/cron/{stage}` |
 | Secrets | `doppler run --` | Vercel Env Vars (auto-synced from Doppler) |
-| Storage | Local filesystem (`data/`) | Vercel Blob (stub, falls back to filesystem) |
-| Dialogue model | `openai/gpt-5-mini` (or `DIALOGUE_MODEL_OVERRIDE`) | `openai/gpt-5-mini` |
+| Storage | Local filesystem (`data/`) | Vercel Blob (`BLOB_READ_WRITE_TOKEN`) |
+| Dialogue model | `DIALOGUE_MODEL` (required; raises if unset) | same, from Doppler `prd` |
+| Judge model | `JUDGE_MODEL` (defaults to `anthropic/claude-sonnet-4-6`) | same, from Doppler `prd` |
 | Auth bypass | `LOCAL_DEV=true` | Never (always OAuth) |
 
 ---
@@ -181,7 +182,8 @@ Vercel via the Doppler → Vercel integration (set up once).
 |--------|---------|----------------|
 | `GOOGLE_API_KEY` | Gemini image generation (Wednesday photos) | `prd`, `stg` |
 | `STABILITY_API_KEY` | Stability AI, used only by `scripts/direct_harvest.py` since #8068 | `prd`, `stg` |
-| `OPENAI_API_KEY` | `gpt-5-mini` dialogue | `prd`, `stg` |
+| `OPENAI_API_KEY` | `openai/...` model routes (`backend/utils/model_router.py`) | `prd`, `stg` |
+| `ANTHROPIC_API_KEY` | `anthropic/...` model routes | `prd`, `stg` |
 | `GOOGLE_CLIENT_ID` | OAuth login | `prd`, `stg` |
 | `GOOGLE_CLIENT_SECRET` | OAuth login | `prd`, `stg` |
 | `GOOGLE_AUTHORIZED_EMAILS` | Admin allow-list (comma-sep) | `prd`, `stg` |
@@ -291,7 +293,7 @@ config.is_local_dev     # True if LOCAL_DEV=true
 config.is_vercel        # True if VERCEL_ENV is set
 config.environment      # "local" | "development" | "preview" | "production"
 config.storage_backend  # "filesystem" | "cloud"
-config.dialogue_model   # "openai/gpt-5-mini" (override: DIALOGUE_MODEL_OVERRIDE)
+config.dialogue_model   # DIALOGUE_MODEL; raises if unset (no default)
 config.auth_bypass      # True in local dev — skips OAuth
 ```
 
@@ -310,4 +312,6 @@ storage.get_image_url("data/images/abc/shot.png")
 ```
 
 In `LOCAL_DEV`, data writes to `data/episodes/`, `data/images/` etc.
-On Vercel, Vercel Blob will be wired in once `BLOB_READ_WRITE_TOKEN` is set.
+On Vercel, everything lives in Vercel Blob (`BLOB_READ_WRITE_TOKEN`). The cron
+stages read episodes with `load_episode_strict`, so a failed read stops the
+stage instead of looking like a missing episode (#8145).

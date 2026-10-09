@@ -20,6 +20,8 @@
 
 **Alternatives considered:** Keeping a traditional TODO board as the primary planning artifact was rejected.
 
+**Superseded (2026-10-09, #8144):** the Kanban board (`pt tasks`) drives the work; `PROJECT_DOD.md` and `INTENTIONS.md` described the March first-recipe milestone and were removed.
+
 ### 2026-02-25: Move toward hosted Kanban for shared visibility
 
 **Context:** Work is happening across multiple machines and users.

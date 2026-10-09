@@ -8,8 +8,8 @@ An AI-driven experimental recipe platform focused exclusively on "Muffin Tin Mea
 
 ## 🏗️ Architectural Decisions (ADR Summary)
 
-- **AD 001: Static Site Architecture** - High-speed, mobile-first HTML/Tailwind. AI-generated recipes are stored as Markdown/JSON and rendered.
-- **AD 002: Vercel Deployment** - Native GitHub integration for 0-manual-step deployment on push to `main`.
+- **AD 001: Pre-rendered pages** - Recipe pages are rendered when a week publishes and served as static, mobile-first HTML (vanilla CSS). Episode data lives in Vercel Blob.
+- **AD 002: Manual Vercel deploys** - Deploy a preview, health-check it, then promote it; see [DEPLOYMENT.md](DEPLOYMENT.md).
 - **AD 003: "No-Fluff" UI** - Prioritizes "Jump to Recipe" and core content; eliminates clutter common in food blogs.
 - **AD 004: Vercel Root Directory** - `src/` is the web root to keep scripts and raw data private.
 
@@ -22,8 +22,8 @@ An AI-driven experimental recipe platform focused exclusively on "Muffin Tin Mea
 brew install uv python@3.12
 
 # From project root
-uv venv --python /opt/homebrew/bin/python3.12 --clear .venv
-uv sync --python /opt/homebrew/bin/python3.12
+uv venv --python 3.12 --clear .venv
+uv sync --python 3.12
 
 # Verify
 uv run pytest tests/test_discord_review_link.py tests/test_creative_dialogue.py -q
@@ -58,45 +58,31 @@ doppler run -- uv run python -m backend.admin.app
 - `src/` - [Static Site Source](src/README.md) (HTML/Tailwind/Recipes)
 - `scripts/` - [Automation & Image Pipeline](scripts/README.md) (Python/Shell)
 - `data/` - Recipe storage and simulation logs
-- `.agent/rules/` - Legacy and deep-dive documentation (deprecated in favor of READMEs)
 
-## 📡 Image Generation Pipeline
-Leverages a central **SSH Agent** for high-end image generation on RunPod.
-
-1. **Prompt Gen:** `scripts/generate_image_prompts.py` (SDXL prompts via DeepSeek-R1).
-2. **Trigger:** `scripts/trigger_generation.py` (Uploads to Cloudflare R2).
-3. **Harvest:** `scripts/direct_harvest.py` (Remote GPU pods generate images via Stability AI).
-4. **Curation:** `scripts/art_director.py` (Agent selects the winner and moves to `src/assets/images/`).
+## 📡 Image Generation
+Wednesday's cron shoots the week's photos with Gemini (`backend/agents/art_director.py`), each
+prompt naming one real muffin pan from `backend/utils/pan_library.py`. Erik approves a photo on
+the admin photo review before Sunday publishes. The older RunPod / R2 scripts
+(`generate_image_prompts.py`, `trigger_generation.py`, `direct_harvest.py`) are not part of the
+weekly pipeline.
 
 ## 💰 Vercel Cost Management
 
 Build Minutes are the dominant cost driver (~95% of usage charges at $0.126/min).
 
-**Key rule: Batch your pushes.** Every push to `main` triggers a full build. On heavy dev days (20+ commits pushed individually), build costs can hit $3+. Batching into fewer pushes cuts costs proportionally.
-
-| Scenario | Pushes/Day | Est. Daily Cost |
-|----------|-----------|----------------|
-| Heavy dev (push per commit) | 15-25 | $2-3+ |
-| Normal dev (batched) | 3-5 | $0.40-0.65 |
-| Steady state (cron only) | 0-1 | $0-0.13 |
+Each `vercel deploy` and each `vercel promote` is a build, and both count against the
+5-deploys-per-day cap in [DEPLOYMENT.md](DEPLOYMENT.md).
 
 **Disabled:** Speed Insights (was $0.65/period, not needed).
 
 ## 📋 Status
-- **Current Phase:** Phase 4: AI Creative Team Integration
-- **Status:** #status/active
+- **Status:** #status/active. Live, publishing one recipe a week through the Mon-Sun Vercel crons.
 
 ## 🖥️ Admin Simulation Viewer (MVP)
 Route: `/admin/simulations` - View character-driven dialogue transcripts and recipe generation runs.
 
-## CI / Automated Code Review
+## Code Review
 
-Pull requests are automatically reviewed by Claude Sonnet via a [centralized reusable workflow](https://github.com/eriksjaastad/tools/blob/main/.github/workflows/claude-review-reusable.yml) hosted in the `tools` repo.
-
-**On every PR:**
-- Tests run (if any exist)
-- AI reviews the diff against project standards and governance protocol
-- Posts a sticky review comment and a `claude-review` commit status
-- Auto-merges on APPROVE, blocks on REQUEST_CHANGES
-
-See [tools repo](https://github.com/eriksjaastad/tools) for configuration details.
+No GitHub Actions run on this repo. Every PR gets an independent local review on its exact
+head (a Claude code-reviewer, then Codex) before it merges; the procedure is the portfolio PR
+policy (`pt info get pr_merge_policy`).

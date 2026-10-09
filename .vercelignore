@@ -3,9 +3,7 @@ data/*
 !data/episodes/
 !backend/data/
 Documents/
-reviews/
 docs/
-.agent/
 *.md
 !README.md
 # backend/data/ is runtime data and ships whole, Markdown included: the

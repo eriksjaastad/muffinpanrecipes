@@ -36,7 +36,7 @@
 ## Project Context
 
 ### What This Is
-An AI-driven content platform disguised as a recipe website. The recipes are real, but the actual product is **AI personalities working as a creative team**. See `PRD.md` for full details.
+An AI-driven content platform disguised as a recipe website. The recipes are real, but the actual product is **AI personalities working as a creative team**. See `docs/PRD.md` for full details.
 
 ### The Creative Team (7 Agents)
 
@@ -65,7 +65,7 @@ An AI-driven content platform disguised as a recipe website. The recipes are rea
 ```
 
 ### Current Milestone
-**First E2E Recipe:** Get one recipe through the full pipeline from generation to published on muffinpanrecipes.com. See `PROJECT_DOD.md` for the complete Definition of Done.
+**First E2E Recipe:** Get one recipe through the full pipeline from generation to published on muffinpanrecipes.com.
 
 ---
 
@@ -110,8 +110,7 @@ An AI-driven content platform disguised as a recipe website. The recipes are rea
 
 ## Related Documents
 
-- [PRD.md](PRD.md) — Full product requirements
-- [PROJECT_DOD.md](PROJECT_DOD.md) — Definition of Done for current milestone
+- [docs/PRD.md](docs/PRD.md) — Full product requirements
 - [README.md](README.md) — Project overview and setup
 - [CLAUDE.md](CLAUDE.md) — Claude Code-specific instructions
 
