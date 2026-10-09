@@ -753,7 +753,7 @@ def pick_concept_candidates(
     Never returns []: with zero survivors from both pools this raises
     NoConceptAvailableError instead (#6858) — the cron caller treats any
     exception here as a retryable, then fail-closed, condition (see
-    cron_routes._pick_weekly_concept).
+    cron.concept._pick_weekly_concept).
 
     `catalog`, `generate`, and `fetch_inspiration` exist for injection in
     tests; production leaves them at their defaults, which load the live
