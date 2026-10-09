@@ -24,6 +24,7 @@ import pytest
 from fastapi import HTTPException, Request
 
 from backend.admin import cron_routes
+from backend.admin.cron import concept as cron_concept
 from backend.storage import _CloudBackend
 
 
@@ -44,12 +45,14 @@ def _request(day: str) -> Request:
 
 
 def _run(handler, day: str, body: cron_routes.StageRequest):
+    catalog = MagicMock(return_value={"recipes": []})  # shared by cron_routes and cron.concept
     with patch.object(cron_routes, "_verify_cron_secret"), \
          patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=body)), \
          patch.object(cron_routes, "_verify_day_of_week"), \
          patch.object(cron_routes, "upload_latest_json"), \
          patch.object(cron_routes, "_get_orchestrator"), \
-         patch.object(cron_routes, "load_published_catalog", return_value={"recipes": []}), \
+         patch.object(cron_routes, "load_published_catalog", new=catalog), \
+         patch.object(cron_concept, "load_published_catalog", new=catalog), \
          patch.object(cron_routes, "_bake_through_gates", return_value=({"title": "x"}, [])), \
          patch.object(cron_routes, "_generate_and_judge_dialogue", return_value=([], {})), \
          patch.object(cron_routes, "regenerate_and_upload"), \

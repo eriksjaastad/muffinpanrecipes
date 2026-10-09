@@ -20,12 +20,13 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 from typing import cast
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from fastapi import HTTPException, Request
 
 from backend.admin import cron_routes
+from backend.admin.cron import concept as cron_concept
 from scripts.pick_concept import Candidate
 
 
@@ -55,6 +56,9 @@ def _fresh_episode() -> dict:
 def _run_monday(episode: dict, body: cron_routes.StageRequest):
     """Invoke cron_monday with everything expensive stubbed out."""
     saved: list[dict] = []
+    # One catalog loader for both readers: the Monday handler (cron_routes) and
+    # concept selection (cron_concept), exactly as when they shared one module.
+    catalog = Mock(return_value={"recipes": []})
 
     with patch.object(cron_routes, "_verify_cron_secret"), \
          patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=body)), \
@@ -65,7 +69,8 @@ def _run_monday(episode: dict, body: cron_routes.StageRequest):
              side_effect=lambda _id, ep: saved.append(ep),
          ), \
          patch.object(cron_routes, "_get_orchestrator") as orchestrator, \
-         patch.object(cron_routes, "load_published_catalog", return_value={"recipes": []}), \
+         patch.object(cron_routes, "load_published_catalog", new=catalog), \
+         patch.object(cron_concept, "load_published_catalog", new=catalog), \
          patch.object(cron_routes, "_generate_and_judge_dialogue") as dialogue, \
          patch.object(cron_routes, "regenerate_and_upload"), \
          patch.object(cron_routes, "notify_pipeline_failure") as notify:
@@ -145,25 +150,25 @@ def test_empty_pick_is_a_failure_not_a_placeholder() -> None:
 
 def test_placeholder_concept_is_never_accepted_as_a_pick() -> None:
     """A picker that literally returns the placeholder is still a failure."""
-    with patch.object(cron_routes, "load_published_catalog", return_value={"recipes": []}), \
+    with patch.object(cron_concept, "load_published_catalog", return_value={"recipes": []}), \
          patch("scripts.pick_concept.pick_target_category", return_value="Sweet"), \
          patch(
              "scripts.pick_concept.pick_concept_candidates",
              return_value=_pick(cron_routes.PLACEHOLDER_CONCEPT),
          ):
         with pytest.raises(cron_routes.ConceptSelectionError):
-            cron_routes._pick_weekly_concept()
+            cron_concept._pick_weekly_concept()
 
 
 def test_pick_is_retried_before_giving_up() -> None:
     """A transient throw on the first attempt must not sink the week."""
-    with patch.object(cron_routes, "load_published_catalog", return_value={"recipes": []}) as loader, \
+    with patch.object(cron_concept, "load_published_catalog", return_value={"recipes": []}) as loader, \
          patch("scripts.pick_concept.pick_target_category", return_value="Sweet"), \
          patch(
              "scripts.pick_concept.pick_concept_candidates",
              side_effect=[RuntimeError("429"), _pick("Portuguese Custard Tarts")],
          ):
-        concept, category, source = cron_routes._pick_weekly_concept()
+        concept, category, source = cron_concept._pick_weekly_concept()
 
     assert concept == "Portuguese Custard Tarts"
     assert category == "Sweet"
@@ -174,13 +179,13 @@ def test_pick_is_retried_before_giving_up() -> None:
 
 def test_catalog_is_read_once_per_attempt_and_passed_to_both_picks() -> None:
     catalog = {"recipes": [{"title": "Kimchi Cheddar Rice Cups", "category": "Party"}]}
-    with patch.object(cron_routes, "load_published_catalog", return_value=catalog) as loader, \
+    with patch.object(cron_concept, "load_published_catalog", return_value=catalog) as loader, \
          patch("scripts.pick_concept.pick_target_category", return_value="Sweet") as cat_pick, \
          patch(
              "scripts.pick_concept.pick_concept_candidates",
              return_value=_pick("Pastel de Nata Cups", source="curated"),
          ) as concept_pick:
-        concept, category, source = cron_routes._pick_weekly_concept()
+        concept, category, source = cron_concept._pick_weekly_concept()
 
     assert loader.call_count == 1
     cat_pick.assert_called_once_with(catalog)
@@ -201,7 +206,7 @@ def test_stored_placeholder_does_not_block_a_fresh_pick() -> None:
     """
     episode = _fresh_episode()  # concept == PLACEHOLDER_CONCEPT
     with patch.object(
-        cron_routes, "_pick_weekly_concept", return_value=("Miso Corn Tartlets", "Savory", "brainstorm")
+        cron_concept, "_pick_weekly_concept", return_value=("Miso Corn Tartlets", "Savory", "brainstorm")
     ):
         concept, category, source = cron_routes._resolve_monday_concept(
             cron_routes.StageRequest(episode_id="2026-W36"), episode
@@ -218,7 +223,7 @@ def test_in_progress_week_keeps_its_stored_concept() -> None:
     episode["concept"] = "Portuguese Custard Tarts"
     episode["target_category"] = "Sweet"
 
-    with patch.object(cron_routes, "_pick_weekly_concept") as picker:
+    with patch.object(cron_concept, "_pick_weekly_concept") as picker:
         concept, category, source = cron_routes._resolve_monday_concept(
             cron_routes.StageRequest(episode_id="2026-W36"), episode
         )
@@ -235,7 +240,7 @@ def test_force_re_picks_even_with_a_real_stored_concept() -> None:
     episode["concept"] = "Portuguese Custard Tarts"
 
     with patch.object(
-        cron_routes, "_pick_weekly_concept", return_value=("Miso Corn Tartlets", "Savory", "brainstorm")
+        cron_concept, "_pick_weekly_concept", return_value=("Miso Corn Tartlets", "Savory", "brainstorm")
     ):
         concept, _, _ = cron_routes._resolve_monday_concept(
             cron_routes.StageRequest(episode_id="2026-W36", force=True), episode
@@ -248,7 +253,7 @@ def test_explicit_concept_always_wins() -> None:
     episode = _fresh_episode()
     episode["concept"] = "Portuguese Custard Tarts"
 
-    with patch.object(cron_routes, "_pick_weekly_concept") as picker, \
+    with patch.object(cron_concept, "_pick_weekly_concept") as picker, \
          patch("scripts.pick_concept.pick_target_category", return_value="Sweet"):
         concept, _, source = cron_routes._resolve_monday_concept(
             cron_routes.StageRequest(episode_id="2026-W36", concept="Gochujang Pork Bites"),

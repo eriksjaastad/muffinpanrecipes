@@ -18,12 +18,13 @@ import asyncio
 import json
 from contextlib import nullcontext
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from fastapi import HTTPException
 
 from backend.admin import cron_routes
+from backend.admin.cron import concept as cron_concept
 from backend.utils.catalog import CatalogUnavailableError
 
 # 12 items each — comfortably above recipe_overlap.MIN_ITEMS on both sides.
@@ -105,6 +106,9 @@ def _run_monday(recipes: list[dict], *, body: dict | None = None, catalog=None, 
         {"side_effect": loader_side_effect} if loader_side_effect
         else {"return_value": {"recipes": []} if catalog is None else catalog}
     )
+    # One loader for both readers: the handler (cron_routes) and concept selection
+    # (cron_concept), exactly as when they shared one module.
+    loader = Mock(**loader_kwargs)
 
     with patch.object(cron_routes, "_verify_cron_secret"), \
          patch.object(cron_routes, "_parse_body", new=AsyncMock(return_value=request_body)), \
@@ -112,7 +116,8 @@ def _run_monday(recipes: list[dict], *, body: dict | None = None, catalog=None, 
          patch.object(cron_routes, "_test_mode_scope", return_value=nullcontext()), \
          patch.object(cron_routes, "_load_or_create_episode", return_value=episode), \
          patch.object(cron_routes, "_get_orchestrator", return_value=FakeOrchestrator), \
-         patch.object(cron_routes, "load_published_catalog", **loader_kwargs), \
+         patch.object(cron_routes, "load_published_catalog", new=loader), \
+         patch.object(cron_concept, "load_published_catalog", new=loader), \
          patch("backend.utils.title_validator.load_recent_cuisines", return_value=[]), \
          patch.object(cron_routes, "_generate_and_judge_dialogue", return_value=(
              [{"character": "Margaret", "message": "These hold together."}], "PASS",
@@ -309,7 +314,7 @@ def test_explicit_concept_without_a_category_adopts_the_bakers_label() -> None:
 
 def test_picked_category_is_enforced_when_the_picker_chooses() -> None:
     with patch.object(
-        cron_routes, "_pick_weekly_concept",
+        cron_concept, "_pick_weekly_concept",
         return_value=("Pastel de Nata Cups", "Party", "brainstorm"),
     ):
         run = _run_monday([_recipe("Pastel de Nata Cups", NATA, category="sweet")], body={})
@@ -324,7 +329,7 @@ def test_concept_provenance_is_written_to_the_stage() -> None:
     """A curated-pool pick must be visible in the episode JSON, not only in a
     Lambda log line — weeks of curated picks means the brainstorm is broken."""
     with patch.object(
-        cron_routes, "_pick_weekly_concept",
+        cron_concept, "_pick_weekly_concept",
         return_value=("Pastel de Nata Cups", "Sweet", "curated"),
     ):
         run = _run_monday([_recipe("Pastel de Nata Cups", NATA, category="sweet")], body={})
