@@ -15,7 +15,7 @@ from backend.utils.episode_integrity import PLACEHOLDER_CONCEPT
 from backend.utils.logging import get_logger
 
 if TYPE_CHECKING:
-    from backend.admin.cron_routes import StageRequest
+    from backend.admin.cron.stage_request import StageRequest
 
 # The cron routes' own logger, so these log lines read exactly as before the split.
 logger = get_logger("backend.admin.cron_routes")
