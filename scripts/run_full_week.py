@@ -32,9 +32,10 @@ Usage:
 
 Test mode fires the REAL cron routes at --base-url (production by default)
 with ``test=true`` in each body, and makes real paid calls. The handlers'
-``_test_mode_scope`` puts every write under the ``test/`` Blob prefix, so
-the episode lands at ``test/episodes/test-YYYYMMDD-HHMMSS.json`` and its
-images under ``test/images/``; production paths are untouched.
+``_test_mode_scope`` puts storage writes under the ``test/`` Blob prefix:
+the episode lands at ``test/episodes/<id>.json`` (the id defaults to
+``test-YYYYMMDD-HHMMSS`` unless --episode is given) and its images under
+``test/images/``.
 ``--cleanup`` deletes every blob under ``test/``. Prefer a preview deploy
 for --base-url.
 """
