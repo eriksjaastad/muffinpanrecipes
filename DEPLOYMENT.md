@@ -7,7 +7,8 @@
 | Pipeline trigger | `crontab` → `run_compressed_week.py` | Vercel Cron → `/api/cron/{stage}` |
 | Secrets | `doppler run --` | Vercel Env Vars (auto-synced from Doppler) |
 | Storage | Local filesystem (`data/`) | Vercel Blob (`BLOB_READ_WRITE_TOKEN`) |
-| Dialogue / judge model | `DIALOGUE_MODEL` / `JUDGE_MODEL` (required, no default) | same, from Doppler `prd` |
+| Dialogue model | `DIALOGUE_MODEL` (required; raises if unset) | same, from Doppler `prd` |
+| Judge model | `JUDGE_MODEL` (defaults to `anthropic/claude-sonnet-4-6`) | same, from Doppler `prd` |
 | Auth bypass | `LOCAL_DEV=true` | Never (always OAuth) |
 
 ---

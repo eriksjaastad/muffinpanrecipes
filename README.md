@@ -9,7 +9,7 @@ An AI-driven experimental recipe platform focused exclusively on "Muffin Tin Mea
 ## 🏗️ Architectural Decisions (ADR Summary)
 
 - **AD 001: Pre-rendered pages** - Recipe pages are rendered when a week publishes and served as static, mobile-first HTML (vanilla CSS). Episode data lives in Vercel Blob.
-- **AD 002: Manual Vercel deploys** - Auto-deploy on push is off. Deploy a preview, health-check it, then promote it; see [DEPLOYMENT.md](DEPLOYMENT.md).
+- **AD 002: Manual Vercel deploys** - Deploy a preview, health-check it, then promote it; see [DEPLOYMENT.md](DEPLOYMENT.md).
 - **AD 003: "No-Fluff" UI** - Prioritizes "Jump to Recipe" and core content; eliminates clutter common in food blogs.
 - **AD 004: Vercel Root Directory** - `src/` is the web root to keep scripts and raw data private.
 
@@ -70,8 +70,8 @@ weekly pipeline.
 
 Build Minutes are the dominant cost driver (~95% of usage charges at $0.126/min).
 
-Pushes to `main` no longer build (auto-deploy is off). Each `vercel deploy` and each
-`vercel promote` is a build, so deploys are capped at 5 a day.
+Each `vercel deploy` and each `vercel promote` is a build, and both count against the
+5-deploys-per-day cap in [DEPLOYMENT.md](DEPLOYMENT.md).
 
 **Disabled:** Speed Insights (was $0.65/period, not needed).
 
