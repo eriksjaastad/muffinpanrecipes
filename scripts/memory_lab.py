@@ -1,8 +1,59 @@
 #!/usr/bin/env python3
-"""Build an offline, provenance-preserving manifest for memory experiments.
+r"""Build an offline, provenance-preserving manifest for memory experiments (#7545).
 
-This script reads completed stage dialogue only. It never calls a model and
-never writes character data or remote storage.
+Reads completed stage dialogue only. It has no model client and never touches
+character files or Blob; the manifest goes to stdout or to --output.
+
+    uv run python scripts/memory_lab.py <week-1.json> <week-2.json> <week-3.json> \
+        --output .scratch/memory-manifest.json
+
+Exactly three episode JSON paths are required, in chronological order, so a
+prior slot never points at a later week. The episode ID (the file's
+"episode_id", else "id", else the file stem) must be ISO-week form YYYY-Www
+and distinct. Do not assume every numbered week exists in the corpus; use
+copies of real completed episodes. The output parent directory is created.
+Flags: --budgets (candidate token budgets, default 80 160 300) and
+--allow-partial.
+
+Input rules:
+- Only stages[day].dialogue is used, and only when that stage has
+  status "complete". rejected_dialogues and rejected or incomplete stages are
+  ignored.
+- A malformed turn in an accepted stage fails the run naming the file, day and
+  turn index, so evidence cannot vanish silently. An empty dialogue list is
+  valid; a complete stage with no "dialogue" key fails.
+- By default all seven Monday-to-Sunday stages must be complete. --allow-partial
+  accepts a partial week and records each episode's missing_days plus a
+  top-level partial_input flag.
+
+Manifest contents:
+- Each accepted message gets a stable source ID ("msg_" plus a SHA-256 prefix of
+  episode ID, day, turn index, speaker and message text). Each episode records
+  the SHA-256 of its raw file bytes.
+- A character observes only the days on which they speak; on those days the
+  observations are the full accepted group dialogue, tagged "self" or "heard".
+  This captures what colleagues said around them without assigning unseen
+  dialogue or pretending every line was addressed to them. Only characters who
+  speak in accepted scenes appear; the canonical roster and addressed-to
+  detection are not used.
+- Every character seen in any input week has one candidate memory slot per
+  episode (an empty-evidence slot when absent). A slot holds that week's
+  observations, an empty candidate_memory_schema (text, source_ids,
+  created_from_episode_ids, memory_kind), one budget variant per budget, and
+  prior_slot_ids_available_after_creation listing earlier slots. Those prior
+  slots become available only once actually created; the manifest holds no
+  generated or presumed memories.
+- Token counts use estimate_tokens(), a local word/punctuation regex. It is for
+  rough comparison only and enforces no provider cap
+  (token_cap_enforced is false); any paid generation must count with the
+  provider tokenizer first. render_candidate() renders supplied candidate text
+  and flags overflow against that estimate.
+
+The manifest is preparation for memory experiments, not evidence that any
+memory format improves the dialogue. The experiment questions and results live
+in docs/conversation-lab/EXPERIMENTS.md ("Character memory experiments").
+tests/test_memory_lab.py covers the rules above with synthetic episodes and
+needs no credentials or episode data.
 """
 
 from __future__ import annotations
@@ -196,7 +247,7 @@ def build_manifest(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("episodes", nargs=3, type=Path, help="three episode JSON files")
     parser.add_argument("--budgets", nargs="+", type=int, default=list(DEFAULT_BUDGETS), help="candidate memory token budgets")
     parser.add_argument("--allow-partial", action="store_true", help="accept incomplete weeks and label them in the manifest")

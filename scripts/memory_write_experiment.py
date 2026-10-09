@@ -1,7 +1,59 @@
 #!/usr/bin/env python3
-"""Render offline memory-writing prompts from a frozen memory-lab manifest.
+r"""Render offline memory-writing prompts from a frozen memory-lab manifest (#7545).
 
-This is a prompt-design artifact generator only. It never invokes a model.
+A prompt-design artifact generator only: it imports no model SDK, never invokes
+a model, generates no memory prose, and writes nothing except --output (no live
+character data, no Blob). It renders six A/B prompt pairs (one per character)
+from one frozen week of a scripts/memory_lab.py manifest:
+
+    uv run python scripts/memory_lab.py <W35.json> <W36.json> <W37.json> \
+        --output .scratch/w35-w37-manifest.json
+    uv run python scripts/memory_write_experiment.py .scratch/w35-w37-manifest.json \
+        --episode-id 2026-W35 --output .scratch/w35-memory-prompts.json
+
+--episode-id defaults to 2026-W35; --profiles names a frozen copy of the persona
+file (default backend/data/agent_personalities.json). The manifest must be an
+offline_dry_run manifest, contain exactly one such episode and exactly six
+characters, and no observation may come from another episode (no future-week
+leakage); every manifest character needs a profile.
+
+Held constant between arms: the W35 source evidence (one ID-tagged line per
+accepted message), a bounded persona block per character, the planned model
+(claude-haiku-4-5-20251001), a target of 80-120 provider tokens of memory prose
+(excluding citation and evidence-map overhead) and a 220-token cap on the whole
+response. Those are prompt instructions; the dry run cannot measure or
+guarantee generated length. The persona block is marked as identity framing,
+not evidence about the week. It holds the role, one authored
+internal_contradictions entry (clipped to 180 characters; first backstory
+sentence, up to 220, if there is none) and up to two relationship excerpts
+(clipped to 100) for people who spoke in scenes the character observed. Each
+excerpt carries a profile pointer and the source JSON's SHA-256 is recorded in
+the result. The serialized context is capped at 1,200 characters. It uses
+authored prose, not the numeric personality dials, which have not been shown to
+bind behavior.
+
+The arms are two bundled memory-writing policies. A is a two-sentence
+third-person recap plus an evidence map linking each sentence only to the
+dialogue IDs that support it. B is a source-linked perspective card with
+Observed, Inference, Stance and Open thread fields cited to source IDs. They
+differ together in structure, perspective, content requirements and citation
+obligations, so any gain belongs to the bundle; the comparison cannot identify
+which mechanism caused it (the result records this as arm_design.attribution_limit).
+
+The output records the source manifest, persona-profile and source-episode
+SHA-256s and a length_evaluation note: when generation is authorized, keep
+provider usage.output_tokens as the billable full-response count; measure prose
+separately from citations with one extraction and count method in both arms (if
+using count_tokens, subtract the same empty-message framing baseline and call
+it normalized prose length); compare quality only at matched prose lengths and
+report unmatched outputs separately; never pad an unsupported memory to hit the
+band.
+
+Paid execution is a separate runner, scripts/memory_paid_experiment.py, behind
+the conversation budget guard (docs/conversation-lab/BUDGET.md); this renderer
+exposes no paid flag (paid_mode_available is false). Experiment design and
+results: docs/conversation-lab/EXPERIMENTS.md ("Character memory experiments").
+tests/test_memory_write_experiment.py needs no episode corpus or credentials.
 """
 
 from __future__ import annotations
@@ -266,7 +318,7 @@ def build_experiment(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("manifest", type=Path, help="offline manifest emitted by scripts/memory_lab.py")
     parser.add_argument("--profiles", type=Path, default=DEFAULT_PROFILES, help="persona profile JSON to freeze into prompts")
     parser.add_argument("--episode-id", default=TARGET_EPISODE, help=f"frozen experiment week (default: {TARGET_EPISODE})")

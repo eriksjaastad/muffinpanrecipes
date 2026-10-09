@@ -20,6 +20,5 @@ Product, creative, lab and research documents for muffinpanrecipes.
 - `DIRECTION.md`: the current direction
 - `ENV_VARS.md`: every environment variable the code reads
 - `OPENCLAW_PREFLIGHT.md`: the Doppler presence preflight before env-dependent runs
-- `conversation-lab/`: the dialogue lab. Read `DIALS.md` before proposing any dialogue change; `EXPERIMENTS.md` records what has been tried.
+- `conversation-lab/`: the dialogue lab. Read `DIALS.md` before proposing any dialogue change; `EXPERIMENTS.md` records what has been tried, including the folded-in March research logs.
 - `image-lab/results/`: image experiments, with their evidence
-- `research/`: one-off investigations and test logs

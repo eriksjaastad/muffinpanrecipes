@@ -1,8 +1,56 @@
 #!/usr/bin/env python3
-"""Create an offline plan for a three-week character-memory chain experiment.
+r"""Create an offline plan for a three-week character-memory chain experiment (#7545).
 
 Execution is deliberately restricted to injected fake adapters. The CLI only
-writes a plan; it never invokes the dialogue simulator or a provider.
+writes JSON; it never imports or invokes the dialogue simulator, calls a model
+or provider, contacts a cron route, publishes, touches Blob, or writes
+backend/data/characters:
+
+    uv run python scripts/memory_chain_experiment.py --output memory-chain-plan.json
+
+The plan fixes three week labels, concepts and seeds (WEEK_PLAN) and two paired
+arms: control_no_persistent_memory (nothing carried between weeks) and
+weekly_character_memory (one short, source-linked memory per character, written
+after each week and passed only to that character's next week). It declares a
+zero-dollar budget and zero provider calls, and build_plan() refuses
+assumptions that omit provenance, isolation or the no-side-effects boundary.
+It also lists the measures for a later run: voice distinctiveness by named
+character, grounding against the cited turns, whether a prior memory changes
+later-week dialogue, and prompt and memory token counts per character and week.
+Seeds only control random choices if an offline adapter honors them.
+
+execute_fake_chain() is orchestration used with explicitly marked fake adapters
+(FakeAdapters.kind == "fake") in unit tests. That marker is a test convention,
+not a sandbox: arbitrary callbacks cannot be proven offline, so provider calls
+are reported as unverified. For each arm and week:
+- a fresh temporary simulator character root is used, so a control-week write
+  cannot leak into the next week; the treatment arm has a separate
+  harness-owned memory store. The simulator prompt cache is cleared before every
+  week, and the original character root, prompt cache and scene directions are
+  restored even if a fake week raises;
+- every turn gets a stable source ID from experiment, arm, ISO week, day, turn
+  index, speaker and exact text; speakers outside the fixed roster are rejected;
+- the treatment arm writes one slot per character per week. The harness
+  validates each returned record, persists it, reads it back, and passes those
+  actual records to the next treatment week (the field
+  prior_memory_records_provided_to_callback shows what reached the callback).
+  A character with no observed dialogue gets a no_new_evidence slot (no source
+  IDs, null text) that references the prior memory, so continuity carries
+  forward without inventing an event. A memory may cite only the unique subset
+  of source IDs that supports it; the full observed-ID set is kept separately
+  and a citation outside it fails validation;
+- both temporary roots go to the OS trash afterwards and no paths to them are
+  returned. The result keeps the complete generated turns and every memory
+  record's ID, text or no-evidence status, source IDs and prior-memory IDs, so
+  provenance stays inspectable after cleanup.
+
+prompt_injection_verified stays false: passing records to a callback does not
+prove a future simulator put them in its model prompt, which a separately
+reviewed adapter must check. No full-week simulation adapter exists by design;
+one must replace every provider call and route every write before three real
+weeks are run, and any paid run needs its own cost decision. The experiment
+sequence and plan are in docs/conversation-lab/EXPERIMENTS.md ("Character memory
+experiments"); tests/test_memory_chain_experiment.py uses local fake callbacks.
 """
 
 from __future__ import annotations
@@ -373,7 +421,7 @@ def execute_fake_chain(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--output", type=Path, help="write plan JSON here; default is stdout")
     args = parser.parse_args(argv)
     try:
