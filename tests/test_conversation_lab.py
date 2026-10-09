@@ -6205,4 +6205,4 @@ def test_calibrate_default_call_cap_stops_a_run_at_forty_judge_calls(tmp_path, m
     [path] = (tmp_path / "results").glob("*-calibrate-*.json")
     report = json.loads(path.read_text())
     assert report["aborted"] is True
-    assert 0 < len(calls) <= 40
+    assert len(calls) == 40  # exactly the cap: neither raised nor lowered
