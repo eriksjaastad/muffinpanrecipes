@@ -981,6 +981,38 @@ class _CloudBackend:
     def _auth_headers(self) -> dict:
         return {"Authorization": f"Bearer {self._blob_token}"}
 
+    def _list_request(self, prefix: str, cursor: Optional[str] = None, limit: str = "100"):
+        """One page of the authenticated Blob LIST API, as the raw response (#8147).
+
+        Every listing in this backend goes through here. The API matches by
+        PREFIX; callers that need one exact pathname use _find_exact_blob.
+        Callers own their error handling: _find_exact_blob maps failures to
+        PageReadError, the others go through _list_page.
+        """
+        import requests as _requests
+
+        params: dict = {"prefix": prefix, "limit": limit}
+        if cursor:
+            params["cursor"] = cursor
+        return _requests.get(self._BLOB_API, params=params, headers=self._auth_headers(), timeout=15)
+
+    def _list_page(self, prefix: str, cursor: Optional[str] = None, limit: str = "100"):
+        """One LIST page's JSON; raises requests.HTTPError on an HTTP error status."""
+        resp = self._list_request(prefix, cursor, limit)
+        resp.raise_for_status()
+        return resp.json()
+
+    def _episode_id_from_pathname(self, pathname: str) -> str:
+        return pathname.removeprefix(self.prefix).removeprefix("episodes/").removesuffix(".json")
+
+    def _fetch_episode_body(self, url: str):
+        """GET a listed episode's JSON body (authenticated, as list_episodes always has)."""
+        import requests as _requests
+
+        content_resp = _requests.get(url, headers=self._auth_headers(), timeout=15)
+        content_resp.raise_for_status()
+        return content_resp.json()
+
     def _blob_key(self, relative_path: str) -> str:
         """Map a repo-relative path to a stable blob key.
 
@@ -1009,16 +1041,8 @@ class _CloudBackend:
 
         cursor: Optional[str] = None
         for _ in range(_EXACT_BLOB_MAX_LIST_PAGES):
-            params: dict = {"prefix": key, "limit": "100"}
-            if cursor:
-                params["cursor"] = cursor
             try:
-                resp = _requests.get(
-                    self._BLOB_API,
-                    params=params,
-                    headers=self._auth_headers(),
-                    timeout=15,
-                )
+                resp = self._list_request(key, cursor)
             except _requests.RequestException as e:
                 raise PageReadError(f"Blob list failed for {key!r}: {type(e).__name__}: {e}") from e
             if not resp.ok:
@@ -1166,37 +1190,19 @@ class _CloudBackend:
         if not self._has_cloud():
             return self._fs.list_episodes()
 
-        import requests as _requests
 
         results = []
         cursor: Optional[str] = None
         try:
             while True:
-                params: dict = {"prefix": f"{self.prefix}episodes/", "limit": "100"}
-                if cursor:
-                    params["cursor"] = cursor
-                resp = _requests.get(
-                    self._BLOB_API,
-                    params=params,
-                    headers=self._auth_headers(),
-                    timeout=15,
-                )
-                resp.raise_for_status()
-                data = resp.json()
+                data = self._list_page(f"{self.prefix}episodes/", cursor)
                 for blob in data.get("blobs", []):
                     pathname = blob.get("pathname", "")
                     if pathname.endswith(".json"):
-                        episode_path = pathname.removeprefix(self.prefix)
-                        episode_id = episode_path.removeprefix("episodes/").removesuffix(".json")
+                        episode_id = self._episode_id_from_pathname(pathname)
                         # Fetch full episode data
                         try:
-                            content_resp = _requests.get(
-                                blob["url"],
-                                headers=self._auth_headers(),
-                                timeout=15,
-                            )
-                            content_resp.raise_for_status()
-                            ep_data = content_resp.json()
+                            ep_data = self._fetch_episode_body(blob["url"])
                             results.append({"episode_id": episode_id, **ep_data})
                         except Exception as e:
                             logger.warning(f"Skipping blob episode {episode_id}: {e}")
@@ -1221,33 +1227,17 @@ class _CloudBackend:
         if not self._has_cloud():
             return self._fs.list_episodes()
 
-        import requests as _requests
 
         results = []
         cursor: Optional[str] = None
         while True:
-            params: dict = {"prefix": f"{self.prefix}episodes/", "limit": "100"}
-            if cursor:
-                params["cursor"] = cursor
-            resp = _requests.get(
-                self._BLOB_API,
-                params=params,
-                headers=self._auth_headers(),
-                timeout=15,
-            )
-            resp.raise_for_status()
-            data = resp.json()
+            data = self._list_page(f"{self.prefix}episodes/", cursor)
             for blob in data.get("blobs", []):
                 pathname = blob.get("pathname", "")
                 if not pathname.endswith(".json"):
                     continue
-                episode_path = pathname.removeprefix(self.prefix)
-                episode_id = episode_path.removeprefix("episodes/").removesuffix(".json")
-                content_resp = _requests.get(
-                    blob["url"], headers=self._auth_headers(), timeout=15
-                )
-                content_resp.raise_for_status()
-                ep_data = content_resp.json()
+                episode_id = self._episode_id_from_pathname(pathname)
+                ep_data = self._fetch_episode_body(blob["url"])
                 results.append({"episode_id": episode_id, **ep_data})
             if not data.get("hasMore"):
                 break
@@ -1277,7 +1267,6 @@ class _CloudBackend:
         if not self._has_cloud():
             return self._fs.list_character_memory_weeks(slug)
 
-        import requests as _requests
 
         prefix = f"{self.prefix}character_memory/{slug}/"
         weeks: list[str] = []
@@ -1287,15 +1276,8 @@ class _CloudBackend:
         # years of history; the cap only stops a malformed paginated
         # response from looping forever inside a live cron.
         for _page in range(_CHARACTER_MEMORY_MAX_LIST_PAGES):
-            params: dict = {"prefix": prefix, "limit": "100"}
-            if cursor:
-                params["cursor"] = cursor
             try:
-                resp = _requests.get(
-                    self._BLOB_API, params=params, headers=self._auth_headers(), timeout=15
-                )
-                resp.raise_for_status()
-                payload = resp.json()
+                payload = self._list_page(prefix, cursor)
             except Exception as e:
                 logger.error(f"Blob list_character_memory_weeks failed for {slug}: {type(e).__name__}: {e}")
                 raise CharacterMemoryUnavailable(f"list failed for {slug!r}: {e}") from e
@@ -1519,18 +1501,12 @@ class _CloudBackend:
 
     def _list_photo_control(self, episode_id: str) -> dict[int, dict]:
         """version -> listed blob, from the authenticated list API."""
-        import requests as _requests
 
         list_prefix = self._photo_control_prefix(episode_id)
         found: dict[int, dict] = {}
         cursor: Optional[str] = None
         for _ in range(_EXACT_BLOB_MAX_LIST_PAGES):
-            params: dict = {"prefix": list_prefix, "limit": "1000"}
-            if cursor:
-                params["cursor"] = cursor
-            resp = _requests.get(self._BLOB_API, params=params, headers=self._auth_headers(), timeout=15)
-            resp.raise_for_status()
-            payload = resp.json()
+            payload = self._list_page(list_prefix, cursor, limit="1000")
             if not isinstance(payload, dict) or not isinstance(payload.get("blobs"), list):
                 raise ValueError("listing has no 'blobs' list")
             for blob in payload["blobs"]:
@@ -2056,15 +2032,7 @@ class _CloudBackend:
         deleted = 0
         cursor: Optional[str] = None
         while True:
-            params: dict = {"prefix": prefix, "limit": "100"}
-            if cursor:
-                params["cursor"] = cursor
-            resp = _requests.get(
-                self._BLOB_API, params=params,
-                headers=self._auth_headers(), timeout=15,
-            )
-            resp.raise_for_status()
-            data = resp.json()
+            data = self._list_page(prefix, cursor)
             blobs = data.get("blobs", [])
             if not blobs:
                 break
