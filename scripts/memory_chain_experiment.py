@@ -39,7 +39,8 @@ are reported as unverified. For each arm and week:
   forward without inventing an event. A memory may cite only the unique subset
   of source IDs that supports it; the full observed-ID set is kept separately
   and a citation outside it fails validation;
-- both temporary roots go to the OS trash afterwards and no paths to them are
+- every temporary root it creates (one per arm per week, plus the treatment
+  memory store) goes to the OS trash afterwards, and no paths to them are
   returned. The result keeps the complete generated turns and every memory
   record's ID, text or no-evidence status, source IDs and prior-memory IDs, so
   provenance stays inspectable after cleanup.
