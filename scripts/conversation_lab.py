@@ -210,11 +210,12 @@ control/variant generation, or a judge call), whichever hits first:
   sweep as a whole - and the shared control's own cost, spent before any
   variant's baseline is captured, is never charged against one.
 
-  A get_cost_summary() read failure never disables either cap by raising -
-  it fails open (the check reports "not yet exceeded") and prints ONE
-  stderr warning the first time this happens per process, since
+  A failure to read the lab's cost total never disables either cap by
+  raising - it fails open (the check reports "not yet exceeded") and prints
+  ONE stderr warning the first time this happens per process, since
   --max-calls remains the primary, always-available spending guard either
-  way.
+  way. An untrusted OpenRouter cost entry is not a read failure: it fails
+  closed (see `_would_exceed_cost`).
 
 Either cap hitting writes whatever was completed so far as a partial
 result with "aborted": true, and both caps are echoed in the printed
