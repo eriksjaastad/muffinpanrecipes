@@ -41,7 +41,9 @@ DEFAULT_CONCEPT = "Weekly Muffin Pan Recipe"
 
 
 def load_episode(episode_id: str) -> dict:
-    data = storage.load_episode(episode_id)
+    # Strict (#8145): a failed read raises instead of looking like a new
+    # episode, which this script would then save over the real one.
+    data = storage.load_episode_strict(episode_id)
     if data:
         return data
     return {

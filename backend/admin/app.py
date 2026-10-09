@@ -156,7 +156,15 @@ def create_admin_app(
     # Health check endpoint
     @app.get("/health")
     async def health_check():
-        return {"status": "healthy", "service": "admin_dashboard"}
+        # The bios are read from the deployed bundle; scripts/health_check.py
+        # fails when any is missing (#8146).
+        from scripts.simulate_dialogue_week import missing_bios
+
+        return {
+            "status": "healthy",
+            "service": "admin_dashboard",
+            "missing_bios": missing_bios(),
+        }
 
     return app
 

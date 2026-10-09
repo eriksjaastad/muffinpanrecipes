@@ -558,12 +558,31 @@ def _char_dir_slug(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
 
-def _load_bio(name: str) -> str | None:
-    """Load bio.md for a character if it exists."""
-    bio_path = CHARACTERS_DIR / _char_dir_slug(name) / "bio.md"
-    if bio_path.exists():
-        return bio_path.read_text().strip()
-    return None
+def _bio_path(name: str) -> Path:
+    return CHARACTERS_DIR / _char_dir_slug(name) / "bio.md"
+
+
+def _load_bio(name: str) -> str:
+    """Load a character's bio.md; every cast member has one (#8146).
+
+    A missing or empty bio raises. This used to return None and the prompt
+    quietly used backstory[:600] instead, which is how production ran without
+    any bio until 2026-10-08 (.vercelignore dropped them, #8113) while the lab
+    used the full ones. A raise here fails the day's dialogue, and the stage
+    alerts. `missing_bios` lets /health and health_check.py report it first.
+    """
+    bio = _bio_path(name).read_text().strip()
+    if not bio:
+        raise ValueError(f"bio for {name!r} is empty: {_bio_path(name)}")
+    return bio
+
+
+def missing_bios() -> list[str]:
+    """Cast members whose bio.md is missing or empty in this deployment."""
+    return [
+        name for name in load_personas()
+        if not (_bio_path(name).is_file() and _bio_path(name).read_text().strip())
+    ]
 
 
 def _load_legacy_memory_entries(slug: str) -> list[dict]:
@@ -736,9 +755,7 @@ def build_system_prompt(persona: dict[str, Any]) -> str:
         voice_guide = _strip_word_caps(voice_guide)
         shared_rules = _strip_word_caps(shared_rules)
 
-    # Use bio.md if available, fall back to truncated backstory
-    bio = _load_bio(name)
-    who_you_are = bio if bio else persona["backstory"][:600]
+    who_you_are = _load_bio(name)
 
     # Build relationship summary as emotional tensions, not data dump
     relationships = persona.get("relationships", {})

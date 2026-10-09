@@ -206,8 +206,28 @@ def _scheduled_w39_pause(request: Request, stage: str) -> dict | None:
     }
 
 
-def _load_or_create_episode(episode_id: str, concept: str) -> dict:
-    ep = storage.load_episode(episode_id)
+def _load_or_create_episode(episode_id: str, concept: str, stage: str) -> dict:
+    """Load the week's episode, or start a new one only if none exists.
+
+    The read is strict (#8145): None means the episode is genuinely missing,
+    and a failed read raises. The lenient `load_episode` turned any Blob error
+    into "no episode", so a re-fired Monday during a Blob failure saved a fresh
+    skeleton over the real week. A failed read now alerts and returns 503
+    before anything is written.
+    """
+    try:
+        ep = storage.load_episode_strict(episode_id)
+    except Exception as exc:
+        detail = (
+            f"Episode {episode_id} could not be read: {type(exc).__name__}: {exc}. "
+            f"The {stage} stage did not run and nothing was written."
+        )
+        logger.error(detail)
+        notify_pipeline_failure(
+            recipe_id="unknown", concept=concept or "unknown",
+            stage=stage, error_message=detail,
+        )
+        raise HTTPException(status_code=503, detail=detail) from exc
     if ep:
         return ep
     return _new_episode(episode_id, concept)
@@ -2663,7 +2683,7 @@ async def cron_monday(request: Request):
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     with _test_mode_scope(body):
       episode_id = body.episode_id or _current_episode_id()
-      ep = _load_or_create_episode(episode_id, body.concept or PLACEHOLDER_CONCEPT)
+      ep = _load_or_create_episode(episode_id, body.concept or PLACEHOLDER_CONCEPT, "monday")
       _apply_week_off_note(episode_id, ep)
       # Put the decision on the homepage now, not only at the end of a
       # successful Monday: a stage failure below would otherwise keep the
@@ -2779,7 +2799,7 @@ async def cron_tuesday(request: Request):
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     with _test_mode_scope(body):
       episode_id = body.episode_id or _current_episode_id()
-      ep = _load_or_create_episode(episode_id, body.concept or PLACEHOLDER_CONCEPT)
+      ep = _load_or_create_episode(episode_id, body.concept or PLACEHOLDER_CONCEPT, "tuesday")
       concept: str = body.concept or ep.get("concept") or PLACEHOLDER_CONCEPT
       _require_monday_recipe(ep, "tuesday")
 
@@ -2817,7 +2837,7 @@ async def cron_wednesday(request: Request):
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     with _test_mode_scope(body):
       episode_id = body.episode_id or _current_episode_id()
-      ep = _load_or_create_episode(episode_id, body.concept or PLACEHOLDER_CONCEPT)
+      ep = _load_or_create_episode(episode_id, body.concept or PLACEHOLDER_CONCEPT, "wednesday")
       concept: str = body.concept or ep.get("concept") or PLACEHOLDER_CONCEPT
       _require_monday_recipe(ep, "wednesday")
       recipe_data = ep.get("stages", {}).get("monday", {}).get("recipe_data", {})
@@ -2993,7 +3013,7 @@ async def cron_thursday(request: Request):
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     with _test_mode_scope(body):
       episode_id = body.episode_id or _current_episode_id()
-      ep = _load_or_create_episode(episode_id, body.concept or PLACEHOLDER_CONCEPT)
+      ep = _load_or_create_episode(episode_id, body.concept or PLACEHOLDER_CONCEPT, "thursday")
       concept: str = body.concept or ep.get("concept") or PLACEHOLDER_CONCEPT
       _require_monday_recipe(ep, "thursday")
       recipe_data = ep.get("stages", {}).get("monday", {}).get("recipe_data", {})
@@ -3064,7 +3084,7 @@ async def cron_friday(request: Request):
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     with _test_mode_scope(body):
       episode_id = body.episode_id or _current_episode_id()
-      ep = _load_or_create_episode(episode_id, body.concept or PLACEHOLDER_CONCEPT)
+      ep = _load_or_create_episode(episode_id, body.concept or PLACEHOLDER_CONCEPT, "friday")
       concept: str = body.concept or ep.get("concept") or PLACEHOLDER_CONCEPT
       _require_monday_recipe(ep, "friday")
 
@@ -3129,7 +3149,7 @@ async def cron_saturday(request: Request):
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     with _test_mode_scope(body):
       episode_id = body.episode_id or _current_episode_id()
-      ep = _load_or_create_episode(episode_id, body.concept or PLACEHOLDER_CONCEPT)
+      ep = _load_or_create_episode(episode_id, body.concept or PLACEHOLDER_CONCEPT, "saturday")
       concept: str = body.concept or ep.get("concept") or PLACEHOLDER_CONCEPT
       _require_monday_recipe(ep, "saturday")
 
@@ -4132,7 +4152,7 @@ async def execute_cron_stage_stub(stage: str, episode_id: str, concept: str, mod
             "refused for cloud storage and for a namespaced store."
         )
     # Bypass cron secret verification — caller is already auth'd via admin UI
-    ep = _load_or_create_episode(episode_id, concept)
+    ep = _load_or_create_episode(episode_id, concept, stage)
     if episode_is_published(ep):
         # published_at OR a complete Sunday (legacy weeks): the shared predicate
         # the static builder uses, so a historical week is never demoted.
