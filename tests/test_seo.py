@@ -22,11 +22,11 @@ from backend.admin import episode_routes
 from backend.publishing.episode_renderer import (
     SEO_DESCRIPTION_MAX_LENGTH,
     _seo_description,
-    _slugify,
     _step_name,
     render_episode_page,
 )
 from backend.publishing.static_renderer import render_home, render_recipes_index
+from backend.recipe_model import slugify
 
 
 def _published_episode() -> dict:
@@ -216,9 +216,9 @@ def test_json_ld_steps_link_to_anchors_that_exist_on_the_page() -> None:
 
 def test_step_urls_use_the_served_slug_not_the_title_slug() -> None:
     """Seed recipes are served under a catalog slug that can differ from
-    _slugify(title); a title-derived step url would anchor into a 404."""
+    slugify(title); a title-derived step url would anchor into a 404."""
     seeds = _seed_recipes()
-    slug = next(s for s in sorted(seeds) if s != _slugify(seeds[s]["recipe_data"]["title"]))
+    slug = next(s for s in sorted(seeds) if s != slugify(seeds[s]["recipe_data"]["title"]))
     rec = seeds[slug]
     html_text = render_seed_recipe_page(rec["recipe_data"], rec.get("image", ""), slug)
     ld = _extract_json_ld(html_text)
@@ -344,7 +344,7 @@ def test_seed_recipe_renders_rich_result_complete(slug) -> None:
     for step in rec["recipe_data"]["instructions"]:
         assert step in html_text, f"{slug} dropped step {step!r}"
     # Canonical MUST point at the served slug, not a title-derived one that
-    # would 404 (7 of 10 seed slugs differ from _slugify(title)).
+    # would 404 (7 of 10 seed slugs differ from slugify(title)).
     canonical = f"https://muffinpanrecipes.com/recipes/{slug}"
     assert f'<link rel="canonical" href="{canonical}">' in html_text
     assert f'<meta property="og:url" content="{canonical}">' in html_text

@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Optional
 
 from backend.publishing.analytics import GA4_TAG
+from backend.recipe_model import catalog_slug, clean_title, ingredient_text, slugify
 from backend.storage import (
     JPEG_FALLBACK_HEIGHT,
     JPEG_FALLBACK_WIDTH,
@@ -670,7 +671,7 @@ def render_episode_page(
     episode/dialogue behind them (see render_seed_recipe_page).
 
     `canonical_slug` overrides the slug used in the canonical/og:url when
-    the page is served under a slug that differs from _slugify(title) — the
+    the page is served under a slug that differs from slugify(title) — the
     seed recipes' hand-chosen catalog slugs do.
 
     `social_image_url` is an optional existing PNG/JPEG for social cards. When
@@ -905,11 +906,11 @@ def render_episode_page(
     # and /recipes/{slug} — once published, the recipe URL is the canonical
     # home, so it is what the <link rel="canonical">, og:url, and the JSON-LD
     # HowToStep anchors all point at. For cron recipes the serving slug is
-    # _slugify(title); seed recipes are served under a hand-chosen catalog slug
+    # slugify(title); seed recipes are served under a hand-chosen catalog slug
     # that can differ from the title (e.g. "classic-blueberry-muffins" vs title
     # "Classic Blueberry Muffin Tops"), so the caller passes the real serving
     # slug — re-deriving from the title would point the canonical at a 404.
-    serve_slug = canonical_slug or _slugify(title)
+    serve_slug = canonical_slug or slugify(title)
     canonical_url = f"{site_base}/recipes/{serve_slug}"
 
     # JSON-LD (only on published pages with full recipe data)
@@ -1183,39 +1184,6 @@ def render_seed_recipe_page(
     )
 
 
-def _slugify(title: str) -> str:
-    """Convert a recipe title to a URL slug.
-
-    'Make-Ahead Veggie & Sausage Egg Cups (Weekly Muffin Pan Breakfast)'
-    -> 'make-ahead-veggie-sausage-egg-cups'
-    """
-    import re
-    import unicodedata
-    # Remove parenthetical suffixes
-    title = re.sub(r'\s*\(.*?\)\s*', '', title)
-    # #7106: transliterate accents BEFORE the non-alphanumeric pass, or every
-    # accented letter becomes a hyphen - W37's "Pao" (with a tilde) published at
-    # /recipes/brazilian-p-o-de-queijo-bites. NFKD splits "a-tilde" into "a" plus a
-    # combining mark; dropping category Mn keeps the base letter.
-    title = "".join(
-        c for c in unicodedata.normalize("NFKD", title)
-        if unicodedata.category(c) != "Mn"
-    )
-    # Lowercase, replace non-alphanumeric with hyphens
-    slug = re.sub(r'[^a-z0-9]+', '-', title.lower()).strip('-')
-    # Collapse multiple hyphens
-    slug = re.sub(r'-+', '-', slug)
-    return slug
-
-
-def _clean_title(title: str) -> str:
-    """Strip parenthetical qualifiers from recipe titles.
-
-    'Make-Ahead Veggie & Sausage Egg Cups (Weekly Muffin Pan Breakfast)'
-    -> 'Make-Ahead Veggie & Sausage Egg Cups'
-    """
-    import re
-    return re.sub(r'\s*\(.*?\)\s*$', '', title).strip()
 
 
 def _catalog_image_key(image_url: str) -> str:
@@ -1280,15 +1248,6 @@ def _catalog_duplicate_reason(new_entry: dict, existing_entry: dict) -> str | No
     return None
 
 
-def catalog_slug(episode: dict) -> str:
-    """The slug this episode's recipe gets in the catalog (and so its
-    /recipes/<slug> URL), or "" when it has no usable title. One derivation
-    for the catalog and every caller that needs the same URL (#7806)."""
-    recipe = episode.get("stages", {}).get("monday", {}).get("recipe_data", {})
-    title = _clean_title(recipe.get("title", ""))
-    return _slugify(title) if title else ""
-
-
 def publish_recipe_to_catalog(episode: dict) -> str | None:
     """Add the finished recipe to recipes.json and upload to blob.
 
@@ -1306,7 +1265,7 @@ def publish_recipe_to_catalog(episode: dict) -> str | None:
     """
     monday = episode.get("stages", {}).get("monday", {})
     recipe = monday.get("recipe_data", {})
-    title = _clean_title(recipe.get("title", ""))
+    title = clean_title(recipe.get("title", ""))
     if not title:
         logger.warning("No recipe title — skipping catalog publish")
         return None
@@ -1333,15 +1292,7 @@ def publish_recipe_to_catalog(episode: dict) -> str | None:
         image_url = _to_webp_url(_to_local_image_url(image_urls[0]))
 
     # Build ingredients as flat strings (matching existing recipes.json format)
-    ingredients = []
-    for ing in recipe.get("ingredients", []):
-        if isinstance(ing, dict):
-            text = f"{ing.get('amount', '')} {ing.get('item', '')}".strip()
-            if ing.get("notes"):
-                text += f" ({ing['notes']})"
-            ingredients.append(text)
-        else:
-            ingredients.append(str(ing))
+    ingredients = [ingredient_text(ing) for ing in recipe.get("ingredients", [])]
 
     instructions = [
         s if isinstance(s, str) else str(s)

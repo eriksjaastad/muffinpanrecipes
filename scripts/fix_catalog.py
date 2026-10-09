@@ -17,7 +17,8 @@ import json
 import sys
 
 from backend.storage import storage
-from backend.publishing.episode_renderer import _slugify, _to_local_image_url, _clean_title
+from backend.publishing.episode_renderer import _to_local_image_url
+from backend.recipe_model import clean_title, ingredient_text, slugify
 
 
 def _fix_image_url(url: str) -> str:
@@ -83,22 +84,14 @@ def build_w10_entry(episode: dict) -> dict:
     """Build catalog entry for W10 Mini Lemon Meringue Cups."""
     monday = episode.get("stages", {}).get("monday", {})
     recipe = monday.get("recipe_data", {})
-    title = _clean_title(recipe.get("title", ""))
+    title = clean_title(recipe.get("title", ""))
     image_urls = episode.get("image_urls", [])
     # W10's images were uploaded with old naming convention.
     # The actual blob is images/8a79d045-DhjkN1qxCEXg2F0D3xq7c60Pe11hvk.png
     # Use the blob list API to find the real path.
     image_url = _resolve_w10_image(image_urls[0]) if image_urls else ""
 
-    ingredients = []
-    for ing in recipe.get("ingredients", []):
-        if isinstance(ing, dict):
-            text = f"{ing.get('amount', '')} {ing.get('item', '')}".strip()
-            if ing.get("notes"):
-                text += f" ({ing['notes']})"
-            ingredients.append(text)
-        else:
-            ingredients.append(str(ing))
+    ingredients = [ingredient_text(ing) for ing in recipe.get("ingredients", [])]
 
     instructions = [
         s if isinstance(s, str) else str(s)
@@ -106,7 +99,7 @@ def build_w10_entry(episode: dict) -> dict:
     ]
 
     return {
-        "slug": _slugify(title),
+        "slug": slugify(title),
         "title": title,
         "category": recipe.get("category", "Dessert").title(),
         "image": image_url,
@@ -131,15 +124,7 @@ def build_w12_entry(episode: dict) -> dict:
     image_urls = episode.get("image_urls", [])
     image_url = _fix_image_url(image_urls[0]) if image_urls else ""
 
-    ingredients = []
-    for ing in recipe.get("ingredients", []):
-        if isinstance(ing, dict):
-            text = f"{ing.get('amount', '')} {ing.get('item', '')}".strip()
-            if ing.get("notes"):
-                text += f" ({ing['notes']})"
-            ingredients.append(text)
-        else:
-            ingredients.append(str(ing))
+    ingredients = [ingredient_text(ing) for ing in recipe.get("ingredients", [])]
 
     instructions = [
         s if isinstance(s, str) else str(s)
@@ -147,7 +132,7 @@ def build_w12_entry(episode: dict) -> dict:
     ]
 
     return {
-        "slug": _slugify(title),
+        "slug": slugify(title),
         "title": title,
         "category": recipe.get("category", "Savory").title(),
         "image": image_url,

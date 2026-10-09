@@ -45,6 +45,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
 from backend.config import config
+from backend.recipe_model import ingredient_names
 from backend.publishing.episode_renderer import (
     regenerate_and_upload,
     upload_latest_json,
@@ -181,10 +182,8 @@ STAGE_TO_ROLE = {
 }
 
 def _current_episode_id() -> str:
-    """Return the ISO week episode ID, e.g. '2026-W09'."""
-    now = datetime.now(timezone.utc)
-    iso = now.isocalendar()
-    return f"{iso.year}-W{iso.week:02d}"
+    """Return the ISO week episode ID, e.g. '2026-W09' (UTC; tests pin this name)."""
+    return episode_integrity.current_episode_id(datetime.now(timezone.utc))
 
 
 def _scheduled_w39_pause(request: Request, stage: str) -> dict | None:
@@ -356,118 +355,6 @@ RECIPE_CONTEXT_INGREDIENTS_MAX = 600
 JUDGE_METHOD_MAX = 8000
 
 
-_INGREDIENT_NUMBER = r"(?:\d+\s+\d+/\d+|\d+/\d+|\d+(?:\.\d+)?|[¼½¾⅓⅔⅛⅜⅝⅞])"
-_INGREDIENT_RANGE = rf"{_INGREDIENT_NUMBER}(?:\s*(?:-|–|—|to)\s*{_INGREDIENT_NUMBER})?"
-_INGREDIENT_MEASURE = (
-    r"(?:cups?|tablespoons?|tbsp|teaspoons?|tsp|ounces?|oz|pounds?|lbs?|lb|"
-    r"grams?|grammes?|g|kilograms?|kg|milliliters?|millilitres?|ml|"
-    r"liters?|litres?|l|inches?|inch|in\.)"
-)
-_INGREDIENT_QUANTITY_RE = re.compile(
-    rf"(?:about\s+)?{_INGREDIENT_RANGE}(?:\s+(?:heaping|full)\s+{_INGREDIENT_MEASURE}|\s+{_INGREDIENT_MEASURE})?"
-    rf"(?:\s+plus\s+(?:more|extra|(?:about\s+)?{_INGREDIENT_RANGE}(?:\s+{_INGREDIENT_MEASURE})?))?",
-    re.IGNORECASE,
-)
-_INGREDIENT_COUNT_RE = re.compile(
-    rf"{_INGREDIENT_NUMBER}\s+(?:(?:thin|small|large|full)\s+)?"
-    r"(?:sheets?|sticks?|strips?|cloves?|pieces?|slices?|cans?|packages?|"
-    r"bunch(?:es)?|heads?|large|medium|small)"
-    rf"(?:\s*\((?:about\s+)?{_INGREDIENT_RANGE}\s+{_INGREDIENT_MEASURE}\))?",
-    re.IGNORECASE,
-)
-_PRESENTATION_AMOUNT_RE = re.compile(
-    r"(?:optional\s*:\s*)?(?:pinch(?:\s+of)?|dash(?:\s+of)?|handful(?:\s+of)?)|"
-    r"optional\s*:|extra|as\s+needed|to\s+taste",
-    re.IGNORECASE,
-)
-_RESIDUAL_MEASURE_RE = re.compile(
-    rf"^{_INGREDIENT_MEASURE}\b\s*", re.IGNORECASE
-)
-
-
-def _ingredient_amount_kind(amount: str) -> str | None:
-    """Classify only known quantity and presentation forms from stored recipe data."""
-    normalized = " ".join(amount.split())
-    if not normalized:
-        return None
-    if _PRESENTATION_AMOUNT_RE.fullmatch(normalized):
-        return "presentation"
-    if _INGREDIENT_QUANTITY_RE.fullmatch(normalized) or _INGREDIENT_COUNT_RE.fullmatch(normalized):
-        return "quantity"
-    return None
-
-
-def _split_plain_ingredient_quantity(value: str) -> tuple[str, str]:
-    """Split a leading supported quantity from a plain-string ingredient."""
-    boundaries = [match.start() for match in re.finditer(r"\s+", value)]
-    for boundary in reversed(boundaries):
-        amount = value[:boundary].strip()
-        item = value[boundary:].strip()
-        if _ingredient_amount_kind(amount) == "quantity" and item and not item.startswith(("%", "/")):
-            return amount, item
-    return "", value
-
-
-def _ingredient_names(recipe_data: dict | None) -> list[str]:
-    """Return normalized, deduped ingredient names from stored recipe shapes.
-
-    Dict entries use separate ``amount`` and ``item`` strings; plain strings
-    are either names or may begin with a supported quantity. Known full
-    quantities and presentation labels are omitted. Unknown amount prefixes
-    are conservatively restored before the item, since recipe generation can
-    split ingredient names across these fields. ``notes`` are never included.
-    This is a bounded normalizer for these stored shapes, not a general recipe
-    parser. A comma in the reconstructed item still starts the existing prep
-    clause convention; supported measurement units left in ``item`` are
-    removed only when the amount itself supplies quantity evidence.
-    """
-    if not isinstance(recipe_data, dict):
-        return []
-    names: list[str] = []
-    seen: set[str] = set()
-    for ing in (recipe_data.get("ingredients") or []):
-        if isinstance(ing, dict):
-            amount = " ".join(str(ing.get("amount") or "").split())
-            item = " ".join(str(ing.get("item") or "").split())
-        else:
-            amount = ""
-            item = " ".join(str(ing or "").split())
-            amount, item = _split_plain_ingredient_quantity(item)
-
-        amount_kind = _ingredient_amount_kind(amount)
-        quantity_evidence = amount_kind == "quantity"
-        if amount_kind:
-            name = item
-        elif amount:
-            separator = "" if amount.endswith(",") else " "
-            name = f"{amount}{separator}{item}".strip()
-        else:
-            name = item
-
-        # These are anchored presentation prefixes found in stored recipe data.
-        # Do not remove ordinary identity words such as "whole" or "cloves".
-        name = re.sub(r"^optional\s*:\s*", "", name, flags=re.IGNORECASE)
-        name = re.sub(r"^(?:pinch|dash|handful)\s+of\s+", "", name, flags=re.IGNORECASE)
-        if amount_kind:
-            name = re.sub(r"^of\s+", "", name, flags=re.IGNORECASE)
-        if quantity_evidence:
-            name = _RESIDUAL_MEASURE_RE.sub("", name)
-        if not amount or amount_kind:
-            # Some parsed rows leave a presentation "or" in the item field
-            # after its first choice was omitted. Preserve it when an unknown
-            # lexical amount (for example, "Ghee") is restored above.
-            name = re.sub(r"^or\s+", "", name, flags=re.IGNORECASE)
-        name = name.split(",", 1)[0].strip()
-        if not name:
-            continue
-        key = name.casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        names.append(name)
-    return names
-
-
 def _build_recipe_context(recipe_data: dict | None) -> str:
     """One-line recipe summary for dialogue + judge prompts.
 
@@ -524,7 +411,7 @@ def _build_recipe_context(recipe_data: dict | None) -> str:
     # first-five-ingredients list because it said what was IN the dish and
     # nothing about what the finished thing was LIKE; the description above
     # still carries the texture. Names are back for factual grounding only.
-    names = _ingredient_names(recipe_data)
+    names = ingredient_names(recipe_data)
     if names:
         joined = ", ".join(names)
         complete = True
@@ -2068,9 +1955,9 @@ def _catalog_contains_episode(ep: dict) -> bool:
     if not title or not episode_id:
         return False
 
-    from backend.publishing.episode_renderer import _slugify
+    from backend.recipe_model import slugify
 
-    slug = _slugify(title)
+    slug = slugify(title)
     for entry in catalog.get("recipes", []):
         if not isinstance(entry, dict):
             continue
@@ -2100,14 +1987,15 @@ def _publish_sunday_sources(ep: dict) -> None:
     # This is THE reader page: vercel.json routes /recipes/<slug> at the lambda,
     # which serves this stored file. A swallowed failure here would return
     # {"published": true} while the recipe 404s for every reader, so it raises.
-    from backend.publishing.episode_renderer import _slugify, render_episode_page
+    from backend.publishing.episode_renderer import render_episode_page
+    from backend.recipe_model import slugify
 
     monday = ep.get("stages", {}).get("monday", {})
     recipe_title = monday.get("recipe_data", {}).get("title", "")
     if not recipe_title:
         raise RuntimeError("Sunday publish has no recipe title; cannot write reader page")
 
-    slug = _slugify(recipe_title)
+    slug = slugify(recipe_title)
     recipe_html = render_episode_page(ep)
     storage.save_page(f"pages/recipes/{slug}/index.html", recipe_html)
     logger.info("Published recipe page at /recipes/%s", slug)
@@ -3203,7 +3091,7 @@ def _submit_sunday_indexnow(ep: dict, episode_id: str, concept: str) -> None:
     # otherwise reach _run_stage and mark an already-live publish failed.
     event: str | None = None
     try:
-        from backend.publishing.episode_renderer import catalog_slug
+        from backend.recipe_model import catalog_slug
 
         # The same slug the catalog (and so the sitemap) uses. URLs match the
         # sitemap exactly: "/recipes" with no trailing slash, since

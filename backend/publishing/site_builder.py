@@ -20,14 +20,13 @@ import json
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 
+from backend.recipe_model import clean_title, ingredient_text, slugify
+from backend.utils import episode_integrity
 from backend.publishing.episode_renderer import (
     _catalog_duplicate_reason,
-    _clean_title,
     _image_dimensions,
-    _slugify,
     _to_local_image_url,
     _to_webp_url,
     render_episode_page,
@@ -112,8 +111,8 @@ def _recipe_data_to_catalog_entry(slug: str, recipe_data: dict, image: str) -> d
 
 def _episode_slug(episode: dict) -> str:
     recipe = episode.get("stages", {}).get("monday", {}).get("recipe_data", {})
-    title = _clean_title(str(recipe.get("title") or episode.get("concept") or ""))
-    return _slugify(title)
+    title = clean_title(str(recipe.get("title") or episode.get("concept") or ""))
+    return slugify(title)
 
 
 def _episode_is_published(episode: dict) -> bool:
@@ -124,8 +123,7 @@ def _episode_is_published(episode: dict) -> bool:
 
 
 def _current_episode_id() -> str:
-    now = datetime.now(UTC).isocalendar()
-    return f"{now.year}-W{now.week:02d}"
+    return episode_integrity.current_episode_id()
 
 
 def _safe_episode_suffix(episode_id: str) -> str:
@@ -339,15 +337,7 @@ class StaticSiteBuilder:
             "prep": f"{recipe.get('prep_time', 15)} mins",
             "cook": f"{recipe.get('cook_time', 20)} mins",
             "yield": f"{recipe.get('servings', 12)} servings",
-            "ingredients": [
-                (
-                    f"{item.get('amount', '')} {item.get('item', '')}".strip()
-                    + (f" ({item['notes']})" if item.get("notes") else "")
-                )
-                if isinstance(item, dict)
-                else str(item)
-                for item in recipe.get("ingredients", [])
-            ],
+            "ingredients": [ingredient_text(item) for item in recipe.get("ingredients", [])],
             "instructions": [
                 item if isinstance(item, str) else str(item)
                 for item in recipe.get("instructions", [])

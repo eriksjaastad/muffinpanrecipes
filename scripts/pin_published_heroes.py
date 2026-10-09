@@ -30,7 +30,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import requests  # noqa: E402
 
-from backend.publishing.episode_renderer import BLOB_CDN_PREFIX, _slugify  # noqa: E402
+from backend.publishing.episode_renderer import BLOB_CDN_PREFIX  # noqa: E402
+from backend.recipe_model import slugify  # noqa: E402
 from backend.storage import BLOB_PUBLIC_BASE, _source_png_key  # noqa: E402
 from backend.utils.catalog import catalog_recipes, load_published_catalog  # noqa: E402
 
@@ -109,7 +110,7 @@ def plan(catalog: dict, episodes: dict[str, dict], fetch_page) -> list[tuple[str
     the slug of the episode's recipe title (11 live rows predate stamping).
     """
     by_title_slug = {
-        _slugify(str((ep.get("stages", {}).get("monday", {}).get("recipe_data") or {}).get("title") or "")): eid
+        slugify(str((ep.get("stages", {}).get("monday", {}).get("recipe_data") or {}).get("title") or "")): eid
         for eid, ep in episodes.items()
     }
     rows = []
