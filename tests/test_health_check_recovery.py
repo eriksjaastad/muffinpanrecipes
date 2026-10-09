@@ -74,6 +74,7 @@ def _run(monkeypatch, tmp_path, *, healthy: bool):
          patch.object(hc, "check_sitemap_pages", _pass), \
          patch.object(hc, "check_static_security_headers", _pass), \
          patch.object(hc, "check_unmatched_url_404", _pass), \
+         patch.object(hc, "check_character_bios", _pass), \
          patch.object(hc.sys, "argv", ["health_check.py"]):
         # Capture at the alert seam, not the transport. health_check no longer
         # owns a webhook — it formats and hands off to
@@ -92,7 +93,7 @@ def test_failing_run_alerts_and_records_failed(monkeypatch, tmp_path):
     rc, posts = _run(monkeypatch, tmp_path, healthy=False)
     assert rc == 1
     assert len(posts) == 1
-    assert posts[0] == "Health check failed\n2 of 9 checks failing"
+    assert posts[0] == "Health check failed\n2 of 10 checks failing"
     assert hc.read_last_status() == "failed"
 
 
@@ -103,7 +104,7 @@ def test_recovery_ping_fires_after_a_failure(monkeypatch, tmp_path):
     rc, posts = _run(monkeypatch, tmp_path, healthy=True)
     assert rc == 0
     assert len(posts) == 1
-    assert posts[0] == "Health check recovered\n9 checks passing"
+    assert posts[0] == "Health check recovered\n10 checks passing"
     assert hc.read_last_status() == "passed"
 
 

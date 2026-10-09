@@ -996,6 +996,21 @@ def check_unmatched_url_404(
     report.check("unmatched_url_is_404", _check)
 
 
+def check_character_bios(report: Report, base_url: str = PRODUCTION_BASE_URL) -> None:
+    """Every character bio the dialogue prompt needs is in the deployed bundle (#8146)."""
+    def _check() -> None:
+        health = _fetch_json(_url(base_url, "/health"))
+        assert isinstance(health, dict) and "missing_bios" in health, (
+            "/health does not report missing_bios; this deploy predates #8146"
+        )
+        assert health["missing_bios"] == [], (
+            f"deployed bundle is missing bios for {health['missing_bios']}; "
+            f"dialogue will fail until they ship (check .vercelignore)"
+        )
+
+    report.check("character_bios_deployed", _check)
+
+
 def check_alert_channel(report: Report) -> None:
     """Assert this process could actually deliver an alert (#7153).
 
@@ -1122,6 +1137,7 @@ def main() -> int:
     check_sitemap_pages(report, base_url=base_url)
     check_static_security_headers(report, base_url=base_url)
     check_unmatched_url_404(report, base_url=base_url)
+    check_character_bios(report, base_url=base_url)
 
     print()
     print(f"Passed: {len(report.passed)}  Failed: {len(report.failed)}")
