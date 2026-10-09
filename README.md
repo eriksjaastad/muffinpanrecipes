@@ -37,16 +37,16 @@ python3 -m venv venv
 ### Development
 1. Clone the repository.
 2. Run the bootstrap steps above.
-3. Run the app with its secrets: `doppler run -- uv run python -m backend.admin.app` (see below).
+3. Run the app locally with its secrets (below; the full setup is in [DEPLOYMENT.md](DEPLOYMENT.md)).
 
 ### Secrets Runtime (Doppler)
 
 This project expects runtime secrets from Doppler (not `.env` files).
 
 ```bash
-# Example: run admin app with injected secrets
-cd <repo-root>
-doppler run -- uv run python -m backend.admin.app
+# Run the admin app locally with injected secrets (from the repo root)
+LOCAL_DEV=true PYTHONPATH=. doppler run -- uv run uvicorn \
+  backend.admin.app:create_admin_app --factory --reload --port 8000
 ```
 
 ## 🛠️ Project Structure
