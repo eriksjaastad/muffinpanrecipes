@@ -45,6 +45,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
 from backend.config import config
+from backend.judge_rubric import CHARACTER_RULES
 from backend.recipe_model import ingredient_names
 from backend.publishing.episode_renderer import (
     regenerate_and_upload,
@@ -638,13 +639,7 @@ _JUDGE_SYSTEM_PROMPT = (
     "6 characters (Margaret, Steph, Julian, Marcus, Devon, Ria) collaborate on a muffin-tin "
     "recipe each week. Not everyone appears every day - the EXPECTED CAST FOR TODAY line in "
     "the prompt below tells you who is supposed to be in today's scene.\n\n"
-    "CHARACTER RULES:\n"
-    "- Margaret: Blunt, short sentences, zero fluff, standards enforcer\n"
-    "- Steph: Warm, diplomatic, NOT a nervous intern\n"
-    "- Julian: Visual thinker, theatrical, cares about light/composition\n"
-    "- Marcus: Literary, verbose, metaphor-heavy\n"
-    "- Devon: Efficient, understated, speaks only when needed\n"
-    "- Ria: Direct, platform-savvy, thinks in hooks and engagement, impatient with process\n\n"
+) + CHARACTER_RULES + (
     "AUTOMATIC FAIL, regardless of the scores below:\n"
     "1. RECIPE FIDELITY: When a 'This week's recipe:' line is provided, the dialogue\n"
     "   must stay anchored to that dish. FAIL if characters discuss techniques or\n"

@@ -199,7 +199,8 @@ control/variant generation, or a judge call), whichever hits first:
       flat default of 40.
 
   --max-cost (default $5.00 - Erik's standing cap, 2026-09-06) aborts once
-  backend.utils.model_router.get_cost_summary()['total_cost'] has already
+  the lab's cost total (_lab_cost_total: each call's actual_cost, else its
+  estimated_cost, from model_router.get_cost_entries()) has already
   reached it - the next paid unit, whatever it costs, is refused. This is
   an ABSOLUTE cap for `ab` (single/--testbed) and `calibrate`. For `ab
   --sweep` it applies PER VARIANT instead: each variant's own spend is
@@ -268,6 +269,7 @@ from backend.admin.cron_routes import (
     _judge_dialogue as judge_dialogue,
 )
 from backend.config import config
+from backend.judge_rubric import CHARACTER_RULES, JUDGE_DIMENSIONS, JUDGE_SCORE_RANGE
 from backend.utils import model_router
 from backend.utils import stop_check
 from backend.utils.episode_integrity import PLACEHOLDER_CONCEPT, _recipe_title
@@ -462,20 +464,8 @@ ALLOWED_VARIANT_ATTRS: tuple[str, ...] = (
     "SPEAKERS_SEE_JUDGE_RECIPE_FACTS",
 )
 
-# The 8 dimensions the production judge scores (backend/admin/cron_routes.py
-# _JUDGE_SYSTEM_PROMPT, ~line 267: 6 rubric dimensions + turn_taking +
-# cast_coverage, added in #6861). Keep this tuple exactly matched to the
-# production judge - never add a lab-only dimension here.
-JUDGE_DIMENSIONS: tuple[str, ...] = (
-    "title_fidelity",
-    "arc_resolution",
-    "voice_distinctiveness",
-    "technical_credibility",
-    "natural_progression",
-    "promise_delivery",
-    "turn_taking",
-    "cast_coverage",
-)
+# JUDGE_DIMENSIONS (imported above from backend/judge_rubric.py) is the 8 the
+# production judge scores; never add a lab-only dimension to it.
 
 # Two dimensions the lab's OWN pairwise judge scores in addition to the
 # production 8 - not part of the live publish gate, just this tool's
@@ -493,9 +483,9 @@ ALL_JUDGE_DIMENSIONS: tuple[str, ...] = JUDGE_DIMENSIONS + LAB_ONLY_JUDGE_DIMENS
 # This lab-only prompt asks for a pairwise A/B verdict instead of a
 # single-transcript score. Its candidate-version framing covers saved,
 # transformed, and independently generated scenes. The character rules are
-# copied verbatim from backend/admin/cron_routes.py's _JUDGE_SYSTEM_PROMPT;
-# production code and its prompt are not changed here. Reuses the same 8 dimension *definitions* as
-# cron_routes.py's judge (lines ~267-317) so the pairwise judge is scoring
+# backend/judge_rubric.py's CHARACTER_RULES, the same block production's
+# _JUDGE_SYSTEM_PROMPT uses. Reuses the same 8 dimension *definitions* as
+# cron_routes.py's judge so the pairwise judge is scoring
 # the same things the production judge scores, just comparatively, plus
 # LAB_ONLY_JUDGE_DIMENSIONS above (lab-only - never fed back into the
 # production judge prompt).
@@ -511,13 +501,7 @@ PAIRWISE_JUDGE_SYSTEM_PROMPT = (
     "two candidate versions of the same scene. Decide which one "
     "is better on each dimension below, from a reader's perspective - which "
     "one would you publish?\n\n"
-    "CHARACTER RULES:\n"
-    "- Margaret: Blunt, short sentences, zero fluff, standards enforcer\n"
-    "- Steph: Warm, diplomatic, NOT a nervous intern\n"
-    "- Julian: Visual thinker, theatrical, cares about light/composition\n"
-    "- Marcus: Literary, verbose, metaphor-heavy\n"
-    "- Devon: Efficient, understated, speaks only when needed\n"
-    "- Ria: Direct, platform-savvy, thinks in hooks and engagement, impatient with process\n\n"
+) + CHARACTER_RULES + (
     "DIMENSIONS:\n"
     "- title_fidelity: does the talk stay anchored to the named dish/hero "
     "ingredient, or does it wander into an unrelated tangent?\n"
@@ -2212,7 +2196,7 @@ def _extract_first_json_object(raw: str) -> str | None:
 def _parse_judge_json(raw: str) -> dict[str, Any] | None:
     """Tolerant parse: extract the first complete JSON object (see
     _extract_first_json_object) and parse it. Same intent as
-    backend/admin/cron_routes.py's `_parse_judge_json` (~line 313) - judge
+    backend/admin/cron_routes.py's `_parse_judge_json` - judge
     models occasionally wrap JSON in a markdown fence or add a sentence of
     preamble/trailing chatter despite being told not to. Reimplemented
     locally (not imported) so this module does not depend on a private
@@ -5316,7 +5300,7 @@ def _distribution(values: list[Any]) -> dict[str, Any] | None:
 
 # The judge's own contract: _JUDGE_SYSTEM_PROMPT asks for every dimension
 # on a 1-5 scale. Scores outside it are malformed verdicts, not data.
-_JUDGE_SCORE_RANGE = (1, 5)
+_JUDGE_SCORE_RANGE = JUDGE_SCORE_RANGE
 
 def _is_valid_judge_score(value: Any) -> bool:
     return (
@@ -8076,7 +8060,7 @@ def _build_parser() -> argparse.ArgumentParser:
     ab.add_argument(
         "--max-cost", type=float, default=DEFAULT_MAX_COST_USD,
         help=(
-            f"USD cap on backend.utils.model_router.get_cost_summary()['total_cost'] for this "
+            "USD cap on the lab's cost total (each call's actual cost, else its estimate) for this "
             f"invocation (default ${DEFAULT_MAX_COST_USD:.2f}, Erik's standing cap, 2026-09-06). "
             "Checked before every paid unit; aborts with a partial result once the running total "
             "has reached it. With --sweep, this cap applies PER VARIANT, not to the sweep as a "
