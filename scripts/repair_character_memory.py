@@ -4,7 +4,7 @@
 Rebuilds one or more episodes' per-character memory entries from their
 stored, ACCEPTED dialogue (episode["stages"][<day>]["dialogue"]) using the
 exact same summarization and per-week-blob write logic as the production
-Sunday writer (backend.admin.cron_routes._generate_episode_memories) — this
+Sunday writer (backend.admin.cron.memories._generate_episode_memories) — this
 script calls that function directly rather than re-implementing it, so the
 two can never drift apart. Each write is a single, complete blob for the
 target week (character_memory/<slug>/<week>.json) with no read or merge, so
@@ -47,7 +47,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from backend.admin.cron_routes import _generate_episode_memories  # noqa: E402
+from backend.admin.cron.memories import _generate_episode_memories  # noqa: E402
 from backend.storage import storage  # noqa: E402
 from backend.utils.logging import get_logger  # noqa: E402
 

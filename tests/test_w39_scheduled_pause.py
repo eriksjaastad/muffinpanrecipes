@@ -11,6 +11,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from backend.admin import cron_routes
+from backend.admin.cron import editorial_qa as cron_editorial_qa
+from backend.admin.cron import memories as cron_memories
 
 
 _CRON_SECRET = "synthetic-w39-cron-secret"
@@ -52,7 +54,9 @@ def test_w39_scheduled_get_returns_explicit_pause_before_any_stage_work(
         (cron_routes, "notify_pipeline_failure"),
         (cron_routes, "notify_judge_failure"),
         (cron_routes, "notify_judge_advisory"),
-        (cron_routes, "generate_response"),
+        # generate_response is used by the cron/ modules now, not cron_routes (#8148).
+        (cron_memories, "generate_response"),
+        (cron_editorial_qa, "generate_response"),
         (cron_routes, "generate_judge_response"),
     ):
         monkeypatch.setattr(owner, name, Mock(side_effect=forbidden))
