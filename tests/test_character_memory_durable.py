@@ -41,6 +41,7 @@ import pytest
 from pathlib import Path
 
 from backend.admin import cron_routes
+from backend.admin.cron import memories as cron_memories
 from tests.photo_review_helpers import approved_wednesday
 from backend.storage import (
     CharacterMemoryUnavailable,
@@ -557,7 +558,7 @@ def test_generate_episode_memories_reports_saved_absent_and_failed(tmp_path, mon
             raise RuntimeError("provider outage")
         return "A calm week. Everyone agreed quickly."
 
-    with patch.object(cron_routes, "generate_response", side_effect=_flaky_generate):
+    with patch.object(cron_memories, "generate_response", side_effect=_flaky_generate):
         outcome = cron_routes._generate_episode_memories(episode, "Test Concept")
 
     assert set(outcome["saved"]) == {"Margaret Chen", "Stephanie 'Steph' Whitmore", "Ria Castillo"}
@@ -575,7 +576,7 @@ def test_generate_episode_memories_dry_run_writes_nothing(tmp_path, monkeypatch)
     monkeypatch.setattr(storage_module, "CHARACTER_MEMORY_DIR", tmp_path / "character_memory")
     episode = _episode_with_dialogue("2026-W40", {"monday": ["Margaret Chen"]})
 
-    with patch.object(cron_routes, "generate_response", return_value="A calm week. Nice."):
+    with patch.object(cron_memories, "generate_response", return_value="A calm week. Nice."):
         outcome = cron_routes._generate_episode_memories(episode, "Test Concept", dry_run=True)
 
     assert "Margaret Chen" in outcome["saved"]
@@ -588,7 +589,7 @@ def test_generate_episode_memories_write_failure_is_reported_not_claimed(tmp_pat
     monkeypatch.setattr(storage_module, "CHARACTER_MEMORY_DIR", tmp_path / "character_memory")
     episode = _episode_with_dialogue("2026-W40", {"monday": ["Margaret Chen"]})
 
-    with patch.object(cron_routes, "generate_response", return_value="A calm week. Nice."), \
+    with patch.object(cron_memories, "generate_response", return_value="A calm week. Nice."), \
          patch.object(storage_module.storage, "save_character_memory_week", side_effect=RuntimeError("blob down")):
         outcome = cron_routes._generate_episode_memories(episode, "Test Concept")
 
@@ -605,7 +606,7 @@ def test_generate_episode_memories_never_reads_bundled_file(tmp_path, monkeypatc
     before_mtime = bundled.stat().st_mtime
 
     episode = _episode_with_dialogue("2026-W40", {"monday": ["Margaret Chen"]})
-    with patch.object(cron_routes, "generate_response", return_value="A calm week. Nice."):
+    with patch.object(cron_memories, "generate_response", return_value="A calm week. Nice."):
         cron_routes._generate_episode_memories(episode, "Test Concept")
 
     assert bundled.read_text() == before
@@ -620,7 +621,7 @@ def test_generate_episode_memories_does_not_read_before_writing(tmp_path, monkey
     monkeypatch.setattr(storage_module, "CHARACTER_MEMORY_DIR", tmp_path / "character_memory")
     episode = _episode_with_dialogue("2026-W40", {"monday": ["Margaret Chen"]})
 
-    with patch.object(cron_routes, "generate_response", return_value="A calm week. Nice."), \
+    with patch.object(cron_memories, "generate_response", return_value="A calm week. Nice."), \
          patch.object(storage_module.storage, "list_character_memory_weeks") as mock_list, \
          patch.object(storage_module.storage, "load_character_memory_week") as mock_load:
         outcome = cron_routes._generate_episode_memories(episode, "Test Concept")
@@ -636,7 +637,7 @@ def test_generate_episode_memories_replay_same_week_is_idempotent(tmp_path, monk
     monkeypatch.setattr(storage_module, "CHARACTER_MEMORY_DIR", tmp_path / "character_memory")
     episode = _episode_with_dialogue("2026-W40", {"monday": ["Margaret Chen"]})
 
-    with patch.object(cron_routes, "generate_response", return_value="A calm week. Nice."):
+    with patch.object(cron_memories, "generate_response", return_value="A calm week. Nice."):
         cron_routes._generate_episode_memories(episode, "Test Concept")
         cron_routes._generate_episode_memories(episode, "Test Concept")
 
@@ -958,7 +959,7 @@ def test_repair_script_dry_run_prints_without_writing(tmp_path, monkeypatch, cap
     }
 
     with patch.object(storage_module.storage, "load_episode", return_value=episode), \
-         patch.object(cron_routes, "generate_response", return_value="A calm week. Nice."):
+         patch.object(cron_memories, "generate_response", return_value="A calm week. Nice."):
         exit_code = repair.main(["2026-W40"])
 
     assert exit_code == 0
@@ -995,7 +996,7 @@ def test_repair_script_apply_actually_writes(tmp_path, monkeypatch):
     }
 
     with patch.object(storage_module.storage, "load_episode", return_value=episode), \
-         patch.object(cron_routes, "generate_response", return_value="A calm week. Nice."):
+         patch.object(cron_memories, "generate_response", return_value="A calm week. Nice."):
         exit_code = repair.main(["2026-W40", "--apply"])
 
     assert exit_code == 0
@@ -1022,7 +1023,7 @@ def test_repair_script_same_week_rewrite_is_idempotent(tmp_path, monkeypatch):
     }
 
     with patch.object(storage_module.storage, "load_episode", return_value=episode), \
-         patch.object(cron_routes, "generate_response", return_value="A calm week. Nice."):
+         patch.object(cron_memories, "generate_response", return_value="A calm week. Nice."):
         repair.main(["2026-W40", "--apply"])
         repair.main(["2026-W40", "--apply"])
 

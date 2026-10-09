@@ -2466,7 +2466,7 @@ def _generate_episode_memories(
 
     One LLM call per character (~100 tokens output each). Persists through
     the same durable storage primitives as the production Sunday writer
-    (backend.admin.cron_routes._generate_episode_memories) — NOT
+    (backend.admin.cron.memories._generate_episode_memories) — NOT
     backend/data/characters/<slug>/memory.json (#6968, item 6). That bundled
     path is tracked source; a local full-week simulation must not dirty it.
     Each character's memory is ONE durable blob per week
