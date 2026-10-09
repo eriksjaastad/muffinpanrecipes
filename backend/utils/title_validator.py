@@ -61,7 +61,7 @@ def load_catalog_titles() -> list[str]:
     Steering/QA use only (not a publishing gate — Monday's duplicate gate
     reads backend.utils.catalog.load_published_catalog directly and raises).
     A catalog read failure here degrades to [] with a logged error rather
-    than raising, since the live callers (cron_routes._recent_catalog_titles
+    than raising, since the live callers (cron.editorial_qa._recent_catalog_titles
     for QA context, and the RUNBOOK diagnostic snippets) already alert on an
     empty result or are a human reading output by hand (#6878).
     """

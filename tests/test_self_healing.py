@@ -146,8 +146,8 @@ class TestAutoFixRecipe:
 
         assert _auto_fix_recipe({}, "qa report") is False
 
-    @patch("backend.admin.cron_routes.config")
-    @patch("backend.admin.cron_routes.generate_response")
+    @patch("backend.admin.cron.editorial_qa.config")
+    @patch("backend.admin.cron.editorial_qa.generate_response")
     def test_applies_fix_from_llm(self, mock_generate, mock_config):
         from backend.admin.cron_routes import _auto_fix_recipe
         mock_config.recipe_model = "test-model"
@@ -179,8 +179,8 @@ class TestAutoFixRecipe:
         assert new_recipe["title"] == "Rosemary Goat Cheese Cups"
         assert len(new_recipe["ingredients"]) == 1
 
-    @patch("backend.admin.cron_routes.config")
-    @patch("backend.admin.cron_routes.generate_response")
+    @patch("backend.admin.cron.editorial_qa.config")
+    @patch("backend.admin.cron.editorial_qa.generate_response")
     def test_enforces_title_rules_on_fix(self, mock_generate, mock_config):
         from backend.admin.cron_routes import _auto_fix_recipe
         mock_config.recipe_model = "test-model"
@@ -207,8 +207,8 @@ class TestAutoFixRecipe:
         assert "(" not in title
         assert len(title.split()) <= 6
 
-    @patch("backend.admin.cron_routes.config")
-    @patch("backend.admin.cron_routes.generate_response")
+    @patch("backend.admin.cron.editorial_qa.config")
+    @patch("backend.admin.cron.editorial_qa.generate_response")
     def test_title_repetition_adds_retitle_blacklist(self, mock_generate, mock_config):
         from backend.admin.cron_routes import _auto_fix_recipe
         mock_config.recipe_model = "test-model"
@@ -242,8 +242,8 @@ class TestAutoFixRecipe:
         assert "status" not in prompt.split("Do not reuse these title words:", 1)[1]
         assert "repetition" not in prompt.split("Do not reuse these title words:", 1)[1]
 
-    @patch("backend.admin.cron_routes.config")
-    @patch("backend.admin.cron_routes.generate_response")
+    @patch("backend.admin.cron.editorial_qa.config")
+    @patch("backend.admin.cron.editorial_qa.generate_response")
     def test_title_repetition_guidance_not_added_when_report_lacks_repetition(
         self, mock_generate, mock_config
     ):
@@ -274,8 +274,8 @@ class TestAutoFixRecipe:
         assert "TITLE REPETITION FIX" not in prompt
         assert "Do not reuse these title words" not in prompt
 
-    @patch("backend.admin.cron_routes.config")
-    @patch("backend.admin.cron_routes.generate_response")
+    @patch("backend.admin.cron.editorial_qa.config")
+    @patch("backend.admin.cron.editorial_qa.generate_response")
     def test_returns_false_on_incomplete_fix(self, mock_generate, mock_config):
         from backend.admin.cron_routes import _auto_fix_recipe
         mock_config.recipe_model = "test-model"
@@ -292,8 +292,8 @@ class TestAutoFixRecipe:
         result = _auto_fix_recipe(episode, "Some issues")
         assert result is False
 
-    @patch("backend.admin.cron_routes.config")
-    @patch("backend.admin.cron_routes.generate_response")
+    @patch("backend.admin.cron.editorial_qa.config")
+    @patch("backend.admin.cron.editorial_qa.generate_response")
     def test_returns_false_on_invalid_json(self, mock_generate, mock_config):
         from backend.admin.cron_routes import _auto_fix_recipe
         mock_config.recipe_model = "test-model"

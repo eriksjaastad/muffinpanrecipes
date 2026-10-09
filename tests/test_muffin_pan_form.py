@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 from unittest.mock import Mock, patch
 
 from backend.admin import cron_routes
+from backend.admin.cron import editorial_qa
 from backend.admin.cron import concept as cron_concept
 from backend.utils.muffin_pan_form import check_muffin_pan_form
 
@@ -123,7 +124,7 @@ def test_editorial_qa_rejects_bad_form_before_llm_judge():
         }
     }
 
-    with patch.object(cron_routes, "generate_judge_response") as judge:
+    with patch.object(editorial_qa, "generate_judge_response") as judge:
         passed, report = cron_routes._editorial_qa_review(episode)
 
     assert passed is False

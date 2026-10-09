@@ -23,6 +23,7 @@ import pytest
 from fastapi import HTTPException, Request
 
 from backend.admin import cron_routes
+from backend.admin.cron import editorial_qa
 
 
 # ---------------------------------------------------------------------------
@@ -60,9 +61,9 @@ def _reviewable_episode() -> dict:
 
 def test_editorial_qa_fails_closed_when_the_reviewer_throws() -> None:
     """It used to return (True, 'defaulting to PASS') — publishing unreviewed."""
-    with patch.object(cron_routes, "_recent_catalog_titles", return_value=["Something Else"]), \
+    with patch.object(editorial_qa, "_recent_catalog_titles", return_value=["Something Else"]), \
          patch.object(
-             cron_routes, "generate_judge_response",
+             editorial_qa, "generate_judge_response",
              side_effect=RuntimeError("provider 503"),
          ):
         passed, report = cron_routes._editorial_qa_review(_reviewable_episode())
@@ -73,9 +74,9 @@ def test_editorial_qa_fails_closed_when_the_reviewer_throws() -> None:
 
 
 def test_editorial_qa_still_passes_a_clean_recipe() -> None:
-    with patch.object(cron_routes, "_recent_catalog_titles", return_value=["Something Else"]), \
+    with patch.object(editorial_qa, "_recent_catalog_titles", return_value=["Something Else"]), \
          patch.object(
-             cron_routes, "generate_judge_response",
+             editorial_qa, "generate_judge_response",
              return_value="STATUS: PASS\nISSUES: None\nRECOMMENDATION: Ship it.",
          ):
         passed, _report = cron_routes._editorial_qa_review(_reviewable_episode())
@@ -89,12 +90,12 @@ def test_missing_catalog_context_alerts_instead_of_passing_silently() -> None:
     When it fired, the QA prompt's title-repetition rule reviewed the recipe
     against an empty list of published titles and nothing said so.
     """
-    with patch.object(cron_routes, "_recent_catalog_titles", return_value=[]), \
+    with patch.object(editorial_qa, "_recent_catalog_titles", return_value=[]), \
          patch.object(
-             cron_routes, "generate_judge_response",
+             editorial_qa, "generate_judge_response",
              return_value="STATUS: PASS\nISSUES: None\nRECOMMENDATION: Ship it.",
          ), \
-         patch.object(cron_routes, "notify_pipeline_failure") as notify:
+         patch.object(editorial_qa, "notify_pipeline_failure") as notify:
         cron_routes._editorial_qa_review(_reviewable_episode())
 
     notify.assert_called_once()
@@ -109,7 +110,7 @@ def test_catalog_titles_fall_back_to_the_public_cdn_reader() -> None:
         "backend.utils.title_validator.load_catalog_titles",
         return_value=["Spanakopita Phyllo Cups"],
     ):
-        assert cron_routes._recent_catalog_titles() == ["Spanakopita Phyllo Cups"]
+        assert editorial_qa._recent_catalog_titles() == ["Spanakopita Phyllo Cups"]
 
     with patch.object(
         cron_routes.storage, "load_page", side_effect=RuntimeError("blob down")
@@ -117,13 +118,13 @@ def test_catalog_titles_fall_back_to_the_public_cdn_reader() -> None:
         "backend.utils.title_validator.load_catalog_titles",
         side_effect=RuntimeError("cdn down"),
     ):
-        assert cron_routes._recent_catalog_titles() == []
+        assert editorial_qa._recent_catalog_titles() == []
 
 
 def test_catalog_titles_read_the_storage_layer_first() -> None:
     payload = json.dumps({"recipes": [{"title": "Kimchi Cheddar Rice Cups"}]})
     with patch.object(cron_routes.storage, "load_page", return_value=payload):
-        assert cron_routes._recent_catalog_titles() == ["Kimchi Cheddar Rice Cups"]
+        assert editorial_qa._recent_catalog_titles() == ["Kimchi Cheddar Rice Cups"]
 
 
 # ---------------------------------------------------------------------------
@@ -186,12 +187,12 @@ def test_a_judge_failure_is_announced_once_not_twice() -> None:
 def test_degraded_catalog_alerts_once_per_episode_not_per_retry() -> None:
     """_editorial_qa_review runs up to three times in the auto-fix loop."""
     episode = _reviewable_episode()
-    with patch.object(cron_routes, "_recent_catalog_titles", return_value=[]), \
+    with patch.object(editorial_qa, "_recent_catalog_titles", return_value=[]), \
          patch.object(
-             cron_routes, "generate_judge_response",
+             editorial_qa, "generate_judge_response",
              return_value="STATUS: PASS\nISSUES: None\nRECOMMENDATION: Ship it.",
          ), \
-         patch.object(cron_routes, "notify_pipeline_failure") as notify:
+         patch.object(editorial_qa, "notify_pipeline_failure") as notify:
         for _ in range(3):
             cron_routes._editorial_qa_review(episode)
 
