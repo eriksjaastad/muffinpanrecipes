@@ -6181,3 +6181,28 @@ def test_claim_markers_are_gitignored_in_the_committed_results_dir():
         ["git", "check-ignore", "-q", marker], cwd=root, capture_output=True, timeout=30,
     )
     assert proc.returncode == 0, "claim markers must be ignored by .gitignore"
+
+
+def test_calibrate_default_call_cap_stops_a_run_at_forty_judge_calls(tmp_path, monkeypatch):
+    """#8149: calibrate's default --max-calls (40) trips through the real command,
+    not only in the parser. 30 runs need well over 40 judge calls."""
+    monkeypatch.setattr(cl, "_load_episode", lambda *_args, **_kwargs: _snapshot_episode())
+    monkeypatch.setenv("JUDGE_MODEL", "test-judge")
+    calls = []
+
+    def judge(**_kwargs):
+        calls.append(1)
+        return _judge_stub()
+
+    monkeypatch.setattr(model_router, "generate_judge_response", judge)
+
+    cl.main([
+        "calibrate", "--provider", "anthropic",
+        "--from-episode", "snapshot-week", "--stage", "tuesday",
+        "--runs", "30", "--results-dir", str(tmp_path / "results"),
+    ])
+
+    [path] = (tmp_path / "results").glob("*-calibrate-*.json")
+    report = json.loads(path.read_text())
+    assert report["aborted"] is True
+    assert len(calls) == 40  # exactly the cap: neither raised nor lowered

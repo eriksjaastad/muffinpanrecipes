@@ -363,3 +363,30 @@ def test_context_restores_sdk_and_router_patches_after_exception(tmp_path, fake_
     assert Messages.create is original_create
     assert Messages.count_tokens is original_count
     assert model_router._generate_openai is original_openai
+
+
+def test_budget_over_the_five_dollar_ceiling_is_refused(tmp_path):
+    """#8149: the approved $5.00 ceiling is enforced at construction."""
+    with pytest.raises(ValueError, match=r"approved \$5\.00 combined ceiling"):
+        AnthropicBudgetGuard(tmp_path / "ledger.json", budget_usd="5.000001")
+
+
+def test_accumulated_spend_crossing_five_dollars_is_denied(tmp_path, fake_sdk, monkeypatch):
+    """#8149: at the full $5.00 budget, a request whose reservation would carry
+    accumulated spend past the ceiling is denied before generation."""
+    monkeypatch.setattr(
+        Messages, "count_tokens",
+        lambda self, **kwargs: (fake_sdk["count"].append(kwargs), SimpleNamespace(input_tokens=3_000_000))[1],
+    )
+    # Reservation per call: (ceil(3e6 * 1.25) + 1024) input at $1/M + 4096 output at $5/M = $3.771504.
+    fake_sdk["usage"]["input_tokens"] = 3_700_000  # settles at $3.70002, inside the reservation
+    path = tmp_path / "ledger.json"
+    with AnthropicBudgetGuard(path, budget_usd="5.00", create=True):
+        assert _generate() == "fixture response"
+        with pytest.raises(BudgetExceeded, match=r"configured ceiling \$5$"):
+            _generate()
+
+    ledger = _ledger(path)
+    assert len(fake_sdk["create"]) == 1
+    assert ledger["stop_reason"] == "budget_exhausted"
+    assert ledger["totals"]["actual_microusd"] == 3_700_020
