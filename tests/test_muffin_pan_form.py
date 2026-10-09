@@ -4,9 +4,10 @@ import asyncio
 from contextlib import nullcontext
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from backend.admin import cron_routes
+from backend.admin.cron import concept as cron_concept
 from backend.utils.muffin_pan_form import check_muffin_pan_form
 
 
@@ -171,6 +172,7 @@ def test_cron_monday_retries_baker_when_form_gate_fails():
         "events": [],
         "recipe_id": None,
     }
+    catalog = Mock(return_value={"recipes": []})  # shared by cron_routes and cron.concept
 
     with patch.object(cron_routes, "_verify_cron_secret"), \
          patch.object(
@@ -185,7 +187,8 @@ def test_cron_monday_retries_baker_when_form_gate_fails():
          patch.object(cron_routes, "_test_mode_scope", return_value=nullcontext()), \
          patch.object(cron_routes, "_load_or_create_episode", return_value=episode), \
          patch.object(cron_routes, "_get_orchestrator", return_value=FakeOrchestrator), \
-         patch.object(cron_routes, "load_published_catalog", return_value={"recipes": []}), \
+         patch.object(cron_routes, "load_published_catalog", new=catalog), \
+         patch.object(cron_concept, "load_published_catalog", new=catalog), \
          patch.object(cron_routes, "_generate_and_judge_dialogue", return_value=(
              [{"character": "Margaret", "message": "These hold together."}],
              "PASS",
