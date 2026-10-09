@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
+from backend import recipe_model
 from backend.admin import cron_routes
 
 
@@ -506,7 +507,7 @@ def test_a_prep_clause_in_the_item_field_is_dropped():
 
 def test_the_same_ingredient_twice_appears_once():
     """W39 carried both "yellow onion" and "yellow onion, finely diced"."""
-    names = cron_routes._ingredient_names(_kibbeh())
+    names = recipe_model.ingredient_names(_kibbeh())
 
     assert names.count("yellow onion") == 1
     assert names == [
@@ -628,9 +629,9 @@ def test_no_ingredients_leaves_the_anchor_untouched():
 
     assert "do not name an ingredient" not in summary
     assert summary.endswith("A thing.")
-    assert cron_routes._ingredient_names(None) == []
-    assert cron_routes._ingredient_names({}) == []
-    assert cron_routes._ingredient_names({"ingredients": [{}, {"item": "  "}, ""]}) == []
+    assert recipe_model.ingredient_names(None) == []
+    assert recipe_model.ingredient_names({}) == []
+    assert recipe_model.ingredient_names({"ingredients": [{}, {"item": "  "}, ""]}) == []
 
 
 def test_plain_string_ingredients_still_work():
@@ -641,7 +642,7 @@ def test_plain_string_ingredients_still_work():
         "description": "A thing.",
         "ingredients": ["caster sugar", "unsalted butter, softened"],
     }
-    assert cron_routes._ingredient_names(recipe) == ["caster sugar", "unsalted butter"]
+    assert recipe_model.ingredient_names(recipe) == ["caster sugar", "unsalted butter"]
 
 
 @pytest.mark.parametrize(
@@ -674,7 +675,7 @@ def test_plain_string_ingredients_still_work():
     ],
 )
 def test_ingredient_name_normalization_table(amount, item, expected):
-    assert cron_routes._ingredient_names({
+    assert recipe_model.ingredient_names({
         "ingredients": [{"amount": amount, "item": item, "notes": "notes must not leak"}],
     }) == [expected]
 
@@ -695,7 +696,7 @@ def test_ingredient_name_normalization_table(amount, item, expected):
     ],
 )
 def test_supported_composite_amounts_are_removed_as_a_whole(amount, item, expected):
-    assert cron_routes._ingredient_names({
+    assert recipe_model.ingredient_names({
         "ingredients": [{"amount": amount, "item": item}],
     }) == [expected]
 
@@ -716,7 +717,7 @@ def test_supported_composite_amounts_are_removed_as_a_whole(amount, item, expect
     ],
 )
 def test_plain_string_names_and_supported_quantities(plain_ingredient, expected):
-    assert cron_routes._ingredient_names({"ingredients": [plain_ingredient]}) == [expected]
+    assert recipe_model.ingredient_names({"ingredients": [plain_ingredient]}) == [expected]
 
 
 @pytest.mark.parametrize("amount", ["1 cup", "1/2 tsp", "½ cup", "1–2 tbsp", "1 1/2 cups"])

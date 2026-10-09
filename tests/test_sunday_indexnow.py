@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from backend import recipe_model
 from backend.admin import cron_routes
 from backend.utils.indexnow import IndexNowResult
 from tests.photo_review_helpers import approved_wednesday
@@ -132,7 +133,6 @@ def test_submitted_recipe_url_uses_the_catalog_slug_for_a_qualified_title():
     """The catalog strips a trailing parenthetical before slugifying; the
     IndexNow URL must be that same page, not a slug of the raw title that
     would 404."""
-    from backend.publishing import episode_renderer
 
     episode = {
         "stages": {"monday": {"recipe_data": {
@@ -150,8 +150,8 @@ def test_submitted_recipe_url_uses_the_catalog_slug_for_a_qualified_title():
          patch.object(cron_routes.storage, "save_episode"):
         cron_routes._submit_sunday_indexnow(episode, "2026-W20", "c")
 
-    slug = episode_renderer.catalog_slug(episode)
-    assert slug == episode_renderer._slugify("Make-Ahead Veggie & Sausage Egg Cups")
+    slug = recipe_model.catalog_slug(episode)
+    assert slug == recipe_model.slugify("Make-Ahead Veggie & Sausage Egg Cups")
     assert captured["urls"][0] == f"https://muffinpanrecipes.com/recipes/{slug}"
 
 
@@ -166,7 +166,7 @@ def test_an_error_deriving_the_slug_never_raises_and_is_recorded():
     """Codex round 1: the slug was derived outside the guard, so an error
     there reached _run_stage and marked a live publish failed."""
     episode = _published_episode()
-    with patch("backend.publishing.episode_renderer.catalog_slug", side_effect=KeyError("boom")), \
+    with patch("backend.recipe_model.catalog_slug", side_effect=KeyError("boom")), \
          patch.object(cron_routes, "_indexnow_submit_urls") as submit, \
          patch.object(cron_routes.storage, "save_episode") as save_episode:
         cron_routes._submit_sunday_indexnow(episode, "2026-W20", "c")  # must not raise

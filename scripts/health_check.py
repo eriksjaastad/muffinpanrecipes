@@ -32,7 +32,7 @@ import re
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit, urlunsplit
@@ -43,6 +43,7 @@ import requests
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from backend.utils.alerts import email_channel_status, send_alert  # noqa: E402
 from backend.utils.episode_integrity import (  # noqa: E402
+    current_episode_id,
     episode_integrity_failures,
     episode_page_is_due,
     episode_summary,
@@ -264,8 +265,7 @@ def check_this_week_page(report: Report, base_url: str = PRODUCTION_BASE_URL) ->
         # must not drift on what "a page should exist by now" means, and they
         # did — the route's own answer used to be "an episode record exists",
         # which put a 5xx on a sitemap URL for every hour a week was paused.
-        iso = datetime.now(timezone.utc).isocalendar()
-        week_id = f"{iso.year}-W{iso.week:02d}"
+        week_id = current_episode_id()
         try:
             # A preview deployment may intentionally still be a placeholder
             # while the shared production Blob already has this week's

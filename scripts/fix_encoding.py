@@ -30,11 +30,8 @@ from backend.utils.catalog import (
     CatalogUnavailableError,
     load_published_catalog,
 )
-from backend.publishing.episode_renderer import (
-    _clean_title,
-    _slugify,
-    render_episode_page,
-)
+from backend.publishing.episode_renderer import render_episode_page
+from backend.recipe_model import clean_title
 from backend.storage import storage
 from backend.utils.recipe_prompts import normalize_recipe_instructions
 
@@ -133,7 +130,7 @@ def catalog_slug_for_title(
     # Title fallback, for legacy rows only.
     matches: set[str] = set()
     for row in rows:
-        if _clean_title(str(row.get("title", ""))).casefold() != title.casefold():
+        if clean_title(str(row.get("title", ""))).casefold() != title.casefold():
             continue
         clash = _conflicts(row)
         if clash:
@@ -180,7 +177,7 @@ def fix_episode(
     # Get recipe title and slug
     monday = ep.get("stages", {}).get("monday", {})
     recipe = monday.get("recipe_data", {})
-    title = _clean_title(recipe.get("title", ""))
+    title = clean_title(recipe.get("title", ""))
     if not title:
         print(f"  SKIP {episode_id}: no recipe title")
         return False
@@ -194,7 +191,7 @@ def fix_episode(
     # The slug itself must come from the live catalog, never be re-derived:
     #   1. Seed recipes are served under a hand-chosen slug that differs from
     #      the title ("Dark Chocolate Chip Decadence" -> dark-chocolate-chip-muffins).
-    #   2. #7106 changed _slugify, so W37's "Pao" (tilde) now renders
+    #   2. #7106 changed slugify, so W37's "Pao" (tilde) now renders
     #      brazilian-pao-de-queijo-bites while the live URL is the old
     #      brazilian-p-o-de-queijo-bites. Re-deriving would write a fresh orphan
     #      page nothing links to and leave the real URL serving stale HTML.
