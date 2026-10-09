@@ -205,11 +205,13 @@ _COST_PER_M_TOKENS: dict[str, tuple[float, float]] = {
     # OpenAI — vision (image tokens counted as input)
     "gpt-5-mini:vision": (0.30, 1.20),
     # Anthropic — text
-    "claude-haiku-4-5-20251001": (0.80, 4.00),
+    # $1 / $5 per M, Anthropic list price (platform.claude.com/docs/en/about-claude/pricing,
+    # checked 2026-10-09); 0.80/4.00 was Haiku 3.5's rate (#8158).
+    "claude-haiku-4-5-20251001": (1.00, 5.00),
     "claude-sonnet-4-6": (3.00, 15.00),
     "claude-opus-4-6": (5.00, 25.00),  # list price verified 2026-09-06
     # Anthropic — vision
-    "claude-haiku-4-5-20251001:vision": (0.80, 4.00),
+    "claude-haiku-4-5-20251001:vision": (1.00, 5.00),
     # Google — text (Gemini API pricing)
     "gemini-3.1-pro-preview": (2.00, 12.00),
     "gemini-3.1-flash-lite-preview": (0.25, 1.50),
