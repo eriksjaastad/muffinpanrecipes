@@ -280,3 +280,14 @@ def test_site_architect_efficiency() -> None:
     # Devon should use automation
     output_str = str(result.output).lower()
     assert "automat" in output_str or "pipeline" in output_str
+
+
+@pytest.mark.parametrize("task_type", ["review_recipe", "test_recipe"])
+def test_baker_refuses_review_and_test_tasks_instead_of_canned_approval(task_type: str) -> None:
+    """The baker only creates recipes. Its old review/test handlers had no caller
+    and turned every failure into an approval; an unknown task fails honestly."""
+    with mock.patch.object(model_router, "generate_response") as generate:
+        result = create_agent("baker").process_task(Task(type=task_type, content="Check this recipe"))
+
+    assert result.success is False
+    generate.assert_not_called()
