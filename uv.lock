@@ -54,11 +54,11 @@ wheels = [
 
 [[package]]
 name = "api-cost-tracker"
-version = "0.2.0"
+version = "0.2.2"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/b2/4c/39c24e4e3a8f8195d28e6e1f2bf0b5cf16dc4e8ffebc2ec87174153e3aba/api_cost_tracker-0.2.0.tar.gz", hash = "sha256:a53836d32ebaeb8c61e5a07c5c226e038bfecdb9ff19f460303c8671b6dc852f", size = 5776, upload-time = "2026-10-08T01:47:31.302Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2a/fa/bc2e340d231fb75b4b7e5a8796c4b9ae9fc272312581a6dd19c717f159c9/api_cost_tracker-0.2.2.tar.gz", hash = "sha256:c71a997f5a4d9324fe9e93cc965ebb72c8a9f9a1b6399afb9fff6dd221b1beda", size = 17835, upload-time = "2026-10-09T23:45:26.829Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a8/26/20a84be7a400f0aeb859fc6facac83dcaab8ce05f1baef0bfe7ccec70638/api_cost_tracker-0.2.0-py3-none-any.whl", hash = "sha256:298c4411995e2128868773e2cedf90513c3a8601a0a445f11290b9f864d4954a", size = 6958, upload-time = "2026-10-08T01:47:32.2Z" },
+    { url = "https://files.pythonhosted.org/packages/b7/a1/a203aff1f31dfe5db4f098afcb8e03dbd65ed11596834995c367444e80f5/api_cost_tracker-0.2.2-py3-none-any.whl", hash = "sha256:dc164bebce50227ca72c9c76aa380256a0abc7642a78eb127d80eb1b4af497eb", size = 10724, upload-time = "2026-10-09T23:45:25.768Z" },
 ]
 
 [[package]]
@@ -913,7 +913,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", specifier = ">=0.39.0" },
-    { name = "api-cost-tracker", marker = "extra == 'dev'", specifier = ">=0.2.0" },
+    { name = "api-cost-tracker", marker = "extra == 'dev'", specifier = ">=0.2.2" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
     { name = "boto3", specifier = ">=1.35.0,<2.0.0" },
     { name = "deptry", marker = "extra == 'dev'", specifier = ">=0.20.0" },
