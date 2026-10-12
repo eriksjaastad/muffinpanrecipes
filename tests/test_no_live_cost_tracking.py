@@ -52,3 +52,39 @@ def test_former_leakers_write_nothing_to_a_fresh_home(tmp_path):
     )
     assert result.returncode == 0, result.stdout[-2000:] + result.stderr[-2000:]
     assert not (tmp_path / ".local" / "share" / "api_trust_tracker" / "buffer.db").exists()
+
+
+_SEED_PENDING_ROW = (
+    "from api_cost_tracker.buffer import buffer_record; "
+    "buffer_record('/track', {'project': 'muffinpanrecipes', 'caller': 'seed'})"
+)
+_COUNT_UNTOUCHED = (
+    "import sqlite3; from api_cost_tracker.buffer import BUFFER_DB_PATH; "
+    "print(sqlite3.connect(BUFFER_DB_PATH).execute("
+    "'select count(*) from pending_records where attempts = 0').fetchone()[0])"
+)
+
+
+def test_faked_successful_post_leaves_the_machine_buffer_alone(tmp_path):
+    """Since 0.2.1 a successful POST drains up to 5 buffered rows (#8167). A test
+    that fakes that success must not send this machine's buffered rows. A child
+    pytest gets an empty HOME holding one pending row and an unreachable tracker
+    URL; afterwards the row must still be pending and never attempted."""
+    pytest.importorskip("api_cost_tracker")  # without the dev extra there is no drain
+    env = {k: v for k, v in os.environ.items() if k != "COST_TRACKER_API_KEY"}
+    env.update(HOME=str(tmp_path), COST_TRACKER_URL="http://127.0.0.1:9")
+
+    def child(*args):
+        return subprocess.run(
+            [sys.executable, *args], cwd=REPO, env=env, capture_output=True, text=True, timeout=180
+        )
+
+    seeded = child("-c", _SEED_PENDING_ROW)
+    assert seeded.returncode == 0, seeded.stderr[-2000:]
+    result = child(
+        "-m", "pytest", "-q", "-p", "no:cacheprovider",
+        "tests/test_model_router_tracking.py::test_openrouter_response_is_recorded_centrally_with_its_billed_cost",
+    )
+    assert result.returncode == 0, result.stdout[-2000:] + result.stderr[-2000:]
+    untouched = child("-c", _COUNT_UNTOUCHED)
+    assert untouched.stdout.strip() == "1", untouched.stdout + untouched.stderr[-2000:]

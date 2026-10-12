@@ -98,8 +98,14 @@ def _isolated_local_data(monkeypatch, tmp_path):
 # point added later. pytest.fail raises a BaseException, so the client's
 # `except` cannot swallow it. A test that exercises the real client patches
 # api_cost_tracker.tracker._post_to_server itself, which shadows this.
+#
+# Since 0.2.1 a successful POST also drains the machine's buffer through
+# tracker.flush_buffer, a separate binding from buffer.flush_buffer (#8167).
+# The buffer path moves under tmp_path, so that drain finds nothing to send
+# from a test that fakes a successful POST, and tracker.flush_buffer is
+# blocked too.
 @pytest.fixture(autouse=True)
-def _no_live_cost_tracking(monkeypatch):
+def _no_live_cost_tracking(monkeypatch, tmp_path):
     from backend.utils import image_generation, model_router
 
     monkeypatch.delenv("COST_TRACKER_API_KEY", raising=False)
@@ -117,9 +123,11 @@ def _no_live_cost_tracking(monkeypatch):
             "Patch api_cost_tracker.tracker._post_to_server to test the client itself."
         )
 
+    monkeypatch.setattr(buffer, "BUFFER_DB_PATH", tmp_path / "api_trust_tracker" / "buffer.db")
     for module, name in (
         (tracker, "_post_to_server"),
         (tracker, "buffer_record"),
+        (tracker, "flush_buffer"),
         (buffer, "buffer_record"),
         (buffer, "flush_buffer"),
     ):
