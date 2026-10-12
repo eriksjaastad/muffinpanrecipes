@@ -77,8 +77,11 @@ def _catalog_entry(title: str, items: list[str], *, episode_id: str = "2026-W28"
 SPANAKOPITA_CATALOG = {"recipes": [_catalog_entry("Spanakopita Phyllo Cups", SPANAKOPITA)]}
 
 
-def _run_monday(recipes: list[dict], *, body: dict | None = None, catalog=None, loader_side_effect=None):
-    """Drive cron_monday with a scripted baker and an injected catalog."""
+def _run_monday(
+    recipes: list[dict], *, body: dict | None = None, catalog=None, loader_side_effect=None,
+    orchestrator_cls=None,
+):
+    """Drive cron_monday with a scripted baker (or ``orchestrator_cls``) and an injected catalog."""
     baker_calls: list[tuple[str, dict]] = []
     queue = list(recipes)
 
@@ -115,7 +118,7 @@ def _run_monday(recipes: list[dict], *, body: dict | None = None, catalog=None, 
          patch.object(cron_routes, "_verify_day_of_week"), \
          patch.object(cron_routes, "_test_mode_scope", return_value=nullcontext()), \
          patch.object(cron_routes, "_load_or_create_episode", return_value=episode), \
-         patch.object(cron_routes, "_get_orchestrator", return_value=FakeOrchestrator), \
+         patch.object(cron_routes, "_get_orchestrator", return_value=orchestrator_cls or FakeOrchestrator), \
          patch.object(cron_routes, "load_published_catalog", new=loader), \
          patch.object(cron_concept, "load_published_catalog", new=loader), \
          patch("backend.utils.title_validator.load_recent_cuisines", return_value=[]), \
@@ -184,6 +187,41 @@ def test_three_duplicate_attempts_fail_monday_closed() -> None:
     assert len(run.baker_calls) == 3
     assert run.episode["stages"]["monday"]["status"] == "failed"
     assert run.episode["stages"]["monday"].get("recipe_data") is None
+    run.notify.assert_called_once()
+    assert run.notify.call_args.kwargs["stage"] == "monday"
+
+
+def test_a_failed_recipe_call_fails_monday_instead_of_baking_a_canned_recipe() -> None:
+    """#7988: the real orchestrator and baker, with the recipe LLM call failing.
+    The baker used to substitute a stock egg-cup recipe titled after the concept,
+    and Monday carried it into the week. Now Monday fails with an alert, the
+    baker is not retried, and no recipe is written."""
+    from backend.agents import baker as baker_module
+    from backend.agents.factory import create_agent
+    from backend.orchestrator import RecipeOrchestrator
+
+    class RealBakerOrchestrator:
+        _execute_stage_baker = RecipeOrchestrator._execute_stage_baker
+
+        def __init__(self, *_a, **_k):
+            self.pipeline = SimpleNamespace(start_recipe=lambda *_a, **_k: None)
+            self.agents = {"baker": create_agent("baker")}
+            self.current_story = None
+
+    with patch.object(
+        baker_module, "generate_recipe", side_effect=RuntimeError("recipe model unavailable"),
+    ) as generate:
+        run = _run_monday([], orchestrator_cls=RealBakerOrchestrator)
+
+    assert run.result is None
+    assert run.error is not None and run.error.status_code == 500
+    assert "recipe model unavailable" in run.error.detail
+    generate.assert_called_once()
+    monday = run.episode["stages"]["monday"]
+    assert monday["status"] == "failed"
+    assert monday.get("recipe_data") is None
+    for saved in run.save_episode.call_args_list:
+        assert saved.args[1]["stages"]["monday"].get("recipe_data") is None
     run.notify.assert_called_once()
     assert run.notify.call_args.kwargs["stage"] == "monday"
 

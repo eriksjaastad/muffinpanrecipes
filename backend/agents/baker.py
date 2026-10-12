@@ -6,7 +6,6 @@ who lost her restaurant in 2008. Skeptical of trendy ingredients but secretly
 still loves the science of baking.
 """
 
-from typing import Any, Dict
 
 from backend.core.agent import Agent
 from backend.core.task import Task, TaskResult, TaskApproach
@@ -89,9 +88,17 @@ class BakerAgent(Agent):
             )
             logger.info(f"Margaret: Recipe generated - {recipe_data.get('title', concept)}")
         except Exception as e:
+            # #7988: no canned recipe. A failed call fails the task, so the
+            # caller (the orchestrator raises on success=False) fails Monday
+            # with an alert instead of baking a stock egg cup into the week.
             logger.error(f"Margaret: LLM generation failed: {e}")
-            # Fall back to basic structure with error note
-            recipe_data = self._fallback_recipe(concept)
+            return TaskResult(
+                task_id=task.id,
+                success=False,
+                output={"error": f"recipe generation failed: {type(e).__name__}: {e}"},
+                insights=[],
+                personality_notes=[],
+            )
 
         # Ensure concept is preserved in output (tests expect this)
         recipe_data["concept"] = concept
@@ -134,42 +141,6 @@ class BakerAgent(Agent):
                 f"Emotional state: {'irritated but competent' if triggered else 'professionally focused'}"
             ],
         )
-
-    def _fallback_recipe(self, concept: str) -> Dict[str, Any]:
-        """Fallback recipe structure when LLM is unavailable."""
-        logger.warning(f"Using fallback recipe for: {concept}")
-        return {
-            "title": concept,
-            "concept": concept,
-            # #7853: Monday's text is the internal pitch; the published
-            # description is only ever Marcus's Thursday intro.
-            "description": "",
-            "pitch": f"A reliable muffin-tin build for {concept}, designed for crispy edges and a tender center.",
-            "servings": 12,
-            "prep_time": 20,
-            "cook_time": 22,
-            "difficulty": "medium",
-            "category": "savory",
-            "ingredients": [
-                {"item": "eggs", "amount": "8 large", "notes": "room temperature"},
-                {"item": "shredded sharp cheddar", "amount": "1 cup", "notes": "packed loosely"},
-                {"item": "milk", "amount": "1/2 cup", "notes": "whole milk preferred"},
-                {"item": "all-purpose flour", "amount": "3/4 cup", "notes": "leveled"},
-                {"item": "melted butter", "amount": "2 tbsp", "notes": "cooled slightly"},
-                {"item": "salt", "amount": "1 tsp", "notes": "fine"},
-                {"item": "black pepper", "amount": "1/2 tsp", "notes": "freshly cracked"},
-                {"item": "chopped green onion", "amount": "1/3 cup", "notes": "optional"},
-            ],
-            "instructions": [
-                "Preheat oven to 375°F. Grease a standard 12-cup muffin tin well.",
-                "Whisk eggs, milk, melted butter, salt, and pepper until fully combined.",
-                "Whisk in flour just until smooth, then fold in cheddar and green onion.",
-                "Divide batter evenly among muffin cups, filling each about 3/4 full.",
-                "Bake 20-24 minutes, until puffed, lightly golden, and just set in the center.",
-                "Rest 5 minutes in pan, then loosen with a thin knife and serve warm.",
-            ],
-            "chef_notes": "Use a metal pan for better browning. Let the cups rest before removing so they hold shape.",
-        }
 
     def _review_recipe(
         self, task: Task, approach: TaskApproach, context: MemoryContext

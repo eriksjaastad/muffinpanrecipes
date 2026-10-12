@@ -385,19 +385,6 @@ def test_monday_without_a_description_line_still_marks_the_new_format():
     assert parsed["pitch"] == "" and parsed["description"] == ""
 
 
-def test_the_bakers_fallback_recipe_carries_no_publishable_description():
-    from backend.agents.baker import BakerAgent  # noqa: F401 - import proves the module loads
-    from backend.agents.factory import create_agent
-
-    try:
-        margaret = create_agent("baker")
-    except Exception as exc:  # noqa: BLE001 - factory needs data files in some setups
-        pytest.skip(f"baker agent unavailable here: {exc}")
-    fallback = margaret._fallback_recipe("Spiral Cups")
-    assert fallback["description"] == ""
-    assert "muffin-tin build" in fallback["pitch"]
-
-
 def _new_format_sunday(description: str, thursday_intro: str | None):
     from tests.test_photo_approval_7936 import EP_ID, _approved_store, _status, _sunday
 
