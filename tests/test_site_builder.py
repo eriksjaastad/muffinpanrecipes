@@ -185,7 +185,6 @@ def test_second_incremental_build_is_byte_stable(tmp_path):
     assert set(second.unchanged) == set(first.written)
 
 
-
 def test_a_new_recipe_rewrites_related_links_and_listings_but_not_this_week(tmp_path):
     # #8192: every publish moves other pages' related links and grows the
     # listings, and the routine build refused all of it.
