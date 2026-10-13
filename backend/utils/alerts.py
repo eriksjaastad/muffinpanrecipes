@@ -53,6 +53,10 @@ _SEVERITY_COLORS: dict[str, int] = {
 }
 
 _WEBHOOK_ENV = "MUFFINPAN_DISCORD_WEBHOOK"
+# Every alert names the project that sent it. The Discord webhook posts under a
+# shared bot name ("Review"), so a title without this said nothing about where
+# it came from (Erik, 2026-10-13).
+_PROJECT = "muffinpanrecipes"
 
 
 def _pytest_gate() -> bool:
@@ -92,7 +96,7 @@ def _send_discord(
         return False
 
     embed: dict = {
-        "title": subject[:256],
+        "title": f"{_PROJECT}: {subject}"[:256],
         "description": body[:4000],
         "color": _SEVERITY_COLORS.get(severity, _SEVERITY_COLORS["warning"]),
     }
@@ -205,7 +209,7 @@ def _send_email(
             json={
                 "from": config.alert_email_from,
                 "to": [to_addr],
-                "subject": f"[muffinpanrecipes] {severity}: {subject}",
+                "subject": f"[{_PROJECT}] {severity}: {subject}",
                 "text": "\n".join(lines),
             },
             headers={"Authorization": f"Bearer {api_key}"},
