@@ -1129,9 +1129,9 @@ def _generate_and_judge_dialogue(
             }
         )
         last = rejected[-1]
-        # Only a scored rejection says something about the dialogue; a judge
-        # error or unparseable verdict does not.
-        if last["scores"]:
+        # Only a scored rejection that names a problem says something about
+        # the dialogue; a judge error or unparseable verdict does not.
+        if last["scores"] and (last["reason"] or last["weakest"]):
             weakest = ", ".join(str(w) for w in last["weakest"])
             judge_notes.append(
                 f"Attempt {attempt + 1}: {last['reason']}"
