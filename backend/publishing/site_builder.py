@@ -2,8 +2,9 @@
 
 The builder has two deliberately different modes:
 
-* incremental (the default) writes only missing or byte-identical pages and
-  fails before writing if an existing page would change;
+* incremental (the default) writes missing pages, the catalog listings and
+  the related-recipe links of existing pages, and fails before writing if any
+  other part of an existing page would change;
 * full rebuild (explicit ``full_rebuild=True``) may replace existing output,
   which is the only supported way to roll out a renderer/design change.
 
@@ -47,6 +48,17 @@ logger = get_logger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "src"
 _CANONICAL_EPISODE_ID = re.compile(r"\d{4}-W\d{2}")
+
+# Every published recipe changes these: they list the whole catalog (#8192).
+_CATALOG_LISTINGS = frozenset({"index.html", "recipes/index.html", "recipes.json", "sitemap.xml"})
+# episode_renderer._related_block_html. Its links are balanced across the whole
+# catalog, so a new recipe moves other pages' links; an incremental build may
+# rewrite this block and nothing else on an existing page (#8192).
+_RELATED_BLOCK = re.compile(r'\n    <nav class="related" aria-label="More recipes">\n.*?\n    </nav>\n', re.S)
+# vercel.json serves /this-week from the Lambda, so this file is never served.
+# Mid-week the current episode is unpublished and the build would replace the
+# committed copy with a placeholder; an incremental build leaves it as it is.
+_THIS_WEEK = "this-week/index.html"
 
 
 class SiteBuildError(RuntimeError):
@@ -487,8 +499,8 @@ class StaticSiteBuilder:
             "sitemap.xml": render_sitemap(recipes),
         }
 
-        # A missing seed page is safe to add incrementally. Once present, its
-        # bytes are immutable until --full-rebuild is explicitly requested.
+        # A missing seed page is safe to add incrementally. Once present, only
+        # its related links change until --full-rebuild is explicitly requested.
         for slug, record in sorted(seeds.items()):
             if not isinstance(record, dict):
                 continue
@@ -555,10 +567,15 @@ class StaticSiteBuilder:
                 existing = target.read_text(encoding="utf-8")
                 if existing == content:
                     unchanged.append(relative_path)
-                else:
-                    if not self.full_rebuild:
+                    continue
+                if not self.full_rebuild:
+                    if relative_path == _THIS_WEEK:
+                        continue
+                    if relative_path not in _CATALOG_LISTINGS and (
+                        _RELATED_BLOCK.sub("", existing) != _RELATED_BLOCK.sub("", content)
+                    ):
                         mutations.append(relative_path)
-                    to_write.append((target, content, relative_path))
+                to_write.append((target, content, relative_path))
             else:
                 to_write.append((target, content, relative_path))
 

@@ -142,6 +142,14 @@ Folded in from the original ADR list (README and `_docs_archive/core/ARCHITECTUR
 
 **Alternatives considered:** Raising `notify_judge_failure` to `critical` (rejected: fixes one call site and leaves the same trap for the next `warning` alert someone adds, and the severity is honest — the pipeline stopped deliberately at a quality gate). Keeping the filter but adding a digest of non-critical alerts (rejected: more machinery than six call sites justify).
 
+### 2026-10-13: The routine build refreshes listings and related links instead of refusing them (#8192)
+
+**Context:** The incremental build refused any byte change to an existing file. A published recipe always changes the four catalog listings (`index.html`, `recipes/index.html`, `recipes.json`, `sitemap.xml`) and, because related links are balanced across the whole catalog, the related block on other recipe pages (32 pages on 2026-10-13). So the documented weekly step could never succeed in a publish week, and the three newest recipe pages had no committed copy.
+
+**Decision:** Incremental mode writes new pages, rewrites the four listings, and rewrites an existing page whose only difference is its related-recipes block. Any other change to an existing page still fails the build before anything is written. It leaves an existing `this-week/index.html` alone: `/this-week` is Lambda-served and mid-week the build would swap the committed copy for a placeholder. `--full-rebuild` keeps its meaning.
+
+**Alternatives considered:** Making `--full-rebuild` the weekly step (rejected: it removes the guard that keeps a renderer change from silently rewriting every published page). Freezing related links at publish time (rejected: a page published early would never link to anything newer).
+
 ### 2026-04-15: Dependency audit - nothing removed; test frameworks do not belong in runtime deps (#5813)
 
 **Context:** Report-only audit of the 15 direct runtime dependencies in `[project.dependencies]`, classified by grep evidence (grep outranked `deptry`). Result: 13 KEEP, 2 INVESTIGATE, 0 REMOVE.

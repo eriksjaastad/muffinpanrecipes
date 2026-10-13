@@ -185,6 +185,32 @@ def test_second_incremental_build_is_byte_stable(tmp_path):
     assert set(second.unchanged) == set(first.written)
 
 
+def test_a_new_recipe_rewrites_related_links_and_listings_but_not_this_week(tmp_path):
+    # #8192: every publish moves other pages' related links and grows the
+    # listings, and the routine build refused all of it.
+    _write_local_sources(tmp_path)
+    storage = FakeStorage()
+    output = tmp_path / "site"
+    builder = StaticSiteBuilder(project_root=tmp_path, output_dir=output, storage_client=storage)
+    builder.build(["2026-W34"])
+    page = output / "recipes" / "kimchi-cheddar-rice-cups" / "index.html"
+    this_week = output / "this-week" / "index.html"
+    this_week.write_text("committed copy", encoding="utf-8")
+    storage.catalog = [*storage.catalog, {"slug": "new-cup", "title": "New Cup"}]
+
+    result = builder.build(["2026-W34"])
+
+    assert '<a href="/recipes/new-cup">' in page.read_text(encoding="utf-8")
+    assert {
+        "recipes/kimchi-cheddar-rice-cups/index.html",
+        "index.html",
+        "recipes/index.html",
+        "recipes.json",
+        "sitemap.xml",
+    } <= set(result.written)
+    assert this_week.read_text(encoding="utf-8") == "committed copy"
+
+
 def test_missing_seed_source_fails_before_writing(tmp_path):
     source_dir = tmp_path / "src"
     source_dir.mkdir()

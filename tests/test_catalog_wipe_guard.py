@@ -169,7 +169,9 @@ class TestLoadPageDistinguishesAbsentFromFailed:
 
 def _episode() -> dict:
     return {
-        "episode_id": "2026-W40",
+        # A week no real episode has. The test-namespace publish seeds from the
+        # committed src/recipes.json, which gained the real 2026-W40 (#8192).
+        "episode_id": "2000-W01",
         "recipe_id": "abc12345",
         "image_urls": [],
         "stages": {
