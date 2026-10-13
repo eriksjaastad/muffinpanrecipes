@@ -156,6 +156,15 @@ def test_fields_survive_with_their_inline_hint(_outside_pytest) -> None:
     ]
 
 
+def test_the_discord_title_names_the_project(_outside_pytest) -> None:
+    """The webhook posts as a shared bot; the title says which project sent it."""
+    with patch.object(alerts.httpx, "post", return_value=_Resp(204)) as post:
+        alerts.send_alert("Previous week closed", "b")
+
+    title = post.call_args.kwargs["json"]["embeds"][0]["title"]
+    assert title == "muffinpanrecipes: Previous week closed"
+
+
 def test_a_non_204_response_is_reported_as_undelivered(_outside_pytest) -> None:
     with patch.object(alerts.httpx, "post", return_value=_Resp(429, "rate limited")):
         assert alerts.send_alert("s", "b") is False
