@@ -1181,6 +1181,7 @@ def generate_turn(
     recipe_context: str | None = None,
     recipe_facts: str | None = None,
     direction: Direction | None = None,
+    retry_note: str | None = None,
 ) -> str:
     if mode == "template":
         sig = persona["communication_style"].get("signature_phrases", ["Right."])
@@ -1208,6 +1209,14 @@ def generate_turn(
     history_depth = first if day_turn == 1 else rest
     history = "\n".join(recent_lines[-history_depth:]) if recent_lines else "(no prior messages)"
     event_line = f"Injected event: {event}" if event else "Injected event: none"
+    # #8264: why the judge rejected an earlier attempt at this same day, so the
+    # retry fixes the named problem instead of rerolling blind. Absent on a
+    # first attempt, which keeps every first-attempt prompt byte-identical.
+    retry_line = (
+        "Writer's note, not part of the scene (never mention it): an earlier draft "
+        f"of today's conversation was rejected. {retry_note} Fix that in this draft.\n"
+        if retry_note else ""
+    )
     recipe_line = f"Recipe anchor: {recipe_context}\n" if recipe_context else ""
     # #7791 P4: off by default (production-identical). On, appends the same
     # ground-truth facts the judge scores against (recipe_facts) to what
@@ -1319,6 +1328,7 @@ def generate_turn(
                 f"{char_goal_line}\n"
                 f"{no_clock_line}\n"
                 f"{event_line}\n"
+                f"{retry_line}"
                 f"{director_before_block}"
                 f"{week_context_block}"
                 f"Recent chat:\n{history}\n\n"
@@ -1354,6 +1364,7 @@ def generate_turn(
                 f"{char_goal_line}\n"
                 f"{no_clock_line}\n"
                 f"{event_line}\n"
+                f"{retry_line}"
                 f"{director_scene_block}{director_before_block}"
                 f"{week_context_block}"
                 f"Recent chat:\n{history}\n\n"
@@ -1385,6 +1396,7 @@ def generate_turn(
             f"{char_goal_line}\n"
             f"{no_clock_line}\n"
             f"{event_line}\n"
+            f"{retry_line}"
             f"{director_scene_block}{director_before_block}"
             f"{week_context_block}"
             f"Recent chat:\n{history}\n\n"
@@ -2571,6 +2583,7 @@ def run_simulation(
     # they are generated, so a caller that holds a reference to it can recover whatever was paid for
     # even if this function never returns (e.g. an exception mid-run). Production never passes it -
     # this parameter and the branch below are the only difference from before it existed.
+    retry_note: str | None = None,  # #8264: the judge's reason an earlier attempt at this day failed
 ) -> dict[str, Any]:
     # #6968: force a fresh memory snapshot for this run. Without this, a
     # process that stays warm across stages/weeks (a long-lived Lambda, or a
@@ -2740,6 +2753,7 @@ def run_simulation(
                 recipe_context=recipe_context,
                 recipe_facts=recipe_facts,
                 direction=direction,
+                retry_note=retry_note,
             )
             day_messages_by_char[speaker].append(line)
             recent_lines.append(f"{speaker.split()[0]}: {line}")

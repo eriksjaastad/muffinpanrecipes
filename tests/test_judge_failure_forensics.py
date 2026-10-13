@@ -134,3 +134,42 @@ def test_a_passing_judge_records_nothing():
 
     assert verdict == "PASS"
     assert "rejected_dialogues" not in episode
+
+
+def test_a_retry_is_told_why_the_judge_rejected_the_attempt_before_it(monkeypatch):
+    """#8264: retries were blind rerolls of the same inputs. The judge's reason
+    and weakest dimensions must reach the next attempt's character prompts;
+    only the model call and the judge are stubbed, so every hop is real."""
+    import scripts.simulate_dialogue_week as sdw
+
+    prompts: list[str] = []
+    seen_by_attempt: list[int] = []
+
+    def _model(prompt, **_kw):
+        prompts.append(prompt)
+        return f"Plain line number {len(prompts)} about the cups."
+
+    def _judge(concept, stage, dialogue, episode_, **kw):
+        seen_by_attempt.append(len(prompts))
+        if len(seen_by_attempt) == 1:
+            episode_.setdefault("judge_scores", {})[stage] = {"natural_progression": 2}
+            episode_.setdefault("judge_weakest", {})[stage] = ["natural_progression"]
+            episode_.setdefault("judge_reason", {})[stage] = "Everyone agrees at once."
+            return False, "FAIL - Everyone agrees at once."
+        return True, "PASS"
+
+    monkeypatch.setattr(sdw, "generate_response", _model)
+    monkeypatch.setattr(sdw, "build_system_prompt", lambda persona: "SYS")
+    monkeypatch.setattr(sdw, "_guard_cot_leak", lambda msg, **_kw: msg)
+    with patch.object(cron_routes, "_judge_dialogue", _judge), \
+         patch.object(cron_routes, "_score_dialogue_qa", lambda *a, **kw: None):
+        cron_routes._generate_and_judge_dialogue(
+            "tuesday", "Cinnamon Apple Streusel Cakes", _episode(), model="test/model",
+        )
+
+    first, second = prompts[:seen_by_attempt[0]], prompts[seen_by_attempt[0]:]
+    assert first and second
+    assert not any("Writer's note" in p for p in first)
+    for p in second:
+        assert "Everyone agrees at once." in p
+        assert "weakest: natural_progression" in p

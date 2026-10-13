@@ -570,6 +570,7 @@ def _generate_dialogue(
     model: str | None = None,
     injected_event: str | None = None,
     recipe_context: str | None = None,
+    retry_note: str | None = None,
 ) -> list[dict]:
     """Run dialogue simulator for a single stage. Non-fatal on failure.
 
@@ -580,6 +581,8 @@ def _generate_dialogue(
         recipe_context: One-line recipe summary built by _build_recipe_context.
                         Anchors dialogue to the actual dish so characters don't
                         drift into pastry/glaze/sugar talk for a savory recipe.
+        retry_note: Why the judge rejected earlier attempts at this stage, so
+                    the next attempt is told what to fix (#8264).
     """
     use_model = model or config.dialogue_model
     try:
@@ -597,6 +600,7 @@ def _generate_dialogue(
             image_paths=image_paths or [],
             photography_context=photography_context,
             recipe_context=recipe_context,
+            retry_note=retry_note,
         )
         return result.get("messages", [])
     # governance: allow-silent SF002: both callers treat [] as a failure; _generate_and_judge_dialogue and execute_cron_stage_stub raise on an empty dialogue
@@ -1034,6 +1038,11 @@ def _generate_and_judge_dialogue(
 ) -> tuple[list[dict], str]:
     """Generate dialogue and run judge. Retry on FAIL up to max_retries.
 
+    Each retry is told why the judge rejected the attempts before it, the way
+    baker_gates carries a gate failure forward (#8264). Retrying blind failed
+    all three attempts on 14 days in W38-W41, mostly for the same named
+    problem every time.
+
     Returns (dialogue, verdict_str).
     Raises JudgeFailedError if all retries exhausted — caller should
     save episode as judge_failed and NOT publish.
@@ -1058,6 +1067,8 @@ def _generate_and_judge_dialogue(
     # Every attempt the judge rejects, kept so a failure leaves evidence
     # behind (#7100). See the write below for why this is not on the stage.
     rejected: list[dict] = []
+    # The judge's reason for each scored rejection, for the next attempt.
+    judge_notes: list[str] = []
 
     for attempt in range(total_attempts):
         dialogue = _generate_dialogue(
@@ -1067,6 +1078,7 @@ def _generate_and_judge_dialogue(
             model=model,
             injected_event=injected_event,
             recipe_context=recipe_context or None,
+            retry_note=" ".join(judge_notes) or None,
         )
         if not dialogue:
             # FAIL CLOSED (#6856). This used to return the sentinel verdict
@@ -1116,6 +1128,15 @@ def _generate_and_judge_dialogue(
                 "reason": episode.get("judge_reason", {}).get(stage, ""),
             }
         )
+        last = rejected[-1]
+        # Only a scored rejection that names a problem says something about
+        # the dialogue; a judge error or unparseable verdict does not.
+        if last["scores"] and (last["reason"] or last["weakest"]):
+            weakest = ", ".join(str(w) for w in last["weakest"])
+            judge_notes.append(
+                f"Attempt {attempt + 1}: {last['reason']}"
+                + (f" (weakest: {weakest})." if weakest else "")
+            )
         logger.warning(f"Judge FAILED {stage} attempt {attempt + 1}/{total_attempts}: {verdict[:200]}")
 
     # Exhausted retries — keep the evidence, notify Erik, pause the episode.
