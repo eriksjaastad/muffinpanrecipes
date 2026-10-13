@@ -83,12 +83,14 @@ required before a week's static page exists — the Lambda fallback covers the
 gap until then, but it is a fallback, not the steady state.
 
 ```bash
-# 1. Incremental build — writes only missing pages; fails before writing if
-#    an existing page would change. This is the routine weekly step.
+# 1. Incremental build — adds new pages and refreshes the catalog listings and
+#    related links; fails before writing if any other part of an existing
+#    page would change. This is the routine weekly step.
 uv run python -m scripts.build_site
 
-# 2. Commit the new src/** artifacts (recipes/<slug>/index.html, recipes.json,
-#    sitemap.xml, this-week/index.html) on a feature branch, open a PR as usual.
+# 2. Commit the changed src/** artifacts (new recipes/<slug>/index.html pages,
+#    related-link updates, index.html, recipes/index.html, recipes.json,
+#    sitemap.xml) on a feature branch, open a PR as usual.
 
 # 3. Deploy to PREVIEW first — never straight to prod.
 vercel deploy   # preview URL, not --prod

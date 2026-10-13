@@ -6,7 +6,8 @@ Examples:
     # Safe preview artifact; does not touch src/ or Blob pages.
     uv run python -m scripts.build_site --preview
 
-    # Routine weekly build. Existing page changes fail before any write.
+    # Routine weekly build. Adds new pages and refreshes the catalog listings
+    # and related links; any other change to an existing page fails first.
     uv run python -m scripts.build_site
 
     # Explicit design/content migration. Replaces existing generated pages.
