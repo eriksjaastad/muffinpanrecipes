@@ -330,6 +330,15 @@ RECIPE_CONTEXT_ANCHOR_MAX = 400
 # because a truncated list cannot honestly be called complete, and the whole
 # point of this line is that it IS complete.
 RECIPE_CONTEXT_INGREDIENTS_MAX = 600
+# Stages whose speakers get the whole recipe, amounts and method, instead of
+# the names-only boundary (#8285). Tuesday's job is to settle ratios and
+# technique. Without the amounts and the steps the speakers invented them
+# ("2 tablespoons per cup of flour", seeds "sinking" in a batter they are
+# blended into), and the judge, which has both, failed them for it.
+FULL_RECIPE_STAGES = frozenset({"tuesday"})
+# Cap for the method the speakers see on those stages. The replay that
+# measured #8285 ran at this size.
+RECIPE_CONTEXT_METHOD_MAX = 1500
 
 # Cap for the method block the JUDGE receives (#7104 second pass). Sized against
 # real stored recipes, not guessed: W35-W38 methods run 2,486-4,956 chars, the
@@ -345,7 +354,7 @@ RECIPE_CONTEXT_INGREDIENTS_MAX = 600
 JUDGE_METHOD_MAX = 8000
 
 
-def _build_recipe_context(recipe_data: dict | None) -> str:
+def _build_recipe_context(recipe_data: dict | None, stage: str | None = None) -> str:
     """One-line recipe summary for dialogue + judge prompts.
 
     Light by design — title + category + the recipe's own one-line description.
@@ -353,6 +362,9 @@ def _build_recipe_context(recipe_data: dict | None) -> str:
     holding a real conversation. Empty string if recipe_data is missing
     or shapeless (e.g., Monday before the baker has run, or test runs
     that skip the baker).
+
+    A stage in FULL_RECIPE_STAGES gets the ingredients with their amounts and
+    the method in place of the names-only list (#8285).
 
     #7104: this used to carry the first 5 ingredients, which say what is IN the
     dish but nothing about what the finished thing is LIKE. Characters filled the
@@ -387,6 +399,23 @@ def _build_recipe_context(recipe_data: dict | None) -> str:
         if len(anchor) > RECIPE_CONTEXT_ANCHOR_MAX:
             anchor = anchor[:RECIPE_CONTEXT_ANCHOR_MAX].rsplit(" ", 1)[0].rstrip(",;:") + "..."
         summary += f" What it is: {anchor}"
+
+    if stage in FULL_RECIPE_STAGES:
+        items = _ingredients_with_amounts(recipe_data)
+        if items:
+            summary += (
+                " The recipe as written, with amounts: " + "; ".join(items) + ". "
+                "Any quantity or ratio a character states must match these amounts; "
+                "a change is proposed as a change from them, never claimed as what the recipe says."
+            )
+        steps = _method_steps(recipe_data)
+        if steps:
+            summary += (
+                " The method as written: " + _fit_method(steps, RECIPE_CONTEXT_METHOD_MAX)
+                + " Any claim about how the recipe is made must match this method; "
+                "a different technique is proposed as a change, never claimed as what the recipe does."
+            )
+        return summary
 
     # The speakers' ingredient boundary (#7441). W39 Tuesday failed the judge
     # three times on technical_credibility: attempt 2 asserted butter for a
@@ -435,6 +464,35 @@ def _build_recipe_context(recipe_data: dict | None) -> str:
                 f"Other ingredients may be discussed as proposals, but do not assert they are in this recipe."
             )
     return summary
+
+
+def _ingredients_with_amounts(recipe_data: dict) -> list[str]:
+    """Each ingredient as "amount item (notes)", in recipe order."""
+    items: list[str] = []
+    for ing in (recipe_data.get("ingredients") or []):
+        if isinstance(ing, dict):
+            part = " ".join(
+                str(ing.get(k) or "").strip()
+                for k in ("amount", "item")
+                if str(ing.get(k) or "").strip()
+            )
+            notes = str(ing.get("notes") or "").strip()
+            if notes:
+                part = f"{part} ({notes})" if part else notes
+        else:
+            part = str(ing).strip()
+        if part:
+            items.append(part)
+    return items
+
+
+def _method_steps(recipe_data: dict) -> list[str]:
+    """The recipe's non-empty instruction steps, whitespace collapsed."""
+    return [
+        " ".join(str(step).split())
+        for step in (recipe_data.get("instructions") or [])
+        if str(step).strip()
+    ]
 
 
 def _fit_method(steps: list[str], budget: int) -> str:
@@ -522,29 +580,11 @@ def _build_judge_recipe_facts(recipe_data: dict | None) -> str:
     # whenever the method did not repeat the detail - so a ratio or technique
     # claim ("the butter's breaking through instead of staying in sheets") was
     # unverifiable for exactly the recipes where it matters most.
-    items: list[str] = []
-    for ing in (recipe_data.get("ingredients") or []):
-        if isinstance(ing, dict):
-            part = " ".join(
-                str(ing.get(k) or "").strip()
-                for k in ("amount", "item")
-                if str(ing.get(k) or "").strip()
-            )
-            notes = str(ing.get("notes") or "").strip()
-            if notes:
-                part = f"{part} ({notes})" if part else notes
-        else:
-            part = str(ing).strip()
-        if part:
-            items.append(part)
+    items = _ingredients_with_amounts(recipe_data)
     if items:
         lines.append("Ingredients: " + "; ".join(items))
 
-    steps = [
-        " ".join(str(step).split())
-        for step in (recipe_data.get("instructions") or [])
-        if str(step).strip()
-    ]
+    steps = _method_steps(recipe_data)
     if steps:
         lines.append("Method: " + _fit_method(steps, JUDGE_METHOD_MAX))
 
@@ -1062,7 +1102,7 @@ def _generate_and_judge_dialogue(
     verdict = ""
     dialogue: list[dict] = []
     total_attempts = 1 + max_retries
-    recipe_context = _build_recipe_context(recipe_data)
+    recipe_context = _build_recipe_context(recipe_data, stage)
     recipe_facts = _build_judge_recipe_facts(recipe_data)
     # Every attempt the judge rejects, kept so a failure leaves evidence
     # behind (#7100). See the write below for why this is not on the stage.
@@ -3084,7 +3124,7 @@ async def execute_cron_stage_stub(stage: str, episode_id: str, concept: str, mod
     recipe_data = ep.get("stages", {}).get("monday", {}).get("recipe_data")
     dialogue = _generate_dialogue(
         stage, ep_concept, model=model,
-        recipe_context=_build_recipe_context(recipe_data) or None,
+        recipe_context=_build_recipe_context(recipe_data, stage) or None,
     )
     if not dialogue:
         # _generate_dialogue returns [] when generation failed. Saving that as

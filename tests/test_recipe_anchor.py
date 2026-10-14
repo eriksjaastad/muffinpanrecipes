@@ -224,7 +224,8 @@ def test_execute_cron_stage_stub_passes_recipe_context_into_dialogue():
         "title": "Maple Hash Brown Nests",
         "category": "savory",
         "description": "Shredded potato bakes crisp at the edges and stays soft in the middle.",
-        "ingredients": [{"item": "potato"}, {"item": "maple sausage"}],
+        "ingredients": [{"amount": "2 cups", "item": "potato"}, {"item": "maple sausage"}],
+        "instructions": ["Press the potato into each cup."],
     }
     episode = {
         "episode_id": "2026-W18",
@@ -258,6 +259,9 @@ def test_execute_cron_stage_stub_passes_recipe_context_into_dialogue():
     assert dialogue_calls[0]["model"] == "test-model"
     assert "Maple Hash Brown Nests" in dialogue_calls[0]["recipe_context"]
     assert "crisp at the edges" in dialogue_calls[0]["recipe_context"]
+    # Tuesday gets the whole recipe here too, as on the cron path (#8285).
+    assert "2 cups potato" in dialogue_calls[0]["recipe_context"]
+    assert "Press the potato into each cup." in dialogue_calls[0]["recipe_context"]
     assert episode["stages"]["tuesday"]["status"] == "complete"
     save_episode.assert_called_once_with("2026-W18", episode)
     get_orchestrator.assert_not_called()
@@ -494,6 +498,36 @@ def test_the_names_reach_the_speakers_and_the_amounts_do_not():
     # would recite; a name is what stops them inventing one.
     for leaked in ("1 cup", "1 lb", "90/10", "3 tbsp", "1/3 cup", "toasted"):
         assert leaked not in summary, leaked
+
+
+def test_tuesday_speakers_get_the_amounts_and_method_and_other_days_do_not(monkeypatch):
+    """#8285: Tuesday settles ratios and technique, so its speakers see both.
+
+    W41's replayed Tuesday argued about seeds sinking in a batter the method
+    blends them into; W39 asserted a 2:1 bulgur ratio the amounts contradict.
+    """
+    seen: dict[str, str] = {}
+
+    def fake_generate(stage, concept, **kwargs):
+        seen[stage] = kwargs["recipe_context"]
+        return [{"character": "Margaret", "message": "Fine."}]
+
+    monkeypatch.setattr(cron_routes, "_generate_dialogue", fake_generate)
+    monkeypatch.setattr(cron_routes, "_judge_dialogue", lambda *a, **k: (True, "PASS"))
+    monkeypatch.setattr(cron_routes, "_score_dialogue_qa", lambda *a, **k: None)
+    recipe = {**_kibbeh(), "instructions": ["Soak the bulgur in cold water."]}
+
+    for stage in ("tuesday", "wednesday"):
+        cron_routes._generate_and_judge_dialogue(
+            stage, recipe["title"], {"episode_id": "2026-W39", "stages": {}, "events": []},
+            recipe_data=recipe,
+        )
+
+    assert "1 cup fine bulgur wheat" in seen["tuesday"]
+    assert "1 lb lean ground beef (90/10)" in seen["tuesday"]
+    assert "Soak the bulgur in cold water." in seen["tuesday"]
+    assert "1 cup" not in seen["wednesday"]
+    assert "Soak the bulgur" not in seen["wednesday"]
 
 
 def test_a_prep_clause_in_the_item_field_is_dropped():

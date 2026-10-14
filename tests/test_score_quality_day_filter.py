@@ -30,11 +30,15 @@ def test_monday_roster_includes_julian_the_photographer():
     assert "Julian Torres" in participants_for_day("monday")
 
 
-def test_tuesday_roster_includes_devon():
-    """Same mismatch as Julian above, one day later."""
-    from scripts.simulate_dialogue_week import participants_for_day
+def test_tuesday_is_three_people_over_eight_to_ten_turns():
+    """#8285: Devon came off Tuesday (his goal there was "Not your day") and the
+    scene got room to raise a ratio problem, argue it and settle it."""
+    from scripts.simulate_dialogue_week import TICKS_RANGE, participants_for_day
 
-    assert "Devon Park" in participants_for_day("tuesday")
+    assert participants_for_day("tuesday") == [
+        "Margaret Chen", "Stephanie 'Steph' Whitmore", "Marcus Reid",
+    ]
+    assert TICKS_RANGE["tuesday"] == (8, 10)
 
 
 def test_pan_case_rules_fold_generic_menu_into_specific_property_rule():

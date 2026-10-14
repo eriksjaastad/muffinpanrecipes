@@ -191,10 +191,10 @@ def test_expected_vs_actual_cast_flags_missing_and_unexpected() -> None:
     episode = _legacy_episode()
     day_report = build_day_report("tuesday", episode)
     cast = day_report["cast"]
-    # Tuesday's real roster is Margaret, Stephanie, Marcus, Devon.
-    assert "Devon" in cast["expected"]
+    # Tuesday's real roster is Margaret, Stephanie, Marcus.
+    assert "Marcus" in cast["expected"]
     assert cast["actual"] == ["Margaret", "Julian"]
-    assert "Devon" in cast["missing"]
+    assert "Marcus" in cast["missing"]
     assert cast["unexpected"] == ["Julian"]
 
 
