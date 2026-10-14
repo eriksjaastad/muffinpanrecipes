@@ -224,7 +224,8 @@ def test_execute_cron_stage_stub_passes_recipe_context_into_dialogue():
         "title": "Maple Hash Brown Nests",
         "category": "savory",
         "description": "Shredded potato bakes crisp at the edges and stays soft in the middle.",
-        "ingredients": [{"item": "potato"}, {"item": "maple sausage"}],
+        "ingredients": [{"amount": "2 cups", "item": "potato"}, {"item": "maple sausage"}],
+        "instructions": ["Press the potato into each cup."],
     }
     episode = {
         "episode_id": "2026-W18",
@@ -258,6 +259,9 @@ def test_execute_cron_stage_stub_passes_recipe_context_into_dialogue():
     assert dialogue_calls[0]["model"] == "test-model"
     assert "Maple Hash Brown Nests" in dialogue_calls[0]["recipe_context"]
     assert "crisp at the edges" in dialogue_calls[0]["recipe_context"]
+    # Tuesday gets the whole recipe here too, as on the cron path (#8285).
+    assert "2 cups potato" in dialogue_calls[0]["recipe_context"]
+    assert "Press the potato into each cup." in dialogue_calls[0]["recipe_context"]
     assert episode["stages"]["tuesday"]["status"] == "complete"
     save_episode.assert_called_once_with("2026-W18", episode)
     get_orchestrator.assert_not_called()
