@@ -95,7 +95,6 @@ CHARACTER_DAY_GOALS: dict[str, dict[str, str]] = {
         "Stephanie 'Steph' Whitmore": "You need the recipe locked today. Keep things moving.",
         "Julian Torres": "You're thinking about how the final dish will photograph.",
         "Marcus Reid": "You're tasting and thinking about what story the recipe tells.",
-        "Devon Park": "You're waiting for something to deploy. Not your day.",
     },
     "wednesday": {
         "Margaret Chen": "You want the food shown honestly. No tricks, no garnishes that don't belong.",
@@ -273,7 +272,7 @@ HISTORY_DEPTH: dict[str, tuple[int, int]] = {
 
 TICKS_RANGE: dict[str, tuple[int, int]] = {
     "monday":    (6, 10),  # heated concept debate
-    "tuesday":   (5, 6),   # focused recipe dev - floor was 4 (#7105)
+    "tuesday":   (8, 10),  # was (5, 6): two lines wind down, too few to argue a ratio (#8285)
     "wednesday": (5, 6),   # photography + image refs - floor was 4 (#7105)
     "thursday":  (5, 6),   # copywriting - was (3, 5), (4, 6), (5, 7) (#7079, #7105)
     "friday":    (6, 8),   # approval discussion - floor was 5 (#7105)
@@ -370,8 +369,12 @@ def participants_for_day(day: str) -> list[str]:
         # discussed photographing the dish with no photographer present.
         return ["Margaret Chen", "Marcus Reid", "Stephanie 'Steph' Whitmore", "Julian Torres", "Ria Castillo"]
     if day == "tuesday":
-        # Devon added (#6832) — same mismatch as Julian above, one day later.
-        return ["Margaret Chen", "Stephanie 'Steph' Whitmore", "Marcus Reid", "Devon Park"]
+        # Devon was added in #6832 and taken off again in #8285. His Tuesday goal
+        # was "Not your day", so he spent a line agreeing, and the judge named
+        # him in 11 of 19 failed Tuesdays. Replaying the W37-W42 Tuesdays,
+        # this cast with 8-10 turns and the amounts and method passed 12 of 24
+        # first attempts. Production with Devon passed 5 of 24.
+        return ["Margaret Chen", "Stephanie 'Steph' Whitmore", "Marcus Reid"]
     if day == "wednesday":
         return ["Julian Torres", "Stephanie 'Steph' Whitmore", "Margaret Chen", "Ria Castillo"]
     if day == "thursday":

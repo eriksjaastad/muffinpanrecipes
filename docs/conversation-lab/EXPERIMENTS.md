@@ -129,6 +129,9 @@ something, answer it before you add anything new." plus prompt-echo
 detection extended to any 6+-word run shared with the shared rules text;
 #6861 structured 8-dimension judge). First live week: **W37,
 Monday 2026-09-07.**
+- **v4** - 2026-10-14 (#8285, Tuesday only): Devon off Tuesday's cast,
+Tuesday turns (5, 6) -> (8, 10), and Tuesday's speakers see the ingredient
+amounts and the method. See the 2026-10-13 entry below.
 
 ## Experiments
 
@@ -592,6 +595,31 @@ Judge scoring on the panel, repeated runs, position-swapped blind judging, and
 Erik's `pairs --show` read. All of that exists already and none of it was run
 here. Attribution is also unavailable by construction: swapping the model changes
 everything at once.
+
+## 2026-10-13 — Tuesday replay: production pass rate, not preference (#8285)
+
+Tuesday failed all three judge attempts in W38, W39, W40 and W41. The replay
+ran each W37-W42 Tuesday 4 times through the production path: one first
+attempt of `_generate_dialogue`, judged by `_judge_dialogue` with the cron's
+own inputs. The baseline reproduced production. At 5/24, three attempts all
+fail about half the time.
+
+| Arm | First-try PASS |
+|---|---|
+| baseline (production at deefbf4) | 5/24 |
+| speakers see amounts | 4/24 |
+| turns (8, 10) | 7/24 |
+| amounts + (8, 10) | 9/24 |
+| + Devon off Tuesday | 10/24 |
+| + speakers see the method | 9/24 |
+| all three (shipped as v4) | 12/24 |
+
+- The judge is deterministic. Eight dialogues re-judged 4 times each kept
+  their verdicts, and its bar sits near a mean of 4 across the 8 dimensions.
+- voice_distinctiveness stayed at about 3.0 in every arm, so that ceiling is
+  untouched.
+- n=24 per arm. 5 vs 12 is the one gap large enough to act on.
+- Spend was about $12, estimated from call counts.
 
 ## Folded-in research logs (#8144)
 

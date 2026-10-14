@@ -496,6 +496,36 @@ def test_the_names_reach_the_speakers_and_the_amounts_do_not():
         assert leaked not in summary, leaked
 
 
+def test_tuesday_speakers_get_the_amounts_and_method_and_other_days_do_not(monkeypatch):
+    """#8285: Tuesday settles ratios and technique, so its speakers see both.
+
+    W41's replayed Tuesday argued about seeds sinking in a batter the method
+    blends them into; W39 asserted a 2:1 bulgur ratio the amounts contradict.
+    """
+    seen: dict[str, str] = {}
+
+    def fake_generate(stage, concept, **kwargs):
+        seen[stage] = kwargs["recipe_context"]
+        return [{"character": "Margaret", "message": "Fine."}]
+
+    monkeypatch.setattr(cron_routes, "_generate_dialogue", fake_generate)
+    monkeypatch.setattr(cron_routes, "_judge_dialogue", lambda *a, **k: (True, "PASS"))
+    monkeypatch.setattr(cron_routes, "_score_dialogue_qa", lambda *a, **k: None)
+    recipe = {**_kibbeh(), "instructions": ["Soak the bulgur in cold water."]}
+
+    for stage in ("tuesday", "wednesday"):
+        cron_routes._generate_and_judge_dialogue(
+            stage, recipe["title"], {"episode_id": "2026-W39", "stages": {}, "events": []},
+            recipe_data=recipe,
+        )
+
+    assert "1 cup fine bulgur wheat" in seen["tuesday"]
+    assert "1 lb lean ground beef (90/10)" in seen["tuesday"]
+    assert "Soak the bulgur in cold water." in seen["tuesday"]
+    assert "1 cup" not in seen["wednesday"]
+    assert "Soak the bulgur" not in seen["wednesday"]
+
+
 def test_a_prep_clause_in_the_item_field_is_dropped():
     """"olive oil, divided, plus more for greasing" is not an ingredient name."""
     summary = cron_routes._build_recipe_context(_kibbeh())
