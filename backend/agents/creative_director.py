@@ -6,7 +6,6 @@ Good intentions but struggles with decisiveness. Wants everyone to feel heard.
 """
 
 import os
-import re
 
 from backend.core.agent import Agent
 from backend.core.task import Task, TaskResult, TaskApproach
@@ -16,28 +15,9 @@ from backend.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-_VERDICT_RE = re.compile(r"VERDICT:\s*(APPROVED|REVISE)[.!]?", re.IGNORECASE)
-
-
-def _plain(line: str) -> str:
-    """The line without markdown emphasis, heading marks or a list dash."""
-    return re.sub(r"[*_`#>]", "", line).strip().lstrip("-").strip()
-
-
-def _is_verdict_line(line: str) -> bool:
-    return _plain(line).upper().startswith("VERDICT")
-
-
-def _verdict(lines: list[str]) -> str:
-    """APPROVED only when the last verdict line is exactly "VERDICT: APPROVED".
-
-    The last line that starts a verdict decides, so a later correction
-    ("VERDICT: REVISE - fix the crust") overrides an earlier approval, and any
-    other words on it fail safe to REVISE (#8150).
-    """
-    last = next((line for line in reversed(lines) if _is_verdict_line(line)), "")
-    match = _VERDICT_RE.fullmatch(_plain(last))
-    return "APPROVED" if match and match.group(1).upper() == "APPROVED" else "REVISE"
+# The review's whole verdict protocol: its last line is exactly one of these.
+_APPROVED_LINE = "VERDICT: APPROVED"
+_REVISE_LINE = "VERDICT: REVISE"
 
 
 class CreativeDirectorAgent(Agent):
@@ -100,7 +80,7 @@ You always find something positive to say first, then offer constructive (but ap
 {package_data}
 
 Provide your feedback as a list of specific creative observations.
-End your response with 'VERDICT: APPROVED' or 'VERDICT: REVISE'.
+End with one final line that is exactly 'VERDICT: APPROVED' or 'VERDICT: REVISE', with nothing else and no formatting on it.
 """
 
         try:
@@ -111,9 +91,12 @@ End your response with 'VERDICT: APPROVED' or 'VERDICT: REVISE'.
                 temperature=0.5
             )
             
-            lines = response.strip().split("\n")
-            feedback = [l.strip() for l in lines if l.strip() and not _is_verdict_line(l)]
-            verdict = _verdict(lines)
+            # Approved only when the last line is exactly the approval line.
+            # Any other ending (bold, quoted, extra words, no verdict) is
+            # REVISE: no free-text parsing to fool (#8150).
+            lines = [line.strip() for line in response.strip().splitlines() if line.strip()]
+            verdict = "APPROVED" if lines and lines[-1] == _APPROVED_LINE else "REVISE"
+            feedback = lines[:-1] if lines and lines[-1] in (_APPROVED_LINE, _REVISE_LINE) else lines
             
         except Exception as e:
             # A review that did not happen is not an approval (#8150).

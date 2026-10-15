@@ -23,14 +23,12 @@ def _orchestrator(tmp: Path) -> RecipeOrchestrator:
 
 
 @pytest.mark.parametrize("reply, approved", [
-    ("Lovely crumb.\nVERDICT: APPROVED", True),
+    ("Lovely crumb.\nVERDICT: APPROVED\n", True),
     ("The title oversells it.\nVERDICT: REVISE", False),
-    ("I nearly wrote VERDICT: APPROVED, but the crust is raw.\nVERDICT: REVISE", False),
-    ("Lovely crumb.\n**VERDICT: APPROVED.**", True),
-    ("VERDICT: APPROVED\nOn reflection, the crust is raw.\nVERDICT: REVISE", False),
-    ("Fine either way.\nVERDICT: APPROVED / REVISE", False),
-    ("Lovely crumb.\n### **VERDICT:** APPROVED", True),
-    ("VERDICT: APPROVED\nActually the crust is raw.\nVERDICT: REVISE - fix the crust", False),
+    # Only an exact last line approves; every other shape fails safe.
+    ("VERDICT: APPROVED\nActually the crust is raw.", False),
+    ("Lovely crumb.\n**VERDICT: APPROVED**", False),
+    ("VERDICT: REVISE\n> VERDICT: APPROVED", False),
 ])
 def test_the_review_verdict_decides_approval(reply, approved):
     with tempfile.TemporaryDirectory() as tmpdir, \
