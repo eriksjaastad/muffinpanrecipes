@@ -4043,6 +4043,27 @@ def test_bench_from_episode_uses_the_episode_recipe_concept_and_prior_days(tmp_p
     assert judged_prior == [["monday", "tuesday", "wednesday"]] * 2
 
 
+def test_bench_from_episode_builds_the_recipe_anchor_for_its_stage(tmp_path, monkeypatch):
+    """Production's Tuesday speakers see amounts and method (#8285); a lab
+    Tuesday must too, or its pass rate says nothing about production (#8293)."""
+    anchors: list[str | None] = []
+
+    def fake_simulation(**kwargs):
+        anchors.append(kwargs["recipe_context"])
+        return {"messages": _messages("generated", count=5)}
+
+    monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: _snapshot_episode())
+    monkeypatch.setattr(sdw, "run_simulation", fake_simulation)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+
+    cl.cmd_bench(_bench_args(tmp_path, stage="tuesday", runs=1, concept=None,
+                             recipe_context=None, from_episode="snapshot-week"))
+
+    assert anchors and "2 cups flour" in anchors[0]
+    assert "Roll the dough into a log." in anchors[0]
+
+
 @pytest.mark.parametrize("reshoot_happened", [False, True])
 def test_bench_wednesday_passes_frozen_photo_inputs_to_every_run(tmp_path, monkeypatch, reshoot_happened):
     episode = _snapshot_episode()
