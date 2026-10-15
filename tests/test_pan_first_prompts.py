@@ -15,7 +15,6 @@ from backend.admin.cron.editorial_qa import _RECIPE_FIX_SYSTEM_PROMPT
 from backend.utils.recipe_prompts import (
     _build_recipe_system_prompt,
     _build_recipe_user_prompt,
-    _parse_recipe_response,
 )
 from scripts.pick_concept import CURATED_CONCEPTS, Candidate, pick_concept, rank_candidates
 
