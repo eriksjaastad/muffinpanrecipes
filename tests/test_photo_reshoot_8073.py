@@ -357,7 +357,7 @@ def test_a_shoot_that_lost_its_marker_cannot_register_over_the_newer_reshoot():
     started = _start(store, wed)
     version = _control(store)["version"]
     newer = dict(wed["photo_review"], image_set_id="feedfacefeedface")
-    with pytest.raises(photo_review.ReshootRefused, match="newer reshoot"):
+    with pytest.raises(photo_review.ReshootRefused, match="Newer photos took over"):
         photo_review.register_request(store, EP_ID, {**_control(store)["request"], **newer}, reshoot_id="expired-shoot")
     assert _control(store)["version"] == version
     assert started.reshoots["in_flight"]["id"] != "expired-shoot"
