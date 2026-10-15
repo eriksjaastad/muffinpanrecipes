@@ -5,6 +5,7 @@ Creative Director Agent - Stephanie 'Steph' Whitmore
 Good intentions but struggles with decisiveness. Wants everyone to feel heard.
 """
 
+import os
 
 from backend.core.agent import Agent
 from backend.core.task import Task, TaskResult, TaskApproach
@@ -90,9 +91,13 @@ End your response with 'VERDICT: APPROVED' or 'VERDICT: REVISE'.
             verdict = "APPROVED" if "VERDICT: APPROVED" in response else "REVISE"
             
         except Exception as e:
+            # A review that did not happen is not an approval (#8150).
             logger.error(f"Steph review failed: {e}")
-            feedback = ["I'm so sorry, the system is glitching. It looks great? I think?"]
-            verdict = "APPROVED"
+            return TaskResult(
+                task_id=task.id,
+                success=False,
+                output={"error": f"review call failed: {type(e).__name__}: {e}"},
+            )
 
         review = {
             "feedback": feedback,

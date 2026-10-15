@@ -327,14 +327,19 @@ class RecipeOrchestrator:
 
         return result.output
 
-    def _execute_stage_review(self, recipe_id: str) -> tuple[bool, Dict]:
-        """Execute creative director's review stage."""
+    def _execute_stage_review(self, recipe_id: str, package: Optional[Dict] = None) -> tuple[bool, Dict]:
+        """Execute creative director's review stage.
+
+        ``package`` is what Steph reviews (recipe, copy, photo state); without
+        it she sees only the recipe id. Approved only on her explicit
+        ``VERDICT: APPROVED`` (#8150).
+        """
         cd = self.agents["creative_director"]
 
         task = Task(
             type="review_package",
             content="Review complete recipe package",
-            context={"recipe_id": recipe_id}
+            context={"recipe_id": recipe_id, **({"package": package} if package else {})},
         )
 
         result = cd.process_task(task)
@@ -351,12 +356,7 @@ class RecipeOrchestrator:
                 personality_moments=result.personality_notes,
             )
 
-        # Check approval (support both old and new response shapes)
-        approved = result.output.get("approved", True)
-        if "decision" in result.output and result.output["decision"] == "approved_with_minor_revisions":
-            approved = True
-
-        return approved, result.output
+        return result.output.get("verdict") == "APPROVED", result.output
 
     def _record_creative_dialogue(
         self,
