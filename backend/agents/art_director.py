@@ -678,7 +678,10 @@ class ArtDirectorAgent(Agent):
         winner_info: dict[str, Any] | None = None
 
         deadline = _clock() + _SHOOT_BUDGET_S
-        for round_num in range(1, self._MAX_ROUNDS + 1):
+        # A caller that pays per image call (the dashboard Reshoot, #8073) can
+        # turn the automatic second round off with ``max_rounds=1``.
+        max_rounds = min(task.context.get("max_rounds") or self._MAX_ROUNDS, self._MAX_ROUNDS)
+        for round_num in range(1, max_rounds + 1):
             feedback = rounds[-1]["vision_evaluation"].get("reason") if rounds else None
             # A reshoot starts only if another round like the last one still
             # fits the budget; otherwise the set goes to the human review
