@@ -41,6 +41,16 @@ def test_tuesday_is_three_people_over_eight_to_ten_turns():
     assert TICKS_RANGE["tuesday"] == (8, 10)
 
 
+def test_wednesday_through_sunday_get_eight_to_ten_turns_except_saturday():
+    """#8293: the W37-W42 replay passed more first attempts at (8, 10) on every
+    day with three or more speakers; two-person Saturday did not move."""
+    from scripts.simulate_dialogue_week import TICKS_RANGE
+
+    for day in ("wednesday", "thursday", "friday", "sunday"):
+        assert TICKS_RANGE[day] == (8, 10), day
+    assert TICKS_RANGE["saturday"] == (5, 6)
+
+
 def test_pan_case_rules_fold_generic_menu_into_specific_property_rule():
     """The generic menu bullet used to sit as its own standalone permission
     directly above the 'property specific to THIS dish' rule, reading as

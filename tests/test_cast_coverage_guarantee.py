@@ -270,16 +270,18 @@ _WIRING_SEEDS = 200
 
 
 @pytest.mark.parametrize("reshoot", [False, True])
-def test_wednesday_photography_override_reaches_the_selector(reshoot: bool, stub_turns) -> None:
+def test_wednesday_photography_override_reaches_the_selector(reshoot: bool, stub_turns, monkeypatch) -> None:
     """Wednesday raises its own tick count when photography context is present.
 
     `run_simulation` bumps day_ticks to 7 (or 10 on a reshoot) *after*
     sampling TICKS_RANGE, so the override has to reach
     `_select_next_speaker` as total_ticks or the deadline is computed
     against the wrong horizon. The length floor is the load-bearing
-    assertion here: TICKS_RANGE["wednesday"] tops out at 6, so a message
-    count of 7+ can only come from the override actually firing.
+    assertion here, so the range is pinned to (5, 6): a message count of 7+
+    can then only come from the override actually firing. Production's
+    range (#8293) already starts at 8.
     """
+    monkeypatch.setitem(sim.TICKS_RANGE, "wednesday", (5, 6))
     expected = participants_for_day("wednesday")
     context = {"reshoot_happened": reshoot, "rounds": []}
     floor = 10 if reshoot else 7

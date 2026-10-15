@@ -51,6 +51,17 @@ The general form, because this will happen again with some other document:
 When a week fails the same way it failed last week, open the design record before
 theorizing.
 
+**A dialogue change ships with a measured pass rate.** Before merging any change
+to a day's conversation, run `scripts/conversation_lab.py bench --from-episode <week>
+--stage <day>` for that day on the six most recent weeks, once on main and once on the
+branch. Put both judge pass rates in the PR body, and don't ship a change that doesn't
+raise the rate. A day that fails in production gets the same bench before anyone
+theorizes about it.
+
+**Apply a fix to every day built the same way.** #8285 gave Tuesday more turns
+after 5–6 turns proved too few for four speakers to argue and settle anything.
+Wednesday kept the same shape and failed W42 for the same reason (#8293).
+
 ## Authorization — Check Doppler First
 
 Before saying "I need to log in" to any third-party CLI, check Doppler. This repo has `doppler.yaml` pinned to project `muffinpanrecipes`, config `dev`, and production/staging secrets are managed through Doppler sync.

@@ -823,12 +823,12 @@ def test_ab_uses_one_episode_snapshot_for_anchor_and_every_judge_orientation(tmp
     # The anchor is built from the TUESDAY override, not Monday's recipe. Its
     # title, its description and its ingredient (#7441) all have to be the
     # stage-specific ones; cornmeal appears only in the tuesday override.
+    # Tuesday's speakers see amounts, as production's do (#8285, #8293).
     assert anchors[0].startswith(
         "This week's recipe: Tuesday Override Bites (savory). "
         "What it is: A stage-specific crisp and tender bite."
     )
-    assert "cornmeal" in anchors[0]
-    assert "1 cup" not in anchors[0]
+    assert "1 cup cornmeal" in anchors[0]
     assert len(prompts) == 4  # both A/B orientations for both runs
     assert len({p.split("RECIPE GROUND TRUTH", 1)[1].split("Expected cast", 1)[0] for p in prompts}) == 1
     assert all("Stir the Tuesday batter." in p for p in prompts)
@@ -4041,6 +4041,27 @@ def test_bench_from_episode_uses_the_episode_recipe_concept_and_prior_days(tmp_p
     # Sunday comes AFTER saturday and must not leak into the judge's context.
     assert report["judged_against_prior_days"] == ["monday", "tuesday", "wednesday"]
     assert judged_prior == [["monday", "tuesday", "wednesday"]] * 2
+
+
+def test_bench_from_episode_builds_the_recipe_anchor_for_its_stage(tmp_path, monkeypatch):
+    """Production's Tuesday speakers see amounts and method (#8285); a lab
+    Tuesday must too, or its pass rate says nothing about production (#8293)."""
+    anchors: list[str | None] = []
+
+    def fake_simulation(**kwargs):
+        anchors.append(kwargs["recipe_context"])
+        return {"messages": _messages("generated", count=5)}
+
+    monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: _snapshot_episode())
+    monkeypatch.setattr(sdw, "run_simulation", fake_simulation)
+    monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
+    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+
+    cl.cmd_bench(_bench_args(tmp_path, stage="tuesday", runs=1, concept=None,
+                             recipe_context=None, from_episode="snapshot-week"))
+
+    assert anchors and "2 cups flour" in anchors[0]
+    assert "Roll the dough into a log." in anchors[0]
 
 
 @pytest.mark.parametrize("reshoot_happened", [False, True])

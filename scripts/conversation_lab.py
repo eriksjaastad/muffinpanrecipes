@@ -2708,7 +2708,7 @@ def _resolve_recipe_context_and_facts(
     episode = _load_episode(args.from_episode, local=args.local)
     stage_data = (episode.get("stages") or {}).get(args.stage) or {}
     recipe_data = _stage_recipe_data(episode, stage_data)
-    recipe_context = _build_recipe_context(recipe_data)
+    recipe_context = _build_recipe_context(recipe_data, args.stage)
     if not recipe_context:
         raise SystemExit(
             f"conversation_lab ab: episode {args.from_episode!r} has no usable recipe_data "
@@ -5592,7 +5592,7 @@ def _resolve_bench_scenario(
     episode = _load_episode(args.from_episode, local=args.local)
     stage_data = (episode.get("stages") or {}).get(args.stage) or {}
     recipe_data = _stage_recipe_data(episode, stage_data)
-    recipe_context = _build_recipe_context(recipe_data)
+    recipe_context = _build_recipe_context(recipe_data, args.stage)
     if not recipe_context:
         raise ConversationLabError(
             f"episode {args.from_episode!r} has no usable recipe_data for stage "
@@ -6636,7 +6636,7 @@ def cmd_calibrate(args: argparse.Namespace) -> None:
     concept = _episode_concept(episode)
     expected_cast = simulate_module.participants_for_day(args.stage)
     recipe_data = _stage_recipe_data(episode, stage_data)
-    recipe_context = _build_recipe_context(recipe_data)
+    recipe_context = _build_recipe_context(recipe_data, args.stage)
     recipe_facts = _build_judge_recipe_facts(recipe_data) or None
 
     judge_model = _resolve_judge_model_for_args(args)
