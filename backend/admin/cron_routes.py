@@ -1956,7 +1956,21 @@ def _shoot_and_register(
         ep["stages"]["wednesday"] = wed
     ep["image_paths"] = image_paths
     ep["image_urls"] = image_urls
-    ep.pop("publish_hold", None)
+    if reshoot and isinstance(ep.get("publish_hold"), dict):
+        # Sunday already ran and held this week for photo approval. The new set
+        # is awaiting approval too, so the hold now names it: dropping the hold
+        # would make episode_integrity report an overdue Sunday as missing. No
+        # last_attempt (no Sunday has seen this set); notified is True because
+        # this reshoot's own "Photos ready" email is the notice.
+        ep["publish_hold"] = {
+            "reason": "awaiting_photo_approval",
+            "image_set_id": request["image_set_id"],
+            "since": datetime.now(timezone.utc).isoformat(),
+            "notified": True,
+        }
+        ep.setdefault("events", []).append("reshoot: Sunday's photo hold now names the new set")
+    else:
+        ep.pop("publish_hold", None)
     ep.setdefault("events", []).append("wednesday: photos ready for review")
     storage.save_episode(episode_id, ep)
     sent = notify_photos_ready(
@@ -1979,7 +1993,11 @@ def reshoot_wednesday_photos(episode_id: str, image_set_id: str) -> dict:
     caller's request (admin and cron share one Lambda). Raises HTTPException:
     409 when refused, 404/503 on a missing or unreadable episode.
     """
-    ep = storage.load_episode_verified(episode_id)
+    try:
+        ep = storage.load_episode_verified(episode_id)
+    except Exception as exc:
+        logger.error(f"Reshoot episode read failed for {episode_id}: {type(exc).__name__}: {exc}")
+        raise HTTPException(status_code=503, detail="Could not read the episode; nothing was counted or changed.")
     if not ep:
         raise HTTPException(status_code=404, detail=f"Episode not found: {episode_id}")
     monday = ep.get("stages", {}).get("monday", {})

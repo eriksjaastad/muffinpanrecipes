@@ -95,7 +95,7 @@ underway. Choices are frozen." and Wednesday refuses to replace the photos (409)
 - Rejected: nothing publishes. New photos: the **Reshoot** button on the photo
   review (#8073). It makes one new set (3 image calls, photos only, Wednesday's
   dialogue is kept), voids any approval and sends a "Photos ready" email. Cap:
-  9 image calls per episode, counted on the control (`reshoots`) and never
+  9 reshoot image calls per episode (on top of Wednesday's own shoot), counted on the control (`reshoots`) and never
   refunded; a click while one runs, or after Sunday claimed, gets a 409. A
   reshoot killed mid-shoot is retryable after 6 minutes. After Sunday's
   scheduled run it is allowed, but Sunday then holds until a manual run (the

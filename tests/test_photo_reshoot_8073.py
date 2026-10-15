@@ -15,7 +15,9 @@ import pytest
 from backend.admin import cron_routes
 from backend.agents.factory import create_agent
 from backend.core.task import Task
+from backend.storage import PhotoControlConflict
 from backend.utils import photo_review
+from backend.utils.episode_integrity import recorded_photo_hold
 from tests.photo_review_helpers import BLOB, decide, register, wednesday_stage
 from tests.test_art_director_image_pipeline import _png_bytes
 from tests.test_photo_approval_7936 import (
@@ -288,3 +290,51 @@ def test_an_unreadable_episode_after_the_shoot_registers_nothing_and_says_so(tmp
     assert ctrl["request"]["image_set_id"] == wed["photo_review"]["image_set_id"]
     assert ctrl["reshoots"]["calls_used"] == 3 and "in_flight" not in ctrl["reshoots"]
     notify.assert_not_called()
+
+
+# --- Codex round (#8073) --------------------------------------------------------------
+
+def test_a_reshoot_after_sundays_hold_re_points_the_hold_at_the_new_set(tmp_path):
+    store, wed = _store_with_set()
+    ep = store.get(EP_ID)
+    ep["publish_hold"] = {
+        "reason": "awaiting_photo_approval", "image_set_id": wed["photo_review"]["image_set_id"],
+        "since": "2026-10-11T00:00:00+00:00", "notified": True,
+        "last_attempt": {"at": "2026-10-11T00:00:00+00:00", "outcome": "held"},
+    }
+    store.put(EP_ID, ep)
+    assert recorded_photo_hold(store.get(EP_ID)) == "awaiting_photo_approval"
+    with _shoot_env(store, tmp_path) as (client, _shoot, _notify, _dialogue):
+        resp = _reshoot(client, wed)
+    assert resp.status_code == 200, resp.text
+    after = store.get(EP_ID)
+    assert recorded_photo_hold(after) == "awaiting_photo_approval"
+    assert after["publish_hold"]["image_set_id"] == resp.json()["image_set_id"]
+    assert "last_attempt" not in after["publish_hold"]
+
+
+def test_any_episode_read_failure_is_a_503_before_anything_is_counted(tmp_path):
+    store, wed = _store_with_set()
+    store.fail_verified = RuntimeError("blob down")
+    with _shoot_env(store, tmp_path) as (client, shoot, _notify, _dialogue):
+        resp = _reshoot(client, wed)
+    assert resp.status_code == 503 and "nothing was counted" in resp.json()["detail"]
+    shoot.assert_not_called()
+    assert _control(store)["version"] == 1
+
+
+def test_clearing_the_marker_retries_a_lost_compare_and_swap():
+    store, wed = _store_with_set()
+    started = _start(store, wed)
+    real_create = store.create_photo_control_version
+    lost = []
+
+    def lose_once(episode_id, version, body):
+        if not lost:
+            lost.append(True)
+            raise PhotoControlConflict("lost")
+        return real_create(episode_id, version, body)
+
+    with patch.object(store, "create_photo_control_version", side_effect=lose_once):
+        _finish(store, started)
+    assert "in_flight" not in _control(store)["reshoots"]

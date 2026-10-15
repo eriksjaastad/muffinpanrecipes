@@ -1366,7 +1366,7 @@ def create_routes(app: FastAPI):
         except Exception as exc:
             logger.error(f"Photo reshoot failed for {episode_id}: {type(exc).__name__}: {exc}")
             raise HTTPException(status_code=502, detail=f"The reshoot failed ({type(exc).__name__}). Reload to check.")
-        message = f"New photos are up for review. {result['calls_left']} image calls left."
+        message = f"New photos are up for review. {result['calls_left']} reshoot image calls left."
         if _sunday_run_has_passed(episode_id):
             message += " Sunday has already run its schedule; it holds until a manual run (RUNBOOK)."
         logger.info(f"Photo reshoot for {episode_id}: set {result['image_set_id']}")

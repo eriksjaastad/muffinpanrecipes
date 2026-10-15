@@ -88,7 +88,8 @@ _ACTIONS = {"select": APPROVED, "reject": REJECTED}
 # against the new latest version this many times, re-validating each time.
 _CAS_ATTEMPTS = 3
 
-# #8073: the dashboard Reshoot. Image calls per episode, counted on the control
+# #8073: the dashboard Reshoot. Reshoot image calls per episode, on top of Wednesday's
+# own shoot, counted on the control
 # BEFORE they are spent and never refunded; a reshoot in flight longer than
 # RESHOOT_IN_FLIGHT_S is presumed dead (a Lambda killed mid-shoot clears nothing).
 RESHOOT_CALL_CAP = 9
@@ -698,7 +699,7 @@ def start_reshoot(store, episode_id: str, verified_ep: dict | None, image_set: s
         used = int(view.reshoots.get("calls_used") or 0)
         if used + calls > RESHOOT_CALL_CAP:
             raise ReshootRefused(
-                f"Reshoot limit reached: {used} of {RESHOOT_CALL_CAP} image calls used for this episode."
+                f"Reshoot limit reached: {used} of {RESHOOT_CALL_CAP} reshoot image calls used for this episode."
             )
         reshoots = {"calls_used": used + calls,
                     "in_flight": {"id": secrets.token_hex(8), "started_at": _now()}}
@@ -717,13 +718,19 @@ def clear_reshoot_in_flight(store, episode_id: str, reshoot_id: str) -> None:
     another reshoot started), so it only ever clears the shoot ``reshoot_id``
     began. The calls stay counted.
     """
-    view = read_view(store, episode_id, None)
-    in_flight = view.reshoots.get("in_flight")
-    if view.frozen or not isinstance(in_flight, dict) or in_flight.get("id") != reshoot_id:
-        return
-    _append(store, view, state=view.state, request=view.request, decision=view.decision, claim=None,
-            event="reshoot: failed",
-            reshoots={k: v for k, v in view.reshoots.items() if k != "in_flight"})
+    for attempt in range(_CAS_ATTEMPTS):
+        view = read_view(store, episode_id, None)
+        in_flight = view.reshoots.get("in_flight")
+        if view.frozen or not isinstance(in_flight, dict) or in_flight.get("id") != reshoot_id:
+            return
+        try:
+            _append(store, view, state=view.state, request=view.request, decision=view.decision, claim=None,
+                    event="reshoot: failed",
+                    reshoots={k: v for k, v in view.reshoots.items() if k != "in_flight"})
+            return
+        except PhotoControlConflict:
+            if attempt == _CAS_ATTEMPTS - 1:
+                raise
 
 
 def ensure_not_frozen(store, episode_id: str) -> ControlView | None:
