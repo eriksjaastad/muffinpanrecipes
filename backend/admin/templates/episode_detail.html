@@ -157,6 +157,20 @@
             </button>
             {% endif %}
             {% endif %}
+            {% if review.writable %}
+            <div class="mt-3 border-t border-slate-100 pt-3">
+                <button data-action="photo-reshoot" data-episode-id="{{ episode.episode_id }}"
+                    data-set-id="{{ review.image_set_id }}"
+                    {% if not review.can_reshoot %}disabled{% endif %}
+                    class="text-sm px-3 py-1.5 rounded bg-amber-100 text-amber-800 hover:bg-amber-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+                    Reshoot
+                </button>
+                <span class="text-xs text-slate-500 ml-2">{{ review.reshoot_calls_left }} of {{ review.reshoot_cap }} image calls left. A reshoot takes up to 3 minutes, replaces this set, and voids any approval.</span>
+                {% if review.sunday_passed %}
+                <p class="text-xs text-amber-700 mt-1">Sunday has already run its schedule; after a reshoot, Sunday holds until a manual run (RUNBOOK).</p>
+                {% endif %}
+            </div>
+            {% endif %}
         </section>
         {% endif %}
 
@@ -440,6 +454,9 @@
                 submitPhotoReview(episodeId, btn, { action: 'select', image_set_id: btn.dataset.imageSet, path: btn.dataset.path });
             } else if (action === 'photo-reject' && episodeId) {
                 submitPhotoReview(episodeId, btn, { action: 'reject', image_set_id: btn.dataset.imageSet });
+            } else if (action === 'photo-reshoot' && episodeId) {
+                btn.textContent = 'Reshooting...';
+                submitPhotoReview(episodeId, btn, { image_set_id: btn.dataset.setId }, 'reshoot');
             }
         });
 
@@ -486,13 +503,13 @@
             }
         }
 
-        async function submitPhotoReview(episodeId, btn, payload) {
+        async function submitPhotoReview(episodeId, btn, payload, endpoint = 'review') {
             const out = document.getElementById('photo-review-result');
             btn.disabled = true;
             try {
                 const ns = document.getElementById('photo-review')?.dataset.ns || '';
                 const query = ns ? `?ns=${encodeURIComponent(ns)}` : '';
-                const resp = await fetch(`/admin/episodes/${episodeId}/photos/review${query}`, {
+                const resp = await fetch(`/admin/episodes/${episodeId}/photos/${endpoint}${query}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload),

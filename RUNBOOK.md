@@ -92,9 +92,16 @@ underway. Choices are frozen." and Wednesday refuses to replace the photos (409)
   current copy": the episode body the CDN served did not carry the stored
   version's ETag (Blob caches overwritten files for up to ~60s). Nothing was
   approved, spent or saved. Retry in a minute.
-- Rejected: nothing publishes. New photos mean a paid Wednesday rerun, which
-  starts a fresh review: `.../api/cron/wednesday` with the same curl. The old
-  admin `images/rerun` endpoint is retired (410).
+- Rejected: nothing publishes. New photos: the **Reshoot** button on the photo
+  review (#8073). It makes one new set (3 image calls, photos only, Wednesday's
+  dialogue is kept), voids any approval and sends a "Photos ready" email. Cap:
+  9 image calls per episode, counted on the control (`reshoots`) and never
+  refunded; a click while one runs, or after Sunday claimed, gets a 409. A
+  reshoot killed mid-shoot is retryable after 6 minutes. After Sunday's
+  scheduled run it is allowed, but Sunday then holds until a manual run (the
+  curl above). The old admin `images/rerun` endpoint stays retired (410); the
+  full Wednesday re-fire (`.../api/cron/wednesday`, same curl) also reshoots,
+  with a dialogue, and is not capped.
 - Approved, but Wednesday's dialogue failed the judge: re-fire Wednesday with
   the same curl. It keeps the approved set and Erik's pick, and reruns only
   the dialogue, so no image is generated and no "Photos ready" alert goes out
