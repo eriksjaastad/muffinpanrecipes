@@ -233,6 +233,8 @@ def normalize_recipe_instructions(instructions: Iterable[Any] | None) -> list[An
 
 
 _PAN_SIZE_RE = re.compile(r"\b(mini|standard|jumbo)\b", re.IGNORECASE)
+# The PAN label, through markdown emphasis and in any case ("**PAN:** Jumbo").
+_PAN_LINE_RE = re.compile(r"^[\s*_`]*PAN[\s*_`]*:(.*)$", re.IGNORECASE)
 
 
 def _parse_recipe_response(response: str, concept: str) -> Dict[str, Any]:
@@ -270,12 +272,15 @@ def _parse_recipe_response(response: str, concept: str) -> Dict[str, Any]:
         # original line for instructions so inner emphasis survives parsing.
         control_line = _strip_surrounding_markdown_emphasis(line)
 
-        if control_line.startswith("PAN:"):
-            pan_line = control_line.replace("PAN:", "", 1).strip()
-            match = _PAN_SIZE_RE.search(pan_line)
-            if match:
-                result["pan_size"] = match.group(1).lower()
-                result["pan_reason"] = pan_line[match.end():].lstrip(" \t-–—:*_").strip()[:200]
+        if pan_match := _PAN_LINE_RE.match(line):
+            pan_line = pan_match.group(1).strip()
+            sizes = {size.lower() for size in _PAN_SIZE_RE.findall(pan_line)}
+            # Exactly one size, or it is no choice: an echoed template
+            # ("[mini|standard|jumbo]") or "not mini, standard" names several.
+            if len(sizes) == 1:
+                match = _PAN_SIZE_RE.search(pan_line)
+                result["pan_size"] = sizes.pop()
+                result["pan_reason"] = pan_line[match.end():].lstrip(" \t-–—:*_").strip()
             else:
                 pan_raw = pan_line
         elif control_line.startswith("TITLE:"):

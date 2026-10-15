@@ -179,9 +179,10 @@ def pan_for_week(
 ) -> Pan:
     """The week's pan: fixed geometry for ``size``, material rotated by ISO week.
 
-    Deterministic, so a Wednesday re-fire in the same week shoots the same
-    pan; never repeats a material within ``len(pool)`` consecutive weeks of
-    one size. ``avoid`` is last week's material: the pools differ by size, so
+    Deterministic for the same ``avoid``, so a Wednesday re-fire in the same
+    week shoots the same pan (``avoid`` comes from last week's stored pan,
+    which Sunday freezes); never repeats a material within ``len(pool)``
+    consecutive weeks of one size. ``avoid`` is last week's material: the pools differ by size, so
     a size change could land on it, and the pick then moves to the next in
     the pool.
     """
