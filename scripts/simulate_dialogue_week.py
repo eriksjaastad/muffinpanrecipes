@@ -1165,6 +1165,11 @@ def _append_rewrite_log(
     })
 
 
+# The rewrite prompt's separator and section labels. A rewrite reply that
+# contains any of them echoed the scaffold and is not used (#8267).
+_REWRITE_SCAFFOLD = ("---", "Your draft:", "Problems with it:")
+
+
 def generate_turn(
     persona: dict[str, Any],
     concept: str,
@@ -1488,29 +1493,38 @@ def generate_turn(
         # and the stage failed three times. The closer rule existed the whole
         # time; the rewrite just could not see it.
         _fault_list = "\n".join(f"- {f}" for f in _faults)
+        _separator, _draft_label, _problems_label = _REWRITE_SCAFFOLD
         rewrite_prompt = (
             f"{prompt}\n\n"
-            f"---\n"
-            f"Your draft:\n{msg}\n\n"
-            f"Problems with it:\n{_fault_list}\n\n"
+            f"{_separator}\n"
+            f"{_draft_label}\n{msg}\n\n"
+            f"{_problems_label}\n{_fault_list}\n\n"
             "Rewrite it as ONE message fixing every problem above. "
             "Every instruction earlier in this prompt still applies"
             + (" - including the LAST-MESSAGE rule: confirm what was decided and "
                "sign off, do not ask a question." if is_last_turn else ".")
         )
-        msg = generate_response(
+        rewrite = generate_response(
             prompt=rewrite_prompt,
             system_prompt=build_system_prompt(persona),
             model=model,
             temperature=0.9,
         ).strip()
-        msg = _guard_cot_leak(
-            msg,
+        rewrite = _guard_cot_leak(
+            rewrite,
             prompt=rewrite_prompt,
             persona=persona,
             model=model,
             retry_flag=cot_retry_flag,
         )
+        # The reply sometimes carries the prompt's own scaffold back with it
+        # (#8267): W38 Tuesday published "...instead of structure. --- Butter's
+        # ...". Such a reply is not one clean message, so the draft stands; the
+        # log records the "scaffold_echo" fault and the line as not rewritten.
+        if any(part in rewrite for part in _REWRITE_SCAFFOLD):
+            _fault_keys.append("scaffold_echo")
+        else:
+            msg = rewrite
 
     msg = sanitize_typographic_tells(msg)
     msg = _normalize_time_notation(msg, deadline)
@@ -1521,7 +1535,7 @@ def generate_turn(
         day=day,
         speaker=persona.get("name"),
         faults=_fault_keys,
-        rewritten=bool(_faults),
+        rewritten=bool(_faults) and "scaffold_echo" not in _fault_keys,
         draft=draft,
         final=final,
         cot_retry=cot_retry_flag[0],

@@ -135,3 +135,26 @@ def test_no_rewrite_means_no_second_call():
 
     assert len(prompts) == 1
     assert out == "A perfectly fresh line."
+
+
+def test_a_rewrite_that_echoes_the_scaffold_is_discarded():
+    # #8267: W38 Tuesday published "...instead of structure. --- Butter's ...".
+    draft = "Cold butter in the fold gives you lift."
+    echo = "you get slip instead of structure.\n---\nButter's the whole point."
+    _prompts, fake = _capture_prompts([draft, echo])
+
+    with (
+        patch.object(sdw, "generate_response", side_effect=fake),
+        patch.object(sdw, "_is_repetitive_candidate", return_value=True),
+        patch.object(sdw, "_guard_cot_leak", side_effect=lambda m, **_kw: m),
+    ):
+        out = sdw.generate_turn(
+            persona=_persona(), concept="X", day="tuesday", stage="development",
+            deadline="5 pm", recent_lines=["Margaret: Fold it twice."],
+            event=None, model="test-model", mode="openai", prompt_style="scene",
+            day_turn=3, is_last_turn=False,
+        )
+
+    assert out == draft
+    assert sdw.REWRITE_LOG[-1]["faults"] == ["repetition", "scaffold_echo"]
+    assert sdw.REWRITE_LOG[-1]["rewritten"] is False
