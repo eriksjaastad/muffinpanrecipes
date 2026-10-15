@@ -6,6 +6,7 @@ Good intentions but struggles with decisiveness. Wants everyone to feel heard.
 """
 
 import os
+import re
 
 from backend.core.agent import Agent
 from backend.core.task import Task, TaskResult, TaskApproach
@@ -13,6 +14,10 @@ from backend.core.types import EmotionalResponse, MemoryContext
 from backend.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+# A verdict line, optionally wrapped in markdown emphasis or followed by a period.
+_VERDICT_LINE_RE = re.compile(r"^[\s*_`]*VERDICT:\s*(APPROVED|REVISE)\b", re.IGNORECASE)
 
 
 class CreativeDirectorAgent(Agent):
@@ -87,11 +92,12 @@ End your response with 'VERDICT: APPROVED' or 'VERDICT: REVISE'.
             )
             
             lines = response.strip().split("\n")
-            feedback = [l.strip() for l in lines if l.strip() and not l.startswith("VERDICT:")]
+            feedback = [l.strip() for l in lines if l.strip() and not _VERDICT_LINE_RE.match(l)]
             # The last VERDICT line decides, so feedback that quotes
-            # "VERDICT: APPROVED" before a REVISE cannot approve (#8150).
-            verdicts = [line.strip() for line in lines if line.strip().startswith("VERDICT:")]
-            verdict = "APPROVED" if verdicts and verdicts[-1] == "VERDICT: APPROVED" else "REVISE"
+            # "VERDICT: APPROVED" before a REVISE cannot approve; markdown
+            # emphasis around it does not hide an approval (#8150).
+            verdicts = [m.group(1).upper() for m in (_VERDICT_LINE_RE.match(line) for line in lines) if m]
+            verdict = "APPROVED" if verdicts and verdicts[-1] == "APPROVED" else "REVISE"
             
         except Exception as e:
             # A review that did not happen is not an approval (#8150).

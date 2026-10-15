@@ -26,6 +26,7 @@ def _orchestrator(tmp: Path) -> RecipeOrchestrator:
     ("Lovely crumb.\nVERDICT: APPROVED", True),
     ("The title oversells it.\nVERDICT: REVISE", False),
     ("I nearly wrote VERDICT: APPROVED, but the crust is raw.\nVERDICT: REVISE", False),
+    ("Lovely crumb.\n**VERDICT: APPROVED.**", True),
 ])
 def test_the_review_verdict_decides_approval(reply, approved):
     with tempfile.TemporaryDirectory() as tmpdir, \
