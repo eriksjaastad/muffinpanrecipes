@@ -5,6 +5,7 @@ Creative Director Agent - Stephanie 'Steph' Whitmore
 Good intentions but struggles with decisiveness. Wants everyone to feel heard.
 """
 
+import os
 
 from backend.core.agent import Agent
 from backend.core.task import Task, TaskResult, TaskApproach
@@ -12,6 +13,11 @@ from backend.core.types import EmotionalResponse, MemoryContext
 from backend.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+# The review's whole verdict protocol: its last line is exactly one of these.
+_APPROVED_LINE = "VERDICT: APPROVED"
+_REVISE_LINE = "VERDICT: REVISE"
 
 
 class CreativeDirectorAgent(Agent):
@@ -74,7 +80,7 @@ You always find something positive to say first, then offer constructive (but ap
 {package_data}
 
 Provide your feedback as a list of specific creative observations.
-End your response with 'VERDICT: APPROVED' or 'VERDICT: REVISE'.
+End with one final line that is exactly 'VERDICT: APPROVED' or 'VERDICT: REVISE', with nothing else and no formatting on it.
 """
 
         try:
@@ -85,14 +91,21 @@ End your response with 'VERDICT: APPROVED' or 'VERDICT: REVISE'.
                 temperature=0.5
             )
             
-            lines = response.strip().split("\n")
-            feedback = [l.strip() for l in lines if l.strip() and not l.startswith("VERDICT:")]
-            verdict = "APPROVED" if "VERDICT: APPROVED" in response else "REVISE"
+            # Approved only when the last line is exactly the approval line.
+            # Any other ending (bold, quoted, extra words, no verdict) is
+            # REVISE: no free-text parsing to fool (#8150).
+            lines = [line.strip() for line in response.strip().splitlines() if line.strip()]
+            verdict = "APPROVED" if lines and lines[-1] == _APPROVED_LINE else "REVISE"
+            feedback = lines[:-1] if lines and lines[-1] in (_APPROVED_LINE, _REVISE_LINE) else lines
             
         except Exception as e:
+            # A review that did not happen is not an approval (#8150).
             logger.error(f"Steph review failed: {e}")
-            feedback = ["I'm so sorry, the system is glitching. It looks great? I think?"]
-            verdict = "APPROVED"
+            return TaskResult(
+                task_id=task.id,
+                success=False,
+                output={"error": f"review call failed: {type(e).__name__}: {e}"},
+            )
 
         review = {
             "feedback": feedback,

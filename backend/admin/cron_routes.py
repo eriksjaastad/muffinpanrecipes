@@ -2180,14 +2180,21 @@ async def cron_friday(request: Request):
         # active_recipes check removed: orchestrator is per-request, so list is always empty
         orchestrator.pipeline.start_recipe(recipe_id, concept)
 
-        approved, review_output = orchestrator._execute_stage_review(recipe_id)
-
-        # Pass photography context from Wednesday to Friday dialogue for hero shot awareness
-        wed_photo_data = ep.get("stages", {}).get("wednesday", {}).get("photography_data")
-        friday_photo_ctx = wed_photo_data if isinstance(wed_photo_data, dict) else None
         # The actual human review state, so nobody claims an approval that
         # has not happened (#7936).
         review_ctx = _photo_review_dialogue_context(episode_id, ep)
+        # Steph reviews the week's actual work, not a bare recipe id (#8150).
+        stages = ep.get("stages", {})
+        approved, review_output = orchestrator._execute_stage_review(
+            recipe_id,
+            stages.get("monday", {}).get("recipe_data"),
+            stages.get("thursday", {}).get("copy_text"),
+            review_ctx,
+        )
+
+        # Pass photography context from Wednesday to Friday dialogue for hero shot awareness
+        wed_photo_data = stages.get("wednesday", {}).get("photography_data")
+        friday_photo_ctx = wed_photo_data if isinstance(wed_photo_data, dict) else None
         if review_ctx:
             friday_photo_ctx = {**(friday_photo_ctx or {}), "human_review": review_ctx}
         dialogue, judge_verdict = _generate_and_judge_dialogue(

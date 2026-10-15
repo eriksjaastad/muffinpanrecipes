@@ -223,7 +223,11 @@ def main() -> None:
             stage_entry["copy_text"] = result
 
         elif stage_key == "friday":
-            approved, review_output = orchestrator._execute_stage_review(recipe_id)
+            approved, review_output = orchestrator._execute_stage_review(
+                recipe_id,
+                ep["stages"].get("monday", {}).get("recipe_data", {}),
+                ep["stages"].get("thursday", {}).get("copy_text"),
+            )
             stage_entry["review_data"] = review_output
             stage_entry["approved"] = approved
             # Note: _record_creative_dialogue() is now a no-op (deprecated).
