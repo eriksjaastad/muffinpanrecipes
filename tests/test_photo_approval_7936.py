@@ -723,7 +723,7 @@ def _client(store, authed=True):
     app.state.templates = Jinja2Templates(directory="backend/admin/templates")
     create_routes(app)
     if authed:
-        app.dependency_overrides[require_auth] = lambda: {"email": "erik@example.com", "sub": "1234"}
+        app.dependency_overrides[require_auth] = lambda: {"email": "erik@example.com", "sub": "oauth-subject-erik"}
     client = TestClient(app, base_url="https://admin.test")
     patcher = patch("backend.storage.storage", store)
     patcher.start()
@@ -761,7 +761,7 @@ def test_select_appends_to_the_control_without_identity_or_episode_writes():
     assert store.saves == []
     ctrl = _control(store)
     assert ctrl["state"] == "approved" and ctrl["decision"]["selected"]["path"] == wed["image_paths"][1]
-    assert "erik@example.com" not in json.dumps(ctrl) and "1234" not in json.dumps(ctrl)
+    assert "erik@example.com" not in json.dumps(ctrl) and "oauth-subject-erik" not in json.dumps(ctrl)
     assert "Approved</span>" in page and ">Selected<" in page
 
 
