@@ -16,9 +16,18 @@ from backend.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-# A whole verdict line, optionally wrapped in markdown emphasis or followed by a
-# period; anything else on it ("APPROVED / REVISE") is not a verdict.
-_VERDICT_LINE_RE = re.compile(r"^[\s*_`]*VERDICT:\s*(APPROVED|REVISE)[\s*_`.!]*$", re.IGNORECASE)
+_VERDICT_RE = re.compile(r"VERDICT:\s*(APPROVED|REVISE)[.!]?", re.IGNORECASE)
+
+
+def _verdict_of(line: str) -> str | None:
+    """APPROVED or REVISE when the line is exactly a verdict, else None.
+
+    Markdown (emphasis, a heading or a list dash) is stripped first; any other
+    words on the line ("APPROVED / REVISE") mean it is not a verdict (#8150).
+    """
+    plain = re.sub(r"[*_`#>]", "", line).strip().lstrip("-").strip()
+    match = _VERDICT_RE.fullmatch(plain)
+    return match.group(1).upper() if match else None
 
 
 class CreativeDirectorAgent(Agent):
@@ -93,11 +102,11 @@ End your response with 'VERDICT: APPROVED' or 'VERDICT: REVISE'.
             )
             
             lines = response.strip().split("\n")
-            feedback = [l.strip() for l in lines if l.strip() and not _VERDICT_LINE_RE.match(l)]
+            feedback = [l.strip() for l in lines if l.strip() and not _verdict_of(l)]
             # The last VERDICT line decides, so feedback that quotes
             # "VERDICT: APPROVED" before a REVISE cannot approve; markdown
             # emphasis around it does not hide an approval (#8150).
-            verdicts = [m.group(1).upper() for m in (_VERDICT_LINE_RE.match(line) for line in lines) if m]
+            verdicts = [v for v in map(_verdict_of, lines) if v]
             verdict = "APPROVED" if verdicts and verdicts[-1] == "APPROVED" else "REVISE"
             
         except Exception as e:
