@@ -36,7 +36,7 @@ import hmac
 import json
 import os
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -1790,6 +1790,24 @@ async def cron_tuesday(request: Request):
 # Wednesday — Photography (longest stage ~3 min)
 # ---------------------------------------------------------------------------
 
+def _previous_pan_material(episode_id: str) -> str | None:
+    """Last ISO week's Wednesday pan material, so a size change cannot repeat it.
+
+    Best-effort: no previous episode or no stored pan is None; a storage error or
+    malformed id is logged and also None, because the shoot must not fail over this hint.
+    """
+    previous_ep = None
+    try:
+        year, week = episode_id.split("-W")
+        previous = date.fromisocalendar(int(year), int(week), 1) - timedelta(weeks=1)
+        iso_year, iso_week, _ = previous.isocalendar()
+        previous_ep = storage.load_episode(f"{iso_year}-W{iso_week:02d}")
+    except Exception as e:
+        logger.error(f"Previous pan material lookup failed for {episode_id}: {type(e).__name__}: {e}")
+    pan = ((previous_ep or {}).get("stages", {}).get("wednesday", {}).get("photography_data") or {}).get("pan")
+    return pan.get("material") if isinstance(pan, dict) else None
+
+
 @router.api_route("/wednesday", methods=["GET", "POST"])
 async def cron_wednesday(request: Request):
     _verify_cron_secret(request)
@@ -1827,6 +1845,7 @@ async def cron_wednesday(request: Request):
 
             photography_result = orchestrator._execute_stage_photography(
                 recipe_id, recipe_data, episode_id=episode_id,
+                previous_pan_material=_previous_pan_material(episode_id),
             )
             # photography_result is now a full dict with rounds, vision eval, winner, selected_shots
             image_paths: list[str] = photography_result.get("selected_shots", []) if isinstance(photography_result, dict) else []

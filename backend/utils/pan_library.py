@@ -11,10 +11,10 @@ Kitchen, Once Upon a Chef) and a commercial jumbo pan listing; materials from
 current muffin-pan buying guides and vintage cast-iron gem pan and tinware
 references. Tested on W41: docs/image-lab/results/2026-10-07-w41-pan/.
 
-Production still uses the standard 12-cup pan: the baker prompt does not ask
-for a pan yet (utils/recipe_prompts.py), so no recipe stores ``pan_size``.
-Every stage reads the size through ``pan_size_of``, so a recipe that stores
-another size (#8067, once the baker prompt asks for one) is followed throughout.
+The baker names the pan on a PAN line (utils/recipe_prompts.py) and the recipe
+stores ``pan_size``. Every stage reads the size through ``pan_size_of``, so a
+recipe that stores another size is followed throughout; a recipe without one
+is a standard pan.
 """
 
 from __future__ import annotations
@@ -171,16 +171,28 @@ def pan_size_of(recipe: dict | None) -> str:
     return size if isinstance(size, str) and size in SIZES else "standard"
 
 
-def pan_for_week(episode_id: str | None, size: str = "standard", today: date | None = None) -> Pan:
+def pan_for_week(
+    episode_id: str | None,
+    size: str = "standard",
+    today: date | None = None,
+    avoid: str | None = None,
+) -> Pan:
     """The week's pan: fixed geometry for ``size``, material rotated by ISO week.
 
-    Deterministic, so a Wednesday re-fire in the same week shoots the same
-    pan; never repeats a material within ``len(pool)`` consecutive weeks.
+    Deterministic for the same ``avoid``, so a Wednesday re-fire in the same
+    week shoots the same pan (``avoid`` comes from last week's stored pan,
+    which Sunday freezes); never repeats a material within ``len(pool)``
+    consecutive weeks of one size. ``avoid`` is last week's material: the pools differ by size, so
+    a size change could land on it, and the pick then moves to the next in
+    the pool.
     """
     if size not in SIZES:
         raise ValueError(f"unknown pan size {size!r}")
     pool = [m for m, spec in MATERIALS.items() if size in spec["sizes"]]  # type: ignore[operator]
-    material = pool[_absolute_week(episode_id, today) % len(pool)]
+    index = _absolute_week(episode_id, today) % len(pool)
+    if len(pool) > 1 and pool[index] == avoid:
+        index = (index + 1) % len(pool)
+    material = pool[index]
     clause = PAN_CLAUSE_TEMPLATE.format(
         size_label=SIZES[size]["label"],
         material=MATERIALS[material]["description"],
