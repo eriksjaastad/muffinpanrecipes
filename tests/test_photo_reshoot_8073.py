@@ -230,3 +230,46 @@ def test_max_rounds_one_makes_exactly_three_image_calls(tmp_path, monkeypatch):
                 context={"recipe_id": "test-recipe", "recipe_data": {"title": "Test Muffins"}, "max_rounds": 1})
     assert agent.process_task(task).success
     assert len(calls) == 3
+
+
+# --- Failure paths of the route (preflight, #8073) ----------------------------------
+
+def test_clearing_another_reshoots_marker_is_a_no_op():
+    store, wed = _store_with_set()
+    started = _start(store, wed)
+    photo_review.clear_reshoot_in_flight(store, EP_ID, "not-this-reshoot")
+    assert _control(store)["version"] == started.version
+    assert "in_flight" in _control(store)["reshoots"]
+
+
+def test_sunday_claiming_mid_shoot_is_a_409_with_the_calls_counted_and_the_set_kept(tmp_path):
+    store, wed = _store_with_set()
+    ep = store.get(EP_ID)
+    decide(EP_ID, ep, store=store)
+
+    def sunday_claims(*_a, **_k):
+        photo_review.claim_for_publication(store, EP_ID, ep)
+        return _photography_result(tmp_path, "g20261009T000000Z-bbbbbb")
+
+    with _shoot_env(store, tmp_path) as (client, shoot, notify, _dialogue):
+        shoot.side_effect = sunday_claims
+        resp = _reshoot(client, wed)
+    assert resp.status_code == 409
+    ctrl = _control(store)
+    assert ctrl["state"] == "claimed" and ctrl["request"]["image_set_id"] == wed["photo_review"]["image_set_id"]
+    assert ctrl["reshoots"]["calls_used"] == 3
+    notify.assert_not_called()
+
+
+def test_an_unreadable_episode_after_the_shoot_registers_nothing_and_says_so(tmp_path):
+    store, wed = _store_with_set()
+    with _shoot_env(store, tmp_path) as (client, shoot, notify, _dialogue):
+        shoot.side_effect = lambda *_a, **_k: (
+            setattr(store, "fail_verified", RuntimeError("blob stale")) or _photography_result(tmp_path, "g20261009T000000Z-bbbbbb")
+        )
+        resp = _reshoot(client, wed)
+    assert resp.status_code == 502 and "not registered" in resp.json()["detail"]
+    ctrl = _control(store)
+    assert ctrl["request"]["image_set_id"] == wed["photo_review"]["image_set_id"]
+    assert ctrl["reshoots"]["calls_used"] == 3 and "in_flight" not in ctrl["reshoots"]
+    notify.assert_not_called()

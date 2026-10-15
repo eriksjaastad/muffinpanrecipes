@@ -1112,7 +1112,7 @@ def create_routes(app: FastAPI):
         elif selected:
             note = _approval_message(str(data.get("episode_id") or view.episode_id))
         elif view.state == photo_review.REJECTED:
-            note = "Rejected. Sunday will not publish. No new photos are made."
+            note = "Rejected. Sunday will not publish. Rejecting makes no new photos; use Reshoot for a new set."
         elif view.legacy:
             note = ("These photos were made before photo review existed, so no "
                     "\"photos ready\" email went out. Sunday publishes only after you choose.")
@@ -1306,7 +1306,7 @@ def create_routes(app: FastAPI):
         if status_value == photo_review.APPROVED:
             message = _approval_message(episode_id)
         else:
-            message = "Rejected. Sunday will not publish. No new photos are made."
+            message = "Rejected. Sunday will not publish. Rejecting makes no new photos; use Reshoot for a new set."
         logger.info(f"Photo review for {episode_id}: {status_value} (control v{view.version})")
         return {"success": True, "status": status_value, "message": message, "version": view.version}
 
@@ -1333,7 +1333,7 @@ def create_routes(app: FastAPI):
         image_set_id: str
 
     @app.post("/admin/episodes/{episode_id}/photos/reshoot")
-    def admin_photo_reshoot(
+    async def admin_photo_reshoot(
         episode_id: str,
         request_data: PhotoReshootRequest,
         request: Request,
@@ -1342,8 +1342,10 @@ def create_routes(app: FastAPI):
     ):
         """Shoot a new set of Wednesday photos for this week (#8073). Photos only.
 
-        A sync route: FastAPI runs it off the event loop, because the shoot
-        takes minutes. Refusals (frozen, stale page, a shoot running, call cap)
+        Async like the review POST and every cron: the storage prefix is a plain
+        attribute on the shared singleton, so the minutes-long shoot must not
+        interleave with another request on a worker thread (RUNBOOK Incident 1).
+        Refusals (frozen, stale page, a shoot running, call cap)
         are 409 with the reason; success returns the new set and the calls left.
         """
         from backend.admin import cron_routes
@@ -1363,10 +1365,7 @@ def create_routes(app: FastAPI):
             raise HTTPException(status_code=503, detail="Storage is still updating. Try again in a minute.")
         except Exception as exc:
             logger.error(f"Photo reshoot failed for {episode_id}: {type(exc).__name__}: {exc}")
-            raise HTTPException(
-                status_code=502,
-                detail=f"The reshoot failed ({type(exc).__name__}). Its image calls stay counted; reload to check.",
-            )
+            raise HTTPException(status_code=502, detail=f"The reshoot failed ({type(exc).__name__}). Reload to check.")
         message = f"New photos are up for review. {result['calls_left']} image calls left."
         if _sunday_run_has_passed(episode_id):
             message += " Sunday has already run its schedule; it holds until a manual run (RUNBOOK)."

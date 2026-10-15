@@ -1808,6 +1808,10 @@ def _previous_pan_material(episode_id: str) -> str | None:
     return pan.get("material") if isinstance(pan, dict) else None
 
 
+class ReshootNotRegistered(RuntimeError):
+    """A reshoot's photos were generated but the new set was not registered."""
+
+
 def _shoot_and_register(
     episode_id: str, ep: dict, concept: str, recipe_data: dict, *,
     max_rounds: int | None = None, reshoot: bool = False,
@@ -1913,6 +1917,20 @@ def _shoot_and_register(
     # display mirror. Registered first, so nothing announces a set the
     # control does not know. Images live under a generation-specific
     # path, so a refused registration leaves nothing overwritten.
+    if reshoot:
+        # The shoot took minutes, so re-read the episode now, BEFORE registering:
+        # a failed read then leaves nothing registered and the message can say so.
+        try:
+            fresh = storage.load_episode_verified(episode_id)
+        except Exception as exc:
+            raise ReshootNotRegistered(
+                f"The photos were generated but not registered ({type(exc).__name__} re-reading the episode); "
+                "nothing changed."
+            ) from exc
+        if not fresh:
+            raise ReshootNotRegistered(
+                "The photos were generated but not registered (episode not found on re-read); nothing changed."
+            )
     try:
         photo_review.register_request(storage, episode_id, request)
     except photo_review.PublicationUnderway as exc:
@@ -1927,11 +1945,8 @@ def _shoot_and_register(
         raise HTTPException(status_code=409, detail=detail)
     wed["photo_review"] = {k: request[k] for k in ("image_set_id", "generated_at", "requested_at")}
     if reshoot:
-        # The shoot took minutes: merge into the episode as it is NOW, and only
-        # the photo fields, so Wednesday's dialogue, status and completed_at stay.
-        fresh = storage.load_episode_verified(episode_id)
-        if not fresh:
-            raise RuntimeError(f"Episode {episode_id} could not be re-read after the reshoot")
+        # Merge only the photo fields into the episode read before registering,
+        # so Wednesday's dialogue, status and completed_at stay.
         ep.clear()
         ep.update(fresh)
         stage = ep.setdefault("stages", {}).setdefault("wednesday", {})
@@ -1978,20 +1993,27 @@ def reshoot_wednesday_photos(episode_id: str, image_set_id: str) -> dict:
         )
     except (photo_review.ReshootRefused, photo_review.ReviewConflict) as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        logger.error(f"Reshoot start failed for {episode_id}: {type(exc).__name__}: {exc}")
+        raise HTTPException(status_code=503, detail="Could not start the reshoot; nothing was counted or changed.")
     reshoot_id = started.reshoots["in_flight"]["id"]
     try:
         wed, *_ = _shoot_and_register(
             episode_id, ep, concept, monday["recipe_data"], max_rounds=1, reshoot=True,
         )
-    except Exception:
+    except Exception as exc:
         try:
             photo_review.clear_reshoot_in_flight(storage, episode_id, reshoot_id)
-        except Exception as exc:
+        except Exception as clear_exc:
             logger.error(
-                f"Could not clear the reshoot marker for {episode_id}: {type(exc).__name__}: {exc}; "
+                f"Could not clear the reshoot marker for {episode_id}: {type(clear_exc).__name__}: {clear_exc}; "
                 f"it expires after {photo_review.RESHOOT_IN_FLIGHT_S}s"
             )
-        raise
+        if isinstance(exc, HTTPException):
+            raise
+        logger.error(f"Reshoot failed for {episode_id}: {type(exc).__name__}: {exc}")
+        detail = str(exc) if isinstance(exc, ReshootNotRegistered) else f"The reshoot failed ({type(exc).__name__})."
+        raise HTTPException(status_code=502, detail=f"{detail} Its image calls stay counted.") from exc
     view = photo_review.read_view(storage, episode_id, None)
     return {
         "image_set_id": wed["photo_review"]["image_set_id"],
