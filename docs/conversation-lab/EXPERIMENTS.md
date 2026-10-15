@@ -132,6 +132,8 @@ Monday 2026-09-07.**
 - **v4** - 2026-10-14 (#8285, Tuesday only): Devon off Tuesday's cast,
 Tuesday turns (5, 6) -> (8, 10), and Tuesday's speakers see the ingredient
 amounts and the method. See the 2026-10-13 entry below.
+- **v5** - 2026-10-15 (#8293): Wednesday, Thursday, Friday and Sunday turns
+-> (8, 10); Saturday unchanged. See the 2026-10-14 entry below.
 
 ## Experiments
 
@@ -620,6 +622,33 @@ fail about half the time.
   untouched.
 - n=24 per arm. 5 vs 12 is the one gap large enough to act on.
 - Spend was about $12, estimated from call counts.
+
+## 2026-10-14 — Wednesday to Sunday replay: the Tuesday lesson on every short day (#8293)
+
+W42 Wednesday failed all three attempts, then all three again on a re-fire.
+The judge called it "extremely short and repetitive". Wednesday, Thursday and
+Sunday had four speakers in 5-6 turns, and Friday had five speakers in 6-8.
+That is the shape that failed Tuesday. Each W37-W42 day was replayed 3 times
+per arm through the same production path as the Tuesday entry above. The
+photography context was frozen from each week's Wednesday, plus the
+human-review line production adds.
+
+| Day | baseline (production at b256f61) | turns (8, 10) |
+|---|---|---|
+| Wednesday | 4/18 | 6/18 |
+| Thursday | 8/18 | 14/18 |
+| Friday | 1/18 | 4/18 |
+| Saturday (2 speakers) | 9/18 | 9/18 |
+| Sunday | 3/18 | 6/18 |
+
+- Shipped as v5: (8, 10) on every day except Saturday.
+- Most of the remaining failures are agreement loops with interchangeable
+  voices. voice_distinctiveness averaged about 2.9, and its first-weakest count
+  was 9 of 12 Wednesday failures. That is the #6966 ceiling, which turn
+  count does not touch.
+- About 1 in 6 remaining failures is an invented recipe fact (a temperature, a
+  ratio, a technique), the failure the Tuesday amounts and method fixed.
+- Spend was about $10, estimated from call counts.
 
 ## Folded-in research logs (#8144)
 
