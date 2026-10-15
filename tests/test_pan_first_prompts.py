@@ -15,6 +15,7 @@ from backend.admin.cron.editorial_qa import _RECIPE_FIX_SYSTEM_PROMPT
 from backend.utils.recipe_prompts import (
     _build_recipe_system_prompt,
     _build_recipe_user_prompt,
+    _parse_recipe_response,
 )
 from scripts.pick_concept import CURATED_CONCEPTS, Candidate, pick_concept, rank_candidates
 
@@ -31,6 +32,32 @@ def test_system_prompt_opens_with_pan_visualization() -> None:
     assert "2 3/4 inches" in prompt
     # Visualization must come before the rules
     assert prompt.index("ENVISION THE PAN FIRST") < prompt.index("CRITICAL RULES")
+
+
+def test_system_prompt_offers_every_pan_size_and_asks_for_the_pan_line() -> None:
+    from backend.utils.pan_library import SIZES
+
+    prompt = _build_recipe_system_prompt({"name": "Margaret Chen"})
+    assert all(spec["label"] in prompt and spec["geometry"] in prompt for spec in SIZES.values())
+    assert "PAN: [mini|standard|jumbo]" in prompt
+    assert "ITS round, flared wells" in prompt
+    assert "12-cup muffin tin" not in prompt
+
+
+def test_parser_reads_the_pan_line_and_servings_follow_the_pan() -> None:
+    parsed = _parse_recipe_response("PAN: **Jumbo** - stuffed peppers need room\nTITLE: X\nINGREDIENTS:\n- 1 egg", "c")
+    assert parsed["pan_size"] == "jumbo"
+    assert parsed["pan_reason"] == "stuffed peppers need room"
+    assert parsed["servings"] == 6
+    explicit = _parse_recipe_response("PAN: mini - bites\nSERVINGS: 20", "c")
+    assert explicit["servings"] == 20
+
+
+def test_parser_falls_back_to_standard_and_warns_on_a_missing_or_invalid_pan(caplog) -> None:
+    for text in ("TITLE: X", "PAN: huge - big\nTITLE: X"):
+        parsed = _parse_recipe_response(text, "c")
+        assert parsed["pan_size"] == "standard" and parsed["servings"] == 12
+    assert "'huge - big'" in caplog.text
 
 
 def test_system_prompt_bans_impossible_shapes() -> None:

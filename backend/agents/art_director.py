@@ -620,6 +620,7 @@ class ArtDirectorAgent(Agent):
         pan = pan_for_week(
             episode_id if isinstance(episode_id, str) else None,
             size=pan_size_of(task.context.get("recipe_data")),
+            avoid=task.context.get("previous_pan_material"),
         )
 
         # 1. Prepare the Job File for Mission Control (R2 / RunPod)

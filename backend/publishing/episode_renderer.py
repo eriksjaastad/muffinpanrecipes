@@ -694,7 +694,7 @@ def render_episode_page(
     category = recipe.get("category", "savory").title()
     prep_time = recipe.get("prep_time", 15)
     cook_time = recipe.get("cook_time", 20)
-    servings = recipe.get("servings", 12)
+    servings = recipe.get("servings", SIZES[pan_size_of(recipe)]["wells"])
     difficulty = recipe.get("difficulty", "medium").title()
     cuisine = str(recipe.get("cuisine", "")).strip()
     # Calories per serving. Optional and never defaulted — older episodes and
@@ -1330,7 +1330,7 @@ def publish_recipe_to_catalog(episode: dict) -> str | None:
         "description": recipe.get("description", ""),
         "prep": f"{recipe.get('prep_time', 15)} mins",
         "cook": f"{recipe.get('cook_time', 20)} mins",
-        "yield": f"{recipe.get('servings', 12)} servings",
+        "yield": f"{recipe.get('servings', SIZES[pan_size_of(recipe)]['wells'])} servings",
         "ingredients": ingredients,
         "instructions": instructions,
     }

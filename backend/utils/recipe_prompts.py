@@ -12,6 +12,7 @@ from typing import Any, Dict, Iterable, Optional
 from backend.config import config
 from backend.utils.logging import get_logger
 from backend.utils.model_router import generate_response
+from backend.utils.pan_library import SIZES
 
 logger = get_logger(__name__)
 
@@ -59,6 +60,9 @@ def generate_recipe(
     return _parse_recipe_response(response, concept)
 
 
+_PAN_CHOICES = "\n".join(f"- {name}: {spec['label']} ({spec['geometry']})" for name, spec in SIZES.items())
+
+
 def _build_recipe_system_prompt(personality_context: Dict[str, Any]) -> str:
     name = personality_context.get("name", "Chef")
     backstory = personality_context.get("backstory", "")
@@ -71,11 +75,15 @@ def _build_recipe_system_prompt(personality_context: Dict[str, Any]) -> str:
 Your personality quirks: {', '.join(quirks) if quirks else 'None specified'}
 
 ENVISION THE PAN FIRST — before you write a single word:
-Picture a standard 12-cup muffin pan on the counter. The pan itself is a
-rectangle, but the twelve wells inside it are ROUND — about 2 3/4 inches
-across the top, tapering to about 2 inches at the base, each holding
-roughly 1/3 to 1/2 cup. Everything you create is born inside one of those
-round, flared wells. Now design inside one cup, in this order:
+Choose ONE pan for this recipe:
+{_PAN_CHOICES}
+Use mini for one- or two-bite sweets and party food, standard by default, and
+jumbo for stuffed dishes and hearty mains. Picture that pan on the counter. The
+pan itself is a rectangle, but its wells are ROUND and flared, tapering toward
+the base. Everything you create is born inside one of those round, flared
+wells.
+Choose ONE pan and design every portion inside one of ITS round, flared wells.
+Now design inside one cup, in this order:
 1. What goes into the well — a base pressed against the round bottom?
    layers? a batter or custard poured in?
 2. What happens in the oven — how it sets, binds, and takes on the well's
@@ -92,7 +100,7 @@ skillet, it does not belong here. "Small" is not the brand. ROUND,
 MOLDED-BY-THE-CUP is the brand.
 
 CRITICAL RULES:
-1. Every recipe MUST be designed for a standard 12-cup muffin tin
+1. Every recipe MUST be designed for the one pan you chose on your PAN line
 2. Create UNIQUE, SPECIFIC recipes - never generic batter recipes
 3. The muffin tin must SHAPE the food. The finished dish must bind into self-contained cups, bites, nests, or mini loaves that hold together after removal from the pan. Loose fillings, spooned salads, or recipes where the tin is incidental are automatic failures.
 4. Include specific ingredients with exact measurements
@@ -104,6 +112,7 @@ CRITICAL RULES:
 INSPIRATION: Think like Floridino's "Grilled Cheese Muffin" - creative use of the format, specific ingredients (they list "Mozzarella, Cheddar, & Gouda"), served with complementary sides.
 
 Output your response in this EXACT format:
+PAN: [mini|standard|jumbo] - [one-line reason this pan suits the dish]
 TITLE: [Short, appetizing title - 3 to 6 words max. No subtitles, no parentheticals, no days of the week. The shape word must be one a round muffin cup can produce — Cups, Bites, Nests, Tassies, Minis — NEVER Squares, Bars, Slabs, Slices, or Wedges. Do NOT start with "Mini" if the title already contains "Bites", "Cups", "Tassies", "Pops", or "Balls" — those already imply small, so "Mini" is redundant ("Caprese Bruschetta Bites", not "Mini Caprese Bruschetta Bites"). Good examples: "Meatloaf Bites", "Spinach Feta Egg Bites", "Buffalo Chicken Mac Bites", "Mini Chocolate Lava Cakes". Bad examples: "Cheddar Broccoli Egg Squares", "Sunday Sheet-Pan Dinner In A Muffin Tin", "Mini Caprese Bruschetta Bites"]
 DESCRIPTION: [2-3 sentences describing the dish and what makes it special]
 SERVINGS: [number]
@@ -157,7 +166,7 @@ Remember:
 - Envision the pan first: design the dish inside one round, flared muffin
   cup, and only keep it if the finished portion visibly carries that round
   molded shape
-- This must work in a standard 12-cup muffin tin
+- This must work in the pan you name on your PAN line
 - Be specific with ingredients (name varieties, brands if relevant)
 - Include exact measurements and temperatures in US customary units (cups, tbsp, tsp, oz, lbs, °F)
 - Make it genuinely delicious and practical
@@ -223,6 +232,9 @@ def normalize_recipe_instructions(instructions: Iterable[Any] | None) -> list[An
     return normalized
 
 
+_PAN_SIZE_RE = re.compile(r"\b(mini|standard|jumbo)\b", re.IGNORECASE)
+
+
 def _parse_recipe_response(response: str, concept: str) -> Dict[str, Any]:
     result: Dict[str, Any] = {
         "title": concept,
@@ -231,7 +243,7 @@ def _parse_recipe_response(response: str, concept: str) -> Dict[str, Any]:
         # if empty; Sunday reads the key as "this week's description must be
         # Marcus's Thursday intro".
         "pitch": "",
-        "servings": 12,
+        "servings": None,  # the chosen pan's wells, set after parsing
         "prep_time": 15,
         "cook_time": 20,
         # No default: a fabricated calorie figure would be published as fact
@@ -247,6 +259,7 @@ def _parse_recipe_response(response: str, concept: str) -> Dict[str, Any]:
 
     lines = response.strip().split("\n")
     current_section = None
+    pan_raw = None
 
     for line in lines:
         line = line.strip()
@@ -257,7 +270,15 @@ def _parse_recipe_response(response: str, concept: str) -> Dict[str, Any]:
         # original line for instructions so inner emphasis survives parsing.
         control_line = _strip_surrounding_markdown_emphasis(line)
 
-        if control_line.startswith("TITLE:"):
+        if control_line.startswith("PAN:"):
+            pan_line = control_line.replace("PAN:", "", 1).strip()
+            match = _PAN_SIZE_RE.search(pan_line)
+            if match:
+                result["pan_size"] = match.group(1).lower()
+                result["pan_reason"] = pan_line[match.end():].lstrip(" \t-–—:*_").strip()[:200]
+            else:
+                pan_raw = pan_line
+        elif control_line.startswith("TITLE:"):
             result["title"] = control_line.replace("TITLE:", "").strip()
         elif control_line.startswith("DESCRIPTION:"):
             # #7853: Margaret's one-liner is the internal pitch (dialogue and
@@ -309,6 +330,13 @@ def _parse_recipe_response(response: str, concept: str) -> Dict[str, Any]:
             result["chef_notes"] += " " + line
 
     result["instructions"] = normalize_recipe_instructions(result["instructions"])
+
+    if "pan_size" not in result:
+        logger.warning(f"No valid PAN size in response for {concept}: {pan_raw!r}; using standard")
+        result["pan_size"] = "standard"
+        result["pan_reason"] = ""
+    if result["servings"] is None:
+        result["servings"] = SIZES[result["pan_size"]]["wells"]
 
     if not result["ingredients"]:
         logger.warning(f"No ingredients parsed from response for {concept}")
