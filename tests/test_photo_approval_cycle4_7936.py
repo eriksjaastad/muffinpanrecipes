@@ -63,6 +63,7 @@ def test_friday_passes_authoritative_decision_to_actual_prompt(state, mirror):
         ep["stages"].pop("wednesday")
     elif mirror == "no_photography":
         ep["stages"]["wednesday"].pop("photography_data")
+    ep["stages"]["thursday"] = {"copy_text": {"body": "A crisp-edged cup.", "kind": "intro"}}
     store.put(EP_ID, ep)
     orchestrator = MagicMock()
     orchestrator._execute_stage_review.return_value = (True, {})
@@ -79,6 +80,10 @@ def test_friday_passes_authoritative_decision_to_actual_prompt(state, mirror):
     context = dialogue.call_args.kwargs["photography_context"]
     expected = photo_review.dialogue_context(photo_review.read_view(store, EP_ID, ep))
     assert context["human_review"] == expected
+    # Steph reviews the actual recipe and photo state, not a bare id (#8150).
+    _rid, recipe, copy, photos = orchestrator._execute_stage_review.call_args.args
+    assert recipe == ep["stages"]["monday"]["recipe_data"] and photos == expected
+    assert copy == ep["stages"]["thursday"]["copy_text"]
     if mirror == "present":
         assert context["rounds"] == wed["photography_data"]["rounds"]
     arc = _build_dynamic_arc("friday", ep["concept"], context)

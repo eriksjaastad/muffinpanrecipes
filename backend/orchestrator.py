@@ -173,13 +173,15 @@ class RecipeOrchestrator:
             logger.info(f"\n{'='*70}")
             logger.info("STAGE 4: Creative Review (Steph Whitmore - Creative Director)")
             logger.info(f"{'='*70}")
-            approved, review_output = self._execute_stage_review(recipe_id)
+            approved, review_output = self._execute_stage_review(recipe_id, recipe_data, copy_text)
             # Note: dialogue generation is handled by run_pipeline_stage.py via
             # simulate_dialogue_week.run_simulation() — not the hardcoded fallback here.
 
-            if approved:
-                self.pipeline.advance_stage(recipe_id)  # FINAL_APPROVAL
-                self.pipeline.advance_stage(recipe_id)  # DEPLOYMENT
+            if not approved:
+                # Rejected work stops at the review; it is never deployed.
+                raise RuntimeError(f"Creative review asked for revisions: {review_output.get('feedback')}")
+            self.pipeline.advance_stage(recipe_id)  # FINAL_APPROVAL
+            self.pipeline.advance_stage(recipe_id)  # DEPLOYMENT
 
             # Stage 5: Deployment (Site Architect)
             logger.info(f"\n{'='*70}")
@@ -334,14 +336,29 @@ class RecipeOrchestrator:
 
         return result.output
 
-    def _execute_stage_review(self, recipe_id: str) -> tuple[bool, Dict]:
-        """Execute creative director's review stage."""
+    def _execute_stage_review(
+        self, recipe_id: str, recipe: Dict, copy: Dict | str | None, photos: Optional[Dict] = None,
+    ) -> tuple[bool, Dict]:
+        """Steph reviews the week's actual work: recipe, copy and photo state.
+
+        Approved only on her explicit final ``VERDICT: APPROVED`` (#8150).
+        """
         cd = self.agents["creative_director"]
+        package = {
+            "recipe": recipe,
+            "copy": copy.get("body") if isinstance(copy, dict) else copy,
+            "photos": photos,
+        }
+        missing = [part for part in ("recipe", "copy") if not package[part]]
+        if missing:
+            # Incomplete work is not approved, and there is nothing to pay
+            # Steph to read (a failed Thursday leaves no intro).
+            return False, {"verdict": "REVISE", "feedback": [f"Not reviewed: no {' or '.join(missing)} yet."]}
 
         task = Task(
             type="review_package",
             content="Review complete recipe package",
-            context={"recipe_id": recipe_id}
+            context={"recipe_id": recipe_id, "package": package},
         )
 
         result = cd.process_task(task)
@@ -358,12 +375,7 @@ class RecipeOrchestrator:
                 personality_moments=result.personality_notes,
             )
 
-        # Check approval (support both old and new response shapes)
-        approved = result.output.get("approved", True)
-        if "decision" in result.output and result.output["decision"] == "approved_with_minor_revisions":
-            approved = True
-
-        return approved, result.output
+        return result.output.get("verdict") == "APPROVED", result.output
 
     def _record_creative_dialogue(
         self,
