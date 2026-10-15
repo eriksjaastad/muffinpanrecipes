@@ -1942,19 +1942,23 @@ async def cron_wednesday(request: Request):
         if wed_photo_ctx is not None and review_ctx:
             # The team's pick is a recommendation until Erik chooses (#7936).
             wed_photo_ctx = {**wed_photo_ctx, "human_review": review_ctx}
-        dialogue, judge_verdict = _generate_and_judge_dialogue(
-            "wednesday", concept, ep,
-            image_paths=image_paths,
-            photography_context=wed_photo_ctx,
-            model=body.model,
-            injected_event=body.injected_event,
-            recipe_data=ep.get("stages", {}).get("monday", {}).get("recipe_data"),
-        )
-        if kept is not None:
-            # An approved set can be claimed by Sunday while this dialogue runs
-            # (a reshoot registers a new, unapproved set, so it cannot). Check
-            # again before this whole-episode save could overwrite Sunday's.
-            _refuse_wednesday_on_frozen_photos(episode_id, ep, concept)
+        try:
+            dialogue, judge_verdict = _generate_and_judge_dialogue(
+                "wednesday", concept, ep,
+                image_paths=image_paths,
+                photography_context=wed_photo_ctx,
+                model=body.model,
+                injected_event=body.injected_event,
+                recipe_data=ep.get("stages", {}).get("monday", {}).get("recipe_data"),
+            )
+        finally:
+            if kept is not None:
+                # An approved set can be claimed by Sunday while this dialogue
+                # runs (a reshoot registers a new, unapproved set, so it cannot).
+                # Check again before either whole-episode save, the stage's or
+                # _run_stage's failure save, could overwrite Sunday's. The 409
+                # replaces a dialogue failure: the claim makes that moot.
+                _refuse_wednesday_on_frozen_photos(episode_id, ep, concept)
 
         wed.update({
             "status": "complete",
