@@ -18,6 +18,7 @@ from backend.utils.discord import notify_pipeline_failure
 from backend.utils.episode_integrity import DAY_ORDER
 from backend.utils.logging import get_logger
 from backend.utils.model_router import generate_judge_response, generate_response
+from backend.utils.pan_library import SIZES, pan_size_of
 from backend.utils.recipe_sanity import (
     OVEN_TEMP_MAX_F,
     OVEN_TEMP_MIN_F,
@@ -44,7 +45,7 @@ _EDITORIAL_QA_SYSTEM_PROMPT = (
     "4. AI ARTIFACTS: Placeholder text, 'as an AI', instruction-like text that leaked in\n"
     "5. RECIPE COHERENCE: Title, description, ingredients, and instructions should align\n"
     "6. MEASUREMENTS: Temperatures in °F, US customary units (cups, tbsp, tsp, oz, lbs)\n"
-    "7. PLAUSIBILITY: Oven temps 250-500°F, cook times reasonable, yields make sense for 12-cup muffin tin\n"
+    "7. PLAUSIBILITY: Oven temps 250-500°F, cook times reasonable, yields make sense for the stated pan\n"
     "8. INGREDIENT-INSTRUCTION MATCH: Every ingredient should be used, no phantom ingredients\n"
     "9. BRAND VOICE: Warm, professional food writing — not robotic or generic\n"
     "10. TITLE RULES (automatic FAIL if violated):\n"
@@ -82,7 +83,7 @@ _RECIPE_FIX_SYSTEM_PROMPT = (
     "either combine into one entry with the total amount, or group under clear sub-headings "
     "(e.g. 'For the filling:', 'For the topping:').\n"
     "3. INSTRUCTIONS: Must reference every ingredient. Fix any quantity mismatches.\n"
-    "4. MUFFIN-PAN FORM: Envision the pan — twelve ROUND, flared wells that mold "
+    "4. MUFFIN-PAN FORM: Envision the pan — the stated pan's ROUND, flared wells that mold "
     "the food. The dish must bind into self-contained cups, bites, nests, or mini "
     "loaves that hold shape after removal from the pan. No loose fillings or "
     "recipes where the tin is incidental. The title's shape word must be one a "
@@ -137,11 +138,13 @@ def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
             f"words: {blocked_text}.\n"
         )
 
+    pan = SIZES[pan_size_of(recipe)]
     fix_prompt = (
         f"RECIPE THAT FAILED QA:\n\n"
         f"Title: {recipe.get('title', '')}\n"
         f"Description: {recipe.get('description', '')}\n"
-        f"Servings: {recipe.get('servings', 12)}\n"
+        f"Pan: {pan['label']}\n"
+        f"Servings: {recipe.get('servings', pan['wells'])}\n"
         f"Prep Time: {recipe.get('prep_time', 15)} mins\n"
         f"Cook Time: {recipe.get('cook_time', 20)} mins\n"
         f"Difficulty: {recipe.get('difficulty', 'medium')}\n"
@@ -186,8 +189,9 @@ def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
         # internal one-liner. Neither is the recipe fixer's to rewrite or drop:
         # carry both over from the recipe that went in. (A QA failure about the
         # intro itself therefore cannot be "fixed" here; QA fails again and
-        # Sunday refuses, which is the fail-closed outcome.)
-        for owned in ("description", "pitch"):
+        # Sunday refuses, which is the fail-closed outcome.) The stored pan is
+        # likewise the baker's choice, not the fixer's.
+        for owned in ("description", "pitch", "pan_size", "pan_reason"):
             if owned in recipe:
                 fixed[owned] = recipe[owned]
             else:
@@ -397,6 +401,7 @@ def _editorial_qa_review(episode: dict) -> tuple[bool, str]:
         f"{catalog_context}"
         f"RECIPE TO REVIEW:\n\n"
         f"Title: {title}\n\n"
+        f"Pan: {SIZES[pan_size_of(recipe)]['label']}\n\n"
         f"Description: {description}\n\n"
         f"Ingredients:\n{ing_text}\n\n"
         f"Instructions:\n{inst_text}\n\n"

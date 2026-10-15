@@ -181,6 +181,30 @@ class TestAutoFixRecipe:
 
     @patch("backend.admin.cron.editorial_qa.config")
     @patch("backend.admin.cron.editorial_qa.generate_response")
+    def test_fix_names_the_stored_pan_and_keeps_it(self, mock_generate, mock_config):
+        from backend.admin.cron_routes import _auto_fix_recipe
+        mock_config.recipe_model = "test-model"
+        mock_generate.return_value = json.dumps({
+            "title": "Rosemary Goat Cheese Cups",
+            "ingredients": [{"item": "goat cheese", "amount": "4 oz", "notes": ""}],
+            "instructions": ["Fill the wells."],
+            "pan_size": "standard",
+        })
+        episode = self._make_episode({
+            "title": "Bad Title",
+            "pan_size": "jumbo",
+            "pan_reason": "big cups",
+            "ingredients": [{"item": "x", "amount": "1", "notes": ""}],
+            "instructions": ["y"],
+        })
+
+        assert _auto_fix_recipe(episode, "qa report") is True
+        assert "Pan: 6-cup jumbo muffin pan" in mock_generate.call_args.kwargs["prompt"]
+        new_recipe = episode["stages"]["monday"]["recipe_data"]
+        assert (new_recipe["pan_size"], new_recipe["pan_reason"]) == ("jumbo", "big cups")
+
+    @patch("backend.admin.cron.editorial_qa.config")
+    @patch("backend.admin.cron.editorial_qa.generate_response")
     def test_enforces_title_rules_on_fix(self, mock_generate, mock_config):
         from backend.admin.cron_routes import _auto_fix_recipe
         mock_config.recipe_model = "test-model"

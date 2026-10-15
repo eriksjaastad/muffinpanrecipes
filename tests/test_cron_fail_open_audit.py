@@ -84,6 +84,16 @@ def test_editorial_qa_still_passes_a_clean_recipe() -> None:
     assert passed is True
 
 
+def test_editorial_qa_review_states_the_recipes_pan() -> None:
+    episode = _reviewable_episode()
+    episode["stages"]["monday"]["recipe_data"]["pan_size"] = "mini"
+    with patch.object(editorial_qa, "_recent_catalog_titles", return_value=["Something Else"]), \
+         patch.object(editorial_qa, "generate_judge_response", return_value="STATUS: PASS") as judge:
+        cron_routes._editorial_qa_review(episode)
+
+    assert "Pan: 24-cup mini muffin pan" in judge.call_args.kwargs["prompt"]
+
+
 def test_missing_catalog_context_alerts_instead_of_passing_silently() -> None:
     """The `except Exception: pass` with no log line at all.
 

@@ -13,7 +13,7 @@ from PIL import Image
 from backend.agents import art_director as art_director_module
 from backend.agents.factory import create_agent
 from backend.core.task import Task
-from backend.utils.pan_library import MATERIALS, SIZES, pan_for_week
+from backend.utils.pan_library import MATERIALS, SIZES, pan_for_week, pan_size_of
 
 
 @pytest.fixture(autouse=True)
@@ -40,6 +40,17 @@ def test_consecutive_weeks_never_repeat_a_material_across_a_year_boundary():
     assert len(weeks) == len(pool)  # 2026 has 53 ISO weeks
     materials = [pan_for_week(w).material for w in weeks]
     assert sorted(materials) == sorted(pool)
+
+
+def test_geometry_text_starts_with_the_well_count():
+    for spec in SIZES.values():
+        assert spec["geometry"].startswith(f"{spec['wells']} identical")
+
+
+def test_pan_size_of_defaults_to_standard():
+    assert pan_size_of({"pan_size": "jumbo"}) == "jumbo"
+    assert pan_size_of({"pan_size": "bogus"}) == "standard"
+    assert pan_size_of({}) == pan_size_of(None) == pan_size_of({"pan_size": ["jumbo"]}) == "standard"
 
 
 def test_missing_or_malformed_episode_id_falls_back_to_the_current_week():
@@ -92,7 +103,8 @@ def test_a_2k_render_is_downscaled_to_1536(monkeypatch):
     assert data.startswith(b"\x89PNG\r\n\x1a\n")
 
 
-def test_every_shot_prompt_describes_the_weeks_pan(tmp_path: Path, monkeypatch):
+@pytest.mark.parametrize("stored, size", [({}, "standard"), ({"pan_size": "jumbo"}, "jumbo")])
+def test_every_shot_prompt_describes_the_weeks_pan(tmp_path: Path, monkeypatch, stored, size):
     agent = create_agent("art_director")
     prompts = []
     png = BytesIO()
@@ -101,15 +113,17 @@ def test_every_shot_prompt_describes_the_weeks_pan(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
     monkeypatch.setattr(agent, "_call_image_model", lambda _key, prompt, **_k: prompts.append(prompt) or png.getvalue())
     monkeypatch.setattr(art_director_module, "_check_visual_diversity", lambda _p: True)
+    judged = []
     monkeypatch.setattr(agent, "_evaluate_images_vision",
-                        lambda *_a: {"passed": True, "recommended_winner": 1})
+                        lambda *a: judged.append(a[-1]) or {"passed": True, "recommended_winner": 1})
     result = agent.process_task(Task(
         type="photograph_recipe", content="shoot",
-        context={"recipe_id": "rid", "recipe_data": {"title": "Egg Cups"}, "episode_id": "2026-W42"},
+        context={"recipe_id": "rid", "recipe_data": {"title": "Egg Cups", **stored}, "episode_id": "2026-W42"},
     ))
-    pan = pan_for_week("2026-W42")
+    pan = pan_for_week("2026-W42", size=size)
     assert len(prompts) == 3 and all(pan.clause in p for p in prompts)
-    assert result.output["pan"] == {"size": "standard", "material": pan.material, "library": "panV1"}
+    assert all(f"baked in a {size} muffin tin" in p for p in prompts) and judged == [size]
+    assert result.output["pan"] == {"size": size, "material": pan.material, "library": "panV1"}
     assert result.output["generated_with"] == "gemini-3.1-flash-image"
 
 

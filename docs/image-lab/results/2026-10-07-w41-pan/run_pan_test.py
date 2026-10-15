@@ -124,8 +124,9 @@ def main() -> None:
     plan = []
     for variant in ad._VARIANTS:
         control = ad._build_prompt(ad, TITLE, variant)
-        assert ad._MUFFIN_FORM_CLAUSE in control
-        with_pan = control.replace(ad._MUFFIN_FORM_CLAUSE, ad._MUFFIN_FORM_CLAUSE + clause, 1)
+        form = ad._MUFFIN_FORM_CLAUSE.format(size=RECIPE_SIZE)
+        assert form in control
+        with_pan = control.replace(form, form + clause, 1)
         plan += [("A", variant, control), ("B", variant, with_pan), ("C", variant, with_pan)]
     assert len(plan) <= MAX_IMAGE_CALLS
 

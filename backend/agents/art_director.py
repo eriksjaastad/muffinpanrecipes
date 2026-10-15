@@ -26,7 +26,7 @@ from backend.core.types import EmotionalResponse, MemoryContext
 from backend.utils.recipe_copy import recipe_pitch
 from backend.utils.image_generation import generate_nano_banana_image
 from backend.utils.logging import get_logger
-from backend.utils.pan_library import PAN_LIBRARY_VERSION, pan_for_week
+from backend.utils.pan_library import PAN_LIBRARY_VERSION, pan_for_week, pan_size_of
 from backend.utils.model_router import generate_vision_response
 
 logger = get_logger(__name__)
@@ -160,7 +160,7 @@ class ArtDirectorAgent(Agent):
     # Potato Frittatas" rendered sheet-pan squares, "Biscuit Rounds" rendered
     # flat sheet-pan discs (June 2026 off-brand image drift).
     _MUFFIN_FORM_CLAUSE = (
-        "The food was baked in a standard muffin tin: each portion is an "
+        "The food was baked in a {size} muffin tin: each portion is an "
         "individual single-serving with the unmistakable muffin-cup shape - "
         "round, slightly flared sides with golden ridged edges molded by the "
         "muffin cup. Regardless of what the recipe name suggests, the food "
@@ -182,11 +182,14 @@ class ArtDirectorAgent(Agent):
         "Not sterile, not clinical, not flat high-key white. "
     )
 
-    def _build_prompt(self, recipe_title: str, variant: str, pan_clause: str = "") -> str:
+    def _build_prompt(
+        self, recipe_title: str, variant: str, pan_clause: str = "", pan_size: str = "standard"
+    ) -> str:
+        form_clause = self._MUFFIN_FORM_CLAUSE.format(size=pan_size)
         variant_prompts = {
             "macro_closeup": (
                 f"Extreme close-up food photography of {recipe_title}. "
-                f"{self._MUFFIN_FORM_CLAUSE}{pan_clause}"
+                f"{form_clause}{pan_clause}"
                 "15-degree low angle, ONE single item filling the entire frame. "
                 "Visible crumb structure, glistening texture detail. "
                 "Shot on 100mm macro lens, f/2.0, razor-thin depth of field. "
@@ -198,7 +201,7 @@ class ArtDirectorAgent(Agent):
             ),
             "overhead_flatlay": (
                 f"True 90-degree overhead bird's-eye food photography of {recipe_title} in a rustic muffin tin. "
-                f"{self._MUFFIN_FORM_CLAUSE}{pan_clause}"
+                f"{form_clause}{pan_clause}"
                 "Full tin visible from directly above, portions still seated in the muffin cups, "
                 "scattered ingredient garnishes around the tin. "
                 "Shot on 35mm lens, f/5.6, everything in sharp focus. "
@@ -209,7 +212,7 @@ class ArtDirectorAgent(Agent):
             ),
             "hero_threequarter": (
                 f"Classic hero food photography of {recipe_title} at 30-45 degree angle. "
-                f"{self._MUFFIN_FORM_CLAUSE}{pan_clause}"
+                f"{form_clause}{pan_clause}"
                 "2-3 items arranged on a rustic wooden board, one broken open showing interior cross-section, "
                 "each unbroken item showing its round molded muffin-cup silhouette. "
                 "Shot on 85mm lens, f/2.8, soft background blur. "
@@ -248,7 +251,8 @@ class ArtDirectorAgent(Agent):
         return "\n".join(parts)
 
     def _evaluate_images_vision(
-        self, image_paths: list[dict[str, Any]], recipe_title: str, recipe_facts: str = ""
+        self, image_paths: list[dict[str, Any]], recipe_title: str, recipe_facts: str = "",
+        pan_size: str = "standard",
     ) -> dict[str, Any]:
         """Evaluate images using a vision model. Returns per-image scores and pass/fail.
 
@@ -294,7 +298,7 @@ class ArtDirectorAgent(Agent):
             f"{facts_block}"
             f"There are {len(images_bytes)} images. {variant_labels}.\n\n"
             "FIRST, for each image, list its concrete physical defects (empty list if none). "
-            "Check: (a) any muffin pan is a coherent standard pan - consistent, evenly spaced, "
+            f"Check: (a) any muffin pan is a coherent {pan_size} pan - consistent, evenly spaced, "
             "non-overlapping round wells in regular rows under consistent perspective; fused, "
             "merged, missing-wall, warped or impossibly placed wells are defects; (b) the finished "
             "food matches the recipe facts - intended filling present, fully baked/set, not raw or "
@@ -550,7 +554,7 @@ class ArtDirectorAgent(Agent):
     def _generate_round(
         self, api_key: str, recipe_title: str, recipe_id: str, round_num: int,
         feedback: str | None = None, generation_id: str | None = None,
-        pan_clause: str = "", deadline: float | None = None,
+        pan_clause: str = "", pan_size: str = "standard", deadline: float | None = None,
     ) -> tuple[list[dict[str, Any]], Path]:
         """Generate 3 variants for a single round. Returns (variant_outputs, round_dir).
 
@@ -562,7 +566,7 @@ class ArtDirectorAgent(Agent):
         variant_outputs: list[dict[str, Any]] = []
 
         for variant in self._VARIANTS:
-            prompt = self._build_prompt(recipe_title, variant, pan_clause)
+            prompt = self._build_prompt(recipe_title, variant, pan_clause, pan_size)
             if feedback and round_num > 1:
                 prompt += f" RESHOOT NOTE: Previous batch rejected. Feedback: {feedback}"
 
@@ -613,11 +617,14 @@ class ArtDirectorAgent(Agent):
         recipe_title = self._recipe_title(task)
         api_key = os.getenv("GOOGLE_API_KEY")
         episode_id = task.context.get("episode_id")
-        pan = pan_for_week(episode_id if isinstance(episode_id, str) else None)
+        pan = pan_for_week(
+            episode_id if isinstance(episode_id, str) else None,
+            size=pan_size_of(task.context.get("recipe_data")),
+        )
 
         # 1. Prepare the Job File for Mission Control (R2 / RunPod)
         # This is the "canonical" way the project tracks generation intent
-        prompts = {variant: self._build_prompt(recipe_title, variant, pan.clause) for variant in self._VARIANTS}
+        prompts = {variant: self._build_prompt(recipe_title, variant, pan.clause, pan.size) for variant in self._VARIANTS}
         job_data = [{
             "recipe_id": recipe_id,
             "recipe_title": recipe_title,
@@ -685,7 +692,8 @@ class ArtDirectorAgent(Agent):
             try:
                 variant_outputs, round_dir = self._generate_round(
                     api_key, recipe_title, recipe_id, round_num, feedback=feedback,
-                    generation_id=generation_id, pan_clause=pan.clause, deadline=deadline,
+                    generation_id=generation_id, pan_clause=pan.clause, pan_size=pan.size,
+                    deadline=deadline,
                 )
             except ShootBudgetExceeded as exc:
                 if not rounds:
@@ -703,7 +711,7 @@ class ArtDirectorAgent(Agent):
 
             # Vision evaluation
             vision_eval = self._evaluate_images_vision(
-                variant_outputs, recipe_title, self._recipe_facts(task),
+                variant_outputs, recipe_title, self._recipe_facts(task), pan.size,
             )
             vision_eval.setdefault("review_status", "passed" if vision_eval.get("passed", True) else "failed")
             vision_eval.setdefault(

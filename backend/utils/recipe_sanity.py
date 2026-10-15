@@ -69,25 +69,26 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from backend.utils.pan_library import SIZES, pan_size_of
 from backend.utils.recipe_overlap import _singularize, normalize_ingredient
 
 # ---------------------------------------------------------------------------
 # Pan geometry
 # ---------------------------------------------------------------------------
-# These numbers existed only as prose inside the baker's system prompt
-# (recipe_prompts.py, "ENVISION THE PAN FIRST": twelve wells, about 2 3/4
-# inches across the top tapering to 2 inches, each holding roughly 1/3 to
-# 1/2 cup). Nothing could check them while they lived in a string. They are
-# constants now so a capacity check can exist at all.
-PAN_WELLS = 12
-WELL_CAPACITY_CUPS_MIN = 1.0 / 3.0
-WELL_CAPACITY_CUPS_MAX = 0.5
-PAN_CAPACITY_CUPS_MAX = PAN_WELLS * WELL_CAPACITY_CUPS_MAX  # 6.0
+# Wells and well volume per pan size live in utils/pan_library.py (SIZES).
+# They began as prose inside the baker's system prompt (recipe_prompts.py,
+# "ENVISION THE PAN FIRST": twelve wells, each holding roughly 1/3 to 1/2
+# cup); nothing could check them while they lived in a string.
+# The capacity ceiling is wells x the largest well volume. The yield band is
+# half to double the wells, so a recipe with no stored pan keeps the standard
+# 12-cup band of 6-24; zero or 40 is not a muffin-pan recipe at any size.
 
-# A yield outside this band is not a 12-cup muffin pan recipe. Mini and
-# jumbo pans exist, hence the width; zero or 40 does not.
-SERVINGS_MIN = 6
-SERVINGS_MAX = 24
+
+def _pan_limits(recipe: dict[str, Any]) -> tuple[str, int, float]:
+    """The recipe's pan label, its wells, and its capacity ceiling in cups."""
+    pan = SIZES[pan_size_of(recipe)]
+    return pan["label"], pan["wells"], pan["wells"] * pan["well_cups"]
+
 
 # Oven temperature bounds. 250F is below anything that bakes; above 500F is
 # past a domestic oven's useful range and past what these recipes have ever
@@ -587,11 +588,12 @@ def _check_capacity(recipe: dict[str, Any]) -> tuple[str | None, float]:
         cups = _volumetric_cups(str(raw.get("amount") or ""))
         if cups:
             total += cups
-    if total > PAN_CAPACITY_CUPS_MAX:
+    label, wells, capacity = _pan_limits(recipe)
+    if total > capacity:
         return (
             f"measurable ingredient volume is already {total:.1f} cups against "
-            f"a {PAN_CAPACITY_CUPS_MAX:.0f}-cup pan ({PAN_WELLS} wells x up to "
-            f"1/2 cup); the batter will overflow",
+            f"the {label} ({wells} wells, {capacity:g} cups in all); "
+            f"the batter will overflow",
             total,
         )
     return None, total
@@ -601,11 +603,10 @@ def _check_servings(recipe: dict[str, Any]) -> str | None:
     servings = recipe.get("servings")
     if not isinstance(servings, int):
         return None
-    if servings < SERVINGS_MIN or servings > SERVINGS_MAX:
-        return (
-            f"yield of {servings} is not a {PAN_WELLS}-cup muffin pan recipe "
-            f"(expected {SERVINGS_MIN}-{SERVINGS_MAX})"
-        )
+    label, wells, _ = _pan_limits(recipe)
+    low, high = wells // 2, wells * 2
+    if servings < low or servings > high:
+        return f"yield of {servings} is not a {label} recipe (expected {low}-{high})"
     return None
 
 

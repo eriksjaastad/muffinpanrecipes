@@ -68,6 +68,16 @@ def _eval_with_mocked_vision(agent, tmp_path, raw_response):
         return agent._evaluate_images_vision(image_paths, "Test Cups")
 
 
+def test_vision_eval_checks_wells_against_the_stored_pan_size(agent, tmp_path) -> None:
+    img = tmp_path / "shot.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+    with patch("backend.agents.art_director.generate_vision_response",
+               return_value=_vision_result(muffin_pan_form=4)) as vision:
+        agent._evaluate_images_vision(
+            [{"variant": "macro_closeup", "path": "x", "local_path": str(img)}], "Test Cups", pan_size="jumbo")
+    assert "coherent jumbo pan" in vision.call_args.kwargs["prompt"]
+
+
 def test_vision_eval_fails_when_form_below_threshold(agent, tmp_path) -> None:
     result = _eval_with_mocked_vision(agent, tmp_path, _vision_result(muffin_pan_form=2))
     assert result["passed"] is False

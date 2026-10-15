@@ -25,8 +25,6 @@ from backend.utils.recipe_sanity import (
     DONENESS_PROXIMITY_WINDOW_WORDS,
     OVEN_TEMP_MAX_F,
     OVEN_TEMP_MIN_F,
-    PAN_CAPACITY_CUPS_MAX,
-    PAN_WELLS,
     _weak_doneness_near_protein,
     check_recipe_sanity,
 )
@@ -240,7 +238,18 @@ def test_doneness_temperature_is_not_read_as_an_oven_temperature() -> None:
 def test_implausible_yield_is_blocked(servings: int) -> None:
     verdict = check_recipe_sanity(_recipe(servings=servings))
     assert verdict.status == "implausible"
-    assert str(PAN_WELLS) in verdict.reason
+    assert "12-cup" in verdict.reason
+
+
+def test_yield_band_and_capacity_follow_the_stored_pan() -> None:
+    """A 30-yield, 4-cup recipe is a fine 24-cup mini pan batch, not a 12-cup one."""
+    flour = [{"item": "flour", "amount": "4 cups", "notes": ""}]
+    standard = check_recipe_sanity(_recipe(servings=30, ingredients=flour))
+    mini = check_recipe_sanity(_recipe(servings=30, ingredients=flour, pan_size="mini"))
+    assert standard.status == "implausible"
+    assert mini.status == "clear"
+    assert any("24-cup mini" in w and "overflow" in w for w in mini.warnings)
+    assert not any("overflow" in w for w in standard.warnings)
 
 
 def test_missing_recipe_is_reported_not_raised() -> None:
@@ -272,7 +281,7 @@ def test_bulky_ingredients_warn_but_do_not_block() -> None:
     """
     verdict = check_recipe_sanity(_fixture("w27_bulky_spinach_overcounts_volume"))
     assert verdict.status == "clear"
-    assert verdict.details["measured_cups"] > PAN_CAPACITY_CUPS_MAX
+    assert verdict.details["measured_cups"] > 6.0
     assert any("overflow" in w for w in verdict.warnings)
 
 

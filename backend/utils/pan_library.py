@@ -11,9 +11,10 @@ Kitchen, Once Upon a Chef) and a commercial jumbo pan listing; materials from
 current muffin-pan buying guides and vintage cast-iron gem pan and tinware
 references. Tested on W41: docs/image-lab/results/2026-10-07-w41-pan/.
 
-Only the standard 12-cup pan is used in production for now: every recipe is
-written for it (utils/recipe_prompts.py). The other sizes are the library
-the baker will choose from in #8067.
+Production still uses the standard 12-cup pan: the baker prompt does not ask
+for a pan yet (utils/recipe_prompts.py), so no recipe stores ``pan_size``.
+Every stage reads the size through ``pan_size_of``, so a recipe that stores
+another size (#8067, once the baker prompt asks for one) is followed throughout.
 """
 
 from __future__ import annotations
@@ -21,11 +22,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from typing import Any
 
 PAN_LIBRARY_VERSION = "panV1"
 
-SIZES: dict[str, dict[str, str]] = {
+SIZES: dict[str, dict[str, Any]] = {
     "mini": {
+        "wells": 24,
+        "well_cups": 0.125,
         "label": "24-cup mini muffin pan",
         "geometry": (
             "24 identical round wells in a precise 4-by-6 grid, each well about 1 3/4 inches "
@@ -34,6 +38,8 @@ SIZES: dict[str, dict[str, str]] = {
         ),
     },
     "standard": {
+        "wells": 12,
+        "well_cups": 0.5,
         "label": "12-cup standard muffin pan",
         "geometry": (
             "12 identical round wells in a precise 3-by-4 grid, each well about 2 3/4 inches "
@@ -42,6 +48,8 @@ SIZES: dict[str, dict[str, str]] = {
         ),
     },
     "jumbo": {
+        "wells": 6,
+        "well_cups": 1.0,
         "label": "6-cup jumbo muffin pan",
         "geometry": (
             "6 identical round wells in a precise 2-by-3 grid, each well about 3 1/2 inches "
@@ -155,6 +163,12 @@ def _absolute_week(episode_id: str | None, today: date | None = None) -> int:
     current = today or datetime.now(timezone.utc).date()
     year, week, _ = current.isocalendar()
     return date.fromisocalendar(year, week, 1).toordinal() // 7
+
+
+def pan_size_of(recipe: dict | None) -> str:
+    """The recipe's stored pan size, or ``standard`` when absent or unknown."""
+    size = (recipe or {}).get("pan_size")
+    return size if isinstance(size, str) and size in SIZES else "standard"
 
 
 def pan_for_week(episode_id: str | None, size: str = "standard", today: date | None = None) -> Pan:
