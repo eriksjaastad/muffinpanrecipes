@@ -1135,24 +1135,30 @@ def test_wednesday_rerun_after_an_approval_keeps_the_photos_and_reruns_the_dialo
 
 
 @pytest.mark.parametrize("dialogue_fails", [False, True])
-def test_kept_photos_rerun_does_not_save_over_a_sunday_claim_made_during_the_dialogue(tmp_path, dialogue_fails):
+@pytest.mark.parametrize("change", ["claimed", "rejected"])
+def test_kept_photos_rerun_saves_nothing_when_the_review_changes_during_the_dialogue(
+    tmp_path, change, dialogue_fails,
+):
     """Neither the stage's save nor _run_stage's failure save may run after
-    Sunday claimed the approved set mid-dialogue."""
+    Sunday claimed the approved set, or the editor rejected it, mid-dialogue."""
     store = _Store()
     _wednesday(store, tmp_path)
     decide(EP_ID, store.get(EP_ID), store=store)
     before = copy.deepcopy(store.get(EP_ID))
 
-    def sunday_claims_meanwhile(*_a, **_k):
-        photo_review.claim_for_publication(store, EP_ID, store.get(EP_ID))
+    def review_changes_meanwhile(*_a, **_k):
+        if change == "claimed":
+            photo_review.claim_for_publication(store, EP_ID, store.get(EP_ID))
+        else:
+            decide(EP_ID, store.get(EP_ID), action="reject", store=store)
         if dialogue_fails:
             raise RuntimeError("judge failed all attempts")
         return [{"character": "Julian Torres", "message": "Again."}], "PASS"
 
-    rerun = _wednesday(store, tmp_path, dialogue_effect=sunday_claims_meanwhile)
+    rerun = _wednesday(store, tmp_path, dialogue_effect=review_changes_meanwhile)
 
     assert getattr(rerun.error, "status_code", None) == 409
-    assert _control(store)["state"] == "claimed"
+    assert _control(store)["state"] == change
     assert store.get(EP_ID) == before
 
 

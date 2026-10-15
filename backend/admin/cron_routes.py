@@ -1812,7 +1812,7 @@ async def cron_wednesday(request: Request):
         # only the conversation had failed (W42).
         kept = _approved_wednesday_photos(episode_id, ep, concept)
         if kept is not None:
-            wed = kept
+            wed, kept_version = kept
             photography_result = wed["photography_data"]
             image_paths = wed["image_paths"]
             image_urls = wed["image_urls"]
@@ -1953,12 +1953,22 @@ async def cron_wednesday(request: Request):
             )
         finally:
             if kept is not None:
-                # An approved set can be claimed by Sunday while this dialogue
-                # runs (a reshoot registers a new, unapproved set, so it cannot).
-                # Check again before either whole-episode save, the stage's or
-                # _run_stage's failure save, could overwrite Sunday's. The 409
-                # replaces a dialogue failure: the claim makes that moot.
-                _refuse_wednesday_on_frozen_photos(episode_id, ep, concept)
+                # The kept set's approval can change while this dialogue runs:
+                # Sunday claims it, or the editor re-picks or chooses "None
+                # usable" (a reshoot registers a new, unapproved set, so only
+                # this path needs it). Every such change is a new control
+                # version. Before either whole-episode save, the stage's or
+                # _run_stage's failure save, refuse if it moved; the 409
+                # replaces a dialogue failure, which the change makes moot.
+                current = _refuse_wednesday_on_frozen_photos(episode_id, ep, concept)
+                if current is None or current.version != kept_version:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            f"The photo review for {episode_id} changed while Wednesday's "
+                            "dialogue ran; nothing was saved. Re-fire Wednesday."
+                        ),
+                    )
 
         wed.update({
             "status": "complete",
@@ -2246,8 +2256,9 @@ def photo_review_namespace(prefix: str) -> str:
     return "test" if prefix == "test/" else ""
 
 
-def _approved_wednesday_photos(episode_id: str, ep: dict, concept: str) -> dict | None:
-    """Wednesday's stage rebuilt from the approved current image set, or None to shoot.
+def _approved_wednesday_photos(episode_id: str, ep: dict, concept: str) -> tuple[dict, int] | None:
+    """Wednesday's stage rebuilt from the approved current image set, with the
+    control version it was read at, or None to shoot.
 
     Only an approval of the control's current request that carries its frozen
     Wednesday evaluation counts (#7936). An awaiting or rejected set returns
@@ -2269,14 +2280,17 @@ def _approved_wednesday_photos(episode_id: str, ep: dict, concept: str) -> dict 
         "stage": "photography",
         "concept": concept,
         **{k: stage[k] for k in _PRESERVED_ON_FAILURE["wednesday"] if k in stage},
-    }
+    }, view.version
 
 
-def _refuse_wednesday_on_frozen_photos(episode_id: str, ep: dict, concept: str) -> None:
+def _refuse_wednesday_on_frozen_photos(
+    episode_id: str, ep: dict, concept: str,
+) -> photo_review.ControlView | None:
     """Wednesday must not replace photos Sunday has claimed or published (#7936).
 
     Checked before the paid generation. A control read failure is a 503:
-    without it Wednesday cannot know whether publication has begun.
+    without it Wednesday cannot know whether publication has begun. Returns
+    the control view it read, or None when the week has no control yet.
     """
     if episode_is_published(ep):
         # published_at OR a complete Sunday: the legacy-aware predicate, so a
@@ -2286,7 +2300,7 @@ def _refuse_wednesday_on_frozen_photos(episode_id: str, ep: dict, concept: str) 
             detail=f"Episode {episode_id} is already published; Wednesday will not replace its photos.",
         )
     try:
-        photo_review.ensure_not_frozen(storage, episode_id)
+        return photo_review.ensure_not_frozen(storage, episode_id)
     except photo_review.PublicationUnderway as exc:
         raise HTTPException(
             status_code=409,
