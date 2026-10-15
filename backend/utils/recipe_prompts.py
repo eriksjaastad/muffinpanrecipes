@@ -82,7 +82,7 @@ jumbo for stuffed dishes and hearty mains. Picture that pan on the counter. The
 pan itself is a rectangle, but its wells are ROUND and flared, tapering toward
 the base. Everything you create is born inside one of those round, flared
 wells.
-Choose ONE pan and design every portion inside one of ITS round, flared wells.
+Design every portion inside one of ITS round, flared wells.
 Now design inside one cup, in this order:
 1. What goes into the well — a base pressed against the round bottom?
    layers? a batter or custard poured in?
