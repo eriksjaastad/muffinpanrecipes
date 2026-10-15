@@ -102,6 +102,9 @@ underway. Choices are frozen." and Wednesday refuses to replace the photos (409)
   curl above). The old admin `images/rerun` endpoint stays retired (410); the
   full Wednesday re-fire (`.../api/cron/wednesday`, same curl) also reshoots,
   with a dialogue, and is not capped.
+  **Remake this photo** under each photo replaces just that one (1 call, the
+  week's pan, the same cap, marker and checks); the others are kept, the new set
+  is unapproved and sends a "Photos ready" email, and the featured image is not touched.
 - Approved, but Wednesday's dialogue failed the judge: re-fire Wednesday with
   the same curl. It keeps the approved set and Erik's pick, and reruns only
   the dialogue, so no image is generated and no "Photos ready" alert goes out

@@ -194,6 +194,38 @@ def new_review(wed: dict) -> dict:
     }
 
 
+def remade_review(request: dict, old_path: str, shot: dict, url: str) -> dict:
+    """The request for ``request``'s set with one image swapped for a new one (#8073).
+
+    ``shot`` is the art director's variant output for the new image and ``url``
+    its upload. Every other candidate, and its evaluation, is kept; the new
+    image carries no scores because nothing evaluated it. Built by ``new_review``
+    so it is a new set (new ``image_set_id``) like any other. Raises
+    ReshootRefused when ``old_path`` is not in the set.
+    """
+    snap = request_snapshot(request)
+    paths = list(request.get("image_paths") or [])
+    urls = list(request.get("image_urls") or [])
+    if snap is None or old_path not in paths or len(urls) != len(paths):
+        raise ReshootRefused("The photos changed since this page loaded; reload and review again.")
+    photo = copy.deepcopy(snap["photography_data"])
+    for rnd in photo.get("rounds") or []:
+        rnd["variants"] = [
+            {k: v for k, v in {**var, "path": shot["path"], "local_path": shot["local_path"],
+                               "prompt": shot["prompt"]}.items() if k != "scores"}
+            if var.get("path") == old_path else var
+            for var in rnd.get("variants") or []
+        ]
+    index = paths.index(old_path)
+    paths[index], urls[index] = shot["path"], url
+    return new_review({
+        "photography_data": photo,
+        "confirmed_winner": snap.get("confirmed_winner") or {},
+        "image_paths": paths,
+        "image_urls": urls,
+    })
+
+
 def legacy_review(wed: dict) -> dict | None:
     """The implied request for a Wednesday that completed before #7936.
 
