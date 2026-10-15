@@ -50,7 +50,7 @@ def test_geometry_text_starts_with_the_well_count():
 def test_pan_size_of_defaults_to_standard():
     assert pan_size_of({"pan_size": "jumbo"}) == "jumbo"
     assert pan_size_of({"pan_size": "bogus"}) == "standard"
-    assert pan_size_of({}) == pan_size_of(None) == "standard"
+    assert pan_size_of({}) == pan_size_of(None) == pan_size_of({"pan_size": ["jumbo"]}) == "standard"
 
 
 def test_missing_or_malformed_episode_id_falls_back_to_the_current_week():
@@ -113,14 +113,16 @@ def test_every_shot_prompt_describes_the_weeks_pan(tmp_path: Path, monkeypatch, 
     monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
     monkeypatch.setattr(agent, "_call_image_model", lambda _key, prompt, **_k: prompts.append(prompt) or png.getvalue())
     monkeypatch.setattr(art_director_module, "_check_visual_diversity", lambda _p: True)
+    judged = []
     monkeypatch.setattr(agent, "_evaluate_images_vision",
-                        lambda *_a: {"passed": True, "recommended_winner": 1})
+                        lambda *a: judged.append(a[-1]) or {"passed": True, "recommended_winner": 1})
     result = agent.process_task(Task(
         type="photograph_recipe", content="shoot",
         context={"recipe_id": "rid", "recipe_data": {"title": "Egg Cups", **stored}, "episode_id": "2026-W42"},
     ))
     pan = pan_for_week("2026-W42", size=size)
     assert len(prompts) == 3 and all(pan.clause in p for p in prompts)
+    assert all(f"baked in a {size} muffin tin" in p for p in prompts) and judged == [size]
     assert result.output["pan"] == {"size": size, "material": pan.material, "library": "panV1"}
     assert result.output["generated_with"] == "gemini-3.1-flash-image"
 

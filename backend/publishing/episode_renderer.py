@@ -32,7 +32,7 @@ from backend.storage import (
     storage,
 )
 from backend.utils import episode_integrity
-from backend.utils.pan_library import SIZES
+from backend.utils.pan_library import SIZES, pan_size_of
 from backend.utils.recipe_copy import INTRO_PLACEHOLDER
 from backend.utils.logging import get_logger
 from backend.utils.text_sanitize import sanitize_text
@@ -754,8 +754,8 @@ def render_episode_page(
     # Equipment: shown only when the baker stored a valid pan size. Recipes
     # published before the baker chose a pan carry none and render unchanged
     # (no standard-pan line is invented for them). pan_reason is internal.
-    pan_size = recipe.get("pan_size")
-    pan_label = SIZES[pan_size]["label"] if isinstance(pan_size, str) and pan_size in SIZES else ""
+    pan_size = pan_size_of(recipe)
+    pan_label = SIZES[pan_size]["label"] if recipe.get("pan_size") == pan_size else ""
     equipment_html = ""
     if pan_label:
         equipment_html = f"""

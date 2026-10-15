@@ -168,7 +168,7 @@ def _absolute_week(episode_id: str | None, today: date | None = None) -> int:
 def pan_size_of(recipe: dict | None) -> str:
     """The recipe's stored pan size, or ``standard`` when absent or unknown."""
     size = (recipe or {}).get("pan_size")
-    return size if size in SIZES else "standard"
+    return size if isinstance(size, str) and size in SIZES else "standard"
 
 
 def pan_for_week(episode_id: str | None, size: str = "standard", today: date | None = None) -> Pan:
