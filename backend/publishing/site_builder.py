@@ -42,6 +42,7 @@ from backend.publishing.static_renderer import (
 from backend.storage import storage
 from backend.utils.atomic import atomic_write
 from backend.utils.logging import get_logger
+from backend.utils.pan_library import SIZES, pan_size_of
 
 logger = get_logger(__name__)
 
@@ -115,7 +116,7 @@ def _recipe_data_to_catalog_entry(slug: str, recipe_data: dict, image: str) -> d
         "description": recipe_data.get("description", ""),
         "prep": f"{recipe_data.get('prep_time', 15)} mins",
         "cook": f"{recipe_data.get('cook_time', 20)} mins",
-        "yield": f"{recipe_data.get('servings', 12)} servings",
+        "yield": f"{recipe_data.get('servings', SIZES[pan_size_of(recipe_data)]['wells'])} servings",
         "ingredients": [str(item) for item in recipe_data.get("ingredients", [])],
         "instructions": [str(item) for item in recipe_data.get("instructions", [])],
     }
@@ -348,7 +349,7 @@ class StaticSiteBuilder:
             "description": recipe.get("description", ""),
             "prep": f"{recipe.get('prep_time', 15)} mins",
             "cook": f"{recipe.get('cook_time', 20)} mins",
-            "yield": f"{recipe.get('servings', 12)} servings",
+            "yield": f"{recipe.get('servings', SIZES[pan_size_of(recipe)]['wells'])} servings",
             "ingredients": [ingredient_text(item) for item in recipe.get("ingredients", [])],
             "instructions": [
                 item if isinstance(item, str) else str(item)

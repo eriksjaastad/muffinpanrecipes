@@ -42,6 +42,16 @@ def test_consecutive_weeks_never_repeat_a_material_across_a_year_boundary():
     assert sorted(materials) == sorted(pool)
 
 
+def test_avoid_moves_to_the_next_material_in_the_pool_and_wraps():
+    pool = _standard_pool()
+    natural = pan_for_week("2026-W41").material
+    assert pan_for_week("2026-W41", avoid=natural).material == pool[(pool.index(natural) + 1) % len(pool)]
+    assert pan_for_week("2026-W41", avoid="not-in-pool") == pan_for_week("2026-W41")
+    last = pool[-1]
+    week = next(f"2026-W{w:02d}" for w in range(1, 54) if pan_for_week(f"2026-W{w:02d}").material == last)
+    assert pan_for_week(week, avoid=last).material == pool[0]
+
+
 def test_geometry_text_starts_with_the_well_count():
     for spec in SIZES.values():
         assert spec["geometry"].startswith(f"{spec['wells']} identical")
@@ -103,8 +113,12 @@ def test_a_2k_render_is_downscaled_to_1536(monkeypatch):
     assert data.startswith(b"\x89PNG\r\n\x1a\n")
 
 
-@pytest.mark.parametrize("stored, size", [({}, "standard"), ({"pan_size": "jumbo"}, "jumbo")])
-def test_every_shot_prompt_describes_the_weeks_pan(tmp_path: Path, monkeypatch, stored, size):
+@pytest.mark.parametrize("stored, size, avoid", [
+    ({}, "standard", None),
+    ({"pan_size": "jumbo"}, "jumbo", None),
+    ({"pan_size": "jumbo"}, "jumbo", pan_for_week("2026-W42", size="jumbo").material),
+])
+def test_every_shot_prompt_describes_the_weeks_pan(tmp_path: Path, monkeypatch, stored, size, avoid):
     agent = create_agent("art_director")
     prompts = []
     png = BytesIO()
@@ -118,9 +132,11 @@ def test_every_shot_prompt_describes_the_weeks_pan(tmp_path: Path, monkeypatch, 
                         lambda *a: judged.append(a[-1]) or {"passed": True, "recommended_winner": 1})
     result = agent.process_task(Task(
         type="photograph_recipe", content="shoot",
-        context={"recipe_id": "rid", "recipe_data": {"title": "Egg Cups", **stored}, "episode_id": "2026-W42"},
+        context={"recipe_id": "rid", "recipe_data": {"title": "Egg Cups", **stored}, "episode_id": "2026-W42",
+                 "previous_pan_material": avoid},
     ))
-    pan = pan_for_week("2026-W42", size=size)
+    pan = pan_for_week("2026-W42", size=size, avoid=avoid)
+    assert pan.material != avoid
     assert len(prompts) == 3 and all(pan.clause in p for p in prompts)
     assert all(f"baked in a {size} muffin tin" in p for p in prompts) and judged == [size]
     assert result.output["pan"] == {"size": size, "material": pan.material, "library": "panV1"}
@@ -146,8 +162,34 @@ def test_orchestrator_hands_the_episode_id_to_the_art_director():
             return _Result()
 
         orch.agents["art_director"].process_task = capture
-        assert orch._execute_stage_photography("rid", {}, episode_id="2026-W41") == {"ok": True}
+        assert orch._execute_stage_photography(
+            "rid", {}, episode_id="2026-W41", previous_pan_material="stoneware"
+        ) == {"ok": True}
         assert seen["episode_id"] == "2026-W41"
+        assert seen["previous_pan_material"] == "stoneware"
+
+
+def test_wednesday_looks_up_the_previous_isoweek_pan_material(monkeypatch):
+    from backend.admin import cron_routes
+
+    asked = []
+    previous = {"stages": {"wednesday": {"photography_data": {"pan": {"material": "stoneware"}}}}}
+    monkeypatch.setattr(cron_routes.storage, "load_episode", lambda eid: asked.append(eid) or previous)
+    assert cron_routes._previous_pan_material("2027-W01") == "stoneware"
+    assert asked == ["2026-W53"]
+    monkeypatch.setattr(cron_routes.storage, "load_episode", lambda eid: {"stages": {}})
+    assert cron_routes._previous_pan_material("2027-W01") is None
+
+
+def test_a_storage_error_on_the_previous_week_is_logged_not_fatal(monkeypatch, caplog):
+    from backend.admin import cron_routes
+
+    def boom(_eid):
+        raise OSError("blob down")
+
+    monkeypatch.setattr(cron_routes.storage, "load_episode", boom)
+    assert cron_routes._previous_pan_material("2026-W42") is None
+    assert "blob down" in caplog.text
 
 
 def test_the_gemini_request_carries_a_timeout(monkeypatch):

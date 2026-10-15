@@ -19,6 +19,7 @@ from backend.data.recipe import Recipe, CreationStory
 from backend.data.agent_profile import AgentProfile
 from backend.core.task import Task
 from backend.utils.logging import get_logger
+from backend.utils.pan_library import SIZES, pan_size_of
 from backend.utils.discord import notify_recipe_ready, notify_pipeline_failure
 
 logger = get_logger(__name__)
@@ -268,21 +269,27 @@ class RecipeOrchestrator:
         return result.output
 
     def _execute_stage_photography(
-        self, recipe_id: str, recipe_data: Dict, episode_id: Optional[str] = None
+        self,
+        recipe_id: str,
+        recipe_data: Dict,
+        episode_id: Optional[str] = None,
+        previous_pan_material: Optional[str] = None,
     ) -> Dict:
         """Execute art director's photography stage.
 
         Returns the full photography output dict containing rounds, vision
         evaluation, reshoot data, winner, and selected_shots for backward compat.
         ``episode_id`` (YYYY-Www) picks the week's pan; without it the art
-        director uses the current week.
+        director uses the current week; ``previous_pan_material`` keeps the
+        material from repeating last week's.
         """
         art_director = self.agents["art_director"]
 
         task = Task(
             type="photograph_recipe",
             content="Photograph this recipe",
-            context={"recipe_id": recipe_id, "recipe_data": recipe_data, "episode_id": episode_id}
+            context={"recipe_id": recipe_id, "recipe_data": recipe_data, "episode_id": episode_id,
+                     "previous_pan_material": previous_pan_material}
         )
 
         result = art_director.process_task(task)
@@ -421,7 +428,7 @@ class RecipeOrchestrator:
             description=description,
             ingredients=recipe_data.get("ingredients", []),
             instructions=recipe_data.get("instructions", []),
-            servings=recipe_data.get("servings", 12),
+            servings=recipe_data.get("servings", SIZES[pan_size_of(recipe_data)]["wells"]),
             prep_time_minutes=recipe_data.get("prep_time", 15),
             cook_time_minutes=recipe_data.get("cook_time", 20),
             difficulty=recipe_data.get("difficulty", "medium"),
