@@ -80,8 +80,8 @@ def test_friday_passes_authoritative_decision_to_actual_prompt(state, mirror):
     expected = photo_review.dialogue_context(photo_review.read_view(store, EP_ID, ep))
     assert context["human_review"] == expected
     # Steph reviews the actual recipe and photo state, not a bare id (#8150).
-    package = orchestrator._execute_stage_review.call_args.args[1]
-    assert package["recipe"] == ep["stages"]["monday"]["recipe_data"] and package["photos"] == expected
+    _rid, recipe, _copy, photos = orchestrator._execute_stage_review.call_args.args
+    assert recipe == ep["stages"]["monday"]["recipe_data"] and photos == expected
     if mirror == "present":
         assert context["rounds"] == wed["photography_data"]["rounds"]
     arc = _build_dynamic_arc("friday", ep["concept"], context)

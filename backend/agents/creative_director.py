@@ -88,7 +88,10 @@ End your response with 'VERDICT: APPROVED' or 'VERDICT: REVISE'.
             
             lines = response.strip().split("\n")
             feedback = [l.strip() for l in lines if l.strip() and not l.startswith("VERDICT:")]
-            verdict = "APPROVED" if "VERDICT: APPROVED" in response else "REVISE"
+            # The last VERDICT line decides, so feedback that quotes
+            # "VERDICT: APPROVED" before a REVISE cannot approve (#8150).
+            verdicts = [line.strip() for line in lines if line.strip().startswith("VERDICT:")]
+            verdict = "APPROVED" if verdicts and verdicts[-1] == "VERDICT: APPROVED" else "REVISE"
             
         except Exception as e:
             # A review that did not happen is not an approval (#8150).

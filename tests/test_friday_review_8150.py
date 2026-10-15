@@ -25,11 +25,12 @@ def _orchestrator(tmp: Path) -> RecipeOrchestrator:
 @pytest.mark.parametrize("reply, approved", [
     ("Lovely crumb.\nVERDICT: APPROVED", True),
     ("The title oversells it.\nVERDICT: REVISE", False),
+    ("I nearly wrote VERDICT: APPROVED, but the crust is raw.\nVERDICT: REVISE", False),
 ])
 def test_the_review_verdict_decides_approval(reply, approved):
     with tempfile.TemporaryDirectory() as tmpdir, \
          patch("backend.utils.model_router.generate_response", return_value=reply):
-        result = _orchestrator(Path(tmpdir))._execute_stage_review("rid", {"recipe": {"title": "Egg Cups"}})
+        result = _orchestrator(Path(tmpdir))._execute_stage_review("rid", {"title": "Egg Cups"}, "An intro.")
     assert result[0] is approved
     assert result[1]["verdict"] == ("APPROVED" if approved else "REVISE")
 
@@ -38,4 +39,4 @@ def test_a_failed_review_call_fails_the_stage_instead_of_approving():
     with tempfile.TemporaryDirectory() as tmpdir, \
          patch("backend.utils.model_router.generate_response", side_effect=TimeoutError("upstream")), \
          pytest.raises(RuntimeError, match="review call failed: TimeoutError"):
-        _orchestrator(Path(tmpdir))._execute_stage_review("rid", {"recipe": {"title": "Egg Cups"}})
+        _orchestrator(Path(tmpdir))._execute_stage_review("rid", {"title": "Egg Cups"}, "An intro.")

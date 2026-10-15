@@ -172,7 +172,7 @@ class RecipeOrchestrator:
             logger.info(f"\n{'='*70}")
             logger.info("STAGE 4: Creative Review (Steph Whitmore - Creative Director)")
             logger.info(f"{'='*70}")
-            approved, review_output = self._execute_stage_review(recipe_id)
+            approved, review_output = self._execute_stage_review(recipe_id, recipe_data, copy_text)
             # Note: dialogue generation is handled by run_pipeline_stage.py via
             # simulate_dialogue_week.run_simulation() — not the hardcoded fallback here.
 
@@ -327,19 +327,24 @@ class RecipeOrchestrator:
 
         return result.output
 
-    def _execute_stage_review(self, recipe_id: str, package: Optional[Dict] = None) -> tuple[bool, Dict]:
-        """Execute creative director's review stage.
+    def _execute_stage_review(
+        self, recipe_id: str, recipe: Dict, copy: Dict | str | None, photos: Optional[Dict] = None,
+    ) -> tuple[bool, Dict]:
+        """Steph reviews the week's actual work: recipe, copy and photo state.
 
-        ``package`` is what Steph reviews (recipe, copy, photo state); without
-        it she sees only the recipe id. Approved only on her explicit
-        ``VERDICT: APPROVED`` (#8150).
+        Approved only on her explicit final ``VERDICT: APPROVED`` (#8150).
         """
         cd = self.agents["creative_director"]
+        package = {
+            "recipe": recipe,
+            "copy": copy.get("body") if isinstance(copy, dict) else copy,
+            "photos": photos,
+        }
 
         task = Task(
             type="review_package",
             content="Review complete recipe package",
-            context={"recipe_id": recipe_id, **({"package": package} if package else {})},
+            context={"recipe_id": recipe_id, "package": package},
         )
 
         result = cd.process_task(task)

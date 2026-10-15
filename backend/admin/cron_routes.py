@@ -2091,12 +2091,12 @@ async def cron_friday(request: Request):
         review_ctx = _photo_review_dialogue_context(episode_id, ep)
         # Steph reviews the week's actual work, not a bare recipe id (#8150).
         stages = ep.get("stages", {})
-        thursday_copy = stages.get("thursday", {}).get("copy_text")
-        approved, review_output = orchestrator._execute_stage_review(recipe_id, {
-            "recipe": stages.get("monday", {}).get("recipe_data"),
-            "copy": thursday_copy.get("body") if isinstance(thursday_copy, dict) else thursday_copy,
-            "photos": review_ctx,
-        })
+        approved, review_output = orchestrator._execute_stage_review(
+            recipe_id,
+            stages.get("monday", {}).get("recipe_data"),
+            stages.get("thursday", {}).get("copy_text"),
+            review_ctx,
+        )
 
         # Pass photography context from Wednesday to Friday dialogue for hero shot awareness
         wed_photo_data = stages.get("wednesday", {}).get("photography_data")
