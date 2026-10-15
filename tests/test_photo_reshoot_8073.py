@@ -147,6 +147,21 @@ def test_reshoot_route_refuses_a_cross_origin_post(tmp_path):
     assert _control(store)["version"] == 1
 
 
+def test_reshoot_route_runs_on_the_event_loop_not_a_thread():
+    # A threadpool route would hold storage.prefix_scope (a shared singleton
+    # attribute) while other requests run: RUNBOOK Incident 1.
+    import inspect
+
+    from fastapi import FastAPI
+
+    from backend.admin.routes import create_routes
+
+    app = FastAPI()
+    create_routes(app)
+    route = next(r for r in app.routes if getattr(r, "path", "").endswith("/photos/reshoot"))
+    assert inspect.iscoroutinefunction(route.endpoint)
+
+
 def test_reshoot_route_refuses_an_unauthenticated_post(tmp_path, monkeypatch):
     from backend.auth import middleware
 
