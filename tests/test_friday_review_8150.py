@@ -30,6 +30,7 @@ def _orchestrator(tmp: Path) -> RecipeOrchestrator:
     ("VERDICT: APPROVED\nOn reflection, the crust is raw.\nVERDICT: REVISE", False),
     ("Fine either way.\nVERDICT: APPROVED / REVISE", False),
     ("Lovely crumb.\n### **VERDICT:** APPROVED", True),
+    ("VERDICT: APPROVED\nActually the crust is raw.\nVERDICT: REVISE - fix the crust", False),
 ])
 def test_the_review_verdict_decides_approval(reply, approved):
     with tempfile.TemporaryDirectory() as tmpdir, \

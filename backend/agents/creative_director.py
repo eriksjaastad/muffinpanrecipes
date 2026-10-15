@@ -19,15 +19,25 @@ logger = get_logger(__name__)
 _VERDICT_RE = re.compile(r"VERDICT:\s*(APPROVED|REVISE)[.!]?", re.IGNORECASE)
 
 
-def _verdict_of(line: str) -> str | None:
-    """APPROVED or REVISE when the line is exactly a verdict, else None.
+def _plain(line: str) -> str:
+    """The line without markdown emphasis, heading marks or a list dash."""
+    return re.sub(r"[*_`#>]", "", line).strip().lstrip("-").strip()
 
-    Markdown (emphasis, a heading or a list dash) is stripped first; any other
-    words on the line ("APPROVED / REVISE") mean it is not a verdict (#8150).
+
+def _is_verdict_line(line: str) -> bool:
+    return _plain(line).upper().startswith("VERDICT")
+
+
+def _verdict(lines: list[str]) -> str:
+    """APPROVED only when the last verdict line is exactly "VERDICT: APPROVED".
+
+    The last line that starts a verdict decides, so a later correction
+    ("VERDICT: REVISE - fix the crust") overrides an earlier approval, and any
+    other words on it fail safe to REVISE (#8150).
     """
-    plain = re.sub(r"[*_`#>]", "", line).strip().lstrip("-").strip()
-    match = _VERDICT_RE.fullmatch(plain)
-    return match.group(1).upper() if match else None
+    last = next((line for line in reversed(lines) if _is_verdict_line(line)), "")
+    match = _VERDICT_RE.fullmatch(_plain(last))
+    return "APPROVED" if match and match.group(1).upper() == "APPROVED" else "REVISE"
 
 
 class CreativeDirectorAgent(Agent):
@@ -102,12 +112,8 @@ End your response with 'VERDICT: APPROVED' or 'VERDICT: REVISE'.
             )
             
             lines = response.strip().split("\n")
-            feedback = [l.strip() for l in lines if l.strip() and not _verdict_of(l)]
-            # The last VERDICT line decides, so feedback that quotes
-            # "VERDICT: APPROVED" before a REVISE cannot approve; markdown
-            # emphasis around it does not hide an approval (#8150).
-            verdicts = [v for v in map(_verdict_of, lines) if v]
-            verdict = "APPROVED" if verdicts and verdicts[-1] == "APPROVED" else "REVISE"
+            feedback = [l.strip() for l in lines if l.strip() and not _is_verdict_line(l)]
+            verdict = _verdict(lines)
             
         except Exception as e:
             # A review that did not happen is not an approval (#8150).
