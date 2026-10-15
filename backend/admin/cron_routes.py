@@ -1814,7 +1814,7 @@ class ReshootNotRegistered(RuntimeError):
 
 def _shoot_and_register(
     episode_id: str, ep: dict, concept: str, recipe_data: dict, *,
-    max_rounds: int | None = None, reshoot: bool = False,
+    max_rounds: int | None = None, reshoot_id: str | None = None,
 ) -> tuple[dict, dict, list[str], list[str]]:
     """Shoot Wednesday's images, upload them, and put the new set up for review.
 
@@ -1917,7 +1917,7 @@ def _shoot_and_register(
     # display mirror. Registered first, so nothing announces a set the
     # control does not know. Images live under a generation-specific
     # path, so a refused registration leaves nothing overwritten.
-    if reshoot:
+    if reshoot_id:
         # The shoot took minutes, so re-read the episode now, BEFORE registering:
         # a failed read then leaves nothing registered and the message can say so.
         try:
@@ -1931,7 +1931,7 @@ def _shoot_and_register(
                 "The photos were generated but not registered (episode not found on re-read)."
             )
     try:
-        photo_review.register_request(storage, episode_id, request)
+        photo_review.register_request(storage, episode_id, request, reshoot_id=reshoot_id)
     except photo_review.PublicationUnderway as exc:
         detail = (
             f"Wednesday {episode_id}: {exc}. The new photos were saved under their own "
@@ -1943,7 +1943,7 @@ def _shoot_and_register(
         )
         raise HTTPException(status_code=409, detail=detail)
     wed["photo_review"] = {k: request[k] for k in ("image_set_id", "generated_at", "requested_at")}
-    if reshoot:
+    if reshoot_id:
         # Merge only the photo fields into the episode read before registering,
         # so Wednesday's dialogue, status and completed_at stay.
         ep.clear()
@@ -1955,7 +1955,7 @@ def _shoot_and_register(
         ep["stages"]["wednesday"] = wed
     ep["image_paths"] = image_paths
     ep["image_urls"] = image_urls
-    if reshoot and isinstance(ep.get("publish_hold"), dict):
+    if reshoot_id and isinstance(ep.get("publish_hold"), dict):
         # Sunday already ran and held this week for photo approval. The new set
         # is awaiting approval too, so the hold now names it: dropping the hold
         # would make episode_integrity report an overdue Sunday as missing. No
@@ -2024,7 +2024,7 @@ def reshoot_wednesday_photos(episode_id: str, image_set_id: str) -> dict:
     reshoot_id = started.reshoots["in_flight"]["id"]
     try:
         wed, *_ = _shoot_and_register(
-            episode_id, ep, concept, monday["recipe_data"], max_rounds=1, reshoot=True,
+            episode_id, ep, concept, monday["recipe_data"], max_rounds=1, reshoot_id=reshoot_id,
         )
     except Exception as exc:
         try:
@@ -2036,6 +2036,8 @@ def reshoot_wednesday_photos(episode_id: str, image_set_id: str) -> dict:
             )
         if isinstance(exc, HTTPException):
             raise
+        if isinstance(exc, photo_review.ReshootRefused):
+            raise HTTPException(status_code=409, detail=f"{exc} {_RESHOOT_RELOAD}") from exc
         logger.error(f"Reshoot failed for {episode_id}: {type(exc).__name__}: {exc}")
         detail = str(exc) if isinstance(exc, ReshootNotRegistered) else f"The reshoot failed ({type(exc).__name__})."
         raise HTTPException(status_code=502, detail=f"{detail} {_RESHOOT_RELOAD}") from exc

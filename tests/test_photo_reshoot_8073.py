@@ -350,3 +350,14 @@ def test_an_uncertain_start_points_at_the_page_instead_of_promising_nothing_was_
     detail = resp.json()["detail"]
     assert resp.status_code == 503 and "Reload the page" in detail and "counted" not in detail
     shoot.assert_not_called()
+
+
+def test_a_shoot_that_lost_its_marker_cannot_register_over_the_newer_reshoot():
+    store, wed = _store_with_set()
+    started = _start(store, wed)
+    version = _control(store)["version"]
+    newer = dict(wed["photo_review"], image_set_id="feedfacefeedface")
+    with pytest.raises(photo_review.ReshootRefused, match="newer reshoot"):
+        photo_review.register_request(store, EP_ID, {**_control(store)["request"], **newer}, reshoot_id="expired-shoot")
+    assert _control(store)["version"] == version
+    assert started.reshoots["in_flight"]["id"] != "expired-shoot"

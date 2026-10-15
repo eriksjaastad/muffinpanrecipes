@@ -649,11 +649,14 @@ def _append(store, view: ControlView, *, state: str, request: dict | None, decis
 
 # --- Transitions -----------------------------------------------------------------
 
-def register_request(store, episode_id: str, request: dict) -> ControlView:
+def register_request(store, episode_id: str, request: dict, *, reshoot_id: str | None = None) -> ControlView:
     """Wednesday: make ``request`` the current set, voiding any earlier decision.
 
-    Raises PublicationUnderway when Sunday has claimed or published the
-    week; PhotoControlUnavailable on storage failure.
+    ``reshoot_id`` (a dashboard reshoot, #8073) registers only while that
+    shoot is still the one in flight, so a shoot that outlived its marker
+    cannot replace a newer reshoot's set. Raises PublicationUnderway when
+    Sunday has claimed or published the week, ReshootRefused when a newer
+    reshoot took over, PhotoControlUnavailable on storage failure.
     """
     if not _valid_request(request):
         raise PhotoReviewError("No uploaded candidate photos to review")
@@ -662,6 +665,8 @@ def register_request(store, episode_id: str, request: dict) -> ControlView:
         view = _derived_view(episode_id, None) if ctrl is None else _view_from_control(episode_id, ctrl)
         if view.frozen:
             raise PublicationUnderway(f"photo control is {view.state}; the image set is frozen")
+        if reshoot_id is not None and (view.reshoots.get("in_flight") or {}).get("id") != reshoot_id:
+            raise ReshootRefused("A newer reshoot replaced this one; its photos were not registered.")
         try:
             return _append(store, view, state=AWAITING, request=request, decision=None, claim=None,
                            event="wednesday: new image set",
