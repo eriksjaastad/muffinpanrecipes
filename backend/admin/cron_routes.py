@@ -1960,13 +1960,14 @@ def _shoot_and_register(
         # Sunday already ran and held this week for photo approval. The new set
         # is awaiting approval too, so the hold now names it: dropping the hold
         # would make episode_integrity report an overdue Sunday as missing. No
-        # last_attempt (no Sunday has seen this set); notified is True because
-        # this reshoot's own "Photos ready" email is the notice.
+        # last_attempt (no Sunday has seen this set) and not notified: the next
+        # Sunday run sends its own held notice rather than trust this
+        # reshoot's "Photos ready" email to have arrived.
         ep["publish_hold"] = {
             "reason": "awaiting_photo_approval",
             "image_set_id": request["image_set_id"],
             "since": datetime.now(timezone.utc).isoformat(),
-            "notified": True,
+            "notified": False,
         }
         ep.setdefault("events", []).append("reshoot: Sunday's photo hold now names the new set")
     else:

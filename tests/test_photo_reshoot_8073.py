@@ -310,7 +310,7 @@ def test_a_reshoot_after_sundays_hold_re_points_the_hold_at_the_new_set(tmp_path
     after = store.get(EP_ID)
     assert recorded_photo_hold(after) == "awaiting_photo_approval"
     assert after["publish_hold"]["image_set_id"] == resp.json()["image_set_id"]
-    assert "last_attempt" not in after["publish_hold"]
+    assert "last_attempt" not in after["publish_hold"] and after["publish_hold"]["notified"] is False
 
 
 def test_any_episode_read_failure_is_a_503_before_anything_is_counted(tmp_path):
