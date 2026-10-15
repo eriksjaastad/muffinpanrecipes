@@ -1052,6 +1052,17 @@ def create_routes(app: FastAPI):
             return data.get("stages", {}).get("wednesday", {}) or {}
         return None
 
+    def _is_evaluated(evaluation: Optional[dict]) -> bool:
+        """Whether the set carries any automated verdict (a remade set has none, #8073)."""
+        if evaluation is None:
+            return False
+        photo = evaluation.get("photography_data")
+        photo = photo if isinstance(photo, dict) else {}
+        return bool(
+            evaluation.get("confirmed_winner") or photo.get("automated_review_status")
+            or any(isinstance(r, dict) and r.get("vision_evaluation") for r in photo.get("rounds") or [])
+        )
+
     def _automated_notes(wed: dict) -> tuple[Optional[str], dict]:
         """The automated pick and each candidate's recorded defects, by path."""
         winner = wed.get("confirmed_winner") or {}
@@ -1125,7 +1136,7 @@ def create_routes(app: FastAPI):
             "selected_path": selected["path"] if selected else None,
             "decided_at": (view.decision or {}).get("decided_at"),
             "automated_status": automated,
-            "evaluation_unavailable": evaluation is None,
+            "evaluation_unavailable": not _is_evaluated(evaluation),
             "mirror_agrees": mirror_agrees,
             "legacy": view.legacy,
             "writable": not published and not frozen,
@@ -1332,6 +1343,39 @@ def create_routes(app: FastAPI):
     class PhotoReshootRequest(BaseModel):
         image_set_id: str
 
+    class PhotoRemakeRequest(PhotoReshootRequest):
+        path: str
+
+    def _run_reshoot(episode_id: str, request: Request, ns: Optional[str], run, what: str) -> dict:
+        """The checks and error mapping both reshoot routes share (#8073).
+
+        ``run(cron_routes)`` makes the photos. Refusals (frozen, stale page, a
+        shoot running, call cap) are 409 with the reason.
+        """
+        from backend.admin import cron_routes
+        from backend.storage import EpisodeReadStale
+
+        _require_same_origin(request)
+        _sanitize_id(episode_id, "episode_id")
+        prefix = _namespace_prefix(ns)
+        store = _cloud_storage()
+        try:
+            with store.prefix_scope(prefix):
+                result = run(cron_routes)
+        except HTTPException:
+            raise
+        except EpisodeReadStale as exc:
+            logger.error(f"Episode read not verified for {episode_id}: {exc}")
+            raise HTTPException(status_code=503, detail="Storage is still updating. Try again in a minute.")
+        except Exception as exc:
+            logger.error(f"Photo {what} failed for {episode_id}: {type(exc).__name__}: {exc}")
+            raise HTTPException(status_code=502, detail=f"The {what} failed ({type(exc).__name__}). Reload to check.")
+        message = f"New photos are up for review. {result['calls_left']} reshoot image calls left."
+        if _sunday_run_has_passed(episode_id):
+            message += " Sunday has already run its schedule; it holds until a manual run (RUNBOOK)."
+        logger.info(f"Photo {what} for {episode_id}: set {result['image_set_id']}")
+        return {"success": True, "message": message, **result}
+
     @app.post("/admin/episodes/{episode_id}/photos/reshoot")
     async def admin_photo_reshoot(
         episode_id: str,
@@ -1345,32 +1389,30 @@ def create_routes(app: FastAPI):
         Async like the review POST and every cron: the storage prefix is a plain
         attribute on the shared singleton, so the minutes-long shoot must not
         interleave with another request on a worker thread (RUNBOOK Incident 1).
-        Refusals (frozen, stale page, a shoot running, call cap)
-        are 409 with the reason; success returns the new set and the calls left.
+        Success returns the new set and the calls left.
         """
-        from backend.admin import cron_routes
-        from backend.storage import EpisodeReadStale
+        return _run_reshoot(
+            episode_id, request, ns,
+            lambda cron: cron.reshoot_wednesday_photos(episode_id, request_data.image_set_id), "reshoot",
+        )
 
-        _require_same_origin(request)
-        _sanitize_id(episode_id, "episode_id")
-        prefix = _namespace_prefix(ns)
-        store = _cloud_storage()
-        try:
-            with store.prefix_scope(prefix):
-                result = cron_routes.reshoot_wednesday_photos(episode_id, request_data.image_set_id)
-        except HTTPException:
-            raise
-        except EpisodeReadStale as exc:
-            logger.error(f"Episode read not verified for {episode_id}: {exc}")
-            raise HTTPException(status_code=503, detail="Storage is still updating. Try again in a minute.")
-        except Exception as exc:
-            logger.error(f"Photo reshoot failed for {episode_id}: {type(exc).__name__}: {exc}")
-            raise HTTPException(status_code=502, detail=f"The reshoot failed ({type(exc).__name__}). Reload to check.")
-        message = f"New photos are up for review. {result['calls_left']} reshoot image calls left."
-        if _sunday_run_has_passed(episode_id):
-            message += " Sunday has already run its schedule; it holds until a manual run (RUNBOOK)."
-        logger.info(f"Photo reshoot for {episode_id}: set {result['image_set_id']}")
-        return {"success": True, "message": message, **result}
+    @app.post("/admin/episodes/{episode_id}/photos/remake")
+    async def admin_photo_remake(
+        episode_id: str,
+        request_data: PhotoRemakeRequest,
+        request: Request,
+        user: dict = Depends(require_auth),
+        ns: Optional[str] = None,
+    ):
+        """Remake ONE photo of the current set (#8073): one image call, async like the reshoot.
+
+        A ``path`` outside the current set is a 400.
+        """
+        return _run_reshoot(
+            episode_id, request, ns,
+            lambda cron: cron.remake_wednesday_photo(episode_id, request_data.image_set_id, request_data.path),
+            "remake",
+        )
 
     # Test-namespace images are stored under test/images/ in the same public
     # store; only exact URLs under this origin are ever fetched (#7936).

@@ -194,6 +194,41 @@ def new_review(wed: dict) -> dict:
     }
 
 
+def remade_review(request: dict, old_path: str, shot: dict, url: str) -> dict:
+    """The request for ``request``'s set with one image swapped for a new one (#8073).
+
+    ``shot`` is the art director's variant output for the new image and ``url``
+    its upload. The snapshot is built from the images alone (variant names, paths,
+    rounds, and the pan, which next week's pan choice reads): every evaluation
+    field (winner, scores, defects, verdicts) described the old set, and nothing
+    has evaluated this one, so none is carried over and the readers show it as
+    not evaluated. Built by ``new_review``, so it is a new set (new
+    ``image_set_id``) like any other. Raises ReshootRefused when ``old_path`` is
+    not in the set.
+    """
+    paths = list(request.get("image_paths") or [])
+    urls = list(request.get("image_urls") or [])
+    candidates = request.get("candidates") or []
+    if old_path not in paths or len(urls) != len(paths) or old_path not in [c["path"] for c in candidates]:
+        raise ReshootRefused("The photos changed since this page loaded; reload and review again.")
+    rounds: list[dict] = []
+    for c in candidates:
+        if not rounds or rounds[-1]["round"] != c["round"]:
+            rounds.append({"round": c["round"], "variants": []})
+        rounds[-1]["variants"].append(
+            {"variant": c["variant"], "path": shot["path"] if c["path"] == old_path else c["path"]}
+        )
+    photo: dict = {"rounds": rounds}
+    pan = ((request_snapshot(request) or {}).get("photography_data") or {}).get("pan") or shot.get("pan")
+    if pan is not None:
+        photo["pan"] = copy.deepcopy(pan)
+    index = paths.index(old_path)
+    paths[index], urls[index] = shot["path"], url
+    return new_review({
+        "photography_data": photo, "confirmed_winner": {}, "image_paths": paths, "image_urls": urls,
+    })
+
+
 def legacy_review(wed: dict) -> dict | None:
     """The implied request for a Wednesday that completed before #7936.
 

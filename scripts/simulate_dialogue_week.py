@@ -2359,7 +2359,13 @@ def _select_next_speaker(
 
 
 def _scene_hero_landing(winner_variant: str, photography_context: dict | None) -> str:
-    """Wednesday scene close. With a human review it is only a recommendation."""
+    """Wednesday scene close. With a human review it is only a recommendation.
+
+    Without a winner variant (a remade set nobody evaluated, #8073) nothing is
+    recommended: the human-review line if there is one, else no sentence.
+    """
+    if not winner_variant:
+        return _photo_review_line(photography_context)
     if isinstance((photography_context or {}).get("human_review"), dict):
         return (
             f"After real debate, they recommend '{winner_variant}' as the hero; "
@@ -2378,7 +2384,7 @@ def _build_photography_scene_direction(photography_context: dict | None, day: st
 
     reshoot_happened = photography_context.get("reshoot_happened", False)
     winner = photography_context.get("winner", {})
-    winner_variant = winner.get("variant", "unknown")
+    winner_variant = winner.get("variant", "")
     winner_round = winner.get("round", 1)
 
     # Build human-readable variant descriptions for the characters to reference
@@ -2408,7 +2414,7 @@ def _build_photography_scene_direction(photography_context: dict | None, day: st
                 "Now the team has to pick the hero image. Each character has a different favorite. "
                 "They argue about which shot tells the right story for this recipe. "
                 + _scene_hero_landing(winner_variant, photography_context)
-            )
+            ).rstrip()
         else:
             return (
                 f"Julian drops three distinctly different shots: {shots_text}. "
@@ -2417,12 +2423,17 @@ def _build_photography_scene_direction(photography_context: dict | None, day: st
                 "Julian has his artistic preference. Margaret cares about showing the food honestly. "
                 "Steph is thinking about what performs in feed. They disagree before converging. "
                 + _scene_hero_landing(winner_variant, photography_context)
-            )
+            ).rstrip()
     elif day == "friday":
         review_line = _photo_review_line(photography_context)
         if review_line:
             return (
                 f"Final review. {review_line} "
+                "Devon Park joins to confirm deployment readiness. Approvals hinge on tiny fixes."
+            )
+        if not winner_variant:
+            return (
+                "Final review. Julian's Wednesday photos are on the table. "
                 "Devon Park joins to confirm deployment readiness. Approvals hinge on tiny fixes."
             )
         if reshoot_happened:

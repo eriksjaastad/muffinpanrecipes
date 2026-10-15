@@ -141,6 +141,14 @@
                         </button>
                         {% endif %}
                     </div>
+                    {% if review.writable %}
+                    <button data-action="photo-remake" data-episode-id="{{ episode.episode_id }}"
+                        data-set-id="{{ review.image_set_id }}" data-path="{{ c.path }}"
+                        {% if review.reshoot_calls_left < 1 %}disabled{% endif %}
+                        class="mt-1 text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 hover:bg-amber-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+                        Remake this photo
+                    </button>
+                    {% endif %}
                     {% if c.defects %}
                     <ul class="mt-1 text-xs text-red-700 list-disc list-inside">
                         {% for d in c.defects %}<li>{{ d }}</li>{% endfor %}
@@ -165,7 +173,7 @@
                     class="text-sm px-3 py-1.5 rounded bg-amber-100 text-amber-800 hover:bg-amber-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed">
                     Reshoot
                 </button>
-                <span class="text-xs text-slate-500 ml-2">{{ review.reshoot_calls_left }} of {{ review.reshoot_cap }} reshoot image calls left. A reshoot takes up to 3 minutes, replaces this set, and voids any approval.</span>
+                <span class="text-xs text-slate-500 ml-2">{{ review.reshoot_calls_left }} of {{ review.reshoot_cap }} reshoot image calls left. A reshoot takes up to 3 minutes, replaces this set, and voids any approval. "Remake this photo" costs 1 call and replaces only that photo; it too makes a new set and voids any approval.</span>
                 {% if review.sunday_passed %}
                 <p class="text-xs text-amber-700 mt-1">Sunday has already run its schedule; after a reshoot, Sunday holds until a manual run (RUNBOOK).</p>
                 {% endif %}
@@ -246,6 +254,8 @@
                         {% set round_status = (round_data.get('vision_evaluation') or {}).get('review_status') %}
                         {% if round_status in ('unavailable', 'incomplete') %}
                         <span class="text-amber-700 ml-1">{{ round_status | upper }}{% if round_data.get('rejection_reason') %}: {{ round_data.get('rejection_reason')[:80] }}{% endif %}</span>
+                        {% elif 'passed' not in round_data and not round_data.get('vision_evaluation') %}
+                        <span class="text-slate-500 ml-1">NOT EVALUATED</span>
                         {% elif round_data.get('passed') and round_status in (none, 'passed') %}
                         <span class="text-emerald-600 ml-1">PASSED</span>
                         {% else %}
@@ -454,6 +464,10 @@
                 submitPhotoReview(episodeId, btn, { action: 'select', image_set_id: btn.dataset.imageSet, path: btn.dataset.path });
             } else if (action === 'photo-reject' && episodeId) {
                 submitPhotoReview(episodeId, btn, { action: 'reject', image_set_id: btn.dataset.imageSet });
+            } else if (action === 'photo-remake' && episodeId) {
+                btn.dataset.label = btn.textContent;
+                btn.textContent = 'Remaking...';
+                submitPhotoReview(episodeId, btn, { image_set_id: btn.dataset.setId, path: btn.dataset.path }, 'remake');
             } else if (action === 'photo-reshoot' && episodeId) {
                 btn.dataset.label = btn.textContent;
                 btn.textContent = 'Reshooting...';

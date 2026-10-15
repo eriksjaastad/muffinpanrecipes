@@ -151,9 +151,13 @@ class ArtDirectorAgent(Agent):
         d.mkdir(parents=True, exist_ok=True)
         return d
 
+    @staticmethod
+    def _title_of(recipe_data: dict, concept: str | None = None) -> str:
+        return str(recipe_data.get("title") or concept or "Muffin Pan Recipe")
+
     def _recipe_title(self, task: Task) -> str:
         recipe_data = task.context.get("recipe_data", {}) if isinstance(task.context, dict) else {}
-        return str(recipe_data.get("title") or task.context.get("concept") or "Muffin Pan Recipe")
+        return self._title_of(recipe_data, task.context.get("concept"))
 
     # Brand promise: every photo must read as muffin-tin-made food. Without
     # this clause the image model infers shape from the title alone — "Sweet
@@ -555,8 +559,9 @@ class ArtDirectorAgent(Agent):
         self, api_key: str, recipe_title: str, recipe_id: str, round_num: int,
         feedback: str | None = None, generation_id: str | None = None,
         pan_clause: str = "", pan_size: str = "standard", deadline: float | None = None,
+        variants: tuple[str, ...] | None = None,
     ) -> tuple[list[dict[str, Any]], Path]:
-        """Generate 3 variants for a single round. Returns (variant_outputs, round_dir).
+        """Generate a round's variants (all 3 unless ``variants``). Returns (variant_outputs, round_dir).
 
         Paths include the generation id so a rerun never overwrites blobs the
         CDN may already hold under a 1-year immutable cache (#7936).
@@ -565,7 +570,7 @@ class ArtDirectorAgent(Agent):
         round_dir = self._images_dir() / recipe_id / gen_id / f"round_{round_num}"
         variant_outputs: list[dict[str, Any]] = []
 
-        for variant in self._VARIANTS:
+        for variant in variants or self._VARIANTS:
             prompt = self._build_prompt(recipe_title, variant, pan_clause, pan_size)
             if feedback and round_num > 1:
                 prompt += f" RESHOOT NOTE: Previous batch rejected. Feedback: {feedback}"
@@ -601,6 +606,32 @@ class ArtDirectorAgent(Agent):
             })
 
         return variant_outputs, round_dir
+
+    def remake_variant(
+        self, recipe_id: str, recipe_data: dict, variant: str,
+        episode_id: str | None = None, previous_pan_material: str | None = None,
+    ) -> dict[str, Any]:
+        """One new image of ``variant`` with the week's pan: exactly one image call (#8073).
+
+        Same pan and prompt as that variant in the set, saved under a new
+        generation path so no cached image is overwritten. Unlike a full shoot
+        it does no vision evaluation and leaves the featured image alone.
+        Returns the variant output (``variant``, ``path``, ``local_path``, ``prompt``).
+        """
+        if variant not in self._VARIANTS:
+            raise ValueError(f"unknown photo variant {variant!r}")
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            raise RuntimeError("GOOGLE_API_KEY not configured; Julian refuses to work with placeholders.")
+        pan = pan_for_week(episode_id, size=pan_size_of(recipe_data), avoid=previous_pan_material)
+        outputs, _ = self._generate_round(
+            api_key, self._title_of(recipe_data), recipe_id, 1,
+            pan_clause=pan.clause, pan_size=pan.size, deadline=_clock() + _SHOOT_BUDGET_S,
+            variants=(variant,),
+        )
+        # The pan actually shot, in the full shoot's shape, so a remade set
+        # without a stored pan still records it for next week's rotation.
+        return {**outputs[0], "pan": {"size": pan.size, "material": pan.material, "library": PAN_LIBRARY_VERSION}}
 
     def _photograph_recipe(
         self, task: Task, approach: TaskApproach, context: MemoryContext

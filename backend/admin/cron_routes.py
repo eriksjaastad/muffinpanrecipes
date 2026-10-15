@@ -1808,6 +1808,11 @@ def _previous_pan_material(episode_id: str) -> str | None:
     return pan.get("material") if isinstance(pan, dict) else None
 
 
+def _episodes_data_dir() -> Path:
+    from backend.storage import EPISODES_DIR
+    return EPISODES_DIR.parent
+
+
 class ReshootNotRegistered(RuntimeError):
     """A reshoot's photos were generated but the new set was not registered."""
 
@@ -1823,9 +1828,7 @@ def _shoot_and_register(
     ``reshoot`` (#8073) keeps the stored stage and replaces only its photo
     fields. ``max_rounds=1`` turns the automatic second round off.
     """
-    RecipeOrchestrator = _get_orchestrator()
-    from backend.storage import EPISODES_DIR
-    orchestrator = RecipeOrchestrator(data_dir=EPISODES_DIR.parent)
+    orchestrator = _get_orchestrator()(data_dir=_episodes_data_dir())
     recipe_id = ep.get("recipe_id") or "unknown"
     # active_recipes check removed: orchestrator is per-request, so list is always empty
     orchestrator.pipeline.start_recipe(recipe_id, concept)
@@ -1912,7 +1915,22 @@ def _shoot_and_register(
         "image_status": "auto_selected",
         "confirmed_winner": photography_result.get("winner", {}) if isinstance(photography_result, dict) else {},
     }
-    request = photo_review.new_review(wed)
+    return _register_photos(
+        episode_id, ep, concept, wed, photo_review.new_review(wed), reshoot_id=reshoot_id,
+    ), photography_result, image_paths, image_urls
+
+
+def _register_photos(
+    episode_id: str, ep: dict, concept: str, wed: dict, request: dict, *, reshoot_id: str | None = None,
+) -> dict:
+    """Put ``request`` up for review: register it, mirror it on the episode, send the email.
+
+    ``wed`` carries the stage's photo fields. A dashboard reshoot (#8073, whole
+    set or one image) passes its ``reshoot_id`` and merges only those fields into
+    a verified re-read of the episode; the cron replaces the whole stage.
+    Returns the Wednesday stage now stored.
+    """
+    image_paths, image_urls = wed["image_paths"], wed["image_urls"]
     # The control log is the authority (#7936); the episode keeps a
     # display mirror. Registered first, so nothing announces a set the
     # control does not know. Images live under a generation-specific
@@ -1981,7 +1999,7 @@ def _shoot_and_register(
         "at": datetime.now(timezone.utc).isoformat(),
     }
     storage.save_episode(episode_id, ep)
-    return wed, photography_result, image_paths, image_urls
+    return wed
 
 
 # After a failure the handler cannot always know what the photo control
@@ -1989,14 +2007,14 @@ def _shoot_and_register(
 _RESHOOT_RELOAD = "Reload the page to see the current photos and reshoot calls left."
 
 
-def reshoot_wednesday_photos(episode_id: str, image_set_id: str) -> dict:
-    """Dashboard Reshoot (#8073): new Wednesday images for a page's current set.
+def _reshoot_flow(episode_id: str, image_set_id: str, calls: int, noun: str, shoot, precheck=None) -> dict:
+    """The shared frame of a dashboard reshoot (#8073): checks, count the calls, shoot, report.
 
-    Photos only: Wednesday's dialogue, status and completed_at are kept, and no
-    dialogue is paid for. The new set is registered unapproved, which voids any
-    earlier approval, and one "Photos ready" email goes out. Runs inside the
-    caller's request (admin and cron share one Lambda). Raises HTTPException:
-    409 when refused, 404/503 on a missing or unreadable episode.
+    ``shoot(ep, concept, recipe_data, started, reshoot_id)`` makes and registers
+    the new set and returns the stored Wednesday stage. ``precheck(ep)`` may
+    refuse before anything is counted; ``noun`` ("reshoot" or "remake") words the
+    failures. Raises HTTPException: 409 when refused,
+    404/503 on a missing or unreadable episode, 502 on a failed shoot.
     """
     try:
         ep = storage.load_episode_verified(episode_id)
@@ -2010,22 +2028,29 @@ def reshoot_wednesday_photos(episode_id: str, image_set_id: str) -> dict:
         raise HTTPException(status_code=409, detail=f"Episode {episode_id} has no recipe to photograph.")
     concept = ep.get("concept") or PLACEHOLDER_CONCEPT
     _refuse_wednesday_on_frozen_photos(episode_id, ep, concept)
+    if precheck:
+        try:
+            precheck(ep)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error(f"Photo {noun} check failed for {episode_id}: {type(exc).__name__}: {exc}")
+            raise HTTPException(
+                status_code=503,
+                detail=f"Could not read the current photos ({type(exc).__name__}); nothing was counted or changed.",
+            )
     try:
-        started = photo_review.start_reshoot(
-            storage, episode_id, ep, image_set_id, photo_review.RESHOOT_CALLS,
-        )
+        started = photo_review.start_reshoot(storage, episode_id, ep, image_set_id, calls)
     except (photo_review.ReshootRefused, photo_review.ReviewConflict) as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     except Exception as exc:
-        logger.error(f"Reshoot start failed for {episode_id}: {type(exc).__name__}: {exc}")
+        logger.error(f"Photo {noun} start failed for {episode_id}: {type(exc).__name__}: {exc}")
         # The write may or may not have landed; the control, not this message,
         # says whether the calls were counted (#8073).
-        raise HTTPException(status_code=503, detail=f"Could not start the reshoot ({type(exc).__name__}). {_RESHOOT_RELOAD}")
+        raise HTTPException(status_code=503, detail=f"Could not start the {noun} ({type(exc).__name__}). {_RESHOOT_RELOAD}")
     reshoot_id = started.reshoots["in_flight"]["id"]
     try:
-        wed, *_ = _shoot_and_register(
-            episode_id, ep, concept, monday["recipe_data"], max_rounds=1, reshoot_id=reshoot_id,
-        )
+        wed = shoot(ep, concept, monday["recipe_data"], started, reshoot_id)
     except Exception as exc:
         try:
             photo_review.clear_reshoot_in_flight(storage, episode_id, reshoot_id)
@@ -2038,14 +2063,75 @@ def reshoot_wednesday_photos(episode_id: str, image_set_id: str) -> dict:
             raise
         if isinstance(exc, photo_review.ReshootRefused):
             raise HTTPException(status_code=409, detail=f"{exc} {_RESHOOT_RELOAD}") from exc
-        logger.error(f"Reshoot failed for {episode_id}: {type(exc).__name__}: {exc}")
-        detail = str(exc) if isinstance(exc, ReshootNotRegistered) else f"The reshoot failed ({type(exc).__name__})."
+        logger.error(f"Photo {noun} failed for {episode_id}: {type(exc).__name__}: {exc}")
+        detail = str(exc) if isinstance(exc, ReshootNotRegistered) else f"The {noun} failed ({type(exc).__name__})."
         raise HTTPException(status_code=502, detail=f"{detail} {_RESHOOT_RELOAD}") from exc
     view = photo_review.read_view(storage, episode_id, None)
     return {
         "image_set_id": wed["photo_review"]["image_set_id"],
         "calls_left": view.reshoot_calls_left,
     }
+
+
+def reshoot_wednesday_photos(episode_id: str, image_set_id: str) -> dict:
+    """Dashboard Reshoot (#8073): new Wednesday images for a page's current set.
+
+    Photos only: Wednesday's dialogue, status and completed_at are kept, and no
+    dialogue is paid for. The new set is registered unapproved, which voids any
+    earlier approval, and one "Photos ready" email goes out. Runs inside the
+    caller's request (admin and cron share one Lambda).
+    """
+    return _reshoot_flow(
+        episode_id, image_set_id, photo_review.RESHOOT_CALLS, "reshoot",
+        lambda ep, concept, recipe_data, _started, reshoot_id: _shoot_and_register(
+            episode_id, ep, concept, recipe_data, max_rounds=1, reshoot_id=reshoot_id,
+        )[0],
+    )
+
+
+def remake_wednesday_photo(episode_id: str, image_set_id: str, path: str) -> dict:
+    """Dashboard "Remake this photo" (#8073): one new image in place of ``path``.
+
+    One image call with the week's pan, same checks, cap and registration as
+    ``reshoot_wednesday_photos``. The other candidates are kept, the new set is
+    registered unapproved, and the featured image is untouched. 400 when
+    ``path`` is not a candidate of the page's current set.
+    """
+    from backend.agents.art_director import ArtDirectorAgent
+
+    def candidate_of(request: dict | None) -> dict | None:
+        return next((c for c in (request or {}).get("candidates", []) if c["path"] == path), None)
+
+    def precheck(ep: dict) -> None:
+        view = photo_review.read_view(storage, episode_id, ep)
+        # A stale page is start_reshoot's to refuse; only a current page can name a bad path.
+        if view.image_set_id == image_set_id:
+            candidate = candidate_of(view.request)
+            if candidate is None:
+                raise HTTPException(status_code=400, detail="That photo is not in the current set.")
+            if candidate["variant"] not in ArtDirectorAgent._VARIANTS:
+                raise HTTPException(status_code=400, detail="That photo cannot be remade: it has no known variant.")
+
+    def shoot(ep: dict, concept: str, recipe_data: dict, started, reshoot_id: str) -> dict:
+        candidate = candidate_of(started.request)  # start_reshoot pinned the set the precheck read
+        shot = _get_orchestrator()(data_dir=_episodes_data_dir())._execute_remake_photo(
+            ep.get("recipe_id") or "unknown", recipe_data, candidate["variant"],
+            episode_id=episode_id, previous_pan_material=_previous_pan_material(episode_id),
+        )
+        url = storage.save_image(shot["path"], Path(shot["local_path"]).read_bytes())
+        request = photo_review.remade_review(started.request, path, shot, url)
+        snapshot = request["wednesday_snapshot"]
+        wed = {
+            "photography_data": snapshot["photography_data"],
+            "reshoot_happened": bool(ep.get("stages", {}).get("wednesday", {}).get("reshoot_happened")),
+            "image_paths": request["image_paths"],
+            "image_urls": request["image_urls"],
+            "image_status": "auto_selected",
+            "confirmed_winner": snapshot["confirmed_winner"],
+        }
+        return _register_photos(episode_id, ep, concept, wed, request, reshoot_id=reshoot_id)
+
+    return _reshoot_flow(episode_id, image_set_id, 1, "remake", shoot, precheck)
 
 
 @router.api_route("/wednesday", methods=["GET", "POST"])

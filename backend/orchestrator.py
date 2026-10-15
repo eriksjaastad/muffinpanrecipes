@@ -313,6 +313,16 @@ class RecipeOrchestrator:
 
         return result.output
 
+    def _execute_remake_photo(
+        self, recipe_id: str, recipe_data: Dict, variant: str,
+        episode_id: Optional[str] = None, previous_pan_material: Optional[str] = None,
+    ) -> Dict:
+        """One new image of ``variant`` from the art director (one image call; #8073)."""
+        return self.agents["art_director"].remake_variant(
+            recipe_id, recipe_data, variant, episode_id=episode_id,
+            previous_pan_material=previous_pan_material,
+        )
+
     def _execute_stage_copywriting(self, recipe_id: str, concept: str, recipe_data: Dict) -> Dict:
         """Execute copywriter's description stage."""
         copywriter = self.agents["copywriter"]
