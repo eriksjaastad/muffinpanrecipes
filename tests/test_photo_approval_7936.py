@@ -1134,6 +1134,23 @@ def test_wednesday_rerun_after_an_approval_keeps_the_photos_and_reruns_the_dialo
     assert wed["photo_review"]["image_set_id"] == approved.image_set_id
 
 
+def test_kept_photos_rerun_does_not_save_over_a_sunday_claim_made_during_the_dialogue(tmp_path):
+    store = _Store()
+    _wednesday(store, tmp_path)
+    decide(EP_ID, store.get(EP_ID), store=store)
+    before = copy.deepcopy(store.get(EP_ID))
+
+    def sunday_claims_meanwhile(*_a, **_k):
+        photo_review.claim_for_publication(store, EP_ID, store.get(EP_ID))
+        return [{"character": "Julian Torres", "message": "Again."}], "PASS"
+
+    rerun = _wednesday(store, tmp_path, dialogue_effect=sunday_claims_meanwhile)
+
+    assert getattr(rerun.error, "status_code", None) == 409
+    assert _control(store)["state"] == "claimed"
+    assert store.get(EP_ID) == before
+
+
 def test_wednesday_refuses_a_claimed_week_before_paying_for_photos(tmp_path):
     store, ep, _ = _approved_store()
     photo_review.claim_for_publication(store, EP_ID, ep)

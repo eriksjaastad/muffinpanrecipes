@@ -1950,6 +1950,11 @@ async def cron_wednesday(request: Request):
             injected_event=body.injected_event,
             recipe_data=ep.get("stages", {}).get("monday", {}).get("recipe_data"),
         )
+        if kept is not None:
+            # An approved set can be claimed by Sunday while this dialogue runs
+            # (a reshoot registers a new, unapproved set, so it cannot). Check
+            # again before this whole-episode save could overwrite Sunday's.
+            _refuse_wednesday_on_frozen_photos(episode_id, ep, concept)
 
         wed.update({
             "status": "complete",
