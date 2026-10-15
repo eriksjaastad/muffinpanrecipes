@@ -1112,7 +1112,7 @@ def create_routes(app: FastAPI):
         elif selected:
             note = _approval_message(str(data.get("episode_id") or view.episode_id))
         elif view.state == photo_review.REJECTED:
-            note = "Rejected. Sunday will not publish. No new photos are made."
+            note = "Rejected. Sunday will not publish. Rejecting makes no new photos; use Reshoot for a new set."
         elif view.legacy:
             note = ("These photos were made before photo review existed, so no "
                     "\"photos ready\" email went out. Sunday publishes only after you choose.")
@@ -1129,6 +1129,10 @@ def create_routes(app: FastAPI):
             "mirror_agrees": mirror_agrees,
             "legacy": view.legacy,
             "writable": not published and not frozen,
+            "reshoot_calls_left": view.reshoot_calls_left,
+            "reshoot_cap": photo_review.RESHOOT_CALL_CAP,
+            "can_reshoot": view.reshoot_calls_left >= photo_review.RESHOOT_CALLS,
+            "sunday_passed": bool(_sunday_run_has_passed(view.episode_id)),
             "note": note,
             "candidates": [
                 {**c, "display_url": _candidate_display_url(view.episode_id, c, ns, view.image_set_id),
@@ -1302,7 +1306,7 @@ def create_routes(app: FastAPI):
         if status_value == photo_review.APPROVED:
             message = _approval_message(episode_id)
         else:
-            message = "Rejected. Sunday will not publish. No new photos are made."
+            message = "Rejected. Sunday will not publish. Rejecting makes no new photos; use Reshoot for a new set."
         logger.info(f"Photo review for {episode_id}: {status_value} (control v{view.version})")
         return {"success": True, "status": status_value, "message": message, "version": view.version}
 
@@ -1324,6 +1328,49 @@ def create_routes(app: FastAPI):
             path=request_data.path,
             prefix=prefix,
         )
+
+    class PhotoReshootRequest(BaseModel):
+        image_set_id: str
+
+    @app.post("/admin/episodes/{episode_id}/photos/reshoot")
+    async def admin_photo_reshoot(
+        episode_id: str,
+        request_data: PhotoReshootRequest,
+        request: Request,
+        user: dict = Depends(require_auth),
+        ns: Optional[str] = None,
+    ):
+        """Shoot a new set of Wednesday photos for this week (#8073). Photos only.
+
+        Async like the review POST and every cron: the storage prefix is a plain
+        attribute on the shared singleton, so the minutes-long shoot must not
+        interleave with another request on a worker thread (RUNBOOK Incident 1).
+        Refusals (frozen, stale page, a shoot running, call cap)
+        are 409 with the reason; success returns the new set and the calls left.
+        """
+        from backend.admin import cron_routes
+        from backend.storage import EpisodeReadStale
+
+        _require_same_origin(request)
+        _sanitize_id(episode_id, "episode_id")
+        prefix = _namespace_prefix(ns)
+        store = _cloud_storage()
+        try:
+            with store.prefix_scope(prefix):
+                result = cron_routes.reshoot_wednesday_photos(episode_id, request_data.image_set_id)
+        except HTTPException:
+            raise
+        except EpisodeReadStale as exc:
+            logger.error(f"Episode read not verified for {episode_id}: {exc}")
+            raise HTTPException(status_code=503, detail="Storage is still updating. Try again in a minute.")
+        except Exception as exc:
+            logger.error(f"Photo reshoot failed for {episode_id}: {type(exc).__name__}: {exc}")
+            raise HTTPException(status_code=502, detail=f"The reshoot failed ({type(exc).__name__}). Reload to check.")
+        message = f"New photos are up for review. {result['calls_left']} reshoot image calls left."
+        if _sunday_run_has_passed(episode_id):
+            message += " Sunday has already run its schedule; it holds until a manual run (RUNBOOK)."
+        logger.info(f"Photo reshoot for {episode_id}: set {result['image_set_id']}")
+        return {"success": True, "message": message, **result}
 
     # Test-namespace images are stored under test/images/ in the same public
     # store; only exact URLs under this origin are ever fetched (#7936).
@@ -1409,17 +1456,16 @@ def create_routes(app: FastAPI):
     async def admin_rerun_photography(episode_id: str, user: dict = Depends(require_auth)):
         """Retired (#7936): it wrote a local stage no cloud review could see.
 
-        Generates nothing and writes nothing. A paid reshoot is a manual
-        Wednesday re-fire (RUNBOOK, the "awaiting_photo_approval" section),
-        which registers a new review.
+        Generates nothing and writes nothing. A reshoot is the Reshoot button
+        on the photo review (``admin_photo_reshoot``).
         """
         _sanitize_id(episode_id, "episode_id")
         raise HTTPException(
             status_code=410,
             detail=(
                 "Retired. Existing photos are reviewed at "
-                f"/admin/episodes/{episode_id}#photo-review; a reshoot is a manual "
-                "Wednesday re-fire (see RUNBOOK)."
+                f"/admin/episodes/{episode_id}#photo-review, where the Reshoot button makes "
+                "a new set (#8073)."
             ),
         )
 

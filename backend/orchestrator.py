@@ -276,6 +276,7 @@ class RecipeOrchestrator:
         recipe_data: Dict,
         episode_id: Optional[str] = None,
         previous_pan_material: Optional[str] = None,
+        max_rounds: Optional[int] = None,
     ) -> Dict:
         """Execute art director's photography stage.
 
@@ -283,7 +284,8 @@ class RecipeOrchestrator:
         evaluation, reshoot data, winner, and selected_shots for backward compat.
         ``episode_id`` (YYYY-Www) picks the week's pan; without it the art
         director uses the current week; ``previous_pan_material`` keeps the
-        material from repeating last week's.
+        material from repeating last week's. ``max_rounds=1`` turns the automatic
+        second round off, so the stage costs exactly one set of image calls.
         """
         art_director = self.agents["art_director"]
 
@@ -291,7 +293,8 @@ class RecipeOrchestrator:
             type="photograph_recipe",
             content="Photograph this recipe",
             context={"recipe_id": recipe_id, "recipe_data": recipe_data, "episode_id": episode_id,
-                     "previous_pan_material": previous_pan_material}
+                     "previous_pan_material": previous_pan_material,
+                     "max_rounds": max_rounds}
         )
 
         result = art_director.process_task(task)

@@ -88,6 +88,14 @@ _ACTIONS = {"select": APPROVED, "reject": REJECTED}
 # against the new latest version this many times, re-validating each time.
 _CAS_ATTEMPTS = 3
 
+# #8073: the dashboard Reshoot. Reshoot image calls per episode, on top of Wednesday's
+# own shoot, counted on the control
+# BEFORE they are spent and never refunded; a reshoot in flight longer than
+# RESHOOT_IN_FLIGHT_S is presumed dead (a Lambda killed mid-shoot clears nothing).
+RESHOOT_CALL_CAP = 9
+RESHOOT_CALLS = 3  # one round: the art director's three variants
+RESHOOT_IN_FLIGHT_S = 360
+
 
 class PhotoReviewError(ValueError):
     """A review write that must be refused (bad candidate, stale set, ...)."""
@@ -95,6 +103,10 @@ class PhotoReviewError(ValueError):
 
 class PublicationUnderway(RuntimeError):
     """The photo choice is frozen: Sunday has claimed or published it."""
+
+
+class ReshootRefused(RuntimeError):
+    """A dashboard reshoot may not start; the message is the reason shown."""
 
 
 class ReviewConflict(RuntimeError):
@@ -315,6 +327,16 @@ class ControlView:
             if isinstance(c, dict) and c.get("path") == sel["path"] and c.get("url") == sel["url"]:
                 return c
         return None
+
+    @property
+    def reshoots(self) -> dict:
+        """``{calls_used, in_flight}`` for the dashboard Reshoot (#8073)."""
+        stored = (self.raw or {}).get("reshoots")
+        return stored if isinstance(stored, dict) else {}
+
+    @property
+    def reshoot_calls_left(self) -> int:
+        return max(0, RESHOOT_CALL_CAP - int(self.reshoots.get("calls_used") or 0))
 
     @property
     def frozen(self) -> bool:
@@ -591,6 +613,11 @@ def _append(store, view: ControlView, *, state: str, request: dict | None, decis
     version = view.version + 1
     if version > PHOTO_CONTROL_MAX_VERSION:
         raise PhotoControlUnavailable("photo control log is full")
+    # The reshoot count lives on the control, so every transition carries it
+    # forward unless it passes its own (register_request clears in_flight).
+    reshoots = extra.pop("reshoots", view.reshoots)
+    if reshoots:
+        extra["reshoots"] = reshoots
     body = {
         "schema": SCHEMA,
         "episode_id": view.episode_id,
@@ -622,11 +649,15 @@ def _append(store, view: ControlView, *, state: str, request: dict | None, decis
 
 # --- Transitions -----------------------------------------------------------------
 
-def register_request(store, episode_id: str, request: dict) -> ControlView:
+def register_request(store, episode_id: str, request: dict, *, reshoot_id: str | None = None) -> ControlView:
     """Wednesday: make ``request`` the current set, voiding any earlier decision.
 
-    Raises PublicationUnderway when Sunday has claimed or published the
-    week; PhotoControlUnavailable on storage failure.
+    ``reshoot_id`` (a dashboard reshoot, #8073) registers only while that
+    shoot is still the one in flight, so a shoot that outlived its marker
+    cannot replace a newer reshoot's set. Raises PublicationUnderway when
+    Sunday has claimed or published the week, ReshootRefused when newer
+    photos (a later reshoot or a Wednesday re-fire) took over,
+    PhotoControlUnavailable on storage failure.
     """
     if not _valid_request(request):
         raise PhotoReviewError("No uploaded candidate photos to review")
@@ -635,12 +666,77 @@ def register_request(store, episode_id: str, request: dict) -> ControlView:
         view = _derived_view(episode_id, None) if ctrl is None else _view_from_control(episode_id, ctrl)
         if view.frozen:
             raise PublicationUnderway(f"photo control is {view.state}; the image set is frozen")
+        if reshoot_id is not None and (view.reshoots.get("in_flight") or {}).get("id") != reshoot_id:
+            raise ReshootRefused("Newer photos took over while this reshoot ran; its photos were not registered.")
         try:
             return _append(store, view, state=AWAITING, request=request, decision=None, claim=None,
-                           event="wednesday: new image set")
+                           event="wednesday: new image set",
+                           reshoots={k: v for k, v in view.reshoots.items() if k != "in_flight"})
         except PhotoControlConflict:
             continue
     raise ReviewConflict("photo control kept changing while Wednesday registered its photos")
+
+
+def start_reshoot(store, episode_id: str, verified_ep: dict | None, image_set: str, calls: int) -> ControlView:
+    """Dashboard Reshoot (#8073): count ``calls`` image calls and mark a shoot in flight.
+
+    One compare-and-swap does both jobs. The cap is checked against the count
+    on the control, and two clicks that both read version N cannot both create
+    N+1; the loser re-reads, sees ``in_flight`` and is refused. Raises
+    ReshootRefused (frozen, published, stale page, a shoot in flight, over the
+    cap), PhotoControlUnavailable on storage failure.
+    """
+    for _ in range(_CAS_ATTEMPTS):
+        view = read_view(store, episode_id, verified_ep)
+        if view.frozen:
+            raise ReshootRefused("Publishing is underway. Photos are frozen.")
+        if verified_ep and episode_is_published(verified_ep):
+            raise ReshootRefused("Episode is already published; its hero is pinned.")
+        if view.request is None or not image_set or image_set != view.image_set_id:
+            raise ReshootRefused("The photos changed since this page loaded; reload and review again.")
+        in_flight = view.reshoots.get("in_flight")
+        if isinstance(in_flight, dict):
+            try:
+                age = (datetime.now(timezone.utc) - datetime.fromisoformat(str(in_flight.get("started_at")))).total_seconds()
+            except ValueError:  # governance: allow-silent SF002: an unreadable start time cannot prove the shoot is dead, so it counts as in flight
+                age = 0.0
+            if age < RESHOOT_IN_FLIGHT_S:
+                raise ReshootRefused("A reshoot is already running. Wait for it to finish, then reload.")
+        used = int(view.reshoots.get("calls_used") or 0)
+        if used + calls > RESHOOT_CALL_CAP:
+            raise ReshootRefused(
+                f"Reshoot limit reached: {used} of {RESHOOT_CALL_CAP} reshoot image calls used for this episode."
+            )
+        reshoots = {"calls_used": used + calls,
+                    "in_flight": {"id": secrets.token_hex(8), "started_at": _now()}}
+        try:
+            return _append(store, view, state=view.state or AWAITING, request=view.request,
+                           decision=view.decision, claim=None, event="reshoot: started", reshoots=reshoots)
+        except PhotoControlConflict:
+            continue
+    raise ReviewConflict("photo control kept changing while the reshoot started")
+
+
+def clear_reshoot_in_flight(store, episode_id: str, reshoot_id: str) -> None:
+    """A shoot that failed: let the next click start without waiting out the expiry.
+
+    A no-op when the control has moved on (its own set was registered, or
+    another reshoot started), so it only ever clears the shoot ``reshoot_id``
+    began. The calls stay counted.
+    """
+    for attempt in range(_CAS_ATTEMPTS):
+        view = read_view(store, episode_id, None)
+        in_flight = view.reshoots.get("in_flight")
+        if view.frozen or not isinstance(in_flight, dict) or in_flight.get("id") != reshoot_id:
+            return
+        try:
+            _append(store, view, state=view.state, request=view.request, decision=view.decision, claim=None,
+                    event="reshoot: failed",
+                    reshoots={k: v for k, v in view.reshoots.items() if k != "in_flight"})
+            return
+        except PhotoControlConflict:
+            if attempt == _CAS_ATTEMPTS - 1:
+                raise
 
 
 def ensure_not_frozen(store, episode_id: str) -> ControlView | None:
