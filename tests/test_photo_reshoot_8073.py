@@ -338,3 +338,15 @@ def test_clearing_the_marker_retries_a_lost_compare_and_swap():
     with patch.object(store, "create_photo_control_version", side_effect=lose_once):
         _finish(store, started)
     assert "in_flight" not in _control(store)["reshoots"]
+
+
+def test_an_uncertain_start_points_at_the_page_instead_of_promising_nothing_was_counted(tmp_path):
+    # A control write can land and then fail its verification read, so the
+    # handler cannot know whether the calls were counted (#8073).
+    store, wed = _store_with_set()
+    with _shoot_env(store, tmp_path) as (client, shoot, _notify, _dialogue), \
+         patch("backend.utils.photo_review.start_reshoot", side_effect=OSError("verify read failed")):
+        resp = _reshoot(client, wed)
+    detail = resp.json()["detail"]
+    assert resp.status_code == 503 and "Reload the page" in detail and "counted" not in detail
+    shoot.assert_not_called()

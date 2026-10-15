@@ -1924,12 +1924,11 @@ def _shoot_and_register(
             fresh = storage.load_episode_verified(episode_id)
         except Exception as exc:
             raise ReshootNotRegistered(
-                f"The photos were generated but not registered ({type(exc).__name__} re-reading the episode); "
-                "nothing changed."
+                f"The photos were generated but not registered ({type(exc).__name__} re-reading the episode)."
             ) from exc
         if not fresh:
             raise ReshootNotRegistered(
-                "The photos were generated but not registered (episode not found on re-read); nothing changed."
+                "The photos were generated but not registered (episode not found on re-read)."
             )
     try:
         photo_review.register_request(storage, episode_id, request)
@@ -1985,6 +1984,11 @@ def _shoot_and_register(
     return wed, photography_result, image_paths, image_urls
 
 
+# After a failure the handler cannot always know what the photo control
+# recorded, so it points at the page, which reads the control (#8073).
+_RESHOOT_RELOAD = "Reload the page to see the current photos and reshoot calls left."
+
+
 def reshoot_wednesday_photos(episode_id: str, image_set_id: str) -> dict:
     """Dashboard Reshoot (#8073): new Wednesday images for a page's current set.
 
@@ -2014,7 +2018,9 @@ def reshoot_wednesday_photos(episode_id: str, image_set_id: str) -> dict:
         raise HTTPException(status_code=409, detail=str(exc))
     except Exception as exc:
         logger.error(f"Reshoot start failed for {episode_id}: {type(exc).__name__}: {exc}")
-        raise HTTPException(status_code=503, detail="Could not start the reshoot; nothing was counted or changed.")
+        # The write may or may not have landed; the control, not this message,
+        # says whether the calls were counted (#8073).
+        raise HTTPException(status_code=503, detail=f"Could not start the reshoot ({type(exc).__name__}). {_RESHOOT_RELOAD}")
     reshoot_id = started.reshoots["in_flight"]["id"]
     try:
         wed, *_ = _shoot_and_register(
@@ -2032,7 +2038,7 @@ def reshoot_wednesday_photos(episode_id: str, image_set_id: str) -> dict:
             raise
         logger.error(f"Reshoot failed for {episode_id}: {type(exc).__name__}: {exc}")
         detail = str(exc) if isinstance(exc, ReshootNotRegistered) else f"The reshoot failed ({type(exc).__name__})."
-        raise HTTPException(status_code=502, detail=f"{detail} Its image calls stay counted.") from exc
+        raise HTTPException(status_code=502, detail=f"{detail} {_RESHOOT_RELOAD}") from exc
     view = photo_review.read_view(storage, episode_id, None)
     return {
         "image_set_id": wed["photo_review"]["image_set_id"],
