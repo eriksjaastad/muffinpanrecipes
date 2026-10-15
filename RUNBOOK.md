@@ -95,6 +95,11 @@ underway. Choices are frozen." and Wednesday refuses to replace the photos (409)
 - Rejected: nothing publishes. New photos mean a paid Wednesday rerun, which
   starts a fresh review: `.../api/cron/wednesday` with the same curl. The old
   admin `images/rerun` endpoint is retired (410).
+- Approved, but Wednesday's dialogue failed the judge: re-fire Wednesday with
+  the same curl. It keeps the approved set and Erik's pick, and reruns only
+  the dialogue, so no image is generated and no "Photos ready" alert goes out
+  (#8297). To replace an approved set, choose "None usable" first; the re-fire
+  then reshoots.
 - Weeks whose Wednesday completed before this deploy: no migration and no
   paid recovery. The page derives the request from the photos already
   uploaded; the first decision creates control version 1 (never replacing an
@@ -678,7 +683,7 @@ Suppose the week you just force-republished (call it W) had already missed its o
 
 The note drops at the next week's next stage write. Every stage write re-checks it (`episode_renderer._week_off_note_still_true`) with a verified Blob read and removes it once W is published. Expect the homepage to keep the note until the next daily cron, typically within a day. A failed or stale read keeps the note, which is logged as `week_off_note recheck skipped for <W>`.
 
-Do not re-fire a completed stage to clear the note sooner. That repeats paid work and can replace the stage's content (a re-fired Wednesday reshoots the photos). Wait for the next scheduled stage.
+Do not re-fire a completed stage to clear the note sooner. That repeats paid work and can replace the stage's content (a re-fired Wednesday reshoots the photos unless one is approved). Wait for the next scheduled stage.
 
 A related rule from the same decision: a week held for photo approval (or failing after Wednesday) shows no note on Sunday. If it never publishes, the next Monday notes it.
 
