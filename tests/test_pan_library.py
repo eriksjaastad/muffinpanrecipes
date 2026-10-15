@@ -42,13 +42,6 @@ def test_consecutive_weeks_never_repeat_a_material_across_a_year_boundary():
     assert sorted(materials) == sorted(pool)
 
 
-@pytest.mark.parametrize("size", ["mini", "jumbo"])
-def test_a_size_change_after_a_standard_week_never_repeats_its_material(size):
-    for week in range(1, 53):
-        today = pan_for_week(f"2026-W{week:02d}").material
-        assert pan_for_week(f"2026-W{week + 1:02d}", size=size).material != today
-
-
 def test_geometry_text_starts_with_the_well_count():
     for spec in SIZES.values():
         assert spec["geometry"].startswith(f"{spec['wells']} identical")

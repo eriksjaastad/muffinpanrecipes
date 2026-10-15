@@ -13,8 +13,8 @@ references. Tested on W41: docs/image-lab/results/2026-10-07-w41-pan/.
 
 Production still uses the standard 12-cup pan: the baker prompt does not ask
 for a pan yet (utils/recipe_prompts.py), so no recipe stores ``pan_size``.
-Every stage reads the size through ``pan_size_of``; the baker will choose
-from the other sizes in #8067 PR B.
+Every stage reads the size through ``pan_size_of``, so a recipe that stores
+another size (#8067, once the baker prompt asks for one) is followed throughout.
 """
 
 from __future__ import annotations
@@ -175,19 +175,12 @@ def pan_for_week(episode_id: str | None, size: str = "standard", today: date | N
     """The week's pan: fixed geometry for ``size``, material rotated by ISO week.
 
     Deterministic, so a Wednesday re-fire in the same week shoots the same
-    pan. The material is the first one, from ``MATERIALS`` order index
-    ``week % len(MATERIALS)`` onward, that comes in ``size``. A standard week
-    therefore never shares its material with the next week at any size.
+    pan; never repeats a material within ``len(pool)`` consecutive weeks.
     """
     if size not in SIZES:
         raise ValueError(f"unknown pan size {size!r}")
-    names = list(MATERIALS)
-    start = _absolute_week(episode_id, today) % len(names)
-    material = next(
-        n
-        for n in (names[(start + i) % len(names)] for i in range(len(names)))
-        if size in MATERIALS[n]["sizes"]  # type: ignore[operator]
-    )
+    pool = [m for m, spec in MATERIALS.items() if size in spec["sizes"]]  # type: ignore[operator]
+    material = pool[_absolute_week(episode_id, today) % len(pool)]
     clause = PAN_CLAUSE_TEMPLATE.format(
         size_label=SIZES[size]["label"],
         material=MATERIALS[material]["description"],

@@ -82,7 +82,6 @@ from backend.utils.recipe_overlap import _singularize, normalize_ingredient
 # The capacity ceiling is wells x the largest well volume. The yield band is
 # half to double the wells, so a recipe with no stored pan keeps the standard
 # 12-cup band of 6-24; zero or 40 is not a muffin-pan recipe at any size.
-WELL_CAPACITY_CUPS_MIN = 1.0 / 3.0
 
 
 def _pan_limits(recipe: dict[str, Any]) -> tuple[str, int, float]:
