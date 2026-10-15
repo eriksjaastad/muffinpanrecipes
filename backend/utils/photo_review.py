@@ -219,7 +219,7 @@ def remade_review(request: dict, old_path: str, shot: dict, url: str) -> dict:
             {"variant": c["variant"], "path": shot["path"] if c["path"] == old_path else c["path"]}
         )
     photo: dict = {"rounds": rounds}
-    pan = ((request_snapshot(request) or {}).get("photography_data") or {}).get("pan")
+    pan = ((request_snapshot(request) or {}).get("photography_data") or {}).get("pan") or shot.get("pan")
     if pan is not None:
         photo["pan"] = copy.deepcopy(pan)
     index = paths.index(old_path)

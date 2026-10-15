@@ -629,7 +629,9 @@ class ArtDirectorAgent(Agent):
             pan_clause=pan.clause, pan_size=pan.size, deadline=_clock() + _SHOOT_BUDGET_S,
             variants=(variant,),
         )
-        return outputs[0]
+        # The pan actually shot, in the full shoot's shape, so a remade set
+        # without a stored pan still records it for next week's rotation.
+        return {**outputs[0], "pan": {"size": pan.size, "material": pan.material, "library": PAN_LIBRARY_VERSION}}
 
     def _photograph_recipe(
         self, task: Task, approach: TaskApproach, context: MemoryContext

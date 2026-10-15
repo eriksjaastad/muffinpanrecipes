@@ -90,6 +90,18 @@ def test_remade_set_carries_no_evaluation_of_the_old_set_but_keeps_the_pan(tmp_p
     assert all(set(v) == {"variant", "path"} for r in out["photography_data"]["rounds"] for v in r["variants"])
 
 
+def test_a_legacy_set_without_a_stored_pan_records_the_pan_the_remake_shot(tmp_path):
+    store, _wed = _store_with_set()
+    request = copy.deepcopy(_control(store)["request"])
+    request["wednesday_snapshot"]["photography_data"].pop("pan", None)
+    old = request["candidates"][0]["path"]
+    shot = {**_shot(tmp_path), "pan": {"size": "standard", "material": "cast_iron", "library": "panV1"}}
+
+    new = photo_review.remade_review(request, old, shot, f"{BLOB}/r1/new.png")
+
+    assert new["wednesday_snapshot"]["photography_data"]["pan"]["material"] == "cast_iron"
+
+
 def test_remake_variant_makes_one_image_call_with_the_weeks_pan_and_no_featured_image(tmp_path, monkeypatch):
     import backend.storage as storage_module
 
@@ -106,6 +118,7 @@ def test_remake_variant_makes_one_image_call_with_the_weeks_pan_and_no_featured_
 
     pan = pan_for_week("2026-W41", avoid="aluminum")
     assert len(prompts) == 1 and pan.clause in prompts[0]
+    assert shot["pan"] == {"size": pan.size, "material": pan.material, "library": "panV1"}
     assert shot["path"].endswith("/round_1/overhead_flatlay.png") and "/g" in shot["path"]
     assert not (tmp_path / "src" / "assets" / "images" / "test-recipe.png").exists()
 
