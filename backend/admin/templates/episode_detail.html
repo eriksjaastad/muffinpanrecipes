@@ -254,6 +254,8 @@
                         {% set round_status = (round_data.get('vision_evaluation') or {}).get('review_status') %}
                         {% if round_status in ('unavailable', 'incomplete') %}
                         <span class="text-amber-700 ml-1">{{ round_status | upper }}{% if round_data.get('rejection_reason') %}: {{ round_data.get('rejection_reason')[:80] }}{% endif %}</span>
+                        {% elif 'passed' not in round_data and not round_data.get('vision_evaluation') %}
+                        <span class="text-slate-500 ml-1">NOT EVALUATED</span>
                         {% elif round_data.get('passed') and round_status in (none, 'passed') %}
                         <span class="text-emerald-600 ml-1">PASSED</span>
                         {% else %}

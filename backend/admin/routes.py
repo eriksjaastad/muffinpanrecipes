@@ -1052,6 +1052,17 @@ def create_routes(app: FastAPI):
             return data.get("stages", {}).get("wednesday", {}) or {}
         return None
 
+    def _is_evaluated(evaluation: Optional[dict]) -> bool:
+        """Whether the set carries any automated verdict (a remade set has none, #8073)."""
+        if evaluation is None:
+            return False
+        photo = evaluation.get("photography_data")
+        photo = photo if isinstance(photo, dict) else {}
+        return bool(
+            evaluation.get("confirmed_winner") or photo.get("automated_review_status")
+            or any(isinstance(r, dict) and r.get("vision_evaluation") for r in photo.get("rounds") or [])
+        )
+
     def _automated_notes(wed: dict) -> tuple[Optional[str], dict]:
         """The automated pick and each candidate's recorded defects, by path."""
         winner = wed.get("confirmed_winner") or {}
@@ -1125,7 +1136,7 @@ def create_routes(app: FastAPI):
             "selected_path": selected["path"] if selected else None,
             "decided_at": (view.decision or {}).get("decided_at"),
             "automated_status": automated,
-            "evaluation_unavailable": evaluation is None,
+            "evaluation_unavailable": not _is_evaluated(evaluation),
             "mirror_agrees": mirror_agrees,
             "legacy": view.legacy,
             "writable": not published and not frozen,

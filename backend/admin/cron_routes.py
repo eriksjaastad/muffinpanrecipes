@@ -2007,12 +2007,13 @@ def _register_photos(
 _RESHOOT_RELOAD = "Reload the page to see the current photos and reshoot calls left."
 
 
-def _reshoot_flow(episode_id: str, image_set_id: str, calls: int, shoot, precheck=None) -> dict:
+def _reshoot_flow(episode_id: str, image_set_id: str, calls: int, noun: str, shoot, precheck=None) -> dict:
     """The shared frame of a dashboard reshoot (#8073): checks, count the calls, shoot, report.
 
     ``shoot(ep, concept, recipe_data, started, reshoot_id)`` makes and registers
     the new set and returns the stored Wednesday stage. ``precheck(ep)`` may
-    refuse before anything is counted. Raises HTTPException: 409 when refused,
+    refuse before anything is counted; ``noun`` ("reshoot" or "remake") words the
+    failures. Raises HTTPException: 409 when refused,
     404/503 on a missing or unreadable episode, 502 on a failed shoot.
     """
     try:
@@ -2028,16 +2029,25 @@ def _reshoot_flow(episode_id: str, image_set_id: str, calls: int, shoot, prechec
     concept = ep.get("concept") or PLACEHOLDER_CONCEPT
     _refuse_wednesday_on_frozen_photos(episode_id, ep, concept)
     if precheck:
-        precheck(ep)
+        try:
+            precheck(ep)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error(f"Photo {noun} check failed for {episode_id}: {type(exc).__name__}: {exc}")
+            raise HTTPException(
+                status_code=503,
+                detail=f"Could not read the current photos ({type(exc).__name__}); nothing was counted or changed.",
+            )
     try:
         started = photo_review.start_reshoot(storage, episode_id, ep, image_set_id, calls)
     except (photo_review.ReshootRefused, photo_review.ReviewConflict) as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     except Exception as exc:
-        logger.error(f"Reshoot start failed for {episode_id}: {type(exc).__name__}: {exc}")
+        logger.error(f"Photo {noun} start failed for {episode_id}: {type(exc).__name__}: {exc}")
         # The write may or may not have landed; the control, not this message,
         # says whether the calls were counted (#8073).
-        raise HTTPException(status_code=503, detail=f"Could not start the reshoot ({type(exc).__name__}). {_RESHOOT_RELOAD}")
+        raise HTTPException(status_code=503, detail=f"Could not start the {noun} ({type(exc).__name__}). {_RESHOOT_RELOAD}")
     reshoot_id = started.reshoots["in_flight"]["id"]
     try:
         wed = shoot(ep, concept, monday["recipe_data"], started, reshoot_id)
@@ -2053,8 +2063,8 @@ def _reshoot_flow(episode_id: str, image_set_id: str, calls: int, shoot, prechec
             raise
         if isinstance(exc, photo_review.ReshootRefused):
             raise HTTPException(status_code=409, detail=f"{exc} {_RESHOOT_RELOAD}") from exc
-        logger.error(f"Reshoot failed for {episode_id}: {type(exc).__name__}: {exc}")
-        detail = str(exc) if isinstance(exc, ReshootNotRegistered) else f"The reshoot failed ({type(exc).__name__})."
+        logger.error(f"Photo {noun} failed for {episode_id}: {type(exc).__name__}: {exc}")
+        detail = str(exc) if isinstance(exc, ReshootNotRegistered) else f"The {noun} failed ({type(exc).__name__})."
         raise HTTPException(status_code=502, detail=f"{detail} {_RESHOOT_RELOAD}") from exc
     view = photo_review.read_view(storage, episode_id, None)
     return {
@@ -2072,7 +2082,7 @@ def reshoot_wednesday_photos(episode_id: str, image_set_id: str) -> dict:
     caller's request (admin and cron share one Lambda).
     """
     return _reshoot_flow(
-        episode_id, image_set_id, photo_review.RESHOOT_CALLS,
+        episode_id, image_set_id, photo_review.RESHOOT_CALLS, "reshoot",
         lambda ep, concept, recipe_data, _started, reshoot_id: _shoot_and_register(
             episode_id, ep, concept, recipe_data, max_rounds=1, reshoot_id=reshoot_id,
         )[0],
@@ -2097,13 +2107,13 @@ def remake_wednesday_photo(episode_id: str, image_set_id: str, path: str) -> dic
         # A stale page is start_reshoot's to refuse; only a current page can name a bad path.
         if view.image_set_id == image_set_id:
             candidate = candidate_of(view.request)
-            if candidate is None or candidate["variant"] not in ArtDirectorAgent._VARIANTS:
+            if candidate is None:
                 raise HTTPException(status_code=400, detail="That photo is not in the current set.")
+            if candidate["variant"] not in ArtDirectorAgent._VARIANTS:
+                raise HTTPException(status_code=400, detail="That photo cannot be remade: it has no known variant.")
 
     def shoot(ep: dict, concept: str, recipe_data: dict, started, reshoot_id: str) -> dict:
-        candidate = candidate_of(started.request)
-        if candidate is None:
-            raise photo_review.ReshootRefused("The photos changed since this page loaded; reload and review again.")
+        candidate = candidate_of(started.request)  # start_reshoot pinned the set the precheck read
         shot = _get_orchestrator()(data_dir=_episodes_data_dir())._execute_remake_photo(
             ep.get("recipe_id") or "unknown", recipe_data, candidate["variant"],
             episode_id=episode_id, previous_pan_material=_previous_pan_material(episode_id),
@@ -2121,7 +2131,7 @@ def remake_wednesday_photo(episode_id: str, image_set_id: str, path: str) -> dic
         }
         return _register_photos(episode_id, ep, concept, wed, request, reshoot_id=reshoot_id)
 
-    return _reshoot_flow(episode_id, image_set_id, 1, shoot, precheck)
+    return _reshoot_flow(episode_id, image_set_id, 1, "remake", shoot, precheck)
 
 
 @router.api_route("/wednesday", methods=["GET", "POST"])

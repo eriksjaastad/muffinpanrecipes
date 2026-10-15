@@ -151,9 +151,13 @@ class ArtDirectorAgent(Agent):
         d.mkdir(parents=True, exist_ok=True)
         return d
 
+    @staticmethod
+    def _title_of(recipe_data: dict, concept: str | None = None) -> str:
+        return str(recipe_data.get("title") or concept or "Muffin Pan Recipe")
+
     def _recipe_title(self, task: Task) -> str:
         recipe_data = task.context.get("recipe_data", {}) if isinstance(task.context, dict) else {}
-        return str(recipe_data.get("title") or task.context.get("concept") or "Muffin Pan Recipe")
+        return self._title_of(recipe_data, task.context.get("concept"))
 
     # Brand promise: every photo must read as muffin-tin-made food. Without
     # this clause the image model infers shape from the title alone — "Sweet
@@ -621,7 +625,7 @@ class ArtDirectorAgent(Agent):
             raise RuntimeError("GOOGLE_API_KEY not configured; Julian refuses to work with placeholders.")
         pan = pan_for_week(episode_id, size=pan_size_of(recipe_data), avoid=previous_pan_material)
         outputs, _ = self._generate_round(
-            api_key, str(recipe_data.get("title") or "Muffin Pan Recipe"), recipe_id, 1,
+            api_key, self._title_of(recipe_data), recipe_id, 1,
             pan_clause=pan.clause, pan_size=pan.size, deadline=_clock() + _SHOOT_BUDGET_S,
             variants=(variant,),
         )

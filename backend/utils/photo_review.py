@@ -198,34 +198,34 @@ def remade_review(request: dict, old_path: str, shot: dict, url: str) -> dict:
     """The request for ``request``'s set with one image swapped for a new one (#8073).
 
     ``shot`` is the art director's variant output for the new image and ``url``
-    its upload. Every other candidate, and its evaluation, is kept; the new
-    image carries no scores because nothing evaluated it. Built by ``new_review``
-    so it is a new set (new ``image_set_id``) like any other. Raises
-    ReshootRefused when ``old_path`` is not in the set.
+    its upload. The snapshot is built from the images alone (variant names, paths,
+    rounds, and the pan, which next week's pan choice reads): every evaluation
+    field (winner, scores, defects, verdicts) described the old set, and nothing
+    has evaluated this one, so none is carried over and the readers show it as
+    not evaluated. Built by ``new_review``, so it is a new set (new
+    ``image_set_id``) like any other. Raises ReshootRefused when ``old_path`` is
+    not in the set.
     """
-    snap = request_snapshot(request)
     paths = list(request.get("image_paths") or [])
     urls = list(request.get("image_urls") or [])
-    if snap is None or old_path not in paths or len(urls) != len(paths):
+    candidates = request.get("candidates") or []
+    if old_path not in paths or len(urls) != len(paths) or old_path not in [c["path"] for c in candidates]:
         raise ReshootRefused("The photos changed since this page loaded; reload and review again.")
-    photo = copy.deepcopy(snap["photography_data"])
-    for rnd in photo.get("rounds") or []:
-        rnd["variants"] = [
-            {k: v for k, v in {**var, "path": shot["path"], "local_path": shot["local_path"],
-                               "prompt": shot["prompt"]}.items() if k != "scores"}
-            if var.get("path") == old_path else var
-            for var in rnd.get("variants") or []
-        ]
+    rounds: list[dict] = []
+    for c in candidates:
+        if not rounds or rounds[-1]["round"] != c["round"]:
+            rounds.append({"round": c["round"], "variants": []})
+        rounds[-1]["variants"].append(
+            {"variant": c["variant"], "path": shot["path"] if c["path"] == old_path else c["path"]}
+        )
+    photo: dict = {"rounds": rounds}
+    pan = ((request_snapshot(request) or {}).get("photography_data") or {}).get("pan")
+    if pan is not None:
+        photo["pan"] = copy.deepcopy(pan)
     index = paths.index(old_path)
     paths[index], urls[index] = shot["path"], url
-    winner = snap.get("confirmed_winner") or {}
-    if winner.get("path") == old_path:
-        winner = {}  # the new image was never evaluated, so it is nobody's team pick
     return new_review({
-        "photography_data": photo,
-        "confirmed_winner": winner,
-        "image_paths": paths,
-        "image_urls": urls,
+        "photography_data": photo, "confirmed_winner": {}, "image_paths": paths, "image_urls": urls,
     })
 
 

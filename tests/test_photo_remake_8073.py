@@ -6,6 +6,7 @@ image model, the upload and the email are the only things replaced. No network.
 
 from __future__ import annotations
 
+import copy
 import inspect
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
@@ -68,14 +69,25 @@ def test_remade_review_replaces_only_the_remade_image_with_a_valid_new_set(tmp_p
     assert new["image_paths"][1] == NEW_PATH and new["image_urls"][1] == f"{BLOB}/r1/new.png"
 
 
-def test_remaking_the_team_pick_leaves_no_winner_naming_the_removed_image(tmp_path):
+def test_remade_set_carries_no_evaluation_of_the_old_set_but_keeps_the_pan(tmp_path):
     store, _wed = _store_with_set()
-    request = _control(store)["request"]
-    winner_path = request["wednesday_snapshot"]["confirmed_winner"]["path"]
-    new = photo_review.remade_review(request, winner_path, _shot(tmp_path), f"{BLOB}/r1/new.png")
-    assert new["wednesday_snapshot"]["confirmed_winner"] == {}
-    kept = photo_review.remade_review(request, request["candidates"][1]["path"], _shot(tmp_path), f"{BLOB}/r1/new.png")
-    assert kept["wednesday_snapshot"]["confirmed_winner"]["path"] == winner_path
+    request = copy.deepcopy(_control(store)["request"])
+    snap = request["wednesday_snapshot"]
+    old = request["candidates"][0]["path"]
+    snap["confirmed_winner"] = {"path": old, "featured_image": "src/assets/images/r1.png"}
+    photo = snap["photography_data"]
+    photo.update(winner={"path": old}, selected_shots=[old], pan={"material": "steel"},
+                 automated_review_status="passed")
+    photo["rounds"][0].update(vision_evaluation={"passed": True}, passed=True)
+    photo["rounds"][0]["variants"][0]["scores"] = {"defects": ["x"]}
+
+    new = photo_review.remade_review(request, old, _shot(tmp_path), f"{BLOB}/r1/new.png")
+
+    out = new["wednesday_snapshot"]
+    assert out["confirmed_winner"] == {}
+    assert set(out["photography_data"]) == {"rounds", "pan"} and out["photography_data"]["pan"] == {"material": "steel"}
+    assert all(set(r) == {"round", "variants"} for r in out["photography_data"]["rounds"])
+    assert all(set(v) == {"variant", "path"} for r in out["photography_data"]["rounds"] for v in r["variants"])
 
 
 def test_remake_variant_makes_one_image_call_with_the_weeks_pan_and_no_featured_image(tmp_path, monkeypatch):
@@ -104,8 +116,12 @@ def test_remake_registers_a_new_unapproved_set_keeps_the_rest_and_counts_one_cal
     old_paths = _control(store)["request"]["image_paths"]
     with _remake_env(store, tmp_path) as (client, shoot, saved, notify, dialogue):
         resp = _remake(client, wed, old_paths[1])
+        page = client.get(f"/admin/episodes/{EP_ID}").text
 
     assert resp.status_code == 200, resp.text
+    # The page reads the new set as not evaluated: no pick, no verdict, no old PASSED.
+    assert "automated review for this photo set is not available" in page
+    assert "NOT EVALUATED" in page and "PASSED" not in page
     assert resp.json()["calls_left"] == 8
     shoot.assert_called_once()
     assert shoot.call_args.args[2] == "overhead_flatlay"
@@ -151,3 +167,16 @@ def test_remake_route_runs_on_the_event_loop_not_a_thread():
     create_routes(app)
     route = next(r for r in app.routes if getattr(r, "path", "").endswith("/photos/remake"))
     assert inspect.iscoroutinefunction(route.endpoint)
+
+
+def test_a_control_read_failure_before_counting_is_a_503_and_a_failed_remake_says_remake(tmp_path):
+    store, wed = _store_with_set()
+    path = _control(store)["request"]["image_paths"][1]
+    with _remake_env(store, tmp_path) as (client, shoot, _saved, _notify, _dialogue):
+        with patch.object(photo_review, "read_view", side_effect=photo_review.PhotoControlUnavailable("down")):
+            unreadable = _remake(client, wed, path)
+        assert shoot.call_count == 0 and "calls_used" not in _control(store).get("reshoots", {})
+        shoot.side_effect = RuntimeError("image model down")
+        failed = _remake(client, wed, path)
+    assert unreadable.status_code == 503 and "nothing was counted" in unreadable.json()["detail"]
+    assert failed.status_code == 502 and "The remake failed" in failed.json()["detail"]
