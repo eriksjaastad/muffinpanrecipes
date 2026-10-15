@@ -32,6 +32,7 @@ from backend.storage import (
     storage,
 )
 from backend.utils import episode_integrity
+from backend.utils.pan_library import SIZES
 from backend.utils.recipe_copy import INTRO_PLACEHOLDER
 from backend.utils.logging import get_logger
 from backend.utils.text_sanitize import sanitize_text
@@ -750,6 +751,20 @@ def render_episode_page(
             f'<span>{html.escape(sanitize_text(step_text))}</span></li>\n'
         )
 
+    # Equipment: shown only when the baker stored a valid pan size. Recipes
+    # published before the baker chose a pan carry none and render unchanged
+    # (no standard-pan line is invented for them). pan_reason is internal.
+    pan_size = recipe.get("pan_size")
+    pan_label = SIZES[pan_size]["label"] if isinstance(pan_size, str) and pan_size in SIZES else ""
+    equipment_html = ""
+    if pan_label:
+        equipment_html = f"""
+            <div class="recipe-card__section">
+                <h3 class="recipe-card__heading">Equipment</h3>
+                <p>{html.escape(pan_label)}</p>
+            </div>
+"""
+
     # Image block — WebP is the preferred source, while a sized JPEG sibling
     # (#7185) is the fallback for browsers that cannot decode WebP at all —
     # once storage confirms it exists (scripts/backfill_image_variants.py
@@ -860,7 +875,7 @@ def render_episode_page(
                     {ingredients_html}
                 </ul>
             </div>
-
+{equipment_html}
             <div class="recipe-card__section recipe-card__section--bordered">
                 <h3 class="recipe-card__heading">Instructions</h3>
                 <ol class="instructions">
@@ -950,6 +965,8 @@ def render_episode_page(
         }
         if abs_image_url:
             ld_data["image"] = [abs_image_url]
+        if pan_label:
+            ld_data["tool"] = [{"@type": "HowToTool", "name": pan_label}]
         if cuisine:
             # Honest cuisine when the recipe declares one; omit otherwise
             # rather than assert a blanket "American" (Google treats

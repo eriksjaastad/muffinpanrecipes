@@ -56,7 +56,7 @@ def test_user_prompt_reinforces_pan_first_design() -> None:
 # ---------------------------------------------------------------------------
 
 def test_fix_prompt_carries_pan_geometry_and_shape_ban() -> None:
-    assert "twelve ROUND, flared wells" in _RECIPE_FIX_SYSTEM_PROMPT
+    assert "the stated pan's ROUND, flared wells" in _RECIPE_FIX_SYSTEM_PROMPT
     assert "NEVER Squares" in _RECIPE_FIX_SYSTEM_PROMPT
 
 

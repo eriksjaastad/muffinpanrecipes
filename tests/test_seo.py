@@ -195,6 +195,21 @@ def test_json_ld_omits_cuisine_when_absent() -> None:
     assert "recipeCuisine" not in ld
 
 
+def test_equipment_and_tool_appear_only_for_a_stored_pan() -> None:
+    """No stored pan renders no Equipment section or tool; pan_reason is never shown."""
+    ep = _published_episode()
+    page = render_episode_page(ep)
+    assert "Equipment" not in page and "tool" not in _extract_json_ld(page)
+
+    ep["stages"]["monday"]["recipe_data"].update(pan_size="jumbo", pan_reason="big muffin tops")
+    page = render_episode_page(ep)
+    assert "Equipment</h3>" in page and "6-cup jumbo muffin pan</p>" in page
+    assert _extract_json_ld(page)["tool"] == [
+        {"@type": "HowToTool", "name": "6-cup jumbo muffin pan"}
+    ]
+    assert "big muffin tops" not in page
+
+
 # ---------------------------------------------------------------------------
 # HowToStep url — each step must link to the anchor it describes
 # ---------------------------------------------------------------------------

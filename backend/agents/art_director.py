@@ -26,7 +26,7 @@ from backend.core.types import EmotionalResponse, MemoryContext
 from backend.utils.recipe_copy import recipe_pitch
 from backend.utils.image_generation import generate_nano_banana_image
 from backend.utils.logging import get_logger
-from backend.utils.pan_library import PAN_LIBRARY_VERSION, pan_for_week
+from backend.utils.pan_library import PAN_LIBRARY_VERSION, pan_for_week, pan_size_of
 from backend.utils.model_router import generate_vision_response
 
 logger = get_logger(__name__)
@@ -613,7 +613,10 @@ class ArtDirectorAgent(Agent):
         recipe_title = self._recipe_title(task)
         api_key = os.getenv("GOOGLE_API_KEY")
         episode_id = task.context.get("episode_id")
-        pan = pan_for_week(episode_id if isinstance(episode_id, str) else None)
+        pan = pan_for_week(
+            episode_id if isinstance(episode_id, str) else None,
+            size=pan_size_of(task.context.get("recipe_data")),
+        )
 
         # 1. Prepare the Job File for Mission Control (R2 / RunPod)
         # This is the "canonical" way the project tracks generation intent

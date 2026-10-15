@@ -11,9 +11,10 @@ Kitchen, Once Upon a Chef) and a commercial jumbo pan listing; materials from
 current muffin-pan buying guides and vintage cast-iron gem pan and tinware
 references. Tested on W41: docs/image-lab/results/2026-10-07-w41-pan/.
 
-Only the standard 12-cup pan is used in production for now: every recipe is
-written for it (utils/recipe_prompts.py). The other sizes are the library
-the baker will choose from in #8067.
+Production still uses the standard 12-cup pan: the baker prompt does not ask
+for a pan yet (utils/recipe_prompts.py), so no recipe stores ``pan_size``.
+Every stage reads the size through ``pan_size_of``; the baker will choose
+from the other sizes in #8067 PR B.
 """
 
 from __future__ import annotations
@@ -21,11 +22,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from typing import Any
 
 PAN_LIBRARY_VERSION = "panV1"
 
-SIZES: dict[str, dict[str, str]] = {
+SIZES: dict[str, dict[str, Any]] = {
     "mini": {
+        "wells": 24,
+        "well_cups": 0.125,
         "label": "24-cup mini muffin pan",
         "geometry": (
             "24 identical round wells in a precise 4-by-6 grid, each well about 1 3/4 inches "
@@ -34,6 +38,8 @@ SIZES: dict[str, dict[str, str]] = {
         ),
     },
     "standard": {
+        "wells": 12,
+        "well_cups": 0.5,
         "label": "12-cup standard muffin pan",
         "geometry": (
             "12 identical round wells in a precise 3-by-4 grid, each well about 2 3/4 inches "
@@ -42,6 +48,8 @@ SIZES: dict[str, dict[str, str]] = {
         ),
     },
     "jumbo": {
+        "wells": 6,
+        "well_cups": 1.0,
         "label": "6-cup jumbo muffin pan",
         "geometry": (
             "6 identical round wells in a precise 2-by-3 grid, each well about 3 1/2 inches "
@@ -157,16 +165,29 @@ def _absolute_week(episode_id: str | None, today: date | None = None) -> int:
     return date.fromisocalendar(year, week, 1).toordinal() // 7
 
 
+def pan_size_of(recipe: dict | None) -> str:
+    """The recipe's stored pan size, or ``standard`` when absent or unknown."""
+    size = (recipe or {}).get("pan_size")
+    return size if size in SIZES else "standard"
+
+
 def pan_for_week(episode_id: str | None, size: str = "standard", today: date | None = None) -> Pan:
     """The week's pan: fixed geometry for ``size``, material rotated by ISO week.
 
     Deterministic, so a Wednesday re-fire in the same week shoots the same
-    pan; never repeats a material within ``len(pool)`` consecutive weeks.
+    pan. The material is the first one, from ``MATERIALS`` order index
+    ``week % len(MATERIALS)`` onward, that comes in ``size``. A standard week
+    therefore never shares its material with the next week at any size.
     """
     if size not in SIZES:
         raise ValueError(f"unknown pan size {size!r}")
-    pool = [m for m, spec in MATERIALS.items() if size in spec["sizes"]]  # type: ignore[operator]
-    material = pool[_absolute_week(episode_id, today) % len(pool)]
+    names = list(MATERIALS)
+    start = _absolute_week(episode_id, today) % len(names)
+    material = next(
+        n
+        for n in (names[(start + i) % len(names)] for i in range(len(names)))
+        if size in MATERIALS[n]["sizes"]  # type: ignore[operator]
+    )
     clause = PAN_CLAUSE_TEMPLATE.format(
         size_label=SIZES[size]["label"],
         material=MATERIALS[material]["description"],
