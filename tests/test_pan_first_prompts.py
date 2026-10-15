@@ -51,10 +51,12 @@ def test_parser_reads_the_pan_line_and_servings_follow_the_pan() -> None:
     explicit = _parse_recipe_response("PAN: mini - bites\nSERVINGS: 20", "c")
     assert explicit["servings"] == 20
     assert _parse_recipe_response("**pan:** Jumbo - x", "c")["pan_size"] == "jumbo"
+    later = _parse_recipe_response("PAN: jumbo - stuffed\nCHEF_NOTES:\nPan: mini works too", "c")
+    assert later["pan_size"] == "jumbo"
 
 
 def test_parser_falls_back_to_standard_and_warns_on_a_missing_or_invalid_pan(caplog) -> None:
-    for text in ("TITLE: X", "PAN: huge - big\nTITLE: X", "PAN: [mini|standard|jumbo] - x", "PAN: not mini, standard"):
+    for text in ("TITLE: X", "PAN: huge - big\nTITLE: X", "PAN: [mini|standard|jumbo] - x", "PAN: mini or jumbo"):
         parsed = _parse_recipe_response(text, "c")
         assert parsed["pan_size"] == "standard" and parsed["servings"] == 12
     assert "'huge - big'" in caplog.text

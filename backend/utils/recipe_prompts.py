@@ -262,6 +262,7 @@ def _parse_recipe_response(response: str, concept: str) -> Dict[str, Any]:
     lines = response.strip().split("\n")
     current_section = None
     pan_raw = None
+    pan_seen = False  # only the first PAN line is the baker's choice
 
     for line in lines:
         line = line.strip()
@@ -272,7 +273,8 @@ def _parse_recipe_response(response: str, concept: str) -> Dict[str, Any]:
         # original line for instructions so inner emphasis survives parsing.
         control_line = _strip_surrounding_markdown_emphasis(line)
 
-        if pan_match := _PAN_LINE_RE.match(line):
+        if not pan_seen and (pan_match := _PAN_LINE_RE.match(line)):
+            pan_seen = True
             pan_line = pan_match.group(1).strip()
             sizes = {size.lower() for size in _PAN_SIZE_RE.findall(pan_line)}
             # Exactly one size, or it is no choice: an echoed template
