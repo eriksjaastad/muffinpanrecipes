@@ -1807,138 +1807,168 @@ async def cron_wednesday(request: Request):
       _refuse_wednesday_on_frozen_photos(episode_id, ep, concept)
 
       with _run_stage(ep, "wednesday"):
-        RecipeOrchestrator = _get_orchestrator()
-        from backend.storage import EPISODES_DIR
-        orchestrator = RecipeOrchestrator(data_dir=EPISODES_DIR.parent)
-        recipe_id = ep.get("recipe_id") or "unknown"
-        # active_recipes check removed: orchestrator is per-request, so list is always empty
-        orchestrator.pipeline.start_recipe(recipe_id, concept)
+        # #8297: a re-fire after Erik approved a photo keeps that set and reruns
+        # only the dialogue. Reshooting replaced the photos he had picked when
+        # only the conversation had failed (W42).
+        kept = _approved_wednesday_photos(episode_id, ep, concept)
+        if kept is not None:
+            wed, kept_version = kept
+            photography_result = wed["photography_data"]
+            image_paths = wed["image_paths"]
+            image_urls = wed["image_urls"]
+            ep["events"].append("wednesday: kept the approved photos")
+        else:
+            RecipeOrchestrator = _get_orchestrator()
+            from backend.storage import EPISODES_DIR
+            orchestrator = RecipeOrchestrator(data_dir=EPISODES_DIR.parent)
+            recipe_id = ep.get("recipe_id") or "unknown"
+            # active_recipes check removed: orchestrator is per-request, so list is always empty
+            orchestrator.pipeline.start_recipe(recipe_id, concept)
 
-        photography_result = orchestrator._execute_stage_photography(
-            recipe_id, recipe_data, episode_id=episode_id,
-        )
-        # photography_result is now a full dict with rounds, vision eval, winner, selected_shots
-        image_paths: list[str] = photography_result.get("selected_shots", []) if isinstance(photography_result, dict) else []
+            photography_result = orchestrator._execute_stage_photography(
+                recipe_id, recipe_data, episode_id=episode_id,
+            )
+            # photography_result is now a full dict with rounds, vision eval, winner, selected_shots
+            image_paths: list[str] = photography_result.get("selected_shots", []) if isinstance(photography_result, dict) else []
 
-        # Upload ALL round images to blob (art director only uploads the winner).
-        # Build local_path → canonical_path map from photography rounds.
-        local_to_canonical: dict[str, str] = {}
-        if isinstance(photography_result, dict):
-            for rnd in photography_result.get("rounds", []):
-                for v in rnd.get("variants", []):
-                    lp = v.get("local_path", "")
-                    cp = v.get("path", "")
-                    if lp and cp:
-                        local_to_canonical[cp] = lp
+            # Upload ALL round images to blob (art director only uploads the winner).
+            # Build local_path → canonical_path map from photography rounds.
+            local_to_canonical: dict[str, str] = {}
+            if isinstance(photography_result, dict):
+                for rnd in photography_result.get("rounds", []):
+                    for v in rnd.get("variants", []):
+                        lp = v.get("local_path", "")
+                        cp = v.get("path", "")
+                        if lp and cp:
+                            local_to_canonical[cp] = lp
 
-        # TRIAGE (#6856): the HERO fails closed, the rest alert.
-        # image_paths[0] is the shot the recipe page and every social card
-        # use; publishing without it ships a recipe with no photograph, so a
-        # hero failure raises and _run_stage records + alerts. A non-hero
-        # failure only costs a gallery slot, and raising there would force a
-        # full reshoot of every image in the week — real Stability/Nano
-        # Banana spend to recover a cosmetic gap. Those alert instead.
-        image_urls = []
-        failed_uploads: list[str] = []
-        for canonical_path in image_paths:
-            local_path = local_to_canonical.get(canonical_path, "")
-            if not local_path:
-                logger.error(f"No local_path for {canonical_path}")
-                image_urls.append("")
-                failed_uploads.append(f"{canonical_path}: no local path")
-                continue
-            try:
-                lp = Path(local_path)
-                if lp.exists():
-                    blob_url = storage.save_image(canonical_path, lp.read_bytes())
-                    image_urls.append(blob_url)
-                else:
-                    logger.error(f"Image file missing: {lp}")
+            # TRIAGE (#6856): the HERO fails closed, the rest alert.
+            # image_paths[0] is the shot the recipe page and every social card
+            # use; publishing without it ships a recipe with no photograph, so a
+            # hero failure raises and _run_stage records + alerts. A non-hero
+            # failure only costs a gallery slot, and raising there would force a
+            # full reshoot of every image in the week — real Stability/Nano
+            # Banana spend to recover a cosmetic gap. Those alert instead.
+            image_urls = []
+            failed_uploads: list[str] = []
+            for canonical_path in image_paths:
+                local_path = local_to_canonical.get(canonical_path, "")
+                if not local_path:
+                    logger.error(f"No local_path for {canonical_path}")
                     image_urls.append("")
-                    failed_uploads.append(f"{canonical_path}: file missing at {lp}")
-            except Exception as e:
-                logger.error(f"Failed to upload image {canonical_path}: {type(e).__name__}: {e}")
-                image_urls.append("")
-                failed_uploads.append(f"{canonical_path}: {type(e).__name__}: {e}")
+                    failed_uploads.append(f"{canonical_path}: no local path")
+                    continue
+                try:
+                    lp = Path(local_path)
+                    if lp.exists():
+                        blob_url = storage.save_image(canonical_path, lp.read_bytes())
+                        image_urls.append(blob_url)
+                    else:
+                        logger.error(f"Image file missing: {lp}")
+                        image_urls.append("")
+                        failed_uploads.append(f"{canonical_path}: file missing at {lp}")
+                except Exception as e:
+                    logger.error(f"Failed to upload image {canonical_path}: {type(e).__name__}: {e}")
+                    image_urls.append("")
+                    failed_uploads.append(f"{canonical_path}: {type(e).__name__}: {e}")
 
-        if image_urls and not image_urls[0]:
-            raise RuntimeError(
-                "Hero image upload failed, so the week has no publishable "
-                f"photograph: {failed_uploads[0]}"
-            )
-        if failed_uploads:
-            notify_pipeline_failure(
-                recipe_id=ep.get("recipe_id") or "unknown",
-                concept=concept,
-                stage="wednesday (image upload)",
-                error_message=(
-                    f"{len(failed_uploads)} non-hero image(s) failed to upload "
-                    f"for {episode_id}; the hero is fine and the week "
-                    f"continues:\n" + "\n".join(failed_uploads[:5])
-                ),
-            )
+            if image_urls and not image_urls[0]:
+                raise RuntimeError(
+                    "Hero image upload failed, so the week has no publishable "
+                    f"photograph: {failed_uploads[0]}"
+                )
+            if failed_uploads:
+                notify_pipeline_failure(
+                    recipe_id=ep.get("recipe_id") or "unknown",
+                    concept=concept,
+                    stage="wednesday (image upload)",
+                    error_message=(
+                        f"{len(failed_uploads)} non-hero image(s) failed to upload "
+                        f"for {episode_id}; the hero is fine and the week "
+                        f"continues:\n" + "\n".join(failed_uploads[:5])
+                    ),
+                )
 
-        # #7936: the photos are saved and put up for Erik's review BEFORE the
-        # paid dialogue runs, so a dialogue failure cannot lose them and the
-        # review request exists before anything announces it. A new image set
-        # always starts a new review, which invalidates any earlier decision.
-        wed = {
-            "stage": "photography",
-            "status": "photos_ready",
-            "concept": concept,
-            "photography_data": photography_result,
-            "reshoot_happened": photography_result.get("reshoot_happened", False) if isinstance(photography_result, dict) else False,
-            "image_paths": image_paths,
-            "image_urls": image_urls,
-            "image_status": "auto_selected",
-            "confirmed_winner": photography_result.get("winner", {}) if isinstance(photography_result, dict) else {},
-        }
-        request = photo_review.new_review(wed)
-        # The control log is the authority (#7936); the episode keeps a
-        # display mirror. Registered first, so nothing announces a set the
-        # control does not know. Images live under a generation-specific
-        # path, so a refused registration leaves nothing overwritten.
-        try:
-            photo_review.register_request(storage, episode_id, request)
-        except photo_review.PublicationUnderway as exc:
-            detail = (
-                f"Wednesday {episode_id}: {exc}. The new photos were saved under their own "
-                "generation path and are not up for review."
+            # #7936: the photos are saved and put up for Erik's review BEFORE the
+            # paid dialogue runs, so a dialogue failure cannot lose them and the
+            # review request exists before anything announces it. A new image set
+            # always starts a new review, which invalidates any earlier decision.
+            wed = {
+                "stage": "photography",
+                "status": "photos_ready",
+                "concept": concept,
+                "photography_data": photography_result,
+                "reshoot_happened": photography_result.get("reshoot_happened", False) if isinstance(photography_result, dict) else False,
+                "image_paths": image_paths,
+                "image_urls": image_urls,
+                "image_status": "auto_selected",
+                "confirmed_winner": photography_result.get("winner", {}) if isinstance(photography_result, dict) else {},
+            }
+            request = photo_review.new_review(wed)
+            # The control log is the authority (#7936); the episode keeps a
+            # display mirror. Registered first, so nothing announces a set the
+            # control does not know. Images live under a generation-specific
+            # path, so a refused registration leaves nothing overwritten.
+            try:
+                photo_review.register_request(storage, episode_id, request)
+            except photo_review.PublicationUnderway as exc:
+                detail = (
+                    f"Wednesday {episode_id}: {exc}. The new photos were saved under their own "
+                    "generation path and are not up for review."
+                )
+                notify_pipeline_failure(
+                    recipe_id=ep.get("recipe_id") or "unknown", concept=concept,
+                    stage="wednesday (photo review)", error_message=detail,
+                )
+                raise HTTPException(status_code=409, detail=detail)
+            wed["photo_review"] = {k: request[k] for k in ("image_set_id", "generated_at", "requested_at")}
+            ep["stages"]["wednesday"] = wed
+            ep["image_paths"] = image_paths
+            ep["image_urls"] = image_urls
+            ep.pop("publish_hold", None)
+            ep["events"].append("wednesday: photos ready for review")
+            storage.save_episode(episode_id, ep)
+            sent = notify_photos_ready(
+                episode_id, len(request["candidates"]), namespace=photo_review_namespace(storage.prefix),
             )
-            notify_pipeline_failure(
-                recipe_id=ep.get("recipe_id") or "unknown", concept=concept,
-                stage="wednesday (photo review)", error_message=detail,
-            )
-            raise HTTPException(status_code=409, detail=detail)
-        wed["photo_review"] = {k: request[k] for k in ("image_set_id", "generated_at", "requested_at")}
-        ep["stages"]["wednesday"] = wed
-        ep["image_paths"] = image_paths
-        ep["image_urls"] = image_urls
-        ep.pop("publish_hold", None)
-        ep["events"].append("wednesday: photos ready for review")
-        storage.save_episode(episode_id, ep)
-        sent = notify_photos_ready(
-            episode_id, len(request["candidates"]), namespace=photo_review_namespace(storage.prefix),
-        )
-        wed["photo_review"]["notification"] = {
-            "status": "sent" if sent else "failed",
-            "at": datetime.now(timezone.utc).isoformat(),
-        }
-        storage.save_episode(episode_id, ep)
+            wed["photo_review"]["notification"] = {
+                "status": "sent" if sent else "failed",
+                "at": datetime.now(timezone.utc).isoformat(),
+            }
+            storage.save_episode(episode_id, ep)
 
         wed_photo_ctx = photography_result if isinstance(photography_result, dict) else None
         review_ctx = _photo_review_dialogue_context(episode_id, ep)
         if wed_photo_ctx is not None and review_ctx:
             # The team's pick is a recommendation until Erik chooses (#7936).
             wed_photo_ctx = {**wed_photo_ctx, "human_review": review_ctx}
-        dialogue, judge_verdict = _generate_and_judge_dialogue(
-            "wednesday", concept, ep,
-            image_paths=image_paths,
-            photography_context=wed_photo_ctx,
-            model=body.model,
-            injected_event=body.injected_event,
-            recipe_data=ep.get("stages", {}).get("monday", {}).get("recipe_data"),
-        )
+        try:
+            dialogue, judge_verdict = _generate_and_judge_dialogue(
+                "wednesday", concept, ep,
+                image_paths=image_paths,
+                photography_context=wed_photo_ctx,
+                model=body.model,
+                injected_event=body.injected_event,
+                recipe_data=ep.get("stages", {}).get("monday", {}).get("recipe_data"),
+            )
+        finally:
+            if kept is not None:
+                # The kept set's approval can change while this dialogue runs:
+                # Sunday claims it, or the editor re-picks or chooses "None
+                # usable" (a reshoot registers a new, unapproved set, so only
+                # this path needs it). Every such change is a new control
+                # version. Before either whole-episode save, the stage's or
+                # _run_stage's failure save, refuse if it moved; the 409
+                # replaces a dialogue failure, which the change makes moot.
+                current = _refuse_wednesday_on_frozen_photos(episode_id, ep, concept)
+                if current is None or current.version != kept_version:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            f"The photo review for {episode_id} changed while Wednesday's "
+                            "dialogue ran; nothing was saved. Re-fire Wednesday."
+                        ),
+                    )
 
         wed.update({
             "status": "complete",
@@ -1953,7 +1983,7 @@ async def cron_wednesday(request: Request):
         regenerate_and_upload(ep)
 
     return _stage_response("wednesday", episode_id, concept, {
-        "images_generated": len(image_paths),
+        "images_generated": 0 if kept is not None else len(image_paths),
         "image_urls": image_urls,
         "dialogue_messages": len(dialogue),
     })
@@ -2226,11 +2256,41 @@ def photo_review_namespace(prefix: str) -> str:
     return "test" if prefix == "test/" else ""
 
 
-def _refuse_wednesday_on_frozen_photos(episode_id: str, ep: dict, concept: str) -> None:
+def _approved_wednesday_photos(episode_id: str, ep: dict, concept: str) -> tuple[dict, int] | None:
+    """Wednesday's stage rebuilt from the approved current image set, with the
+    control version it was read at, or None to shoot.
+
+    Only an approval of the control's current request that carries its frozen
+    Wednesday evaluation counts (#7936). An awaiting or rejected set returns
+    None and is reshot, as before. The request is restored onto the episode
+    first, so the photos and evaluation are the approved set's even when a
+    stale save put an older set's mirror back. A control read failure raises,
+    so the stage fails instead of paying to replace an approval it could not see.
+    """
+    view = photo_review.read_view(storage, episode_id, ep)
+    if view.selected is None or photo_review.request_snapshot(view.request) is None:
+        return None
+    if not photo_review.apply_request_mirror(ep, view.request):
+        raise RuntimeError(
+            f"Approved image set {view.image_set_id} could not be restored onto episode "
+            f"{episode_id}; no photos were generated."
+        )
+    stage = ep["stages"]["wednesday"]
+    return {
+        "stage": "photography",
+        "concept": concept,
+        **{k: stage[k] for k in _PRESERVED_ON_FAILURE["wednesday"] if k in stage},
+    }, view.version
+
+
+def _refuse_wednesday_on_frozen_photos(
+    episode_id: str, ep: dict, concept: str,
+) -> photo_review.ControlView | None:
     """Wednesday must not replace photos Sunday has claimed or published (#7936).
 
     Checked before the paid generation. A control read failure is a 503:
-    without it Wednesday cannot know whether publication has begun.
+    without it Wednesday cannot know whether publication has begun. Returns
+    the control view it read, or None when the week has no control yet.
     """
     if episode_is_published(ep):
         # published_at OR a complete Sunday: the legacy-aware predicate, so a
@@ -2240,7 +2300,7 @@ def _refuse_wednesday_on_frozen_photos(episode_id: str, ep: dict, concept: str) 
             detail=f"Episode {episode_id} is already published; Wednesday will not replace its photos.",
         )
     try:
-        photo_review.ensure_not_frozen(storage, episode_id)
+        return photo_review.ensure_not_frozen(storage, episode_id)
     except photo_review.PublicationUnderway as exc:
         raise HTTPException(
             status_code=409,
