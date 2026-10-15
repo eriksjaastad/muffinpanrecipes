@@ -180,3 +180,21 @@ def test_a_control_read_failure_before_counting_is_a_503_and_a_failed_remake_say
         failed = _remake(client, wed, path)
     assert unreadable.status_code == 503 and "nothing was counted" in unreadable.json()["detail"]
     assert failed.status_code == 502 and "The remake failed" in failed.json()["detail"]
+
+
+def test_winner_less_photo_context_recommends_no_hero_on_any_day():
+    # A remade set has no evaluated winner; a Wednesday re-fire after its approval
+    # must not tell the characters they recommended an "unknown" hero.
+    from scripts.simulate_dialogue_week import _build_photography_scene_direction
+
+    review = {"status": "approved", "selected_variant": "overhead_flatlay"}
+    for human_review in (review, None):
+        ctx = {"rounds": [{"round": 1, "variants": [{"variant": "macro_closeup", "path": "a"}]}]}
+        if human_review:
+            ctx["human_review"] = human_review
+        for day in ("wednesday", "friday"):
+            text = _build_photography_scene_direction(ctx, day)
+            assert "unknown" not in text and "recommend" not in text and "land on" not in text
+            assert "selected as hero" not in text
+    wed = _build_photography_scene_direction({**ctx, "human_review": review}, "wednesday")
+    assert "picked the 'overhead_flatlay' shot as the hero" in wed
