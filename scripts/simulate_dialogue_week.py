@@ -273,11 +273,14 @@ HISTORY_DEPTH: dict[str, tuple[int, int]] = {
 TICKS_RANGE: dict[str, tuple[int, int]] = {
     "monday":    (6, 10),  # heated concept debate
     "tuesday":   (8, 10),  # was (5, 6): two lines wind down, too few to argue a ratio (#8285)
-    "wednesday": (5, 6),   # photography + image refs - floor was 4 (#7105)
-    "thursday":  (5, 6),   # copywriting - was (3, 5), (4, 6), (5, 7) (#7079, #7105)
-    "friday":    (6, 8),   # approval discussion - floor was 5 (#7105)
+    # #8293: replaying W37-W42 (18 first attempts per day) at (8, 10) raised the
+    # judge pass rate on every day with three or more speakers: Wed 4->6,
+    # Thu 8->14, Fri 1->4, Sun 3->6. Saturday's two speakers stayed at 9/18.
+    "wednesday": (8, 10),  # photography + image refs - was (5, 6) (#7105)
+    "thursday":  (8, 10),  # copywriting - was (3, 5), (4, 6), (5, 7), (5, 6) (#7079, #7105)
+    "friday":    (8, 10),  # approval discussion - was (6, 8) (#7105)
     "saturday":  (5, 6),   # was (3, 5) - a 2-person cast still needs an arc (#7292)
-    "sunday":    (5, 6),   # publish + warmth - was (3, 4), then (4, 6) (#7079, #7082)
+    "sunday":    (8, 10),  # publish + warmth - was (3, 4), (4, 6), (5, 6) (#7079, #7082)
 }
 
 # Wind-down/stop knobs (#7680, #7681, #7629) — module attributes so the
