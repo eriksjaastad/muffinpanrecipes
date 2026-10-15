@@ -157,3 +157,4 @@ def test_a_rewrite_that_echoes_the_scaffold_is_discarded():
 
     assert out == draft
     assert sdw.REWRITE_LOG[-1]["faults"] == ["repetition", "scaffold_echo"]
+    assert sdw.REWRITE_LOG[-1]["rewritten"] is False

@@ -1520,7 +1520,7 @@ def generate_turn(
         # The reply sometimes carries the prompt's own scaffold back with it
         # (#8267): W38 Tuesday published "...instead of structure. --- Butter's
         # ...". Such a reply is not one clean message, so the draft stands; the
-        # fault key records that the rewrite was discarded.
+        # log records the "scaffold_echo" fault and the line as not rewritten.
         if any(part in rewrite for part in _REWRITE_SCAFFOLD):
             _fault_keys.append("scaffold_echo")
         else:
@@ -1535,7 +1535,7 @@ def generate_turn(
         day=day,
         speaker=persona.get("name"),
         faults=_fault_keys,
-        rewritten=bool(_faults),
+        rewritten=bool(_faults) and "scaffold_echo" not in _fault_keys,
         draft=draft,
         final=final,
         cot_retry=cot_retry_flag[0],
