@@ -176,9 +176,11 @@ class RecipeOrchestrator:
             # Note: dialogue generation is handled by run_pipeline_stage.py via
             # simulate_dialogue_week.run_simulation() — not the hardcoded fallback here.
 
-            if approved:
-                self.pipeline.advance_stage(recipe_id)  # FINAL_APPROVAL
-                self.pipeline.advance_stage(recipe_id)  # DEPLOYMENT
+            if not approved:
+                # Rejected work stops at the review; it is never deployed.
+                raise RuntimeError(f"Creative review asked for revisions: {review_output.get('feedback')}")
+            self.pipeline.advance_stage(recipe_id)  # FINAL_APPROVAL
+            self.pipeline.advance_stage(recipe_id)  # DEPLOYMENT
 
             # Stage 5: Deployment (Site Architect)
             logger.info(f"\n{'='*70}")
@@ -340,6 +342,11 @@ class RecipeOrchestrator:
             "copy": copy.get("body") if isinstance(copy, dict) else copy,
             "photos": photos,
         }
+        missing = [part for part in ("recipe", "copy") if not package[part]]
+        if missing:
+            # Incomplete work is not approved, and there is nothing to pay
+            # Steph to read (a failed Thursday leaves no intro).
+            return False, {"verdict": "REVISE", "feedback": [f"Not reviewed: no {' or '.join(missing)} yet."]}
 
         task = Task(
             type="review_package",

@@ -16,8 +16,9 @@ from backend.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-# A verdict line, optionally wrapped in markdown emphasis or followed by a period.
-_VERDICT_LINE_RE = re.compile(r"^[\s*_`]*VERDICT:\s*(APPROVED|REVISE)\b", re.IGNORECASE)
+# A whole verdict line, optionally wrapped in markdown emphasis or followed by a
+# period; anything else on it ("APPROVED / REVISE") is not a verdict.
+_VERDICT_LINE_RE = re.compile(r"^[\s*_`]*VERDICT:\s*(APPROVED|REVISE)[\s*_`.!]*$", re.IGNORECASE)
 
 
 class CreativeDirectorAgent(Agent):
