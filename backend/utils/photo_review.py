@@ -218,9 +218,12 @@ def remade_review(request: dict, old_path: str, shot: dict, url: str) -> dict:
         ]
     index = paths.index(old_path)
     paths[index], urls[index] = shot["path"], url
+    winner = snap.get("confirmed_winner") or {}
+    if winner.get("path") == old_path:
+        winner = {}  # the new image was never evaluated, so it is nobody's team pick
     return new_review({
         "photography_data": photo,
-        "confirmed_winner": snap.get("confirmed_winner") or {},
+        "confirmed_winner": winner,
         "image_paths": paths,
         "image_urls": urls,
     })

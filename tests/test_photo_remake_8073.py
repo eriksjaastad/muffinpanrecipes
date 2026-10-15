@@ -68,6 +68,16 @@ def test_remade_review_replaces_only_the_remade_image_with_a_valid_new_set(tmp_p
     assert new["image_paths"][1] == NEW_PATH and new["image_urls"][1] == f"{BLOB}/r1/new.png"
 
 
+def test_remaking_the_team_pick_leaves_no_winner_naming_the_removed_image(tmp_path):
+    store, _wed = _store_with_set()
+    request = _control(store)["request"]
+    winner_path = request["wednesday_snapshot"]["confirmed_winner"]["path"]
+    new = photo_review.remade_review(request, winner_path, _shot(tmp_path), f"{BLOB}/r1/new.png")
+    assert new["wednesday_snapshot"]["confirmed_winner"] == {}
+    kept = photo_review.remade_review(request, request["candidates"][1]["path"], _shot(tmp_path), f"{BLOB}/r1/new.png")
+    assert kept["wednesday_snapshot"]["confirmed_winner"]["path"] == winner_path
+
+
 def test_remake_variant_makes_one_image_call_with_the_weeks_pan_and_no_featured_image(tmp_path, monkeypatch):
     import backend.storage as storage_module
 
