@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import base64
-import json
-import time
+import threading
 from typing import Any
 
 import requests
@@ -60,37 +59,45 @@ def generate_nano_banana_image(
     if image_size:
         image_config["image_size"] = image_size
 
-    deadline = time.monotonic() + timeout_s if timeout_s else None
-    with requests.post(
-        f"{model_router.OPENROUTER_BASE_URL}/chat/completions",
-        headers={"Authorization": f"Bearer {api_key}"},
-        json={
-            "model": openrouter_model,
-            "messages": [{"role": "user", "content": prompt}],
-            "modalities": ["image", "text"],
-            "image_config": image_config,
-            "temperature": temperature,
-            "provider": model_router.openrouter_provider_route(openrouter_model),
-            "usage": {"include": True},
-        },
-        timeout=timeout_s,
-        stream=True,
-    ) as response:
-        # requests' timeout only limits each wait for bytes, so a server that
-        # trickles bytes (keepalive whitespace) could hold the call open past
-        # the shoot deadline. read1 returns whatever has arrived rather than
-        # waiting to fill a chunk, so the clock is checked after every receive.
-        chunks = []
-        while chunk := response.raw.read1(65536, decode_content=True):
-            if deadline is not None and time.monotonic() > deadline:
-                raise RuntimeError(f"OpenRouter image call exceeded {timeout_s}s")
-            chunks.append(chunk)
-    body = b"".join(chunks)
+    outcome: dict[str, Any] = {}
+
+    def post() -> None:
+        try:
+            outcome["response"] = requests.post(
+                f"{model_router.OPENROUTER_BASE_URL}/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={
+                    "model": openrouter_model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "modalities": ["image", "text"],
+                    "image_config": image_config,
+                    "temperature": temperature,
+                    "provider": model_router.openrouter_provider_route(openrouter_model),
+                    "usage": {"include": True},
+                },
+                timeout=timeout_s,
+            )
+        except BaseException as exc:  # handed to the caller below
+            outcome["error"] = exc
+
+    # requests' timeout only limits each wait for bytes (connect, headers,
+    # each read), so a slow or trickling response could run past the shoot
+    # deadline. Waiting on the request from outside bounds the whole call,
+    # whatever stage it stalls in. A daemon thread never holds the process
+    # open; its own requests timeout ends it.
+    worker = threading.Thread(target=post, daemon=True)
+    worker.start()
+    worker.join(timeout_s)
+    if worker.is_alive():
+        raise RuntimeError(f"OpenRouter image call exceeded {timeout_s}s")
+    if "error" in outcome:
+        raise outcome["error"]
+    response = outcome["response"]
     log_call("openrouter", service="image", project="muffinpanrecipes", caller="image_generation.nano_banana")
     if response.status_code != 200:
-        raise RuntimeError(f"OpenRouter image error {response.status_code}: {body[:200].decode(errors='replace')}")
+        raise RuntimeError(f"OpenRouter image error {response.status_code}: {response.text[:200]}")
 
-    payload = json.loads(body)
+    payload = response.json()
     model_router.record_external_cost(
         "openrouter", openrouter_model, (payload.get("usage") or {}).get("cost"),
     )

@@ -2261,9 +2261,15 @@ def _run_judge_orientation(
         original_traceback = exc.__traceback__
 
     # A retried judge call (see _JUDGE_JSON_MAX_RETRIES) makes MORE than one
-    # real generation attempt for this single orientation - record exactly
-    # (1 + retries), not a hardcoded 1.
-    budget.record(1 + (evidence.get("judge_retries") or 0))
+    # real generation attempt for this single orientation: 1 + retries were
+    # started. The budget guard refuses an attempt by raising LabBudgetAbort
+    # BEFORE it is sent, so an orientation that ended that way sent one fewer.
+    sent = 1 + (evidence.get("judge_retries") or 0) - isinstance(original_error, LabBudgetAbort)
+    if sent == 0:
+        # Refused before anything was sent: it consumed no judge call and
+        # leaves no orientation record.
+        raise original_error.with_traceback(original_traceback)
+    budget.record(sent)
     entry: dict[str, Any] = {"orientation": orientation, "status": "invoked", "evidence": evidence}
     if result is not None:
         entry["result"] = result

@@ -10,27 +10,14 @@ import requests
 from backend.utils import image_generation, model_router
 
 
-class _Raw:
-    def __init__(self, body: bytes):
-        self._body = body
-
-    def read1(self, amt, decode_content=True):
-        chunk, self._body = self._body[:amt], self._body[amt:]
-        return chunk
-
-
 class _Response:
-    """A streamed requests response whose body is read through `raw.read1`."""
-
     def __init__(self, payload, status_code=200):
+        self._payload = payload
         self.status_code = status_code
-        self.raw = _Raw(json.dumps(payload).encode())
+        self.text = json.dumps(payload)
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return False
+    def json(self):
+        return self._payload
 
 
 def _image_payload(data: bytes) -> dict:
@@ -86,17 +73,26 @@ def test_a_non_200_response_raises_with_its_status_and_body(monkeypatch):
         image_generation.generate_nano_banana_image("prompt", "or-key")
 
 
-class _TrickleHandler(http.server.BaseHTTPRequestHandler):
-    """Declares a Content-Length, then sends the body one byte every 0.2s, so
-    every read arrives well inside requests' own timeout."""
+class _SlowHandler(http.server.BaseHTTPRequestHandler):
+    """Answers too slowly in a way requests' own per-read timeout can't stop
+    in time: `trickle` declares a Content-Length and sends one byte every 0.2s;
+    `stall` sends the headers just before the deadline, then nothing, so the
+    per-read waits add up to nearly twice the timeout."""
+
+    mode = "trickle"
 
     def do_POST(self):  # noqa: N802 - stdlib method name
         self.rfile.read(int(self.headers["Content-Length"]))
         body = b" " * 40 + b"{}"
+        if self.mode == "stall":
+            time.sleep(0.8)
         self.send_response(200)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         try:
+            if self.mode == "stall":
+                self.wfile.flush()
+                time.sleep(8)
             for byte in body:
                 self.wfile.write(bytes([byte]))
                 self.wfile.flush()
@@ -109,8 +105,10 @@ class _TrickleHandler(http.server.BaseHTTPRequestHandler):
         pass
 
 
-def test_a_response_that_trickles_bytes_stops_at_the_total_timeout(monkeypatch):
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _TrickleHandler)
+@pytest.mark.parametrize("mode", ["trickle", "stall"])
+def test_a_slow_response_stops_at_the_total_timeout(monkeypatch, mode):
+    handler = type("Handler", (_SlowHandler,), {"mode": mode})
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     monkeypatch.setattr(model_router, "OPENROUTER_BASE_URL", f"http://127.0.0.1:{server.server_address[1]}")
     # conftest blocks requests.post suite-wide (IndexNow guard); this call only reaches loopback.
@@ -119,7 +117,7 @@ def test_a_response_that_trickles_bytes_stops_at_the_total_timeout(monkeypatch):
         started = time.monotonic()
         with pytest.raises(RuntimeError, match="exceeded 1s"):
             image_generation.generate_nano_banana_image("prompt", "or-key", timeout_s=1)
-        assert time.monotonic() - started < 3  # the full trickle takes ~8s
+        assert time.monotonic() - started < 3  # either response takes 8s or more
     finally:
         server.shutdown()
         server.server_close()

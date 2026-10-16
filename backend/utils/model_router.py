@@ -296,6 +296,12 @@ def get_cost_summary() -> dict:
     }
 
 
+def cost_text(cost: float, unpriced_calls: int) -> str:
+    """A billed total for printing that never passes off unknown spend as
+    zero: calls with no billed cost (see get_cost_summary) are named, not summed."""
+    return f"${cost:.4f}" + (f" + {unpriced_calls} unpriced call(s)" if unpriced_calls else "")
+
+
 def reset_cost_log() -> None:
     """Clear the cost log (call between benchmark runs)."""
     _COST_LOG.clear()

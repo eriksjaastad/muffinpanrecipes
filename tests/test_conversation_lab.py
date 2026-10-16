@@ -1141,6 +1141,32 @@ def test_run_judge_orientation_records_retry_count_and_charges_budget_for_every_
     assert record["evidence"]["judge_retries"] == 1
     assert record["status"] == "invoked"
 
+
+@pytest.mark.parametrize("responses, sent", [([], 0), (["garbage"], 1)])
+def test_run_judge_orientation_does_not_count_an_attempt_the_guard_refused(monkeypatch, responses, sent):
+    """#8343: the budget guard refuses by raising LabBudgetAbort before the
+    request goes out, whether on the first attempt or on a retry."""
+    queue = iter(responses)
+
+    def judge(**_kwargs):
+        try:
+            return next(queue)
+        except StopIteration:
+            raise cl.LabBudgetAbort("refused before sending") from None
+
+    monkeypatch.setattr(model_router, "generate_judge_response", judge)
+    pending = {"judge_orientations": []}
+    budget = cl.CallBudget(max_calls=5)
+    with pytest.raises(cl.LabBudgetAbort):
+        cl._run_judge_orientation(
+            orientation="control_first", pending_pair=pending, budget=budget,
+            judge_model="judge", concept="muffins", stage="monday", recipe_context="anchor",
+            expected_cast=["Margaret"], first_arm="control", first_messages=[],
+            second_arm="variant", second_messages=[],
+        )
+    assert budget.used == sent
+    assert len(pending["judge_orientations"]) == sent  # a refused first attempt leaves no record
+
 # ---------------------------------------------------------------------------
 # A retry of a truncated/unparseable judge response is itself a real billed
 # call - up to _JUDGE_JSON_MAX_RETRIES of them per orientation. Every
