@@ -63,7 +63,7 @@ def generate_nano_banana_image(
 
     def post() -> None:
         try:
-            outcome["response"] = requests.post(
+            response = requests.post(
                 f"{model_router.OPENROUTER_BASE_URL}/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}"},
                 json={
@@ -77,6 +77,16 @@ def generate_nano_banana_image(
                 },
                 timeout=timeout_s,
             )
+            log_call("openrouter", service="image", project="muffinpanrecipes", caller="image_generation.nano_banana")
+            if response.status_code != 200:
+                raise RuntimeError(f"OpenRouter image error {response.status_code}: {response.text[:200]}")
+            payload = response.json()
+            # Recorded here, not by the caller, so an image that arrives after
+            # the caller gave up is still in the cost log: it was billed.
+            model_router.record_external_cost(
+                "openrouter", openrouter_model, (payload.get("usage") or {}).get("cost"),
+            )
+            outcome["payload"] = payload
         except BaseException as exc:  # handed to the caller below
             outcome["error"] = exc
 
@@ -92,13 +102,4 @@ def generate_nano_banana_image(
         raise RuntimeError(f"OpenRouter image call exceeded {timeout_s}s")
     if "error" in outcome:
         raise outcome["error"]
-    response = outcome["response"]
-    log_call("openrouter", service="image", project="muffinpanrecipes", caller="image_generation.nano_banana")
-    if response.status_code != 200:
-        raise RuntimeError(f"OpenRouter image error {response.status_code}: {response.text[:200]}")
-
-    payload = response.json()
-    model_router.record_external_cost(
-        "openrouter", openrouter_model, (payload.get("usage") or {}).get("cost"),
-    )
-    return _extract_image_bytes(payload)
+    return _extract_image_bytes(outcome["payload"])

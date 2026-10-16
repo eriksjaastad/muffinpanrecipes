@@ -1142,30 +1142,43 @@ def test_run_judge_orientation_records_retry_count_and_charges_budget_for_every_
     assert record["status"] == "invoked"
 
 
-@pytest.mark.parametrize("responses, sent", [([], 0), (["garbage"], 1)])
-def test_run_judge_orientation_does_not_count_an_attempt_the_guard_refused(monkeypatch, responses, sent):
-    """#8343: the budget guard refuses by raising LabBudgetAbort before the
-    request goes out, whether on the first attempt or on a retry."""
-    queue = iter(responses)
+@pytest.mark.parametrize("permits, sent", [(0, 0), (1, 1)])
+def test_run_judge_orientation_counts_the_calls_that_were_billed(monkeypatch, permits, sent):
+    """#8343: the guard refuses before sending. Refusing the first request
+    bills nothing and leaves no record; refusing the router's own retry after
+    an empty response still bills the request that came back."""
+    from types import SimpleNamespace
 
-    def judge(**_kwargs):
-        try:
-            return next(queue)
-        except StopIteration:
-            raise cl.LabBudgetAbort("refused before sending") from None
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
 
-    monkeypatch.setattr(model_router, "generate_judge_response", judge)
+    class FakeCompletions:
+        def create(self, **_kwargs):  # an empty "stop" answer: the router retries it
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=""), finish_reason="stop")],
+                usage=SimpleNamespace(prompt_tokens=10, completion_tokens=0, cost=0.0001),
+                provider="Anthropic",
+            )
+
+    monkeypatch.setattr("openai.OpenAI", lambda **_kw: SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions())))
+    allowed = iter(range(permits))
+
+    def guard(*_args):
+        if next(allowed, None) is None:
+            raise cl.LabBudgetAbort("refused before sending")
+
+    monkeypatch.setattr(model_router, "_PRE_CALL_HOOK", guard)
+    model_router.reset_cost_log()
     pending = {"judge_orientations": []}
     budget = cl.CallBudget(max_calls=5)
     with pytest.raises(cl.LabBudgetAbort):
         cl._run_judge_orientation(
             orientation="control_first", pending_pair=pending, budget=budget,
-            judge_model="judge", concept="muffins", stage="monday", recipe_context="anchor",
-            expected_cast=["Margaret"], first_arm="control", first_messages=[],
-            second_arm="variant", second_messages=[],
+            judge_model="anthropic/claude-opus-4-6", concept="muffins", stage="monday",
+            recipe_context="anchor", expected_cast=["Margaret"], first_arm="control",
+            first_messages=[], second_arm="variant", second_messages=[],
         )
     assert budget.used == sent
-    assert len(pending["judge_orientations"]) == sent  # a refused first attempt leaves no record
+    assert len(pending["judge_orientations"]) == sent
 
 # ---------------------------------------------------------------------------
 # A retry of a truncated/unparseable judge response is itself a real billed

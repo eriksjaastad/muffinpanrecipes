@@ -2254,27 +2254,40 @@ def _run_judge_orientation(
     result = None
     original_error: BaseException | None = None
     original_traceback = None
+    calls_before = _calls_now()
     try:
         result = _judge_orientation(**kwargs, evidence=evidence, budget=budget)
     except BaseException as exc:
         original_error = exc
         original_traceback = exc.__traceback__
+    calls_after = _calls_now()
 
-    # A retried judge call (see _JUDGE_JSON_MAX_RETRIES) makes MORE than one
-    # real generation attempt for this single orientation: 1 + retries were
-    # started. The budget guard refuses an attempt by raising LabBudgetAbort
-    # BEFORE it is sent, so an orientation that ended that way sent one fewer.
-    sent = 1 + (evidence.get("judge_retries") or 0) - isinstance(original_error, LabBudgetAbort)
-    if sent == 0:
+    # How many paid calls this orientation made. The cost log gains one entry
+    # per request that came back, including the router's own empty-response
+    # retries, so its growth is the exact count. No growth means nothing was
+    # billed: the budget guard refused the first request (LabBudgetAbort,
+    # raised before sending), or the judge is stubbed (tests, template runs),
+    # or a request failed with no response - those last two keep the
+    # 1 + judge-retries count.
+    status = "invoked"
+    if calls_before is None or calls_after is None:
+        sent, status = 1 + (evidence.get("judge_retries") or 0), "accounting_unknown"
+    elif calls_after > calls_before:
+        sent = calls_after - calls_before
+    elif isinstance(original_error, LabBudgetAbort):
         # Refused before anything was sent: it consumed no judge call and
         # leaves no orientation record.
         raise original_error.with_traceback(original_traceback)
+    else:
+        sent = 1 + (evidence.get("judge_retries") or 0)
     budget.record(sent)
-    entry: dict[str, Any] = {"orientation": orientation, "status": "invoked", "evidence": evidence}
+    entry: dict[str, Any] = {"orientation": orientation, "status": status, "evidence": evidence}
     if result is not None:
         entry["result"] = result
     if original_error is not None:
         entry["error"] = f"{type(original_error).__name__}: {original_error}"
+    elif status == "accounting_unknown":
+        entry["error"] = "cost log unreadable; the paid call count could not be determined"
     pending_pair["judge_orientations"].append(entry)
 
     if original_error is not None:

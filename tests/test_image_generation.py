@@ -121,3 +121,43 @@ def test_a_slow_response_stops_at_the_total_timeout(monkeypatch, mode):
     finally:
         server.shutdown()
         server.server_close()
+
+
+class _LateHandler(http.server.BaseHTTPRequestHandler):
+    """Finishes a billed image at 1.4s, past a 1s deadline, with no gap long
+    enough for requests' own 1s read timeout to end the call first."""
+
+    def do_POST(self):  # noqa: N802 - stdlib method name
+        self.rfile.read(int(self.headers["Content-Length"]))
+        body = json.dumps(_image_payload(b"late")).encode()
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        half = len(body) // 2
+        for part in (body[:half], body[half:]):
+            time.sleep(0.7)
+            self.wfile.write(part)
+            self.wfile.flush()
+
+    def log_message(self, *_args):
+        pass
+
+
+def test_an_image_billed_after_the_deadline_still_reaches_the_cost_log(monkeypatch):
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _LateHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setattr(model_router, "OPENROUTER_BASE_URL", f"http://127.0.0.1:{server.server_address[1]}")
+    # conftest blocks requests.post suite-wide (IndexNow guard); this call only reaches loopback.
+    monkeypatch.setattr(image_generation.requests, "post", requests.api.post)
+    model_router.reset_cost_log()
+    try:
+        with pytest.raises(RuntimeError, match="exceeded 1s"):
+            image_generation.generate_nano_banana_image("prompt", "or-key", timeout_s=1)
+        deadline = time.monotonic() + 5
+        while not model_router.get_cost_entries() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        (entry,) = model_router.get_cost_entries()
+        assert entry["actual_cost"] == 0.067
+    finally:
+        server.shutdown()
+        server.server_close()
