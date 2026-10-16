@@ -7584,6 +7584,7 @@ _PAIRS_UI_HTML = """<!doctype html>
 <script>
 let position = null;
 let total = null;
+const draftReasons = {};  // a why typed but not yet picked survives prev/next
 
 async function getJSON(url, opts) {
   const res = await fetch(url, opts);
@@ -7623,7 +7624,7 @@ async function loadPair(pos) {
   renderTurns(document.getElementById("turns-a"), pair.transcript_a);
   renderTurns(document.getElementById("turns-b"), pair.transcript_b);
   setPickedHighlight(pair.picked);
-  document.getElementById("reason").value = pair.reason || "";
+  document.getElementById("reason").value = draftReasons[pair.position] ?? pair.reason ?? "";
   document.getElementById("status").textContent = pair.picked ? ("Picked: " + pair.picked) : "";
 }
 
@@ -7662,6 +7663,7 @@ async function pick(label) {
     document.getElementById("status").textContent = "Error: " + e.message;
     return;
   }
+  delete draftReasons[position];
   const state = await getJSON("/api/state");
   if (await refreshState()) return;
   const next = state.first_unpicked || Math.min(position + 1, total);
@@ -7671,7 +7673,9 @@ async function pick(label) {
 async function navigate(delta) {
   if (position === null) return;
   const next = Math.max(1, Math.min(total, position + delta));
-  if (next !== position) await loadPair(next);
+  if (next === position) return;
+  draftReasons[position] = document.getElementById("reason").value;
+  await loadPair(next);
 }
 
 document.querySelectorAll("button[data-label]").forEach(btn => {
