@@ -1142,20 +1142,30 @@ def test_run_judge_orientation_records_retry_count_and_charges_budget_for_every_
     assert record["status"] == "invoked"
 
 
-@pytest.mark.parametrize("permits, sent", [(0, 0), (1, 1)])
-def test_run_judge_orientation_counts_the_calls_that_were_billed(monkeypatch, permits, sent):
-    """#8343: the guard refuses before sending. Refusing the first request
-    bills nothing and leaves no record; refusing the router's own retry after
-    an empty response still bills the request that came back."""
+@pytest.mark.parametrize("replies, permits, error, sent, records", [
+    # The guard refuses the first request: nothing billed, no record.
+    ([], 0, cl.LabBudgetAbort, 0, 0),
+    # An empty "stop" answer is billed; the guard refuses the router's own retry.
+    ([""], 1, cl.LabBudgetAbort, 1, 1),
+    # Unparseable JSON is billed; the judge retry is sent and fails with no response.
+    (["not json", ConnectionError("reset")], 9, ConnectionError, 2, 1),
+])
+def test_run_judge_orientation_counts_every_request_sent(monkeypatch, replies, permits, error, sent, records):
+    """#8343: a request counts once it is sent, whether or not a response came
+    back; one the budget guard refused before sending does not."""
     from types import SimpleNamespace
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+    queue = iter(replies)
 
     class FakeCompletions:
-        def create(self, **_kwargs):  # an empty "stop" answer: the router retries it
+        def create(self, **_kwargs):
+            reply = next(queue)
+            if isinstance(reply, Exception):
+                raise reply
             return SimpleNamespace(
-                choices=[SimpleNamespace(message=SimpleNamespace(content=""), finish_reason="stop")],
-                usage=SimpleNamespace(prompt_tokens=10, completion_tokens=0, cost=0.0001),
+                choices=[SimpleNamespace(message=SimpleNamespace(content=reply), finish_reason="stop")],
+                usage=SimpleNamespace(prompt_tokens=10, completion_tokens=1, cost=0.0001),
                 provider="Anthropic",
             )
 
@@ -1167,10 +1177,9 @@ def test_run_judge_orientation_counts_the_calls_that_were_billed(monkeypatch, pe
             raise cl.LabBudgetAbort("refused before sending")
 
     monkeypatch.setattr(model_router, "_PRE_CALL_HOOK", guard)
-    model_router.reset_cost_log()
     pending = {"judge_orientations": []}
     budget = cl.CallBudget(max_calls=5)
-    with pytest.raises(cl.LabBudgetAbort):
+    with pytest.raises(error):
         cl._run_judge_orientation(
             orientation="control_first", pending_pair=pending, budget=budget,
             judge_model="anthropic/claude-opus-4-6", concept="muffins", stage="monday",
@@ -1178,7 +1187,7 @@ def test_run_judge_orientation_counts_the_calls_that_were_billed(monkeypatch, pe
             first_messages=[], second_arm="variant", second_messages=[],
         )
     assert budget.used == sent
-    assert len(pending["judge_orientations"]) == sent
+    assert len(pending["judge_orientations"]) == records
 
 # ---------------------------------------------------------------------------
 # A retry of a truncated/unparseable judge response is itself a real billed

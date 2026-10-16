@@ -307,6 +307,19 @@ def reset_cost_log() -> None:
     _COST_LOG.clear()
 
 
+_SENT_REQUESTS = 0
+
+
+def sent_request_count() -> int:
+    """Text/vision requests sent to OpenRouter by this process so far.
+
+    The cost log only gains an entry when a response comes back; this counts
+    every request at the moment it goes out, so a caller capping paid calls
+    (the conversation lab) also counts one that failed with no response.
+    """
+    return _SENT_REQUESTS
+
+
 def get_cost_entries() -> list[dict]:
     """Return a shallow copy of the raw cost log.
 
@@ -603,6 +616,8 @@ def _billed_cost(raw_cost: Any) -> Optional[float]:
 
 def _openrouter_attempt(client: Any, model: str, messages: list, temperature: float) -> tuple[str, Any, Any]:
     """One OpenRouter request; records its cost. Returns (text, finish_reason, completion_tokens)."""
+    global _SENT_REQUESTS
+    _SENT_REQUESTS += 1  # counted before sending: a request can be billed with no response back
     response = client.chat.completions.create(**_openrouter_request_kwargs(model, messages, temperature))
 
     usage = getattr(response, "usage", None)

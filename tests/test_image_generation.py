@@ -80,6 +80,7 @@ class _SlowHandler(http.server.BaseHTTPRequestHandler):
     per-read waits add up to nearly twice the timeout."""
 
     mode = "trickle"
+    stop: threading.Event  # set by the test's cleanup: hang up mid-body
 
     def do_POST(self):  # noqa: N802 - stdlib method name
         self.rfile.read(int(self.headers["Content-Length"]))
@@ -90,13 +91,17 @@ class _SlowHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         try:
+            # Returning early closes the connection short of Content-Length, so
+            # the abandoned worker fails instead of logging a cost into a later test.
             if self.mode == "stall":
                 self.wfile.flush()
-                time.sleep(8)
+                if self.stop.wait(8):
+                    return
             for byte in body:
                 self.wfile.write(bytes([byte]))
                 self.wfile.flush()
-                time.sleep(0.2)
+                if self.stop.wait(0.2):
+                    return
         # governance: allow-silent SF001: the client hanging up at its deadline is the behaviour under test
         except (BrokenPipeError, ConnectionResetError):
             pass
@@ -107,7 +112,8 @@ class _SlowHandler(http.server.BaseHTTPRequestHandler):
 
 @pytest.mark.parametrize("mode", ["trickle", "stall"])
 def test_a_slow_response_stops_at_the_total_timeout(monkeypatch, mode):
-    handler = type("Handler", (_SlowHandler,), {"mode": mode})
+    stop = threading.Event()
+    handler = type("Handler", (_SlowHandler,), {"mode": mode, "stop": stop})
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     monkeypatch.setattr(model_router, "OPENROUTER_BASE_URL", f"http://127.0.0.1:{server.server_address[1]}")
@@ -119,13 +125,15 @@ def test_a_slow_response_stops_at_the_total_timeout(monkeypatch, mode):
             image_generation.generate_nano_banana_image("prompt", "or-key", timeout_s=1)
         assert time.monotonic() - started < 3  # either response takes 8s or more
     finally:
+        stop.set()
         server.shutdown()
         server.server_close()
 
 
 class _LateHandler(http.server.BaseHTTPRequestHandler):
-    """Finishes a billed image at 1.4s, past a 1s deadline, with no gap long
-    enough for requests' own 1s read timeout to end the call first."""
+    """Finishes a billed image at 1.6s, past a 1s deadline, in four parts
+    0.4s apart: well inside requests' own 1s read timeout, so only the
+    caller's deadline can end the wait."""
 
     def do_POST(self):  # noqa: N802 - stdlib method name
         self.rfile.read(int(self.headers["Content-Length"]))
@@ -133,10 +141,10 @@ class _LateHandler(http.server.BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        half = len(body) // 2
-        for part in (body[:half], body[half:]):
-            time.sleep(0.7)
-            self.wfile.write(part)
+        quarter = -(-len(body) // 4)
+        for start in range(0, len(body), quarter):
+            time.sleep(0.4)
+            self.wfile.write(body[start:start + quarter])
             self.wfile.flush()
 
     def log_message(self, *_args):
