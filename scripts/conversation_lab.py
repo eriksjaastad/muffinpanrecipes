@@ -287,7 +287,8 @@ DEFAULT_MAX_COST_USD = 5.00
 # ---------------------------------------------------------------------------
 # Swappable lab model sets (#7714). scripts/lab_models.json maps a set name to
 # a {"dialogue": ..., "judge": ...} pair of bare OpenRouter dotted ids
-# (vendor/model, e.g. "anthropic/claude-haiku-4.5"); `ab --models NAME` picks
+# (vendor/model, e.g. "anthropic/claude-haiku-4.5"), or for dialogue a
+# "local/<ollama model>" id served by the Mini (#8344); `ab --models NAME` picks
 # one, defaulting to the file's "default" key. Changing which models the lab
 # uses is then a one-line edit to that file, never a code change here.
 #
@@ -795,6 +796,52 @@ def _refuse_if_stop_check_conflicts_with_models(
         )
 
 
+def _is_local_model(model_id: str) -> bool:
+    """A lab_models.json id served by the Mini's Ollama, not OpenRouter (#8344)."""
+    return model_id.startswith("local/")
+
+
+def _models_called(args: argparse.Namespace) -> tuple[str, ...]:
+    """The lab_models.json ids this command will call: rejudge and calibrate
+    judge saved transcripts and never generate dialogue."""
+    model_set = _resolve_lab_model_set(args)
+    if args.command in {"rejudge", "calibrate"}:
+        return (model_set.judge,)
+    return (model_set.dialogue, model_set.judge)
+
+
+_LOCAL_TAGS_TIMEOUT_SECONDS = 10.0
+
+
+def _local_model_preflight(args: argparse.Namespace) -> None:
+    """Refuse to start a run that calls a local model unless the Ollama
+    server at LOCAL_LLM_URL answers and lists it. A closed SSH tunnel
+    would otherwise surface only at the first dialogue line."""
+    for model_id in _models_called(args):
+        if not _is_local_model(model_id):
+            continue
+        try:
+            url = model_router.local_llm_url()
+        except RuntimeError as exc:
+            raise SystemExit(f"conversation_lab: {exc}") from exc
+        name = model_id.split("/", 1)[1]
+        try:
+            response = httpx.get(f"{url}/api/tags", timeout=_LOCAL_TAGS_TIMEOUT_SECONDS)
+        except httpx.HTTPError as exc:
+            raise SystemExit(
+                f"conversation_lab: cannot reach the local model server at {url} ({exc}); "
+                "is the SSH tunnel to the Mini open?"
+            ) from exc
+        if response.status_code != 200:
+            raise SystemExit(f"conversation_lab: {url}/api/tags returned HTTP {response.status_code}")
+        listed = {m.get("name") for m in response.json().get("models", []) if isinstance(m, dict)}
+        if name not in listed:
+            raise SystemExit(
+                f"conversation_lab: the local model server at {url} does not list {name!r}; "
+                f"it has: {', '.join(sorted(n for n in listed if n)) or '(none)'}"
+            )
+
+
 def _openrouter_preflight(args: argparse.Namespace) -> None:
     """Check the OpenRouter key limit before any generation and refuse if it
     cannot cover --max-cost. Prints limit and limit_remaining.
@@ -804,8 +851,9 @@ def _openrouter_preflight(args: argparse.Namespace) -> None:
     published price - the mid-arm guard's --max-cost check reserves the
     NEXT call's worst-case cost for an OpenRouter model (see
     `_openrouter_worst_case_call_cost`), and a model with no price has no
-    worst case to reserve. Never reached under --dry-run: `main()` only
-    calls this when `not args.dry_run`.
+    worst case to reserve. A local model (#8344) is free and is not
+    priced. Never reached under --dry-run: `main()` only calls this when
+    `not args.dry_run`.
     """
     global _OPENROUTER_KEY_BEFORE, _OPENROUTER_MODEL_PRICES
     _require_openrouter_key()
@@ -833,13 +881,9 @@ def _openrouter_preflight(args: argparse.Namespace) -> None:
         )
 
     _OPENROUTER_MODEL_PRICES = _fetch_openrouter_model_prices()
-    model_set = _resolve_lab_model_set(args)
-    # Price only the models this command will call: rejudge and calibrate
-    # judge saved transcripts and never generate dialogue.
-    models_called = (
-        (model_set.judge,) if args.command in {"rejudge", "calibrate"} else (model_set.dialogue, model_set.judge)
-    )
-    missing = sorted({m for m in models_called if m not in _OPENROUTER_MODEL_PRICES})
+    missing = sorted({
+        m for m in _models_called(args) if not _is_local_model(m) and m not in _OPENROUTER_MODEL_PRICES
+    })
     if missing:
         raise SystemExit(
             "conversation_lab: OpenRouter has no published price for "
@@ -1120,9 +1164,13 @@ def _openrouter_fields_for(
     args: argparse.Namespace,
     cost_by_model: dict[str, float],
 ) -> dict[str, Any]:
-    """The provider_route/cost/key fields added to every OpenRouter report."""
+    """The provider_route/cost/key fields added to every OpenRouter report.
+
+    provider_route is the dialogue model's OpenRouter route; a local dialogue
+    model (#8344) never touches OpenRouter, so it has none (None)."""
     model_set = _resolve_lab_model_set(args)
-    fields: dict[str, Any] = {"provider_route": model_router.openrouter_provider_route(model_set.dialogue)}
+    route = None if _is_local_model(model_set.dialogue) else model_router.openrouter_provider_route(model_set.dialogue)
+    fields: dict[str, Any] = {"provider_route": route}
     fields["models"] = {"set": model_set.name, "dialogue": model_set.dialogue, "judge": model_set.judge}
     fields.update(_openrouter_cost_report(cost_by_model))
     key_report = _openrouter_key_usage_report()
@@ -1764,14 +1812,18 @@ def _installed_budget_guard(budget: CallBudget, max_cost: float | None, baseline
         cost_blocked = False
         if max_cost is not None:
             if provider is not None:
-                # A model_router call, always OpenRouter (#8343).
+                # A model_router call: OpenRouter (#8343), or the free
+                # local model (#8344), which reserves nothing.
                 # #7714 finding 2: --max-cost used to admit a call whenever
                 # ANY money remained, regardless of that call's possible
                 # cost - with a 32768-token completion ceiling
                 # (openrouter_max_tokens), one call can overshoot the cap
                 # materially. Reserve its worst case instead of just
                 # checking the running total.
-                worst_case = _openrouter_worst_case_call_cost(model or "", prompt_bytes or 0)
+                worst_case = (
+                    0.0 if provider == "local"
+                    else _openrouter_worst_case_call_cost(model or "", prompt_bytes or 0)
+                )
                 # An unreadable total (e.g. an earlier OpenRouter entry with
                 # no usage.cost) blocks: admitting the call would spend
                 # against a cap nobody can check.
@@ -2518,6 +2570,12 @@ def _require_openrouter_key() -> None:
         )
 
 
+def _router_model_id(model_id: str) -> str:
+    """The model_router id for a lab_models.json id: a local id already is
+    one; any other id is OpenRouter's."""
+    return model_id if _is_local_model(model_id) else f"openrouter/{model_id}"
+
+
 def _resolve_openrouter_models(dry_run: bool, model_set: "LabModelSet") -> tuple[str, str, str]:
     """Return (mode, dialogue_model, judge_model) for a paid command.
 
@@ -2529,14 +2587,14 @@ def _resolve_openrouter_models(dry_run: bool, model_set: "LabModelSet") -> tuple
     if dry_run:
         return "template", "template", "template"
     _require_openrouter_key()
-    return "openai", f"openrouter/{model_set.dialogue}", f"openrouter/{model_set.judge}"
+    return "openai", _router_model_id(model_set.dialogue), _router_model_id(model_set.judge)
 
 
 def _resolve_openrouter_judge_model(dry_run: bool, model_set: "LabModelSet") -> str:
     if dry_run:
         return "template"
     _require_openrouter_key()
-    return f"openrouter/{model_set.judge}"
+    return _router_model_id(model_set.judge)
 
 
 def _resolve_models_for_args(args: argparse.Namespace) -> tuple[str, str, str]:
@@ -7879,6 +7937,7 @@ def _build_parser() -> argparse.ArgumentParser:
     bench.add_argument("--no-log", action="store_true", help="Do not append a row to the experiments log")
     bench.add_argument("--experiments-log", default=None, help=f"Override the EXPERIMENTS.md path (default: {DEFAULT_EXPERIMENTS_LOG})")
     bench.add_argument("--results-dir", default=None)
+    _add_models_option(bench)
 
     calibrate = sub.add_parser(
         "calibrate",
@@ -8088,6 +8147,7 @@ def main(argv: list[str] | None = None) -> None:
 
     try:
         if args.command in _PAID_COMMANDS and not args.dry_run:
+            _local_model_preflight(args)
             _openrouter_preflight(args)
         _dispatch_command(args)
     except ConversationLabError as exc:
