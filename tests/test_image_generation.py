@@ -1,4 +1,5 @@
 import base64
+import json
 
 import pytest
 
@@ -6,13 +7,20 @@ from backend.utils import image_generation, model_router
 
 
 class _Response:
-    def __init__(self, payload, status_code=200):
-        self._payload = payload
-        self.status_code = status_code
-        self.text = str(payload)
+    """A streamed requests response: the body arrives as `chunks`."""
 
-    def json(self):
-        return self._payload
+    def __init__(self, payload, status_code=200, chunks=None):
+        self.status_code = status_code
+        self._chunks = chunks if chunks is not None else [json.dumps(payload).encode()]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def iter_content(self, chunk_size):
+        yield from self._chunks
 
 
 def _image_payload(data: bytes) -> dict:
@@ -57,3 +65,14 @@ def test_a_response_without_an_image_raises(monkeypatch):
     monkeypatch.setattr(image_generation.requests, "post", lambda *_a, **_k: _Response(payload))
     with pytest.raises(RuntimeError, match="No inline image data"):
         image_generation.generate_nano_banana_image("prompt", "or-key")
+
+
+def test_a_call_that_keeps_trickling_bytes_past_its_timeout_raises(monkeypatch):
+    # Each keepalive byte resets requests' own timeout; only the total deadline stops it.
+    clock = iter([0.0, 10.0, 20.0, 31.0])
+    monkeypatch.setattr(image_generation.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(
+        image_generation.requests, "post", lambda *_a, **_k: _Response(None, chunks=[b" ", b" ", b" ", b"{}"]),
+    )
+    with pytest.raises(RuntimeError, match="exceeded 30s"):
+        image_generation.generate_nano_banana_image("prompt", "or-key", timeout_s=30)

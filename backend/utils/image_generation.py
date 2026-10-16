@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import base64
+import json
+import time
 from typing import Any
 
 import requests
@@ -45,16 +47,18 @@ def generate_nano_banana_image(
     ``api_key`` is OPENROUTER_API_KEY. ``model`` is Google's id; it is mapped
     by model_router.OPENROUTER_MODEL_IDS (an unmapped id raises) and pinned to
     Google AI Studio with no fallbacks. ``image_size`` is Gemini's "1K"/"2K"/"4K".
-    ``timeout_s`` bounds the HTTP request; with None a stalled call runs until
-    the host kills it. Raises RuntimeError on a non-200 response or a
-    response with no image.
+    ``timeout_s`` bounds the whole call, as art_director's shoot deadline
+    needs; with None a stalled call runs until the host kills it. Raises
+    RuntimeError on a non-200 response, a response with no image, or a call
+    that outlasts ``timeout_s``.
     """
     openrouter_model = model_router.openrouter_model_id("google", model)
     image_config: dict[str, Any] = {"aspect_ratio": aspect_ratio}
     if image_size:
         image_config["image_size"] = image_size
 
-    response = requests.post(
+    deadline = time.monotonic() + timeout_s if timeout_s else None
+    with requests.post(
         f"{model_router.OPENROUTER_BASE_URL}/chat/completions",
         headers={"Authorization": f"Bearer {api_key}"},
         json={
@@ -67,12 +71,22 @@ def generate_nano_banana_image(
             "usage": {"include": True},
         },
         timeout=timeout_s,
-    )
+        stream=True,
+    ) as response:
+        # requests' timeout only limits each wait for bytes, so a server that
+        # trickles bytes (keepalive whitespace) could hold the call open past
+        # the shoot deadline; checking the clock per chunk bounds the total.
+        chunks = []
+        for chunk in response.iter_content(chunk_size=65536):
+            if deadline is not None and time.monotonic() > deadline:
+                raise RuntimeError(f"OpenRouter image call exceeded {timeout_s}s")
+            chunks.append(chunk)
+    body = b"".join(chunks)
     log_call("openrouter", service="image", project="muffinpanrecipes", caller="image_generation.nano_banana")
     if response.status_code != 200:
-        raise RuntimeError(f"OpenRouter image error {response.status_code}: {response.text[:200]}")
+        raise RuntimeError(f"OpenRouter image error {response.status_code}: {body[:200].decode(errors='replace')}")
 
-    payload = response.json()
+    payload = json.loads(body)
     model_router.record_external_cost(
         "openrouter", openrouter_model, (payload.get("usage") or {}).get("cost"),
     )
