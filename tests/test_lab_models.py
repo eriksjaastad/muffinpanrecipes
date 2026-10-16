@@ -828,10 +828,13 @@ def test_local_model_calls_ollama_native_chat_and_records_zero_billed_cost(monke
 def test_local_model_prompt_longer_than_the_context_raises_instead_of_truncating(monkeypatch):
     monkeypatch.setenv("LOCAL_LLM_URL", "http://127.0.0.1:11435")
     sent = _fake_ollama_chat(monkeypatch)
+    model_router.reset_cost_log()
     with pytest.raises(RuntimeError, match="exceeds the available context size"):
         model_router.generate_response("x" * 40000, model=f"local/{LOCAL_QWEN}")
     [(_, body)] = sent
     assert body["truncate"] is False
+    [entry] = model_router.get_cost_entries()  # the refused request still counts as a call
+    assert (entry["provider"], entry["actual_cost"]) == ("local", 0.0)
 
 
 def test_local_model_empty_reply_raises(monkeypatch):
