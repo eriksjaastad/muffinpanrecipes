@@ -1,26 +1,36 @@
 import base64
+import http.server
 import json
+import threading
+import time
 
 import pytest
+import requests
 
 from backend.utils import image_generation, model_router
 
 
-class _Response:
-    """A streamed requests response: the body arrives as `chunks`."""
+class _Raw:
+    def __init__(self, body: bytes):
+        self._body = body
 
-    def __init__(self, payload, status_code=200, chunks=None):
+    def read1(self, amt, decode_content=True):
+        chunk, self._body = self._body[:amt], self._body[amt:]
+        return chunk
+
+
+class _Response:
+    """A streamed requests response whose body is read through `raw.read1`."""
+
+    def __init__(self, payload, status_code=200):
         self.status_code = status_code
-        self._chunks = chunks if chunks is not None else [json.dumps(payload).encode()]
+        self.raw = _Raw(json.dumps(payload).encode())
 
     def __enter__(self):
         return self
 
     def __exit__(self, *exc):
         return False
-
-    def iter_content(self, chunk_size):
-        yield from self._chunks
 
 
 def _image_payload(data: bytes) -> dict:
@@ -60,19 +70,56 @@ def test_image_comes_back_from_openrouter_as_bytes(monkeypatch):
     )
 
 
-def test_a_response_without_an_image_raises(monkeypatch):
+def test_a_response_without_an_image_raises_with_what_came_back(monkeypatch):
     payload = {"choices": [{"message": {"content": "I can't draw that."}}], "usage": {"cost": 0.001}}
     monkeypatch.setattr(image_generation.requests, "post", lambda *_a, **_k: _Response(payload))
-    with pytest.raises(RuntimeError, match="No inline image data"):
+    with pytest.raises(RuntimeError, match="No inline image data.*I can't draw that"):
         image_generation.generate_nano_banana_image("prompt", "or-key")
 
 
-def test_a_call_that_keeps_trickling_bytes_past_its_timeout_raises(monkeypatch):
-    # Each keepalive byte resets requests' own timeout; only the total deadline stops it.
-    clock = iter([0.0, 10.0, 20.0, 31.0])
-    monkeypatch.setattr(image_generation.time, "monotonic", lambda: next(clock))
+def test_a_non_200_response_raises_with_its_status_and_body(monkeypatch):
     monkeypatch.setattr(
-        image_generation.requests, "post", lambda *_a, **_k: _Response(None, chunks=[b" ", b" ", b" ", b"{}"]),
+        image_generation.requests, "post",
+        lambda *_a, **_k: _Response({"error": {"message": "upstream overloaded"}}, status_code=502),
     )
-    with pytest.raises(RuntimeError, match="exceeded 30s"):
-        image_generation.generate_nano_banana_image("prompt", "or-key", timeout_s=30)
+    with pytest.raises(RuntimeError, match="502.*upstream overloaded"):
+        image_generation.generate_nano_banana_image("prompt", "or-key")
+
+
+class _TrickleHandler(http.server.BaseHTTPRequestHandler):
+    """Declares a Content-Length, then sends the body one byte every 0.2s, so
+    every read arrives well inside requests' own timeout."""
+
+    def do_POST(self):  # noqa: N802 - stdlib method name
+        self.rfile.read(int(self.headers["Content-Length"]))
+        body = b" " * 40 + b"{}"
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        try:
+            for byte in body:
+                self.wfile.write(bytes([byte]))
+                self.wfile.flush()
+                time.sleep(0.2)
+        # governance: allow-silent SF001: the client hanging up at its deadline is the behaviour under test
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    def log_message(self, *_args):
+        pass
+
+
+def test_a_response_that_trickles_bytes_stops_at_the_total_timeout(monkeypatch):
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _TrickleHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setattr(model_router, "OPENROUTER_BASE_URL", f"http://127.0.0.1:{server.server_address[1]}")
+    # conftest blocks requests.post suite-wide (IndexNow guard); this call only reaches loopback.
+    monkeypatch.setattr(image_generation.requests, "post", requests.api.post)
+    try:
+        started = time.monotonic()
+        with pytest.raises(RuntimeError, match="exceeded 1s"):
+            image_generation.generate_nano_banana_image("prompt", "or-key", timeout_s=1)
+        assert time.monotonic() - started < 3  # the full trickle takes ~8s
+    finally:
+        server.shutdown()
+        server.server_close()

@@ -29,7 +29,10 @@ def _extract_image_bytes(payload: dict[str, Any]) -> bytes:
             _, sep, data = url.partition("base64,")
             if sep and data:
                 return base64.b64decode(data)
-    raise RuntimeError("No inline image data found in Nano Banana response")
+    # Say what came back instead: an upstream error object or the model's text.
+    choices = payload.get("choices") or [{}]
+    said = payload.get("error") or (choices[0].get("message") or {}).get("content")
+    raise RuntimeError(f"No inline image data found in Nano Banana response: {str(said)[:200]!r}")
 
 
 def generate_nano_banana_image(
@@ -75,9 +78,10 @@ def generate_nano_banana_image(
     ) as response:
         # requests' timeout only limits each wait for bytes, so a server that
         # trickles bytes (keepalive whitespace) could hold the call open past
-        # the shoot deadline; checking the clock per chunk bounds the total.
+        # the shoot deadline. read1 returns whatever has arrived rather than
+        # waiting to fill a chunk, so the clock is checked after every receive.
         chunks = []
-        for chunk in response.iter_content(chunk_size=65536):
+        while chunk := response.raw.read1(65536, decode_content=True):
             if deadline is not None and time.monotonic() > deadline:
                 raise RuntimeError(f"OpenRouter image call exceeded {timeout_s}s")
             chunks.append(chunk)
