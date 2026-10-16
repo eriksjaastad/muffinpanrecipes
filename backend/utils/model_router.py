@@ -310,12 +310,20 @@ def reset_cost_log() -> None:
 _SENT_REQUESTS = 0
 
 
+def _count_sent_request(_request: Any) -> None:
+    """httpx request hook on the OpenRouter client: runs once per HTTP request
+    put on the wire, including the OpenAI SDK's own automatic retries."""
+    global _SENT_REQUESTS
+    _SENT_REQUESTS += 1
+
+
 def sent_request_count() -> int:
     """Text/vision requests sent to OpenRouter by this process so far.
 
     The cost log only gains an entry when a response comes back; this counts
-    every request at the moment it goes out, so a caller capping paid calls
-    (the conversation lab) also counts one that failed with no response.
+    every HTTP request as it goes out - SDK retries and requests that never
+    got a response included - so a caller capping paid calls (the
+    conversation lab) counts every one that could bill.
     """
     return _SENT_REQUESTS
 
@@ -536,11 +544,15 @@ def _generate_openrouter(
         raise RuntimeError("OPENROUTER_API_KEY is not set")
 
     try:
+        import httpx
         from openai import OpenAI
     except Exception as e:
         raise RuntimeError("openai package is not installed") from e
 
-    client = OpenAI(base_url=OPENROUTER_BASE_URL, api_key=api_key)
+    client = OpenAI(
+        base_url=OPENROUTER_BASE_URL, api_key=api_key,
+        http_client=httpx.Client(event_hooks={"request": [_count_sent_request]}),
+    )
     messages: list[dict[str, Any]] = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
@@ -616,8 +628,6 @@ def _billed_cost(raw_cost: Any) -> Optional[float]:
 
 def _openrouter_attempt(client: Any, model: str, messages: list, temperature: float) -> tuple[str, Any, Any]:
     """One OpenRouter request; records its cost. Returns (text, finish_reason, completion_tokens)."""
-    global _SENT_REQUESTS
-    _SENT_REQUESTS += 1  # counted before sending: a request can be billed with no response back
     response = client.chat.completions.create(**_openrouter_request_kwargs(model, messages, temperature))
 
     usage = getattr(response, "usage", None)

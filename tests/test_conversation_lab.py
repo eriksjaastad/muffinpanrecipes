@@ -1143,33 +1143,40 @@ def test_run_judge_orientation_records_retry_count_and_charges_budget_for_every_
 
 
 @pytest.mark.parametrize("replies, permits, error, sent, records", [
-    # The guard refuses the first request: nothing billed, no record.
+    # The guard refuses the first request: nothing goes out, no record.
     ([], 0, cl.LabBudgetAbort, 0, 0),
     # An empty "stop" answer is billed; the guard refuses the router's own retry.
     ([""], 1, cl.LabBudgetAbort, 1, 1),
-    # Unparseable JSON is billed; the judge retry is sent and fails with no response.
-    (["not json", ConnectionError("reset")], 9, ConnectionError, 2, 1),
+    # Unparseable JSON is billed; the judge retry's connection drops, and the
+    # OpenAI SDK re-sends it twice more by itself: four requests on the wire.
+    (["not json", "drop", "drop", "drop"], 9, "APIConnectionError", 4, 1),
 ])
 def test_run_judge_orientation_counts_every_request_sent(monkeypatch, replies, permits, error, sent, records):
-    """#8343: a request counts once it is sent, whether or not a response came
-    back; one the budget guard refused before sending does not."""
-    from types import SimpleNamespace
+    """#8343: every HTTP request that goes out counts, whether or not a
+    response came back (SDK retries included); one the budget guard refused
+    before sending does not."""
+    import httpx
+    import openai
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
     queue = iter(replies)
 
-    class FakeCompletions:
-        def create(self, **_kwargs):
-            reply = next(queue)
-            if isinstance(reply, Exception):
-                raise reply
-            return SimpleNamespace(
-                choices=[SimpleNamespace(message=SimpleNamespace(content=reply), finish_reason="stop")],
-                usage=SimpleNamespace(prompt_tokens=10, completion_tokens=1, cost=0.0001),
-                provider="Anthropic",
-            )
+    def openrouter(request):
+        reply = next(queue)
+        if reply == "drop":
+            raise httpx.ConnectError("connection reset", request=request)
+        return httpx.Response(200, json={
+            "id": "x", "object": "chat.completion", "created": 0, "model": "m", "provider": "Anthropic",
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": reply}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 1, "total_tokens": 11, "cost": 0.0001},
+        })
 
-    monkeypatch.setattr("openai.OpenAI", lambda **_kw: SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions())))
+    class MockedClient(httpx.Client):  # the router's client, with OpenRouter replaced
+        def __init__(self, **kwargs):
+            super().__init__(transport=httpx.MockTransport(openrouter), **kwargs)
+
+    monkeypatch.setattr(httpx, "Client", MockedClient)
+    monkeypatch.setattr("openai._base_client.time.sleep", lambda _s: None)  # skip the SDK's retry backoff
     allowed = iter(range(permits))
 
     def guard(*_args):
@@ -1178,8 +1185,8 @@ def test_run_judge_orientation_counts_every_request_sent(monkeypatch, replies, p
 
     monkeypatch.setattr(model_router, "_PRE_CALL_HOOK", guard)
     pending = {"judge_orientations": []}
-    budget = cl.CallBudget(max_calls=5)
-    with pytest.raises(error):
+    budget = cl.CallBudget(max_calls=9)
+    with pytest.raises(getattr(openai, error) if isinstance(error, str) else error):
         cl._run_judge_orientation(
             orientation="control_first", pending_pair=pending, budget=budget,
             judge_model="anthropic/claude-opus-4-6", concept="muffins", stage="monday",
