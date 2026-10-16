@@ -670,8 +670,10 @@ def _openrouter_attempt(client: Any, model: str, messages: list, temperature: fl
     )
 
 
-# Context window asked of the local model. Ollama keeps only the end of a
-# prompt longer than this, without an error.
+# Context window asked of the local model. By default Ollama silently cuts a
+# longer prompt to fit and reports prompt_eval_count for what was left, so the
+# count cannot reveal the cut (probed on 0.40.5); _generate_local sends
+# truncate=false, which makes Ollama refuse with HTTP 400 instead.
 LOCAL_NUM_CTX = 32768
 _LOCAL_TIMEOUT_SECONDS = 300
 
@@ -692,10 +694,10 @@ def _generate_local(prompt: str, system_prompt: Optional[str], model: str, tempe
     """One call to Ollama's native ``/api/chat`` at LOCAL_LLM_URL, recorded as billed $0.00.
 
     The native endpoint, because the OpenAI-compatible ``/v1`` one ignores
-    ``num_ctx`` and does not report ``prompt_eval_count``. Thinking is off:
-    the model reasons by default, which only slows a one-line reply. A
-    prompt that filled the whole window was truncated by Ollama and raises,
-    as does a reply with no ``prompt_eval_count`` to check that against.
+    ``num_ctx`` and ``truncate``. Thinking is off: the model reasons by
+    default, which only slows a one-line reply. ``truncate: false`` turns a
+    prompt longer than LOCAL_NUM_CTX into an HTTP 400 ("exceeds the
+    available context size"), which raises with Ollama's error text.
     """
     messages: list[dict[str, str]] = []
     if system_prompt:
@@ -708,6 +710,7 @@ def _generate_local(prompt: str, system_prompt: Optional[str], model: str, tempe
             "messages": messages,
             "stream": False,
             "think": False,
+            "truncate": False,
             "options": {"num_ctx": LOCAL_NUM_CTX, "temperature": temperature},
         },
         timeout=_LOCAL_TIMEOUT_SECONDS,
@@ -715,16 +718,9 @@ def _generate_local(prompt: str, system_prompt: Optional[str], model: str, tempe
     if response.status_code != 200:
         raise RuntimeError(f"local {model} returned HTTP {response.status_code}: {response.text[:200]}")
     payload = response.json()
-    prompt_tokens = payload.get("prompt_eval_count")
-    completion_tokens = payload.get("eval_count") or 0
-    if not isinstance(prompt_tokens, int):
-        raise RuntimeError(f"local {model} reported no prompt_eval_count; cannot rule out a truncated prompt")
-    _record_cost("local", model, prompt_tokens, completion_tokens, actual_cost=0.0)
-    if prompt_tokens >= LOCAL_NUM_CTX:
-        raise RuntimeError(
-            f"local {model} prompt filled the {LOCAL_NUM_CTX}-token context "
-            f"(prompt_eval_count={prompt_tokens}); Ollama truncated it"
-        )
+    _record_cost(
+        "local", model, payload.get("prompt_eval_count") or 0, payload.get("eval_count") or 0, actual_cost=0.0,
+    )
     text = ((payload.get("message") or {}).get("content") or "").strip()
     if not text:
         raise RuntimeError(f"local {model} returned empty content (done_reason={payload.get('done_reason')!r})")

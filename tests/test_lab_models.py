@@ -762,15 +762,22 @@ def test_ab_resolves_claude_o55_judge_model(tmp_path, monkeypatch):
 LOCAL_QWEN = "qwen3.5:35b-a3b-q4_K_M"
 
 
-def _fake_ollama_chat(monkeypatch, prompt_eval_count=900, content="A local line."):
-    """Fake Ollama's /api/chat; returns the list of (url, json) it was sent."""
+def _fake_ollama_chat(monkeypatch, content="A local line."):
+    """Fake Ollama's /api/chat; returns the list of (url, json) it was sent.
+
+    Like Ollama 0.40.5, a request with truncate=false whose prompt is longer
+    than num_ctx gets HTTP 400; without truncate=false it is silently cut."""
     sent = []
 
     def fake_post(url, json=None, timeout=None):
         sent.append((url, json))
-        body = {"message": {"role": "assistant", "content": content}, "done_reason": "stop", "eval_count": 12}
-        if prompt_eval_count is not None:
-            body["prompt_eval_count"] = prompt_eval_count
+        if len(json["messages"][-1]["content"]) > json["options"]["num_ctx"] and json.get("truncate") is False:
+            error = '{"error":"request (40000 tokens) exceeds the available context size (32768 tokens), try increasing it"}'
+            return SimpleNamespace(status_code=400, json=lambda: {}, text=error)
+        body = {
+            "message": {"role": "assistant", "content": content}, "done_reason": "stop",
+            "prompt_eval_count": 900, "eval_count": 12,
+        }
         return SimpleNamespace(status_code=200, json=lambda: body, text="")
 
     monkeypatch.setattr(model_router.requests, "post", fake_post)
@@ -797,11 +804,13 @@ def test_local_model_calls_ollama_native_chat_and_records_zero_billed_cost(monke
     assert cl._lab_cost_total() == 0.0
 
 
-def test_local_model_prompt_that_filled_the_context_raises(monkeypatch):
+def test_local_model_prompt_longer_than_the_context_raises_instead_of_truncating(monkeypatch):
     monkeypatch.setenv("LOCAL_LLM_URL", "http://127.0.0.1:11435")
-    _fake_ollama_chat(monkeypatch, prompt_eval_count=model_router.LOCAL_NUM_CTX)
-    with pytest.raises(RuntimeError, match="truncated"):
-        model_router.generate_response("x", model=f"local/{LOCAL_QWEN}")
+    sent = _fake_ollama_chat(monkeypatch)
+    with pytest.raises(RuntimeError, match="exceeds the available context size"):
+        model_router.generate_response("x" * 40000, model=f"local/{LOCAL_QWEN}")
+    [(_, body)] = sent
+    assert body["truncate"] is False
 
 
 def test_local_model_without_local_llm_url_raises_before_any_request(monkeypatch):
