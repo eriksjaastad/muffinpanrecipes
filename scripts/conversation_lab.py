@@ -7488,16 +7488,27 @@ class PairsReviewState:
             "scenario": pair.get("scenario_id"),
             "concept": self.container.get("concept") or pair.get("concept"),
             "picked": self._picked_label(position),
+            "reason": (self.container.get("human_pick_reasons") or {}).get(str(position), ""),
             "transcript_a": _as_turns(first_messages),
             "transcript_b": _as_turns(second_messages),
         }
 
-    def apply_pick(self, position: int, label: str) -> dict[str, Any]:
+    def apply_pick(self, position: int, label: str, reason: str = "") -> dict[str, Any]:
+        """Record one pick and its optional one-line why (#8342). The why is
+        what #8275's judge calibration turns into rubric dimensions; the box's
+        content at pick time replaces any earlier why, so a blank box clears it."""
         if position < 1 or position > self.total:
             raise ValueError(f"position {position} out of range 1-{self.total}")
         if label not in ("A", "B", "tie"):
             raise ValueError(f"label {label!r} must be A, B, or tie")
         _apply_human_picks(self.container, self.pairs, self.order_by_position, {position: label})
+        reasons = dict(self.container.get("human_pick_reasons") or {})
+        reason = " ".join(reason.split())
+        if reason:
+            reasons[str(position)] = reason
+        else:
+            reasons.pop(str(position), None)
+        self.container["human_pick_reasons"] = reasons
         _write_pairs_report_atomic(self.result_path, self.report)
         return self.state()
 
@@ -7526,6 +7537,7 @@ _PAIRS_UI_HTML = """<!doctype html>
   .turn { margin: 0 0 0.6rem 0; }
   .speaker { font-weight: 600; }
   .picked { outline: 3px solid #2a7; }
+  #reason { width: 100%; box-sizing: border-box; margin-top: 1rem; font-size: 1rem; padding: 0.5rem; }
   .controls { display: flex; gap: 0.6rem; margin: 1rem 0; flex-wrap: wrap; }
   button { font-size: 1rem; padding: 0.5rem 1.1rem; border-radius: 6px; border: 1px solid #888; cursor: pointer; }
   button.pick-a, button.pick-b, button.pick-tie { font-weight: 600; }
@@ -7546,6 +7558,7 @@ _PAIRS_UI_HTML = """<!doctype html>
     <div class="column" id="col-a"><h2>A</h2><div id="turns-a"></div></div>
     <div class="column" id="col-b"><h2>B</h2><div id="turns-b"></div></div>
   </div>
+  <input id="reason" type="text" maxlength="300" placeholder="Why? (optional, one line - type it, then pick)">
   <div class="controls">
     <button class="pick-a" data-label="A">A - pick left (A)</button>
     <button class="pick-tie" data-label="tie">Tie (T)</button>
@@ -7556,7 +7569,8 @@ _PAIRS_UI_HTML = """<!doctype html>
     </span>
   </div>
   <div id="status"></div>
-  <p class="hint">Hotkeys: A / B / T to pick and advance; Left/Right or J/K to navigate without picking.</p>
+  <p class="hint">Hotkeys: A / B / T to pick and advance; Left/Right or J/K to navigate without picking.
+    While typing a why, click the pick button (or click outside the box first to use the hotkeys).</p>
 </div>
 <div id="finish">
   <h2>Done</h2>
@@ -7605,6 +7619,7 @@ async function loadPair(pos) {
   renderTurns(document.getElementById("turns-a"), pair.transcript_a);
   renderTurns(document.getElementById("turns-b"), pair.transcript_b);
   setPickedHighlight(pair.picked);
+  document.getElementById("reason").value = pair.reason || "";
   document.getElementById("status").textContent = pair.picked ? ("Picked: " + pair.picked) : "";
 }
 
@@ -7637,7 +7652,7 @@ async function pick(label) {
     await getJSON("/api/pick", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({position: position, label: label}),
+      body: JSON.stringify({position: position, label: label, reason: document.getElementById("reason").value}),
     });
   } catch (e) {
     document.getElementById("status").textContent = "Error: " + e.message;
@@ -7662,6 +7677,7 @@ document.getElementById("prev").addEventListener("click", () => navigate(-1));
 document.getElementById("next").addEventListener("click", () => navigate(1));
 
 window.addEventListener("keydown", (ev) => {
+  if (ev.target.id === "reason") return;  // typing a why must not pick or navigate
   const key = ev.key.toLowerCase();
   if (key === "a") pick("A");
   else if (key === "b") pick("B");
@@ -7682,7 +7698,7 @@ class _PairsUIHandler(http.server.BaseHTTPRequestHandler):
     GET  /                -> the page (_PAIRS_UI_HTML)
     GET  /api/state        -> {total, picked_count, finished, first_unpicked, stats?}
     GET  /api/pair/<n>      -> blind pair payload (see PairsReviewState.pair_payload)
-    POST /api/pick          -> {"position": int, "label": "A"|"B"|"tie"} -> new state
+    POST /api/pick          -> {"position": int, "label": "A"|"B"|"tie", "reason"?: str} -> new state
     """
 
     server_version = "ConversationLabPairsUI/1"
@@ -7741,9 +7757,10 @@ class _PairsUIHandler(http.server.BaseHTTPRequestHandler):
             body = json.loads(raw_body or b"{}")
             position = body["position"]
             label = body["label"]
-            if not isinstance(position, int) or not isinstance(label, str):
-                raise ValueError("position must be an int and label must be a string")
-            new_state = state.apply_pick(position, label)
+            reason = body.get("reason", "")
+            if not isinstance(position, int) or not isinstance(label, str) or not isinstance(reason, str):
+                raise ValueError("position must be an int; label and reason must be strings")
+            new_state = state.apply_pick(position, label, reason)
         # governance: allow-silent SF002: bad request; the error is sent to the browser as HTTP 400 before returning
         except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
             self._send_json({"error": str(exc)}, status=400)
@@ -8267,7 +8284,9 @@ def _build_parser() -> argparse.ArgumentParser:
             "result's transcripts - replaces the terminal pairs --show/--pick flow for a V6 blind "
             "read. Hotkeys A/B/T record a pick and auto-advance to the next unpicked pair; "
             "Left/Right or J/K navigate without recording; picking an already-picked pair "
-            "overwrites it. Every pick is written straight to the result file (via the SAME "
+            "overwrites it. An optional one-line why typed in the box before a pick is saved "
+            "with it as human_pick_reasons[position] (#8342); the hotkeys are off while typing. "
+            "Every pick is written straight to the result file (via the SAME "
             "_apply_human_picks/_write_pairs_report_atomic functions `pairs --pick` uses, so the "
             "two are interchangeable on the same file) - reloading the page resumes at the first "
             "unpicked pair. The arm names, the A/B mapping, and every judge field are never sent "

@@ -138,7 +138,9 @@ def test_pair_payload_has_no_arm_names_or_judge_fields(running_server):
     rs = running_server(pairs)
     status, payload = rs.get("/api/pair/1")
     assert status == 200
-    assert set(payload.keys()) == {"position", "total", "scenario", "concept", "picked", "transcript_a", "transcript_b"}
+    assert set(payload.keys()) == {
+        "position", "total", "scenario", "concept", "picked", "reason", "transcript_a", "transcript_b",
+    }
     serialized = json.dumps(payload)
     assert "judge" not in serialized
     assert '"control"' not in serialized
@@ -213,6 +215,17 @@ def test_repicking_an_already_picked_pair_overwrites_it(running_server):
     assert second["picked"] == "B"
     on_disk = json.loads(rs.path.read_text())
     assert len(on_disk["human_picks"]) == 1  # overwritten, not appended
+
+
+def test_pick_why_is_saved_shown_on_reload_and_cleared_by_a_blank_repick(running_server):
+    """#8342: the one-line why #8275's calibration reads sits next to human_picks."""
+    rs = running_server([_pair(1, overall="control", control_text="A1", variant_text="B1")])
+    rs.post("/api/pick", {"position": 1, "label": "A", "reason": "  B lectures;\n A argues  "})
+    assert json.loads(rs.path.read_text())["human_pick_reasons"] == {"1": "B lectures; A argues"}
+    assert cl.PairsReviewState(rs.path, None).pair_payload(1)["reason"] == "B lectures; A argues"
+
+    rs.post("/api/pick", {"position": 1, "label": "B", "reason": ""})
+    assert json.loads(rs.path.read_text())["human_pick_reasons"] == {}
 
 
 # ---------------------------------------------------------------------------
