@@ -31,6 +31,7 @@ def sent(monkeypatch):
     class FakeOpenAI:
         def __init__(self, **kwargs):
             assert kwargs["base_url"] == "https://openrouter.ai/api/v1"
+            assert kwargs["http_client"].follow_redirects  # the SDK's default client, not a bare httpx one
             self.chat = SimpleNamespace(completions=FakeCompletions())
 
     monkeypatch.setattr("openai.OpenAI", FakeOpenAI)

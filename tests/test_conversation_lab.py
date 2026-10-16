@@ -1171,11 +1171,11 @@ def test_run_judge_orientation_counts_every_request_sent(monkeypatch, replies, p
             "usage": {"prompt_tokens": 10, "completion_tokens": 1, "total_tokens": 11, "cost": 0.0001},
         })
 
-    class MockedClient(httpx.Client):  # the router's client, with OpenRouter replaced
+    class MockedClient(openai.DefaultHttpxClient):  # the router's client, with OpenRouter replaced
         def __init__(self, **kwargs):
             super().__init__(transport=httpx.MockTransport(openrouter), **kwargs)
 
-    monkeypatch.setattr(httpx, "Client", MockedClient)
+    monkeypatch.setattr(openai, "DefaultHttpxClient", MockedClient)
     monkeypatch.setattr("openai._base_client.time.sleep", lambda _s: None)  # skip the SDK's retry backoff
     allowed = iter(range(permits))
 

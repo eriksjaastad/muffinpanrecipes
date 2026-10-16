@@ -544,14 +544,15 @@ def _generate_openrouter(
         raise RuntimeError("OPENROUTER_API_KEY is not set")
 
     try:
-        import httpx
-        from openai import OpenAI
+        from openai import DefaultHttpxClient, OpenAI
     except Exception as e:
         raise RuntimeError("openai package is not installed") from e
 
+    # The SDK's own default client (redirects, limits, timeouts unchanged),
+    # plus the hook that counts every request it sends.
     client = OpenAI(
         base_url=OPENROUTER_BASE_URL, api_key=api_key,
-        http_client=httpx.Client(event_hooks={"request": [_count_sent_request]}),
+        http_client=DefaultHttpxClient(event_hooks={"request": [_count_sent_request]}),
     )
     messages: list[dict[str, Any]] = []
     if system_prompt:
