@@ -844,6 +844,18 @@ def test_local_model_empty_reply_raises(monkeypatch):
         model_router.generate_response("x", model=f"local/{LOCAL_QWEN}")
 
 
+def test_local_model_non_object_reply_raises_and_still_counts_the_call(monkeypatch):
+    monkeypatch.setenv("LOCAL_LLM_URL", "http://127.0.0.1:11435")
+    monkeypatch.setattr(
+        model_router.requests, "post",
+        lambda *a, **k: SimpleNamespace(status_code=200, json=lambda: None, text="null"),
+    )
+    model_router.reset_cost_log()
+    with pytest.raises(RuntimeError, match="not a JSON object"):
+        model_router.generate_response("x", model=f"local/{LOCAL_QWEN}")
+    assert len(model_router.get_cost_entries()) == 1
+
+
 def test_local_model_without_local_llm_url_raises_before_any_request(monkeypatch):
     monkeypatch.delenv("LOCAL_LLM_URL", raising=False)
     sent = _fake_ollama_chat(monkeypatch)

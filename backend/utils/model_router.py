@@ -717,17 +717,20 @@ def _generate_local(prompt: str, system_prompt: Optional[str], model: str, tempe
     )
     # Every request the server answered is a call, refused or not, so it is
     # logged ($0.00) before anything can raise: the lab's call count stays exact.
-    payload: dict[str, Any] = {}
+    payload: Any = {}
     try:
         if response.status_code == 200:
             payload = response.json()
     finally:
+        counts = payload if isinstance(payload, dict) else {}
         _record_cost(
-            "local", model, payload.get("prompt_eval_count") or 0, payload.get("eval_count") or 0, actual_cost=0.0,
+            "local", model, counts.get("prompt_eval_count") or 0, counts.get("eval_count") or 0, actual_cost=0.0,
         )
     if response.status_code != 200:
         raise RuntimeError(f"local {model} returned HTTP {response.status_code}: {response.text[:200]}")
-    text =((payload.get("message") or {}).get("content") or "").strip()
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"local {model} returned a reply that is not a JSON object: {response.text[:200]}")
+    text = ((payload.get("message") or {}).get("content") or "").strip()
     if not text:
         raise RuntimeError(f"local {model} returned empty content (done_reason={payload.get('done_reason')!r})")
     return text
