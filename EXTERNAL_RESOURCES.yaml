@@ -1,40 +1,13 @@
 external_resources:
-  - name: OpenAI API
-    purpose: Dialogue, recipe, and judge text generation.
-    env_vars:
-      - OPENAI_API_KEY
-      - OPENAI_MODEL_ALLOWLIST
-    notes: Routed via backend/utils/model_router.py
-
-  - name: Anthropic API
-    purpose: Dialogue and judge text generation.
-    env_vars:
-      - ANTHROPIC_API_KEY
-      - ANTHROPIC_MODEL_ALLOWLIST
-    notes: Routed via backend/utils/model_router.py
-
-  - name: Google Gemini Developer API
-    purpose: Optional text generation provider (Gemini models).
-    env_vars:
-      - GOOGLE_API_KEY
-      - GOOGLE_MODEL_ALLOWLIST
-    notes: Routed via backend/utils/model_router.py using google-genai SDK.
-
   - name: OpenRouter
-    purpose: Lab-only routing for Haiku dialogue, Opus judge, and Jev stop checks onto one bill.
+    purpose: Every paid model call (#8343) - Anthropic dialogue and judge, OpenAI recipe and vision, Gemini images, the lab, and Jev stop checks - on one bill.
     env_vars:
       - OPENROUTER_API_KEY
       - OPENROUTER_MODEL_ALLOWLIST
-    notes: Chat completions via backend/utils/model_router.py (provider pinned to Anthropic; usage.cost requested), Jev decisions via backend/utils/stop_check.py, key limit via https://openrouter.ai/api/v1/key in scripts/conversation_lab.py.
-
-  - name: Nano Banana (Gemini image generation)
-    purpose: Image generation comparison vs Stability AI.
-    env_vars:
-      - NANOBANANA_API_KEY
-      - NANOBANANA_MODEL
-      - NANOBANANA_COST_PER_IMAGE
-      - GOOGLE_API_KEY
-    notes: Implemented via google-genai image models (e.g., gemini-2.5-flash-image).
+      - ANTHROPIC_MODEL_ALLOWLIST
+      - OPENAI_MODEL_ALLOWLIST
+      - GOOGLE_MODEL_ALLOWLIST
+    notes: Chat completions via backend/utils/model_router.py (provider-prefixed ids mapped by OPENROUTER_MODEL_IDS, each pinned to its own vendor with no fallbacks; usage.cost requested), images via backend/utils/image_generation.py, Jev decisions via backend/utils/stop_check.py, key limit via https://openrouter.ai/api/v1/key in scripts/conversation_lab.py.
 
   - name: Bing Webmaster Tools API
     purpose: SEO baseline (crawl stats, query stats, index status) for the apex property https://muffinpanrecipes.com.
@@ -48,12 +21,10 @@ external_resources:
     notes: backend/utils/indexnow.py POSTs to https://api.indexnow.org/indexnow. The key is public by design (served at /015dad665f3a6ddeeab4565e96d0dd50.txt from src/), so it is committed rather than kept in Doppler.
 
   - name: Stability AI
-    purpose: Production image generation (SDXL).
+    purpose: Legacy RunPod harvest only; production images moved to Gemini in #8068.
     env_vars:
       - STABILITY_API_KEY
-      - STABILITY_ENGINE_ID
-      - STABILITY_COST_PER_IMAGE
-    notes: Used by backend/agents/art_director.py and scripts/direct_harvest.py.
+    notes: Used only by scripts/direct_harvest.py, which scripts/trigger_generation.py uploads to R2. The one paid path that does not go through OpenRouter.
 
   - name: Vercel
     purpose: Hosting and Vercel Blob storage for episodes, pages, and images.

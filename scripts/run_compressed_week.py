@@ -121,17 +121,17 @@ def print_cost_summary(results: list[dict]) -> None:
             continue
         for model_key, data in cost.get("by_model", {}).items():
             if model_key not in totals:
-                totals[model_key] = {"calls": 0, "tokens_in": 0, "tokens_out": 0, "estimated_cost": 0.0}
+                totals[model_key] = {"calls": 0, "tokens_in": 0, "tokens_out": 0, "cost": 0.0}
             totals[model_key]["calls"] += data["calls"]
             totals[model_key]["tokens_in"] += data["tokens_in"]
             totals[model_key]["tokens_out"] += data["tokens_out"]
-            totals[model_key]["estimated_cost"] += data["estimated_cost"]
+            totals[model_key]["cost"] += data["cost"]
 
     if not totals:
-        print("\n  (No cost data collected — costs are only tracked for OpenAI/Anthropic/Google calls)\n")
+        print("\n  (No cost data collected)\n")
         return
 
-    grand_total = sum(m["estimated_cost"] for m in totals.values())
+    grand_total = sum(m["cost"] for m in totals.values())
     grand_calls = sum(m["calls"] for m in totals.values())
     grand_in = sum(m["tokens_in"] for m in totals.values())
     grand_out = sum(m["tokens_out"] for m in totals.values())
@@ -142,7 +142,7 @@ def print_cost_summary(results: list[dict]) -> None:
     for model_key, data in sorted(totals.items()):
         print(f"  {model_key:40s}  {data['calls']:3d} calls  "
               f"{data['tokens_in']:7,} in  {data['tokens_out']:7,} out  "
-              f"${data['estimated_cost']:.4f}")
+              f"${data['cost']:.4f}")
     print(f"  {'TOTAL':40s}  {grand_calls:3d} calls  "
           f"{grand_in:7,} in  {grand_out:7,} out  "
           f"${grand_total:.4f}")

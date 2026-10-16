@@ -460,8 +460,6 @@ def test_openrouter_cost_by_model_totals_router_and_jev_costs():
         "openrouter", "anthropic/claude-opus-4.6", 5, 1,
         actual_cost=0.0004, served_provider="Anthropic",
     )
-    # A direct-provider entry (no actual_cost) must be ignored.
-    model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 2)
     model_router.record_external_cost("jev", "typesafe/jev-1.13-20260917", 0.000013272)
 
     # pairs/partial_pairs are accepted for call-site compatibility only -
@@ -532,38 +530,6 @@ def test_openrouter_ab_end_to_end_records_costs_and_key_before_after(tmp_path, m
     assert report["total_cost_usd"] == 0.0008
     assert report["openrouter_key"]["before"]["limit_remaining"] == 9.5
     assert report["openrouter_key"]["after"]["limit_remaining"] == 9.4
-
-
-def test_anthropic_path_does_not_add_openrouter_cost_fields(tmp_path, monkeypatch):
-    """--provider anthropic keeps the legacy report shape (budget ledger and all)."""
-    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
-    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
-    monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("anthropic")})
-    monkeypatch.setattr(
-        model_router,
-        "generate_judge_response",
-        lambda **_kwargs: json.dumps({
-            "winner": "tie",
-            "per_dimension": {dim: "tie" for dim in cl.ALL_JUDGE_DIMENSIONS},
-            "reason": "fixture",
-        }),
-    )
-    variant_path = _write_variant(tmp_path)
-    results_dir = tmp_path / "results"
-
-    cl.main([
-        "ab", "--provider", "anthropic",
-        "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
-        "--variant", str(variant_path), "--recipe-context", "anchor",
-        "--no-log", "--results-dir", str(results_dir),
-    ])
-
-    [result_file] = list(results_dir.glob("*-ab-*.json"))
-    report = json.loads(result_file.read_text())
-    assert report["provider_route"] is None
-    assert "cost_by_model" not in report
-    assert "total_cost_usd" not in report
-    assert "openrouter_key" not in report
 
 
 def test_openrouter_refuses_when_account_balance_is_below_max_cost(tmp_path, monkeypatch):

@@ -170,16 +170,10 @@ Five subcommands:
       by scenario then day, in week order; it refuses a day that is not
       after the last frozen day.
 
-  Paid experiment commands accept --budget-ledger PATH to share an
-  authoritative Anthropic token-usage ledger across ab, bench and calibrate;
-  pass --create-budget-ledger once to create it, then resume without that flag.
-
-Both models fail loud, never a silent default: `ab`/`calibrate` read
-DIALOGUE_MODEL via backend.config.config.dialogue_model (which itself
-raises when unset) and JUDGE_MODEL directly from the environment - NEVER
-via backend.config.config.judge_model, which silently falls back to
-anthropic/claude-sonnet-4-6 in production. Either missing var exits
-non-zero with a `doppler run --` hint unless --dry-run is passed.
+Every paid command routes through OpenRouter with the model set named by
+--models (scripts/lab_models.json; its default set is production's models).
+A missing OPENROUTER_API_KEY exits non-zero with a `doppler run --` hint
+unless --dry-run is passed.
 
 Cost control, two independent caps checked before every paid unit (a
 control/variant generation, or a judge call), whichever hits first:
@@ -199,8 +193,8 @@ control/variant generation, or a judge call), whichever hits first:
       flat default of 40.
 
   --max-cost (default $5.00 - Erik's standing cap, 2026-09-06) aborts once
-  the lab's cost total (_lab_cost_total: each call's actual_cost, else its
-  estimated_cost, from model_router.get_cost_entries()) has already
+  the lab's cost total (_lab_cost_total: each call's billed actual_cost
+  from model_router.get_cost_entries()) has already
   reached it - the next paid unit, whatever it costs, is refused. This is
   an ABSOLUTE cap for `ab` (single/--testbed) and `calibrate`. For `ab
   --sweep` it applies PER VARIANT instead: each variant's own spend is
@@ -233,7 +227,6 @@ in tests/test_conversation_lab.py.
 from __future__ import annotations
 
 import argparse
-import contextvars
 import copy
 import fcntl
 import hashlib
@@ -269,13 +262,11 @@ from backend.admin.cron_routes import (
     _build_recipe_context,
     _judge_dialogue as judge_dialogue,
 )
-from backend.config import config
 from backend.judge_rubric import CHARACTER_RULES, JUDGE_DIMENSIONS, JUDGE_SCORE_RANGE
 from backend.utils import model_router
 from backend.utils import stop_check
 from backend.utils.episode_integrity import PLACEHOLDER_CONCEPT, _recipe_title
 from scripts.conversation_metrics import summarize
-from scripts.conversation_budget import AnthropicBudgetGuard, BudgetGuardError
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LAB_DIR = ROOT / "docs" / "conversation-lab"
@@ -633,28 +624,19 @@ def _cost_summary_or_none() -> dict[str, Any] | None:
     return summary if isinstance(summary, dict) else None
 
 class _UntrustedCostEntry(RuntimeError):
-    """Raised by `_lab_cost_total` for an OpenRouter cost-log entry that
-    reports neither a real `actual_cost` nor a nonzero `estimated_cost`.
+    """Raised by `_lab_cost_total` for a cost-log entry with no real
+    `actual_cost` (OpenRouter returned no usable `usage.cost`).
 
-    #7714 finding 1: `backend.utils.model_router.get_cost_summary()`'s
-    `total_cost` sums ONLY `estimated_cost`, computed from
-    `_COST_PER_M_TOKENS` - a table with no OpenRouter ids in it - so every
-    OpenRouter call estimates to $0 there even though `_generate_openrouter`
-    stores the real `usage.cost` as `actual_cost` right next to it. Treating
-    that shape as $0 spend would let real, unmetered OpenRouter cost run
-    straight past --max-cost, so `_would_exceed_cost` treats this as an
-    immediate, fail-CLOSED cap hit instead of a read failure (which fails
-    open)."""
+    Counting that call as $0 would let unmetered spend run straight past
+    --max-cost, so `_would_exceed_cost` treats this as an immediate,
+    fail-CLOSED cap hit instead of a read failure (which fails open)."""
 
 def _lab_cost_total() -> float:
-    """The lab's own running-cost total: sum, over every entry in
-    `backend.utils.model_router.get_cost_entries()`, of that entry's
-    `actual_cost` when present, else its `estimated_cost` - NOT
-    `get_cost_summary()['total_cost']` (see `_UntrustedCostEntry`'s
-    docstring for why that undercounts OpenRouter spend to $0).
+    """The lab's own running-cost total: the sum of every
+    `backend.utils.model_router.get_cost_entries()` entry's billed
+    `actual_cost`.
 
-    Raises `_UntrustedCostEntry` for an OpenRouter entry with neither a
-    real `actual_cost` nor a nonzero `estimated_cost` - callers decide
+    Raises `_UntrustedCostEntry` for an entry without one - callers decide
     whether that fails open or closed (see `_would_exceed_cost` and
     `_total_cost_or_none`).
     """
@@ -663,21 +645,12 @@ def _lab_cost_total() -> float:
         if not isinstance(entry, dict):
             continue
         actual = entry.get("actual_cost")
-        if isinstance(actual, (int, float)) and not isinstance(actual, bool):
-            total += float(actual)
-            continue
-        estimated = entry.get("estimated_cost")
-        if isinstance(estimated, (int, float)) and not isinstance(estimated, bool):
-            estimated = float(estimated)
-        else:
-            estimated = 0.0
-        if entry.get("provider") == "openrouter" and estimated == 0.0:
+        if isinstance(actual, bool) or not isinstance(actual, (int, float)):
             raise _UntrustedCostEntry(
-                "openrouter cost entry for model "
-                f"{entry.get('model')!r} reports no actual_cost and a zero "
-                "estimate - refusing to count it as $0 spend"
+                f"cost entry for model {entry.get('model')!r} reports no actual_cost "
+                "- refusing to count it as $0 spend"
             )
-        total += estimated
+        total += float(actual)
     return total
 
 def _total_cost_or_none() -> float | None:
@@ -734,18 +707,8 @@ def _would_exceed_cost(max_cost: float, baseline: float = 0.0) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# OpenRouter (lab-only) key and cost accounting
+# OpenRouter key and cost accounting
 # ---------------------------------------------------------------------------
-def _provider_for(args: argparse.Namespace) -> str:
-    """The provider a command invocation is running under.
-
-    argparse always sets `provider` for ab/bench/calibrate; direct calls from
-    tests (or internal callers) that predate the flag default to the
-    production-direct Anthropic path.
-    """
-    return getattr(args, "provider", None) or "anthropic"
-
-
 def _models_arg_for(args: argparse.Namespace) -> str | None:
     """The --models value, or None when this subcommand has no such flag
     (only `ab` gets --models) or it was not passed."""
@@ -757,26 +720,16 @@ def _resolve_lab_model_set(args: argparse.Namespace) -> "LabModelSet":
     collapsed to "template" by --dry-run, so provider_route reporting and the
     STOP_CHECK/haiku compatibility check both reason about the actual set even
     under a zero-cost dry run.
-
-    --models is only meaningful with --provider openrouter: --provider
-    anthropic is the production-direct path and always runs the default set.
     """
-    name = _models_arg_for(args) or _LAB_MODELS.default
-    if name != _LAB_MODELS.default and _provider_for(args) != "openrouter":
-        raise SystemExit(
-            f"conversation_lab: --models {name!r} is only meaningful with --provider "
-            f"openrouter (--provider anthropic always uses the {_LAB_MODELS.default!r} set)"
-        )
-    return _LAB_MODELS.get(name)
+    return _LAB_MODELS.get(_models_arg_for(args) or _LAB_MODELS.default)
 
 
 def _refuse_if_stop_check_conflicts_with_models(
     args: argparse.Namespace, variant: dict[str, Any] | None,
 ) -> None:
-    """STOP_CHECK['provider'] == "haiku" always calls real Anthropic Claude
-    Haiku directly (backend/utils/stop_check.py's HAIKU_MODEL, through
-    model_router with --provider anthropic) - it never routes through
-    --models. Running a non-default model set (e.g. --models deepseek) with a
+    """STOP_CHECK['provider'] == "haiku" always calls Claude Haiku
+    (backend/utils/stop_check.py's HAIKU_MODEL, through model_router) - it
+    never routes through --models. Running a non-default model set (e.g. --models deepseek) with a
     haiku stop check would silently spend on Claude while everything else in
     the run is billed to a different vendor, so refuse instead of doing that
     quietly. The lab's own convention is STOP_CHECK provider="jev" (see
@@ -808,8 +761,6 @@ def _refuse_if_stop_check_conflicts_with_models(
     return early here - a --dry-run of the exact same variant/--models combo
     could not have caught it.
     """
-    if _provider_for(args) != "openrouter":
-        return
     model_set = _resolve_lab_model_set(args)
     if model_set.name == _LAB_MODELS.default:
         return
@@ -836,39 +787,12 @@ def _refuse_if_stop_check_conflicts_with_models(
     if control_conflict or variant_conflict:
         raise SystemExit(
             f"conversation_lab: --models {model_set.name!r} cannot run with STOP_CHECK "
-            "provider='haiku' - stop_check.py's haiku provider always calls Anthropic "
-            "Claude Haiku directly, never through --models, so this would silently spend "
+            "provider='haiku' - stop_check.py's haiku provider always calls "
+            "Claude Haiku, never through --models, so this would silently spend "
             "on Claude while everything else runs on a different model set. Set STOP_CHECK "
             f"provider to 'jev' in the variant, or drop --models to use the "
             f"{_LAB_MODELS.default!r} default."
         )
-
-
-def _provider_route_for(provider: str, model_set: "LabModelSet | None" = None) -> dict[str, Any] | None:
-    if provider != "openrouter":
-        return None
-    if model_set is None:
-        model_set = _DEFAULT_LAB_MODEL_SET
-    return model_router.openrouter_provider_route(model_set.dialogue)
-
-
-def _resolve_provider(args: argparse.Namespace, ledger_path: Any) -> str | None:
-    """Which provider a CLI invocation uses.
-
-    The CLI default is openrouter for ab/bench/calibrate/rejudge. A
-    --budget-ledger run always uses the production-direct Anthropic path,
-    because the guard only meters the Anthropic SDK - rejudge does not
-    expose --budget-ledger (see `_add_budget_guard_options` call sites), so
-    ledger_path is always None for it, but it still needs a default
-    provider so `_openrouter_preflight` runs the same OpenRouter key/price
-    checks every other paid command gets.
-    """
-    if args.command not in {"ab", "bench", "calibrate", "rejudge"}:
-        return None
-    explicit = getattr(args, "provider", None)
-    if explicit:
-        return explicit
-    return "anthropic" if ledger_path is not None else "openrouter"
 
 
 def _openrouter_preflight(args: argparse.Namespace) -> None:
@@ -1197,11 +1121,8 @@ def _openrouter_fields_for(
     cost_by_model: dict[str, float],
 ) -> dict[str, Any]:
     """The provider_route/cost/key fields added to every OpenRouter report."""
-    provider = _provider_for(args)
-    model_set = _resolve_lab_model_set(args) if provider == "openrouter" else None
-    fields: dict[str, Any] = {"provider_route": _provider_route_for(provider, model_set)}
-    if provider != "openrouter":
-        return fields
+    model_set = _resolve_lab_model_set(args)
+    fields: dict[str, Any] = {"provider_route": model_router.openrouter_provider_route(model_set.dialogue)}
     fields["models"] = {"set": model_set.name, "dialogue": model_set.dialogue, "judge": model_set.judge}
     fields.update(_openrouter_cost_report(cost_by_model))
     key_report = _openrouter_key_usage_report()
@@ -1292,69 +1213,6 @@ def _results_dir(args: argparse.Namespace) -> Path:
     return Path(raw) if raw else DEFAULT_RESULTS_DIR
 
 DEFAULT_EXPERIMENTS_LOG = DEFAULT_LAB_DIR / "EXPERIMENTS.md"
-_ACTIVE_BUDGET_GUARD: contextvars.ContextVar[AnthropicBudgetGuard | None] = (
-    contextvars.ContextVar("conversation_lab_budget_guard", default=None)
-)
-
-
-def _budget_checkpoint() -> None:
-    guard = _ACTIVE_BUDGET_GUARD.get()
-    if guard is not None:
-        guard.raise_if_stopped()
-
-def _budget_generation_attempts() -> int | None:
-    """Read the shared ledger's provider-generation counter when guarded."""
-    guard = _ACTIVE_BUDGET_GUARD.get()
-    if guard is None:
-        return None
-    total = guard.summary().get("totals", {}).get("generation_attempts")
-    if isinstance(total, bool) or not isinstance(total, int) or total < 0:
-        raise BudgetGuardError("budget ledger has invalid generation_attempts")
-    return total
-
-
-def _budget_guard_stopped() -> bool:
-    guard = _ACTIVE_BUDGET_GUARD.get()
-    if guard is None:
-        return False
-    try:
-        guard.raise_if_stopped()
-    except BudgetGuardError:
-        return True
-    return False
-
-
-def _annotate_budget_report(path: Path, payload: dict[str, Any]) -> None:
-    guard = _ACTIVE_BUDGET_GUARD.get()
-    if guard is None:
-        return
-    ledger_ref = os.path.relpath(guard.path.resolve(), ROOT)
-    try:
-        summary = guard.summary()
-        metadata = {"status": summary["status"], "summary": summary}
-    except Exception as exc:
-        # Preserve already-collected run evidence even when the ledger itself
-        # becomes unreadable. The command remains failed/aborted and main's
-        # final checkpoint will fail closed; unknown spend is never zeroed.
-        summary = None
-        metadata = {
-            "status": "unavailable",
-            "summary": None,
-            "summary_error": f"{type(exc).__name__}: {exc}",
-        }
-        payload["aborted"] = True
-        if payload.get("error") is None:
-            payload["error"] = "budget ledger summary unavailable; accounting is unknown"
-    payload["budget_guard_ledger"] = {
-        "ledger_ref": ledger_ref,
-        "authoritative": True,
-        **metadata,
-        "cost_summary_note": (
-            "The lab router cost_summary is an estimate; this separate ledger "
-            "is authoritative for the guarded Anthropic request shapes."
-        ),
-    }
-
 def _experiments_log_path(args: argparse.Namespace) -> Path:
     """Where `ab` appends its experiment row.
 
@@ -1380,7 +1238,6 @@ def _write_json_result(path: Path, payload: dict[str, Any]) -> Path:
     two parallel `ab` runs on different `--models` sets both resolved to
     the same name and the later one silently overwrote a paid result.
     """
-    _annotate_budget_report(path, payload)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     return path
@@ -1897,7 +1754,7 @@ def _installed_budget_guard(budget: CallBudget, max_cost: float | None, baseline
         `stop_check.set_pre_attempt_hook` calls with no arguments (a Jev
         HTTP attempt has no model_router provider/model of its own), which
         is exactly how the branches below tell a Jev attempt apart from an
-        OpenRouter/direct-provider call without needing a separate flag.
+        OpenRouter call without needing a separate flag.
         """
         calls_blocked = False
         if calls_before is not None:
@@ -1906,7 +1763,8 @@ def _installed_budget_guard(budget: CallBudget, max_cost: float | None, baseline
             calls_blocked = used_before + live_total + 1 > budget.max_calls
         cost_blocked = False
         if max_cost is not None:
-            if provider == "openrouter":
+            if provider is not None:
+                # A model_router call, always OpenRouter (#8343).
                 # #7714 finding 2: --max-cost used to admit a call whenever
                 # ANY money remained, regardless of that call's possible
                 # cost - with a 32768-token completion ceiling
@@ -1922,7 +1780,7 @@ def _installed_budget_guard(budget: CallBudget, max_cost: float | None, baseline
                 # (total, reservation or the cap itself) blocks instead of
                 # comparing False and admitting the call.
                 cost_blocked = total is None or not ((total - baseline_cost) + worst_case <= max_cost)
-            elif provider is None:
+            else:
                 # A Jev HTTP attempt (stop_check's hook call) - no
                 # per-model price to look up, so reserve the same
                 # documented conservative per-attempt estimate the cost
@@ -1933,13 +1791,6 @@ def _installed_budget_guard(budget: CallBudget, max_cost: float | None, baseline
                     total is None
                     or not ((total - baseline_cost) + stop_check._JEV_FAILED_ATTEMPT_COST_ESTIMATE_USD <= max_cost)
                 )
-            else:
-                # Non-OpenRouter direct providers (anthropic/openai/google):
-                # unchanged - the estimated-cost table's absolute running
-                # total, no worst-case reservation (#7714 finding 2 scopes
-                # the reservation fix to OpenRouter, whose reasoning-model
-                # output ceiling is what let a single call overshoot).
-                cost_blocked = _would_exceed_cost(max_cost, baseline=baseline_cost)
         if calls_blocked or cost_blocked:
             raise LabBudgetAbort(
                 "--max-calls or --max-cost would be exceeded by the next paid call/attempt"
@@ -2282,11 +2133,6 @@ def _judge_orientation(
         except RuntimeError as exc:
             evidence["judge_instrument"] = None
             evidence["judge_instrument_error"] = str(exc)
-    before_attempts = _budget_generation_attempts()
-    if evidence is not None:
-        evidence["guard_generation_attempts_before"] = before_attempts
-        evidence["model_router_invoked"] = True
-
     raw = ""
     parsed: dict[str, Any] | None = None
     retries_used = 0
@@ -2300,28 +2146,12 @@ def _judge_orientation(
                 model=judge_model,
                 temperature=PAIRWISE_JUDGE_TEMPERATURE,
             )
-        except BaseException as original_error:
+        except BaseException:
             if evidence is not None:
                 evidence["judge_retries"] = retries_used
-                try:
-                    evidence["guard_generation_attempts_after"] = _budget_generation_attempts()
-                except BaseException as snapshot_error:
-                    evidence["generation_attempt_snapshot_error"] = (
-                        f"{type(snapshot_error).__name__}: {snapshot_error}"
-                    )
             raise
         if evidence is not None:
             evidence["raw_response"] = raw
-        try:
-            after_attempts = _budget_generation_attempts()
-        except BaseException as snapshot_error:
-            if evidence is not None:
-                evidence["generation_attempt_snapshot_error"] = (
-                    f"{type(snapshot_error).__name__}: {snapshot_error}"
-                )
-            raise
-        if evidence is not None:
-            evidence["guard_generation_attempts_after"] = after_attempts
         parsed = _parse_judge_json(raw)
         if parsed is not None:
             break
@@ -2431,71 +2261,18 @@ def _run_judge_orientation(
         original_traceback = exc.__traceback__
 
     # A retried judge call (see _JUDGE_JSON_MAX_RETRIES) makes MORE than one
-    # real generation attempt for this single orientation - the guard delta
-    # below must expect exactly (1 + retries), not a hardcoded 1.
-    judge_retries = evidence.get("judge_retries") or 0
-    expected_attempts = 1 + judge_retries
-
-    guard_active = _ACTIVE_BUDGET_GUARD.get() is not None
-    if not guard_active:
-        # Without a guard, the orientation function directly invoked the
-        # router; there is no provider-side counter to disambiguate preflight.
-        attempted: bool | None = True
-    elif not evidence.get("model_router_invoked"):
-        attempted = False
-    else:
-        before = evidence.get("guard_generation_attempts_before")
-        after = evidence.get("guard_generation_attempts_after")
-        if evidence.get("generation_attempt_snapshot_error") or not isinstance(before, int) or not isinstance(after, int):
-            attempted = None
-        else:
-            delta = after - before
-            attempted = delta == expected_attempts
-            if delta < 0 or delta > expected_attempts:
-                evidence["generation_attempt_accounting_error"] = (
-                    f"unexpected guarded attempt delta: {delta} (expected {expected_attempts})"
-                )
-                attempted = None
-
-    # Guard preflight failures (token count, route, reservation, or cap) have
-    # no generation attempt. Preserve the failure in the outer partial report
-    # and keep the established contract that they consume no judge call.
-    entry = None
-    if attempted is not False:
-        if attempted is True:
-            budget.record(expected_attempts)
-        entry = {
-            "orientation": orientation,
-            "status": "invoked" if attempted else "accounting_unknown",
-            "evidence": evidence,
-        }
-        if result is not None:
-            entry["result"] = result
-        if original_error is not None:
-            entry["error"] = f"{type(original_error).__name__}: {original_error}"
-        elif attempted is None:
-            entry["error"] = "guarded generation attempt count could not be determined"
-        pending_pair["judge_orientations"].append(entry)
-
-    checkpoint_error = None
-    try:
-        _budget_checkpoint()
-    except BaseException as exc:
-        checkpoint_error = exc
-        if entry is not None:
-            entry["checkpoint_error"] = f"{type(exc).__name__}: {exc}"
+    # real generation attempt for this single orientation - record exactly
+    # (1 + retries), not a hardcoded 1.
+    budget.record(1 + (evidence.get("judge_retries") or 0))
+    entry: dict[str, Any] = {"orientation": orientation, "status": "invoked", "evidence": evidence}
+    if result is not None:
+        entry["result"] = result
+    if original_error is not None:
+        entry["error"] = f"{type(original_error).__name__}: {original_error}"
+    pending_pair["judge_orientations"].append(entry)
 
     if original_error is not None:
-        if checkpoint_error is not None and entry is None:
-            # The checkpoint must not hide the original preflight/provider error.
-            raise original_error.with_traceback(original_traceback) from checkpoint_error
         raise original_error.with_traceback(original_traceback)
-    if checkpoint_error is not None:
-        raise checkpoint_error
-    if attempted is False:
-        raise ConversationLabError("guard reported no generation attempt for a returned judge response")
-    if attempted is None:
-        raise ConversationLabError("could not determine whether the guarded judge request reached generation")
     return result
 
 def _dry_run_combined() -> dict[str, str]:
@@ -2722,35 +2499,17 @@ def _resolve_recipe_context(args: argparse.Namespace) -> str | None:
     recipe_context, _ = _resolve_recipe_context_and_facts(args)
     return recipe_context
 
-def _resolve_judge_model() -> str:
-    """Read JUDGE_MODEL straight from the environment - never through
-    backend.config.config.judge_model, which silently falls back to
-    "anthropic/claude-sonnet-4-6" when the env var is unset
-    (backend/config.py's `judge_model` property, by design for
-    production - a lab experiment must never silently judge on a model
-    nobody explicitly chose, so it does not get to inherit that default).
-    """
-    judge_model = os.environ.get("JUDGE_MODEL", "").strip()  # governance: allow-silent SF003: empty is checked on the next line and raises SystemExit
-    if not judge_model:
-        raise SystemExit(
-            "conversation_lab: JUDGE_MODEL is not set. Run under "
-            "`doppler run -- uv run ...` so JUDGE_MODEL resolves, or pass "
-            "--dry-run for a zero-cost plumbing check."
-        )
-    return judge_model
-
-
 def _require_openrouter_key() -> None:
     if not os.environ.get("OPENROUTER_API_KEY", "").strip():  # governance: allow-silent SF003: empty raises SystemExit on the next line
         raise SystemExit(
             "conversation_lab: OPENROUTER_API_KEY is not set. Run under "
             "`doppler run -- uv run ...` so OPENROUTER_API_KEY resolves, or pass "
-            "--provider anthropic / --dry-run for a zero-cost plumbing check."
+            "--dry-run for a zero-cost plumbing check."
         )
 
 
 def _resolve_openrouter_models(dry_run: bool, model_set: "LabModelSet") -> tuple[str, str, str]:
-    """Return (mode, dialogue_model, judge_model) for --provider openrouter.
+    """Return (mode, dialogue_model, judge_model) for a paid command.
 
     The model strings are the OpenRouter dotted names named by `model_set`
     (scripts/lab_models.json, "claude" by default - the same models
@@ -2771,37 +2530,11 @@ def _resolve_openrouter_judge_model(dry_run: bool, model_set: "LabModelSet") -> 
 
 
 def _resolve_models_for_args(args: argparse.Namespace) -> tuple[str, str, str]:
-    provider = _provider_for(args)
-    if provider == "openrouter":
-        return _resolve_openrouter_models(args.dry_run, _resolve_lab_model_set(args))
-    return _resolve_models(args.dry_run)
+    return _resolve_openrouter_models(args.dry_run, _resolve_lab_model_set(args))
 
 
 def _resolve_judge_model_for_args(args: argparse.Namespace) -> str:
-    if _provider_for(args) == "openrouter":
-        return _resolve_openrouter_judge_model(args.dry_run, _resolve_lab_model_set(args))
-    return "template" if args.dry_run else _resolve_judge_model()
-
-def _resolve_models(dry_run: bool) -> tuple[str, str, str]:
-    """Return (mode, default_model, judge_model) for `ab`.
-
-    Fails loud (never a silent fallback) when the real models don't
-    resolve and --dry-run was not passed. config.dialogue_model raises
-    RuntimeError itself when DIALOGUE_MODEL is unset (backend/config.py);
-    judge_model is always read via _resolve_judge_model(), never through
-    config.judge_model (see that function's docstring for why).
-    """
-    if dry_run:
-        return "template", "template", "template"
-    try:
-        default_model = config.dialogue_model
-    except RuntimeError as exc:
-        raise SystemExit(
-            f"conversation_lab ab: {exc}\n"
-            "Run under `doppler run -- uv run ...` so DIALOGUE_MODEL/JUDGE_MODEL "
-            "resolve, or pass --dry-run for a zero-cost plumbing check."
-        ) from exc
-    return "openai", default_model, _resolve_judge_model()
+    return _resolve_openrouter_judge_model(args.dry_run, _resolve_lab_model_set(args))
 
 # ---------------------------------------------------------------------------
 # Frozen prior days (freeze / --prior-days)
@@ -3149,7 +2882,6 @@ def _generate_and_judge_pairs(
                 "judge_orientations": [],
             }
             partial_pairs.append(pending_pair)
-            _budget_checkpoint()
 
             if budget.would_exceed(arm_call_reservation) or _would_exceed_cost(max_cost):
                 aborted = True
@@ -3195,7 +2927,6 @@ def _generate_and_judge_pairs(
             pending_pair["variant_director_log"] = variant_director_log
             pending_pair["variant_rewrite_log"] = variant_rewrite_log
             pending_pair["status"] = "awaiting_judges"
-            _budget_checkpoint()
 
             if dry_run:
                 combined = _dry_run_combined()
@@ -3423,13 +3154,6 @@ def cmd_ab(args: argparse.Namespace) -> None:
             "conversation_lab ab: --prior-days requires --testbed or --sweep - "
             "a single --concept run has no scenario to attach frozen days to"
         )
-
-    if _models_arg_for(args) is not None:
-        # Validates the name and refuses --provider anthropic + a non-default
-        # set REGARDLESS of which branch below actually resolves models -
-        # _resolve_models_for_args only calls _resolve_lab_model_set on the
-        # openrouter path, so the anthropic path needs this checked explicitly.
-        _resolve_lab_model_set(args)
 
     mode, default_model, judge_model = _resolve_models_for_args(args)
 
@@ -4074,7 +3798,6 @@ def _generate_sweep_control(
                 result["director_log"] = _snapshot_director_log()
                 result["rewrite_log"] = _snapshot_rewrite_log()
                 transcripts[(scenario["id"], run_index)] = result
-                _budget_checkpoint()
     return False
 
 def _run_sweep_variant(
@@ -4197,7 +3920,6 @@ def _run_sweep_variant(
                 pending_pair["variant_director_log"] = variant_director_log
                 pending_pair["variant_rewrite_log"] = variant_rewrite_log
                 pending_pair["status"] = "awaiting_judges"
-                _budget_checkpoint()
 
                 if dry_run:
                     combined = _dry_run_combined()
@@ -5236,10 +4958,9 @@ def _judge_one_transcript(
     outer dict - `prior_stages` is shared read-only, the judge_* keys are
     not, and reusing one dict would let run N read run N-1's scores.
 
-    ``judge_model`` is the lab-resolved judge route (direct Anthropic under
-    --provider anthropic, the same model through OpenRouter under
-    --provider openrouter); production callers that invoke `_judge_dialogue`
-    directly still default to ``config.judge_model``.
+    ``judge_model`` is the lab-resolved OpenRouter judge route; production
+    callers that invoke `_judge_dialogue` directly still default to
+    ``config.judge_model``.
     """
     episode: dict[str, Any] = {"stages": prior_stages}
     passed, verdict = judge_dialogue(
@@ -5251,7 +4972,6 @@ def _judge_one_transcript(
         recipe_facts=recipe_facts,
         judge_model=judge_model,
     )
-    _budget_checkpoint()
     return {  # noqa: DOC201 - the caller measures calls separately
         "passed": bool(passed),
         "verdict": verdict,
@@ -5612,10 +5332,10 @@ _MAX_LABEL_SLUG_LEN = 180
 def _validate_bench_args(args: argparse.Namespace) -> None:
     """Pure flag checks, run BEFORE anything that costs or can fail.
 
-    Ordering is the point: `_resolve_models` raises when DIALOGUE_MODEL is
-    unset and `_resolve_bench_scenario` fetches an episode, so doing either
-    first meant a simple flag typo surfaced as "DIALOGUE_MODEL is not set"
-    instead of naming the flag the caller actually got wrong.
+    Ordering is the point: `_resolve_models_for_args` raises when
+    OPENROUTER_API_KEY is unset and `_resolve_bench_scenario` fetches an
+    episode, so doing either first meant a simple flag typo surfaced as a
+    missing key instead of naming the flag the caller actually got wrong.
     """
     if args.runs < 1:
         raise ConversationLabError("--runs must be at least 1")
@@ -5667,7 +5387,6 @@ def _publish_json_atomically(path: Path, payload: dict[str, Any]) -> None:
     workspace, and reaching for trash tooling to tidy a temp file would be
     the wrong trade.
     """
-    _annotate_budget_report(path, payload)
     tmp = path.with_name(path.name + ".partial")
     tmp.write_text(json.dumps(payload, indent=2, default=str))
     os.replace(tmp, path)
@@ -6159,10 +5878,6 @@ def cmd_bench(args: argparse.Namespace) -> None:
             }
             runs.append(record)
             generation_recorded = True
-            # The transcript is durable partial evidence before we consult
-            # the ledger again. A denied or unreadable ledger must stop here,
-            # before summary/judge work or another paid generation request.
-            _budget_checkpoint()
             record["summary"] = summarize(messages, expected_cast, concept=concept, day=args.stage)
 
             # --dry-run renders the call plan with mode="template" and never
@@ -6213,8 +5928,6 @@ def cmd_bench(args: argparse.Namespace) -> None:
         else:
             error = f"{type(exc).__name__}: {exc}"
         interrupted = isinstance(exc, KeyboardInterrupt)
-        if _budget_guard_stopped():
-            aborted = True
         # #7714 round 3 / round 4 finding 1: `sink` holds whatever turns
         # run_simulation had already generated - real, paid work - before
         # ANY exception (a LabBudgetAbort, or any other mid-arm error),
@@ -6258,7 +5971,6 @@ def cmd_bench(args: argparse.Namespace) -> None:
     report: dict[str, Any] = {
         "command": "bench",
         "label": label,
-        **scenario,
         "requested_runs": args.runs,
         "completed_runs": len(runs),
         "expected_cast": expected_cast,
@@ -6278,6 +5990,9 @@ def cmd_bench(args: argparse.Namespace) -> None:
         # nobody can audit how close a run came to --max-cost (Codex).
         "cost_summary": _cost_summary_or_none(),
         **_openrouter_fields_for(args, _openrouter_router_cost_by_model()),
+        # Last, so the scenario's own "models" (what --compare checks) is
+        # the one saved, not the OpenRouter report's model-set summary.
+        **scenario,
     }
 
     comparison = None
@@ -6945,11 +6660,10 @@ def _rejudge_mode(
     if dry_run:
         return "dry_run", []
     current = _judge_instrument(judge_model)
-    # A path whose request changes at run time (model_router's openai
-    # fallbacks) has no fixed instrument to compare, on either side.
-    if source_instrument is None or "variable" in {
-        source_instrument.get("request_shape"), current.get("request_shape"),
-    }:
+    # Results judged before #8343 through the direct OpenAI path recorded
+    # request_shape "variable": that request changed at run time, so there
+    # is no fixed instrument to compare.
+    if source_instrument is None or source_instrument.get("request_shape") == "variable":
         return "instrument_unverified", []
     changed = sorted(k for k in set(current) | set(source_instrument) if current.get(k) != source_instrument.get(k))
     return ("retest", []) if not changed else ("instrument_changed", changed)
@@ -7032,7 +6746,6 @@ def cmd_rejudge(args: argparse.Namespace) -> None:
             new_pair["previous_judge"] = pair.get("judge")
             new_pair["previous_judge_orientations"] = pair.get("judge_orientations")
             new_pairs.append(new_pair)
-            _budget_checkpoint()
     except LabBudgetAbort:
         aborted = True
     except BaseException as exc:
@@ -7964,35 +7677,12 @@ def cmd_freeze(args: argparse.Namespace) -> None:
 # CLI
 # ---------------------------------------------------------------------------
 
-def _add_budget_guard_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--budget-ledger", type=Path, default=None,
-        help="Persist/resume the shared Anthropic spending ledger across ab, bench, and calibrate.",
-    )
-    parser.add_argument(
-        "--create-budget-ledger", action="store_true",
-        help="Create a new ledger at --budget-ledger; refuses to replace an existing file.",
-    )
-
-
-def _add_provider_option(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--provider", choices=("anthropic", "openrouter"), default=None,
-        help=(
-            "Which provider routes paid lab calls. Default: openrouter (the lab's "
-            "OpenRouter bill, pinned to Anthropic's servers). Pass --provider anthropic "
-            "for the production-direct path; --budget-ledger always uses anthropic."
-        ),
-    )
-
-
 def _add_models_option(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--models", default=None, choices=tuple(sorted(_LAB_MODELS.sets)),
         help=(
             f"Which model set from {LAB_MODELS_PATH} to use for dialogue + judge "
-            f"calls (default: {_LAB_MODELS.default!r}). Only meaningful with "
-            "--provider openrouter - --provider anthropic always uses the default set."
+            f"calls (default: {_LAB_MODELS.default!r})."
         ),
     )
 
@@ -8123,9 +7813,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "Refuses when the file lacks a panel scenario, or contains --stage or a later day."
         ),
     )
-    _add_provider_option(ab)
     _add_models_option(ab)
-    _add_budget_guard_options(ab)
 
     bench = sub.add_parser(
         "bench",
@@ -8181,8 +7869,6 @@ def _build_parser() -> argparse.ArgumentParser:
     bench.add_argument("--no-log", action="store_true", help="Do not append a row to the experiments log")
     bench.add_argument("--experiments-log", default=None, help=f"Override the EXPERIMENTS.md path (default: {DEFAULT_EXPERIMENTS_LOG})")
     bench.add_argument("--results-dir", default=None)
-    _add_provider_option(bench)
-    _add_budget_guard_options(bench)
 
     calibrate = sub.add_parser(
         "calibrate",
@@ -8209,9 +7895,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     calibrate.add_argument("--dry-run", action="store_true")
     calibrate.add_argument("--results-dir", default=None)
-    _add_provider_option(calibrate)
     _add_models_option(calibrate)
-    _add_budget_guard_options(calibrate)
 
     rejudge = sub.add_parser(
         "rejudge",
@@ -8220,8 +7904,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "Load an `ab` result JSON (single-concept or --testbed mode; --sweep results are not "
             "supported) and re-judge every pair's two already-completed orientations from their "
             "saved prompts (evidence.prompt, byte-identical to what the original judge call sent - "
-            "the judge prompt itself is never changed by this command), using --models' judge (or "
-            "--provider anthropic). No dialogue is regenerated - this is a judge-only re-score, for "
+            "the judge prompt itself is never changed by this command), using --models' judge. No dialogue is regenerated - this is a judge-only re-score, for "
             "RESEARCH_PLAN.md's V3 test-retest (re-judge a pilot's saved pairs with the SAME judge a "
             "second time; any difference in the saved judge instrument - model, route, token ceiling, "
             "temperature, prompt, retry bounds - is refused unless --allow-instrument-change is passed, "
@@ -8260,7 +7943,6 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     rejudge.add_argument("--results-dir", default=None)
-    _add_provider_option(rejudge)
     _add_models_option(rejudge)
 
     pairs_cmd = sub.add_parser(
@@ -8377,65 +8059,28 @@ def _dispatch_command(args: argparse.Namespace) -> None:
         raise SystemExit(f"conversation_lab: unknown command {args.command!r}")
 
 
+# Commands that spend money; each gets the OpenRouter key/balance preflight.
+_PAID_COMMANDS = {"ab", "bench", "calibrate", "rejudge"}
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = _build_parser()
     args = parser.parse_args(argv)
-    ledger_path = getattr(args, "budget_ledger", None)
-    create_ledger = bool(getattr(args, "create_budget_ledger", False))
-    if create_ledger and ledger_path is None:
-        raise SystemExit("conversation_lab: --create-budget-ledger requires --budget-ledger PATH")
-    if ledger_path is not None and args.command not in {"ab", "bench", "calibrate"}:
-        raise SystemExit("conversation_lab: --budget-ledger is supported only for ab, bench, and calibrate")
-
     # argparse's float accepts "nan"/"inf"; a non-finite or non-positive cap
     # cannot be enforced, so refuse it before anything is spent.
     max_cost_arg = getattr(args, "max_cost", None)
     if max_cost_arg is not None and not (isfinite(max_cost_arg) and max_cost_arg > 0):
         raise SystemExit(f"conversation_lab: --max-cost must be a positive finite amount, got {max_cost_arg!r}")
 
-    provider = _resolve_provider(args, ledger_path)
-    if provider is not None:
-        args.provider = provider
-
     global _OPENROUTER_KEY_BEFORE, _OPENROUTER_KEY_AFTER
     _OPENROUTER_KEY_BEFORE = None
     _OPENROUTER_KEY_AFTER = None
 
     try:
-        if provider == "openrouter":
-            if ledger_path is not None:
-                raise SystemExit("conversation_lab: --budget-ledger requires --provider anthropic")
-            if not args.dry_run:
-                _openrouter_preflight(args)
-
-        if ledger_path is None:
-            _dispatch_command(args)
-            return
-
-        guard = AnthropicBudgetGuard(
-            ledger_path,
-            budget_usd=getattr(args, "max_cost", DEFAULT_MAX_COST_USD),
-            create=create_ledger,
-        )
-        with guard:
-            token = _ACTIVE_BUDGET_GUARD.set(guard)
-            try:
-                phase = "calibration" if args.command == "calibrate" else args.command
-                with guard.phase(phase):
-                    if not args.dry_run:
-                        # governance: allow-silent SF003: validate_configured_models rejects an empty DIALOGUE_MODEL/JUDGE_MODEL (parse_model fails -> BudgetGuardError) before dispatch
-                        guard.validate_configured_models(
-                            dialogue_model=(
-                                None if args.command == "calibrate"
-                                else os.environ.get("DIALOGUE_MODEL", "").strip()
-                            ),
-                            judge_model=os.environ.get("JUDGE_MODEL", "").strip(),
-                        )
-                    _dispatch_command(args)
-                _budget_checkpoint()
-            finally:
-                _ACTIVE_BUDGET_GUARD.reset(token)
-    except (ConversationLabError, BudgetGuardError) as exc:
+        if args.command in _PAID_COMMANDS and not args.dry_run:
+            _openrouter_preflight(args)
+        _dispatch_command(args)
+    except ConversationLabError as exc:
         raise SystemExit(f"conversation_lab {args.command}: {exc}") from exc
 
 if __name__ == "__main__":

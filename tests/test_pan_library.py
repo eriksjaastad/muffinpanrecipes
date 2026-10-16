@@ -124,7 +124,7 @@ def test_every_shot_prompt_describes_the_weeks_pan(tmp_path: Path, monkeypatch, 
     png = BytesIO()
     Image.new("RGB", (4, 4)).save(png, format="PNG")
     monkeypatch.setattr(agent, "_repo_root", lambda: tmp_path)
-    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.setattr(agent, "_call_image_model", lambda _key, prompt, **_k: prompts.append(prompt) or png.getvalue())
     monkeypatch.setattr(art_director_module, "_check_visual_diversity", lambda _p: True)
     judged = []
@@ -193,32 +193,18 @@ def test_a_storage_error_on_the_previous_week_is_logged_not_fatal(monkeypatch, c
 
 
 def test_the_gemini_request_carries_a_timeout(monkeypatch):
-    from google.genai import types
-
     from backend.utils import image_generation
 
     seen = {}
 
-    class _Client:
-        def __init__(self, api_key, http_options=None):
-            seen["http_options"] = http_options
+    def fake_post(*_a, **kwargs):
+        seen.update(kwargs)
+        raise RuntimeError("stop after the request is built")
 
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_a):
-            return False
-
-        class models:  # noqa: N801
-            @staticmethod
-            def generate_content(**_k):
-                raise RuntimeError("stop after the client is built")
-
-    monkeypatch.setattr("google.genai.Client", _Client)
+    monkeypatch.setattr(image_generation.requests, "post", fake_post)
     with pytest.raises(RuntimeError, match="stop after"):
         image_generation.generate_nano_banana_image("p", "k", timeout_s=60)
-    assert isinstance(seen["http_options"], types.HttpOptions)
-    assert seen["http_options"].timeout == 60_000
+    assert seen["timeout"] == 60
 
 
 def test_art_director_asks_for_a_bounded_call(monkeypatch):
@@ -235,7 +221,7 @@ def test_art_director_asks_for_a_bounded_call(monkeypatch):
 
 def _shoot(agent, tmp_path, monkeypatch, image_call, evaluations):
     monkeypatch.setattr(agent, "_repo_root", lambda: tmp_path)
-    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.setattr(agent, "_call_image_model", image_call)
     monkeypatch.setattr(art_director_module, "_check_visual_diversity", lambda _p: True)
     queue = list(evaluations)

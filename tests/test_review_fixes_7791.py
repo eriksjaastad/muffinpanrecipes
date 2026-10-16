@@ -445,29 +445,11 @@ def test_openrouter_instrument_equals_the_kwargs_actually_sent(monkeypatch):
     assert {k: settings[k] for k in sent} == sent
 
 
-def test_anthropic_instrument_equals_the_kwargs_actually_sent(monkeypatch):
-    captured: dict = {}
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    monkeypatch.setattr(model_router, "_central_track", lambda response, provider, **kwargs: response)
-
-    class FakeMessages:
-        def create(self, **kwargs):
-            captured.update(kwargs)
-            return SimpleNamespace(content=[SimpleNamespace(text="ok")], usage=None)
-
-    monkeypatch.setattr("anthropic.Anthropic", lambda **_k: SimpleNamespace(messages=FakeMessages()))
-    model = next(iter(model_router.JUDGE_ALLOWLIST))
-    model_router.generate_judge_response(prompt="p", system_prompt="s", model=f"anthropic/{model}", temperature=0.2)
-    sent = {k: v for k, v in captured.items() if k not in {"messages", "system"}}
-    settings = model_router.judge_request_settings(f"anthropic/{model}", 0.2)
-    assert {k: settings[k] for k in sent} == sent
-
-
 def test_a_variable_shape_judge_is_never_a_verified_retest(tmp_path, monkeypatch):
-    """OpenAI's request can change at run time (endpoint fallback, dropped
-    temperature), so an openai judge instrument is unverifiable by design."""
-    assert model_router.judge_request_settings("openai/gpt-5.1", 0.2)["request_shape"] == "variable"
-    variable = {**cl._judge_instrument("openai/gpt-5.1")}
+    """A result judged through the old direct-OpenAI path recorded
+    request_shape "variable" (its request changed at run time), so it is
+    unverifiable by design."""
+    variable = {**cl._judge_instrument("openai/gpt-5.1"), "request_shape": "variable"}
     mode, _ = cl._rejudge_mode(False, "openai/gpt-5.1", variable)
     assert mode == "instrument_unverified"
     fixed = cl._judge_instrument("openrouter/anthropic/claude-opus-5.5")

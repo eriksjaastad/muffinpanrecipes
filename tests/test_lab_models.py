@@ -242,8 +242,8 @@ def _stub_model_prices(monkeypatch, set_name):
     })
 
 
-def _args(models=None, provider="openrouter", dry_run=False, command="ab"):
-    return SimpleNamespace(models=models, provider=provider, dry_run=dry_run, command=command)
+def _args(models=None, dry_run=False, command="ab"):
+    return SimpleNamespace(models=models, dry_run=dry_run, command=command)
 
 
 def test_resolve_lab_model_set_defaults_to_claude():
@@ -257,24 +257,6 @@ def test_resolve_lab_model_set_honors_explicit_deepseek():
     assert model_set.name == "deepseek"
     assert model_set.dialogue == "deepseek/deepseek-v4.1-flash"
     assert model_set.judge == "deepseek/deepseek-v4-pro-0813"
-
-
-def test_resolve_lab_model_set_refuses_non_default_with_anthropic_provider():
-    with pytest.raises(SystemExit, match="only meaningful with --provider openrouter"):
-        cl._resolve_lab_model_set(_args(models="deepseek", provider="anthropic"))
-
-
-def test_resolve_lab_model_set_allows_default_with_anthropic_provider():
-    model_set = cl._resolve_lab_model_set(_args(models="claude", provider="anthropic"))
-    assert model_set.name == "claude"
-
-
-def test_provider_route_for_openrouter_follows_the_resolved_set():
-    claude_set = cl._resolve_lab_model_set(_args())
-    deepseek_set = cl._resolve_lab_model_set(_args(models="deepseek"))
-    assert cl._provider_route_for("openrouter", claude_set) == {"order": ["anthropic"], "allow_fallbacks": False}
-    assert cl._provider_route_for("openrouter", deepseek_set) == {"order": ["deepseek"], "allow_fallbacks": False}
-    assert cl._provider_route_for("anthropic", deepseek_set) is None
 
 
 # ---------------------------------------------------------------------------
@@ -384,12 +366,6 @@ def test_stop_check_haiku_ok_with_default_models_set(monkeypatch):
     monkeypatch.setattr(sdw, "STOP_CHECK", {**sdw.STOP_CHECK, "provider": "haiku"})
     cl._refuse_if_stop_check_conflicts_with_models(_args(models=None), variant={})
     cl._refuse_if_stop_check_conflicts_with_models(_args(models="claude"), variant={})
-
-
-def test_stop_check_conflict_check_is_a_noop_under_anthropic_provider(monkeypatch):
-    monkeypatch.setattr(sdw, "WINDDOWN_TRIGGER", "check")
-    monkeypatch.setattr(sdw, "STOP_CHECK", {**sdw.STOP_CHECK, "provider": "haiku"})
-    cl._refuse_if_stop_check_conflicts_with_models(_args(models=None, provider="anthropic"), variant={})
 
 
 # ---------------------------------------------------------------------------
@@ -507,16 +483,6 @@ def test_ab_models_flag_rejects_unknown_set_name(tmp_path):
         ])
 
 
-def test_ab_models_deepseek_with_provider_anthropic_refuses(tmp_path):
-    with pytest.raises(SystemExit, match="only meaningful with --provider openrouter"):
-        cl.main([
-            "ab", "--models", "deepseek", "--provider", "anthropic",
-            "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
-            "--variant", str(_write_variant(tmp_path)), "--recipe-context", "anchor",
-            "--dry-run", "--no-log", "--results-dir", str(tmp_path / "results"),
-        ])
-
-
 def test_ab_models_deepseek_refuses_before_any_call_when_stop_check_is_haiku(tmp_path, monkeypatch):
     """Real conflict: control's effective WINDDOWN_TRIGGER is "check" (not
     the "regex" default), so its "haiku" STOP_CHECK would actually be
@@ -542,8 +508,8 @@ def test_ab_models_deepseek_refuses_before_any_call_when_stop_check_is_haiku(tmp
 
 
 def test_ab_testbed_models_deepseek_with_check_jev_variant_proceeds_past_stop_check_guard(tmp_path, monkeypatch):
-    """Reproduces the exact #7680 bug shape: `ab --testbed --provider
-    openrouter --models deepseek --variant <file>` where the variant sets
+    """Reproduces the exact #7680 bug shape: `ab --testbed --models
+    deepseek --variant <file>` where the variant sets
     WINDDOWN_TRIGGER="check" and STOP_CHECK provider="jev". The control
     stays at the untouched module defaults (WINDDOWN_TRIGGER="regex",
     STOP_CHECK provider="haiku"), which used to look like a conflict but
@@ -582,7 +548,7 @@ def test_ab_testbed_models_deepseek_with_check_jev_variant_proceeds_past_stop_ch
     results_dir = tmp_path / "results"
 
     cl.main([
-        "ab", "--testbed", "--provider", "openrouter", "--models", "deepseek",
+        "ab", "--testbed", "--models", "deepseek",
         "--stage", "monday", "--runs", "1",
         "--variant", str(variant_path),
         "--no-log", "--results-dir", str(results_dir),
@@ -671,7 +637,6 @@ def test_dry_run_without_conflict_makes_zero_calls(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_cost_by_model_totals_a_model_with_no_price_table_entry():
-    assert "deepseek/deepseek-v4.1-flash" not in model_router._COST_PER_M_TOKENS
     model_router.reset_cost_log()
     model_router._record_cost(
         "openrouter", "deepseek/deepseek-v4.1-flash", 100, 20,
@@ -682,7 +647,6 @@ def test_cost_by_model_totals_a_model_with_no_price_table_entry():
 
 
 def test_cost_by_model_still_flags_missing_usage_cost_for_unpriced_model(capsys):
-    assert "deepseek/deepseek-v4-pro-0813" not in model_router._COST_PER_M_TOKENS
     model_router.reset_cost_log()
     model_router._record_cost("openrouter", "deepseek/deepseek-v4-pro-0813", 100, 20)  # no actual_cost
     totals = cl._openrouter_router_cost_by_model()

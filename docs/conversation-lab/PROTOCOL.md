@@ -303,13 +303,9 @@ Per-dimension diagnostics label matching preferences, unanimous ties, and
 orientation disagreement separately. The existing combined result remains a
 tie whenever orientations disagree, and this evidence does not alter the
 rubric, thresholds, or decision rule.
-Without a shared budget guard, `calls_used` counts judge orientations invoked
-after the lab's cap checks. With the guard, it counts deltas in the ledger's
-`generation_attempts`: token-count failures and budget rejections before
-reservation are excluded and leave the failed pair in the run-level partial
-report without a judge orientation record. A failed ledger snapshot is marked
-`accounting_unknown`; it does not mean zero calls. These counts do not
-establish billable requests; use the budget ledger as the spend record.
+`calls_used` counts judge orientations invoked after the lab's cap checks.
+These counts do not establish billable requests; each call's OpenRouter
+`usage.cost` (the report's `cost_by_model`) is the spend record.
 
 ### Voice reference calibration
 
@@ -317,7 +313,7 @@ establish billable requests; use the budget ledger as the spend record.
 checks four paired controls from saved W25 Monday and W38 Wednesday dialogue.
 The fixture records source hashes and exact transformations. Dry-run validates
 the fixture without judge calls; paid runs use the same position-swapped
-pairwise prompt as `ab` and, when supplied, its shared budget ledger. They
+pairwise prompt as `ab`. They
 retain both raw orientations and report validity among attempted calls
 separately from coverage of planned calls. The optional synthetic topic-word
 example is a lexical diagnostic, not a pairwise judge case.
@@ -456,11 +452,10 @@ and two requests for its production judge, which may retry once. Reports
 still record observed calls, not reservations. Dry runs reserve and record
 zero calls.
 
-Without `--budget-ledger`, `--max-cost` reads the router's estimated cost
-between paid units. A single unit can cross that soft cap before the next
-check. The optional ledger described below intercepts supported Anthropic
-SDK calls and reserves estimated dollars before each request; it provides a
-separate operational guard for the authorized plain-text model shapes.
+`--max-cost` reads the billed OpenRouter cost of every call so far and,
+before each call, reserves that call's worst case (prompt bytes plus the
+full output ceiling at the model's published price); see
+`_installed_budget_guard`.
 
 Four, not two, and the difference is the whole point of the guard: one
 turn can cost the initial `generate_response`, `_guard_cot_leak`'s retry
@@ -542,46 +537,6 @@ plan without hitting a model). `baseline` has no `--dry-run` flag and needs
 none - it is already free, since it only reads already-generated data and
 never calls a model.
 
-### Shared Anthropic experiment ledger
-
-For a combined calibration, bench, and A/B allowance, pass the same
-`--budget-ledger PATH` to each paid command. Create it once, then resume it
-without `--create-budget-ledger`:
-
-```sh
-doppler run -- uv run python scripts/conversation_lab.py calibrate \
-  --from-episode 2026-W36 --stage monday --budget-ledger .scratch/experiment-budget.json \
-  --create-budget-ledger
-
-doppler run -- uv run python scripts/conversation_lab.py bench \
-  --stage monday --runs 2 --from-episode 2026-W36 --budget-ledger .scratch/experiment-budget.json
-
-doppler run -- uv run python scripts/conversation_lab.py ab \
-  --testbed --stage monday --runs 3 --variant .scratch/lab/rules-trim.json \
-  --budget-ledger .scratch/experiment-budget.json
-```
-
-The ledger uses each command's `--max-cost` value (default $5.00) as the
-shared ceiling and labels spend as `calibration`, `bench`, or `ab`. Resume
-requires the same ceiling and an active, readable ledger; it never resets a
-missing, corrupt, stopped, or mismatched ledger. Guarded reports include the
-relative ledger reference and authoritative ledger summary separately from
-`cost_summary`, which remains the router's estimate. The ledger supports the
-current plain-text Anthropic Haiku 4.5 and Opus 4.6 requests. It disables SDK
-retries, validates usage, and retains reservations after ambiguous failures.
-Before dispatch, guarded A/B and bench runs also validate the configured
-dialogue and judge models against provider, pricing, and role allowlists;
-calibration validates its configured judge route. A mismatch stops and latches
-the ledger before command work begins. If a request is denied after an arm
-finishes, reports preserve its transcript under `partial_pairs` (and an
-unpaired sweep control under `unpaired_control_transcripts`). Partial arms
-and judge orientations are unscored evidence: they do not enter `pairs`,
-aggregates, or blind human review. Calibration keeps incomplete orientations
-under each degradation's `partial_pairs` for the same reason.
-Its conservative token reservation is an operational bound for these known
-request shapes and public price assumptions, not a guarantee of provider
-billing. See [BUDGET.md](BUDGET.md) for the request and pricing assumptions.
-
 The portfolio-wide default budget is 20 API calls per task
 (`~/projects/CLAUDE.md`). An offline conversation experiment is explicitly
 over that by design, which is why every experiment run must be logged in
@@ -609,18 +564,9 @@ and `calibrate`, alongside the `--max-calls` caps above (see the
 logs calls and cost via `model_router.get_cost_summary()`, checked before
 every paid unit; the run aborts with a partial result once the running
 total has reached the cap. See `ab --help` / `calibrate --help` for the
-exact flag.
-
-The price-table gap flagged 2026-09-06 has since closed: `_COST_PER_M_TOKENS`
-in `backend/utils/model_router.py` now prices `claude-opus-4-6` - the judge
-model (`backend/config.py:156`) - at $5 input / $25 output per million
-tokens, alongside `claude-haiku-4-5-20251001` and `claude-sonnet-4-6`, so a
-judge call an experiment makes is counted at its real cost instead of the
-`(0.0, 0.0)` fallback `_record_cost` uses for an unpriced model.
-`cost_summary` in an `ab` or `calibrate` report, and the `--max-cost` cap
-above, therefore reflect Haiku plus judge spend together, not Haiku spend
-alone. `backend/utils/model_router.py` is outside this slice's ownership
-(docs-only); this section just records that the gap closed.
+exact flag. Every call bills through OpenRouter (#8343), so the cost is
+OpenRouter's own `usage.cost` for dialogue and judge calls alike, not an
+estimate from a local price table.
 
 ## Lever catalog
 

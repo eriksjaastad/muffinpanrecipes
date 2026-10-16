@@ -10,8 +10,6 @@ rejecting temperature=0.3 with a 400.
 from __future__ import annotations
 
 import json
-import sys
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -154,50 +152,3 @@ def test_vision_eval_error_notifies_discord(agent, tmp_path) -> None:
     assert result["fallback"] is True
     notify.assert_called_once()
     assert "human review" in notify.call_args.kwargs["error_message"]
-
-
-# ---------------------------------------------------------------------------
-# OpenAI vision call retries without temperature on the gpt-5 400
-# ---------------------------------------------------------------------------
-
-def test_vision_openai_retries_without_temperature(monkeypatch) -> None:
-    calls = []
-
-    class _FakeBadRequestError(Exception):
-        pass
-
-    class _FakeCompletions:
-        def create(self, **kwargs):
-            calls.append(kwargs)
-            if "temperature" in kwargs:
-                raise _FakeBadRequestError(
-                    "Error code: 400 - Unsupported value: 'temperature' does not "
-                    "support 0.3 with this model. Only the default (1) value is supported."
-                )
-            return SimpleNamespace(
-                choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))],
-                usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1),
-                model="gpt-5-mini",
-            )
-
-    class _FakeClient:
-        def __init__(self, api_key):
-            self.chat = SimpleNamespace(completions=_FakeCompletions())
-
-    monkeypatch.setitem(
-        sys.modules, "openai",
-        SimpleNamespace(OpenAI=_FakeClient, BadRequestError=_FakeBadRequestError),
-    )
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-
-    from backend.utils.model_router import _generate_vision_openai
-
-    out = _generate_vision_openai(
-        prompt="evaluate", images=[b"\x89PNG fake"], system_prompt=None,
-        model="gpt-5-mini", temperature=0.3,
-    )
-
-    assert out == "ok"
-    assert len(calls) == 2
-    assert "temperature" in calls[0]
-    assert "temperature" not in calls[1]

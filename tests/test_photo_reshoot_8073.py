@@ -236,7 +236,7 @@ def test_max_rounds_one_makes_exactly_three_image_calls(tmp_path, monkeypatch):
     agent = create_agent("art_director")
     calls = []
     monkeypatch.setattr(agent, "_repo_root", lambda: tmp_path)
-    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.setattr(agent, "_call_image_model", lambda *_a, **_k: calls.append(1) or _png_bytes())
     # Identical 1x1 PNGs fail the diversity check, which buys the automatic reshoot.
     monkeypatch.setattr(
