@@ -55,8 +55,10 @@ theorizing.
 to a day's conversation, run `scripts/conversation_lab.py bench --from-episode <week>
 --stage <day>` for that day on the six most recent weeks, once on main and once on the
 branch. Put both judge pass rates in the PR body, and don't ship a change that doesn't
-raise the rate. A day that fails in production gets the same bench before anyone
-theorizes about it.
+raise the rate. This covers changes to what the generator is asked or how the day is
+shaped (prompt, dials, turn counts, judge); a deterministic guard that discards a
+malformed reply and keeps the existing draft does not need a bench. A day that fails in
+production gets the same bench before anyone theorizes about it.
 
 **Apply a fix to every day built the same way.** #8285 gave Tuesday more turns
 after 5–6 turns proved too few for four speakers to argue and settle anything.
