@@ -297,13 +297,13 @@ def main() -> None:
         print(f"{prefix}Episode file: {ep_path}")
 
         # Print token/cost summary for this stage
-        from backend.utils.model_router import get_cost_summary
+        from backend.utils.model_router import cost_text, get_cost_summary
         import json as _json
         cost = get_cost_summary()
         if cost["total_calls"] > 0:
             print(f"{prefix}Tokens: {cost['total_tokens_in']:,} in + {cost['total_tokens_out']:,} out "
                   f"= {cost['total_tokens_in'] + cost['total_tokens_out']:,} total "
-                  f"({cost['total_calls']} calls, ~${cost['total_cost']:.4f})")
+                  f"({cost['total_calls']} calls, {cost_text(cost['total_cost'], cost['unpriced_calls'])})")
             # Machine-readable line for parent process to aggregate
             print(f"COST_SUMMARY:{_json.dumps(cost)}")
 

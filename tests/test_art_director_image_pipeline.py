@@ -31,7 +31,7 @@ def test_art_director_generates_three_variants_and_featured_image(tmp_path: Path
     agent = create_agent("art_director")
 
     monkeypatch.setattr(agent, "_repo_root", lambda: tmp_path)
-    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.setattr(agent, "_call_image_model", lambda _key, _prompt, **_k: _png_bytes())
     monkeypatch.setattr(
         agent, "_evaluate_images_vision",
@@ -71,7 +71,7 @@ def test_art_director_generates_three_variants_and_featured_image(tmp_path: Path
 def test_art_director_fails_without_google_key(tmp_path: Path, monkeypatch) -> None:
     agent = create_agent("art_director")
     monkeypatch.setattr(agent, "_repo_root", lambda: tmp_path)
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
     task = Task(
         type="photograph_recipe",
@@ -79,13 +79,13 @@ def test_art_director_fails_without_google_key(tmp_path: Path, monkeypatch) -> N
         context={"recipe_id": "missing-key", "recipe_data": {"title": "No Key Muffins"}},
     )
 
-    with pytest.raises(RuntimeError, match="GOOGLE_API_KEY"):
+    with pytest.raises(RuntimeError, match="OPENROUTER_API_KEY"):
         agent.process_task(task)
 
 
 def _run_photograph(agent, tmp_path, monkeypatch, extra_context=None):
     monkeypatch.setattr(agent, "_repo_root", lambda: tmp_path)
-    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.setattr(agent, "_call_image_model", lambda _key, _prompt, **_k: _png_bytes())
     monkeypatch.setattr(
         agent, "_evaluate_images_vision",

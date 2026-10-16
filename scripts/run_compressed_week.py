@@ -25,6 +25,11 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from backend.utils.model_router import cost_text  # noqa: E402
+
 EPISODES_DIR = ROOT / "data" / "episodes"
 
 # Note: secrets (STABILITY_API_KEY etc.) are injected by 'doppler run --' in cron commands.
@@ -121,17 +126,19 @@ def print_cost_summary(results: list[dict]) -> None:
             continue
         for model_key, data in cost.get("by_model", {}).items():
             if model_key not in totals:
-                totals[model_key] = {"calls": 0, "tokens_in": 0, "tokens_out": 0, "estimated_cost": 0.0}
+                totals[model_key] = {"calls": 0, "tokens_in": 0, "tokens_out": 0, "cost": 0.0, "unpriced_calls": 0}
             totals[model_key]["calls"] += data["calls"]
             totals[model_key]["tokens_in"] += data["tokens_in"]
             totals[model_key]["tokens_out"] += data["tokens_out"]
-            totals[model_key]["estimated_cost"] += data["estimated_cost"]
+            totals[model_key]["cost"] += data["cost"]
+            totals[model_key]["unpriced_calls"] += data["unpriced_calls"]
 
     if not totals:
-        print("\n  (No cost data collected — costs are only tracked for OpenAI/Anthropic/Google calls)\n")
+        print("\n  (No cost data collected)\n")
         return
 
-    grand_total = sum(m["estimated_cost"] for m in totals.values())
+    grand_total = sum(m["cost"] for m in totals.values())
+    grand_unpriced = sum(m["unpriced_calls"] for m in totals.values())
     grand_calls = sum(m["calls"] for m in totals.values())
     grand_in = sum(m["tokens_in"] for m in totals.values())
     grand_out = sum(m["tokens_out"] for m in totals.values())
@@ -142,10 +149,10 @@ def print_cost_summary(results: list[dict]) -> None:
     for model_key, data in sorted(totals.items()):
         print(f"  {model_key:40s}  {data['calls']:3d} calls  "
               f"{data['tokens_in']:7,} in  {data['tokens_out']:7,} out  "
-              f"${data['estimated_cost']:.4f}")
+              f"{cost_text(data['cost'], data['unpriced_calls'])}")
     print(f"  {'TOTAL':40s}  {grand_calls:3d} calls  "
           f"{grand_in:7,} in  {grand_out:7,} out  "
-          f"${grand_total:.4f}")
+          f"{cost_text(grand_total, grand_unpriced)}")
     print("=" * 60 + "\n")
 
 
@@ -177,7 +184,7 @@ def print_summary(episode_id: str, concept: str, results: list[dict], elapsed: f
         token_info = ""
         if cost and cost["total_calls"] > 0:
             total_tokens = cost["total_tokens_in"] + cost["total_tokens_out"]
-            token_info = f"  [{total_tokens:,} tokens, ${cost['total_cost']:.4f}]"
+            token_info = f"  [{total_tokens:,} tokens, {cost_text(cost['total_cost'], cost['unpriced_calls'])}]"
         print(f"  {icon} {stage:10s} ({label}){token_info}")
 
         stage_data = stages_data.get(stage, {})

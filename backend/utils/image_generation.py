@@ -1,11 +1,14 @@
-"""Image generation helpers for provider comparisons (Stability + Nano Banana)."""
+"""Image generation through OpenRouter (Gemini image models, "Nano Banana")."""
 
 from __future__ import annotations
 
 import base64
+import threading
 from typing import Any
 
 import requests
+
+from backend.utils import model_router
 
 try:
     from api_cost_tracker import log_call
@@ -13,118 +16,90 @@ except ImportError:
     log_call = lambda *a, **kw: None
 
 
-def generate_stability_image(
-    prompt: str,
-    api_key: str,
-    *,
-    engine_id: str = "stable-diffusion-xl-1024-v1-0",
-    width: int = 1024,
-    height: int = 1024,
-    steps: int = 30,
-    cfg_scale: int = 7,
-    timeout: int = 60,
-) -> bytes:
-    """Generate a single image via Stability API and return raw PNG bytes."""
-    url = f"https://api.stability.ai/v1/generation/{engine_id}/text-to-image"
-    headers = {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "Authorization": f"Bearer {api_key}",
-    }
-    body = {
-        "text_prompts": [{"text": prompt}],
-        "cfg_scale": cfg_scale,
-        "height": height,
-        "width": width,
-        "samples": 1,
-        "steps": steps,
-    }
+def _extract_image_bytes(payload: dict[str, Any]) -> bytes:
+    """The first generated image in an OpenRouter chat-completions response.
 
-    response = requests.post(url, headers=headers, json=body, timeout=timeout)
-    log_call("stability", service="image", project="muffinpanrecipes", caller="image_generation.stability")
-    if response.status_code != 200:
-        raise RuntimeError(f"Stability API error {response.status_code}: {response.text[:200]}")
-
-    data = response.json()
-    artifacts = data.get("artifacts") or []
-    if not artifacts:
-        raise RuntimeError("Stability API returned no artifacts")
-
-    b64 = artifacts[0].get("base64") or artifacts[0].get("b64_json")
-    if not b64:
-        raise RuntimeError("Stability API response missing base64 image")
-
-    return base64.b64decode(b64)
-
-
-def _extract_inline_image_bytes(response: Any) -> bytes:
-    """Extract inline image bytes from a google-genai response."""
-    parts = getattr(response, "parts", None) or []
-    for part in parts:
-        inline = getattr(part, "inline_data", None)
-        if inline is None:
-            continue
-        data = getattr(inline, "data", None)
-        if data:
-            if isinstance(data, bytes):
-                return data
-            return base64.b64decode(data)
-
-    candidates = getattr(response, "candidates", None) or []
-    for cand in candidates:
-        content = getattr(cand, "content", None)
-        cand_parts = getattr(content, "parts", None) or []
-        for part in cand_parts:
-            inline = getattr(part, "inline_data", None)
-            if inline is None:
-                continue
-            data = getattr(inline, "data", None)
-            if data:
-                if isinstance(data, bytes):
-                    return data
+    OpenRouter returns images as ``choices[0].message.images[].image_url.url``
+    data URLs (``data:image/png;base64,...``).
+    """
+    for choice in payload.get("choices") or []:
+        for image in (choice.get("message") or {}).get("images") or []:
+            url = (image.get("image_url") or {}).get("url") or ""
+            _, sep, data = url.partition("base64,")
+            if sep and data:
                 return base64.b64decode(data)
-
-    raise RuntimeError("No inline image data found in Nano Banana response")
+    # Say what came back instead: an upstream error object or the model's text.
+    choices = payload.get("choices") or [{}]
+    said = payload.get("error") or (choices[0].get("message") or {}).get("content")
+    raise RuntimeError(f"No inline image data found in Nano Banana response: {str(said)[:200]!r}")
 
 
 def generate_nano_banana_image(
     prompt: str,
     api_key: str,
     *,
-    model: str = "gemini-2.5-flash-image",
+    model: str = "gemini-3.1-flash-image",
     aspect_ratio: str = "1:1",
     image_size: str | None = None,
     temperature: float = 0.4,
     timeout_s: float | None = None,
 ) -> bytes:
-    """Generate a single image via Gemini image models (Nano Banana).
+    """Generate a single image with a Gemini image model through OpenRouter.
 
-    ``timeout_s`` bounds the HTTP request; google-genai has no default
-    timeout, so a stalled call would otherwise run until the host kills it.
+    ``api_key`` is OPENROUTER_API_KEY. ``model`` is Google's id; it is mapped
+    by model_router.OPENROUTER_MODEL_IDS (an unmapped id raises) and pinned to
+    Google AI Studio with no fallbacks. ``image_size`` is Gemini's "1K"/"2K"/"4K".
+    ``timeout_s`` bounds the whole call, as art_director's shoot deadline
+    needs; with None a stalled call runs until the host kills it. Raises
+    RuntimeError on a non-200 response, a response with no image, or a call
+    that outlasts ``timeout_s``.
     """
-    try:
-        from google import genai
-        from google.genai import types
-    except Exception as e:
-        raise RuntimeError("google-genai package is not installed") from e
-
-    image_config_kwargs: dict[str, Any] = {"aspect_ratio": aspect_ratio}
+    openrouter_model = model_router.openrouter_model_id("google", model)
+    image_config: dict[str, Any] = {"aspect_ratio": aspect_ratio}
     if image_size:
-        image_config_kwargs["image_size"] = image_size
+        image_config["image_size"] = image_size
 
-    config = types.GenerateContentConfig(
-        temperature=temperature,
-        response_modalities=["IMAGE"],
-        image_config=types.ImageConfig(**image_config_kwargs),
-    )
+    outcome: dict[str, Any] = {}
 
-    http_options = types.HttpOptions(timeout=int(timeout_s * 1000)) if timeout_s else None
-    with genai.Client(api_key=api_key, http_options=http_options) as client:
-        response = client.models.generate_content(
-            model=model,
-            contents=[prompt],
-            config=config,
-        )
+    def post() -> None:
+        try:
+            response = requests.post(
+                f"{model_router.OPENROUTER_BASE_URL}/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={
+                    "model": openrouter_model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "modalities": ["image", "text"],
+                    "image_config": image_config,
+                    "temperature": temperature,
+                    "provider": model_router.openrouter_provider_route(openrouter_model),
+                    "usage": {"include": True},
+                },
+                timeout=timeout_s,
+            )
+            log_call("openrouter", service="image", project="muffinpanrecipes", caller="image_generation.nano_banana")
+            if response.status_code != 200:
+                raise RuntimeError(f"OpenRouter image error {response.status_code}: {response.text[:200]}")
+            payload = response.json()
+            # Recorded here, not by the caller, so an image that arrives after
+            # the caller gave up is still in the cost log: it was billed.
+            model_router.record_external_cost(
+                "openrouter", openrouter_model, (payload.get("usage") or {}).get("cost"),
+            )
+            outcome["payload"] = payload
+        except BaseException as exc:  # handed to the caller below
+            outcome["error"] = exc
 
-    log_call("google", service="imagen", project="muffinpanrecipes", caller="image_generation.nano_banana")
-    return _extract_inline_image_bytes(response)
+    # requests' timeout only limits each wait for bytes (connect, headers,
+    # each read), so a slow or trickling response could run past the shoot
+    # deadline. Waiting on the request from outside bounds the whole call,
+    # whatever stage it stalls in. A daemon thread never holds the process
+    # open; its own requests timeout ends it.
+    worker = threading.Thread(target=post, daemon=True)
+    worker.start()
+    worker.join(timeout_s)
+    if worker.is_alive():
+        raise RuntimeError(f"OpenRouter image call exceeded {timeout_s}s")
+    if "error" in outcome:
+        raise outcome["error"]
+    return _extract_image_bytes(outcome["payload"])

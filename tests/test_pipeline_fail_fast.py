@@ -24,7 +24,7 @@ def _recipe(concept, **_kwargs):
 def test_pipeline_stops_when_photography_stage_fails(monkeypatch):
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
-        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
         monkeypatch.setattr(baker_module, "generate_recipe", _recipe)
 
         orchestrator = RecipeOrchestrator(
@@ -36,5 +36,5 @@ def test_pipeline_stops_when_photography_stage_fails(monkeypatch):
         # checks the key; keep it out of the repo's data/ (#8169).
         monkeypatch.setattr(orchestrator.agents["art_director"], "_repo_root", lambda: tmp)
 
-        with pytest.raises(RuntimeError, match="GOOGLE_API_KEY"):
+        with pytest.raises(RuntimeError, match="OPENROUTER_API_KEY"):
             orchestrator.produce_recipe("Fail Fast Test Muffins")

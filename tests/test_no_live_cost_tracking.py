@@ -15,8 +15,8 @@ REPO = Path(__file__).resolve().parent.parent
 
 # The two tests that leaked a row per run before the conftest fixture existed.
 _FORMER_LEAKERS = [
-    "tests/test_image_brand_form.py::test_vision_openai_retries_without_temperature",
-    "tests/test_image_generation.py::test_generate_stability_image_decodes_base64",
+    "tests/test_openrouter_routing.py::test_vision_call_sends_images_to_openrouter_as_data_urls",
+    "tests/test_image_generation.py::test_image_comes_back_from_openrouter_as_bytes",
 ]
 
 

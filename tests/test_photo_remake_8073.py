@@ -109,7 +109,7 @@ def test_remake_variant_makes_one_image_call_with_the_weeks_pan_and_no_featured_
     agent = create_agent("art_director")
     prompts = []
     monkeypatch.setattr(agent, "_repo_root", lambda: tmp_path)
-    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.setattr(agent, "_call_image_model", lambda _k, prompt, **_a: prompts.append(prompt) or _png_bytes())
     recipe = {"title": "Test Muffins"}
 

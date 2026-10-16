@@ -49,9 +49,9 @@ it normalized prose length); compare quality only at matched prose lengths and
 report unmatched outputs separately; never pad an unsupported memory to hit the
 band.
 
-Paid execution is a separate runner, scripts/memory_paid_experiment.py, behind
-the conversation budget guard (docs/conversation-lab/BUDGET.md); this renderer
-exposes no paid flag (paid_mode_available is false). Experiment design and
+This renderer exposes no paid flag (paid_mode_available is false). The paid
+runner that went with it called Anthropic directly and was deleted unrun in
+#8343 (git show 3eb25dc:scripts/memory_paid_experiment.py). Experiment design and
 results: docs/conversation-lab/EXPERIMENTS.md ("Character memory experiments").
 tests/test_memory_write_experiment.py needs no episode corpus or credentials.
 """

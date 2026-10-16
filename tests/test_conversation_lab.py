@@ -30,6 +30,8 @@ import scripts.conversation_metrics as cm
 import scripts.simulate_dialogue_week as sdw
 from backend.utils import model_router
 
+pytestmark = pytest.mark.usefixtures("openrouter_lab")
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -227,14 +229,12 @@ def test_ab_pairwise_judge_agreement_counts_as_win(tmp_path, monkeypatch):
         })
 
     monkeypatch.setattr(model_router, "generate_judge_response", content_aware_judge)
-    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
-    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
 
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
     results_dir = tmp_path / "results"
 
     cl.main([
-        "ab", "--provider", "anthropic",
+        "ab",
         "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
         "--variant", str(variant_path), "--recipe-context", "anchor",
         "--target", "turn_taking", "--results-dir", str(results_dir),
@@ -264,14 +264,12 @@ def test_ab_pairwise_judge_disagreement_results_in_tie(tmp_path, monkeypatch):
         })
 
     monkeypatch.setattr(model_router, "generate_judge_response", positionally_biased_judge)
-    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
-    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
 
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
     results_dir = tmp_path / "results"
 
     cl.main([
-        "ab", "--provider", "anthropic",
+        "ab",
         "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
         "--variant", str(variant_path), "--recipe-context", "anchor",
         "--results-dir", str(results_dir),
@@ -515,13 +513,13 @@ def test_ab_tolerates_and_appends_to_an_existing_experiments_file(tmp_path, monk
 # ab: model resolution fails loud without --dry-run
 # ---------------------------------------------------------------------------
 
-def test_ab_without_dry_run_fails_loud_when_dialogue_model_unset(tmp_path, monkeypatch):
-    monkeypatch.delenv("DIALOGUE_MODEL", raising=False)
+def test_ab_without_dry_run_fails_loud_when_openrouter_key_unset(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
 
-    with pytest.raises(SystemExit, match="DIALOGUE_MODEL is not set"):
+    with pytest.raises(SystemExit, match="OPENROUTER_API_KEY is not set"):
         cl.main([
-            "ab", "--provider", "anthropic",
+            "ab",
             "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
             "--variant", str(variant_path), "--recipe-context", "anchor",
             "--results-dir", str(tmp_path / "results"),
@@ -644,7 +642,6 @@ def _snapshot_episode() -> dict:
 
 def test_calibrate_complete_runs_keep_grader_threshold_and_scored_pair_rate(tmp_path, monkeypatch):
     monkeypatch.setattr(cl, "_load_episode", lambda *_args, **_kwargs: _snapshot_episode())
-    monkeypatch.setenv("JUDGE_MODEL", "test-judge")
 
     for winners, expected_rate, expected_verdict in (
         (["A", "B", "A", "B"], 1.0, "GRADER OK"),
@@ -662,7 +659,7 @@ def test_calibrate_complete_runs_keep_grader_threshold_and_scored_pair_rate(tmp_
         )
         results = tmp_path / f"results-{expected_verdict.lower().replace(' ', '-')}"
         cl.main([
-            "calibrate", "--provider", "anthropic",
+            "calibrate",
             "--from-episode", "snapshot-week", "--stage", "tuesday",
             "--runs", "1", "--results-dir", str(results),
         ])
@@ -690,7 +687,6 @@ def test_calibrate_survives_a_lab_budget_abort_as_a_clean_partial_result(tmp_pat
     result, exactly the failure mode --max-calls/--max-cost hitting via
     the ALREADY-EXISTING coarse pre-check never has."""
     monkeypatch.setattr(cl, "_load_episode", lambda *_args, **_kwargs: _snapshot_episode())
-    monkeypatch.setenv("JUDGE_MODEL", "test-judge")
 
     def raises_abort(**kwargs):
         raise cl.LabBudgetAbort("--max-calls would be exceeded")
@@ -699,7 +695,7 @@ def test_calibrate_survives_a_lab_budget_abort_as_a_clean_partial_result(tmp_pat
     results = tmp_path / "results"
 
     cl.main([
-        "calibrate", "--provider", "anthropic",
+        "calibrate",
         "--from-episode", "snapshot-week", "--stage", "tuesday",
         "--runs", "1", "--results-dir", str(results),
     ])
@@ -713,11 +709,10 @@ def test_calibrate_zero_completed_pairs_has_unavailable_rate_and_incomplete_verd
     tmp_path, monkeypatch, capsys,
 ):
     monkeypatch.setattr(cl, "_load_episode", lambda *_args, **_kwargs: _snapshot_episode())
-    monkeypatch.setenv("JUDGE_MODEL", "test-judge")
     monkeypatch.setattr(model_router, "generate_judge_response", lambda **_kwargs: _judge_stub())
 
     cl.main([
-        "calibrate", "--provider", "anthropic",
+        "calibrate",
         "--from-episode", "snapshot-week", "--stage", "tuesday",
         "--runs", "2", "--max-calls", "1", "--results-dir", str(tmp_path / "results"),
     ])
@@ -738,7 +733,6 @@ def test_calibrate_zero_completed_pairs_has_unavailable_rate_and_incomplete_verd
 
 def test_calibrate_completed_plus_partial_rate_uses_only_complete_pairs(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(cl, "_load_episode", lambda *_args, **_kwargs: _snapshot_episode())
-    monkeypatch.setenv("JUDGE_MODEL", "test-judge")
     winners = iter(["A", "B", "A"])
     monkeypatch.setattr(
         model_router,
@@ -751,7 +745,7 @@ def test_calibrate_completed_plus_partial_rate_uses_only_complete_pairs(tmp_path
     )
 
     cl.main([
-        "calibrate", "--provider", "anthropic",
+        "calibrate",
         "--from-episode", "snapshot-week", "--stage", "tuesday",
         "--runs", "2", "--max-calls", "3", "--results-dir", str(tmp_path / "results"),
     ])
@@ -806,12 +800,10 @@ def test_ab_uses_one_episode_snapshot_for_anchor_and_every_judge_orientation(tmp
     monkeypatch.setattr(cl, "_load_episode", load_once)
     monkeypatch.setattr(sdw, "run_simulation", fake_simulation)
     monkeypatch.setattr(model_router, "generate_judge_response", fake_judge)
-    monkeypatch.setenv("DIALOGUE_MODEL", "test-dialogue")
-    monkeypatch.setenv("JUDGE_MODEL", "test-judge")
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
 
     cl.main([
-        "ab", "--provider", "anthropic",
+        "ab",
         "--concept", "Snapshot Spiral Bites", "--stage", "tuesday", "--runs", "2",
         "--variant", str(variant_path), "--from-episode", "snapshot-week", "--local",
         "--max-calls", "200", "--no-log", "--results-dir", str(tmp_path / "results"),
@@ -846,10 +838,9 @@ def test_calibrate_uses_one_snapshot_and_monday_fallback_for_all_judges(tmp_path
 
     monkeypatch.setattr(cl, "_load_episode", load_once)
     monkeypatch.setattr(model_router, "generate_judge_response", lambda *, prompt, **_kwargs: (prompts.append(prompt) or _judge_stub()))
-    monkeypatch.setenv("JUDGE_MODEL", "test-judge")
 
     cl.main([
-        "calibrate", "--provider", "anthropic",
+        "calibrate",
         "--from-episode", "snapshot-week", "--stage", "tuesday", "--runs", "2",
         "--max-calls", "20", "--results-dir", str(tmp_path / "results"),
     ])
@@ -876,12 +867,10 @@ def test_manual_recipe_context_does_not_load_or_supply_facts(tmp_path, monkeypat
     monkeypatch.setattr(cl, "_load_episode", _fail_episode_load)
     monkeypatch.setattr(sdw, "run_simulation", fake_simulation)
     monkeypatch.setattr(model_router, "generate_judge_response", fake_judge)
-    monkeypatch.setenv("DIALOGUE_MODEL", "test-dialogue")
-    monkeypatch.setenv("JUDGE_MODEL", "test-judge")
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
 
     cl.main([
-        "ab", "--provider", "anthropic",
+        "ab",
         "--concept", "Manual Context", "--stage", "monday", "--runs", "1",
         "--variant", str(variant_path), "--recipe-context", "manual anchor",
         "--no-log", "--results-dir", str(tmp_path / "results"),
@@ -899,47 +888,16 @@ def test_manual_recipe_context_does_not_load_or_supply_facts(tmp_path, monkeypat
     assert orientations == [(True, False), (False, True)]
 
 def test_episode_load_failure_propagates_before_generation(tmp_path, monkeypatch):
-    monkeypatch.setenv("DIALOGUE_MODEL", "test-dialogue")
-    monkeypatch.setenv("JUDGE_MODEL", "test-judge")
     monkeypatch.setattr(cl, "_load_episode", _raise_snapshot_unavailable)
     monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
 
     with pytest.raises(RuntimeError, match="snapshot unavailable"):
         cl.main([
-            "ab", "--provider", "anthropic",
+            "ab",
             "--concept", "Load Failure", "--stage", "monday", "--runs", "1",
             "--variant", str(variant_path), "--from-episode", "missing", "--local",
             "--no-log", "--results-dir", str(tmp_path / "results"),
-        ])
-
-# ---------------------------------------------------------------------------
-# JUDGE_MODEL fails loud (never backend.config.config.judge_model's silent
-# sonnet default) - finding (a)
-# ---------------------------------------------------------------------------
-
-def test_ab_without_dry_run_fails_loud_when_judge_model_unset(tmp_path, monkeypatch):
-    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
-    monkeypatch.delenv("JUDGE_MODEL", raising=False)
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
-
-    with pytest.raises(SystemExit, match="JUDGE_MODEL is not set"):
-        cl.main([
-            "ab", "--provider", "anthropic",
-            "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
-            "--variant", str(variant_path), "--recipe-context", "anchor",
-            "--results-dir", str(tmp_path / "results"),
-        ])
-
-def test_calibrate_without_dry_run_fails_loud_when_judge_model_unset(tmp_path, monkeypatch):
-    monkeypatch.setattr(cl, "ROOT", _local_episode_root(tmp_path, "2026-W36"))
-    monkeypatch.delenv("JUDGE_MODEL", raising=False)
-
-    with pytest.raises(SystemExit, match="JUDGE_MODEL is not set"):
-        cl.main([
-            "calibrate", "--provider", "anthropic",
-            "--from-episode", "2026-W36", "--stage", "monday", "--local",
-            "--results-dir", str(tmp_path / "results"),
         ])
 
 # ---------------------------------------------------------------------------
@@ -971,10 +929,9 @@ def test_calibrate_judge_prompt_never_contains_placeholder_concept(tmp_path, mon
         })
 
     monkeypatch.setattr(model_router, "generate_judge_response", capture_judge)
-    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
 
     cl.main([
-        "calibrate", "--provider", "anthropic",
+        "calibrate",
         "--from-episode", "2026-W32", "--stage", "monday", "--local",
         "--runs", "1", "--results-dir", str(tmp_path / "results"),
     ])
@@ -999,10 +956,9 @@ def test_calibrate_falls_back_to_monday_recipe_data_for_recipe_context(tmp_path,
         })
 
     monkeypatch.setattr(model_router, "generate_judge_response", capture_judge)
-    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
 
     cl.main([
-        "calibrate", "--provider", "anthropic",
+        "calibrate",
         "--from-episode", "2026-W32", "--stage", "tuesday", "--local",
         "--runs", "1", "--results-dir", str(tmp_path / "results"),
     ])
@@ -1185,6 +1141,61 @@ def test_run_judge_orientation_records_retry_count_and_charges_budget_for_every_
     assert record["evidence"]["judge_retries"] == 1
     assert record["status"] == "invoked"
 
+
+@pytest.mark.parametrize("replies, permits, error, sent, records", [
+    # The guard refuses the first request: nothing goes out, no record.
+    ([], 0, cl.LabBudgetAbort, 0, 0),
+    # An empty "stop" answer is billed; the guard refuses the router's own retry.
+    ([""], 1, cl.LabBudgetAbort, 1, 1),
+    # Unparseable JSON is billed; the judge retry's connection drops, and the
+    # OpenAI SDK re-sends it twice more by itself: four requests on the wire.
+    (["not json", "drop", "drop", "drop"], 9, "APIConnectionError", 4, 1),
+])
+def test_run_judge_orientation_counts_every_request_sent(monkeypatch, replies, permits, error, sent, records):
+    """#8343: every HTTP request that goes out counts, whether or not a
+    response came back (SDK retries included); one the budget guard refused
+    before sending does not."""
+    import httpx
+    import openai
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+    queue = iter(replies)
+
+    def openrouter(request):
+        reply = next(queue)
+        if reply == "drop":
+            raise httpx.ConnectError("connection reset", request=request)
+        return httpx.Response(200, json={
+            "id": "x", "object": "chat.completion", "created": 0, "model": "m", "provider": "Anthropic",
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": reply}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 1, "total_tokens": 11, "cost": 0.0001},
+        })
+
+    class MockedClient(openai.DefaultHttpxClient):  # the router's client, with OpenRouter replaced
+        def __init__(self, **kwargs):
+            super().__init__(transport=httpx.MockTransport(openrouter), **kwargs)
+
+    monkeypatch.setattr(openai, "DefaultHttpxClient", MockedClient)
+    monkeypatch.setattr("openai._base_client.time.sleep", lambda _s: None)  # skip the SDK's retry backoff
+    allowed = iter(range(permits))
+
+    def guard(*_args):
+        if next(allowed, None) is None:
+            raise cl.LabBudgetAbort("refused before sending")
+
+    monkeypatch.setattr(model_router, "_PRE_CALL_HOOK", guard)
+    pending = {"judge_orientations": []}
+    budget = cl.CallBudget(max_calls=9)
+    with pytest.raises(getattr(openai, error) if isinstance(error, str) else error):
+        cl._run_judge_orientation(
+            orientation="control_first", pending_pair=pending, budget=budget,
+            judge_model="anthropic/claude-opus-4-6", concept="muffins", stage="monday",
+            recipe_context="anchor", expected_cast=["Margaret"], first_arm="control",
+            first_messages=[], second_arm="variant", second_messages=[],
+        )
+    assert budget.used == sent
+    assert len(pending["judge_orientations"]) == records
+
 # ---------------------------------------------------------------------------
 # A retry of a truncated/unparseable judge response is itself a real billed
 # call - up to _JUDGE_JSON_MAX_RETRIES of them per orientation. Every
@@ -1320,8 +1331,6 @@ def test_orientation_diagnostics_separate_disagreement_from_unanimous_tie():
 
 def test_ab_writes_partial_result_on_exception_mid_run(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
-    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
-    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
 
     call_count = {"n": 0}
 
@@ -1347,7 +1356,7 @@ def test_ab_writes_partial_result_on_exception_mid_run(tmp_path, monkeypatch):
 
     with pytest.raises(SystemExit):
         cl.main([
-            "ab", "--provider", "anthropic",
+            "ab",
             "--concept", "Test Muffins", "--stage", "monday", "--runs", "2",
             "--variant", str(variant_path), "--recipe-context", "anchor",
             "--results-dir", str(results_dir),
@@ -1366,8 +1375,6 @@ def test_second_orientation_failure_persists_both_attempts(
     tmp_path, monkeypatch, command, failure,
 ):
     """A failed second judge orientation stays beside the first paid result."""
-    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
-    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
     monkeypatch.setattr(sdw, "run_simulation", lambda **_kwargs: {"messages": _messages("fixture")})
     monkeypatch.setattr(cl, "_load_episode", lambda *_args, **_kwargs: _snapshot_episode())
 
@@ -1391,7 +1398,7 @@ def test_second_orientation_failure_persists_both_attempts(
     if command == "ab":
         variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT"})
         cli_args = [
-            "ab", "--provider", "anthropic",
+            "ab",
             "--concept", "Fixture", "--stage", "monday", "--runs", "1",
             "--variant", str(variant_path), "--recipe-context", "anchor",
             "--results-dir", str(results_dir),
@@ -1405,14 +1412,14 @@ def test_second_orientation_failure_persists_both_attempts(
         sweep_dir.mkdir()
         (sweep_dir / "variant.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "VARIANT"}))
         cli_args = [
-            "ab", "--provider", "anthropic",
+            "ab",
             "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
             "--stage", "monday", "--runs", "1", "--results-dir", str(results_dir),
         ]
         result_pattern = "*-ab-sweep-*.json"
     else:
         cli_args = [
-            "calibrate", "--provider", "anthropic",
+            "calibrate",
             "--from-episode", "snapshot-week", "--stage", "tuesday",
             "--runs", "1", "--results-dir", str(results_dir),
         ]
@@ -1454,7 +1461,7 @@ def test_second_orientation_failure_persists_both_attempts(
     first, second = orientations
     assert first["result"]["overall"] == "tie"
     assert first["evidence"]["raw_response"] == valid
-    assert first["evidence"]["model"] == "anthropic/claude-sonnet-4-6"
+    assert first["evidence"]["model"] == cl.OPENROUTER_JUDGE_MODEL
     assert first["evidence"]["mapping"] == (
         {"A": "real", "B": "degraded", "tie": "tie"}
         if command == "calibrate"
@@ -1477,7 +1484,6 @@ def test_second_orientation_failure_persists_both_attempts(
 
 def test_calibrate_writes_partial_result_on_exception_mid_run(tmp_path, monkeypatch):
     monkeypatch.setattr(cl, "ROOT", _local_episode_root(tmp_path, "2026-W36"))
-    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
     call_count = {"n": 0}
 
     def flaky_judge(**kwargs):
@@ -1499,7 +1505,7 @@ def test_calibrate_writes_partial_result_on_exception_mid_run(tmp_path, monkeypa
 
     with pytest.raises(SystemExit):
         cl.main([
-            "calibrate", "--provider", "anthropic",
+            "calibrate",
             "--from-episode", "2026-W36", "--stage", "monday", "--local",
             "--runs", "2", "--results-dir", str(results_dir),
         ])
@@ -1526,13 +1532,11 @@ def test_calibrate_writes_partial_result_on_exception_mid_run(tmp_path, monkeypa
 def test_ab_max_calls_denies_before_generation_when_arm_reservation_cannot_fit(tmp_path, monkeypatch):
     generated = []
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: generated.append(kw))
-    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
-    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-opus-4-6")
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
     results_dir = tmp_path / "results"
 
     cl.main([
-        "ab", "--provider", "anthropic",
+        "ab",
         "--concept", "Test Muffins", "--stage", "monday", "--runs", "3",
         "--variant", str(variant_path), "--recipe-context", "anchor",
         "--max-calls", "11", "--results-dir", str(results_dir),
@@ -1551,7 +1555,7 @@ def test_ab_max_calls_denies_before_generation_when_arm_reservation_cannot_fit(t
 # ---------------------------------------------------------------------------
 
 def test_would_exceed_cost_true_once_at_or_over_cap(monkeypatch):
-    monkeypatch.setattr(model_router, "get_cost_entries", lambda: [{"estimated_cost": 5.0}])
+    monkeypatch.setattr(model_router, "get_cost_entries", lambda: [{"actual_cost": 5.0}])
     assert cl._would_exceed_cost(5.0) is True
     assert cl._would_exceed_cost(5.01) is False
 
@@ -1566,7 +1570,7 @@ def test_would_exceed_cost_respects_a_per_variant_baseline(monkeypatch):
     """ab --sweep's per-variant cap: (total - baseline) >= max_cost, not
     the absolute total - a $6 baseline with a $5 cap and a $9 total should
     NOT trip (delta is only $3), even though $9 alone would."""
-    monkeypatch.setattr(model_router, "get_cost_entries", lambda: [{"estimated_cost": 9.0}])
+    monkeypatch.setattr(model_router, "get_cost_entries", lambda: [{"actual_cost": 9.0}])
     assert cl._would_exceed_cost(5.0) is True  # absolute cap: 9 >= 5
     assert cl._would_exceed_cost(5.0, baseline=6.0) is False  # delta: 9-6=3 < 5
     assert cl._would_exceed_cost(5.0, baseline=3.0) is True  # delta: 9-3=6 >= 5
@@ -1587,13 +1591,12 @@ def test_would_exceed_cost_warns_once_on_stderr_on_first_failure(monkeypatch, ca
     assert second_err == ""
 
 def test_would_exceed_cost_fails_closed_on_untrusted_openrouter_entry(monkeypatch, capsys):
-    """#7714 finding 1: an OpenRouter entry with no actual_cost AND a zero
-    estimate (get_cost_summary()['total_cost'] has no OpenRouter price-table
-    entry, so it always estimates to $0) must abort the next paid unit
-    rather than silently look like $0 spent."""
+    """#7714 finding 1: an OpenRouter entry with no actual_cost (no usable
+    usage.cost) must abort the next paid unit rather than silently look
+    like $0 spent."""
     monkeypatch.setattr(
         model_router, "get_cost_entries",
-        lambda: [{"provider": "openrouter", "model": "anthropic/claude-haiku-4.5", "estimated_cost": 0.0}],
+        lambda: [{"provider": "openrouter", "model": "anthropic/claude-haiku-4.5"}],
     )
     assert cl._would_exceed_cost(1.0) is True
     err = capsys.readouterr().err
@@ -1602,12 +1605,10 @@ def test_would_exceed_cost_fails_closed_on_untrusted_openrouter_entry(monkeypatc
 
 def test_would_exceed_cost_trusts_openrouter_actual_cost(monkeypatch):
     """An OpenRouter entry WITH a real actual_cost is exactly what --max-cost
-    must see - this is the fix for the bug the two tests above guard
-    against regressing: get_cost_summary()['total_cost'] never carries it."""
+    must see."""
     monkeypatch.setattr(
         model_router, "get_cost_entries",
-        lambda: [{"provider": "openrouter", "model": "anthropic/claude-haiku-4.5",
-                   "estimated_cost": 0.0, "actual_cost": 1.25}],
+        lambda: [{"provider": "openrouter", "model": "anthropic/claude-haiku-4.5", "actual_cost": 1.25}],
     )
     assert cl._would_exceed_cost(1.0) is True
     assert cl._would_exceed_cost(1.25) is True
@@ -1615,7 +1616,7 @@ def test_would_exceed_cost_trusts_openrouter_actual_cost(monkeypatch):
 
 def test_ab_aborts_when_cost_cap_already_reached(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
-    monkeypatch.setattr(model_router, "get_cost_entries", lambda: [{"estimated_cost": 10.0}])
+    monkeypatch.setattr(model_router, "get_cost_entries", lambda: [{"actual_cost": 10.0}])
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
     results_dir = tmp_path / "results"
 
@@ -1663,9 +1664,9 @@ def test_run_arm_and_count_raises_lab_budget_abort_mid_arm(monkeypatch):
     before anything noticed."""
     call_count = {"n": 0}
 
-    def fake_generate_anthropic(**kw):
+    def fake_generate_openrouter(**kw):
         call_count["n"] += 1
-        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        model_router._record_cost("openrouter", "anthropic/claude-haiku-4.5", 10, 10, actual_cost=0.00006)
         return "ok"
 
     def runaway_run_arm(*a, **k):
@@ -1673,7 +1674,7 @@ def test_run_arm_and_count_raises_lab_budget_abort_mid_arm(monkeypatch):
             model_router.generate_response(prompt="x", model="anthropic/claude-haiku-4-5-20251001")
         return {"messages": []}
 
-    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+    monkeypatch.setattr(model_router, "_generate_openrouter", fake_generate_openrouter)
     monkeypatch.setattr(cl, "_run_arm", runaway_run_arm)
     budget = cl.CallBudget(max_calls=3)
 
@@ -1736,8 +1737,6 @@ def test_ab_survives_a_lab_budget_abort_raised_inside_the_director(tmp_path, mon
     (unmocked) run_simulation/direct_day code, only the model boundary is
     faked, so it proves the propagation chain end to end rather than just
     each broad-except site in isolation."""
-    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
-    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
     monkeypatch.setattr(sdw, "DIRECTOR", {
         "enabled": True, "probability": 1.0, "intensity": 3,
         "rng_seed": 0, "no_repeat_window": 14,
@@ -1755,7 +1754,7 @@ def test_ab_survives_a_lab_budget_abort_raised_inside_the_director(tmp_path, mon
     results_dir = tmp_path / "results"
 
     cl.main([
-        "ab", "--provider", "anthropic",
+        "ab",
         "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
         "--variant", str(variant_path), "--recipe-context", "anchor",
         "--results-dir", str(results_dir),
@@ -1777,7 +1776,7 @@ def test_run_arm_and_count_with_no_budget_installs_no_guard(monkeypatch):
             model_router.generate_response(prompt="x", model="anthropic/claude-haiku-4-5-20251001")
         return {"messages": []}
 
-    monkeypatch.setattr(model_router, "_generate_anthropic", lambda **kw: "ok")
+    monkeypatch.setattr(model_router, "_generate_openrouter", lambda **kw: "ok")
     monkeypatch.setattr(cl, "_run_arm", runaway_run_arm)
 
     result, calls = cl._run_arm_and_count("concept", "monday", 1, "anchor", "openai", "stub")
@@ -1798,16 +1797,14 @@ def test_ab_mid_arm_guard_stops_a_runaway_variant_arm_and_writes_partial(tmp_pat
     inside the arm can be what stops the runaway loop and produces the
     partial, aborted `ab` result."""
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
-    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
-    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
     variant = {"_SHARED_CHARACTER_RULES": "V"}
     reservation = cl._arm_call_reservation("monday", variant, dry_run=False)
 
     call_count = {"n": 0}
 
-    def fake_generate_anthropic(**kw):
+    def fake_generate_openrouter(**kw):
         call_count["n"] += 1
-        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        model_router._record_cost("openrouter", "anthropic/claude-haiku-4.5", 10, 10, actual_cost=0.00006)
         return "ok"
 
     def runaway_run_arm(*a, **k):
@@ -1815,14 +1812,14 @@ def test_ab_mid_arm_guard_stops_a_runaway_variant_arm_and_writes_partial(tmp_pat
             model_router.generate_response(prompt="x", model="anthropic/claude-haiku-4-5-20251001")
         return {"messages": _messages("X")}
 
-    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+    monkeypatch.setattr(model_router, "_generate_openrouter", fake_generate_openrouter)
     monkeypatch.setattr(cl, "_run_arm", runaway_run_arm)
 
     variant_path = _write_variant(tmp_path, variant)
     results_dir = tmp_path / "results"
 
     cl.main([
-        "ab", "--provider", "anthropic",
+        "ab",
         "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
         "--variant", str(variant_path), "--recipe-context", "anchor",
         "--max-calls", str(reservation), "--results-dir", str(results_dir),
@@ -1868,13 +1865,11 @@ def test_ab_control_arm_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatc
     already generated (real, paid work). message_sink fixes that - this
     proves the CONTROL arm's saved partial pair holds exactly the N turns
     generated before the guard fired, not zero and not all of them."""
-    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
-    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
     variant = {"_SHARED_CHARACTER_RULES": "V"}
     reservation = cl._arm_call_reservation("monday", variant, dry_run=False)
 
-    def fake_generate_anthropic(**kw):
-        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+    def fake_generate_openrouter(**kw):
+        model_router._record_cost("openrouter", "anthropic/claude-haiku-4.5", 10, 10, actual_cost=0.00006)
         return "ok"
 
     def fake_run_simulation(*, message_sink=None, **kwargs):
@@ -1883,13 +1878,13 @@ def test_ab_control_arm_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatc
         return {"messages": [m.__dict__ for m in sink]}
 
     monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
-    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+    monkeypatch.setattr(model_router, "_generate_openrouter", fake_generate_openrouter)
 
     variant_path = _write_variant(tmp_path, variant)
     results_dir = tmp_path / "results"
 
     cl.main([
-        "ab", "--provider", "anthropic",
+        "ab",
         "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
         "--variant", str(variant_path), "--recipe-context", "anchor",
         "--max-calls", str(reservation), "--results-dir", str(results_dir),
@@ -1909,13 +1904,11 @@ def test_ab_control_arm_non_budget_error_saves_partial_turns_and_reports_error(t
     content RuntimeError, CoT-leak, DirectorError, ...) must ALSO save
     the turns generated before it - not just LabBudgetAbort - AND still
     propagate as a truthful error (not silently become a clean abort)."""
-    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
-    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
     variant = {"_SHARED_CHARACTER_RULES": "V"}
     n = 3
 
-    def fake_generate_anthropic(**kw):
-        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+    def fake_generate_openrouter(**kw):
+        model_router._record_cost("openrouter", "anthropic/claude-haiku-4.5", 10, 10, actual_cost=0.00006)
         return "ok"
 
     def fake_run_simulation(*, message_sink=None, **kwargs):
@@ -1924,14 +1917,14 @@ def test_ab_control_arm_non_budget_error_saves_partial_turns_and_reports_error(t
         return {"messages": [m.__dict__ for m in sink]}  # unreached
 
     monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
-    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+    monkeypatch.setattr(model_router, "_generate_openrouter", fake_generate_openrouter)
 
     variant_path = _write_variant(tmp_path, variant)
     results_dir = tmp_path / "results"
 
     with pytest.raises(RuntimeError, match="simulated non-budget mid-arm failure"):
         cl.main([
-            "ab", "--provider", "anthropic",
+            "ab",
             "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
             "--variant", str(variant_path), "--recipe-context", "anchor",
             "--results-dir", str(results_dir),
@@ -1949,13 +1942,11 @@ def test_ab_variant_arm_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatc
     """Same proof as the control-arm test above, for the VARIANT arm: the
     control side stays cheap (zero real calls), so the shared guard's
     live count is entirely the variant's own turns when it fires."""
-    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
-    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
     variant = {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"}
     reservation = cl._arm_call_reservation("monday", variant, dry_run=False)
 
-    def fake_generate_anthropic(**kw):
-        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+    def fake_generate_openrouter(**kw):
+        model_router._record_cost("openrouter", "anthropic/claude-haiku-4.5", 10, 10, actual_cost=0.00006)
         return "ok"
 
     def fake_run_simulation(*, message_sink=None, **kwargs):
@@ -1965,13 +1956,13 @@ def test_ab_variant_arm_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatc
         return {"messages": [m.__dict__ for m in sink]}
 
     monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
-    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+    monkeypatch.setattr(model_router, "_generate_openrouter", fake_generate_openrouter)
 
     variant_path = _write_variant(tmp_path, variant)
     results_dir = tmp_path / "results"
 
     cl.main([
-        "ab", "--provider", "anthropic",
+        "ab",
         "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
         "--variant", str(variant_path), "--recipe-context", "anchor",
         "--max-calls", str(reservation), "--results-dir", str(results_dir),
@@ -1990,13 +1981,11 @@ def test_ab_variant_arm_non_budget_error_saves_partial_turns_and_reports_error(t
     """#7714 round 4 finding 1, variant side: control stays cheap (zero
     real calls); the variant arm's non-budget failure must save its own
     partial turns and propagate as a truthful error."""
-    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
-    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
     variant = {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"}
     n = 3
 
-    def fake_generate_anthropic(**kw):
-        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+    def fake_generate_openrouter(**kw):
+        model_router._record_cost("openrouter", "anthropic/claude-haiku-4.5", 10, 10, actual_cost=0.00006)
         return "ok"
 
     def fake_run_simulation(*, message_sink=None, **kwargs):
@@ -2006,14 +1995,14 @@ def test_ab_variant_arm_non_budget_error_saves_partial_turns_and_reports_error(t
         return {"messages": [m.__dict__ for m in sink]}
 
     monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
-    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+    monkeypatch.setattr(model_router, "_generate_openrouter", fake_generate_openrouter)
 
     variant_path = _write_variant(tmp_path, variant)
     results_dir = tmp_path / "results"
 
     with pytest.raises(RuntimeError, match="simulated non-budget mid-arm failure"):
         cl.main([
-            "ab", "--provider", "anthropic",
+            "ab",
             "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
             "--variant", str(variant_path), "--recipe-context", "anchor",
             "--results-dir", str(results_dir),
@@ -2032,12 +2021,10 @@ def test_ab_sweep_control_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypa
     """Same proof for the sweep's shared control loop: the aborted
     (scenario, run) key's stored transcript holds exactly the N turns
     generated before the guard fired."""
-    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
-    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
     reservation = cl._arm_call_reservation("monday", None, dry_run=False)
 
-    def fake_generate_anthropic(**kw):
-        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+    def fake_generate_openrouter(**kw):
+        model_router._record_cost("openrouter", "anthropic/claude-haiku-4.5", 10, 10, actual_cost=0.00006)
         return "ok"
 
     def fake_run_simulation(*, message_sink=None, **kwargs):
@@ -2046,7 +2033,7 @@ def test_ab_sweep_control_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypa
         return {"messages": [m.__dict__ for m in sink]}
 
     monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
-    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+    monkeypatch.setattr(model_router, "_generate_openrouter", fake_generate_openrouter)
 
     testbed_path = _write_testbed(tmp_path, [
         {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
@@ -2057,7 +2044,7 @@ def test_ab_sweep_control_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypa
     results_dir = tmp_path / "results"
 
     cl.main([
-        "ab", "--provider", "anthropic", "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
+        "ab", "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
         "--stage", "monday", "--runs", "1", "--max-calls", str(reservation), "--results-dir", str(results_dir),
     ])
 
@@ -2073,12 +2060,10 @@ def test_ab_sweep_control_non_budget_error_saves_partial_turns_and_reports_error
     must save the control's partial turns at the aborted key AND
     propagate as a truthful error - not become a clean "control_aborted"
     result."""
-    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
-    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
     n = 3
 
-    def fake_generate_anthropic(**kw):
-        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+    def fake_generate_openrouter(**kw):
+        model_router._record_cost("openrouter", "anthropic/claude-haiku-4.5", 10, 10, actual_cost=0.00006)
         return "ok"
 
     def fake_run_simulation(*, message_sink=None, **kwargs):
@@ -2087,7 +2072,7 @@ def test_ab_sweep_control_non_budget_error_saves_partial_turns_and_reports_error
         return {"messages": [m.__dict__ for m in sink]}
 
     monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
-    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+    monkeypatch.setattr(model_router, "_generate_openrouter", fake_generate_openrouter)
 
     testbed_path = _write_testbed(tmp_path, [
         {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
@@ -2099,7 +2084,7 @@ def test_ab_sweep_control_non_budget_error_saves_partial_turns_and_reports_error
 
     with pytest.raises(RuntimeError, match="simulated non-budget mid-arm failure"):
         cl.main([
-            "ab", "--provider", "anthropic", "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
+            "ab", "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
             "--stage", "monday", "--runs", "1", "--results-dir", str(results_dir),
         ])
 
@@ -2116,8 +2101,8 @@ def test_bench_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatch):
     stays out of `runs`, the aggregate and completed_runs."""
     reservation = cl._MAX_CALLS_PER_TURN * cl._max_turns_for_stage("saturday")
 
-    def fake_generate_anthropic(**kw):
-        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+    def fake_generate_openrouter(**kw):
+        model_router._record_cost("openrouter", "anthropic/claude-haiku-4.5", 10, 10, actual_cost=0.00006)
         return "ok"
 
     def fake_run_simulation(*, message_sink=None, **kwargs):
@@ -2126,10 +2111,10 @@ def test_bench_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatch):
         return {"messages": [m.__dict__ for m in sink]}
 
     monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
-    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+    monkeypatch.setattr(model_router, "_generate_openrouter", fake_generate_openrouter)
     monkeypatch.setattr(
-        cl, "_resolve_models",
-        lambda dry_run: ("openai", "anthropic/claude-haiku-4-5-20251001", "anthropic/claude-sonnet-4-6"),
+        cl, "_resolve_models_for_args",
+        lambda args: ("openai", "anthropic/claude-haiku-4-5-20251001", "anthropic/claude-sonnet-4-6"),
     )
 
     cl.cmd_bench(_bench_args(tmp_path, runs=1, max_calls=reservation))
@@ -2151,8 +2136,8 @@ def test_bench_non_budget_error_saves_partial_turns_and_reports_error(tmp_path, 
     truthful error - cmd_bench's own SystemExit contract, unchanged."""
     n = 3
 
-    def fake_generate_anthropic(**kw):
-        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+    def fake_generate_openrouter(**kw):
+        model_router._record_cost("openrouter", "anthropic/claude-haiku-4.5", 10, 10, actual_cost=0.00006)
         return "ok"
 
     def fake_run_simulation(*, message_sink=None, **kwargs):
@@ -2161,10 +2146,10 @@ def test_bench_non_budget_error_saves_partial_turns_and_reports_error(tmp_path, 
         return {"messages": [m.__dict__ for m in sink]}  # unreached
 
     monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
-    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+    monkeypatch.setattr(model_router, "_generate_openrouter", fake_generate_openrouter)
     monkeypatch.setattr(
-        cl, "_resolve_models",
-        lambda dry_run: ("openai", "anthropic/claude-haiku-4-5-20251001", "anthropic/claude-sonnet-4-6"),
+        cl, "_resolve_models_for_args",
+        lambda args: ("openai", "anthropic/claude-haiku-4-5-20251001", "anthropic/claude-sonnet-4-6"),
     )
 
     with pytest.raises(SystemExit, match="simulated non-budget mid-arm failure"):
@@ -2210,11 +2195,11 @@ def test_budget_guard_counts_calls_recorded_before_install(monkeypatch):
     """`ab --testbed` shares one CallBudget across scenarios but installs a
     fresh guard per scenario: a later scenario's guard must start from what
     earlier scenarios already spent, not from zero."""
-    def fake_generate_anthropic(**kw):
-        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+    def fake_generate_openrouter(**kw):
+        model_router._record_cost("openrouter", "anthropic/claude-haiku-4.5", 10, 10, actual_cost=0.00006)
         return "ok"
 
-    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+    monkeypatch.setattr(model_router, "_generate_openrouter", fake_generate_openrouter)
     budget = cl.CallBudget(max_calls=10, used=8)
     made = 0
     with pytest.raises(cl.LabBudgetAbort):
@@ -2394,12 +2379,12 @@ def test_default_cap_lets_a_pair_finish_when_every_judge_orientation_needs_its_r
         # Spend this arm's entire worst-case reservation (Monday: 4 * 10),
         # recorded the way real generation calls are counted.
         for _ in range(40):
-            cl.model_router._record_cost("anthropic", "claude-haiku-4-5", 0, 0)
+            cl.model_router._record_cost("openrouter", "anthropic/claude-haiku-4.5", 0, 0, actual_cost=0.0)
         return {"messages": _messages("X")}
 
     monkeypatch.setattr(sdw, "run_simulation", full_arm)
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "V"})
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "openai/dialogue", "openai/judge"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "openai/dialogue", "openai/judge"))
     calls = {"n": 0}
     good = json.dumps({"winner": "A", "per_dimension": {d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS}, "reason": "r"})
 
@@ -2413,7 +2398,7 @@ def test_default_cap_lets_a_pair_finish_when_every_judge_orientation_needs_its_r
     cl.main([
         "ab", "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
         "--variant", str(variant_path), "--recipe-context", "anchor",
-        "--provider", "anthropic", "--results-dir", str(results_dir),
+        "--results-dir", str(results_dir),
     ])
     report = json.loads(next(results_dir.glob("*-ab-*.json")).read_text())
     assert report["aborted"] is False
@@ -2518,8 +2503,6 @@ def test_ab_testbed_runs_every_scenario_and_aggregates(tmp_path, monkeypatch):
         })
 
     monkeypatch.setattr(model_router, "generate_judge_response", content_aware_judge)
-    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
-    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
 
     testbed_path = _write_testbed(tmp_path, [
         {"id": "s1", "concept": "Scenario One", "category": "sweet", "cuisine": "French",
@@ -2531,7 +2514,7 @@ def test_ab_testbed_runs_every_scenario_and_aggregates(tmp_path, monkeypatch):
     results_dir = tmp_path / "results"
 
     cl.main([
-        "ab", "--provider", "anthropic",
+        "ab",
         "--stage", "monday", "--variant", str(variant_path),
         "--testbed", str(testbed_path), "--runs", "2", "--target", "turn_taking",
         "--results-dir", str(results_dir),
@@ -2593,8 +2576,6 @@ def test_ab_testbed_writes_partial_result_on_exception_in_a_later_scenario(tmp_p
     survive intact in the written partial result even though scenario 2
     is what crashes."""
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
-    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
-    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
 
     call_count = {"n": 0}
 
@@ -2623,7 +2604,7 @@ def test_ab_testbed_writes_partial_result_on_exception_in_a_later_scenario(tmp_p
 
     with pytest.raises(SystemExit):
         cl.main([
-            "ab", "--provider", "anthropic",
+            "ab",
             "--stage", "monday", "--variant", str(variant_path),
             "--testbed", str(testbed_path), "--runs", "1",
             "--results-dir", str(results_dir),
@@ -3042,8 +3023,6 @@ def test_ab_sweep_ranks_three_variants_and_result_schema(tmp_path, monkeypatch):
         })
 
     monkeypatch.setattr(model_router, "generate_judge_response", content_aware_judge)
-    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
-    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
 
     testbed_path = _write_testbed(tmp_path, [
         {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
@@ -3056,7 +3035,7 @@ def test_ab_sweep_ranks_three_variants_and_result_schema(tmp_path, monkeypatch):
     results_dir = tmp_path / "results"
 
     cl.main([
-        "ab", "--provider", "anthropic",
+        "ab",
         "--sweep", str(sweep_dir), "--testbed", str(testbed_path), "--stage", "monday",
         "--runs", "1", "--target", "turn_taking", "--results-dir", str(results_dir),
     ])
@@ -3103,7 +3082,7 @@ def test_ab_sweep_per_variant_cost_cap_abort_writes_partial(tmp_path, monkeypatc
     # variant starts, then the lone variant's own first call pushes it to
     # $18 (delta so far: $6 >= $5, so its SECOND scenario never runs).
     state = {"total": 0.0}
-    monkeypatch.setattr(model_router, "get_cost_entries", lambda: [{"estimated_cost": state["total"]}])
+    monkeypatch.setattr(model_router, "get_cost_entries", lambda: [{"actual_cost": state["total"]}])
     monkeypatch.setattr(model_router, "get_cost_summary", lambda: {"total_cost": state["total"], "total_calls": 0})
 
     real_run_arm_and_count = cl._run_arm_and_count
@@ -3146,15 +3125,13 @@ def test_ab_sweep_control_mid_arm_guard_stops_a_runaway_run(tmp_path, monkeypatc
     mid-flight. --max-calls is set to EXACTLY the reservation so the
     coarse check clears; only the mid-arm guard can stop the runaway
     control arm from there."""
-    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
-    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
     reservation = cl._arm_call_reservation("monday", None, dry_run=False)
 
     call_count = {"n": 0}
 
-    def fake_generate_anthropic(**kw):
+    def fake_generate_openrouter(**kw):
         call_count["n"] += 1
-        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        model_router._record_cost("openrouter", "anthropic/claude-haiku-4.5", 10, 10, actual_cost=0.00006)
         return "ok"
 
     def runaway_run_simulation(**kwargs):
@@ -3163,7 +3140,7 @@ def test_ab_sweep_control_mid_arm_guard_stops_a_runaway_run(tmp_path, monkeypatc
         return {"messages": _messages("X")}
 
     monkeypatch.setattr(sdw, "run_simulation", runaway_run_simulation)
-    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+    monkeypatch.setattr(model_router, "_generate_openrouter", fake_generate_openrouter)
 
     testbed_path = _write_testbed(tmp_path, [
         {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
@@ -3174,7 +3151,7 @@ def test_ab_sweep_control_mid_arm_guard_stops_a_runaway_run(tmp_path, monkeypatc
     results_dir = tmp_path / "results"
 
     cl.main([
-        "ab", "--provider", "anthropic", "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
+        "ab", "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
         "--stage", "monday", "--runs", "1", "--max-calls", str(reservation), "--results-dir", str(results_dir),
     ])
 
@@ -3190,16 +3167,14 @@ def test_ab_sweep_variant_mid_arm_guard_stops_a_runaway_run(tmp_path, monkeypatc
     - only the mid-arm guard installed for this variant's whole run can
     stop its runaway arm. The control arm stays cheap so control_aborted
     is False and the variant's own guard is what fires."""
-    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
-    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
     variant = {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"}
     reservation = cl._arm_call_reservation("monday", variant, dry_run=False)
 
     call_count = {"n": 0}
 
-    def fake_generate_anthropic(**kw):
+    def fake_generate_openrouter(**kw):
         call_count["n"] += 1
-        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        model_router._record_cost("openrouter", "anthropic/claude-haiku-4.5", 10, 10, actual_cost=0.00006)
         return "ok"
 
     def maybe_runaway_run_simulation(**kwargs):
@@ -3209,7 +3184,7 @@ def test_ab_sweep_variant_mid_arm_guard_stops_a_runaway_run(tmp_path, monkeypatc
         return {"messages": _messages("X")}
 
     monkeypatch.setattr(sdw, "run_simulation", maybe_runaway_run_simulation)
-    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+    monkeypatch.setattr(model_router, "_generate_openrouter", fake_generate_openrouter)
 
     testbed_path = _write_testbed(tmp_path, [
         {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
@@ -3220,7 +3195,7 @@ def test_ab_sweep_variant_mid_arm_guard_stops_a_runaway_run(tmp_path, monkeypatc
     results_dir = tmp_path / "results"
 
     cl.main([
-        "ab", "--provider", "anthropic", "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
+        "ab", "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
         "--stage", "monday", "--runs", "1", "--max-calls", str(reservation), "--results-dir", str(results_dir),
     ])
 
@@ -3236,13 +3211,11 @@ def test_ab_sweep_variant_non_budget_error_saves_partial_turns_and_reports_error
     """#7714 round 4 finding 1, sweep variant side: control stays cheap;
     the variant's own non-budget failure must save its partial turns AND
     propagate as a truthful error, not become a clean aborted variant."""
-    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
-    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
     variant = {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"}
     n = 3
 
-    def fake_generate_anthropic(**kw):
-        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+    def fake_generate_openrouter(**kw):
+        model_router._record_cost("openrouter", "anthropic/claude-haiku-4.5", 10, 10, actual_cost=0.00006)
         return "ok"
 
     def fake_run_simulation(*, message_sink=None, **kwargs):
@@ -3252,7 +3225,7 @@ def test_ab_sweep_variant_non_budget_error_saves_partial_turns_and_reports_error
         return {"messages": [m.__dict__ for m in sink]}
 
     monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
-    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+    monkeypatch.setattr(model_router, "_generate_openrouter", fake_generate_openrouter)
 
     testbed_path = _write_testbed(tmp_path, [
         {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
@@ -3264,7 +3237,7 @@ def test_ab_sweep_variant_non_budget_error_saves_partial_turns_and_reports_error
 
     with pytest.raises(RuntimeError, match="simulated non-budget mid-arm failure"):
         cl.main([
-            "ab", "--provider", "anthropic", "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
+            "ab", "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
             "--stage", "monday", "--runs", "1", "--results-dir", str(results_dir),
         ])
 
@@ -3548,7 +3521,7 @@ def _patch_bench_generation(monkeypatch, sdw_module, *, turns=4):
         return {"messages": _messages(f"run{run_index}", count=turns)}
 
     monkeypatch.setattr(sdw_module, "run_simulation", fake_run_simulation)
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "dialogue-model", "judge-model"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "dialogue-model", "judge-model"))
 
 def _bench_path(tmp_path, label="saturday-n3"):
     """Resolve a bench result by label prefix - filenames carry a UTC stamp."""
@@ -3585,9 +3558,9 @@ def test_bench_mid_arm_guard_stops_a_runaway_run(tmp_path, monkeypatch):
     call_count = {"n": 0}
     reservation = cl._MAX_CALLS_PER_TURN * cl._max_turns_for_stage("saturday")
 
-    def fake_generate_anthropic(**kw):
+    def fake_generate_openrouter(**kw):
         call_count["n"] += 1
-        model_router._record_cost("anthropic", "claude-haiku-4-5-20251001", 10, 10)
+        model_router._record_cost("openrouter", "anthropic/claude-haiku-4.5", 10, 10, actual_cost=0.00006)
         return "ok"
 
     def runaway_run_simulation(**kwargs):
@@ -3596,10 +3569,10 @@ def test_bench_mid_arm_guard_stops_a_runaway_run(tmp_path, monkeypatch):
         return {"messages": _messages("X")}
 
     monkeypatch.setattr(sdw, "run_simulation", runaway_run_simulation)
-    monkeypatch.setattr(model_router, "_generate_anthropic", fake_generate_anthropic)
+    monkeypatch.setattr(model_router, "_generate_openrouter", fake_generate_openrouter)
     monkeypatch.setattr(
-        cl, "_resolve_models",
-        lambda dry_run: ("openai", "anthropic/claude-haiku-4-5-20251001", "anthropic/claude-sonnet-4-6"),
+        cl, "_resolve_models_for_args",
+        lambda args: ("openai", "anthropic/claude-haiku-4-5-20251001", "anthropic/claude-sonnet-4-6"),
     )
 
     cl.cmd_bench(_bench_args(tmp_path, runs=1, max_calls=reservation))
@@ -3653,7 +3626,6 @@ def test_bench_pass_rate_comes_from_the_production_judge(tmp_path, monkeypatch):
     _judge_dialogue = cron_routes._judge_dialogue
 
     monkeypatch.setattr(cl, "judge_dialogue", _judge_dialogue)
-    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-test-key")
 
     def fake_judge_response(**_kwargs):
@@ -3684,7 +3656,6 @@ def test_real_production_fail_without_reason_remains_a_scored_verdict(tmp_path, 
     from backend.admin import cron_routes
 
     monkeypatch.setattr(cl, "judge_dialogue", cron_routes._judge_dialogue)
-    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-test-key")
     monkeypatch.setattr(
         cron_routes,
@@ -3718,7 +3689,6 @@ def test_bench_excludes_real_production_judge_outages_from_pass_rate(
     _judge_dialogue = cron_routes._judge_dialogue
 
     monkeypatch.setattr(cl, "judge_dialogue", _judge_dialogue)
-    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-test-key")
     calls = []
 
@@ -3757,7 +3727,6 @@ def test_bench_keeps_valid_partial_dimensions_but_not_incomplete_overall_scoreca
     _judge_dialogue = cron_routes._judge_dialogue
 
     monkeypatch.setattr(cl, "judge_dialogue", _judge_dialogue)
-    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-test-key")
     monkeypatch.setattr(
         cron_routes, "generate_judge_response",
@@ -3836,7 +3805,7 @@ def _patch_varying_generation(monkeypatch, sdw_module, turn_counts):
         return {"messages": _messages(f"run{run_index}", count=counts[(run_index - 1) % len(counts)])}
 
     monkeypatch.setattr(sdw_module, "run_simulation", fake_run_simulation)
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
 
 def test_bench_compare_reports_a_moved_average(tmp_path, monkeypatch):
     # Real spread in both arms, so a z can actually be formed - a metric
@@ -3900,7 +3869,7 @@ def test_bench_compare_rejects_a_result_that_is_not_a_bench(tmp_path, monkeypatc
 
 def test_bench_keeps_completed_runs_when_a_later_run_raises(tmp_path, monkeypatch):
     """Finished runs are paid work and must reach disk even if run N+1 dies."""
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
     calls = {"n": 0}
 
     def flaky_run_simulation(*, run_index, **kwargs):
@@ -4029,7 +3998,7 @@ def test_bench_from_episode_uses_the_episode_recipe_concept_and_prior_days(tmp_p
     monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: episode)
     monkeypatch.setattr(sdw, "run_simulation", fake_simulation)
     monkeypatch.setattr(cl, "judge_dialogue", fake_judge)
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
 
     cl.cmd_bench(_bench_args(tmp_path, runs=2, concept=None, recipe_context=None, from_episode="snapshot-week"))
 
@@ -4055,7 +4024,7 @@ def test_bench_from_episode_builds_the_recipe_anchor_for_its_stage(tmp_path, mon
     monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: _snapshot_episode())
     monkeypatch.setattr(sdw, "run_simulation", fake_simulation)
     monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
 
     cl.cmd_bench(_bench_args(tmp_path, stage="tuesday", runs=1, concept=None,
                              recipe_context=None, from_episode="snapshot-week"))
@@ -4096,7 +4065,7 @@ def test_bench_wednesday_passes_frozen_photo_inputs_to_every_run(tmp_path, monke
 
     monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: episode)
     monkeypatch.setattr(sdw, "run_simulation", fake_simulation)
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
     monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
 
     cl.cmd_bench(_bench_args(
@@ -4150,7 +4119,7 @@ def test_bench_friday_reuses_wednesday_photo_context_without_image_paths(tmp_pat
 
     monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: episode)
     monkeypatch.setattr(sdw, "run_simulation", fake_simulation)
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
     monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
 
     cl.cmd_bench(_bench_args(
@@ -4287,7 +4256,7 @@ def test_invalid_effective_photo_data_fails_before_generation(tmp_path, monkeypa
     episode = _snapshot_episode()
     episode["stages"]["wednesday"] = {"photography_data": {"winner": "malformed"}}
     monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: episode)
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
     generated = []
 
     def sentinel_generation(**kwargs):
@@ -4315,7 +4284,7 @@ def test_bench_photo_baseline_mismatch_is_rejected_before_generation(tmp_path, m
     }
     monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: episode)
     monkeypatch.setattr(sdw, "run_simulation", lambda **kwargs: {"messages": _messages("dry", 2)})
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("template", "d", "j"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("template", "d", "j"))
     cl.cmd_bench(_bench_args(
         tmp_path,
         stage="wednesday",
@@ -4386,7 +4355,7 @@ def test_legacy_no_photo_baseline_remains_comparable_for_manual_scenario():
 
 def test_bench_from_episode_fails_loud_when_the_recipe_data_is_unusable(tmp_path, monkeypatch):
     monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: {"episode_id": "empty", "stages": {}})
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
     monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
 
     with pytest.raises(cl.ConversationLabError, match="no usable recipe_data"):
@@ -4437,7 +4406,7 @@ def test_bench_refuses_to_start_an_arm_that_cannot_fit_the_call_budget(tmp_path,
     old check reserved the PREVIOUS arm's count, seeded at 1, so
     `--max-calls 1` passed the check and then spent a whole day of turns.
     """
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
     monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
     monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
 
@@ -4469,7 +4438,7 @@ def test_bench_never_overwrites_an_earlier_paid_result(tmp_path, monkeypatch):
 
 def test_bench_validates_compare_before_spending_anything(tmp_path, monkeypatch):
     """Codex P2: a typo'd --compare used to cost a full bench first."""
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
     monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
     monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
 
@@ -4552,7 +4521,7 @@ def test_bench_reserves_four_calls_per_turn_not_two(tmp_path, monkeypatch):
     spend 40, so `--max-calls 20` must refuse to start it rather than admit
     it and blow the documented hard bound.
     """
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
     monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
     monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
 
@@ -4569,7 +4538,7 @@ def test_bench_records_calls_spent_by_a_generation_arm_that_raises(tmp_path, mon
     run_simulation can raise after paid requests (a CoT leak that survives
     its retry), and a first-arm failure then reported calls_used: 0.
     """
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
     monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
 
     spent = {"n": 0}
@@ -4591,7 +4560,7 @@ def test_bench_records_calls_spent_by_a_generation_arm_that_raises(tmp_path, mon
 def test_bench_rejects_a_structurally_broken_baseline_before_spending(tmp_path, monkeypatch):
     """Codex: command == 'bench' alone let a broken payload through, and the
     TypeError landed in _bench_delta after everything was paid for."""
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
     monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
     monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
 
@@ -4620,7 +4589,7 @@ def test_bench_refuses_a_baseline_with_a_different_recipe_or_model(tmp_path, mon
         cl.cmd_bench(_bench_args(tmp_path, runs=2, concept="A Different Dish", compare=baseline))
 
     # Same stage and dish, different dialogue model.
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "other-model", "j"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "other-model", "j"))
     with pytest.raises(cl.ConversationLabError, match="models"):
         cl.cmd_bench(_bench_args(tmp_path, runs=2, compare=baseline))
 
@@ -4961,7 +4930,7 @@ def test_bench_log_append_preserves_both_rows_under_a_lock(tmp_path, monkeypatch
 def test_bench_rejects_a_baseline_with_a_non_numeric_pass_rate(tmp_path, monkeypatch):
     """Codex: _print_bench_report formats pass_rate with :.0%, so a string
     crashed after everything was paid for and written."""
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
     monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
     bad = tmp_path / "bad-rate.json"
     bad.write_text(json.dumps({
@@ -5060,7 +5029,7 @@ def test_bench_keeps_the_transcript_when_summarize_raises(tmp_path, monkeypatch)
 def test_bench_preserves_partial_results_on_ctrl_c(tmp_path, monkeypatch):
     """Codex: KeyboardInterrupt is a BaseException, so `except Exception`
     skipped the handler and threw away every completed paid run."""
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
     monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
 
     def interrupt_on_third(*, run_index, **kwargs):
@@ -5143,7 +5112,7 @@ def test_bench_log_is_replaced_atomically(tmp_path, monkeypatch):
 def test_bench_rejects_a_baseline_with_a_non_integer_sample_count(tmp_path, monkeypatch):
     """Codex: _bench_delta evaluates `n >= 2`, which raises on a string -
     after the whole bench has been paid for."""
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
     monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
     bad = tmp_path / "bad-n.json"
     bad.write_text(json.dumps({
@@ -5156,7 +5125,7 @@ def test_bench_rejects_a_baseline_with_a_non_integer_sample_count(tmp_path, monk
 def test_bench_refuses_an_unwritable_results_directory_before_spending(tmp_path, monkeypatch):
     """Codex: mkdir(exist_ok=True) succeeds on an existing read-only dir,
     so the whole bench ran and only the claim failed."""
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
     monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
     results = tmp_path / "results"
     results.mkdir()
@@ -5278,7 +5247,7 @@ def test_bench_rejects_a_baseline_with_nan_or_infinite_values(tmp_path, monkeypa
     """Codex: json.loads accepts NaN/Infinity and both pass an isinstance
     check. A NaN stderr makes z NaN, and abs(NaN) >= 2 is False - an
     uncomputable measurement silently reported as "did not move"."""
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
     monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
 
     for raw in ("NaN", "Infinity", "-Infinity"):
@@ -5293,7 +5262,7 @@ def test_bench_rejects_a_baseline_with_nan_or_infinite_values(tmp_path, monkeypa
             cl.cmd_bench(_bench_args(tmp_path, compare=str(bad)))
 
 def test_bench_rejects_a_negative_standard_error(tmp_path, monkeypatch):
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
     monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
     bad = tmp_path / "neg.json"
     bad.write_text(json.dumps({
@@ -5306,7 +5275,7 @@ def test_bench_rejects_a_negative_standard_error(tmp_path, monkeypatch):
 def test_bench_rejects_an_overlong_label_before_spending(tmp_path, monkeypatch):
     """Codex: ENAMETOOLONG fired at write time, after the whole bench was
     paid for and after partial-result recovery had ended."""
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
     monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
 
     with pytest.raises(cl.ConversationLabError, match="too long"):
@@ -5362,7 +5331,7 @@ def test_bench_survives_a_non_finite_judge_score(tmp_path, monkeypatch):
 
 def test_bench_validates_baseline_dimensions_before_spending(tmp_path, monkeypatch):
     """Codex: _bench_delta reads dimensions now, but preflight did not."""
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
     monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
     good_metrics = {"qa_rate": {"n": 3, "mean": 1.0, "stderr": 0.1}}
     full_dims = {
@@ -5416,7 +5385,7 @@ def test_bench_rejects_dimension_mean_outside_judge_scale(mean):
 
 @pytest.mark.parametrize("mean", [0.0, 50.0])
 def test_bench_rejects_out_of_range_baseline_before_generation(tmp_path, monkeypatch, mean):
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
     monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
     dims = {dim: {"n": 2, "mean": 4.0, "stderr": 0.1} for dim in cl.JUDGE_DIMENSIONS}
     dims["turn_taking"] = {"n": 2, "mean": mean, "stderr": 0.1}
@@ -5760,7 +5729,7 @@ def test_judge_input_digest_normalises_whitespace_like_the_judge(monkeypatch):
 def test_bench_refuses_a_non_dry_baseline_missing_its_dimensions(tmp_path, monkeypatch):
     """Codex: waving through a missing dimensions block meant every judge
     comparison was silently absent while the report said nothing moved."""
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
     monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
     metrics = {"qa_rate": {"n": 3, "mean": 1.0, "stderr": 0.1}}
 
@@ -5834,7 +5803,7 @@ def test_bench_preflights_the_audit_log_destination(tmp_path, monkeypatch):
     """Codex: an unusable --experiments-log raised only in _append_bench_log,
     after every call was paid for and the result published - so the
     required audit row was never written despite the full spend."""
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
     monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
 
     locked = tmp_path / "locked"
@@ -5863,7 +5832,7 @@ def test_bench_rejects_an_experiments_log_that_is_a_directory(tmp_path, monkeypa
     """Codex: a directory at that path has a writable PARENT, so the
     preflight passed, every call got paid for, and _append_bench_row_locked
     then died on read_text() - published result, no audit row."""
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
     monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
     as_dir = tmp_path / "EXPERIMENTS.md"
     as_dir.mkdir()
@@ -5877,7 +5846,7 @@ def test_bench_requires_every_judge_dimension_in_a_non_dry_baseline(tmp_path, mo
     _bench_delta walks current dimensions and skips any missing from the
     baseline, so incomplete baselines silently omit judge comparisons.
     """
-    monkeypatch.setattr(cl, "_resolve_models", lambda dry_run: ("openai", "d", "j"))
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
     monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
     metrics = {"qa_rate": {"n": 3, "mean": 1.0, "stderr": 0.1}}
 
@@ -6208,7 +6177,6 @@ def test_calibrate_default_call_cap_stops_a_run_at_forty_judge_calls(tmp_path, m
     """#8149: calibrate's default --max-calls (40) trips through the real command,
     not only in the parser. 30 runs need well over 40 judge calls."""
     monkeypatch.setattr(cl, "_load_episode", lambda *_args, **_kwargs: _snapshot_episode())
-    monkeypatch.setenv("JUDGE_MODEL", "test-judge")
     calls = []
 
     def judge(**_kwargs):
@@ -6218,7 +6186,7 @@ def test_calibrate_default_call_cap_stops_a_run_at_forty_judge_calls(tmp_path, m
     monkeypatch.setattr(model_router, "generate_judge_response", judge)
 
     cl.main([
-        "calibrate", "--provider", "anthropic",
+        "calibrate",
         "--from-episode", "snapshot-week", "--stage", "tuesday",
         "--runs", "30", "--results-dir", str(tmp_path / "results"),
     ])

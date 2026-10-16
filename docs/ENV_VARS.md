@@ -19,10 +19,8 @@ Single source of truth for every environment variable the muffinpanrecipes codeb
 
 | Var | Flags | Read at | Purpose |
 |---|---|---|---|
-| `OPENAI_API_KEY` | R, S | `backend/utils/model_router.py:267,454`, `scripts/list_openai_models.py:21` | OpenAI API auth for GPT-5.1 recipe generation + vision eval |
-| `ANTHROPIC_API_KEY` | R, S | `backend/utils/model_router.py:358,501` | Anthropic API auth for Haiku 4.5 dialogue + Opus 4.6 judge |
-| `GOOGLE_API_KEY` | R, S | `backend/agents/art_director.py` (`_photograph_recipe`), `backend/utils/model_router.py:401`, `scripts/compare_image_providers.py:137` | Google API auth. Required for the Wednesday photography stage (Gemini image generation, #8068) |
-| `NANOBANANA_API_KEY` | O, S | `scripts/compare_image_providers.py:137`, `tests/test_integration_providers.py:23` | Nano Banana image-gen auth (same upstream as Google) |
+| `OPENROUTER_API_KEY` | R, S | `backend/utils/model_router.py` (`_generate_openrouter`), `backend/agents/art_director.py` (`_photograph_recipe`), `backend/utils/stop_check.py`, `scripts/conversation_lab.py` | Every paid model and image call goes through OpenRouter (#8343) |
+| `OPENAI_API_KEY` | O, S | `scripts/list_openai_models.py:21` | Lists OpenAI's models (a free call); no generation reads it since #8343 |
 | `STABILITY_API_KEY` | O, S | `scripts/validate_env.py`, `scripts/direct_harvest.py:21` | Stability AI auth, used only by `scripts/direct_harvest.py`; the photography stage moved to Gemini in #8068 |
 | `BLOB_READ_WRITE_TOKEN` | R, S | `backend/storage.py:200`, `backend/publishing/site_builder.py`, `scripts/backfill_webp.py:102`, `scripts/fix_catalog.py:56`, `scripts/run_full_week.py:317`, `scripts/score_episodes.py:59`, `scripts/generate_recipe_page.py:527` | Vercel Blob auth for episode + image persistence and the static build's authoritative source reads. `_CloudBackend` crashes on start if missing on Vercel; the Vercel build must receive it at build time |
 | `CRON_SECRET` | R, S | `scripts/run_full_week.py:316`, `backend/admin/cron_routes.py` (via header check) | Vercel cron endpoint shared secret |
@@ -55,10 +53,7 @@ Single source of truth for every environment variable the muffinpanrecipes codeb
 | `OPENAI_MODEL_ALLOWLIST` | O | `backend/utils/model_router.py:205` | unset → permissive | Comma-separated whitelist of OpenAI models the router may use |
 | `ANTHROPIC_MODEL_ALLOWLIST` | O | `backend/utils/model_router.py:223` | unset → permissive | Same for Anthropic |
 | `GOOGLE_MODEL_ALLOWLIST` | O | `backend/utils/model_router.py:241` | unset → permissive | Same for Google |
-| `STABILITY_ENGINE_ID` | O | `scripts/compare_image_providers.py:208` | `stable-diffusion-xl-1024-v1-0` | Stability engine selection |
-| `NANOBANANA_MODEL` | O | `scripts/compare_image_providers.py:209`, `tests/test_integration_providers.py:27` | `gemini-2.5-flash-image` | Nano Banana model name |
-| `NANOBANANA_ASPECT_RATIO` | O | `scripts/compare_image_providers.py:210` | `1:1` | Aspect ratio hint |
-| `NANOBANANA_IMAGE_SIZE` | O | `scripts/compare_image_providers.py:211` | unset | Image size hint |
+| `NANOBANANA_MODEL` | O | `tests/test_integration_providers.py` | `gemini-3.1-flash-image` | Image model for the opt-in live image test |
 
 ---
 

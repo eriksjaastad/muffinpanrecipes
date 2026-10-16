@@ -22,6 +22,8 @@ import pytest
 import scripts.conversation_lab as cl
 from backend.admin.cron_routes import _build_recipe_context, _build_judge_recipe_facts
 
+pytestmark = pytest.mark.usefixtures("openrouter_lab")
+
 
 @pytest.fixture(autouse=True)
 def _redirect_lab_outputs(monkeypatch, tmp_path):
@@ -254,8 +256,6 @@ def _capture_judge_prompts(monkeypatch):
             "per_dimension": {dim: "tie" for dim in cl.ALL_JUDGE_DIMENSIONS},
         })
 
-    monkeypatch.setenv("DIALOGUE_MODEL", "anthropic/claude-haiku-4-5-20251001")
-    monkeypatch.setenv("JUDGE_MODEL", "anthropic/claude-sonnet-4-6")
     monkeypatch.setattr(cl.simulate_module, "run_simulation", fake_sim)
     monkeypatch.setattr(cl.model_router, "generate_judge_response", fake_judge)
     return prompts
@@ -268,7 +268,7 @@ def test_testbed_run_hands_the_judge_the_recipe_method(tmp_path, monkeypatch):
     variant.write_text(json.dumps({"_SHARED_CHARACTER_RULES": "VARIANT"}))
 
     cl.main([
-        "ab", "--provider", "anthropic",
+        "ab",
         "--stage", "tuesday", "--testbed", "--runs", "1",
         "--variant", str(variant), "--results-dir", str(tmp_path / "r"),
         "--max-calls", "500", "--no-log",
@@ -289,7 +289,7 @@ def test_sweep_run_hands_the_judge_the_recipe_method(tmp_path, monkeypatch):
     (sweep / "a.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "VARIANT_A"}))
 
     cl.main([
-        "ab", "--provider", "anthropic",
+        "ab",
         "--stage", "tuesday", "--sweep", str(sweep), "--runs", "1",
         "--results-dir", str(tmp_path / "r"), "--max-calls", "500", "--no-log",
     ])
@@ -308,7 +308,7 @@ def test_the_w38_method_reaches_the_judge_verbatim(tmp_path, monkeypatch):
     variant.write_text(json.dumps({"_SHARED_CHARACTER_RULES": "VARIANT"}))
 
     cl.main([
-        "ab", "--provider", "anthropic",
+        "ab",
         "--stage", "tuesday", "--testbed", "--runs", "1",
         "--variant", str(variant), "--results-dir", str(tmp_path / "r"),
         "--max-calls", "500", "--no-log",

@@ -620,9 +620,9 @@ class ArtDirectorAgent(Agent):
         """
         if variant not in self._VARIANTS:
             raise ValueError(f"unknown photo variant {variant!r}")
-        api_key = os.getenv("GOOGLE_API_KEY")
+        api_key = os.getenv("OPENROUTER_API_KEY")
         if not api_key:
-            raise RuntimeError("GOOGLE_API_KEY not configured; Julian refuses to work with placeholders.")
+            raise RuntimeError("OPENROUTER_API_KEY not configured; Julian refuses to work with placeholders.")
         pan = pan_for_week(episode_id, size=pan_size_of(recipe_data), avoid=previous_pan_material)
         outputs, _ = self._generate_round(
             api_key, self._title_of(recipe_data), recipe_id, 1,
@@ -646,7 +646,7 @@ class ArtDirectorAgent(Agent):
 
         recipe_id = str(task.context.get("recipe_id") or task.id)
         recipe_title = self._recipe_title(task)
-        api_key = os.getenv("GOOGLE_API_KEY")
+        api_key = os.getenv("OPENROUTER_API_KEY")
         episode_id = task.context.get("episode_id")
         pan = pan_for_week(
             episode_id if isinstance(episode_id, str) else None,
@@ -692,10 +692,10 @@ class ArtDirectorAgent(Agent):
                 logger.error(f"Julian: Mission Control Handshake FAILED: {e}")
                 handshake_msg = f"FAILED: {e}"
 
-        # 3. Generate Images (direct Gemini image API)
+        # 3. Generate Images (Gemini image model through OpenRouter)
         # We do this so the pipeline can continue even if we aren't waiting for the RunPod cron
         if not api_key:
-            raise RuntimeError("GOOGLE_API_KEY not configured; Julian refuses to work with placeholders.")
+            raise RuntimeError("OPENROUTER_API_KEY not configured; Julian refuses to work with placeholders.")
 
         override = task.context.get("generation_id")
         generation_id = (

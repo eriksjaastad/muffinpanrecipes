@@ -13,6 +13,8 @@ import scripts.conversation_lab as cl
 from backend.admin.cron_routes import _JUDGE_SYSTEM_PROMPT
 from backend.utils import model_router
 
+pytestmark = pytest.mark.usefixtures("openrouter_lab")
+
 
 PANEL = Path(cl.__file__).resolve().parents[1] / "docs/conversation-lab/reference/voice-reference-panel-v0.json"
 
@@ -108,7 +110,7 @@ def test_reference_panel_rejects_zero_runs_before_writing_or_judging(tmp_path, m
     results_dir = tmp_path / "results"
     with pytest.raises(SystemExit, match="--runs must be at least 1"):
         cl.main([
-            "calibrate", "--provider", "anthropic",
+            "calibrate",
             "--reference-panel", str(PANEL), "--runs", "0",
             "--results-dir", str(results_dir),
         ])
@@ -163,7 +165,6 @@ def test_all_ab_report_modes_record_pairwise_evaluator_version_and_hash(tmp_path
 
 
 def test_reference_panel_paid_path_uses_versioned_prompt_and_swapped_raw_evidence(tmp_path, monkeypatch):
-    monkeypatch.setenv("JUDGE_MODEL", "test-reference-judge")
     calls = []
 
     def judge(**kwargs):
@@ -173,7 +174,7 @@ def test_reference_panel_paid_path_uses_versioned_prompt_and_swapped_raw_evidenc
     monkeypatch.setattr(model_router, "generate_judge_response", judge)
     results_dir = tmp_path / "results"
     cl.main([
-        "calibrate", "--provider", "anthropic",
+        "calibrate",
         "--reference-panel", str(PANEL), "--runs", "1",
         "--results-dir", str(results_dir),
     ])
@@ -208,11 +209,10 @@ def test_reference_panel_paid_path_uses_versioned_prompt_and_swapped_raw_evidenc
 
 
 def test_reference_panel_abort_keeps_first_orientation_as_partial_evidence(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv("JUDGE_MODEL", "test-reference-judge")
     monkeypatch.setattr(model_router, "generate_judge_response", lambda **_kwargs: _tie_response())
     results_dir = tmp_path / "results"
     cl.main([
-        "calibrate", "--provider", "anthropic",
+        "calibrate",
         "--reference-panel", str(PANEL), "--runs", "1", "--max-calls", "1",
         "--results-dir", str(results_dir),
     ])
@@ -233,13 +233,12 @@ def test_reference_panel_abort_keeps_first_orientation_as_partial_evidence(tmp_p
 
 
 def test_reference_panel_coverage_counts_attempted_malformed_orientation(tmp_path, monkeypatch):
-    monkeypatch.setenv("JUDGE_MODEL", "test-reference-judge")
     malformed = '{"winner":"A","per_dimension":{}}'
     monkeypatch.setattr(model_router, "generate_judge_response", lambda **_kwargs: malformed)
     results_dir = tmp_path / "results"
     with pytest.raises(SystemExit, match="missing per_dimension"):
         cl.main([
-            "calibrate", "--provider", "anthropic",
+            "calibrate",
             "--reference-panel", str(PANEL), "--runs", "1", "--max-calls", "1",
             "--results-dir", str(results_dir),
         ])

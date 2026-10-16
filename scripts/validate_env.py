@@ -8,9 +8,9 @@ def validate():
     missing = []
     warnings = []
     
-    # 1. GOOGLE_API_KEY (Required for the Wednesday photography stage, #8068)
-    if not os.getenv("GOOGLE_API_KEY"):
-        missing.append("GOOGLE_API_KEY (Set in Doppler; run with `doppler run -- ...`)")
+    # 1. OPENROUTER_API_KEY (Required: every model and image call goes through OpenRouter, #8343)
+    if not os.getenv("OPENROUTER_API_KEY"):
+        missing.append("OPENROUTER_API_KEY (Set in Doppler; run with `doppler run -- ...`)")
 
     # 1b. STABILITY_API_KEY (Optional; only scripts/direct_harvest.py uses it)
     if not os.getenv("STABILITY_API_KEY"):

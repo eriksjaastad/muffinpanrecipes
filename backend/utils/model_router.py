@@ -1,15 +1,20 @@
-"""Unified model router for OpenAI + Anthropic + Google (+ future providers).
+"""Model router: every paid text and vision call goes through OpenRouter.
 
-Every LLM call in the project goes through generate_response(). To add a new
-provider (e.g. Gemini), just:
-  1. Add a _generate_<provider>() function
-  2. Add it to the PROVIDERS dict
-  3. Add an allowlist/blocklist
-  4. Add cost-per-M-token entries
+Callers name models with provider-prefixed ids (``anthropic/claude-haiku-4-5-20251001``,
+``openai/gpt-5.1``, ``google/...``, or an OpenRouter id as ``openrouter/<vendor>/<model>``).
+Each call first passes that provider's allowlist/blocklist, then OPENROUTER_MODEL_IDS
+turns the id into OpenRouter's name for the same model, and the request goes to
+OpenRouter pinned to the model's own vendor with no fallbacks. One OpenRouter bill
+shows all spend (#8343). An id with no OPENROUTER_MODEL_IDS entry raises: a new model
+is a deliberate table edit, never a guess.
+
+Image generation lives in backend.utils.image_generation and uses the same table and
+route.
 """
 
 from __future__ import annotations
 
+import base64
 import math
 import os
 import time
@@ -42,12 +47,13 @@ logger = get_logger(__name__)
 OPENAI_REASONING_EFFORT = os.getenv("OPENAI_REASONING_EFFORT", "high").strip().lower()
 _VALID_REASONING_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
 
-# Models that take a reasoning.effort parameter and reject `temperature`.
-OPENAI_REASONING_MODELS = {"gpt-6-astra"}
+# OpenRouter ids of models that take a reasoning.effort parameter and reject
+# `temperature`.
+OPENAI_REASONING_MODELS = {"openai/gpt-6-astra"}
 
 
 def _reasoning_kwargs(model: str) -> dict:
-    """reasoning.effort kwargs for a reasoning model, or {} for a plain one."""
+    """reasoning.effort kwargs for an OpenRouter reasoning model id, or {} for a plain one."""
     if model.lower().strip() not in OPENAI_REASONING_MODELS:
         return {}
     effort = OPENAI_REASONING_EFFORT
@@ -100,9 +106,9 @@ HARD_BLOCKED_ANTHROPIC_MODELS = {
 # ---------------------------------------------------------------------------
 # OpenRouter model policy (fail-closed)
 # ---------------------------------------------------------------------------
-# Lab-only provider: routes lab calls through OpenRouter so per-model and
-# per-test cost lands on one bill. Production model strings stay direct
-# Anthropic; these dotted ids are OpenRouter's names for the same models.
+# Callers that name an OpenRouter id directly (``openrouter/<vendor>/<model>``,
+# the conversation lab) are checked against these; production's
+# provider-prefixed ids are checked against their own provider's list above.
 DEFAULT_OPENROUTER_ALLOWLIST = {
     "anthropic/claude-haiku-4.5",
     "anthropic/claude-sonnet-4-6",
@@ -115,12 +121,55 @@ OPENROUTER_JUDGE_ALLOWLIST = {
     "anthropic/claude-sonnet-4-6",
 }
 
-# Pin every OpenRouter call to Anthropic's own servers and never fall back to
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+# Provider-prefixed id a caller passes -> OpenRouter's id for the same model.
+# Every target was checked against https://openrouter.ai/api/v1/models on
+# 2026-10-16. Unlisted ids fail closed in openrouter_model_id().
+OPENROUTER_MODEL_IDS = {
+    "anthropic/claude-haiku-4-5-20251001": "anthropic/claude-haiku-4.5",
+    "anthropic/claude-sonnet-4-6": "anthropic/claude-sonnet-4.6",
+    "anthropic/claude-opus-4-6": "anthropic/claude-opus-4.6",
+    "openai/gpt-5-mini": "openai/gpt-5-mini",
+    "openai/gpt-5-nano": "openai/gpt-5-nano",
+    "openai/gpt-5.1": "openai/gpt-5.1",
+    "openai/gpt-5.2": "openai/gpt-5.2",
+    "openai/gpt-6-astra": "openai/gpt-6-astra",
+    "google/gemini-3.1-pro-preview": "google/gemini-3.1-pro-preview",
+    "google/gemini-3.1-flash-lite-preview": "google/gemini-3.1-flash-lite-preview",
+    "google/gemini-3-flash-preview": "google/gemini-3-flash-preview",
+    # Image output (backend.utils.image_generation, the Wednesday photo stage).
+    "google/gemini-3.1-flash-image": "google/gemini-3.1-flash-image",
+}
+
+
+def openrouter_model_id(provider: str, model: str) -> str:
+    """OpenRouter's id for ``provider``/``model``; an ``openrouter`` id passes through.
+
+    Raises for any id missing from OPENROUTER_MODEL_IDS.
+    """
+    if provider == "openrouter":
+        return model
+    native = f"{provider}/{model}"
+    try:
+        return OPENROUTER_MODEL_IDS[native]
+    except KeyError:
+        raise RuntimeError(
+            f"No OpenRouter id mapped for {native!r}; add it to OPENROUTER_MODEL_IDS"
+        ) from None
+
+
+# An Anthropic model is served by Anthropic's own servers, never by
 # Vertex/Bedrock. Erik's account guardrail (verified 2026-09-27) means the
 # served model is exactly the one production uses. Kept as a literal alias for
 # the anthropic vendor (equal to openrouter_provider_route("anthropic/...")) -
 # some callers/tests still import this constant directly.
 OPENROUTER_PROVIDER_ROUTE = {"order": ["anthropic"], "allow_fallbacks": False}
+
+# OpenRouter provider slug for a vendor whose slug differs from its model-id
+# prefix. Google's own API, the one GOOGLE_API_KEY used to reach, is
+# "google-ai-studio"; Vertex is a different provider.
+_OPENROUTER_PROVIDER_SLUGS = {"google": "google-ai-studio"}
 
 
 def openrouter_provider_route(model_id: str) -> dict[str, Any]:
@@ -137,7 +186,7 @@ def openrouter_provider_route(model_id: str) -> dict[str, Any]:
     vendor = model_id.split("/", 1)[0].strip().lower()
     if not vendor:
         raise RuntimeError(f"Cannot derive an OpenRouter provider route from model id: {model_id!r}")
-    return {"order": [vendor], "allow_fallbacks": False}
+    return {"order": [_OPENROUTER_PROVIDER_SLUGS.get(vendor, vendor)], "allow_fallbacks": False}
 
 
 # ---------------------------------------------------------------------------
@@ -189,38 +238,6 @@ JUDGE_ALLOWLIST = {
 }
 
 # ---------------------------------------------------------------------------
-# Approximate cost per million tokens (USD) for cost tracking.
-# Conservative estimates — update as pricing changes.
-# ---------------------------------------------------------------------------
-_COST_PER_M_TOKENS: dict[str, tuple[float, float]] = {
-    # (input_cost_per_M, output_cost_per_M)
-    # OpenAI — text
-    "gpt-5-mini": (0.30, 1.20),
-    "gpt-5-nano": (0.10, 0.40),
-    "gpt-5.1": (1.00, 3.00),
-    # $10 / $50 per M, published rate verified 2026-09-16. Note OpenAI prices
-    # prompts over 272K input tokens at 2x input and 1.5x output for the whole
-    # request; our dialogue prompts are ~3K so that tier never applies here.
-    "gpt-6-astra": (10.00, 50.00),
-    # OpenAI — vision (image tokens counted as input)
-    "gpt-5-mini:vision": (0.30, 1.20),
-    # Anthropic — text
-    # $1 / $5 per M, Anthropic list price (platform.claude.com/docs/en/about-claude/pricing,
-    # checked 2026-10-09); 0.80/4.00 was Haiku 3.5's rate (#8158).
-    "claude-haiku-4-5-20251001": (1.00, 5.00),
-    "claude-sonnet-4-6": (3.00, 15.00),
-    "claude-opus-4-6": (5.00, 25.00),  # list price verified 2026-09-06
-    # Anthropic — vision
-    "claude-haiku-4-5-20251001:vision": (1.00, 5.00),
-    # Google — text (Gemini API pricing)
-    "gemini-3.1-pro-preview": (2.00, 12.00),
-    "gemini-3.1-flash-lite-preview": (0.25, 1.50),
-    "gemini-3-flash-preview": (0.50, 3.00),
-    # Google — image generation (image output priced separately; use output cost for images)
-    "gemini-3.1-flash-image-preview": (0.50, 60.00),
-}
-
-# ---------------------------------------------------------------------------
 # Cost tracking
 # ---------------------------------------------------------------------------
 _COST_LOG: list[dict] = []
@@ -234,14 +251,13 @@ def _record_cost(
     actual_cost: Optional[float] = None,
     served_provider: Optional[str] = None,
 ) -> None:
-    costs = _COST_PER_M_TOKENS.get(model, (0.0, 0.0))
-    estimated = (tokens_in * costs[0] + tokens_out * costs[1]) / 1_000_000
+    """Log one paid call. ``actual_cost`` is the billed USD (OpenRouter's
+    ``usage.cost``), absent when the provider reported none."""
     entry = {
         "provider": provider,
         "model": model,
         "tokens_in": tokens_in,
         "tokens_out": tokens_out,
-        "estimated_cost": estimated,
         "timestamp": time.time(),
     }
     if actual_cost is not None:
@@ -252,34 +268,64 @@ def _record_cost(
 
 
 def get_cost_summary() -> dict:
-    """Return per-model breakdown and total estimated cost."""
+    """Per-model breakdown and totals of the billed cost.
+
+    ``unpriced_calls`` counts calls whose provider reported no cost; their
+    spend is missing from ``cost``/``total_cost``, not zero.
+    """
     by_model: dict[str, dict] = {}
     for entry in _COST_LOG:
         key = f"{entry['provider']}/{entry['model']}"
         if key not in by_model:
-            by_model[key] = {"calls": 0, "tokens_in": 0, "tokens_out": 0, "estimated_cost": 0.0}
+            by_model[key] = {"calls": 0, "tokens_in": 0, "tokens_out": 0, "cost": 0.0, "unpriced_calls": 0}
         by_model[key]["calls"] += 1
         by_model[key]["tokens_in"] += entry["tokens_in"]
         by_model[key]["tokens_out"] += entry["tokens_out"]
-        by_model[key]["estimated_cost"] += entry["estimated_cost"]
-
-    total_cost = sum(m["estimated_cost"] for m in by_model.values())
-    total_calls = sum(m["calls"] for m in by_model.values())
-    total_tokens_in = sum(m["tokens_in"] for m in by_model.values())
-    total_tokens_out = sum(m["tokens_out"] for m in by_model.values())
+        if "actual_cost" in entry:
+            by_model[key]["cost"] += entry["actual_cost"]
+        else:
+            by_model[key]["unpriced_calls"] += 1
 
     return {
         "by_model": by_model,
-        "total_cost": total_cost,
-        "total_calls": total_calls,
-        "total_tokens_in": total_tokens_in,
-        "total_tokens_out": total_tokens_out,
+        "total_cost": sum(m["cost"] for m in by_model.values()),
+        "unpriced_calls": sum(m["unpriced_calls"] for m in by_model.values()),
+        "total_calls": sum(m["calls"] for m in by_model.values()),
+        "total_tokens_in": sum(m["tokens_in"] for m in by_model.values()),
+        "total_tokens_out": sum(m["tokens_out"] for m in by_model.values()),
     }
+
+
+def cost_text(cost: float, unpriced_calls: int) -> str:
+    """A billed total for printing that never passes off unknown spend as
+    zero: calls with no billed cost (see get_cost_summary) are named, not summed."""
+    return f"${cost:.4f}" + (f" + {unpriced_calls} unpriced call(s)" if unpriced_calls else "")
 
 
 def reset_cost_log() -> None:
     """Clear the cost log (call between benchmark runs)."""
     _COST_LOG.clear()
+
+
+_SENT_REQUESTS = 0
+
+
+def _count_sent_request(_request: Any) -> None:
+    """httpx request hook on the OpenRouter client: runs once per HTTP request
+    put on the wire, including the OpenAI SDK's own automatic retries."""
+    global _SENT_REQUESTS
+    _SENT_REQUESTS += 1
+
+
+def sent_request_count() -> int:
+    """Text/vision requests sent to OpenRouter by this process so far.
+
+    The cost log only gains an entry when a response comes back; this counts
+    every HTTP request as it goes out - SDK retries and requests that never
+    got a response included - so a caller capping paid calls (the
+    conversation lab) counts every one that could bill.
+    """
+    return _SENT_REQUESTS
 
 
 def get_cost_entries() -> list[dict]:
@@ -292,10 +338,10 @@ def get_cost_entries() -> list[dict]:
     return [dict(entry) for entry in _COST_LOG]
 
 
-def record_external_cost(provider: str, model: str, cost: float) -> None:
+def record_external_cost(provider: str, model: str, cost: Any) -> None:
     """Record a cost-log entry for a paid unit that never goes through
-    generate_response()/generate_judge_response() - currently only
-    backend.utils.stop_check's Jev HTTP attempts (#7714).
+    generate_response()/generate_judge_response() - backend.utils.stop_check's
+    Jev HTTP attempts (#7714) and backend.utils.image_generation's images.
 
     Stored as ``actual_cost`` with zero tokens, exactly like an OpenRouter
     call's real ``usage.cost`` - so it counts toward
@@ -303,9 +349,10 @@ def record_external_cost(provider: str, model: str, cost: float) -> None:
     total_calls delta, e.g. scripts/conversation_lab.py's
     ``_run_arm_and_count``, naturally includes it) and toward
     ``get_cost_entries()``'s actual-cost total the same way a router call
-    would.
+    would. A cost that is not a real price is recorded as absent (see
+    `_billed_cost`).
     """
-    _record_cost(provider, model, 0, 0, actual_cost=float(cost))
+    _record_cost(provider, model, 0, 0, actual_cost=_billed_cost(cost))
 
 
 # ---------------------------------------------------------------------------
@@ -450,214 +497,6 @@ def ensure_openrouter_model_allowed(model: str) -> None:
         )
 
 
-# ---------------------------------------------------------------------------
-# Provider implementations
-# ---------------------------------------------------------------------------
-def _generate_openai(
-    prompt: str,
-    system_prompt: Optional[str],
-    model: str,
-    temperature: float,
-) -> str:
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is not set")
-
-    try:
-        from openai import OpenAI, BadRequestError, NotFoundError
-    except Exception as e:
-        raise RuntimeError("openai package is not installed") from e
-
-    client = OpenAI(api_key=api_key)
-    messages = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": prompt})
-
-    input_items = []
-    if system_prompt:
-        input_items.append({"role": "system", "content": [{"type": "input_text", "text": system_prompt}]})
-    input_items.append({"role": "user", "content": [{"type": "input_text", "text": prompt}]})
-
-    def _from_responses() -> str:
-        reasoning = _reasoning_kwargs(model)
-        try:
-            # Reasoning models reject `temperature`; don't send it and pay for a
-            # round trip to be told so.
-            if reasoning:
-                r = client.responses.create(model=model, input=input_items, **reasoning)
-            else:
-                r = client.responses.create(model=model, input=input_items, temperature=temperature)
-        except BadRequestError as e2:
-            if "temperature" in str(e2).lower():
-                r = client.responses.create(model=model, input=input_items, **reasoning)
-            else:
-                raise
-
-        usage = getattr(r, "usage", None)
-        _record_cost(
-            "openai", model,
-            getattr(usage, "input_tokens", 0) if usage else 0,
-            getattr(usage, "output_tokens", 0) if usage else 0,
-        )
-        _central_track(r, "openai", project="muffinpanrecipes", caller="model_router.openai_responses")
-
-        text = (getattr(r, "output_text", "") or "").strip()
-        if text:
-            return text
-
-        parts = []
-        for item in getattr(r, "output", []) or []:
-            for content in getattr(item, "content", []) or []:
-                piece = getattr(content, "text", None)
-                if piece:
-                    parts.append(piece)
-        return "\n".join(parts).strip()
-
-    # Reasoning models go straight to the Responses API - the chat-completions
-    # first attempt below exists to send `temperature`, which they reject.
-    if _reasoning_kwargs(model):
-        return _from_responses()
-
-    # First attempt: chat completions with temperature.
-    try:
-        response = client.chat.completions.create(
-            model=model, messages=messages, temperature=temperature,
-        )
-        usage = response.usage
-        _record_cost(
-            "openai", model,
-            getattr(usage, "prompt_tokens", 0) if usage else 0,
-            getattr(usage, "completion_tokens", 0) if usage else 0,
-        )
-        _central_track(response, "openai", project="muffinpanrecipes", caller="model_router.openai")
-        return (response.choices[0].message.content or "").strip()
-    except BadRequestError as e:
-        msg = str(e)
-        low = msg.lower()
-        if "temperature" in low and ("unsupported" in low or "default (1)" in low):
-            response = client.chat.completions.create(model=model, messages=messages)
-            usage = response.usage
-            _record_cost(
-                "openai", model,
-                getattr(usage, "prompt_tokens", 0) if usage else 0,
-                getattr(usage, "completion_tokens", 0) if usage else 0,
-            )
-            _central_track(response, "openai", project="muffinpanrecipes", caller="model_router.openai")
-            return (response.choices[0].message.content or "").strip()
-        if "v1/responses" in low or "responses api" in low:
-            return _from_responses()
-        raise
-    except NotFoundError as e:
-        msg = str(e).lower()
-        if "v1/responses" in msg or "responses api" in msg:
-            return _from_responses()
-        raise
-
-
-# Output ceiling for a direct Anthropic text call; part of the judge request
-# that judge_request_settings() reports.
-_ANTHROPIC_MAX_TOKENS = 4096
-
-
-def _anthropic_request_kwargs(
-    prompt: str, system_prompt: Optional[str], model: str, temperature: float,
-) -> dict[str, Any]:
-    """The exact kwargs `_generate_anthropic` passes to messages.create.
-    judge_request_settings() derives its description from this same
-    function, so the recorded judge instrument is the request itself."""
-    kwargs: dict[str, Any] = {
-        "model": model,
-        "max_tokens": _ANTHROPIC_MAX_TOKENS,
-        "temperature": temperature,
-        "messages": [{"role": "user", "content": prompt}],
-    }
-    if system_prompt:
-        kwargs["system"] = system_prompt
-    return kwargs
-
-
-def _generate_anthropic(
-    prompt: str,
-    system_prompt: Optional[str],
-    model: str,
-    temperature: float,
-) -> str:
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY is not set")
-
-    try:
-        import anthropic
-    except Exception as e:
-        raise RuntimeError("anthropic package is not installed") from e
-
-    client = anthropic.Anthropic(api_key=api_key)
-
-    response = client.messages.create(**_anthropic_request_kwargs(prompt, system_prompt, model, temperature))
-
-    usage = getattr(response, "usage", None)
-    _record_cost(
-        "anthropic", model,
-        getattr(usage, "input_tokens", 0) if usage else 0,
-        getattr(usage, "output_tokens", 0) if usage else 0,
-    )
-    _central_track(response, "anthropic", project="muffinpanrecipes", caller="model_router")
-
-    parts = []
-    for block in response.content:
-        if hasattr(block, "text"):
-            parts.append(block.text)
-    return "\n".join(parts).strip()
-
-
-def _generate_google(
-    prompt: str,
-    system_prompt: Optional[str],
-    model: str,
-    temperature: float,
-) -> str:
-    api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        raise RuntimeError("GOOGLE_API_KEY is not set")
-
-    try:
-        from google import genai
-        from google.genai import types
-    except Exception as e:
-        raise RuntimeError("google-genai package is not installed") from e
-
-    config = types.GenerateContentConfig(temperature=temperature)
-    if system_prompt:
-        config.system_instruction = system_prompt
-
-    with genai.Client(api_key=api_key) as client:
-        response = client.models.generate_content(
-            model=model,
-            contents=prompt,
-            config=config,
-        )
-
-    usage = getattr(response, "usage_metadata", None)
-    tokens_in = 0
-    tokens_out = 0
-    if usage:
-        tokens_in = getattr(usage, "prompt_token_count", 0) or getattr(usage, "input_tokens", 0) or 0
-        tokens_out = (
-            getattr(usage, "candidates_token_count", 0)
-            or getattr(usage, "output_tokens", 0)
-            or 0
-        )
-    _record_cost("google", model, tokens_in, tokens_out)
-    _central_track(response, "google", project="muffinpanrecipes", caller="model_router.google")
-
-    text = (getattr(response, "text", None) or "").strip()
-    if text:
-        return text
-
-    return str(response).strip()
-
-
 _OPENROUTER_ANTHROPIC_MAX_TOKENS = 4096
 _OPENROUTER_REASONING_MAX_TOKENS = 32768
 
@@ -665,12 +504,13 @@ _OPENROUTER_REASONING_MAX_TOKENS = 32768
 def openrouter_max_tokens(model_id: str) -> int:
     """Output ceiling for one OpenRouter call.
 
-    Anthropic ids keep 4096 - parity with _generate_anthropic, the production
-    call shape. Other vendors' lab models (the DeepSeek set) reason before
-    answering and count that reasoning against max_tokens: at 4096 the judge
-    used every token thinking and returned nothing (12288 tokens over three
-    calls, smoke run 2026-09-28). 32768 leaves room to reason and still answer;
-    OpenRouter bills tokens actually generated, not the ceiling.
+    Anthropic ids keep 4096, the ceiling production used when it called
+    Anthropic directly. Other vendors' models (OpenAI's GPT-5 family, the lab's
+    DeepSeek set) reason before answering and count that reasoning against
+    max_tokens: at 4096 the DeepSeek judge used every token thinking and
+    returned nothing (12288 tokens over three calls, smoke run 2026-09-28).
+    32768 leaves room to reason and still answer; OpenRouter bills tokens
+    actually generated, not the ceiling.
     """
     vendor = model_id.split("/", 1)[0].strip().lower()
     if vendor == "anthropic":
@@ -689,30 +529,47 @@ def _generate_openrouter(
     system_prompt: Optional[str],
     model: str,
     temperature: float,
+    images: Optional[list[bytes]] = None,
 ) -> str:
     """Generate through OpenRouter's OpenAI-compatible chat-completions API.
 
     ``model`` is the OpenRouter dotted id (e.g. ``anthropic/claude-haiku-4.5``).
-    Every request is pinned to Anthropic's own servers via
-    OPENROUTER_PROVIDER_ROUTE and asks OpenRouter to include ``usage.cost``
-    so callers can total the exact USD cost of each call.
+    Every request is pinned to the model's own vendor via
+    openrouter_provider_route() and asks OpenRouter to include ``usage.cost``
+    so callers can total the exact USD cost of each call. ``images`` (raw PNG
+    bytes) go in the user message as base64 data URLs.
     """
     api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
         raise RuntimeError("OPENROUTER_API_KEY is not set")
 
     try:
-        from openai import OpenAI
+        from openai import DefaultHttpxClient, OpenAI
     except Exception as e:
         raise RuntimeError("openai package is not installed") from e
 
-    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
-    messages = []
+    # The SDK's own default client (redirects, limits, timeouts unchanged),
+    # plus the hook that counts every request it sends.
+    client = OpenAI(
+        base_url=OPENROUTER_BASE_URL, api_key=api_key,
+        http_client=DefaultHttpxClient(event_hooks={"request": [_count_sent_request]}),
+    )
+    messages: list[dict[str, Any]] = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": prompt})
+    if images:
+        content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+        for img_bytes in images:
+            b64 = base64.b64encode(img_bytes).decode("ascii")
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/png;base64,{b64}", "detail": "low"},
+            })
+        messages.append({"role": "user", "content": content})
+    else:
+        messages.append({"role": "user", "content": prompt})
 
-    prompt_bytes = len(prompt.encode("utf-8")) + len((system_prompt or "").encode("utf-8"))
+    prompt_bytes = _prompt_bytes(prompt, system_prompt)
     finish_reason: Any = None
     completion_tokens: Any = None
     for attempt in range(_OPENROUTER_EMPTY_STOP_MAX_ATTEMPTS):
@@ -737,17 +594,37 @@ def _generate_openrouter(
 def _openrouter_request_kwargs(model: str, messages: list, temperature: float) -> dict[str, Any]:
     """The exact kwargs one OpenRouter attempt passes to chat.completions.create.
     judge_request_settings() derives its description from this same
-    function, so the recorded judge instrument is the request itself."""
-    return {
-        "model": model,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": openrouter_max_tokens(model),
-        "extra_body": {
-            "provider": openrouter_provider_route(model),
-            "usage": {"include": True},
-        },
+    function, so the recorded judge instrument is the request itself.
+
+    A reasoning model gets ``reasoning.effort`` and no ``temperature``, which
+    it rejects."""
+    extra_body: dict[str, Any] = {
+        "provider": openrouter_provider_route(model),
+        "usage": {"include": True},
     }
+    kwargs: dict[str, Any] = {"model": model, "messages": messages}
+    reasoning = _reasoning_kwargs(model)
+    if reasoning:
+        extra_body.update(reasoning)
+    else:
+        kwargs["temperature"] = temperature
+    kwargs["max_tokens"] = openrouter_max_tokens(model)
+    kwargs["extra_body"] = extra_body
+    return kwargs
+
+
+def _billed_cost(raw_cost: Any) -> Optional[float]:
+    """OpenRouter's ``usage.cost`` as a float, or None when it is not a real price.
+
+    A missing, NaN, infinite or negative cost is recorded as absent so the
+    lab's cost total treats the entry as unmetered and fails closed, instead
+    of poisoning the running total.
+    """
+    if isinstance(raw_cost, bool) or not isinstance(raw_cost, (int, float)):
+        return None
+    if not math.isfinite(raw_cost) or raw_cost < 0:
+        return None
+    return float(raw_cost)
 
 
 def _openrouter_attempt(client: Any, model: str, messages: list, temperature: float) -> tuple[str, Any, Any]:
@@ -755,17 +632,6 @@ def _openrouter_attempt(client: Any, model: str, messages: list, temperature: fl
     response = client.chat.completions.create(**_openrouter_request_kwargs(model, messages, temperature))
 
     usage = getattr(response, "usage", None)
-    raw_cost = getattr(usage, "cost", None) if usage else None
-    actual_cost: Optional[float]
-    if isinstance(raw_cost, bool) or not isinstance(raw_cost, (int, float)):
-        actual_cost = None
-    elif not math.isfinite(raw_cost) or raw_cost < 0:
-        # A NaN/inf/negative usage.cost is not a real price. Record it as
-        # absent so the lab's cost total treats the entry as unmetered and
-        # fails closed, instead of poisoning the running total.
-        actual_cost = None
-    else:
-        actual_cost = float(raw_cost)
     served_provider = getattr(response, "provider", None)
     if not isinstance(served_provider, str) or not served_provider:
         served_provider = None
@@ -773,7 +639,7 @@ def _openrouter_attempt(client: Any, model: str, messages: list, temperature: fl
         "openrouter", model,
         getattr(usage, "prompt_tokens", 0) if usage else 0,
         getattr(usage, "completion_tokens", 0) if usage else 0,
-        actual_cost=actual_cost,
+        actual_cost=_billed_cost(getattr(usage, "cost", None) if usage else None),
         served_provider=served_provider,
     )
     _central_track(response, "openrouter", project="muffinpanrecipes", caller="model_router.openrouter")
@@ -787,122 +653,20 @@ def _openrouter_attempt(client: Any, model: str, messages: list, temperature: fl
 
 
 # ---------------------------------------------------------------------------
-# Vision provider implementations
-# ---------------------------------------------------------------------------
-def _generate_vision_openai(
-    prompt: str,
-    images: list[bytes],
-    system_prompt: Optional[str],
-    model: str,
-    temperature: float,
-) -> str:
-    import base64
-
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is not set")
-
-    try:
-        from openai import OpenAI, BadRequestError
-    except Exception as e:
-        raise RuntimeError("openai package is not installed") from e
-
-    client = OpenAI(api_key=api_key)
-
-    # Build content array: text prompt + image_url blocks
-    content: list[dict] = [{"type": "text", "text": prompt}]
-    for img_bytes in images:
-        b64 = base64.b64encode(img_bytes).decode("utf-8")
-        content.append({
-            "type": "image_url",
-            "image_url": {"url": f"data:image/png;base64,{b64}", "detail": "low"},
-        })
-
-    messages: list[dict] = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": content})
-
-    # GPT-5-family reasoning models reject any non-default temperature.
-    # Same retry pattern as _generate_openai — this path lacking it left
-    # every vision eval 400ing (and silently passing) for weeks.
-    try:
-        response = client.chat.completions.create(
-            model=model, messages=messages, temperature=temperature,
-        )
-    except BadRequestError as e:
-        low = str(e).lower()
-        if "temperature" in low and ("unsupported" in low or "default (1)" in low):
-            response = client.chat.completions.create(model=model, messages=messages)
-        else:
-            raise
-    usage = response.usage
-    _record_cost(
-        "openai", f"{model}:vision",
-        getattr(usage, "prompt_tokens", 0) if usage else 0,
-        getattr(usage, "completion_tokens", 0) if usage else 0,
-    )
-    _central_track(response, "openai", project="muffinpanrecipes", caller="model_router.vision_openai")
-    return (response.choices[0].message.content or "").strip()
-
-
-def _generate_vision_anthropic(
-    prompt: str,
-    images: list[bytes],
-    system_prompt: Optional[str],
-    model: str,
-    temperature: float,
-) -> str:
-    import base64
-
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY is not set")
-
-    try:
-        import anthropic
-    except Exception as e:
-        raise RuntimeError("anthropic package is not installed") from e
-
-    client = anthropic.Anthropic(api_key=api_key)
-
-    # Build content array: image blocks + text
-    content: list[dict] = []
-    for img_bytes in images:
-        b64 = base64.b64encode(img_bytes).decode("utf-8")
-        content.append({
-            "type": "image",
-            "source": {"type": "base64", "media_type": "image/png", "data": b64},
-        })
-    content.append({"type": "text", "text": prompt})
-
-    kwargs: dict = {
-        "model": model,
-        "max_tokens": 4096,
-        "temperature": temperature,
-        "messages": [{"role": "user", "content": content}],
-    }
-    if system_prompt:
-        kwargs["system"] = system_prompt
-
-    response = client.messages.create(**kwargs)
-    usage = getattr(response, "usage", None)
-    _record_cost(
-        "anthropic", f"{model}:vision",
-        getattr(usage, "input_tokens", 0) if usage else 0,
-        getattr(usage, "output_tokens", 0) if usage else 0,
-    )
-    _central_track(response, "anthropic", project="muffinpanrecipes", caller="model_router")
-    parts = []
-    for block in response.content:
-        if hasattr(block, "text"):
-            parts.append(block.text)
-    return "\n".join(parts).strip()
-
-
-# ---------------------------------------------------------------------------
 # Main entry points
 # ---------------------------------------------------------------------------
+_ALLOWLIST_CHECKS = {
+    "openai": ensure_openai_model_allowed,
+    "anthropic": ensure_anthropic_model_allowed,
+    "google": ensure_google_model_allowed,
+    "openrouter": ensure_openrouter_model_allowed,
+}
+
+
+def _prompt_bytes(prompt: str, system_prompt: Optional[str]) -> int:
+    return len(prompt.encode("utf-8")) + len((system_prompt or "").encode("utf-8"))
+
+
 def generate_vision_response(
     prompt: str,
     images: list[bytes],
@@ -916,7 +680,8 @@ def generate_vision_response(
         prompt: User prompt text describing what to evaluate.
         images: List of raw PNG bytes to include in the request.
         system_prompt: Optional system/persona prompt.
-        model: Provider-prefixed model name.
+        model: Provider-prefixed model name, checked against that
+               provider's allowlist and sent through OpenRouter.
         temperature: Sampling temperature.
 
     Returns:
@@ -924,22 +689,12 @@ def generate_vision_response(
     """
     routed = parse_model(model)
     logger.debug(f"Vision router provider={routed.provider} model={routed.model} images={len(images)}")
-
-    if routed.provider == "openai":
-        ensure_openai_model_allowed(routed.model)
-        return _generate_vision_openai(
-            prompt=prompt, images=images, system_prompt=system_prompt,
-            model=routed.model, temperature=temperature,
-        )
-
-    if routed.provider == "anthropic":
-        ensure_anthropic_model_allowed(routed.model)
-        return _generate_vision_anthropic(
-            prompt=prompt, images=images, system_prompt=system_prompt,
-            model=routed.model, temperature=temperature,
-        )
-
-    raise RuntimeError(f"Unsupported provider for vision: {routed.provider}")
+    _ALLOWLIST_CHECKS[routed.provider](routed.model)
+    return _generate_openrouter(
+        prompt=prompt, system_prompt=system_prompt,
+        model=openrouter_model_id(routed.provider, routed.model),
+        temperature=temperature, images=images,
+    )
 
 
 def generate_response(
@@ -948,13 +703,14 @@ def generate_response(
     model: str = "openai/gpt-5-mini",
     temperature: float = 0.8,
 ) -> str:
-    """Generate a text response from a cloud LLM.
+    """Generate a text response from a cloud LLM, through OpenRouter.
 
     Args:
         prompt: User prompt text.
         system_prompt: Optional system/persona prompt.
         model: Provider-prefixed model name (e.g. "openai/gpt-5-mini",
-               "anthropic/claude-haiku-4-5-20251001").
+               "anthropic/claude-haiku-4-5-20251001"), checked against that
+               provider's allowlist, then mapped by OPENROUTER_MODEL_IDS.
         temperature: Sampling temperature (0.0–2.0).
 
     Returns:
@@ -962,51 +718,17 @@ def generate_response(
     """
     routed = parse_model(model)
     logger.debug(f"Model router provider={routed.provider} model={routed.model}")
-    _fire_pre_call_hook(routed.provider, routed.model, len(prompt.encode("utf-8")) + len((system_prompt or "").encode("utf-8")))
-
-    if routed.provider == "openai":
-        ensure_openai_model_allowed(routed.model)
-        return _generate_openai(
-            prompt=prompt, system_prompt=system_prompt,
-            model=routed.model, temperature=temperature,
-        )
-
-    if routed.provider == "anthropic":
-        ensure_anthropic_model_allowed(routed.model)
-        return _generate_anthropic(
-            prompt=prompt, system_prompt=system_prompt,
-            model=routed.model, temperature=temperature,
-        )
-
-    if routed.provider == "google":
-        ensure_google_model_allowed(routed.model)
-        return _generate_google(
-            prompt=prompt, system_prompt=system_prompt,
-            model=routed.model, temperature=temperature,
-        )
-
-    if routed.provider == "openrouter":
-        ensure_openrouter_model_allowed(routed.model)
-        return _generate_openrouter(
-            prompt=prompt, system_prompt=system_prompt,
-            model=routed.model, temperature=temperature,
-        )
-
-    raise RuntimeError(f"Unsupported provider: {routed.provider}")
+    _ALLOWLIST_CHECKS[routed.provider](routed.model)
+    openrouter_model = openrouter_model_id(routed.provider, routed.model)
+    _fire_pre_call_hook("openrouter", openrouter_model, _prompt_bytes(prompt, system_prompt))
+    return _generate_openrouter(
+        prompt=prompt, system_prompt=system_prompt,
+        model=openrouter_model, temperature=temperature,
+    )
 
 
-def generate_judge_response(
-    prompt: str,
-    system_prompt: Optional[str] = None,
-    model: str = "anthropic/claude-opus-4-6",
-    temperature: float = 0.3,
-) -> str:
-    """Generate a response using a judge-tier model.
-
-    Bypasses dialogue allowlists — only checks JUDGE_ALLOWLIST.
-    Used for post-generation quality review, not content generation.
-    Lower temperature by default for more consistent evaluation.
-    """
+def _judge_openrouter_model(model: str) -> str:
+    """The OpenRouter id for a judge-tier ``model``, after the judge allowlist check."""
     routed = parse_model(model)
     if routed.provider == "openrouter":
         allowed_judge_models = OPENROUTER_JUDGE_ALLOWLIST | _EXTRA_OPENROUTER_JUDGE_MODELS
@@ -1020,56 +742,46 @@ def generate_judge_response(
             f"Model not in judge allowlist: {routed.model}. "
             f"Allowed: {', '.join(sorted(JUDGE_ALLOWLIST))}"
         )
-    logger.info(f"Judge router provider={routed.provider} model={routed.model}")
-    _fire_pre_call_hook(routed.provider, routed.model, len(prompt.encode("utf-8")) + len((system_prompt or "").encode("utf-8")))
+    return openrouter_model_id(routed.provider, routed.model)
 
-    if routed.provider == "openai":
-        return _generate_openai(
-            prompt=prompt, system_prompt=system_prompt,
-            model=routed.model, temperature=temperature,
-        )
-    if routed.provider == "anthropic":
-        return _generate_anthropic(
-            prompt=prompt, system_prompt=system_prompt,
-            model=routed.model, temperature=temperature,
-        )
-    if routed.provider == "openrouter":
-        return _generate_openrouter(
-            prompt=prompt, system_prompt=system_prompt,
-            model=routed.model, temperature=temperature,
-        )
-    raise RuntimeError(f"Unsupported provider for judge: {routed.provider}")
+
+def generate_judge_response(
+    prompt: str,
+    system_prompt: Optional[str] = None,
+    model: str = "anthropic/claude-opus-4-6",
+    temperature: float = 0.3,
+) -> str:
+    """Generate a response using a judge-tier model, through OpenRouter.
+
+    Bypasses dialogue allowlists — only checks JUDGE_ALLOWLIST.
+    Used for post-generation quality review, not content generation.
+    Lower temperature by default for more consistent evaluation.
+    """
+    openrouter_model = _judge_openrouter_model(model)
+    logger.info(f"Judge router model={model} openrouter={openrouter_model}")
+    _fire_pre_call_hook("openrouter", openrouter_model, _prompt_bytes(prompt, system_prompt))
+    return _generate_openrouter(
+        prompt=prompt, system_prompt=system_prompt,
+        model=openrouter_model, temperature=temperature,
+    )
 
 
 def judge_request_settings(model: str, temperature: float) -> dict[str, Any]:
     """Everything except the prompt text that `generate_judge_response`
     sends for `model` at `temperature`.
 
-    For the fixed-shape paths (openrouter, anthropic) this is built by the
-    SAME kwargs builder the send path calls, minus the message content, so
-    it cannot drift from the request (#7791). The conversation lab saves it
-    with every judge verdict and `rejudge` compares it whole.
-
-    Paths whose request can change at run time (openai falls back between
-    endpoints and may drop temperature on retry; google) are reported with
-    ``request_shape: "variable"``: their effective request cannot be known
-    in advance, so the lab never treats them as a verified instrument.
+    Built by the SAME kwargs builder the send path calls, minus the message
+    content, so it cannot drift from the request (#7791). The conversation
+    lab saves it with every judge verdict and `rejudge` compares it whole.
+    Describes the request only; the allowlist check stays with the send.
     """
     routed = parse_model(model)
-    settings: dict[str, Any] = {"provider": routed.provider}
-    if routed.provider == "openrouter":
-        kwargs = _openrouter_request_kwargs(routed.model, [], temperature)
-        kwargs.pop("messages")
-        settings.update(
-            kwargs,
-            endpoint="chat.completions",
-            empty_stop_max_attempts=_OPENROUTER_EMPTY_STOP_MAX_ATTEMPTS,
-            request_shape="fixed",
-        )
-    elif routed.provider == "anthropic":
-        kwargs = _anthropic_request_kwargs("", None, routed.model, temperature)
-        kwargs.pop("messages")
-        settings.update(kwargs, endpoint="messages", request_shape="fixed")
-    else:
-        settings.update(model=routed.model, temperature=temperature, request_shape="variable")
-    return settings
+    kwargs = _openrouter_request_kwargs(openrouter_model_id(routed.provider, routed.model), [], temperature)
+    kwargs.pop("messages")
+    return {
+        "provider": "openrouter",
+        **kwargs,
+        "endpoint": "chat.completions",
+        "empty_stop_max_attempts": _OPENROUTER_EMPTY_STOP_MAX_ATTEMPTS,
+        "request_shape": "fixed",
+    }

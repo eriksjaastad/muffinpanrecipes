@@ -137,12 +137,9 @@ def _no_live_cost_tracking(monkeypatch, tmp_path):
 # backend.utils.model_router._COST_LOG is a module-level global, and several
 # tests (tests/test_lab_models.py's cost-by-model tests in particular) record
 # synthetic entries into it and reset it only at their OWN start, not at
-# their end - previously harmless, because get_cost_summary()['total_cost']
-# sums only estimated_cost and is robust to a garbage entry (it just adds
-# 0.0). #7714's scripts/conversation_lab.py._lab_cost_total() sums
-# get_cost_entries() instead (actual_cost when present, else estimated_cost)
-# and treats an OpenRouter entry with neither as untrusted - fail CLOSED,
-# not $0 - so a leaked entry from an unrelated earlier test can now abort a
+# their end. scripts/conversation_lab.py._lab_cost_total() sums every
+# get_cost_entries() actual_cost and treats an entry without one as
+# untrusted - fail CLOSED, not $0 - so a leaked entry from an unrelated earlier test can now abort a
 # LATER test's `ab` run that never touches the cost log itself. Resetting
 # the log before AND after every test removes that ordering dependency
 # regardless of which test runs first.
@@ -202,4 +199,23 @@ def sample_task() -> Task:
         content="This is a test task with some trendy ingredients.",
         context={"priority": "normal"},
         default_strategy="standard",
+    )
+
+
+@pytest.fixture
+def openrouter_lab(monkeypatch):
+    """Let conversation_lab's paid commands run offline (#8343).
+
+    Every paid command routes through OpenRouter, so it needs a key and the
+    key/balance/price preflight. Tests that are not about that preflight stub
+    it: a fake key, no network, and zero prices for the default model set so
+    the per-call cost reservation adds nothing.
+    """
+    import scripts.conversation_lab as cl
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+    monkeypatch.setattr(cl, "_openrouter_preflight", lambda args: None)
+    default = cl._DEFAULT_LAB_MODEL_SET
+    monkeypatch.setattr(
+        cl, "_OPENROUTER_MODEL_PRICES", {default.dialogue: (0.0, 0.0), default.judge: (0.0, 0.0)},
     )

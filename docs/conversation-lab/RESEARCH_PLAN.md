@@ -368,7 +368,8 @@ EXPERIMENTS.md.
   OPEN_ENDED_MAX_TICKS, WINDDOWN_TRIGGER and STOP_CHECK). sha256 prefixes: B 32d5f7ce12f5,
   A1 a5797c478a25, A2 c06cce5906a0, A4 b116eaf4c2a0, A5 b598e2c5c0b3. Command:
   `ab --sweep <dir> --testbed --stage monday --runs 2 --models claude-o55 --provider openrouter
-  --max-cost 4`. Screen decision: an arm moves if its overall win rate differs from B's by at
+  --max-cost 4` (as run 10-01; #8343 later removed `--provider`, since OpenRouter became the only
+  route, so a rerun omits it). Screen decision: an arm moves if its overall win rate differs from B's by at
   least 3 of 14 pairs. Arms that move are carried to confirmation (#7848).
 
 Superseded, kept for the record: the 09-27 Claude week and 09-29 DeepSeek rerun (Opus 4.6

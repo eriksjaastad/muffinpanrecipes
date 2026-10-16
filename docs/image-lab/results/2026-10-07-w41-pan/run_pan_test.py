@@ -67,24 +67,22 @@ def pick_pan(dry_run: bool) -> tuple[str, str]:
     options = [m for m, spec in LIB["materials"].items() if RECIPE_SIZE in spec["sizes"]]
     if dry_run:
         return options[0], "dry run"
-    import anthropic
+    from backend.utils.model_router import generate_response
 
     menu = "\n".join(f"- {m}: {LIB['materials'][m]['description']}" for m in options)
-    msg = anthropic.Anthropic().messages.create(
-        model="claude-haiku-4-5",
-        max_tokens=200,
-        messages=[{
-            "role": "user",
-            "content": (
-                f"You are the food photographer for a muffin-pan recipe site. This week's recipe is "
-                f"'{TITLE}', baked in a {LIB['sizes'][RECIPE_SIZE]['label']}. Choose the pan from our "
-                f"prop library that will photograph best with this food (think colour contrast with "
-                f"the food and a warm rustic look).\n{menu}\n\n"
-                'Reply with JSON only: {"material": "<id>", "reason": "<one sentence>"}'
-            ),
-        }],
+    # Through OpenRouter since #8343; the 10-07 run called Anthropic directly
+    # at its default temperature (1.0).
+    text = generate_response(
+        (
+            f"You are the food photographer for a muffin-pan recipe site. This week's recipe is "
+            f"'{TITLE}', baked in a {LIB['sizes'][RECIPE_SIZE]['label']}. Choose the pan from our "
+            f"prop library that will photograph best with this food (think colour contrast with "
+            f"the food and a warm rustic look).\n{menu}\n\n"
+            'Reply with JSON only: {"material": "<id>", "reason": "<one sentence>"}'
+        ),
+        model="anthropic/claude-haiku-4-5-20251001",
+        temperature=1.0,
     )
-    text = msg.content[0].text.strip()
     data = json.loads(text[text.index("{"): text.rindex("}") + 1])
     if data["material"] not in options:
         raise SystemExit(f"photographer picked unknown pan {data['material']!r}")
@@ -114,7 +112,7 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
     if not args.dry_run:
         # Check every key before the paid photographer call and the plan write.
-        missing = [k for k in ("STABILITY_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY") if not os.environ.get(k)]
+        missing = [k for k in ("STABILITY_API_KEY", "OPENROUTER_API_KEY") if not os.environ.get(k)]
         if missing:
             raise SystemExit(f"missing env: {', '.join(missing)}")
 
@@ -139,14 +137,16 @@ def main() -> None:
         print(f"dry run: {len(plan)} image calls planned, none made")
         return
 
+    # Stability has no OpenRouter route, so arms A and B stay direct, the one
+    # paid exception besides scripts/direct_harvest.py (#8343).
     stability_key = os.environ["STABILITY_API_KEY"]
-    google_key = os.environ["GOOGLE_API_KEY"]
+    openrouter_key = os.environ["OPENROUTER_API_KEY"]
     failures = []
     for arm, variant, prompt in plan:
         stem = out / f"{arm}_{variant}"
         try:
             if arm == "C":
-                data = generate_nano_banana_image(prompt, google_key, model=GEMINI_MODEL, timeout_s=90)
+                data = generate_nano_banana_image(prompt, openrouter_key, model=GEMINI_MODEL, timeout_s=90)
             else:
                 data = call_stability(stability_key, prompt, variant)
         except Exception as exc:  # attempt every arm, no retries, then exit nonzero

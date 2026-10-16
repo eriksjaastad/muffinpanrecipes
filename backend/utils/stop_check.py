@@ -312,8 +312,8 @@ def check_scene_done(
 
     ``haiku_model`` lets the lab's ``haiku`` provider follow the same
     dialogue model string as the run that spawned the scene (for example
-    ``openrouter/anthropic/claude-haiku-4.5`` under --provider openrouter).
-    Production callers omit it and keep the direct-Anthropic default.
+    ``openrouter/anthropic/claude-haiku-4.5``). Production callers omit it
+    and keep HAIKU_MODEL.
     """
     if not isinstance(lines, list):
         raise StopCheckError(f"lines must be a list of strings, got {type(lines).__name__}")
