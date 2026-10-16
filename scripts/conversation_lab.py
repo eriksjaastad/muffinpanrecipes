@@ -7653,20 +7653,21 @@ async function start() {
 
 async function pick(label) {
   if (position === null) return;
+  const picked = position;  // `position` can move while the save is in flight
   try {
     await getJSON("/api/pick", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({position: position, label: label, reason: document.getElementById("reason").value}),
+      body: JSON.stringify({position: picked, label: label, reason: document.getElementById("reason").value}),
     });
   } catch (e) {
     document.getElementById("status").textContent = "Error: " + e.message;
     return;
   }
-  delete draftReasons[position];
+  delete draftReasons[picked];
   const state = await getJSON("/api/state");
   if (await refreshState()) return;
-  const next = state.first_unpicked || Math.min(position + 1, total);
+  const next = state.first_unpicked || Math.min(picked + 1, total);
   await loadPair(next);
 }
 
