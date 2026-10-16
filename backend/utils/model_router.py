@@ -10,6 +10,10 @@ is a deliberate table edit, never a guess.
 
 Image generation lives in backend.utils.image_generation and uses the same table and
 route.
+
+The one exception is ``local/<ollama model>``, which only the conversation lab names:
+it is served by Ollama at LOCAL_LLM_URL (the Mac Mini, through an SSH tunnel) and
+costs nothing (#8344).
 """
 
 from __future__ import annotations
@@ -20,6 +24,8 @@ import os
 import time
 from dataclasses import dataclass
 from typing import Any, Optional
+
+import requests
 
 from backend.utils.logging import get_logger
 
@@ -211,6 +217,11 @@ def allow_openrouter_models(*, dialogue: str, judge: str) -> None:
     _EXTRA_OPENROUTER_JUDGE_MODELS.add(judge)
 
 # ---------------------------------------------------------------------------
+# Local model policy (fail-closed, lab only - #8344)
+# ---------------------------------------------------------------------------
+LOCAL_MODEL_ALLOWLIST = {"qwen3.5:35b-a3b-q4_K_M"}
+
+# ---------------------------------------------------------------------------
 # Google model policy (fail-closed)
 # ---------------------------------------------------------------------------
 DEFAULT_GOOGLE_ALLOWLIST = {
@@ -392,7 +403,7 @@ def _fire_pre_call_hook(provider: str, model: str, prompt_bytes: int) -> None:
 # ---------------------------------------------------------------------------
 # Routing
 # ---------------------------------------------------------------------------
-SUPPORTED_PROVIDERS = {"openai", "anthropic", "google", "openrouter"}
+SUPPORTED_PROVIDERS = {"openai", "anthropic", "google", "openrouter", "local"}
 
 
 @dataclass
@@ -494,6 +505,13 @@ def ensure_openrouter_model_allowed(model: str) -> None:
     if low not in allowed:
         raise RuntimeError(
             f"OpenRouter model not allowlisted: {model}. Allowed: {', '.join(sorted(allowed))}"
+        )
+
+
+def ensure_local_model_allowed(model: str) -> None:
+    if model not in LOCAL_MODEL_ALLOWLIST:
+        raise RuntimeError(
+            f"Local model not allowlisted: {model}. Allowed: {', '.join(sorted(LOCAL_MODEL_ALLOWLIST))}"
         )
 
 
@@ -652,6 +670,67 @@ def _openrouter_attempt(client: Any, model: str, messages: list, temperature: fl
     )
 
 
+# Context window asked of the local model. Ollama keeps only the end of a
+# prompt longer than this, without an error.
+LOCAL_NUM_CTX = 32768
+_LOCAL_TIMEOUT_SECONDS = 300
+
+
+def local_llm_url() -> str:
+    """LOCAL_LLM_URL without a trailing slash. Raises when unset: there is no
+    default host to fall back to."""
+    url = os.getenv("LOCAL_LLM_URL")
+    if url is None or not url.strip():
+        raise RuntimeError(
+            "LOCAL_LLM_URL is not set (the Mini's Ollama through an SSH tunnel, "
+            "e.g. http://127.0.0.1:11435)"
+        )
+    return url.strip().rstrip("/")
+
+
+def _generate_local(prompt: str, system_prompt: Optional[str], model: str, temperature: float) -> str:
+    """One call to Ollama's native ``/api/chat`` at LOCAL_LLM_URL, recorded as billed $0.00.
+
+    The native endpoint, because the OpenAI-compatible ``/v1`` one ignores
+    ``num_ctx`` and does not report ``prompt_eval_count``. Thinking is off:
+    the model reasons by default, which only slows a one-line reply. A
+    prompt that filled the whole window was truncated by Ollama and raises,
+    as does a reply with no ``prompt_eval_count`` to check that against.
+    """
+    messages: list[dict[str, str]] = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+    response = requests.post(
+        f"{local_llm_url()}/api/chat",
+        json={
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            "think": False,
+            "options": {"num_ctx": LOCAL_NUM_CTX, "temperature": temperature},
+        },
+        timeout=_LOCAL_TIMEOUT_SECONDS,
+    )
+    if response.status_code != 200:
+        raise RuntimeError(f"local {model} returned HTTP {response.status_code}: {response.text[:200]}")
+    payload = response.json()
+    prompt_tokens = payload.get("prompt_eval_count")
+    completion_tokens = payload.get("eval_count") or 0
+    if not isinstance(prompt_tokens, int):
+        raise RuntimeError(f"local {model} reported no prompt_eval_count; cannot rule out a truncated prompt")
+    _record_cost("local", model, prompt_tokens, completion_tokens, actual_cost=0.0)
+    if prompt_tokens >= LOCAL_NUM_CTX:
+        raise RuntimeError(
+            f"local {model} prompt filled the {LOCAL_NUM_CTX}-token context "
+            f"(prompt_eval_count={prompt_tokens}); Ollama truncated it"
+        )
+    text = ((payload.get("message") or {}).get("content") or "").strip()
+    if not text:
+        raise RuntimeError(f"local {model} returned empty content (done_reason={payload.get('done_reason')!r})")
+    return text
+
+
 # ---------------------------------------------------------------------------
 # Main entry points
 # ---------------------------------------------------------------------------
@@ -660,6 +739,7 @@ _ALLOWLIST_CHECKS = {
     "anthropic": ensure_anthropic_model_allowed,
     "google": ensure_google_model_allowed,
     "openrouter": ensure_openrouter_model_allowed,
+    "local": ensure_local_model_allowed,
 }
 
 
@@ -703,7 +783,7 @@ def generate_response(
     model: str = "openai/gpt-5-mini",
     temperature: float = 0.8,
 ) -> str:
-    """Generate a text response from a cloud LLM, through OpenRouter.
+    """Generate a text response through OpenRouter, or from the local model.
 
     Args:
         prompt: User prompt text.
@@ -711,6 +791,7 @@ def generate_response(
         model: Provider-prefixed model name (e.g. "openai/gpt-5-mini",
                "anthropic/claude-haiku-4-5-20251001"), checked against that
                provider's allowlist, then mapped by OPENROUTER_MODEL_IDS.
+               A "local/<ollama model>" id goes to LOCAL_LLM_URL instead.
         temperature: Sampling temperature (0.0–2.0).
 
     Returns:
@@ -719,6 +800,9 @@ def generate_response(
     routed = parse_model(model)
     logger.debug(f"Model router provider={routed.provider} model={routed.model}")
     _ALLOWLIST_CHECKS[routed.provider](routed.model)
+    if routed.provider == "local":
+        _fire_pre_call_hook("local", routed.model, _prompt_bytes(prompt, system_prompt))
+        return _generate_local(prompt, system_prompt, routed.model, temperature)
     openrouter_model = openrouter_model_id(routed.provider, routed.model)
     _fire_pre_call_hook("openrouter", openrouter_model, _prompt_bytes(prompt, system_prompt))
     return _generate_openrouter(

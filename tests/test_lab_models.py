@@ -752,3 +752,122 @@ def test_ab_resolves_claude_o55_judge_model(tmp_path, monkeypatch):
     ])
 
     assert seen_judge_models == ["openrouter/anthropic/claude-opus-5.5"] * 2
+
+
+# ---------------------------------------------------------------------------
+# #8344: a lab set whose dialogue model is the Mini's local Qwen (Ollama),
+# judged by Opus 5.5 on OpenRouter.
+# ---------------------------------------------------------------------------
+
+LOCAL_QWEN = "qwen3.5:35b-a3b-q4_K_M"
+
+
+def _fake_ollama_chat(monkeypatch, prompt_eval_count=900, content="A local line."):
+    """Fake Ollama's /api/chat; returns the list of (url, json) it was sent."""
+    sent = []
+
+    def fake_post(url, json=None, timeout=None):
+        sent.append((url, json))
+        body = {"message": {"role": "assistant", "content": content}, "done_reason": "stop", "eval_count": 12}
+        if prompt_eval_count is not None:
+            body["prompt_eval_count"] = prompt_eval_count
+        return SimpleNamespace(status_code=200, json=lambda: body, text="")
+
+    monkeypatch.setattr(model_router.requests, "post", fake_post)
+    return sent
+
+
+def test_local_model_calls_ollama_native_chat_and_records_zero_billed_cost(monkeypatch):
+    monkeypatch.setenv("LOCAL_LLM_URL", "http://127.0.0.1:11435/")
+    model_router.reset_cost_log()
+    sent = _fake_ollama_chat(monkeypatch)
+
+    text = model_router.generate_response("hi", system_prompt="be Margaret", model=f"local/{LOCAL_QWEN}", temperature=0.7)
+
+    assert text == "A local line."
+    [(url, body)] = sent
+    assert url == "http://127.0.0.1:11435/api/chat"
+    assert body["think"] is False and body["stream"] is False
+    assert body["options"] == {"num_ctx": 32768, "temperature": 0.7}
+    assert body["messages"] == [
+        {"role": "system", "content": "be Margaret"}, {"role": "user", "content": "hi"},
+    ]
+    [entry] = model_router.get_cost_entries()
+    assert (entry["provider"], entry["model"], entry["actual_cost"]) == ("local", LOCAL_QWEN, 0.0)
+    assert cl._lab_cost_total() == 0.0
+
+
+def test_local_model_prompt_that_filled_the_context_raises(monkeypatch):
+    monkeypatch.setenv("LOCAL_LLM_URL", "http://127.0.0.1:11435")
+    _fake_ollama_chat(monkeypatch, prompt_eval_count=model_router.LOCAL_NUM_CTX)
+    with pytest.raises(RuntimeError, match="truncated"):
+        model_router.generate_response("x", model=f"local/{LOCAL_QWEN}")
+
+
+def test_local_model_without_local_llm_url_raises_before_any_request(monkeypatch):
+    monkeypatch.delenv("LOCAL_LLM_URL", raising=False)
+    sent = _fake_ollama_chat(monkeypatch)
+    with pytest.raises(RuntimeError, match="LOCAL_LLM_URL is not set"):
+        model_router.generate_response("x", model=f"local/{LOCAL_QWEN}")
+    assert sent == []
+
+
+def _fake_ollama_tags(monkeypatch, names):
+    def fake_get(url, timeout=None):
+        assert url == "http://127.0.0.1:11435/api/tags"
+        return SimpleNamespace(status_code=200, json=lambda: {"models": [{"name": n} for n in names]})
+
+    monkeypatch.setattr(cl.httpx, "get", fake_get)
+
+
+def test_ab_with_local_set_generates_locally_and_prices_only_the_judge(tmp_path, monkeypatch):
+    """The dialogue model reaches the router unprefixed, the price preflight
+    asks OpenRouter only for the judge's price, and the --max-cost guard
+    admits the unpriced local calls as free."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+    monkeypatch.setenv("LOCAL_LLM_URL", "http://127.0.0.1:11435")
+    monkeypatch.setattr(cl, "_openrouter_fetch_account_balance", lambda: 100.0)
+    monkeypatch.setattr(cl, "_openrouter_fetch_key", lambda: {"limit": 10.0, "limit_remaining": 10.0, "usage": 0.0})
+    monkeypatch.setattr(
+        cl, "_fetch_openrouter_model_prices", lambda: {"anthropic/claude-opus-5.5": (0.000004, 0.00002)},
+    )
+    _fake_ollama_tags(monkeypatch, [LOCAL_QWEN])
+    sent = _fake_ollama_chat(monkeypatch)
+    model_router.reset_cost_log()
+
+    def fake_run_simulation(*, default_model, **kwargs):
+        sdw.STOP_CHECK_LOG.clear()
+        # Two calls: the second passes the guard only if the first left a
+        # readable ($0.00) cost entry.
+        lines = [model_router.generate_response(f"line {i}", model=default_model) for i in range(2)]
+        return {"messages": [{
+            "day": "monday", "stage": "brainstorm", "character": "Margaret Chen",
+            "message": line, "timestamp": "2026-10-16T09:00:00+00:00",
+            "model": default_model, "attachments": [],
+        } for line in lines]}
+
+    def fake_judge(*, model, **kwargs):
+        return json.dumps({
+            "winner": "tie",
+            "per_dimension": {dim: "tie" for dim in cl.ALL_JUDGE_DIMENSIONS},
+            "reason": "fixture",
+        })
+
+    monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
+    monkeypatch.setattr(model_router, "generate_judge_response", fake_judge)
+
+    cl.main([
+        "ab", "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+        "--variant", str(_write_variant(tmp_path)), "--recipe-context", "anchor",
+        "--models", "qwen-local-o55", "--no-log", "--results-dir", str(tmp_path / "results"),
+    ])
+
+    assert len(sent) == 4  # two lines each for control and variant
+    assert {body["model"] for _, body in sent} == {LOCAL_QWEN}
+
+
+def test_local_preflight_refuses_when_the_server_does_not_list_the_model(monkeypatch):
+    monkeypatch.setenv("LOCAL_LLM_URL", "http://127.0.0.1:11435")
+    _fake_ollama_tags(monkeypatch, ["llama3:8b"])
+    with pytest.raises(SystemExit, match="does not list"):
+        cl._local_model_preflight(_args(models="qwen-local-o55", command="bench"))

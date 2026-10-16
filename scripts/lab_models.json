@@ -20,6 +20,10 @@
     "deepseek-o55": {
       "dialogue": "deepseek/deepseek-v4.1-flash",
       "judge": "anthropic/claude-opus-5.5"
+    },
+    "qwen-local-o55": {
+      "dialogue": "local/qwen3.5:35b-a3b-q4_K_M",
+      "judge": "anthropic/claude-opus-5.5"
     }
   }
 }
