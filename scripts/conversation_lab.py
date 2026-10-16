@@ -7652,31 +7652,47 @@ async function start() {
 }
 
 async function pick(label) {
-  if (position === null) return;
-  const picked = position;  // `position` can move while the save is in flight
-  try {
-    await getJSON("/api/pick", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({position: picked, label: label, reason: document.getElementById("reason").value}),
-    });
-  } catch (e) {
-    document.getElementById("status").textContent = "Error: " + e.message;
-    return;
-  }
-  delete draftReasons[picked];
-  const state = await getJSON("/api/state");
-  if (await refreshState()) return;
-  const next = state.first_unpicked || Math.min(picked + 1, total);
-  await loadPair(next);
+  await oneAtATime(async () => {
+    try {
+      await getJSON("/api/pick", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({position: position, label: label, reason: document.getElementById("reason").value}),
+      });
+    } catch (e) {
+      document.getElementById("status").textContent = "Error: " + e.message;
+      return;
+    }
+    delete draftReasons[position];
+    const state = await getJSON("/api/state");
+    if (await refreshState()) return;
+    await loadPair(state.first_unpicked || Math.min(position + 1, total));
+  });
 }
 
 async function navigate(delta) {
-  if (position === null) return;
-  const next = Math.max(1, Math.min(total, position + delta));
-  if (next === position) return;
-  draftReasons[position] = document.getElementById("reason").value;
-  await loadPair(next);
+  await oneAtATime(async () => {
+    const next = Math.max(1, Math.min(total, position + delta));
+    if (next === position) return;
+    draftReasons[position] = document.getElementById("reason").value;
+    await loadPair(next);
+  });
+}
+
+// A pick or a move ignores all input until it finishes, so nothing typed or
+// clicked mid-request can land on a pair the request is about to replace.
+let busy = false;
+async function oneAtATime(action) {
+  if (busy || position === null) return;
+  const box = document.getElementById("reason");
+  busy = true;
+  box.disabled = true;
+  try {
+    await action();
+  } finally {
+    busy = false;
+    box.disabled = false;
+  }
 }
 
 document.querySelectorAll("button[data-label]").forEach(btn => {
