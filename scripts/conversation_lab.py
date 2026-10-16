@@ -7248,12 +7248,19 @@ def _apply_human_picks(
     pairs: list[dict[str, Any]],
     order_by_position: dict[int, tuple[str, str]],
     picks: dict[int, str],
+    reasons: dict[int, str] | None = None,
 ) -> dict[str, Any]:
     """Merge `picks` ({position: "A"|"B"|"tie"}) into `container` IN PLACE:
     `human_picks` (arm labels, mapped through `order_by_position` exactly
     like the old inline `pairs --pick` code did), `human_review_order`,
     `human_pick_meta` (#7793 - per-pick longer-arm bookkeeping for the S0b
-    V5 split), and the `human_judge_*` agreement stats.
+    V5 split), `human_pick_reasons` (#8342 - the optional one-line why that
+    #8275's judge calibration turns into rubric dimensions), and the
+    `human_judge_*` agreement stats.
+
+    Every pick replaces its position's why with the one passed in `reasons`;
+    a pick passed without one (always the case for `pairs --pick`) clears it,
+    so a re-pick never keeps a why written for the opposite choice.
 
     The agreement stats are recomputed from the FULL current `human_picks`
     on every call, not just the picks just added - so `pairs --pick` (which
@@ -7268,7 +7275,13 @@ def _apply_human_picks(
     """
     human_picks: dict[str, str] = dict(container.get("human_picks") or {})
     human_pick_meta: dict[str, Any] = dict(container.get("human_pick_meta") or {})
+    human_pick_reasons: dict[str, str] = dict(container.get("human_pick_reasons") or {})
     for position, label in picks.items():
+        reason = " ".join((reasons or {}).get(position, "").split())
+        if reason:
+            human_pick_reasons[str(position)] = reason
+        else:
+            human_pick_reasons.pop(str(position), None)
         first_arm, second_arm = order_by_position[position]
         mapped = "tie" if label == "tie" else (first_arm if label == "A" else second_arm)
         human_picks[str(position)] = mapped
@@ -7280,6 +7293,7 @@ def _apply_human_picks(
         }
     container["human_picks"] = human_picks
     container["human_pick_meta"] = human_pick_meta
+    container["human_pick_reasons"] = human_pick_reasons
     container["human_review_order"] = {
         str(position): {"A": order[0], "B": order[1]} for position, order in order_by_position.items()
     }
@@ -7494,21 +7508,11 @@ class PairsReviewState:
         }
 
     def apply_pick(self, position: int, label: str, reason: str = "") -> dict[str, Any]:
-        """Record one pick and its optional one-line why (#8342). The why is
-        what #8275's judge calibration turns into rubric dimensions; the box's
-        content at pick time replaces any earlier why, so a blank box clears it."""
         if position < 1 or position > self.total:
             raise ValueError(f"position {position} out of range 1-{self.total}")
         if label not in ("A", "B", "tie"):
             raise ValueError(f"label {label!r} must be A, B, or tie")
-        _apply_human_picks(self.container, self.pairs, self.order_by_position, {position: label})
-        reasons = dict(self.container.get("human_pick_reasons") or {})
-        reason = " ".join(reason.split())
-        if reason:
-            reasons[str(position)] = reason
-        else:
-            reasons.pop(str(position), None)
-        self.container["human_pick_reasons"] = reasons
+        _apply_human_picks(self.container, self.pairs, self.order_by_position, {position: label}, {position: reason})
         _write_pairs_report_atomic(self.result_path, self.report)
         return self.state()
 
