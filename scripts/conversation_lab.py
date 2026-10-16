@@ -7933,6 +7933,7 @@ def _build_parser() -> argparse.ArgumentParser:
     bench.add_argument("--no-log", action="store_true", help="Do not append a row to the experiments log")
     bench.add_argument("--experiments-log", default=None, help=f"Override the EXPERIMENTS.md path (default: {DEFAULT_EXPERIMENTS_LOG})")
     bench.add_argument("--results-dir", default=None)
+    _add_models_option(bench)
 
     calibrate = sub.add_parser(
         "calibrate",

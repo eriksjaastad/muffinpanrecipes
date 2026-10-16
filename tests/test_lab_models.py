@@ -880,3 +880,28 @@ def test_local_preflight_refuses_when_the_server_does_not_list_the_model(monkeyp
     _fake_ollama_tags(monkeypatch, ["llama3:8b"])
     with pytest.raises(SystemExit, match="does not list"):
         cl._local_model_preflight(_args(models="qwen-local-o55", command="bench"))
+
+
+def test_bench_models_routes_the_named_sets_dialogue_and_judge(tmp_path, monkeypatch, openrouter_lab):
+    monkeypatch.setenv("LOCAL_LLM_URL", "http://127.0.0.1:11435")
+    _fake_ollama_tags(monkeypatch, [LOCAL_QWEN])
+    seen = {}
+
+    def fake_run_simulation(*, default_model, **kwargs):
+        seen["dialogue"] = default_model
+        return {"messages": _messages()}
+
+    def fake_judge(*args, judge_model, **kwargs):
+        seen["judge"] = judge_model
+        return True, "PASS"
+
+    monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
+    monkeypatch.setattr(cl, "judge_dialogue", fake_judge)
+
+    cl.main([
+        "bench", "--stage", "monday", "--runs", "1", "--concept", "Test Muffins",
+        "--recipe-context", "anchor", "--models", "qwen-local-o55",
+        "--no-log", "--results-dir", str(tmp_path / "results"),
+    ])
+
+    assert seen == {"dialogue": f"local/{LOCAL_QWEN}", "judge": "openrouter/anthropic/claude-opus-5.5"}
