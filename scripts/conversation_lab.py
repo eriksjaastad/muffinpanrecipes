@@ -1164,9 +1164,13 @@ def _openrouter_fields_for(
     args: argparse.Namespace,
     cost_by_model: dict[str, float],
 ) -> dict[str, Any]:
-    """The provider_route/cost/key fields added to every OpenRouter report."""
+    """The provider_route/cost/key fields added to every OpenRouter report.
+
+    provider_route is the dialogue model's OpenRouter route; a local dialogue
+    model (#8344) never touches OpenRouter, so it has none (None)."""
     model_set = _resolve_lab_model_set(args)
-    fields: dict[str, Any] = {"provider_route": model_router.openrouter_provider_route(model_set.dialogue)}
+    route = None if _is_local_model(model_set.dialogue) else model_router.openrouter_provider_route(model_set.dialogue)
+    fields: dict[str, Any] = {"provider_route": route}
     fields["models"] = {"set": model_set.name, "dialogue": model_set.dialogue, "judge": model_set.judge}
     fields.update(_openrouter_cost_report(cost_by_model))
     key_report = _openrouter_key_usage_report()

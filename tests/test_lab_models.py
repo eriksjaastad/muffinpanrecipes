@@ -386,6 +386,22 @@ def _messages(tag="lab-models-fixture"):
     return [{"character": "Margaret Chen", "message": f"{tag} line {i}"} for i in range(2)]
 
 
+def test_ab_dry_run_reports_no_openrouter_route_for_a_local_dialogue_model(tmp_path, monkeypatch):
+    """#8344: the local dialogue model never touches OpenRouter, so the report
+    claims no OpenRouter provider route for it."""
+    monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages()})
+    results_dir = tmp_path / "results"
+    cl.main([
+        "ab", "--models", "qwen-local-o55", "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
+        "--variant", str(_write_variant(tmp_path)), "--recipe-context", "anchor",
+        "--dry-run", "--no-log", "--results-dir", str(results_dir),
+    ])
+    [result_file] = list(results_dir.glob("*-ab-*.json"))
+    report = json.loads(result_file.read_text())
+    assert report["provider_route"] is None
+    assert report["models"]["dialogue"] == f"local/{LOCAL_QWEN}"
+
+
 def test_ab_dry_run_reports_deepseek_provider_route_and_models_without_any_calls(tmp_path, monkeypatch):
     """--dry-run makes zero calls (so no OpenRouter key/balance check runs),
     but the report must still show the REAL deepseek ids - --models is
@@ -811,6 +827,13 @@ def test_local_model_prompt_longer_than_the_context_raises_instead_of_truncating
         model_router.generate_response("x" * 40000, model=f"local/{LOCAL_QWEN}")
     [(_, body)] = sent
     assert body["truncate"] is False
+
+
+def test_local_model_empty_reply_raises(monkeypatch):
+    monkeypatch.setenv("LOCAL_LLM_URL", "http://127.0.0.1:11435")
+    _fake_ollama_chat(monkeypatch, content="  ")
+    with pytest.raises(RuntimeError, match="empty content"):
+        model_router.generate_response("x", model=f"local/{LOCAL_QWEN}")
 
 
 def test_local_model_without_local_llm_url_raises_before_any_request(monkeypatch):
