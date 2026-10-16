@@ -805,7 +805,12 @@ def test_local_model_calls_ollama_native_chat_and_records_zero_billed_cost(monke
     model_router.reset_cost_log()
     sent = _fake_ollama_chat(monkeypatch)
 
+    hooked = []
+    monkeypatch.setattr(model_router, "_PRE_CALL_HOOK", lambda *a: hooked.append(a))  # the lab's budget guard
+
     text = model_router.generate_response("hi", system_prompt="be Margaret", model=f"local/{LOCAL_QWEN}", temperature=0.7)
+
+    assert hooked == [("local", LOCAL_QWEN, len("hi") + len("be Margaret"))]
 
     assert text == "A local line."
     [(url, body)] = sent
@@ -898,11 +903,17 @@ def test_ab_with_local_set_generates_locally_and_prices_only_the_judge(tmp_path,
     assert {body["model"] for _, body in sent} == {LOCAL_QWEN}
 
 
-def test_local_preflight_refuses_when_the_server_does_not_list_the_model(monkeypatch):
+def test_a_paid_run_refuses_when_the_local_server_does_not_list_the_model(monkeypatch):
+    """main() checks the local server before anything paid; a judge-only
+    command (calibrate) never needs the local model."""
     monkeypatch.setenv("LOCAL_LLM_URL", "http://127.0.0.1:11435")
     _fake_ollama_tags(monkeypatch, ["llama3:8b"])
     with pytest.raises(SystemExit, match="does not list"):
-        cl._local_model_preflight(_args(models="qwen-local-o55", command="bench"))
+        cl.main([
+            "bench", "--stage", "monday", "--runs", "1", "--concept", "c", "--recipe-context", "x",
+            "--models", "qwen-local-o55", "--no-log",
+        ])
+    assert cl._models_called(_args(models="qwen-local-o55", command="calibrate")) == ("anthropic/claude-opus-5.5",)
 
 
 def test_bench_models_routes_the_named_sets_dialogue_and_judge(tmp_path, monkeypatch, openrouter_lab):
