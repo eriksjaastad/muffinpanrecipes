@@ -29,12 +29,6 @@ import requests
 
 from backend.utils.logging import get_logger
 
-try:
-    from api_cost_tracker import track as _central_track
-except ImportError:
-    def _central_track(resp, *a, **kw):
-        return resp
-
 logger = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -660,7 +654,6 @@ def _openrouter_attempt(client: Any, model: str, messages: list, temperature: fl
         actual_cost=_billed_cost(getattr(usage, "cost", None) if usage else None),
         served_provider=served_provider,
     )
-    _central_track(response, "openrouter", project="muffinpanrecipes", caller="model_router.openrouter")
 
     choice = response.choices[0]
     return (
