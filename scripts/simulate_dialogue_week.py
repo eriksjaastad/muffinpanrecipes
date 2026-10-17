@@ -305,6 +305,9 @@ STOP_CHECK: dict = {
 # valid with WINDDOWN_TRIGGER == "check".
 OPEN_ENDED_MAX_TICKS: dict = {}
 
+# Lab-only whole-scene experiment (#8383). Never enabled from the environment.
+AUTHOR_MODE: bool = False
+
 # Every stop check is appended here (day, tick, decided, pushback, provider,
 # model, cost_usd). run_simulation clears it at start; the conversation lab
 # copies it into the result JSON after each arm.
@@ -2592,6 +2595,69 @@ def _generate_episode_memories(
             logger.warning(f"Local-simulation memory write failed for {char_name}: {type(e).__name__}: {e}")
 
 
+def _author_prompt(
+    personas: dict[str, dict[str, Any]], names: list[str], concept: str, day: str,
+    recipe_context: str | None, recipe_facts: str | None, event: str | None,
+    highlights: list[str], recent_lines: list[str], length_target: dict | None,
+) -> str:
+    """Give a scene author character references and the meeting's factual context."""
+    sheets = []
+    for name in names:
+        persona = personas[name]
+        sheets.append(
+            f"{name} ({persona['role']})\nBiography:\n{_load_bio(name)}\n"
+            f"Voice reference:\n{_strip_word_caps(_CHARACTER_VOICE_GUIDES.get(name, ''))}\n"
+            f"Example lines:\n" + "\n".join(_CHARACTER_EXAMPLE_MESSAGES.get(name, []))
+        )
+    lo, hi = TICKS_RANGE[day]
+    length = f"Write {lo}-{hi} dialogue lines."
+    if length_target:
+        length += (
+            f" For this length-matched experiment, aim for {length_target['lines']} lines "
+            f"and about {length_target['words']} words in the entire scene. "
+            "Vary individual line lengths freely; this is a scene length target."
+        )
+    return (
+        f"Write the whole {day.title()} meeting as a fiction writer writing a scene.\n"
+        f"Concept: {concept}\nTask: {DAY_MEETING_GOAL[day]['objective']}\n"
+        f"Recipe: {recipe_context or concept}\nRecipe Method and facts:\n{recipe_facts or '(not supplied)'}\n"
+        f"Injected event: {event or '(none)'}\n"
+        f"Prior-day highlights:\n" + "\n".join(highlights or ['(none)']) + "\n"
+        "Earlier dialogue:\n" + "\n".join(recent_lines or ['(none)']) + "\n\n"
+        "Character sheets describe tendencies, not rules. People have good days and bad days. "
+        "Choose who speaks, when someone interrupts, and who stays silent. Roster members "
+        "may stay silent. Let people answer each other and let the meeting reach a decision.\n"
+        f"{length}\n"
+        "Output only Name: line, one spoken message per line. Use the full names below, "
+        "or Margaret, Marcus, Steph, Julian, Devon, Ria where present. "
+        "No headings, narration, stage directions, action markers, or markdown.\n\n"
+        + "\n\n".join(sheets)
+    )
+
+
+def _parse_author_scene(text: str, names: list[str], day: str) -> list[tuple[str, str]]:
+    """Parse speech only; malformed output is an error, never a per-line fallback."""
+    aliases = {alias: name for name in names for alias in (name, name.split()[0])}
+    if "Stephanie 'Steph' Whitmore" in names:
+        aliases['Steph'] = "Stephanie 'Steph' Whitmore"
+    lines = []
+    for number, raw in enumerate(text.splitlines(), 1):
+        if not raw.strip():
+            continue
+        label, sep, speech = raw.strip().partition(':')
+        name = aliases.get(label.strip())
+        if not sep or name is None:
+            raise ValueError(f"Author scene line {number}: unknown/off-roster speaker or narration")
+        speech = speech.strip()
+        if not speech or re.search(r"[\[\]*]|(?<!\w)_[^_]+_|\([^)]*\)", speech):
+            raise ValueError(f"Author scene line {number}: empty speech or stage direction")
+        lines.append((name, speech))
+    lo, hi = TICKS_RANGE[day]
+    if not lo <= len(lines) <= hi:
+        raise ValueError(f"Author scene has {len(lines)} lines; expected {lo}-{hi} for {day}")
+    return lines
+
+
 def run_simulation(
     concept: str,
     default_model: str,
@@ -2615,6 +2681,7 @@ def run_simulation(
     # even if this function never returns (e.g. an exception mid-run). Production never passes it -
     # this parameter and the branch below are the only difference from before it existed.
     retry_note: str | None = None,  # #8264: the judge's reason an earlier attempt at this day failed
+    author_length_target: dict | None = None,  # lab's control length, never control text
 ) -> dict[str, Any]:
     # #6968: force a fresh memory snapshot for this run. Without this, a
     # process that stays warm across stages/weeks (a long-lived Lambda, or a
@@ -2622,6 +2689,9 @@ def run_simulation(
     # serving system prompts built from whichever week's memory was loaded
     # the first time each character's name hit the cache.
     _system_prompt_cache.clear()
+
+    if AUTHOR_MODE and stage_only != 'monday':
+        raise ValueError("AUTHOR_MODE currently supports Monday-only lab runs (#8383)")
 
     personas = load_personas()
     start = datetime.now(timezone.utc).replace(hour=9, minute=0, second=0, microsecond=0)
@@ -2653,6 +2723,23 @@ def run_simulation(
     for day_i, day in enumerate(days):
         stage = DAY_STAGE[day]
         names = participants_for_day(day)
+
+        if AUTHOR_MODE:
+            prompt = _author_prompt(
+                personas, names, concept, day, recipe_context, recipe_facts,
+                injected_event, week_highlights, recent_lines, author_length_target,
+            )
+            if mode == 'template':
+                count = (author_length_target or {}).get('lines', TICKS_RANGE[day][0])
+                text = '\n'.join(f"{names[i % len(names)]}: Let's discuss {concept}." for i in range(count))
+            else:
+                text = generate_response(prompt=prompt, model=default_model, temperature=0.8)
+            scene = _parse_author_scene(text, names, day)
+            for tick, (speaker, line) in enumerate(scene):
+                ts = start + timedelta(days=day_i, minutes=tick * (480 // len(scene)))
+                messages.append(Message(day, stage, speaker, line, ts.isoformat(), default_model))
+                recent_lines.append(f"{speaker.split()[0]}: {line}")
+            continue
 
         # Override scene direction if photography context provides one
         photo_scene = _build_photography_scene_direction(photography_context, day)

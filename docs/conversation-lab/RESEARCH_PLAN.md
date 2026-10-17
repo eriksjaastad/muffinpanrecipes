@@ -346,6 +346,7 @@ EXPERIMENTS.md.
 | S5-MM | Replication | MiMo V2.6 Pro | as above | as above | as above | as above | future | - | - |
 | S5-QW | Replication | Qwen3.5-27B | as above | as above | as above | as above | future | - | - |
 | S5-KM | Replication | Kimi K3 | as above | as above | as above | as above | future | - | - |
+| S6 | Does one author write a better Monday meeting? (#8383) | Haiku 4.5 / Opus 5.5 informational judge | Production vs AUTHOR_MODE; author sees Method and judge_recipe_facts | 14 (7 v3 recipes x 2) | Erik's blind picks with one-line why | Human preference decides; judge informational. Each pair within 15% total words and 25% words/line (larger/smaller - 1); regenerate author at most twice, report remaining exceptions. Silent roster members allowed, traits as tendencies. | preregistered 2026-10-17; not run | pending | cap $3 screen; cards #8383+#8384 combined <= $15; production reserve $20 |
 
 **Deviations (rule 9).**
 - **D1 (2026-10-01, Erik approved).** S0a failed V6 pooled and V7. The plan names no V6-fail
