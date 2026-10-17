@@ -1,0 +1,1291 @@
+{
+  "study": "S6",
+  "generation_code_sha": "1f0e5230cc2ce6674fa08a50712708c2ccfd09c1",
+  "result_file": "docs/conversation-lab/results/20261017T051229Z-ab-testbed-claude-o55-author.json",
+  "result_sha256_before_human_read": "c9e96f9950729e4fee1d2f5504419f684dcc3d96b1e50f616a81a3a96b6ad120",
+  "variant_sha256": "0de85fbd29a94868ceab87c94336842b64092e85d2983bdeba86670b5bbc54f6",
+  "evaluator_prompt_sha256": "c6570e4d93e3470eff97f779e4998b4aec0f8c04e6499f46c402c0af50d67329",
+  "models": {
+    "set": "claude-o55",
+    "dialogue": "anthropic/claude-haiku-4.5",
+    "judge": "anthropic/claude-opus-5.5"
+  },
+  "offline_section4": {
+    "files": [
+      {
+        "result_file": "docs/conversation-lab/results/20261017T051229Z-ab-testbed-claude-o55-author.json",
+        "stage": "monday",
+        "recipes": {
+          "2026-W36": {
+            "concept": "Caramelized Custard Tart Cups",
+            "pair_count": 2,
+            "control": {
+              "dash_clause_rate": 0.6857,
+              "length_stdev": 6.4215,
+              "short_line_rate": 0.0,
+              "frame_claim_rate": 0.5572,
+              "agree_opener_rate": 0.1929,
+              "question_rate": 0.0714,
+              "length_mean_words": 18.82,
+              "max_share": 0.3428,
+              "silent_roster_members_in_every_pair": [],
+              "pair_count": 2
+            },
+            "variant": {
+              "dash_clause_rate": 0.2928,
+              "length_stdev": 7.99,
+              "short_line_rate": 0.0,
+              "frame_claim_rate": 0.4143,
+              "agree_opener_rate": 0.1929,
+              "question_rate": 0.2928,
+              "length_mean_words": 20.795,
+              "max_share": 0.2429,
+              "silent_roster_members_in_every_pair": [],
+              "pair_count": 2
+            },
+            "v4_position_disagreement_rate": 0.0,
+            "v4_pairs_with_orientations": 2
+          },
+          "2026-W32": {
+            "concept": "Miso Ginger Donburi Cups",
+            "pair_count": 2,
+            "control": {
+              "dash_clause_rate": 0.619,
+              "length_stdev": 5.2846,
+              "short_line_rate": 0.0,
+              "frame_claim_rate": 0.619,
+              "agree_opener_rate": 0.127,
+              "question_rate": 0.127,
+              "length_mean_words": 19.21,
+              "max_share": 0.254,
+              "silent_roster_members_in_every_pair": [],
+              "pair_count": 2
+            },
+            "variant": {
+              "dash_clause_rate": 0.3095,
+              "length_stdev": 4.4882,
+              "short_line_rate": 0.0,
+              "frame_claim_rate": 0.0556,
+              "agree_opener_rate": 0.0556,
+              "question_rate": 0.2381,
+              "length_mean_words": 20.595,
+              "max_share": 0.254,
+              "silent_roster_members_in_every_pair": [],
+              "pair_count": 2
+            },
+            "v4_position_disagreement_rate": 0.0,
+            "v4_pairs_with_orientations": 2
+          },
+          "2026-W27": {
+            "concept": "Paneer Saag Egg Bites",
+            "pair_count": 2,
+            "control": {
+              "dash_clause_rate": 0.7024,
+              "length_stdev": 5.6629,
+              "short_line_rate": 0.0,
+              "frame_claim_rate": 0.4643,
+              "agree_opener_rate": 0.3095,
+              "question_rate": 0.0833,
+              "length_mean_words": 20.98,
+              "max_share": 0.3095,
+              "silent_roster_members_in_every_pair": [],
+              "pair_count": 2
+            },
+            "variant": {
+              "dash_clause_rate": 0.3541,
+              "length_stdev": 8.1936,
+              "short_line_rate": 0.125,
+              "frame_claim_rate": 0.2708,
+              "agree_opener_rate": 0.0,
+              "question_rate": 0.1458,
+              "length_mean_words": 21.29,
+              "max_share": 0.3541,
+              "silent_roster_members_in_every_pair": [],
+              "pair_count": 2
+            },
+            "v4_position_disagreement_rate": 0.0,
+            "v4_pairs_with_orientations": 2
+          },
+          "2026-W33": {
+            "concept": "Kimchi Cheddar Rice Cups",
+            "pair_count": 2,
+            "control": {
+              "dash_clause_rate": 1.0,
+              "length_stdev": 6.4513,
+              "short_line_rate": 0.0,
+              "frame_claim_rate": 0.8055,
+              "agree_opener_rate": 0.1666,
+              "question_rate": 0.0,
+              "length_mean_words": 22.025,
+              "max_share": 0.3333,
+              "silent_roster_members_in_every_pair": [],
+              "pair_count": 2
+            },
+            "variant": {
+              "dash_clause_rate": 0.3166,
+              "length_stdev": 5.7568,
+              "short_line_rate": 0.05,
+              "frame_claim_rate": 0.1333,
+              "agree_opener_rate": 0.05,
+              "question_rate": 0.1834,
+              "length_mean_words": 23.465,
+              "max_share": 0.3166,
+              "silent_roster_members_in_every_pair": [],
+              "pair_count": 2
+            },
+            "v4_position_disagreement_rate": 0.0,
+            "v4_pairs_with_orientations": 2
+          },
+          "2026-W37": {
+            "concept": "Brazilian P\u00e3o de Queijo Bites",
+            "pair_count": 2,
+            "control": {
+              "dash_clause_rate": 0.6389,
+              "length_stdev": 9.9158,
+              "short_line_rate": 0.0,
+              "frame_claim_rate": 0.5416,
+              "agree_opener_rate": 0.1736,
+              "question_rate": 0.1736,
+              "length_mean_words": 22.645,
+              "max_share": 0.2986,
+              "silent_roster_members_in_every_pair": [],
+              "pair_count": 2
+            },
+            "variant": {
+              "dash_clause_rate": 0.4097,
+              "length_stdev": 6.9779,
+              "short_line_rate": 0.0556,
+              "frame_claim_rate": 0.2847,
+              "agree_opener_rate": 0.0,
+              "question_rate": 0.2986,
+              "length_mean_words": 24.93,
+              "max_share": 0.2361,
+              "silent_roster_members_in_every_pair": [],
+              "pair_count": 2
+            },
+            "v4_position_disagreement_rate": 0.5,
+            "v4_pairs_with_orientations": 2
+          },
+          "2026-W11": {
+            "concept": "Make-Ahead Veggie & Sausage Egg Cups",
+            "pair_count": 2,
+            "control": {
+              "dash_clause_rate": 0.8541,
+              "length_stdev": 4.2934,
+              "short_line_rate": 0.0,
+              "frame_claim_rate": 0.3958,
+              "agree_opener_rate": 0.2083,
+              "question_rate": 0.1458,
+              "length_mean_words": 22.79,
+              "max_share": 0.3541,
+              "silent_roster_members_in_every_pair": [],
+              "pair_count": 2
+            },
+            "variant": {
+              "dash_clause_rate": 0.2708,
+              "length_stdev": 7.2922,
+              "short_line_rate": 0.0625,
+              "frame_claim_rate": 0.1458,
+              "agree_opener_rate": 0.0,
+              "question_rate": 0.2083,
+              "length_mean_words": 24.0,
+              "max_share": 0.2916,
+              "silent_roster_members_in_every_pair": [],
+              "pair_count": 2
+            },
+            "v4_position_disagreement_rate": 0.0,
+            "v4_pairs_with_orientations": 2
+          },
+          "2026-W38": {
+            "concept": "Cardamom Cinnamon Spiral Bites",
+            "pair_count": 2,
+            "control": {
+              "dash_clause_rate": 0.8,
+              "length_stdev": 4.9597,
+              "short_line_rate": 0.0,
+              "frame_claim_rate": 0.3143,
+              "agree_opener_rate": 0.2214,
+              "question_rate": 0.05,
+              "length_mean_words": 17.87,
+              "max_share": 0.3428,
+              "silent_roster_members_in_every_pair": [],
+              "pair_count": 2
+            },
+            "variant": {
+              "dash_clause_rate": 0.3643,
+              "length_stdev": 3.8595,
+              "short_line_rate": 0.0714,
+              "frame_claim_rate": 0.2214,
+              "agree_opener_rate": 0.3143,
+              "question_rate": 0.1929,
+              "length_mean_words": 17.4,
+              "max_share": 0.2928,
+              "silent_roster_members_in_every_pair": [],
+              "pair_count": 2
+            },
+            "v4_position_disagreement_rate": 0.5,
+            "v4_pairs_with_orientations": 2
+          }
+        },
+        "pooled": {
+          "control": {
+            "dash_clause_rate": 0.7572,
+            "length_stdev": 6.1413,
+            "short_line_rate": 0.0,
+            "frame_claim_rate": 0.5283,
+            "agree_opener_rate": 0.1999,
+            "question_rate": 0.093,
+            "length_mean_words": 20.62,
+            "max_share": 0.3193,
+            "silent_roster_members_in_every_pair": [],
+            "pair_count": 14
+          },
+          "variant": {
+            "dash_clause_rate": 0.3311,
+            "length_stdev": 6.3654,
+            "short_line_rate": 0.0521,
+            "frame_claim_rate": 0.218,
+            "agree_opener_rate": 0.0875,
+            "question_rate": 0.2228,
+            "length_mean_words": 21.7821,
+            "max_share": 0.284,
+            "silent_roster_members_in_every_pair": [],
+            "pair_count": 14
+          },
+          "v4_position_disagreement_rate": 0.1429,
+          "v4_pairs_with_orientations": 14
+        }
+      }
+    ],
+    "pooled_across_files": {
+      "control": {
+        "dash_clause_rate": 0.7572,
+        "length_stdev": 6.1413,
+        "short_line_rate": 0.0,
+        "frame_claim_rate": 0.5283,
+        "agree_opener_rate": 0.1999,
+        "question_rate": 0.093,
+        "length_mean_words": 20.62,
+        "max_share": 0.3193,
+        "silent_roster_members_in_every_pair": [],
+        "pair_count": 14
+      },
+      "variant": {
+        "dash_clause_rate": 0.3311,
+        "length_stdev": 6.3654,
+        "short_line_rate": 0.0521,
+        "frame_claim_rate": 0.218,
+        "agree_opener_rate": 0.0875,
+        "question_rate": 0.2228,
+        "length_mean_words": 21.7821,
+        "max_share": 0.284,
+        "silent_roster_members_in_every_pair": [],
+        "pair_count": 14
+      },
+      "v4_position_disagreement_rate": 0.1429,
+      "v4_pairs_with_orientations": 14
+    },
+    "targets": {
+      "dash_clause_rate": {
+        "description": "30-50% (production today: 86%)",
+        "range": [
+          0.3,
+          0.5
+        ]
+      },
+      "length_stdev": {
+        "description": ">= 10 words (production today: 8.1)",
+        "range": [
+          10.0,
+          Infinity
+        ]
+      },
+      "short_line_rate": {
+        "description": "10-15% (production today: 1%)",
+        "range": [
+          0.1,
+          0.15
+        ]
+      },
+      "frame_claim_rate": {
+        "description": "<= 10% (production today: 30%)",
+        "range": [
+          0.0,
+          0.1
+        ]
+      },
+      "agree_opener_rate": {
+        "description": "8-10% (production today: 21%)",
+        "range": [
+          0.08,
+          0.1
+        ]
+      },
+      "question_rate": {
+        "description": "25-30%, with qa_rate up (production today: 20%)",
+        "range": [
+          0.25,
+          0.3
+        ]
+      },
+      "length_mean_words": {
+        "description": "10-30, varying by speaker (production today: 24; limits-off: 80-140)",
+        "range": [
+          10.0,
+          30.0
+        ]
+      }
+    },
+    "cast_target_note": "every roster member speaks; nobody above 35% share (production today: Margaret 30%, some roster members silent)",
+    "cross_week_note": "not computable from a single ab result - needs multiple weeks/episodes (production today: 24 of 25 Saturdays share an identical opening 4-gram)"
+  },
+  "author_cast_policy": "Silent roster members are allowed. The legacy section-4 cast benchmark and judge full-cast rule are informational, not gates.",
+  "speaker_attribution": {
+    "control": {
+      "pair_count": 14,
+      "usable_pair_count": 11,
+      "mean_accuracy_usable_pairs": 0.43236363636363634,
+      "mean_chance_usable_pairs": 0.42423636363636363,
+      "scored_lines_all_pairs": 68,
+      "total_lines": 109,
+      "per_pair": [
+        {
+          "accuracy": 1.0,
+          "chance": 0.5,
+          "per_character_recall": {
+            "Julian": null,
+            "Marcus": null,
+            "Margaret": 1.0,
+            "Ria": 1.0,
+            "Stephanie": null
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Margaret",
+            "Ria"
+          ],
+          "sample_count": 7,
+          "eligible_count": 4,
+          "scored_count": 4,
+          "coverage": 0.5714,
+          "excluded_no_content": 0,
+          "excluded_no_training": 3,
+          "excluded_no_known_words": 0,
+          "sufficient_data": true
+        },
+        {
+          "accuracy": 0.125,
+          "chance": 0.3333,
+          "per_character_recall": {
+            "Julian": null,
+            "Marcus": 0.5,
+            "Margaret": 0.0,
+            "Ria": 0.0,
+            "Stephanie": null
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Marcus",
+            "Margaret",
+            "Ria"
+          ],
+          "sample_count": 10,
+          "eligible_count": 8,
+          "scored_count": 8,
+          "coverage": 0.8,
+          "excluded_no_content": 0,
+          "excluded_no_training": 2,
+          "excluded_no_known_words": 0,
+          "sufficient_data": true
+        },
+        {
+          "accuracy": 0.5,
+          "chance": 0.5,
+          "per_character_recall": {
+            "Julian": null,
+            "Marcus": null,
+            "Margaret": 0.0,
+            "Ria": 1.0,
+            "Stephanie": null
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Margaret",
+            "Ria"
+          ],
+          "sample_count": 7,
+          "eligible_count": 4,
+          "scored_count": 4,
+          "coverage": 0.5714,
+          "excluded_no_content": 0,
+          "excluded_no_training": 3,
+          "excluded_no_known_words": 0,
+          "sufficient_data": true
+        },
+        {
+          "accuracy": 0.375,
+          "chance": 0.25,
+          "per_character_recall": {
+            "Julian": 0.0,
+            "Marcus": 0.5,
+            "Margaret": 0.0,
+            "Ria": 1.0,
+            "Stephanie": null
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Julian",
+            "Marcus",
+            "Margaret",
+            "Ria"
+          ],
+          "sample_count": 9,
+          "eligible_count": 8,
+          "scored_count": 8,
+          "coverage": 0.8889,
+          "excluded_no_content": 0,
+          "excluded_no_training": 1,
+          "excluded_no_known_words": 0,
+          "sufficient_data": true
+        },
+        {
+          "accuracy": null,
+          "chance": null,
+          "per_character_recall": {
+            "Julian": null,
+            "Marcus": 1.0,
+            "Margaret": null,
+            "Ria": null,
+            "Stephanie": null
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Marcus"
+          ],
+          "sample_count": 6,
+          "eligible_count": 2,
+          "scored_count": 2,
+          "coverage": 0.3333,
+          "excluded_no_content": 0,
+          "excluded_no_training": 4,
+          "excluded_no_known_words": 0,
+          "sufficient_data": false
+        },
+        {
+          "accuracy": 0.0,
+          "chance": 0.5,
+          "per_character_recall": {
+            "Julian": null,
+            "Marcus": null,
+            "Margaret": 0.0,
+            "Ria": 0.0,
+            "Stephanie": null
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Margaret",
+            "Ria"
+          ],
+          "sample_count": 7,
+          "eligible_count": 3,
+          "scored_count": 3,
+          "coverage": 0.4286,
+          "excluded_no_content": 0,
+          "excluded_no_training": 3,
+          "excluded_no_known_words": 1,
+          "sufficient_data": true
+        },
+        {
+          "accuracy": null,
+          "chance": null,
+          "per_character_recall": {
+            "Julian": null,
+            "Marcus": 1.0,
+            "Margaret": null,
+            "Ria": null,
+            "Stephanie": null
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Marcus"
+          ],
+          "sample_count": 6,
+          "eligible_count": 2,
+          "scored_count": 2,
+          "coverage": 0.3333,
+          "excluded_no_content": 0,
+          "excluded_no_training": 4,
+          "excluded_no_known_words": 0,
+          "sufficient_data": false
+        },
+        {
+          "accuracy": 0.7143,
+          "chance": 0.3333,
+          "per_character_recall": {
+            "Julian": null,
+            "Marcus": 0.0,
+            "Margaret": 1.0,
+            "Ria": 1.0,
+            "Stephanie": null
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Marcus",
+            "Margaret",
+            "Ria"
+          ],
+          "sample_count": 9,
+          "eligible_count": 7,
+          "scored_count": 7,
+          "coverage": 0.7778,
+          "excluded_no_content": 0,
+          "excluded_no_training": 2,
+          "excluded_no_known_words": 0,
+          "sufficient_data": true
+        },
+        {
+          "accuracy": 0.125,
+          "chance": 0.25,
+          "per_character_recall": {
+            "Julian": null,
+            "Marcus": 0.0,
+            "Margaret": 0.0,
+            "Ria": 0.0,
+            "Stephanie": 0.5
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Marcus",
+            "Margaret",
+            "Ria",
+            "Stephanie"
+          ],
+          "sample_count": 9,
+          "eligible_count": 8,
+          "scored_count": 8,
+          "coverage": 0.8889,
+          "excluded_no_content": 0,
+          "excluded_no_training": 1,
+          "excluded_no_known_words": 0,
+          "sufficient_data": true
+        },
+        {
+          "accuracy": 0.6,
+          "chance": 0.5,
+          "per_character_recall": {
+            "Julian": null,
+            "Marcus": 1.0,
+            "Margaret": 0.3333,
+            "Ria": null,
+            "Stephanie": null
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Marcus",
+            "Margaret"
+          ],
+          "sample_count": 8,
+          "eligible_count": 5,
+          "scored_count": 5,
+          "coverage": 0.625,
+          "excluded_no_content": 0,
+          "excluded_no_training": 3,
+          "excluded_no_known_words": 0,
+          "sufficient_data": true
+        },
+        {
+          "accuracy": 0.4,
+          "chance": 0.5,
+          "per_character_recall": {
+            "Julian": null,
+            "Marcus": null,
+            "Margaret": null,
+            "Ria": 0.3333,
+            "Stephanie": 0.5
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Ria",
+            "Stephanie"
+          ],
+          "sample_count": 8,
+          "eligible_count": 5,
+          "scored_count": 5,
+          "coverage": 0.625,
+          "excluded_no_content": 0,
+          "excluded_no_training": 3,
+          "excluded_no_known_words": 0,
+          "sufficient_data": true
+        },
+        {
+          "accuracy": null,
+          "chance": null,
+          "per_character_recall": {
+            "Julian": null,
+            "Marcus": null,
+            "Margaret": null,
+            "Ria": null,
+            "Stephanie": 1.0
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Stephanie"
+          ],
+          "sample_count": 6,
+          "eligible_count": 2,
+          "scored_count": 2,
+          "coverage": 0.3333,
+          "excluded_no_content": 0,
+          "excluded_no_training": 4,
+          "excluded_no_known_words": 0,
+          "sufficient_data": false
+        },
+        {
+          "accuracy": 0.6667,
+          "chance": 0.5,
+          "per_character_recall": {
+            "Julian": 0.6667,
+            "Marcus": null,
+            "Margaret": 0.6667,
+            "Ria": null,
+            "Stephanie": null
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Julian",
+            "Margaret"
+          ],
+          "sample_count": 10,
+          "eligible_count": 6,
+          "scored_count": 6,
+          "coverage": 0.6,
+          "excluded_no_content": 0,
+          "excluded_no_training": 3,
+          "excluded_no_known_words": 1,
+          "sufficient_data": true
+        },
+        {
+          "accuracy": 0.25,
+          "chance": 0.5,
+          "per_character_recall": {
+            "Julian": null,
+            "Marcus": null,
+            "Margaret": null,
+            "Ria": 0.5,
+            "Stephanie": 0.0
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Ria",
+            "Stephanie"
+          ],
+          "sample_count": 7,
+          "eligible_count": 4,
+          "scored_count": 4,
+          "coverage": 0.5714,
+          "excluded_no_content": 0,
+          "excluded_no_training": 3,
+          "excluded_no_known_words": 0,
+          "sufficient_data": true
+        }
+      ]
+    },
+    "variant": {
+      "pair_count": 14,
+      "usable_pair_count": 10,
+      "mean_accuracy_usable_pairs": 0.42071,
+      "mean_chance_usable_pairs": 0.33666,
+      "scored_lines_all_pairs": 62,
+      "total_lines": 111,
+      "per_pair": [
+        {
+          "accuracy": 0.0,
+          "chance": 0.5,
+          "per_character_recall": {
+            "Julian": null,
+            "Marcus": null,
+            "Margaret": 0.0,
+            "Ria": null,
+            "Stephanie": 0.0
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Margaret",
+            "Stephanie"
+          ],
+          "sample_count": 7,
+          "eligible_count": 2,
+          "scored_count": 2,
+          "coverage": 0.2857,
+          "excluded_no_content": 0,
+          "excluded_no_training": 3,
+          "excluded_no_known_words": 2,
+          "sufficient_data": true
+        },
+        {
+          "accuracy": 0.375,
+          "chance": 0.2,
+          "per_character_recall": {
+            "Julian": 0.0,
+            "Marcus": 0.5,
+            "Margaret": 1.0,
+            "Ria": 0.0,
+            "Stephanie": 0.0
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Julian",
+            "Marcus",
+            "Margaret",
+            "Ria",
+            "Stephanie"
+          ],
+          "sample_count": 10,
+          "eligible_count": 8,
+          "scored_count": 8,
+          "coverage": 0.8,
+          "excluded_no_content": 0,
+          "excluded_no_training": 0,
+          "excluded_no_known_words": 2,
+          "sufficient_data": true
+        },
+        {
+          "accuracy": 1.0,
+          "chance": 0.5,
+          "per_character_recall": {
+            "Julian": null,
+            "Marcus": null,
+            "Margaret": 1.0,
+            "Ria": 1.0,
+            "Stephanie": null
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Margaret",
+            "Ria"
+          ],
+          "sample_count": 7,
+          "eligible_count": 4,
+          "scored_count": 4,
+          "coverage": 0.5714,
+          "excluded_no_content": 0,
+          "excluded_no_training": 3,
+          "excluded_no_known_words": 0,
+          "sufficient_data": true
+        },
+        {
+          "accuracy": 0.375,
+          "chance": 0.25,
+          "per_character_recall": {
+            "Julian": null,
+            "Marcus": 1.0,
+            "Margaret": 0.5,
+            "Ria": 0.0,
+            "Stephanie": 0.0
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Marcus",
+            "Margaret",
+            "Ria",
+            "Stephanie"
+          ],
+          "sample_count": 9,
+          "eligible_count": 8,
+          "scored_count": 8,
+          "coverage": 0.8889,
+          "excluded_no_content": 0,
+          "excluded_no_training": 1,
+          "excluded_no_known_words": 0,
+          "sufficient_data": true
+        },
+        {
+          "accuracy": null,
+          "chance": null,
+          "per_character_recall": {
+            "Julian": null,
+            "Marcus": null,
+            "Margaret": null,
+            "Ria": null,
+            "Stephanie": null
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Margaret"
+          ],
+          "sample_count": 6,
+          "eligible_count": 0,
+          "scored_count": 0,
+          "coverage": 0.0,
+          "excluded_no_content": 0,
+          "excluded_no_training": 4,
+          "excluded_no_known_words": 2,
+          "sufficient_data": false
+        },
+        {
+          "accuracy": null,
+          "chance": null,
+          "per_character_recall": {
+            "Julian": null,
+            "Marcus": null,
+            "Margaret": 1.0,
+            "Ria": null,
+            "Stephanie": null
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Marcus",
+            "Margaret"
+          ],
+          "sample_count": 8,
+          "eligible_count": 2,
+          "scored_count": 2,
+          "coverage": 0.25,
+          "excluded_no_content": 0,
+          "excluded_no_training": 3,
+          "excluded_no_known_words": 3,
+          "sufficient_data": false
+        },
+        {
+          "accuracy": null,
+          "chance": null,
+          "per_character_recall": {
+            "Julian": null,
+            "Marcus": null,
+            "Margaret": 1.0,
+            "Ria": null,
+            "Stephanie": null
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Margaret"
+          ],
+          "sample_count": 6,
+          "eligible_count": 2,
+          "scored_count": 2,
+          "coverage": 0.3333,
+          "excluded_no_content": 0,
+          "excluded_no_training": 4,
+          "excluded_no_known_words": 0,
+          "sufficient_data": false
+        },
+        {
+          "accuracy": 0.5,
+          "chance": 0.25,
+          "per_character_recall": {
+            "Julian": 0.0,
+            "Marcus": 1.0,
+            "Margaret": 0.3333,
+            "Ria": 0.5,
+            "Stephanie": null
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Julian",
+            "Marcus",
+            "Margaret",
+            "Ria"
+          ],
+          "sample_count": 10,
+          "eligible_count": 8,
+          "scored_count": 8,
+          "coverage": 0.8,
+          "excluded_no_content": 0,
+          "excluded_no_training": 1,
+          "excluded_no_known_words": 1,
+          "sufficient_data": true
+        },
+        {
+          "accuracy": 0.8571,
+          "chance": 0.25,
+          "per_character_recall": {
+            "Julian": 0.0,
+            "Marcus": 1.0,
+            "Margaret": 1.0,
+            "Ria": 1.0,
+            "Stephanie": null
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Julian",
+            "Marcus",
+            "Margaret",
+            "Ria"
+          ],
+          "sample_count": 9,
+          "eligible_count": 7,
+          "scored_count": 7,
+          "coverage": 0.7778,
+          "excluded_no_content": 0,
+          "excluded_no_training": 1,
+          "excluded_no_known_words": 1,
+          "sufficient_data": true
+        },
+        {
+          "accuracy": 0.3333,
+          "chance": 0.3333,
+          "per_character_recall": {
+            "Julian": null,
+            "Marcus": 0.0,
+            "Margaret": 0.5,
+            "Ria": null,
+            "Stephanie": 0.5
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Marcus",
+            "Margaret",
+            "Stephanie"
+          ],
+          "sample_count": 8,
+          "eligible_count": 6,
+          "scored_count": 6,
+          "coverage": 0.75,
+          "excluded_no_content": 0,
+          "excluded_no_training": 2,
+          "excluded_no_known_words": 0,
+          "sufficient_data": true
+        },
+        {
+          "accuracy": 0.6,
+          "chance": 0.3333,
+          "per_character_recall": {
+            "Julian": null,
+            "Marcus": 0.0,
+            "Margaret": 0.5,
+            "Ria": null,
+            "Stephanie": 1.0
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Marcus",
+            "Margaret",
+            "Stephanie"
+          ],
+          "sample_count": 8,
+          "eligible_count": 5,
+          "scored_count": 5,
+          "coverage": 0.625,
+          "excluded_no_content": 0,
+          "excluded_no_training": 2,
+          "excluded_no_known_words": 1,
+          "sufficient_data": true
+        },
+        {
+          "accuracy": null,
+          "chance": null,
+          "per_character_recall": {
+            "Julian": null,
+            "Marcus": null,
+            "Margaret": 1.0,
+            "Ria": null,
+            "Stephanie": null
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Margaret"
+          ],
+          "sample_count": 6,
+          "eligible_count": 2,
+          "scored_count": 2,
+          "coverage": 0.3333,
+          "excluded_no_content": 0,
+          "excluded_no_training": 4,
+          "excluded_no_known_words": 0,
+          "sufficient_data": false
+        },
+        {
+          "accuracy": 0.1667,
+          "chance": 0.25,
+          "per_character_recall": {
+            "Julian": null,
+            "Marcus": 0.0,
+            "Margaret": 0.0,
+            "Ria": 0.0,
+            "Stephanie": 0.5
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Marcus",
+            "Margaret",
+            "Ria",
+            "Stephanie"
+          ],
+          "sample_count": 10,
+          "eligible_count": 6,
+          "scored_count": 6,
+          "coverage": 0.6,
+          "excluded_no_content": 0,
+          "excluded_no_training": 1,
+          "excluded_no_known_words": 3,
+          "sufficient_data": true
+        },
+        {
+          "accuracy": 0.0,
+          "chance": 0.5,
+          "per_character_recall": {
+            "Julian": null,
+            "Marcus": null,
+            "Margaret": 0.0,
+            "Ria": null,
+            "Stephanie": 0.0
+          },
+          "character_count": 5,
+          "candidate_characters": [
+            "Margaret",
+            "Stephanie"
+          ],
+          "sample_count": 7,
+          "eligible_count": 2,
+          "scored_count": 2,
+          "coverage": 0.2857,
+          "excluded_no_content": 0,
+          "excluded_no_training": 3,
+          "excluded_no_known_words": 2,
+          "sufficient_data": true
+        }
+      ]
+    }
+  },
+  "attribution_limit": "Lexical separability, not personality quality. Null on insufficient repeated-speaker evidence; no concatenation across independent scenes.",
+  "cost_usd": {
+    "control": 0.5534750000000012,
+    "variant_including_regenerations": 0.12698199999999973,
+    "judge": 0.9427680000000004,
+    "per_pair": {
+      "control": 0.03953392857142866,
+      "variant_including_regenerations": 0.009070142857142837,
+      "judge": 0.06734057142857146
+    },
+    "failed_attempts": 0.115787,
+    "total_all_attempts": 1.7390120000000013
+  },
+  "length_matching": {
+    "total_words_tolerance": 0.15,
+    "words_per_line_tolerance": 0.25,
+    "gap_definition": "larger / smaller - 1",
+    "max_regenerations": 2,
+    "unmatched_pair_positions": []
+  },
+  "per_pair_lengths": [
+    {
+      "position": 1,
+      "scenario": "2026-W36",
+      "control_words": 128,
+      "variant_words": 138,
+      "control_words_per_line": 18.285714285714285,
+      "variant_words_per_line": 19.714285714285715,
+      "total_words_gap": 0.078125,
+      "words_per_line_gap": 0.07812500000000022,
+      "line_count_in_range": true,
+      "matched": true
+    },
+    {
+      "position": 2,
+      "scenario": "2026-W36",
+      "control_words": 180,
+      "variant_words": 188,
+      "control_words_per_line": 18.0,
+      "variant_words_per_line": 18.8,
+      "total_words_gap": 0.04444444444444451,
+      "words_per_line_gap": 0.04444444444444451,
+      "line_count_in_range": true,
+      "matched": true
+    },
+    {
+      "position": 3,
+      "scenario": "2026-W32",
+      "control_words": 133,
+      "variant_words": 150,
+      "control_words_per_line": 19.0,
+      "variant_words_per_line": 21.428571428571427,
+      "total_words_gap": 0.1278195488721805,
+      "words_per_line_gap": 0.12781954887218028,
+      "line_count_in_range": true,
+      "matched": true
+    },
+    {
+      "position": 4,
+      "scenario": "2026-W32",
+      "control_words": 161,
+      "variant_words": 154,
+      "control_words_per_line": 17.88888888888889,
+      "variant_words_per_line": 17.11111111111111,
+      "total_words_gap": 0.045454545454545414,
+      "words_per_line_gap": 0.045454545454545414,
+      "line_count_in_range": true,
+      "matched": true
+    },
+    {
+      "position": 5,
+      "scenario": "2026-W27",
+      "control_words": 131,
+      "variant_words": 146,
+      "control_words_per_line": 21.833333333333332,
+      "variant_words_per_line": 24.333333333333332,
+      "total_words_gap": 0.11450381679389321,
+      "words_per_line_gap": 0.11450381679389321,
+      "line_count_in_range": true,
+      "matched": true
+    },
+    {
+      "position": 6,
+      "scenario": "2026-W27",
+      "control_words": 131,
+      "variant_words": 122,
+      "control_words_per_line": 18.714285714285715,
+      "variant_words_per_line": 15.25,
+      "total_words_gap": 0.07377049180327866,
+      "words_per_line_gap": 0.22716627634660425,
+      "line_count_in_range": true,
+      "matched": true
+    },
+    {
+      "position": 7,
+      "scenario": "2026-W33",
+      "control_words": 140,
+      "variant_words": 154,
+      "control_words_per_line": 23.333333333333332,
+      "variant_words_per_line": 25.666666666666668,
+      "total_words_gap": 0.10000000000000009,
+      "words_per_line_gap": 0.10000000000000009,
+      "line_count_in_range": true,
+      "matched": true
+    },
+    {
+      "position": 8,
+      "scenario": "2026-W33",
+      "control_words": 176,
+      "variant_words": 169,
+      "control_words_per_line": 19.555555555555557,
+      "variant_words_per_line": 16.9,
+      "total_words_gap": 0.041420118343195256,
+      "words_per_line_gap": 0.15713346482577273,
+      "line_count_in_range": true,
+      "matched": true
+    },
+    {
+      "position": 9,
+      "scenario": "2026-W37",
+      "control_words": 197,
+      "variant_words": 195,
+      "control_words_per_line": 21.88888888888889,
+      "variant_words_per_line": 21.666666666666668,
+      "total_words_gap": 0.01025641025641022,
+      "words_per_line_gap": 0.01025641025641022,
+      "line_count_in_range": true,
+      "matched": true
+    },
+    {
+      "position": 10,
+      "scenario": "2026-W37",
+      "control_words": 170,
+      "variant_words": 194,
+      "control_words_per_line": 21.25,
+      "variant_words_per_line": 24.25,
+      "total_words_gap": 0.14117647058823524,
+      "words_per_line_gap": 0.14117647058823524,
+      "line_count_in_range": true,
+      "matched": true
+    },
+    {
+      "position": 11,
+      "scenario": "2026-W11",
+      "control_words": 150,
+      "variant_words": 162,
+      "control_words_per_line": 18.75,
+      "variant_words_per_line": 20.25,
+      "total_words_gap": 0.08000000000000007,
+      "words_per_line_gap": 0.08000000000000007,
+      "line_count_in_range": true,
+      "matched": true
+    },
+    {
+      "position": 12,
+      "scenario": "2026-W11",
+      "control_words": 147,
+      "variant_words": 137,
+      "control_words_per_line": 24.5,
+      "variant_words_per_line": 22.833333333333332,
+      "total_words_gap": 0.07299270072992692,
+      "words_per_line_gap": 0.07299270072992714,
+      "line_count_in_range": true,
+      "matched": true
+    },
+    {
+      "position": 13,
+      "scenario": "2026-W38",
+      "control_words": 173,
+      "variant_words": 165,
+      "control_words_per_line": 17.3,
+      "variant_words_per_line": 16.5,
+      "total_words_gap": 0.048484848484848575,
+      "words_per_line_gap": 0.048484848484848575,
+      "line_count_in_range": true,
+      "matched": true
+    },
+    {
+      "position": 14,
+      "scenario": "2026-W38",
+      "control_words": 125,
+      "variant_words": 112,
+      "control_words_per_line": 17.857142857142858,
+      "variant_words_per_line": 16.0,
+      "total_words_gap": 0.1160714285714286,
+      "words_per_line_gap": 0.1160714285714286,
+      "line_count_in_range": true,
+      "matched": true
+    }
+  ],
+  "author_regenerations": 8,
+  "judge_information_only": {
+    "overall_counts": {
+      "variant": 12,
+      "tie": 2
+    },
+    "per_dimension_counts": {
+      "title_fidelity": {
+        "tie": 13,
+        "control": 1
+      },
+      "arc_resolution": {
+        "control": 2,
+        "variant": 5,
+        "tie": 7
+      },
+      "voice_distinctiveness": {
+        "variant": 14
+      },
+      "technical_credibility": {
+        "variant": 12,
+        "tie": 2
+      },
+      "natural_progression": {
+        "tie": 3,
+        "variant": 9,
+        "control": 2
+      },
+      "promise_delivery": {
+        "variant": 8,
+        "tie": 6
+      },
+      "turn_taking": {
+        "control": 5,
+        "variant": 6,
+        "tie": 3
+      },
+      "cast_coverage": {
+        "tie": 14
+      },
+      "emotional_range": {
+        "tie": 1,
+        "variant": 13
+      },
+      "register_naturalness": {
+        "variant": 12,
+        "tie": 2
+      }
+    }
+  },
+  "human_read": "pending; one-line why required on every pick"
+}

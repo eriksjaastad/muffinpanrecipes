@@ -805,7 +805,72 @@ word-count mismatch. Syntax errors still raise loudly. Request exactly the contr
 line count, within the production range. Third-attempt cap $2.88 preserves the
 combined $3 cap. No previous pair or judge verdict is being discarded (none exists).
 
+**Completed Monday screen, third attempt.** Generated at code
+`1f0e5230cc2ce6674fa08a50712708c2ccfd09c1`: 14 independent pairs on the seven
+testbed-v3 recipes, two runs each, Haiku 4.5 dialogue / Opus 5.5 informational
+judge, Anthropic-pinned OpenRouter route. Author mode includes recipe Method and
+judge_recipe_facts; this is a bundled change, not an isolated authorship effect.
+The variant SHA is unchanged from the first attempt. Judge prompt SHA-256:
+`c6570e4d93e3470eff97f779e4998b4aec0f8c04e6499f46c402c0af50d67329`.
+
+Raw transcripts, both judge orientations and all author attempts:
+`results/20261017T051229Z-ab-testbed-claude-o55-author.json`.
+Offline section-4 metrics, per-pair lengths, attribution coverage and cost:
+`results/20261017T051229Z-ab-testbed-claude-o55-author-metrics.json`.
+The later parser correction accepts speech parentheticals/emphasis and uses
+immutable pre-change prompt captures; all 22 paid author scenes also parse under
+that revision. The author prompt used by the completed screen is unchanged.
+
+**Length:** 14/14 pairs matched, no exceptions. Eight author regenerations (at most
+two per pair), all retained. Largest total-word gap 14.1176%; largest words/line gap
+22.7166%, using larger/smaller minus one. The control and author have 109 and 111
+lines respectively. Every final scene is within Monday's production range.
+
+| Cost (USD) | Total | Per completed pair |
+|---|---:|---:|
+| Production control, including rewrites | 0.553475 | 0.039534 |
+| Author, including all length regenerations | 0.126982 | 0.009070 |
+| Informational judge, two orientations | 0.942768 | 0.067341 |
+| Completed screen | 1.623225 | 0.115945 |
+| Two failed attempts above | 0.115787 | not a completed pair |
+| All S6 lab spend | **1.739012** | |
+
+Every paid run had an explicit cap (3, 2.94, 2.88 USD) and a 20 USD account
+reserve checked before calls. The completed screen made 216 Haiku and 28 judge
+calls, none unpriced. Cards #8383 and #8384 retain **13.260988 USD** of their shared
+15 USD ceiling. No production cron change or deploy occurred.
+
+| Section-4 metric (mean per pair) | Control | Author |
+|---|---:|---:|
+| Dash-clause rate | 75.72% | 33.11% |
+| Line length stdev (words) | 6.1413 | 6.3654 |
+| Under-8-word line rate | 0% | 5.21% |
+| Pronouncement-frame rate | 52.83% | 21.80% |
+| Agree-opener rate | 19.99% | 8.75% |
+| Question rate | 9.30% | 22.28% |
+| Words per line | 20.6200 | 21.7821 |
+| Largest speaker share | 31.93% | 28.40% |
+| Question-answer rate (guard) | 0.5000 | 0.3214 |
+
+No roster member was missing in either arm in any final pair. Silence was allowed
+but not exercised by these final scenes; the legacy judge full-cast dimension tied
+14/14, so no missing-cast penalty arose. Cross-week repeated openers cannot be
+measured from this single-day panel.
+
+**Speaker attribution:** mean lexical accuracy on usable pairs is 43.24% control
+(chance 42.42%, 11/14 usable pairs) and 42.07% author (chance 33.67%, 10/14 usable).
+Scored-line coverage is 68/109 control and 62/111 author. Candidate counts differ
+because only repeated speakers can be classified. These are word-choice signals,
+not personality quality grades or proof that voices are distinct; insufficient
+scenes remain null, never concatenated into an artificial transcript.
+
+**Judge information only:** author/control overall W/T/L = 12/2/0; turn-taking =
+6/3/5. The two orientations disagree on overall in 2/14 pairs (14.29%). All
+per-dimension counts are in the raw and metrics files. **No human verdict yet.**
+Erik's blind read with one-line reasons decides whether card #8384 starts.
+
 ## Benchmarks
+
 
 Single-arm characterization runs (`conversation_lab.py bench`). A row here is a baseline another run gets compared against, not a decision.
 
