@@ -777,9 +777,7 @@ Four stages, all scaffolding; no paid call and no memory-vs-no-memory result exi
 
 Full logs: `git show eb90b0f:docs/conversation-lab/MEMORY_LAB.md`, `git show eb90b0f:docs/conversation-lab/MEMORY_WRITE_EXPERIMENT.md`, `git show eb90b0f:docs/conversation-lab/MEMORY_CHAIN_EXPERIMENT.md`
 
-## Benchmarks
-
-### 2026-10-17 — S6 author Monday, first attempt (#8383)
+### 2026-10-17 — S6 author Monday (#8383)
 
 Code `0ac0008538c8fdd6b0c8102ad62d6c9b7e3f01b4`, testbed v3, variant
 `0de85fbd29a94868ceab87c94336842b64092e85d2983bdeba86670b5bbc54f6`.
@@ -806,6 +804,8 @@ well-formed scene outside the range gets the same at-most-two regenerations as a
 word-count mismatch. Syntax errors still raise loudly. Request exactly the control's
 line count, within the production range. Third-attempt cap $2.88 preserves the
 combined $3 cap. No previous pair or judge verdict is being discarded (none exists).
+
+## Benchmarks
 
 Single-arm characterization runs (`conversation_lab.py bench`). A row here is a baseline another run gets compared against, not a decision.
 

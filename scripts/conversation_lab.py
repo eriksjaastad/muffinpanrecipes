@@ -3221,7 +3221,8 @@ def _arm_call_reservation(stage: str, variant: dict[str, Any] | None, *, dry_run
     if dry_run:
         return 0
     if variant and variant.get("AUTHOR_MODE"):
-        return 3  # one author call, with at most two length regenerations
+        # Three scene attempts; each router request can retry empty responses.
+        return 3 * model_router._OPENROUTER_EMPTY_STOP_MAX_ATTEMPTS
     max_turns = _effective_max_turns_for_stage(stage, variant)
     reservation = _MAX_CALLS_PER_TURN * max_turns
     if _effective_stop_check_active(variant):

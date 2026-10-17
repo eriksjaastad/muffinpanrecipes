@@ -1,9 +1,9 @@
 """Whole-scene Monday experiment; no provider calls or production writes (#8383)."""
 
 import random
-import subprocess
-import sys
-import types
+import hashlib
+import json
+from pathlib import Path
 
 import pytest
 
@@ -51,11 +51,16 @@ def test_author_parser_fails_loudly_for_bad_scene_without_fallback(monkeypatch):
     names = sim.participants_for_day('monday')
     valid = ['Margaret: Too wet.'] * 6
     for bad in ('Devon: Okay.', 'Narrator: Everyone sits.', 'They sit down.',
-                'Margaret: *sighs* Okay.', 'Margaret: [sighs] Okay.', 'Margaret:'):
+                'Margaret: *sighs* Okay.', 'Margaret: [sighs] Okay.',
+                'Margaret: Fine. (sighs)', 'Margaret: (dryly) Fine.', 'Margaret:'):
         with pytest.raises(ValueError, match='Author scene line'):
-            sim._parse_author_scene('\n'.join([bad] + valid), names, 'monday')
+            sim._parse_author_scene('\n'.join([bad] + valid), names)
     with pytest.raises(ValueError, match='empty'):
-        sim._parse_author_scene('', names, 'monday')
+        sim._parse_author_scene('', names)
+    spoken = 'Margaret: Bake at 350 F (175 C), but use *less* flour.'
+    assert sim._parse_author_scene(spoken, names) == [
+        ('Margaret Chen', 'Bake at 350 F (175 C), but use *less* flour.')
+    ]
     monkeypatch.setattr(sim, 'AUTHOR_MODE', True)
     monkeypatch.setattr(sim, 'generate_response', lambda **k: 'Devon: Off roster.')
     monkeypatch.setattr(sim, 'generate_turn', lambda **k: pytest.fail('fallback called'))
@@ -67,35 +72,27 @@ def test_author_parser_fails_loudly_for_bad_scene_without_fallback(monkeypatch):
 
 
 def test_default_off_prompts_are_byte_identical_to_main(monkeypatch):
-    source = subprocess.run(
-        ['git', 'show', 'origin/main:scripts/simulate_dialogue_week.py'],
-        check=True, capture_output=True, text=True, timeout=10,
-    ).stdout
-    main = types.ModuleType('_author_main_reference')
-    main.__file__ = sim.__file__
-    monkeypatch.setitem(sys.modules, main.__name__, main)
-    exec(compile(source, sim.__file__, 'exec'), main.__dict__)
+    # Immutable pre-change captures: no remote, Git history or moving ref needed.
+    fixture = json.loads((Path(__file__).parent / 'fixtures/author-off-prompts.json').read_text())
     assert sim.AUTHOR_MODE is False
-    captures = []
-    for module in (main, sim):
+    monkeypatch.setattr(sim, '_load_memories', lambda name: [])
+    monkeypatch.setattr(sim, '_load_memories_or_unavailable', lambda name: ([], False))
+    for day in sim.DAY_ORDER:
         captured = []
-        monkeypatch.setattr(module, '_load_memories', lambda name: [])
-        monkeypatch.setattr(module, '_load_memories_or_unavailable', lambda name: ([], False))
 
         def fake(**kwargs):
             captured.append(kwargs)
             return 'Try hotter custard.'
 
-        monkeypatch.setattr(module, 'generate_response', fake)
-        for day in sim.DAY_ORDER:
-            random.seed(8383)
-            run(module, stage_only=day)
-        captures.append(captured)
-    assert captures[0] == captures[1]
-    assert len(captures[0]) > 40
+        monkeypatch.setattr(sim, 'generate_response', fake)
+        random.seed(8383)
+        run(stage_only=day)
+        digest = hashlib.sha256(json.dumps(captured, sort_keys=True).encode()).hexdigest()
+        assert digest == fixture['day_sha256'][day]
 
 
 def test_length_matching_regenerates_twice_and_reports_exceptions(monkeypatch):
+    assert lab._arm_call_reservation('monday', {'AUTHOR_MODE': True}, dry_run=False) == 9
     reference = [{'character': 'Margaret Chen', 'message': 'one two three four'}] * 6
     oversized = [{'character': 'Margaret Chen', 'message': 'one two three four five six'}] * 6
     monkeypatch.setattr(lab, '_lab_cost_total', lambda: 0.0)
@@ -124,11 +121,16 @@ def test_length_matching_regenerates_twice_and_reports_exceptions(monkeypatch):
         assert pairs[0]['length_match']['matched'] == ends_matched
         assert calls[-1]['author_length_target'] == {'lines': 6, 'words': 24}
         assert sim.AUTHOR_MODE is False
+        report = {'pairs': pairs, 'meets_decision_rule': True}
+        lab._annotate_author_report(report)
+        assert report['meets_decision_rule'] is False
+        assert report['judge_meets_numeric_rule'] is True
+        assert report['length_matching']['unmatched_pair_positions'] == ([] if ends_matched else [1])
     # The second limit is independent: equal words alone cannot match a pair.
     assert not lab._pair_length_match(reference, reference + reference)['matched']
     assert not lab._pair_length_match(reference, [{'message': 'one two three four ' * 6}])['matched']
     eleven = [{'message': 'one two three four'}] * 11
-    assert len(sim._parse_author_scene('\n'.join(['Margaret: Okay.'] * 11), sim.participants_for_day('monday'), 'monday')) == 11
+    assert len(sim._parse_author_scene('\n'.join(['Margaret: Okay.'] * 11), sim.participants_for_day('monday'))) == 11
     assert not lab._pair_length_match(eleven, eleven)['matched']
 
 

@@ -2637,7 +2637,15 @@ def _author_prompt(
     )
 
 
-def _parse_author_scene(text: str, names: list[str], day: str) -> list[tuple[str, str]]:
+_AUTHOR_ACTION_RE = re.compile(
+    r"^\([^)]*\)|\[[^\]]*\]|[(*_](?:sighs|laughs|chuckles|pauses|shrugs|nods|smiles|grins|"
+    r"interrupts|mutters|whispers|shouts|gasps|leans|looks|glances|points|folds|"
+    r"crosses|taps|rubs|stands|sits|walks|leaves|exits|clears|adjusts)\b[^)*_]*[)*_]",
+    re.IGNORECASE,
+)
+
+
+def _parse_author_scene(text: str, names: list[str]) -> list[tuple[str, str]]:
     """Parse speech only; malformed output is an error, never a per-line fallback."""
     aliases = {alias: name for name in names for alias in (name, name.split()[0])}
     if "Stephanie 'Steph' Whitmore" in names:
@@ -2651,7 +2659,9 @@ def _parse_author_scene(text: str, names: list[str], day: str) -> list[tuple[str
         if not sep or name is None:
             raise ValueError(f"Author scene line {number}: unknown/off-roster speaker or narration")
         speech = speech.strip()
-        if not speech or re.search(r"[\[\]*]|(?<!\w)_[^_]+_|\([^)]*\)", speech):
+        # Recipe conversions and emphasis are speech. Match action markers,
+        # not every parenthesis or asterisk. Unlabelled narration fails above.
+        if not speech or _AUTHOR_ACTION_RE.search(speech) or _has_cot_leak(speech):
             raise ValueError(f"Author scene line {number}: empty speech or stage direction")
         lines.append((name, speech))
     if not lines:
@@ -2736,7 +2746,7 @@ def run_simulation(
             else:
                 text = generate_response(prompt=prompt, model=default_model, temperature=0.8)
             try:
-                scene = _parse_author_scene(text, names, day)
+                scene = _parse_author_scene(text, names)
             except ValueError as exc:
                 exc.author_invalid_scene = text
                 raise
