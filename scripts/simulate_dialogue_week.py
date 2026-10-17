@@ -2638,9 +2638,11 @@ def _author_prompt(
 
 
 _AUTHOR_ACTION_RE = re.compile(
-    r"^\([^)]*\)|\[[^\]]*\]|[(*_](?:sighs|laughs|chuckles|pauses|shrugs|nods|smiles|grins|"
+    r"[\[(*_](?:sighs|laughs|chuckles|pauses|shrugs|nods|smiles|grins|"
     r"interrupts|mutters|whispers|shouts|gasps|leans|looks|glances|points|folds|"
-    r"crosses|taps|rubs|stands|sits|walks|leaves|exits|clears|adjusts)\b[^)*_]*[)*_]",
+    r"crosses|taps|rubs|stands|sits|walks|leaves|exits|clears|adjusts|"
+    r"dryly|quietly|softly|loudly|sarcastically|nervously|silence|long pause|"
+    r"sighing|laughing|whispering|interrupting)\b[^\])*_]*[\])*_]",
     re.IGNORECASE,
 )
 

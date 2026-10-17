@@ -3,6 +3,7 @@
 import random
 import hashlib
 import json
+from argparse import Namespace
 from pathlib import Path
 
 import pytest
@@ -60,6 +61,9 @@ def test_author_parser_fails_loudly_for_bad_scene_without_fallback(monkeypatch):
     spoken = 'Margaret: Bake at 350 F (175 C), but use *less* flour.'
     assert sim._parse_author_scene(spoken, names) == [
         ('Margaret Chen', 'Bake at 350 F (175 C), but use *less* flour.')
+    ]
+    assert sim._parse_author_scene('Margaret: (175 C) and [optional] vanilla.', names) == [
+        ('Margaret Chen', '(175 C) and [optional] vanilla.')
     ]
     monkeypatch.setattr(sim, 'AUTHOR_MODE', True)
     monkeypatch.setattr(sim, 'generate_response', lambda **k: 'Devon: Off roster.')
@@ -142,3 +146,21 @@ def test_balance_reserve_stops_next_paid_call(monkeypatch):
     with lab._installed_budget_guard(lab.CallBudget(max_calls=100), 3):
         with pytest.raises(lab.LabBudgetAbort, match='min-balance'):
             lab.model_router._fire_pre_call_hook('openrouter', 'stub', 10)
+    monkeypatch.setattr(lab, '_OPENROUTER_KEY_BEFORE', None)
+    monkeypatch.setattr(lab, '_require_openrouter_key', lambda: None)
+    monkeypatch.setattr(lab, '_openrouter_fetch_key', lambda: {'limit': 100.0, 'limit_remaining': 100.0})
+    with pytest.raises(SystemExit, match='min-balance reserve'):
+        lab._openrouter_preflight(Namespace(max_cost=3))
+
+
+def test_author_screen_reserves_the_per_line_control_budget(monkeypatch):
+    monkeypatch.setattr(lab, '_lab_cost_total', lambda: 0.0)
+    monkeypatch.setattr(lab, '_run_arm_and_count', lambda *a, **k: pytest.fail('under-reserved control started'))
+    pairs = []
+    assert lab._generate_and_judge_pairs(
+        concept='Cups', stage='monday', recipe_context=None, runs=1,
+        variant={'AUTHOR_MODE': True}, mode='openai', default_model='stub',
+        judge_model='stub', expected_cast=sim.participants_for_day('monday'),
+        budget=lab.CallBudget(max_calls=9), max_cost=3, dry_run=False, pairs=pairs,
+    )
+    assert pairs == []

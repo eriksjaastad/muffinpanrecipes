@@ -2911,6 +2911,10 @@ def _generate_and_judge_pairs(
     restore_pending: dict[str, Any] | None = None
     partial_pairs = partial_pairs if partial_pairs is not None else []
     arm_call_reservation = _arm_call_reservation(stage, variant, dry_run=dry_run)
+    # The control still uses the per-line path when the variant is one author.
+    control_call_reservation = max(
+        arm_call_reservation, _arm_call_reservation(stage, None, dry_run=dry_run),
+    )
     author = variant.get("AUTHOR_MODE", False)
     if author and stage != 'monday':
         raise ConversationLabError("AUTHOR_MODE currently supports Monday only (#8383)")
@@ -2929,7 +2933,7 @@ def _generate_and_judge_pairs(
     try:
         for run_index in range(1, runs + 1):
             pair_cost_start = _lab_cost_total() if author else 0.0
-            if budget.would_exceed(arm_call_reservation) or _would_exceed_cost(max_cost):
+            if budget.would_exceed(control_call_reservation) or _would_exceed_cost(max_cost):
                 aborted = True
                 break
 
