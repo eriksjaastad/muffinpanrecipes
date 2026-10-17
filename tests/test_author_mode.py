@@ -59,8 +59,9 @@ def test_author_parser_fails_loudly_for_bad_scene_without_fallback(monkeypatch):
     monkeypatch.setattr(sim, 'AUTHOR_MODE', True)
     monkeypatch.setattr(sim, 'generate_response', lambda **k: 'Devon: Off roster.')
     monkeypatch.setattr(sim, 'generate_turn', lambda **k: pytest.fail('fallback called'))
-    with pytest.raises(ValueError, match='off-roster'):
+    with pytest.raises(ValueError, match='off-roster') as failed:
         run()
+    assert failed.value.author_invalid_scene == 'Devon: Off roster.'
     with pytest.raises(ValueError, match='Monday-only'):
         run(stage_only='tuesday')
 

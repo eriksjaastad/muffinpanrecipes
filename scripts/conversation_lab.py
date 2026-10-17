@@ -3023,6 +3023,8 @@ def _generate_and_judge_pairs(
                     pending_pair["status"] = "aborted_mid_arm" if isinstance(exc, LabBudgetAbort) else "error_mid_arm"
                     pending_pair["variant_calls_before_abort"] = made
                     pending_pair["variant_messages"] = getattr(exc, "conversation_lab_partial_messages", [])
+                    if hasattr(exc, 'author_invalid_scene'):
+                        pending_pair['author_invalid_scene'] = exc.author_invalid_scene
                     if not isinstance(exc, LabBudgetAbort):
                         raise
                     aborted = True

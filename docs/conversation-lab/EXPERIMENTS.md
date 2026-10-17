@@ -779,6 +779,24 @@ Full logs: `git show eb90b0f:docs/conversation-lab/MEMORY_LAB.md`, `git show eb9
 
 ## Benchmarks
 
+### 2026-10-17 — S6 author Monday, first attempt (#8383)
+
+Code `0ac0008538c8fdd6b0c8102ad62d6c9b7e3f01b4`, testbed v3, variant
+`0de85fbd29a94868ceab87c94336842b64092e85d2983bdeba86670b5bbc54f6`.
+Haiku 4.5 dialogue, Opus 5.5 judge (no judge call reached). Run cap $3,
+production reserve $20. **ERROR**, zero completed pairs: the author parser rejected
+line 5 as an unknown/off-roster speaker or narration. No fallback occurred. Spend
+$0.058160 (19 Haiku calls, including the production control and its rewrites).
+Saved paid control and error:
+`results/20261017T050300Z-ab-testbed-claude-o55-author.json`.
+
+Deviation before retry: replace the generic label list with only the day's roster
+labels, explicitly exclude coworkers mentioned in biographies, and retain raw invalid
+author output in future error results. The first failure did not retain that output,
+so its exact label cannot be diagnosed. Retry cap $2.94 keeps both attempts below
+the preregistered $3 screen budget. The user explicitly authorized this 14-pair
+screen, which exceeds the general 20-call task limit; the dollar and retry limits govern.
+
 Single-arm characterization runs (`conversation_lab.py bench`). A row here is a baseline another run gets compared against, not a decision.
 
 | Date | Label | Stage | N | Pass rate (scored/ran) | Most frequent weakest | Result file |

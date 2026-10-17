@@ -2610,6 +2610,7 @@ def _author_prompt(
             f"Example lines:\n" + "\n".join(_CHARACTER_EXAMPLE_MESSAGES.get(name, []))
         )
     lo, hi = TICKS_RANGE[day]
+    labels = ['Steph' if name == "Stephanie 'Steph' Whitmore" else name.split()[0] for name in names]
     length = f"Write {lo}-{hi} dialogue lines."
     if length_target:
         length += (
@@ -2628,8 +2629,9 @@ def _author_prompt(
         "Choose who speaks, when someone interrupts, and who stays silent. Roster members "
         "may stay silent. Let people answer each other and let the meeting reach a decision.\n"
         f"{length}\n"
-        "Output only Name: line, one spoken message per line. Use the full names below, "
-        "or Margaret, Marcus, Steph, Julian, Devon, Ria where present. "
+        "Output only Name: line, one spoken message per line. "
+        f"The ONLY permitted speaker labels are: {', '.join(labels)}. "
+        "Do not include coworkers outside this roster, even if their names occur in the biographies. "
         "No headings, narration, stage directions, action markers, or markdown.\n\n"
         + "\n\n".join(sheets)
     )
@@ -2734,7 +2736,11 @@ def run_simulation(
                 text = '\n'.join(f"{names[i % len(names)]}: Let's discuss {concept}." for i in range(count))
             else:
                 text = generate_response(prompt=prompt, model=default_model, temperature=0.8)
-            scene = _parse_author_scene(text, names, day)
+            try:
+                scene = _parse_author_scene(text, names, day)
+            except ValueError as exc:
+                exc.author_invalid_scene = text
+                raise
             for tick, (speaker, line) in enumerate(scene):
                 ts = start + timedelta(days=day_i, minutes=tick * (480 // len(scene)))
                 messages.append(Message(day, stage, speaker, line, ts.isoformat(), default_model))
