@@ -10,11 +10,6 @@ import requests
 
 from backend.utils import model_router
 
-try:
-    from api_cost_tracker import log_call
-except ImportError:
-    log_call = lambda *a, **kw: None
-
 
 def _extract_image_bytes(payload: dict[str, Any]) -> bytes:
     """The first generated image in an OpenRouter chat-completions response.
@@ -77,7 +72,6 @@ def generate_nano_banana_image(
                 },
                 timeout=timeout_s,
             )
-            log_call("openrouter", service="image", project="muffinpanrecipes", caller="image_generation.nano_banana")
             if response.status_code != 200:
                 raise RuntimeError(f"OpenRouter image error {response.status_code}: {response.text[:200]}")
             payload = response.json()

@@ -54,11 +54,6 @@ def test_openrouter_request_shape_and_cost_capture(monkeypatch):
     captured: dict = {}
     model_router.reset_cost_log()
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
-    monkeypatch.setattr(
-        model_router,
-        "_central_track",
-        lambda response, provider, **kwargs: response,
-    )
 
     class FakeCompletions:
         def create(self, **kwargs):
@@ -114,7 +109,6 @@ def _fake_openrouter(monkeypatch, *, content, finish_reason="stop", completion_t
     captured: dict = {"requests": 0}
     contents = content if isinstance(content, list) else [content]
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
-    monkeypatch.setattr(model_router, "_central_track", lambda response, provider, **kwargs: response)
 
     class FakeCompletions:
         def create(self, **kwargs):
@@ -337,11 +331,6 @@ def test_openrouter_dry_run_never_fetches_model_prices(tmp_path, monkeypatch):
 def test_openrouter_judge_uses_openrouter_judge_allowlist(monkeypatch):
     model_router.reset_cost_log()
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
-    monkeypatch.setattr(
-        model_router,
-        "_central_track",
-        lambda response, provider, **kwargs: response,
-    )
 
     class FakeCompletions:
         def create(self, **kwargs):

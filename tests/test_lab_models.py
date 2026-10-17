@@ -154,7 +154,6 @@ def test_generate_openrouter_derives_route_from_the_model_being_called(monkeypat
     captured: dict = {}
     model_router.reset_cost_log()
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
-    monkeypatch.setattr(model_router, "_central_track", lambda response, provider, **kwargs: response)
     model_router.allow_openrouter_models(dialogue="deepseek/deepseek-v4.1-flash", judge="deepseek/deepseek-v4-pro-0813")
 
     class FakeCompletions:
@@ -190,7 +189,6 @@ def test_allow_openrouter_models_extends_both_allowlists(monkeypatch):
 
     model_router.reset_cost_log()
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
-    monkeypatch.setattr(model_router, "_central_track", lambda response, provider, **kwargs: response)
 
     class FakeCompletions:
         def create(self, **kwargs):
