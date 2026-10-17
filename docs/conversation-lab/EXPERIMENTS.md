@@ -869,6 +869,26 @@ scenes remain null, never concatenated into an artificial transcript.
 per-dimension counts are in the raw and metrics files. **No human verdict yet.**
 Erik's blind read with one-line reasons decides whether card #8384 starts.
 
+**2026-10-17 format correction before the replacement read.** Independent Codex
+review **FAIL** on `56dcffc9ee8115a39c8d210afc07a469f6b32610`: the keyword-based
+action parser both missed directions and rejected recipe asides. This repeated
+the earlier review family, so the card was reread and the approach replaced.
+Guarantee: a roster label followed by exactly one JSON speech string; unquoted
+narration/directions or extra text are invalid syntax. Normal parentheticals and
+emphasis inside spoken text remain literal. No keyword classifier or fallback.
+
+The read will use a replacement 14-pair author screen with this format. To avoid
+rebilling the unchanged production baseline, reuse **all 14** controls above,
+unchanged, by scenario and run index (no selection), regenerate author scenes and
+both judge orientations. This is a declared output-format deviation; the prior
+screen remains recorded but is superseded for the human read. The replacement
+uses the real `ab` entry point and guards via `.scratch/8383-screen-quoted.py`, with
+explicit `--max-cost 2 --min-balance 20`. Shared spend before replacement is
+$1.739012; maximum combined exposure is $3.739012 of the $15 ceiling. The new
+result records its source-control hash and original control cost separately from
+new-run spend. The author still receives Method/facts, silent members remain
+allowed, and production prompts remain off/default unchanged.
+
 ## Benchmarks
 
 

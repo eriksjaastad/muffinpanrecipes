@@ -24,7 +24,7 @@ def run(module=sim, **kwargs):
 
 def test_author_one_call_owns_scene_and_keeps_result_contract(monkeypatch):
     prompts = []
-    scene = '\n'.join(['Margaret: Too wet.', 'Steph: More flour?', 'Margaret: No, hotter oven.'] * 2)
+    scene = '\n'.join(['Margaret: "Too wet."', 'Steph: "More flour?"', 'Margaret: "No, hotter oven."'] * 2)
 
     def generate(**kwargs):
         prompts.append(kwargs)
@@ -50,20 +50,25 @@ def test_author_one_call_owns_scene_and_keeps_result_contract(monkeypatch):
 
 def test_author_parser_fails_loudly_for_bad_scene_without_fallback(monkeypatch):
     names = sim.participants_for_day('monday')
-    valid = ['Margaret: Too wet.'] * 6
+    valid = ['Margaret: "Too wet."'] * 6
     for bad in ('Devon: Okay.', 'Narrator: Everyone sits.', 'They sit down.',
                 'Margaret: *sighs* Okay.', 'Margaret: [sighs] Okay.',
-                'Margaret: Fine. (sighs)', 'Margaret: (dryly) Fine.', 'Margaret:'):
+                'Margaret: Fine. (sighs)', 'Margaret: (dryly) Fine.',
+                'Margaret: [takes a sip] Fine.', 'Margaret: (beat) Fine.',
+                'Margaret: "Fine." [takes a sip]', 'Margaret:'):
         with pytest.raises(ValueError, match='Author scene line'):
             sim._parse_author_scene('\n'.join([bad] + valid), names)
     with pytest.raises(ValueError, match='empty'):
         sim._parse_author_scene('', names)
-    spoken = 'Margaret: Bake at 350 F (175 C), but use *less* flour.'
+    spoken = 'Margaret: "Bake at 350 F (175 C), but use *less* flour."'
     assert sim._parse_author_scene(spoken, names) == [
         ('Margaret Chen', 'Bake at 350 F (175 C), but use *less* flour.')
     ]
-    assert sim._parse_author_scene('Margaret: (175 C) and [optional] vanilla.', names) == [
+    assert sim._parse_author_scene('Margaret: "(175 C) and [optional] vanilla."', names) == [
         ('Margaret Chen', '(175 C) and [optional] vanilla.')
+    ]
+    assert sim._parse_author_scene('Margaret: "Bake until set (looks firm at the edge)."', names) == [
+        ('Margaret Chen', 'Bake until set (looks firm at the edge).')
     ]
     monkeypatch.setattr(sim, 'AUTHOR_MODE', True)
     monkeypatch.setattr(sim, 'generate_response', lambda **k: 'Devon: Off roster.')
@@ -134,7 +139,7 @@ def test_length_matching_regenerates_twice_and_reports_exceptions(monkeypatch):
     assert not lab._pair_length_match(reference, reference + reference)['matched']
     assert not lab._pair_length_match(reference, [{'message': 'one two three four ' * 6}])['matched']
     eleven = [{'message': 'one two three four'}] * 11
-    assert len(sim._parse_author_scene('\n'.join(['Margaret: Okay.'] * 11), sim.participants_for_day('monday'))) == 11
+    assert len(sim._parse_author_scene('\n'.join(['Margaret: "Okay."'] * 11), sim.participants_for_day('monday'))) == 11
     assert not lab._pair_length_match(eleven, eleven)['matched']
 
 

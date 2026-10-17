@@ -2629,7 +2629,10 @@ def _author_prompt(
         "Choose who speaks, when someone interrupts, and who stays silent. Roster members "
         "may stay silent. Let people answer each other and let the meeting reach a decision.\n"
         f"{length}\n"
-        "Output only Name: line, one spoken message per line. "
+        "Output only Name: followed by one JSON string containing the spoken words, "
+        "one message per line. Wrap each utterance in double quotes and use JSON escaping "
+        "for quotes inside it. The string is speech; no actions or narration may appear "
+        "before or after it. Example format: Margaret: \"Spoken words.\"\n"
         f"The ONLY permitted speaker labels are: {', '.join(labels)}. "
         "Do not include coworkers outside this roster, even if their names occur in the biographies. "
         "No headings, narration, stage directions, action markers, or markdown.\n\n"
@@ -2637,18 +2640,12 @@ def _author_prompt(
     )
 
 
-_AUTHOR_ACTION_RE = re.compile(
-    r"[\[(*_](?:sighs|laughs|chuckles|pauses|shrugs|nods|smiles|grins|"
-    r"interrupts|mutters|whispers|shouts|gasps|leans|looks|glances|points|folds|"
-    r"crosses|taps|rubs|stands|sits|walks|leaves|exits|clears|adjusts|"
-    r"dryly|quietly|softly|loudly|sarcastically|nervously|silence|long pause|"
-    r"sighing|laughing|whispering|interrupting)\b[^\])*_]*[\])*_]",
-    re.IGNORECASE,
-)
-
-
 def _parse_author_scene(text: str, names: list[str]) -> list[tuple[str, str]]:
-    """Parse speech only; malformed output is an error, never a per-line fallback."""
+    """Parse Name: JSON-string speech; unquoted directions are syntax errors.
+
+    Quoting is the speech boundary, so a recipe aside such as '(looks firm)'
+    stays literal speech. We do not guess whether words describe stage actions.
+    """
     aliases = {alias: name for name in names for alias in (name, name.split()[0])}
     if "Stephanie 'Steph' Whitmore" in names:
         aliases['Steph'] = "Stephanie 'Steph' Whitmore"
@@ -2660,12 +2657,13 @@ def _parse_author_scene(text: str, names: list[str]) -> list[tuple[str, str]]:
         name = aliases.get(label.strip())
         if not sep or name is None:
             raise ValueError(f"Author scene line {number}: unknown/off-roster speaker or narration")
-        speech = speech.strip()
-        # Recipe conversions and emphasis are speech. Match action markers,
-        # not every parenthesis or asterisk. Unlabelled narration fails above.
-        if not speech or _AUTHOR_ACTION_RE.search(speech) or _has_cot_leak(speech):
-            raise ValueError(f"Author scene line {number}: empty speech or stage direction")
-        lines.append((name, speech))
+        try:
+            spoken = json.loads(speech.strip())
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Author scene line {number}: expected only a JSON speech string") from exc
+        if not isinstance(spoken, str) or not spoken.strip():
+            raise ValueError(f"Author scene line {number}: empty or non-string speech")
+        lines.append((name, spoken))
     if not lines:
         raise ValueError("Author scene is empty")
     return lines
@@ -2744,7 +2742,7 @@ def run_simulation(
             )
             if mode == 'template':
                 count = (author_length_target or {}).get('lines', TICKS_RANGE[day][0])
-                text = '\n'.join(f"{names[i % len(names)]}: Let's discuss {concept}." for i in range(count))
+                text = '\n'.join(f"{names[i % len(names)]}: {json.dumps(f'Let us discuss {concept}.')}" for i in range(count))
             else:
                 text = generate_response(prompt=prompt, model=default_model, temperature=0.8)
             try:
