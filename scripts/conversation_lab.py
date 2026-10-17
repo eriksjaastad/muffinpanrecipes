@@ -2856,11 +2856,14 @@ def _pair_length_match(control: list[dict], variant: list[dict]) -> dict[str, An
     words = [_total_word_count(arm) for arm in (control, variant)]
     means = [n / len(arm) if arm else 0 for n, arm in zip(words, (control, variant))]
     gaps = [max(ns) / min(ns) - 1 if min(ns) else None for ns in (words, means)]
+    lo, hi = simulate_module.TICKS_RANGE['monday']
+    line_count_in_range = lo <= len(variant) <= hi
     return {
         "control_words": words[0], "variant_words": words[1],
         "control_words_per_line": means[0], "variant_words_per_line": means[1],
         "total_words_gap": gaps[0], "words_per_line_gap": gaps[1],
-        "matched": gaps[0] is not None and gaps[0] <= 0.15 and gaps[1] <= 0.25,
+        "line_count_in_range": line_count_in_range,
+        "matched": line_count_in_range and gaps[0] is not None and gaps[0] <= 0.15 and gaps[1] <= 0.25,
     }
 
 

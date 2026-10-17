@@ -797,6 +797,16 @@ so its exact label cannot be diagnosed. Retry cap $2.94 keeps both attempts belo
 the preregistered $3 screen budget. The user explicitly authorized this 14-pair
 screen, which exceeds the general 20-call task limit; the dollar and retry limits govern.
 
+Second attempt at `9ee3207ec2b4f55eac7b54f8d971c78ea8a67cd7` also completed
+zero pairs: valid speech with 11 lines was rejected by the parser's 6-10 line check.
+Cost $0.057627; cumulative $0.115787. Saved raw scene and control in
+`results/20261017T050739Z-ab-testbed-claude-o55-author.json`.
+Correction before the third attempt: line count belongs in length matching, so a
+well-formed scene outside the range gets the same at-most-two regenerations as a
+word-count mismatch. Syntax errors still raise loudly. Request exactly the control's
+line count, within the production range. Third-attempt cap $2.88 preserves the
+combined $3 cap. No previous pair or judge verdict is being discarded (none exists).
+
 Single-arm characterization runs (`conversation_lab.py bench`). A row here is a baseline another run gets compared against, not a decision.
 
 | Date | Label | Stage | N | Pass rate (scored/ran) | Most frequent weakest | Result file |

@@ -2613,9 +2613,9 @@ def _author_prompt(
     labels = ['Steph' if name == "Stephanie 'Steph' Whitmore" else name.split()[0] for name in names]
     length = f"Write {lo}-{hi} dialogue lines."
     if length_target:
-        length += (
-            f" For this length-matched experiment, aim for {length_target['lines']} lines "
-            f"and about {length_target['words']} words in the entire scene. "
+        length = (
+            f"Write exactly {length_target['lines']} dialogue lines (production range {lo}-{hi}), "
+            f"with about {length_target['words']} words in the entire scene. "
             "Vary individual line lengths freely; this is a scene length target."
         )
     return (
@@ -2654,9 +2654,8 @@ def _parse_author_scene(text: str, names: list[str], day: str) -> list[tuple[str
         if not speech or re.search(r"[\[\]*]|(?<!\w)_[^_]+_|\([^)]*\)", speech):
             raise ValueError(f"Author scene line {number}: empty speech or stage direction")
         lines.append((name, speech))
-    lo, hi = TICKS_RANGE[day]
-    if not lo <= len(lines) <= hi:
-        raise ValueError(f"Author scene has {len(lines)} lines; expected {lo}-{hi} for {day}")
+    if not lines:
+        raise ValueError("Author scene is empty")
     return lines
 
 

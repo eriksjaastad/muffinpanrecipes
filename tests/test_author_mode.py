@@ -54,7 +54,7 @@ def test_author_parser_fails_loudly_for_bad_scene_without_fallback(monkeypatch):
                 'Margaret: *sighs* Okay.', 'Margaret: [sighs] Okay.', 'Margaret:'):
         with pytest.raises(ValueError, match='Author scene line'):
             sim._parse_author_scene('\n'.join([bad] + valid), names, 'monday')
-    with pytest.raises(ValueError, match='0 lines'):
+    with pytest.raises(ValueError, match='empty'):
         sim._parse_author_scene('', names, 'monday')
     monkeypatch.setattr(sim, 'AUTHOR_MODE', True)
     monkeypatch.setattr(sim, 'generate_response', lambda **k: 'Devon: Off roster.')
@@ -127,6 +127,9 @@ def test_length_matching_regenerates_twice_and_reports_exceptions(monkeypatch):
     # The second limit is independent: equal words alone cannot match a pair.
     assert not lab._pair_length_match(reference, reference + reference)['matched']
     assert not lab._pair_length_match(reference, [{'message': 'one two three four ' * 6}])['matched']
+    eleven = [{'message': 'one two three four'}] * 11
+    assert len(sim._parse_author_scene('\n'.join(['Margaret: Okay.'] * 11), sim.participants_for_day('monday'), 'monday')) == 11
+    assert not lab._pair_length_match(eleven, eleven)['matched']
 
 
 def test_balance_reserve_stops_next_paid_call(monkeypatch):
