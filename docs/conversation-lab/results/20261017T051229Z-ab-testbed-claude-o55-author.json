@@ -15898,5 +15898,146 @@
     "gap_definition": "larger / smaller - 1",
     "max_regenerations": 2,
     "unmatched_pair_positions": []
-  }
+  },
+  "human_picks": {
+    "1": "variant",
+    "2": "control",
+    "3": "control",
+    "4": "control",
+    "5": "variant",
+    "6": "variant",
+    "7": "control",
+    "8": "variant",
+    "9": "control",
+    "10": "control",
+    "11": "variant",
+    "12": "variant",
+    "13": "control",
+    "14": "variant"
+  },
+  "human_pick_meta": {
+    "1": {
+      "longer_arm": "variant",
+      "picked_longer": true
+    },
+    "2": {
+      "longer_arm": "variant",
+      "picked_longer": false
+    },
+    "3": {
+      "longer_arm": "variant",
+      "picked_longer": false
+    },
+    "4": {
+      "longer_arm": "control",
+      "picked_longer": true
+    },
+    "5": {
+      "longer_arm": "variant",
+      "picked_longer": true
+    },
+    "6": {
+      "longer_arm": "control",
+      "picked_longer": false
+    },
+    "7": {
+      "longer_arm": "variant",
+      "picked_longer": false
+    },
+    "8": {
+      "longer_arm": "control",
+      "picked_longer": false
+    },
+    "9": {
+      "longer_arm": "control",
+      "picked_longer": true
+    },
+    "10": {
+      "longer_arm": "variant",
+      "picked_longer": false
+    },
+    "11": {
+      "longer_arm": "variant",
+      "picked_longer": true
+    },
+    "12": {
+      "longer_arm": "control",
+      "picked_longer": false
+    },
+    "13": {
+      "longer_arm": "control",
+      "picked_longer": true
+    },
+    "14": {
+      "longer_arm": "control",
+      "picked_longer": false
+    }
+  },
+  "human_pick_reasons": {
+    "1": "I liked how Marcus talked about Portuguese heritage.",
+    "13": "I picked A because Margaret just starts with \"the dough is going to be tacky.\" We don't even know what she's talking about.",
+    "14": "I picked B because Margaret started with \"coffee's cold.\" Nobody sounds like they're talking to anybody, and it still sounds like a bunch of monologues. Nobody says, \"Hey, what do you think of this?\" Although here we have Stephanie saying, \"I think what Margaret means is it should feel intentional.\""
+  },
+  "human_review_order": {
+    "1": {
+      "A": "control",
+      "B": "variant"
+    },
+    "2": {
+      "A": "variant",
+      "B": "control"
+    },
+    "3": {
+      "A": "control",
+      "B": "variant"
+    },
+    "4": {
+      "A": "control",
+      "B": "variant"
+    },
+    "5": {
+      "A": "variant",
+      "B": "control"
+    },
+    "6": {
+      "A": "variant",
+      "B": "control"
+    },
+    "7": {
+      "A": "control",
+      "B": "variant"
+    },
+    "8": {
+      "A": "control",
+      "B": "variant"
+    },
+    "9": {
+      "A": "control",
+      "B": "variant"
+    },
+    "10": {
+      "A": "variant",
+      "B": "control"
+    },
+    "11": {
+      "A": "control",
+      "B": "variant"
+    },
+    "12": {
+      "A": "control",
+      "B": "variant"
+    },
+    "13": {
+      "A": "control",
+      "B": "variant"
+    },
+    "14": {
+      "A": "control",
+      "B": "variant"
+    }
+  },
+  "human_judge_agreement_rate": 0.5,
+  "human_judge_agreed_count": 6,
+  "human_judge_disagreed_count": 6,
+  "human_judge_tie_count": 2
 }

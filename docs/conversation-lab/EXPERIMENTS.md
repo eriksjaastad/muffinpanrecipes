@@ -889,6 +889,53 @@ result records its source-control hash and original control cost separately from
 new-run spend. The author still receives Method/facts, silent members remain
 allowed, and production prompts remain off/default unchanged.
 
+**Read continuity amendment:** while the serialization check was running, Erik
+had already made 12 picks in the original 14-pair UI. Preserve that original
+length-matched cohort as the blind decision read; do not replace his work. Its
+decoded speech contains no stage directions. The new cohort is a validation of
+the wire format, not a second human read. Both use the same author approach and
+same frozen controls. Production still waits for the later full-week human read.
+One-line reasons are still requested in-session for all original picks; no human
+verdict is inferred from partial picks. The initial raw-file hash in its metrics
+artifact is explicitly the pre-read hash; later human annotations do not change
+the transcripts or their metrics.
+
+**Serialization validation completed at `25d2856473669407bd71fb34975c10475459fb8b`.**
+`results/20261017T055546Z-ab-testbed-claude-o55-author.json` and its sibling
+`-metrics.json` retain all 14 saved controls unchanged and 22 new author scenes
+(eight length regenerations). No parse failures. Twelve pairs met both length
+limits; positions 13 and 14 remained outside after two regenerations and are
+reported, retained, and excluded from any claim of a fully matched human cohort.
+This cohort was not substituted for the original decision read.
+New spend: author USD 0.134407 (0.009601 per pair), judge USD 0.925656
+(0.066118 per pair), control USD 0 (original USD 0.553475 already counted).
+All 50 new calls priced. With `--max-cost 2 --min-balance 20`, cumulative
+cards 1+2 spend is **USD 2.799075**, leaving **USD 12.200925** of the USD 15
+ceiling. The result includes an annotation-independent control-message hash;
+the whole-source hash describes the file at validation completion.
+Section-4 metrics and attribution are in its metrics artifact; author attribution
+37.39% versus 36.16% chance on 10/14 usable scenes (60/109 scored lines).
+The unchanged control is 43.24% versus 42.42% chance, 11/14 usable (68/109).
+Informational judge author/control overall 13/1, zero orientation disagreements;
+this does not supply a human preference.
+
+**Original human read, 2026-10-17:** all 14 picks saved, **author 7, control 7**.
+Erik clarified that he often judged the opening rather than the complete scene:
+the first line must earn the second. Most comments concerned Margaret, but the
+criterion applies to whoever opens. These picks measure the opening hook; they
+do not establish a whole-meeting preference. His saved final reason praises
+"coffee's cold" and also says the characters still sound like disconnected
+monologues. Only reasons 1, 13 and 14 reached the persisted file despite his
+report that he commented on all pairs; missing reasons are not invented.
+The active browser/server is port **8765**; the stale spare on 8383 was stopped
+to prevent two in-memory review states from writing the same file. The browser
+was inspected without reloading; its visible retained comment was pair 14's.
+An explicit author-Monday preference remains unresolved in-session, so card
+#8384 stays unstarted. Erik asked for firmer review nudges; future asks should
+name a bounded batch and the precise judgment needed. Agent agreement with
+these opening judgments can be measured later; no judge is declared trained
+from this tied screen.
+
 ## Benchmarks
 
 
