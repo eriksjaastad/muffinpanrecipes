@@ -8,7 +8,7 @@ os.environ.setdefault("LOCAL_DEV", "true")
 
 import pytest
 from pathlib import Path
-from hypothesis import settings, Verbosity
+from hypothesis import HealthCheck, settings, Verbosity
 
 from backend.core.personality import PersonalityConfig, CommunicationStyle
 from backend.core.task import Task
@@ -104,8 +104,16 @@ def _reset_model_router_cost_log():
 
 
 # Configure hypothesis for property-based testing
-settings.register_profile("default", max_examples=100, verbosity=Verbosity.normal)
-settings.register_profile("ci", max_examples=200, verbosity=Verbosity.verbose)
+#
+# too_slow is off because it measures the machine, not the test. The first
+# property test in a process pays one-off generation costs (Hypothesis's unicode
+# tables, the pydantic builders), and with several suites running at once that
+# first test took 1.8 s for two inputs and failed FailedHealthCheck in 3 of 5
+# parallel full-suite runs, with every assertion untouched (#8395). Deadlines and
+# the other health checks stay on.
+_HEALTH = [HealthCheck.too_slow]
+settings.register_profile("default", max_examples=100, verbosity=Verbosity.normal, suppress_health_check=_HEALTH)
+settings.register_profile("ci", max_examples=200, verbosity=Verbosity.verbose, suppress_health_check=_HEALTH)
 settings.load_profile("default")
 
 
