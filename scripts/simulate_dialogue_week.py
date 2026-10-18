@@ -2599,6 +2599,7 @@ def _author_prompt(
     personas: dict[str, dict[str, Any]], names: list[str], concept: str, day: str,
     recipe_context: str | None, recipe_facts: str | None, event: str | None,
     highlights: list[str], recent_lines: list[str], length_target: dict | None,
+    photography_context: dict | None = None,
 ) -> str:
     """Give a scene author character references and the meeting's factual context."""
     sheets = []
@@ -2612,6 +2613,10 @@ def _author_prompt(
     lo, hi = TICKS_RANGE[day]
     labels = ['Steph' if name == "Stephanie 'Steph' Whitmore" else name.split()[0] for name in names]
     length = f"Write {lo}-{hi} dialogue lines."
+    photography = (
+        f"Photography context:\n{json.dumps(photography_context, ensure_ascii=False)}\n"
+        if day == "wednesday" and photography_context else ""
+    )
     if length_target:
         length = (
             f"Write exactly {length_target['lines']} dialogue lines (production range {lo}-{hi}), "
@@ -2622,6 +2627,7 @@ def _author_prompt(
         f"Write the whole {day.title()} meeting as a fiction writer writing a scene.\n"
         f"Concept: {concept}\nTask: {DAY_MEETING_GOAL[day]['objective']}\n"
         f"Recipe: {recipe_context or concept}\nRecipe Method and facts:\n{recipe_facts or '(not supplied)'}\n"
+        f"{photography}"
         f"Injected event: {event or '(none)'}\n"
         f"Prior-day highlights:\n" + "\n".join(highlights or ['(none)']) + "\n"
         "Earlier dialogue:\n" + "\n".join(recent_lines or ['(none)']) + "\n\n"
@@ -2701,9 +2707,6 @@ def run_simulation(
     # the first time each character's name hit the cache.
     _system_prompt_cache.clear()
 
-    if AUTHOR_MODE and stage_only != 'monday':
-        raise ValueError("AUTHOR_MODE currently supports Monday-only lab runs (#8383)")
-
     personas = load_personas()
     start = datetime.now(timezone.utc).replace(hour=9, minute=0, second=0, microsecond=0)
     messages: list[Message] = message_sink if message_sink is not None else []
@@ -2739,6 +2742,7 @@ def run_simulation(
             prompt = _author_prompt(
                 personas, names, concept, day, recipe_context, recipe_facts,
                 injected_event, week_highlights, recent_lines, author_length_target,
+                photography_context,
             )
             if mode == 'template':
                 count = (author_length_target or {}).get('lines', TICKS_RANGE[day][0])
@@ -2754,6 +2758,8 @@ def run_simulation(
                 ts = start + timedelta(days=day_i, minutes=tick * (480 // len(scene)))
                 messages.append(Message(day, stage, speaker, line, ts.isoformat(), default_model))
                 recent_lines.append(f"{speaker.split()[0]}: {line}")
+            if day == "wednesday" and image_paths:
+                _distribute_images_wednesday(messages, image_paths, day)
             continue
 
         # Override scene direction if photography context provides one
