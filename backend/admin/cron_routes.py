@@ -1023,6 +1023,36 @@ def _announce_advisory_publication(episode_id: str, episode: dict, stage: str, c
     record["announced_at"] = announced_at
 
 
+def _alert_below_bar(
+    episode_id: str, episode: dict, stage: str, concept: str, page_url: str | None,
+) -> None:
+    """Tell Erik a Monday-Saturday dialogue below the judge's bar went live (#8524).
+
+    Called after the stage is saved complete, with regenerate_and_upload's
+    result, so it never describes a day that then failed or a page that was
+    not written (the renderer logs that and keeps it non-fatal). A record
+    from an earlier run cannot fire: the judge loop overwrites it on a
+    below-bar run and pops it on a pass. An undelivered alert is logged, not
+    raised: the stage did complete.
+    """
+    record = episode.get("judge_advisory", {}).get(stage)
+    if not record:
+        return
+    if page_url is None:
+        logger.error(f"Below-bar dialogue for {episode_id}/{stage} not announced: page not written")
+        return
+    if not notify_judge_advisory(
+        concept=concept,
+        stage=stage,
+        verdict=record.get("verdict", ""),
+        episode_id=episode_id,
+        attempts=record.get("attempts", 0),
+        scores=record.get("scores") or {},
+        weakest=record.get("weakest") or [],
+    ):
+        logger.error(f"Below-bar alert for {episode_id}/{stage} was not delivered on any channel")
+
+
 class JudgeFailedError(Exception):
     """Raised when dialogue fails judge review after all retries."""
 
@@ -1275,7 +1305,9 @@ def _generate_and_judge_dialogue(
     # succeeds. Claiming publication here would write
     # published_below_bar=True onto an episode whose QA then rejected the
     # recipe, and email Erik that a page is live when it is not. The
-    # Sunday handler flips `published` and sends the alert once the page exists.
+    # Sunday handler flips `published` and sends the alert once the page
+    # exists; Monday-Saturday alert from _alert_below_bar once the stage is
+    # saved and its page written, and leave `published` alone.
     episode.setdefault("judge_advisory", {})[stage] = {
         "selected_below_bar": True,
         "published": False,
@@ -1737,7 +1769,7 @@ async def cron_monday(request: Request):
         }
         ep["events"].append("monday: complete")
         storage.save_episode(episode_id, ep)
-        regenerate_and_upload(ep)
+        _alert_below_bar(episode_id, ep, "monday", concept, regenerate_and_upload(ep))
 
     return _stage_response("monday", episode_id, concept, {
         "recipe_title": recipe_data.get("title", concept) if recipe_data else concept,
@@ -1779,7 +1811,7 @@ async def cron_tuesday(request: Request):
         }
         ep["events"].append("tuesday: complete")
         storage.save_episode(episode_id, ep)
-        regenerate_and_upload(ep)
+        _alert_below_bar(episode_id, ep, "tuesday", concept, regenerate_and_upload(ep))
 
     return _stage_response("tuesday", episode_id, concept, {"dialogue_messages": len(dialogue)})
 
@@ -2151,7 +2183,9 @@ async def cron_wednesday(request: Request):
       with _run_stage(ep, "wednesday"):
         # #8297: a re-fire after Erik approved a photo keeps that set and reruns
         # only the dialogue. Reshooting replaced the photos he had picked when
-        # only the conversation had failed (W42).
+        # only the conversation had failed (W42). No image is generated and no
+        # "Photos ready" alert goes out; to replace an approved set, choose
+        # "None usable" first and the re-fire reshoots.
         kept = _approved_wednesday_photos(episode_id, ep, concept)
         if kept is not None:
             wed, kept_version = kept
@@ -2207,7 +2241,7 @@ async def cron_wednesday(request: Request):
         ep["stages"]["wednesday"] = wed
         ep["events"].append("wednesday: complete")
         storage.save_episode(episode_id, ep)
-        regenerate_and_upload(ep)
+        _alert_below_bar(episode_id, ep, "wednesday", concept, regenerate_and_upload(ep))
 
     return _stage_response("wednesday", episode_id, concept, {
         "images_generated": 0 if kept is not None else len(image_paths),
@@ -2279,7 +2313,7 @@ async def cron_thursday(request: Request):
         }
         ep["events"].append("thursday: complete")
         storage.save_episode(episode_id, ep)
-        regenerate_and_upload(ep)
+        _alert_below_bar(episode_id, ep, "thursday", concept, regenerate_and_upload(ep))
 
     return _stage_response("thursday", episode_id, concept, {
         "copy_preview": (copy_text.get("body", "") if isinstance(copy_text, dict) else str(copy_text or ""))[:80],
@@ -2351,7 +2385,7 @@ async def cron_friday(request: Request):
         }
         ep["events"].append("friday: complete")
         storage.save_episode(episode_id, ep)
-        regenerate_and_upload(ep)
+        _alert_below_bar(episode_id, ep, "friday", concept, regenerate_and_upload(ep))
 
     return _stage_response("friday", episode_id, concept, {
         "approved": approved,
@@ -2405,7 +2439,7 @@ async def cron_saturday(request: Request):
         }
         ep["events"].append("saturday: complete")
         storage.save_episode(episode_id, ep)
-        regenerate_and_upload(ep)
+        _alert_below_bar(episode_id, ep, "saturday", concept, regenerate_and_upload(ep))
 
     return _stage_response("saturday", episode_id, concept, {"dialogue_messages": len(dialogue)})
 
