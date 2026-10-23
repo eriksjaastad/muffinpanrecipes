@@ -14,6 +14,7 @@ import json
 from unittest.mock import patch
 
 import pytest
+from hypothesis import given, strategies as st
 
 from backend.admin import cron_routes
 
@@ -356,3 +357,46 @@ def test_final_fail_verdict_carries_weakest_dims_into_alert():
     alert_verdict = notify.call_args.kwargs["verdict"]
     assert "cast_coverage" in alert_verdict
     assert "turn_taking" in alert_verdict
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["null", '{"x": null}', '{"x": NaN}', '{"x": ' + "1" + "0" * 400 + "}", '{"x": "4"}',
+     '{"x": true}', '{"x": 0}', '{"x": 6}', "[4]"],
+    ids=["null-scores", "null", "nan", "huge", "string", "bool", "zero", "six", "not-object"],
+)
+def test_a_garbage_score_is_unjudged_and_cannot_win_the_advisory_pick(bad):
+    """#8524: attempts are ranked by summing scores and the best ships below
+    the bar. A garbage score (10**400 crashed the old ranking) must be
+    treated like no score at all, and the judged attempts still compete."""
+    def fail(x: int) -> str:
+        return json.dumps({"scores": {"x": x}, "verdict": "FAIL", "reason": "flat"})
+
+    bad_raw = '{"scores": ' + bad + ', "verdict": "PASS"}'  # a PASS must not slip through
+    replies = [bad_raw, bad_raw, fail(4), fail(1)]  # a malformed reply is retried once
+    episode = {"episode_id": "2026-W99", "stages": {}, "events": []}
+    with patch.object(cron_routes, "_generate_dialogue", return_value=_dialogue()), \
+         patch.object(cron_routes, "generate_judge_response", side_effect=replies), \
+         patch.object(cron_routes, "_score_dialogue_qa", return_value={}):
+        cron_routes._generate_and_judge_dialogue("sunday", "Concept", episode, advisory=True)
+
+    kept = episode["rejected_dialogues"]["sunday"]
+    assert [r["scores"] for r in kept] == [{}, {"x": 4}, {"x": 1}]
+    assert episode["judge_advisory"]["sunday"]["attempt_selected"] == 2
+
+
+_json_values = st.recursive(
+    st.none() | st.booleans() | st.integers() | st.floats() | st.text(max_size=3),
+    lambda inner: st.lists(inner, max_size=3) | st.dictionaries(st.text(max_size=3), inner, max_size=3),
+    max_leaves=6,
+)
+
+
+@given(scores=st.one_of(st.just("absent"), _json_values), verdict=st.sampled_from(["PASS", "FAIL"]))
+def test_a_reply_counts_as_judged_only_when_every_score_is_a_whole_number_1_to_5(scores, verdict):
+    """#8524 property: a generator, not the author, picks the score inputs."""
+    parsed = {"verdict": verdict} if scores == "absent" else {"verdict": verdict, "scores": scores}
+    judged = scores == "absent" or (
+        isinstance(scores, dict) and all(type(v) is int and 1 <= v <= 5 for v in scores.values())
+    )
+    assert cron_routes._judge_verdict_is_malformed(parsed) is not judged
