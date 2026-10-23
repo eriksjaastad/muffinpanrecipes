@@ -758,7 +758,7 @@ def _judge_verdict_is_malformed(parsed: dict) -> bool:
     """
     verdict_raw = str(parsed.get("verdict") or "").strip().upper()
     scores = parsed.get("scores")
-    if scores is not None and not (isinstance(scores, dict) and all(
+    if "scores" in parsed and not (isinstance(scores, dict) and all(
         type(v) is int and 1 <= v <= 5 for v in scores.values()
     )):
         return True
