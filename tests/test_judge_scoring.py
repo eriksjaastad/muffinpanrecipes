@@ -14,6 +14,7 @@ import json
 from unittest.mock import patch
 
 import pytest
+from hypothesis import given, strategies as st
 
 from backend.admin import cron_routes
 
@@ -382,3 +383,20 @@ def test_a_garbage_score_is_unjudged_and_cannot_win_the_advisory_pick(bad):
     kept = episode["rejected_dialogues"]["sunday"]
     assert [r["scores"] for r in kept] == [{}, {"x": 4}, {"x": 1}]
     assert episode["judge_advisory"]["sunday"]["attempt_selected"] == 2
+
+
+_json_values = st.recursive(
+    st.none() | st.booleans() | st.integers() | st.floats() | st.text(max_size=3),
+    lambda inner: st.lists(inner, max_size=3) | st.dictionaries(st.text(max_size=3), inner, max_size=3),
+    max_leaves=6,
+)
+
+
+@given(scores=st.one_of(st.just("absent"), _json_values), verdict=st.sampled_from(["PASS", "FAIL"]))
+def test_a_reply_counts_as_judged_only_when_every_score_is_a_whole_number_1_to_5(scores, verdict):
+    """#8524 property: a generator, not the author, picks the score inputs."""
+    parsed = {"verdict": verdict} if scores == "absent" else {"verdict": verdict, "scores": scores}
+    judged = scores == "absent" or (
+        isinstance(scores, dict) and all(type(v) is int and 1 <= v <= 5 for v in scores.values())
+    )
+    assert cron_routes._judge_verdict_is_malformed(parsed) is not judged
