@@ -749,8 +749,19 @@ def _judge_verdict_is_malformed(parsed: dict) -> bool:
     empty or partial `scores` dict, and that is a real, judged verdict, not
     a malformed one. Widening this check to scores content would silently
     fail those closed too.
+
+    It does reject a score that is present but is not a whole number 1-5
+    (null, NaN, 10**400, "4", true, 0, 6) or a `scores` that is not an
+    object (#8524). Attempts are ranked by summing scores, and the best one
+    ships below the bar, so a garbage number must never count as judged;
+    checked here, once, nothing downstream can trip over it.
     """
     verdict_raw = str(parsed.get("verdict") or "").strip().upper()
+    scores = parsed.get("scores")
+    if scores is not None and not (isinstance(scores, dict) and all(
+        type(v) is int and 1 <= v <= 5 for v in scores.values()
+    )):
+        return True
     return verdict_raw not in ("PASS", "FAIL")
 
 
@@ -865,7 +876,8 @@ def _judge_dialogue(
         retry_prompt = (
             f"{prompt}\n\nCRITICAL: your previous response could not be used as a "
             "verdict (it was either not valid JSON, or was missing a `verdict` "
-            "field, or used a `verdict` value other than \"PASS\"/\"FAIL\"). "
+            "field, or used a `verdict` value other than \"PASS\"/\"FAIL\", or "
+            "gave a score that is not a whole number from 1 to 5). "
             "Return ONLY the JSON object described above, with a `verdict` of "
             "exactly \"PASS\" or \"FAIL\". No markdown fences, no prose before or "
             "after it."
@@ -895,7 +907,7 @@ def _judge_dialogue(
     if malformed:
         # FAIL CLOSED (#7405). The response parsed as JSON but never actually
         # rendered a verdict (`verdict` missing, empty, or an unrecognized
-        # value) — semantically the same as unparseable output, so it gets
+        # value, or a score outside whole numbers 1-5, #8524) — semantically the same as unparseable output, so it gets
         # the exact same contract: empty meta, fail closed, and it is NEVER
         # recorded as a judged FAIL. This is what keeps a malformed response
         # out of the advisory-gate "attempt is eligible to publish" path and

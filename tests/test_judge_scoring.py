@@ -356,3 +356,29 @@ def test_final_fail_verdict_carries_weakest_dims_into_alert():
     alert_verdict = notify.call_args.kwargs["verdict"]
     assert "cast_coverage" in alert_verdict
     assert "turn_taking" in alert_verdict
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ['{"x": null}', '{"x": NaN}', '{"x": ' + "1" + "0" * 400 + "}", '{"x": "4"}',
+     '{"x": true}', '{"x": 0}', '{"x": 6}', "[4]"],
+    ids=["null", "nan", "huge", "string", "bool", "zero", "six", "not-object"],
+)
+def test_a_garbage_score_is_unjudged_and_cannot_win_the_advisory_pick(bad):
+    """#8524: attempts are ranked by summing scores and the best ships below
+    the bar. A garbage score (10**400 crashed the old ranking) must be
+    treated like no score at all, and the judged attempts still compete."""
+    def fail(x: int) -> str:
+        return json.dumps({"scores": {"x": x}, "verdict": "FAIL", "reason": "flat"})
+
+    bad_raw = '{"scores": ' + bad + ', "verdict": "FAIL"}'
+    replies = [bad_raw, bad_raw, fail(4), fail(1)]  # a malformed reply is retried once
+    episode = {"episode_id": "2026-W99", "stages": {}, "events": []}
+    with patch.object(cron_routes, "_generate_dialogue", return_value=_dialogue()), \
+         patch.object(cron_routes, "generate_judge_response", side_effect=replies), \
+         patch.object(cron_routes, "_score_dialogue_qa", return_value={}):
+        cron_routes._generate_and_judge_dialogue("sunday", "Concept", episode, advisory=True)
+
+    kept = episode["rejected_dialogues"]["sunday"]
+    assert [r["scores"] for r in kept] == [{}, {"x": 4}, {"x": 1}]
+    assert episode["judge_advisory"]["sunday"]["attempt_selected"] == 2
