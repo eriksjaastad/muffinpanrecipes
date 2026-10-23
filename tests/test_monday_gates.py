@@ -79,9 +79,13 @@ SPANAKOPITA_CATALOG = {"recipes": [_catalog_entry("Spanakopita Phyllo Cups", SPA
 
 def _run_monday(
     recipes: list[dict], *, body: dict | None = None, catalog=None, loader_side_effect=None,
-    orchestrator_cls=None,
+    orchestrator_cls=None, real_judge_loop=False, page_url="https://example.test/w99",
 ):
-    """Drive cron_monday with a scripted baker (or ``orchestrator_cls``) and an injected catalog."""
+    """Drive cron_monday with a scripted baker (or ``orchestrator_cls``) and an injected catalog.
+
+    ``real_judge_loop`` keeps _generate_and_judge_dialogue real; the caller
+    then patches the generator and judge beneath it.
+    """
     baker_calls: list[tuple[str, dict]] = []
     queue = list(recipes)
 
@@ -122,11 +126,12 @@ def _run_monday(
          patch.object(cron_routes, "load_published_catalog", new=loader), \
          patch.object(cron_concept, "load_published_catalog", new=loader), \
          patch("backend.utils.title_validator.load_recent_cuisines", return_value=[]), \
-         patch.object(cron_routes, "_generate_and_judge_dialogue", return_value=(
-             [{"character": "Margaret", "message": "These hold together."}], "PASS",
-         )), \
+         (nullcontext() if real_judge_loop else patch.object(
+             cron_routes, "_generate_and_judge_dialogue", return_value=(
+                 [{"character": "Margaret", "message": "These hold together."}], "PASS",
+             ))), \
          patch.object(cron_routes.storage, "save_episode") as save_episode, \
-         patch.object(cron_routes, "regenerate_and_upload"), \
+         patch.object(cron_routes, "regenerate_and_upload", return_value=page_url), \
          patch.object(cron_routes, "notify_pipeline_failure") as notify:
         try:
             result = asyncio.run(cron_routes.cron_monday(request))
@@ -423,3 +428,52 @@ def test_dessert_in_the_body_resolves_to_sweet() -> None:
         {"episode_id": "2026-W99", "concept": cron_routes.PLACEHOLDER_CONCEPT, "stages": {}, "events": []},
     )
     assert (category, source) == ("Sweet", "explicit")
+
+
+# ---------------------------------------------------------------------------
+# The judge scores Monday but does not gate it (#8524)
+# ---------------------------------------------------------------------------
+
+def _run_judged_monday(judge_scores: dict, **kwargs):
+    """Run Monday with every judge attempt failing; {} scores model an outage."""
+    def _judge(_concept, stage, _dialogue, episode, **_kw):
+        episode.setdefault("judge_scores", {})[stage] = judge_scores
+        return False, "FAIL - agreement-heavy, nothing resolved"
+
+    with patch.object(cron_routes, "_generate_dialogue",
+                      return_value=[{"character": "Margaret", "message": "These hold."}]), \
+         patch.object(cron_routes, "_judge_dialogue", _judge), \
+         patch.object(cron_routes, "_score_dialogue_qa", return_value={}), \
+         patch.object(cron_routes, "notify_judge_failure") as hard, \
+         patch.object(cron_routes, "notify_judge_advisory", return_value=True) as soft:
+        run = _run_monday([_recipe("Pastel de Nata Cups", NATA, category="sweet")],
+                          real_judge_loop=True, **kwargs)
+    return run, soft, hard
+
+
+def test_a_monday_the_judge_rejects_still_completes_and_alerts_once() -> None:
+    """W43's Monday failed the judge three times and stalled Tuesday-Sunday."""
+    run, soft, hard = _run_judged_monday({"arc_resolution": 2})
+
+    assert run.error is None, run.error
+    assert run.episode["stages"]["monday"]["status"] == "complete"
+    soft.assert_called_once()
+    hard.assert_not_called()
+    cron_routes._require_monday_recipe(run.episode, "tuesday")  # Tuesday may run
+
+
+def test_a_judge_outage_on_monday_still_fails_closed() -> None:
+    """No score means the judge never assessed it; it must not ship."""
+    run, soft, hard = _run_judged_monday({})
+
+    assert run.error is not None
+    assert run.episode["stages"]["monday"]["status"] == "failed"
+    hard.assert_called_once()
+    soft.assert_not_called()
+
+
+def test_no_below_bar_alert_when_the_page_was_not_written() -> None:
+    run, soft, _ = _run_judged_monday({"arc_resolution": 2}, page_url=None)
+
+    assert run.episode["stages"]["monday"]["status"] == "complete"
+    soft.assert_not_called()

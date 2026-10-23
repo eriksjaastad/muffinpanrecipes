@@ -105,11 +105,6 @@ underway. Choices are frozen." and Wednesday refuses to replace the photos (409)
   **Remake this photo** under each photo replaces just that one (1 call, the
   week's pan, the same cap, marker and checks); the others are kept, the new set
   is unapproved and sends a "Photos ready" email, and the featured image is not touched.
-- Approved, but Wednesday's dialogue failed the judge: re-fire Wednesday with
-  the same curl. It keeps the approved set and Erik's pick, and reruns only
-  the dialogue, so no image is generated and no "Photos ready" alert goes out
-  (#8297). To replace an approved set, choose "None usable" first; the re-fire
-  then reshoots.
 - Weeks whose Wednesday completed before this deploy: no migration and no
   paid recovery. The page derives the request from the photos already
   uploaded; the first decision creates control version 1 (never replacing an
