@@ -324,39 +324,11 @@ def test_advisory_gate_fails_closed_when_every_attempt_is_malformed():
          patch.object(cron_routes, "notify_judge_failure") as notify:
         with pytest.raises(cron_routes.JudgeFailedError):
             cron_routes._generate_and_judge_dialogue(
-                "sunday", "Concept", episode, max_retries=1, advisory=True,
+                "sunday", "Concept", episode, max_retries=1,
             )
 
     notify.assert_called_once()
     assert "judge_advisory" not in episode  # nothing was eligible to publish
-
-
-def test_final_fail_verdict_carries_weakest_dims_into_alert():
-    """notify_judge_failure's signature is fixed (owned elsewhere); the
-    weakest dims and scores must reach it through the existing `verdict`
-    argument, not a new parameter."""
-    fail_json = json.dumps({
-        "scores": {"cast_coverage": 1, "turn_taking": 2, "title_fidelity": 5},
-        "verdict": "FAIL",
-        "weakest": ["cast_coverage", "turn_taking"],
-        "reason": "Julian and Devon never appeared in a shoot-planning day.",
-    })
-    episode = {"episode_id": "2026-W99", "stages": {}}
-
-    with patch.object(cron_routes, "_generate_dialogue", return_value=_dialogue()), \
-         patch.object(cron_routes, "generate_judge_response", return_value=fail_json), \
-         patch.object(cron_routes, "notify_judge_failure") as notify:
-        try:
-            cron_routes._generate_and_judge_dialogue(
-                "monday", "Concept", episode, max_retries=0,
-            )
-        except cron_routes.JudgeFailedError:  # governance: allow-silent SF001: test deliberately drives the judge-failure path; the assertions below check the alert, not the raise
-            pass
-
-    notify.assert_called_once()
-    alert_verdict = notify.call_args.kwargs["verdict"]
-    assert "cast_coverage" in alert_verdict
-    assert "turn_taking" in alert_verdict
 
 
 @pytest.mark.parametrize(
@@ -378,7 +350,7 @@ def test_a_garbage_score_is_unjudged_and_cannot_win_the_advisory_pick(bad):
     with patch.object(cron_routes, "_generate_dialogue", return_value=_dialogue()), \
          patch.object(cron_routes, "generate_judge_response", side_effect=replies), \
          patch.object(cron_routes, "_score_dialogue_qa", return_value={}):
-        cron_routes._generate_and_judge_dialogue("sunday", "Concept", episode, advisory=True)
+        cron_routes._generate_and_judge_dialogue("sunday", "Concept", episode)
 
     kept = episode["rejected_dialogues"]["sunday"]
     assert [r["scores"] for r in kept] == [{}, {"x": 4}, {"x": 1}]

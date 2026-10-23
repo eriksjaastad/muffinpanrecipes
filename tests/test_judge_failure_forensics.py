@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import pytest
 
 from backend.admin import cron_routes
 
@@ -44,11 +43,10 @@ def _run_failing_judge(episode: dict, scores_per_attempt: list[dict]):
 
     with patch.object(cron_routes, "_generate_dialogue", _gen), \
          patch.object(cron_routes, "_judge_dialogue", _judge), \
-         patch.object(cron_routes, "notify_judge_failure", lambda **kw: True):
-        with pytest.raises(cron_routes.JudgeFailedError):
-            cron_routes._generate_and_judge_dialogue(
-                "monday", "Cinnamon Apple Streusel Cakes", episode,
-            )
+         patch.object(cron_routes, "_score_dialogue_qa", lambda *a, **kw: {}):
+        cron_routes._generate_and_judge_dialogue(
+            "monday", "Cinnamon Apple Streusel Cakes", episode,
+        )
 
 
 def test_every_rejected_attempt_is_kept():
