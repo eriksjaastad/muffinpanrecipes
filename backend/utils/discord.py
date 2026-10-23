@@ -148,10 +148,10 @@ def notify_judge_advisory(
 ) -> bool:
     """Alert when a day's dialogue failed the judge but shipped anyway.
 
-    The counterpart to notify_judge_failure: on the publish stage the judge is
-    advisory, so an exhausted retry loop ships the best-scoring attempt rather
-    than withholding the recipe from readers (#7394). The week is NOT paused,
-    so this alert exists to make sure a weak conversation is still seen.
+    The counterpart to notify_judge_failure: the judge is advisory on every
+    day (#7394, #8524), so an exhausted retry loop ships the best-scoring
+    attempt rather than stalling the week. The week is NOT paused, so this
+    alert exists to make sure a weak conversation is still seen.
 
     `verdict`, `scores` and `weakest` are accepted for compatibility and
     deliberately not shown: they are model output recorded on the episode,

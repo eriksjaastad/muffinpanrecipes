@@ -1086,7 +1086,6 @@ def _generate_and_judge_dialogue(
     max_retries: int = 2,
     injected_event: str | None = None,
     recipe_data: dict | None = None,
-    advisory: bool = False,
 ) -> tuple[list[dict], str]:
     """Generate dialogue and run judge. Retry on FAIL up to max_retries.
 
@@ -1095,16 +1094,14 @@ def _generate_and_judge_dialogue(
     all three attempts on 14 days in W38-W41, mostly for the same named
     problem every time.
 
-    Returns (dialogue, verdict_str).
-    Raises JudgeFailedError if all retries exhausted — caller should
-    save episode as judge_failed and NOT publish.
-
-    Set advisory=True to score without gating: an exhausted retry loop then
-    returns the best-scoring rejected attempt instead of raising. Sunday uses
-    it (#7394). The dialogue is an accompaniment to the recipe, and until now
-    a weak conversation could withhold a finished, QA-passed recipe from
-    readers — which is what lost W38 entirely. The recipe's own gate,
-    _editorial_qa_review, still blocks and is unaffected.
+    Returns (dialogue, verdict_str). The judge scores every day but gates
+    none: an exhausted retry loop returns the best-scoring rejected attempt
+    and records it in episode["judge_advisory"][stage]. Sunday got this
+    first (#7394, W38 lost); every day has it since #8524, because a failed
+    Monday blocks Tuesday-Sunday and a failed Wednesday blocks Sunday, which
+    stalled 5 of 8 weeks from W36. Raises JudgeFailedError (after alerting)
+    only when no attempt was actually judged — a judge outage. The recipe's
+    own gates (baker gates, _editorial_qa_review) still block.
 
     Pass recipe_data (typically `episode['stages']['monday']['recipe_data']`)
     to anchor both the simulator and the judge to the actual dish. Without
@@ -1191,7 +1188,7 @@ def _generate_and_judge_dialogue(
             )
         logger.warning(f"Judge FAILED {stage} attempt {attempt + 1}/{total_attempts}: {verdict[:200]}")
 
-    # Exhausted retries — keep the evidence, notify Erik, pause the episode.
+    # Exhausted retries — keep the evidence, then select the best attempt.
     #
     # This goes on the EPISODE, not the stage, for two independent reasons
     # (#7100):
@@ -1226,92 +1223,81 @@ def _generate_and_judge_dialogue(
 
     episode_id = episode.get("episode_id", "unknown")
 
-    if advisory:
-        # Ship the best attempt rather than the week. `best` is None only if
-        # the loop never ran, which max_retries >= 0 makes impossible — but a
-        # publish path must not depend on that, so fall back to the dialogue
-        # in hand and say so.
-        # "The judge said it is weak" and "the judge never spoke" are
-        # different states, and only the first one may publish. The comment
-        # on the judge's own error path states the contract from PR #45: a
-        # provider outage pauses the episode rather than waving unjudged
-        # dialogue through. Advisory relaxes the verdict, never the
-        # requirement that there BE one — otherwise an Anthropic outage
-        # publishes a conversation nobody ever looked at.
-        chosen = rejected[best] if best is not None else {}
-        if not chosen.get("scores"):
-            chosen = {}
-        dialogue = chosen.get("dialogue") or []
-        if not dialogue:
-            # Nothing to publish is a different failure from something weak,
-            # so this one still fails closed. Alert BEFORE raising:
-            # JudgeFailedError.already_notified is True, which makes
-            # _save_stage_failure skip its own ping on the promise that the
-            # raiser already sent a better one. Raising here without alerting
-            # would make Sunday fail in total silence — the exact shape of
-            # the incident this advisory gate exists to prevent.
-            notify_judge_failure(
-                concept=concept,
-                stage=stage,
-                verdict=verdict or "no dialogue survived the judge loop",
-                episode_id=episode_id,
-                attempts=total_attempts,
-            )
-            logger.error(
-                f"Advisory gate cannot publish {stage}: no attempt was "
-                f"actually judged (all {total_attempts} errored or were "
-                f"unparseable). Failing closed."
-            )
-            raise JudgeFailedError(stage=stage, verdict=verdict, attempts=total_attempts)
-        scores = chosen.get("scores") or {}
-        weakest = chosen.get("weakest") or []
-        # Restore the chosen attempt's own scores. The loop leaves the LAST
-        # attempt's scores on the episode, and the attempt we publish is
-        # usually not the last one, so without this the site's stage record
-        # would carry another dialogue's numbers. Written unconditionally:
-        # if the published attempt has no parsed scores, empty is the honest
-        # value — keeping a different attempt's numbers is the bug.
-        episode.setdefault("judge_scores", {})[stage] = scores
-        episode.setdefault("judge_weakest", {})[stage] = weakest
-        episode.setdefault("judge_reason", {})[stage] = chosen.get("reason", "")
-        # SELECTED, not published. Sunday still has to clear editorial QA and
-        # the publish itself, and this helper cannot know whether either
-        # succeeds. Claiming publication here would write
-        # published_below_bar=True onto an episode whose QA then rejected the
-        # recipe, and email Erik that a page is live when it is not. The
-        # handler flips `published` and sends the alert once the page exists.
-        episode.setdefault("judge_advisory", {})[stage] = {
-            "selected_below_bar": True,
-            "published": False,
-            "attempts": total_attempts,
-            "attempt_selected": chosen.get("attempt"),
-            "verdict": chosen.get("verdict") or verdict,
-            "scores": scores,
-            "weakest": weakest,
-            "recorded_at": datetime.now(timezone.utc).isoformat(),
-        }
-        episode.setdefault("events", []).append(
-            f"{stage}: judge FAILED all {total_attempts} attempts — "
-            f"selected the best attempt anyway (advisory gate)"
+    # Ship the best attempt rather than the week. `best` is None only if
+    # the loop never ran, which max_retries >= 0 makes impossible — but a
+    # publish path must not depend on that, so fall back to the dialogue
+    # in hand and say so.
+    # "The judge said it is weak" and "the judge never spoke" are
+    # different states, and only the first one may publish. The comment
+    # on the judge's own error path states the contract from PR #45: a
+    # provider outage pauses the episode rather than waving unjudged
+    # dialogue through. Advisory relaxes the verdict, never the
+    # requirement that there BE one — otherwise an Anthropic outage
+    # publishes a conversation nobody ever looked at.
+    chosen = rejected[best] if best is not None else {}
+    if not chosen.get("scores"):
+        chosen = {}
+    dialogue = chosen.get("dialogue") or []
+    if not dialogue:
+        # Nothing to publish is a different failure from something weak,
+        # so this one still fails closed. Alert BEFORE raising:
+        # JudgeFailedError.already_notified is True, which makes
+        # _save_stage_failure skip its own ping on the promise that the
+        # raiser already sent a better one. Raising here without alerting
+        # would make the day fail in total silence — the exact shape of
+        # the incident this advisory gate exists to prevent.
+        notify_judge_failure(
+            concept=concept,
+            stage=stage,
+            verdict=verdict or "no dialogue survived the judge loop",
+            episode_id=episode_id,
+            attempts=total_attempts,
         )
-        qa_scores = _score_dialogue_qa(dialogue, stage, concept)
-        if qa_scores:
-            episode.setdefault("qa_scores", {})[stage] = qa_scores
         logger.error(
-            f"Judge failed all {total_attempts} attempts for {stage}; advisory "
-            f"gate — selected attempt {chosen.get('attempt')} for publication."
+            f"Advisory gate cannot publish {stage}: no attempt was "
+            f"actually judged (all {total_attempts} errored or were "
+            f"unparseable). Failing closed."
         )
-        return dialogue, chosen.get("verdict") or verdict
-
-    notify_judge_failure(
-        concept=concept,
-        stage=stage,
-        verdict=verdict,
-        episode_id=episode_id,
-        attempts=total_attempts,
+        raise JudgeFailedError(stage=stage, verdict=verdict, attempts=total_attempts)
+    scores = chosen.get("scores") or {}
+    weakest = chosen.get("weakest") or []
+    # Restore the chosen attempt's own scores. The loop leaves the LAST
+    # attempt's scores on the episode, and the attempt we publish is
+    # usually not the last one, so without this the site's stage record
+    # would carry another dialogue's numbers. Written unconditionally:
+    # if the published attempt has no parsed scores, empty is the honest
+    # value — keeping a different attempt's numbers is the bug.
+    episode.setdefault("judge_scores", {})[stage] = scores
+    episode.setdefault("judge_weakest", {})[stage] = weakest
+    episode.setdefault("judge_reason", {})[stage] = chosen.get("reason", "")
+    # SELECTED, not published. Sunday still has to clear editorial QA and
+    # the publish itself, and this helper cannot know whether either
+    # succeeds. Claiming publication here would write
+    # published_below_bar=True onto an episode whose QA then rejected the
+    # recipe, and email Erik that a page is live when it is not. The
+    # Sunday handler flips `published` and sends the alert once the page exists.
+    episode.setdefault("judge_advisory", {})[stage] = {
+        "selected_below_bar": True,
+        "published": False,
+        "attempts": total_attempts,
+        "attempt_selected": chosen.get("attempt"),
+        "verdict": chosen.get("verdict") or verdict,
+        "scores": scores,
+        "weakest": weakest,
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    episode.setdefault("events", []).append(
+        f"{stage}: judge FAILED all {total_attempts} attempts — "
+        f"selected the best attempt anyway (advisory gate)"
     )
-    logger.error(f"Judge failed all {total_attempts} attempts for {stage}. Episode paused.")
-    raise JudgeFailedError(stage=stage, verdict=verdict, attempts=total_attempts)
+    qa_scores = _score_dialogue_qa(dialogue, stage, concept)
+    if qa_scores:
+        episode.setdefault("qa_scores", {})[stage] = qa_scores
+    logger.error(
+        f"Judge failed all {total_attempts} attempts for {stage}; advisory "
+        f"gate — selected attempt {chosen.get('attempt')} for publication."
+    )
+    return dialogue, chosen.get("verdict") or verdict
 
 
 def _test_mode_scope(body: StageRequest):
@@ -3188,10 +3174,6 @@ async def cron_sunday(request: Request):
                 photography_context={"human_review": photo_review.dialogue_context(claimed)},
                 injected_event=body.injected_event,
                 recipe_data=ep.get("stages", {}).get("monday", {}).get("recipe_data"),
-                # The judge scores Sunday but does not gate it (#7394). A weak
-                # sign-off scene is a tuning problem; withholding the recipe from
-                # readers over it is how W38 published nothing at all.
-                advisory=True,
             )
 
             # Editorial QA gate with auto-fix retry loop

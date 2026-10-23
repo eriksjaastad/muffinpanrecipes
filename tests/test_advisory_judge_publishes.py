@@ -67,7 +67,7 @@ def _run_advisory(episode: dict, scores_per_attempt: list[dict], **kwargs):
          patch.object(cron_routes, "notify_judge_failure") as hard_alert:
         dialogue, verdict = cron_routes._generate_and_judge_dialogue(
             "sunday", "Cardamom Cinnamon Spiral Bites", episode,
-            advisory=True, **kwargs,
+            **kwargs,
         )
     hard_alert.assert_not_called()
     # Selecting a dialogue is not publishing one: the helper must stay quiet
@@ -323,7 +323,7 @@ def test_advisory_records_qa_scores_for_the_published_attempt():
                       lambda *a, **kw: {"score": 61}), \
          patch.object(cron_routes, "notify_judge_advisory", lambda **kw: True):
         cron_routes._generate_and_judge_dialogue(
-            "sunday", "Cardamom Cinnamon Spiral Bites", episode, advisory=True,
+            "sunday", "Cardamom Cinnamon Spiral Bites", episode,
         )
 
     assert episode["qa_scores"]["sunday"] == {"score": 61}
@@ -341,7 +341,7 @@ def test_advisory_does_not_soften_the_empty_generation_guard():
          patch.object(cron_routes, "notify_judge_advisory") as alert:
         with pytest.raises(RuntimeError, match="no messages"):
             cron_routes._generate_and_judge_dialogue(
-                "sunday", "Cardamom Cinnamon Spiral Bites", episode, advisory=True,
+                "sunday", "Cardamom Cinnamon Spiral Bites", episode,
             )
     alert.assert_not_called()
 
@@ -363,7 +363,7 @@ def test_the_advisory_fallback_alerts_before_it_raises():
         with pytest.raises(cron_routes.JudgeFailedError):
             cron_routes._generate_and_judge_dialogue(
                 "sunday", "Cardamom Cinnamon Spiral Bites", episode,
-                advisory=True, max_retries=-1,
+                max_retries=-1,
             )
 
     alert.assert_called_once()
@@ -404,7 +404,7 @@ def test_an_unscored_attempt_is_never_the_one_that_publishes():
          patch.object(cron_routes, "_score_dialogue_qa", lambda *a, **kw: {}), \
          patch.object(cron_routes, "notify_judge_advisory", lambda **kw: True):
         dialogue, _ = cron_routes._generate_and_judge_dialogue(
-            "sunday", "Cardamom Cinnamon Spiral Bites", episode, advisory=True,
+            "sunday", "Cardamom Cinnamon Spiral Bites", episode,
         )
 
     assert dialogue[0]["message"] == "attempt 2"
@@ -454,7 +454,7 @@ def _sunday_episode() -> dict:
     }
 
 
-def test_the_sunday_route_asks_for_the_advisory_judge():
+def test_the_sunday_route_passes_its_injected_event():
     episode = _sunday_episode()
     body = cron_routes.StageRequest(
         episode_id="2026-W99", force=True,
@@ -477,7 +477,6 @@ def test_the_sunday_route_asks_for_the_advisory_judge():
             asyncio.run(cron_routes.cron_sunday(_sunday_request()))
 
     kwargs = judged.call_args.kwargs
-    assert kwargs["advisory"] is True
     assert kwargs["injected_event"] == "The glaze set too thin overnight."
 
 
@@ -622,7 +621,7 @@ def test_a_clean_retry_clears_the_previous_run_s_advisory_record():
          patch.object(cron_routes, "_judge_dialogue", lambda *a, **kw: (True, "PASS")), \
          patch.object(cron_routes, "_score_dialogue_qa", lambda *a, **kw: {}):
         dialogue, verdict = cron_routes._generate_and_judge_dialogue(
-            "sunday", "Cardamom Cinnamon Spiral Bites", episode, advisory=True,
+            "sunday", "Cardamom Cinnamon Spiral Bites", episode,
         )
 
     assert verdict == "PASS"
@@ -646,7 +645,7 @@ def test_a_clean_retry_leaves_another_stage_s_record_alone():
          patch.object(cron_routes, "_judge_dialogue", lambda *a, **kw: (True, "PASS")), \
          patch.object(cron_routes, "_score_dialogue_qa", lambda *a, **kw: {}):
         cron_routes._generate_and_judge_dialogue(
-            "sunday", "Cardamom Cinnamon Spiral Bites", episode, advisory=True,
+            "sunday", "Cardamom Cinnamon Spiral Bites", episode,
         )
 
     assert "sunday" not in episode["judge_advisory"]
@@ -714,7 +713,7 @@ def test_the_sunday_route_sends_no_alert_when_the_retry_passes():
 # ---------------------------------------------------------------------------
 
 
-def _judge_erroring_run(episode: dict, outcomes: list[dict | None], advisory: bool = True):
+def _judge_erroring_run(episode: dict, outcomes: list[dict | None]):
     """Each entry: a scores dict the judge recorded, or None for an error.
 
     None models the real error path — _judge_dialogue returns early and
@@ -745,7 +744,7 @@ def _judge_erroring_run(episode: dict, outcomes: list[dict | None], advisory: bo
          patch.object(cron_routes, "notify_judge_failure") as hard:
         try:
             result = cron_routes._generate_and_judge_dialogue(
-                "sunday", "Cardamom Cinnamon Spiral Bites", episode, advisory=advisory,
+                "sunday", "Cardamom Cinnamon Spiral Bites", episode,
             )
         except cron_routes.JudgeFailedError as exc:
             return None, exc, soft, hard
@@ -789,15 +788,6 @@ def test_an_unjudged_attempt_does_not_inherit_the_previous_one_s_scores():
     assert kept[0]["scores"] == {"x": 9}
     assert kept[1]["scores"] == {}
     assert kept[2]["scores"] == {}
-
-
-def test_the_gated_stages_still_fail_closed_on_a_judge_outage():
-    episode = _episode()
-    result, exc, _, hard = _judge_erroring_run(episode, [None, None, None], advisory=False)
-
-    assert result is None
-    assert isinstance(exc, cron_routes.JudgeFailedError)
-    hard.assert_called_once()
 
 
 def test_the_judge_records_empty_meta_when_its_provider_errors():
