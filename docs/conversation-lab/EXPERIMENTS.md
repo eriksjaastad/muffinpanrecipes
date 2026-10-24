@@ -777,7 +777,167 @@ Four stages, all scaffolding; no paid call and no memory-vs-no-memory result exi
 
 Full logs: `git show eb90b0f:docs/conversation-lab/MEMORY_LAB.md`, `git show eb90b0f:docs/conversation-lab/MEMORY_WRITE_EXPERIMENT.md`, `git show eb90b0f:docs/conversation-lab/MEMORY_CHAIN_EXPERIMENT.md`
 
+### 2026-10-17 — S6 author Monday (#8383)
+
+Code `0ac0008538c8fdd6b0c8102ad62d6c9b7e3f01b4`, testbed v3, variant
+`0de85fbd29a94868ceab87c94336842b64092e85d2983bdeba86670b5bbc54f6`.
+Haiku 4.5 dialogue, Opus 5.5 judge (no judge call reached). Run cap $3,
+production reserve $20. **ERROR**, zero completed pairs: the author parser rejected
+line 5 as an unknown/off-roster speaker or narration. No fallback occurred. Spend
+$0.058160 (19 Haiku calls, including the production control and its rewrites).
+Saved paid control and error:
+`results/20261017T050300Z-ab-testbed-claude-o55-author.json`.
+
+Deviation before retry: replace the generic label list with only the day's roster
+labels, explicitly exclude coworkers mentioned in biographies, and retain raw invalid
+author output in future error results. The first failure did not retain that output,
+so its exact label cannot be diagnosed. Retry cap $2.94 keeps both attempts below
+the preregistered $3 screen budget. The user explicitly authorized this 14-pair
+screen, which exceeds the general 20-call task limit; the dollar and retry limits govern.
+
+Second attempt at `9ee3207ec2b4f55eac7b54f8d971c78ea8a67cd7` also completed
+zero pairs: valid speech with 11 lines was rejected by the parser's 6-10 line check.
+Cost $0.057627; cumulative $0.115787. Saved raw scene and control in
+`results/20261017T050739Z-ab-testbed-claude-o55-author.json`.
+Correction before the third attempt: line count belongs in length matching, so a
+well-formed scene outside the range gets the same at-most-two regenerations as a
+word-count mismatch. Syntax errors still raise loudly. Request exactly the control's
+line count, within the production range. Third-attempt cap $2.88 preserves the
+combined $3 cap. No previous pair or judge verdict is being discarded (none exists).
+
+**Completed Monday screen, third attempt.** Generated at code
+`1f0e5230cc2ce6674fa08a50712708c2ccfd09c1`: 14 independent pairs on the seven
+testbed-v3 recipes, two runs each, Haiku 4.5 dialogue / Opus 5.5 informational
+judge, Anthropic-pinned OpenRouter route. Author mode includes recipe Method and
+judge_recipe_facts; this is a bundled change, not an isolated authorship effect.
+The variant SHA is unchanged from the first attempt. Judge prompt SHA-256:
+`c6570e4d93e3470eff97f779e4998b4aec0f8c04e6499f46c402c0af50d67329`.
+
+Raw transcripts, both judge orientations and all author attempts:
+`results/20261017T051229Z-ab-testbed-claude-o55-author.json`.
+Offline section-4 metrics, per-pair lengths, attribution coverage and cost:
+`results/20261017T051229Z-ab-testbed-claude-o55-author-metrics.json`.
+The later parser correction accepts speech parentheticals/emphasis and uses
+immutable pre-change prompt captures; all 22 paid author scenes also parse under
+that revision. The author prompt used by the completed screen is unchanged.
+
+**Length:** 14/14 pairs matched, no exceptions. Eight author regenerations (at most
+two per pair), all retained. Largest total-word gap 14.1176%; largest words/line gap
+22.7166%, using larger/smaller minus one. The control and author have 109 and 111
+lines respectively. Every final scene is within Monday's production range.
+
+| Cost (USD) | Total | Per completed pair |
+|---|---:|---:|
+| Production control, including rewrites | 0.553475 | 0.039534 |
+| Author, including all length regenerations | 0.126982 | 0.009070 |
+| Informational judge, two orientations | 0.942768 | 0.067341 |
+| Completed screen | 1.623225 | 0.115945 |
+| Two failed attempts above | 0.115787 | not a completed pair |
+| All S6 lab spend | **1.739012** | |
+
+Every paid run had an explicit cap (3, 2.94, 2.88 USD) and a 20 USD account
+reserve checked before calls. The completed screen made 216 Haiku and 28 judge
+calls, none unpriced. Cards #8383 and #8384 retain **13.260988 USD** of their shared
+15 USD ceiling. No production cron change or deploy occurred.
+
+| Section-4 metric (mean per pair) | Control | Author |
+|---|---:|---:|
+| Dash-clause rate | 75.72% | 33.11% |
+| Line length stdev (words) | 6.1413 | 6.3654 |
+| Under-8-word line rate | 0% | 5.21% |
+| Pronouncement-frame rate | 52.83% | 21.80% |
+| Agree-opener rate | 19.99% | 8.75% |
+| Question rate | 9.30% | 22.28% |
+| Words per line | 20.6200 | 21.7821 |
+| Largest speaker share | 31.93% | 28.40% |
+| Question-answer rate (guard) | 0.5000 | 0.3214 |
+
+No roster member was missing in either arm in any final pair. Silence was allowed
+but not exercised by these final scenes; the legacy judge full-cast dimension tied
+14/14, so no missing-cast penalty arose. Cross-week repeated openers cannot be
+measured from this single-day panel.
+
+**Speaker attribution:** mean lexical accuracy on usable pairs is 43.24% control
+(chance 42.42%, 11/14 usable pairs) and 42.07% author (chance 33.67%, 10/14 usable).
+Scored-line coverage is 68/109 control and 62/111 author. Candidate counts differ
+because only repeated speakers can be classified. These are word-choice signals,
+not personality quality grades or proof that voices are distinct; insufficient
+scenes remain null, never concatenated into an artificial transcript.
+
+**Judge information only:** author/control overall W/T/L = 12/2/0; turn-taking =
+6/3/5. The two orientations disagree on overall in 2/14 pairs (14.29%). All
+per-dimension counts are in the raw and metrics files. **No human verdict yet.**
+Erik's blind read with one-line reasons decides whether card #8384 starts.
+
+**2026-10-17 format correction before the replacement read.** Independent Codex
+review **FAIL** on `56dcffc9ee8115a39c8d210afc07a469f6b32610`: the keyword-based
+action parser both missed directions and rejected recipe asides. This repeated
+the earlier review family, so the card was reread and the approach replaced.
+Guarantee: a roster label followed by exactly one JSON speech string; unquoted
+narration/directions or extra text are invalid syntax. Normal parentheticals and
+emphasis inside spoken text remain literal. No keyword classifier or fallback.
+
+The read will use a replacement 14-pair author screen with this format. To avoid
+rebilling the unchanged production baseline, reuse **all 14** controls above,
+unchanged, by scenario and run index (no selection), regenerate author scenes and
+both judge orientations. This is a declared output-format deviation; the prior
+screen remains recorded but is superseded for the human read. The replacement
+uses the real `ab` entry point and guards via `.scratch/8383-screen-quoted.py`, with
+explicit `--max-cost 2 --min-balance 20`. Shared spend before replacement is
+$1.739012; maximum combined exposure is $3.739012 of the $15 ceiling. The new
+result records its source-control hash and original control cost separately from
+new-run spend. The author still receives Method/facts, silent members remain
+allowed, and production prompts remain off/default unchanged.
+
+**Read continuity amendment:** while the serialization check was running, Erik
+had already made 12 picks in the original 14-pair UI. Preserve that original
+length-matched cohort as the blind decision read; do not replace his work. Its
+decoded speech contains no stage directions. The new cohort is a validation of
+the wire format, not a second human read. Both use the same author approach and
+same frozen controls. Production still waits for the later full-week human read.
+One-line reasons are still requested in-session for all original picks; no human
+verdict is inferred from partial picks. The initial raw-file hash in its metrics
+artifact is explicitly the pre-read hash; later human annotations do not change
+the transcripts or their metrics.
+
+**Serialization validation completed at `25d2856473669407bd71fb34975c10475459fb8b`.**
+`results/20261017T055546Z-ab-testbed-claude-o55-author.json` and its sibling
+`-metrics.json` retain all 14 saved controls unchanged and 22 new author scenes
+(eight length regenerations). No parse failures. Twelve pairs met both length
+limits; positions 13 and 14 remained outside after two regenerations and are
+reported, retained, and excluded from any claim of a fully matched human cohort.
+This cohort was not substituted for the original decision read.
+New spend: author USD 0.134407 (0.009601 per pair), judge USD 0.925656
+(0.066118 per pair), control USD 0 (original USD 0.553475 already counted).
+All 50 new calls priced. With `--max-cost 2 --min-balance 20`, cumulative
+cards 1+2 spend is **USD 2.799075**, leaving **USD 12.200925** of the USD 15
+ceiling. The result includes an annotation-independent control-message hash;
+the whole-source hash describes the file at validation completion.
+Section-4 metrics and attribution are in its metrics artifact; author attribution
+37.39% versus 36.16% chance on 10/14 usable scenes (60/109 scored lines).
+The unchanged control is 43.24% versus 42.42% chance, 11/14 usable (68/109).
+Informational judge author/control overall 13/1, zero orientation disagreements;
+this does not supply a human preference.
+
+**Original human read, 2026-10-17:** all 14 picks saved, **author 7, control 7**.
+Erik clarified that he often judged the opening rather than the complete scene:
+the first line must earn the second. Most comments concerned Margaret, but the
+criterion applies to whoever opens. These picks measure the opening hook; they
+do not establish a whole-meeting preference. His saved final reason praises
+"coffee's cold" and also says the characters still sound like disconnected
+monologues. Only reasons 1, 13 and 14 reached the persisted file despite his
+report that he commented on all pairs; missing reasons are not invented.
+The active browser/server is port **8765**; the stale spare on 8383 was stopped
+to prevent two in-memory review states from writing the same file. The browser
+was inspected without reloading; its visible retained comment was pair 14's.
+An explicit author-Monday preference remains unresolved in-session, so card
+#8384 stays unstarted. Erik asked for firmer review nudges; future asks should
+name a bounded batch and the precise judgment needed. Agent agreement with
+these opening judgments can be measured later; no judge is declared trained
+from this tied screen.
+
 ## Benchmarks
+
 
 Single-arm characterization runs (`conversation_lab.py bench`). A row here is a baseline another run gets compared against, not a decision.
 

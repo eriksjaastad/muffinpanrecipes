@@ -1,0 +1,610 @@
+{
+  "command": "ab",
+  "mode": "testbed",
+  "evaluator_prompt_version": "pairwise-v2-candidate-versions-character-rules",
+  "evaluator_prompt_sha256": "c6570e4d93e3470eff97f779e4998b4aec0f8c04e6499f46c402c0af50d67329",
+  "generated_at": "2026-10-17T05:03:53.925488+00:00",
+  "concept": null,
+  "stage": "monday",
+  "testbed_path": "/Users/eriksjaastad/projects/muffinpanrecipes/docs/conversation-lab/testbed-v3.json",
+  "scenario_count": 1,
+  "panel_size": 1,
+  "runs_per_scenario": 2,
+  "variant_file": "docs/conversation-lab/variants/author.json",
+  "variant_name": "author",
+  "variant_keys": [
+    "AUTHOR_MODE"
+  ],
+  "requested_runs": 2,
+  "aborted": true,
+  "max_calls": 686,
+  "max_calls_derived": true,
+  "max_cost": 3.0,
+  "calls_used": 19,
+  "dry_run": false,
+  "target_dimension": "turn_taking",
+  "decision_rule": "Erik's blind read with a one-line why decides; judge is information only.",
+  "cost_summary": {
+    "by_model": {
+      "openrouter/anthropic/claude-haiku-4.5": {
+        "calls": 19,
+        "tokens_in": 52955,
+        "tokens_out": 1041,
+        "cost": 0.05815999999999999,
+        "unpriced_calls": 0
+      }
+    },
+    "total_cost": 0.05815999999999999,
+    "unpriced_calls": 0,
+    "total_calls": 19,
+    "total_tokens_in": 52955,
+    "total_tokens_out": 1041
+  },
+  "jev_cost_usd": 0,
+  "provider_route": {
+    "order": [
+      "anthropic"
+    ],
+    "allow_fallbacks": false
+  },
+  "models": {
+    "set": "claude-o55",
+    "dialogue": "anthropic/claude-haiku-4.5",
+    "judge": "anthropic/claude-opus-5.5"
+  },
+  "cost_by_model": {
+    "openrouter/anthropic/claude-haiku-4.5": 0.05816
+  },
+  "total_cost_usd": 0.05816,
+  "openrouter_key": {
+    "before": {
+      "limit": 100.0,
+      "limit_remaining": 83.071014368,
+      "usage": 91.425168896
+    },
+    "after": {
+      "limit": 100.0,
+      "limit_remaining": 83.054548368,
+      "usage": 91.441634896
+    }
+  },
+  "scenarios": [
+    {
+      "id": "2026-W36",
+      "concept": "Caramelized Custard Tart Cups",
+      "category": "sweet",
+      "cuisine": "Portuguese",
+      "source_episode": "2026-W36",
+      "partial_pairs": [
+        {
+          "run_index": 1,
+          "status": "error_mid_arm",
+          "control_messages": [
+            {
+              "day": "monday",
+              "stage": "brainstorm",
+              "character": "Margaret Chen",
+              "message": "Portuguese custard tarts. Muffin pan. Caramelized, laminated, actually done right.",
+              "timestamp": "2026-10-17T09:00:00+00:00",
+              "model": "openrouter/anthropic/claude-haiku-4.5",
+              "attachments": []
+            },
+            {
+              "day": "monday",
+              "stage": "brainstorm",
+              "character": "Stephanie 'Steph' Whitmore",
+              "message": "I love that - the caramelized tops are really the whole thing, right? That's what makes people want to pick one up.",
+              "timestamp": "2026-10-17T09:48:00+00:00",
+              "model": "openrouter/anthropic/claude-haiku-4.5",
+              "attachments": []
+            },
+            {
+              "day": "monday",
+              "stage": "brainstorm",
+              "character": "Marcus Reid",
+              "message": "Right, but that caramelized surface is earned - it's the lamination doing the work, those butter layers shattering under heat, and then the custard's lemon-cinnamon underneath giving it reason to exist beyond just texture.",
+              "timestamp": "2026-10-17T10:36:00+00:00",
+              "model": "openrouter/anthropic/claude-haiku-4.5",
+              "attachments": []
+            },
+            {
+              "day": "monday",
+              "stage": "brainstorm",
+              "character": "Margaret Chen",
+              "message": "The custard keeps those layers from disintegrating the moment someone bites.",
+              "timestamp": "2026-10-17T11:24:00+00:00",
+              "model": "openrouter/anthropic/claude-haiku-4.5",
+              "attachments": []
+            },
+            {
+              "day": "monday",
+              "stage": "brainstorm",
+              "character": "Julian Torres",
+              "message": "The cross-section is the only shot that proves the lamination matters - overhead just shows caramel.",
+              "timestamp": "2026-10-17T12:12:00+00:00",
+              "model": "openrouter/anthropic/claude-haiku-4.5",
+              "attachments": []
+            },
+            {
+              "day": "monday",
+              "stage": "brainstorm",
+              "character": "Ria Castillo",
+              "message": "Overhead at golden hour with that shattered top catching backlight - that's the stop-scroll moment people actually share.",
+              "timestamp": "2026-10-17T13:00:00+00:00",
+              "model": "openrouter/anthropic/claude-haiku-4.5",
+              "attachments": []
+            },
+            {
+              "day": "monday",
+              "stage": "brainstorm",
+              "character": "Julian Torres",
+              "message": "Backlight washes out the custard's color underneath - we need to see those golden freckles, not just the char.",
+              "timestamp": "2026-10-17T13:48:00+00:00",
+              "model": "openrouter/anthropic/claude-haiku-4.5",
+              "attachments": []
+            },
+            {
+              "day": "monday",
+              "stage": "brainstorm",
+              "character": "Julian Torres",
+              "message": "Shoot the bite. That's where the lamination actually shows itself.",
+              "timestamp": "2026-10-17T14:36:00+00:00",
+              "model": "openrouter/anthropic/claude-haiku-4.5",
+              "attachments": []
+            },
+            {
+              "day": "monday",
+              "stage": "brainstorm",
+              "character": "Ria Castillo",
+              "message": "The bite proves it, but the unbroken caramel is what makes people stop scrolling. We shoot the bite for the deck - the hero is before the first crack.",
+              "timestamp": "2026-10-17T15:24:00+00:00",
+              "model": "openrouter/anthropic/claude-haiku-4.5",
+              "attachments": []
+            },
+            {
+              "day": "monday",
+              "stage": "brainstorm",
+              "character": "Margaret Chen",
+              "message": "Shoot both. Hero is unbroken, deck is the bite. That's the work. See you tomorrow.",
+              "timestamp": "2026-10-17T16:12:00+00:00",
+              "model": "openrouter/anthropic/claude-haiku-4.5",
+              "attachments": []
+            }
+          ],
+          "control_stop_check_log": [],
+          "control_director_log": [],
+          "control_rewrite_log": [
+            {
+              "day": "monday",
+              "speaker": "Margaret Chen",
+              "faults": [
+                "word_budget"
+              ],
+              "rewritten": true,
+              "draft_words": 30,
+              "final_words": 10,
+              "draft": "Coffee's gone cold. But I've got something - Portuguese custard tarts, muffin pan version. Caramelized tops, laminated base, lemon-cinnamon custard that actually sets. The real thing, not some Instagram approximation.",
+              "cot_retry": false
+            },
+            {
+              "day": "monday",
+              "speaker": "Stephanie 'Steph' Whitmore",
+              "faults": [],
+              "rewritten": false,
+              "draft_words": 22,
+              "final_words": 22,
+              "draft": "I love that - the caramelized tops are really the whole thing, right? That's what makes people want to pick one up.",
+              "cot_retry": false
+            },
+            {
+              "day": "monday",
+              "speaker": "Marcus Reid",
+              "faults": [],
+              "rewritten": false,
+              "draft_words": 34,
+              "final_words": 34,
+              "draft": "Right, but that caramelized surface is earned - it's the lamination doing the work, those butter layers shattering under heat, and then the custard's lemon-cinnamon underneath giving it reason to exist beyond just texture.",
+              "cot_retry": false
+            },
+            {
+              "day": "monday",
+              "speaker": "Margaret Chen",
+              "faults": [
+                "shape:dash_clause",
+                "word_budget"
+              ],
+              "rewritten": true,
+              "draft_words": 28,
+              "final_words": 11,
+              "draft": "The custard's not just flavor - it's what keeps the layers from shattering into dust the second someone bites. Lemon cuts the richness, cinnamon makes it taste intentional.",
+              "cot_retry": false
+            },
+            {
+              "day": "monday",
+              "speaker": "Julian Torres",
+              "faults": [
+                "shape:dash_clause"
+              ],
+              "rewritten": true,
+              "draft_words": 25,
+              "final_words": 16,
+              "draft": "Exactly - so we're shooting the cross-section to show those shattered layers actually holding the custard, not just a hero overhead of the caramelized top.",
+              "cot_retry": false
+            },
+            {
+              "day": "monday",
+              "speaker": "Ria Castillo",
+              "faults": [
+                "repetition",
+                "shape:dash_clause",
+                "word_budget"
+              ],
+              "rewritten": true,
+              "draft_words": 30,
+              "final_words": 18,
+              "draft": "But the overhead at dusk with that shattered caramel catching light - that's the 15-second hook that stops the scroll, then the cross-section is what makes them actually click through.",
+              "cot_retry": false
+            },
+            {
+              "day": "monday",
+              "speaker": "Julian Torres",
+              "faults": [
+                "shape:dash_clause"
+              ],
+              "rewritten": true,
+              "draft_words": 25,
+              "final_words": 19,
+              "draft": "Backlight catches the shattering, sure, but you lose the custard's color - the golden freckle detail that makes it feel intentional and not just burnt.",
+              "cot_retry": false
+            },
+            {
+              "day": "monday",
+              "speaker": "Julian Torres",
+              "faults": [
+                "shape:dash_clause"
+              ],
+              "rewritten": true,
+              "draft_words": 24,
+              "final_words": 10,
+              "draft": "The lamination's only visible when it breaks - so we shoot the bite, not the whole tart sitting there looking like a caramel coin.",
+              "cot_retry": false
+            },
+            {
+              "day": "monday",
+              "speaker": "Ria Castillo",
+              "faults": [
+                "shape:dash_clause",
+                "word_budget"
+              ],
+              "rewritten": true,
+              "draft_words": 45,
+              "final_words": 29,
+              "draft": "The bite shot proves the layers, but people don't share proof - they share crave. We shoot both, but the hero is the moment before the bite, when the caramel's still intact and catching light. That's what makes someone go \"I need that right now.\"",
+              "cot_retry": false
+            },
+            {
+              "day": "monday",
+              "speaker": "Margaret Chen",
+              "faults": [
+                "repetition",
+                "shape:dash_clause",
+                "word_budget"
+              ],
+              "rewritten": true,
+              "draft_words": 34,
+              "final_words": 15,
+              "draft": "You shoot both. Hero gets the unbroken caramel - that's the scroll stop. Deck shows the bite, proves the lamination's real. That's how you earn the click.\n\nWe're doing this right. See you tomorrow.",
+              "cot_retry": false
+            }
+          ],
+          "variant_messages": [],
+          "judge_orientations": [],
+          "author_attempts": [],
+          "variant_calls_before_abort": 1,
+          "scenario_id": "2026-W36"
+        }
+      ],
+      "completed_pairs": 0,
+      "overall_counts": {},
+      "per_dimension_counts": {
+        "title_fidelity": {},
+        "arc_resolution": {},
+        "voice_distinctiveness": {},
+        "technical_credibility": {},
+        "natural_progression": {},
+        "promise_delivery": {},
+        "turn_taking": {},
+        "cast_coverage": {},
+        "emotional_range": {},
+        "register_naturalness": {}
+      },
+      "target_win_rate": 0.0,
+      "worst_other_dimension_loss_rate": 0.0,
+      "dimensions_losing_to_control": [],
+      "meets_decision_rule": false,
+      "metric_deltas": {},
+      "metric_coverage": {}
+    }
+  ],
+  "pairs": [],
+  "partial_pairs": [
+    {
+      "run_index": 1,
+      "status": "error_mid_arm",
+      "control_messages": [
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "Portuguese custard tarts. Muffin pan. Caramelized, laminated, actually done right.",
+          "timestamp": "2026-10-17T09:00:00+00:00",
+          "model": "openrouter/anthropic/claude-haiku-4.5",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "I love that - the caramelized tops are really the whole thing, right? That's what makes people want to pick one up.",
+          "timestamp": "2026-10-17T09:48:00+00:00",
+          "model": "openrouter/anthropic/claude-haiku-4.5",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Marcus Reid",
+          "message": "Right, but that caramelized surface is earned - it's the lamination doing the work, those butter layers shattering under heat, and then the custard's lemon-cinnamon underneath giving it reason to exist beyond just texture.",
+          "timestamp": "2026-10-17T10:36:00+00:00",
+          "model": "openrouter/anthropic/claude-haiku-4.5",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "The custard keeps those layers from disintegrating the moment someone bites.",
+          "timestamp": "2026-10-17T11:24:00+00:00",
+          "model": "openrouter/anthropic/claude-haiku-4.5",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Julian Torres",
+          "message": "The cross-section is the only shot that proves the lamination matters - overhead just shows caramel.",
+          "timestamp": "2026-10-17T12:12:00+00:00",
+          "model": "openrouter/anthropic/claude-haiku-4.5",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Ria Castillo",
+          "message": "Overhead at golden hour with that shattered top catching backlight - that's the stop-scroll moment people actually share.",
+          "timestamp": "2026-10-17T13:00:00+00:00",
+          "model": "openrouter/anthropic/claude-haiku-4.5",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Julian Torres",
+          "message": "Backlight washes out the custard's color underneath - we need to see those golden freckles, not just the char.",
+          "timestamp": "2026-10-17T13:48:00+00:00",
+          "model": "openrouter/anthropic/claude-haiku-4.5",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Julian Torres",
+          "message": "Shoot the bite. That's where the lamination actually shows itself.",
+          "timestamp": "2026-10-17T14:36:00+00:00",
+          "model": "openrouter/anthropic/claude-haiku-4.5",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Ria Castillo",
+          "message": "The bite proves it, but the unbroken caramel is what makes people stop scrolling. We shoot the bite for the deck - the hero is before the first crack.",
+          "timestamp": "2026-10-17T15:24:00+00:00",
+          "model": "openrouter/anthropic/claude-haiku-4.5",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "Shoot both. Hero is unbroken, deck is the bite. That's the work. See you tomorrow.",
+          "timestamp": "2026-10-17T16:12:00+00:00",
+          "model": "openrouter/anthropic/claude-haiku-4.5",
+          "attachments": []
+        }
+      ],
+      "control_stop_check_log": [],
+      "control_director_log": [],
+      "control_rewrite_log": [
+        {
+          "day": "monday",
+          "speaker": "Margaret Chen",
+          "faults": [
+            "word_budget"
+          ],
+          "rewritten": true,
+          "draft_words": 30,
+          "final_words": 10,
+          "draft": "Coffee's gone cold. But I've got something - Portuguese custard tarts, muffin pan version. Caramelized tops, laminated base, lemon-cinnamon custard that actually sets. The real thing, not some Instagram approximation.",
+          "cot_retry": false
+        },
+        {
+          "day": "monday",
+          "speaker": "Stephanie 'Steph' Whitmore",
+          "faults": [],
+          "rewritten": false,
+          "draft_words": 22,
+          "final_words": 22,
+          "draft": "I love that - the caramelized tops are really the whole thing, right? That's what makes people want to pick one up.",
+          "cot_retry": false
+        },
+        {
+          "day": "monday",
+          "speaker": "Marcus Reid",
+          "faults": [],
+          "rewritten": false,
+          "draft_words": 34,
+          "final_words": 34,
+          "draft": "Right, but that caramelized surface is earned - it's the lamination doing the work, those butter layers shattering under heat, and then the custard's lemon-cinnamon underneath giving it reason to exist beyond just texture.",
+          "cot_retry": false
+        },
+        {
+          "day": "monday",
+          "speaker": "Margaret Chen",
+          "faults": [
+            "shape:dash_clause",
+            "word_budget"
+          ],
+          "rewritten": true,
+          "draft_words": 28,
+          "final_words": 11,
+          "draft": "The custard's not just flavor - it's what keeps the layers from shattering into dust the second someone bites. Lemon cuts the richness, cinnamon makes it taste intentional.",
+          "cot_retry": false
+        },
+        {
+          "day": "monday",
+          "speaker": "Julian Torres",
+          "faults": [
+            "shape:dash_clause"
+          ],
+          "rewritten": true,
+          "draft_words": 25,
+          "final_words": 16,
+          "draft": "Exactly - so we're shooting the cross-section to show those shattered layers actually holding the custard, not just a hero overhead of the caramelized top.",
+          "cot_retry": false
+        },
+        {
+          "day": "monday",
+          "speaker": "Ria Castillo",
+          "faults": [
+            "repetition",
+            "shape:dash_clause",
+            "word_budget"
+          ],
+          "rewritten": true,
+          "draft_words": 30,
+          "final_words": 18,
+          "draft": "But the overhead at dusk with that shattered caramel catching light - that's the 15-second hook that stops the scroll, then the cross-section is what makes them actually click through.",
+          "cot_retry": false
+        },
+        {
+          "day": "monday",
+          "speaker": "Julian Torres",
+          "faults": [
+            "shape:dash_clause"
+          ],
+          "rewritten": true,
+          "draft_words": 25,
+          "final_words": 19,
+          "draft": "Backlight catches the shattering, sure, but you lose the custard's color - the golden freckle detail that makes it feel intentional and not just burnt.",
+          "cot_retry": false
+        },
+        {
+          "day": "monday",
+          "speaker": "Julian Torres",
+          "faults": [
+            "shape:dash_clause"
+          ],
+          "rewritten": true,
+          "draft_words": 24,
+          "final_words": 10,
+          "draft": "The lamination's only visible when it breaks - so we shoot the bite, not the whole tart sitting there looking like a caramel coin.",
+          "cot_retry": false
+        },
+        {
+          "day": "monday",
+          "speaker": "Ria Castillo",
+          "faults": [
+            "shape:dash_clause",
+            "word_budget"
+          ],
+          "rewritten": true,
+          "draft_words": 45,
+          "final_words": 29,
+          "draft": "The bite shot proves the layers, but people don't share proof - they share crave. We shoot both, but the hero is the moment before the bite, when the caramel's still intact and catching light. That's what makes someone go \"I need that right now.\"",
+          "cot_retry": false
+        },
+        {
+          "day": "monday",
+          "speaker": "Margaret Chen",
+          "faults": [
+            "repetition",
+            "shape:dash_clause",
+            "word_budget"
+          ],
+          "rewritten": true,
+          "draft_words": 34,
+          "final_words": 15,
+          "draft": "You shoot both. Hero gets the unbroken caramel - that's the scroll stop. Deck shows the bite, proves the lamination's real. That's how you earn the click.\n\nWe're doing this right. See you tomorrow.",
+          "cot_retry": false
+        }
+      ],
+      "variant_messages": [],
+      "judge_orientations": [],
+      "author_attempts": [],
+      "variant_calls_before_abort": 1,
+      "scenario_id": "2026-W36"
+    }
+  ],
+  "rewrite_summary": {
+    "control": {
+      "lines": 0,
+      "rewritten": 0,
+      "rewrite_rate": 0.0,
+      "fault_counts": {},
+      "cot_retry": 0
+    },
+    "variant": {
+      "lines": 0,
+      "rewritten": 0,
+      "rewrite_rate": 0.0,
+      "fault_counts": {},
+      "cot_retry": 0
+    }
+  },
+  "length_stats": {
+    "control": {},
+    "variant": {}
+  },
+  "results_file": "/Users/eriksjaastad/projects/muffinpanrecipes/docs/conversation-lab/results/20261017T050300Z-ab-testbed-claude-o55-author.json",
+  "completed_pairs": 0,
+  "overall_counts": {},
+  "per_dimension_counts": {
+    "title_fidelity": {},
+    "arc_resolution": {},
+    "voice_distinctiveness": {},
+    "technical_credibility": {},
+    "natural_progression": {},
+    "promise_delivery": {},
+    "turn_taking": {},
+    "cast_coverage": {},
+    "emotional_range": {},
+    "register_naturalness": {}
+  },
+  "target_win_rate": 0.0,
+  "worst_other_dimension_loss_rate": 0.0,
+  "dimensions_losing_to_control": [],
+  "meets_decision_rule": false,
+  "metric_deltas": {},
+  "metric_coverage": {},
+  "error": "ValueError: Author scene line 5: unknown/off-roster speaker or narration",
+  "judge_meets_numeric_rule": false,
+  "min_balance": 20.0,
+  "length_matching": {
+    "total_words_tolerance": 0.15,
+    "words_per_line_tolerance": 0.25,
+    "gap_definition": "larger / smaller - 1",
+    "max_regenerations": 2,
+    "unmatched_pair_positions": []
+  }
+}
