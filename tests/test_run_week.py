@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from hypothesis import given, settings, strategies as st
 from starlette.routing import Match
 
 import backend.admin.cron_routes as cron_routes
@@ -73,6 +74,8 @@ def test_a_non_200_day_stops_the_week_and_judge_fails_are_counted_per_day(monkey
 
 @pytest.mark.parametrize("argv", [
     ["--episode", "../../episodes/2026-W42"],
+    ["--episode", "2026-W42"],
+    ["--episode", "test-" + "x" * 60],
     ["--episode", "test-e", "--days", " , "],
     ["--episode", "test-e", "--days", "funday"],
 ])
@@ -87,3 +90,15 @@ def test_storage_without_namespaces_stops_before_any_call(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["run_week.py", "--episode", "test-e"])
     with pytest.raises(SystemExit):
         run_week.main()
+
+
+DAYS = [p.rsplit("/", 1)[-1] for p in DAY_PATHS]
+
+
+@settings(max_examples=30)
+@given(st.lists(st.sampled_from(DAYS), min_size=1, unique=True))
+def test_only_the_selected_days_run_in_schedule_order(days):
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        code, posted = _run(monkeypatch, ["--episode", "test-e", "--days", ",".join(days)])
+    assert code == 0
+    assert [path.rsplit("/", 1)[-1] for path, _ in posted] == [d for d in DAYS if d in days]

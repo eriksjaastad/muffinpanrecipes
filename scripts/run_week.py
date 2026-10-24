@@ -23,7 +23,6 @@ import argparse
 import json
 import logging
 import os
-import re
 import sys
 from pathlib import Path
 
@@ -50,13 +49,21 @@ class _JudgeFailures(logging.Handler):
 def main() -> int:
     days = cron_days()
     parser = argparse.ArgumentParser(description="Run a test week through the production cron handlers.")
-    parser.add_argument("--episode", required=True, help="test episode id (stored under test/)")
+    parser.add_argument("--episode", required=True, help="test episode id, starting test- (stored under test/)")
     parser.add_argument("--concept", help="recipe concept for Monday; omit to let Monday pick")
     parser.add_argument("--days", default=",".join(days), help="comma-separated days (default: all)")
     args = parser.parse_args()
-    # A path character in the id would let the storage URL escape test/.
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*", args.episode):
-        parser.error(f"--episode must be letters, digits and dashes, got {args.episode!r}")
+    # Blob writes go under test/, but the backend also mirrors every episode to
+    # data/episodes/<id>.json unprefixed, so the id itself must never name a
+    # real week. Storage's own id rule then bounds it (photo control, Wednesday).
+    from backend import storage as storage_module
+
+    try:
+        storage_module._check_photo_control_args(args.episode)
+    except ValueError:
+        parser.error(f"--episode must be 1-64 letters, digits, - or _, got {args.episode!r}")
+    if not args.episode.startswith("test-"):
+        parser.error(f"--episode must start with 'test-', got {args.episode!r}")
     wanted = {d.strip() for d in args.days.split(",") if d.strip()}
     if not wanted:
         parser.error("--days selects no day")
