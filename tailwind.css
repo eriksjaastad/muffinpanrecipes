@@ -1,4 +1,4 @@
-@import "tailwindcss";
+@import "tailwindcss" source(none);
 
-/* Source: backend/admin/templates/*.html */
-@source "../backend/admin/templates/**/*.html";
+/* Admin only: the templates are the sole consumer of the compiled file. */
+@source "./backend/admin/templates/**/*.html";
