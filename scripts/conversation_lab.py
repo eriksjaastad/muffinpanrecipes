@@ -395,6 +395,7 @@ _OPENROUTER_KEY_TIMEOUT_SECONDS = 30.0
 # before dispatch; `after` is fetched lazily by the first report builder.
 _OPENROUTER_KEY_BEFORE: dict[str, Any] | None = None
 _OPENROUTER_KEY_AFTER: dict[str, Any] | None = None
+_OPENROUTER_MIN_BALANCE: float = 0.0
 
 # {model_id: (prompt_price_per_token_usd, completion_price_per_token_usd)},
 # fetched ONCE by _openrouter_preflight (#7714 finding 2) - never under
@@ -419,6 +420,7 @@ _CDN_TIMEOUT_SECONDS = 8
 # PROTOCOL.md deliberately treats a judge-prompt change as a separate,
 # rarer kind of experiment, never bundled with a character-prompt change).
 ALLOWED_VARIANT_ATTRS: tuple[str, ...] = (
+    "AUTHOR_MODE",
     "_SHARED_CHARACTER_RULES",
     "_REACTION_DIRECTIVE",
     "DAY_STAGE_DIRECTIONS",
@@ -874,6 +876,8 @@ def _openrouter_preflight(args: argparse.Namespace) -> None:
     # remaining and died at its first judge call because the account held $0.56.
     balance = _openrouter_fetch_account_balance()
     print(f"[openrouter] account balance: ${balance:.2f}")
+    if _OPENROUTER_MIN_BALANCE and balance < args.max_cost + _OPENROUTER_MIN_BALANCE:
+        raise SystemExit("conversation_lab: --max-cost would encroach on --min-balance reserve")
     if not (balance >= args.max_cost):
         raise SystemExit(
             f"conversation_lab: OpenRouter account balance ${balance:.2f} is below "
@@ -1420,10 +1424,10 @@ def _validate_lever_shape(name: str, value: Any) -> None:
     if name == "REWRITE_GUARDS":
         _validate_rewrite_guards_shape(value)
         return
-    if name == "WORD_CAPS":
+    if name in ("WORD_CAPS", "AUTHOR_MODE"):
         if not isinstance(value, bool):
             raise ConversationLabError(
-                f"WORD_CAPS must be a bool, got {value!r}"
+                f"{name} must be a bool, got {value!r}"
             )
         return
     if name == "SPEAKERS_SEE_JUDGE_RECIPE_FACTS":
@@ -1665,6 +1669,7 @@ def _run_arm(
     prior_lines: list[str] | None = None,
     message_sink: list | None = None,
     recipe_facts: str | None = None,
+    author_length_target: dict | None = None,
 ) -> dict[str, Any]:
     """Call run_simulation with the exact production call shape.
 
@@ -1711,6 +1716,7 @@ def _run_arm(
         initial_highlights=None,
         initial_recent_lines=list(prior_lines) if prior_lines is not None else None,
         message_sink=message_sink,
+        **({"author_length_target": author_length_target} if author_length_target else {}),
     )
 
 class LabBudgetAbort(BaseException):
@@ -1824,6 +1830,9 @@ def _installed_budget_guard(budget: CallBudget, max_cost: float | None, baseline
                     0.0 if provider == "local"
                     else _openrouter_worst_case_call_cost(model or "", prompt_bytes or 0)
                 )
+                if provider != 'local' and _OPENROUTER_MIN_BALANCE:
+                    if _openrouter_fetch_account_balance() - worst_case < _OPENROUTER_MIN_BALANCE:
+                        raise LabBudgetAbort("OpenRouter balance would fall below --min-balance")
                 # An unreadable total (e.g. an earlier OpenRouter entry with
                 # no usage.cost) blocks: admitting the call would spend
                 # against a cap nobody can check.
@@ -1865,6 +1874,7 @@ def _run_arm_and_count(
     default_model: str,
     prior_lines: list[str] | None = None,
     recipe_facts: str | None = None,
+    author_length_target: dict | None = None,
 ) -> tuple[dict[str, Any], int]:
     """Run one arm and estimate its call cost.
 
@@ -1910,6 +1920,7 @@ def _run_arm_and_count(
         result = _run_arm(
             concept, stage, run_index, recipe_context, mode, default_model,
             prior_lines=prior_lines, message_sink=sink, recipe_facts=recipe_facts,
+            **({"author_length_target": author_length_target} if author_length_target else {}),
         )
     except BaseException as exc:
         if not hasattr(exc, "conversation_lab_calls_made"):
@@ -2840,6 +2851,22 @@ def _load_testbed(path: Path) -> list[dict[str, Any]]:
         )
     return scenarios
 
+def _pair_length_match(control: list[dict], variant: list[dict]) -> dict[str, Any]:
+    """Conservative relative gaps: larger/smaller minus one, excluding labels."""
+    words = [_total_word_count(arm) for arm in (control, variant)]
+    means = [n / len(arm) if arm else 0 for n, arm in zip(words, (control, variant))]
+    gaps = [max(ns) / min(ns) - 1 if min(ns) else None for ns in (words, means)]
+    lo, hi = simulate_module.TICKS_RANGE['monday']
+    line_count_in_range = lo <= len(variant) <= hi
+    return {
+        "control_words": words[0], "variant_words": words[1],
+        "control_words_per_line": means[0], "variant_words_per_line": means[1],
+        "total_words_gap": gaps[0], "words_per_line_gap": gaps[1],
+        "line_count_in_range": line_count_in_range,
+        "matched": line_count_in_range and gaps[0] is not None and gaps[0] <= 0.15 and gaps[1] <= 0.25,
+    }
+
+
 def _generate_and_judge_pairs(
     *,
     concept: str,
@@ -2884,6 +2911,13 @@ def _generate_and_judge_pairs(
     restore_pending: dict[str, Any] | None = None
     partial_pairs = partial_pairs if partial_pairs is not None else []
     arm_call_reservation = _arm_call_reservation(stage, variant, dry_run=dry_run)
+    # The control still uses the per-line path when the variant is one author.
+    control_call_reservation = max(
+        arm_call_reservation, _arm_call_reservation(stage, None, dry_run=dry_run),
+    )
+    author = variant.get("AUTHOR_MODE", False)
+    if author and stage != 'monday':
+        raise ConversationLabError("AUTHOR_MODE currently supports Monday only (#8383)")
 
     # Before the control arm costs anything (Codex audit): a malformed variant
     # used to surface only when _apply_variant ran, which is after the control
@@ -2898,7 +2932,8 @@ def _generate_and_judge_pairs(
     guard_ctx.__enter__()
     try:
         for run_index in range(1, runs + 1):
-            if budget.would_exceed(arm_call_reservation) or _would_exceed_cost(max_cost):
+            pair_cost_start = _lab_cost_total() if author else 0.0
+            if budget.would_exceed(control_call_reservation) or _would_exceed_cost(max_cost):
                 aborted = True
                 break
 
@@ -2938,6 +2973,7 @@ def _generate_and_judge_pairs(
             control_stop_check_log = _snapshot_stop_check_log()
             control_director_log = _snapshot_director_log()
             control_rewrite_log = _snapshot_rewrite_log()
+            control_cost = _lab_cost_total() - pair_cost_start if author else 0.0
             budget.record(0 if dry_run else control_calls)
             pending_pair: dict[str, Any] = {
                 "run_index": run_index,
@@ -2948,6 +2984,7 @@ def _generate_and_judge_pairs(
                 "control_rewrite_log": control_rewrite_log,
                 "variant_messages": None,
                 "judge_orientations": [],
+                "author_attempts": [],
             }
             partial_pairs.append(pending_pair)
 
@@ -2958,10 +2995,27 @@ def _generate_and_judge_pairs(
             restore_pending = _apply_variant(simulate_module, variant)
             try:
                 try:
-                    variant_result, variant_calls = _run_arm_and_count(
-                        concept, stage, run_index, recipe_context, mode, default_model,
-                        prior_lines=prior_lines, recipe_facts=recipe_facts,
-                    )
+                    reference = control_result.get("messages", [])
+                    for attempt in range(3 if author and not dry_run else 1):
+                        attempt_cost_start = _lab_cost_total() if author else 0.0
+                        variant_result, variant_calls = _run_arm_and_count(
+                            concept, stage, run_index, recipe_context, mode, default_model,
+                            prior_lines=prior_lines, recipe_facts=recipe_facts,
+                            **({"author_length_target": {
+                                "lines": len(reference), "words": _total_word_count(reference),
+                            }} if author else {}),
+                        )
+                        budget.record(0 if dry_run else variant_calls)
+                        if not author:
+                            break
+                        match = _pair_length_match(reference, variant_result["messages"])
+                        pending_pair["author_attempts"].append({
+                            "attempt": attempt + 1, "messages": variant_result["messages"],
+                            "length_match": match, "cost_usd": _lab_cost_total() - attempt_cost_start,
+                        })
+                        if match["matched"] or dry_run:
+                            break
+                        print(f"[author] run {run_index}, attempt {attempt + 1}: length mismatch {match}")
                 except BaseException as exc:
                     # #7714 finding 2 / round 3 / round 4 finding 1: the
                     # pending pair already reflects real, paid control-arm
@@ -2976,6 +3030,8 @@ def _generate_and_judge_pairs(
                     pending_pair["status"] = "aborted_mid_arm" if isinstance(exc, LabBudgetAbort) else "error_mid_arm"
                     pending_pair["variant_calls_before_abort"] = made
                     pending_pair["variant_messages"] = getattr(exc, "conversation_lab_partial_messages", [])
+                    if hasattr(exc, 'author_invalid_scene'):
+                        pending_pair['author_invalid_scene'] = exc.author_invalid_scene
                     if not isinstance(exc, LabBudgetAbort):
                         raise
                     aborted = True
@@ -2986,7 +3042,7 @@ def _generate_and_judge_pairs(
             finally:
                 _restore_variant(simulate_module, restore_pending)
                 restore_pending = None
-            budget.record(0 if dry_run else variant_calls)
+            generation_cost = _lab_cost_total() - pair_cost_start if author else 0.0
 
             control_messages = control_result.get("messages", [])
             variant_messages = variant_result.get("messages", [])
@@ -3040,6 +3096,15 @@ def _generate_and_judge_pairs(
                 "judge_diagnostics": _orientation_diagnostics(first, second) if not dry_run else None,
                 "judge_orientations": pending_pair["judge_orientations"],
                 "dry_run": bool(dry_run),
+                **({
+                    "length_match": _pair_length_match(control_messages, variant_messages),
+                    "author_attempts": pending_pair["author_attempts"],
+                    "cost_usd": {
+                        "control": control_cost,
+                        "variant_including_regenerations": generation_cost - control_cost,
+                        "judge": _lab_cost_total() - pair_cost_start - generation_cost,
+                    },
+                } if variant.get("AUTHOR_MODE") else {}),
             }
             pairs.append(completed_pair)
             partial_pairs.remove(pending_pair)
@@ -3159,6 +3224,9 @@ def _arm_call_reservation(stage: str, variant: dict[str, Any] | None, *, dry_run
     finding 2)."""
     if dry_run:
         return 0
+    if variant and variant.get("AUTHOR_MODE"):
+        # Three scene attempts; each router request can retry empty responses.
+        return 3 * model_router._OPENROUTER_EMPTY_STOP_MAX_ATTEMPTS
     max_turns = _effective_max_turns_for_stage(stage, variant)
     reservation = _MAX_CALLS_PER_TURN * max_turns
     if _effective_stop_check_active(variant):
@@ -3488,6 +3556,8 @@ def _build_ab_report(
     }
     if error is not None:
         report["error"] = error
+    if variant.get("AUTHOR_MODE"):
+        _annotate_author_report(report)
     return report
 
 def _build_testbed_ab_report(
@@ -3547,7 +3617,24 @@ def _build_testbed_ab_report(
     prior_days = getattr(args, "prior_days_provenance", None)
     if prior_days is not None:
         report["prior_days"] = prior_days
+    if variant.get("AUTHOR_MODE"):
+        _annotate_author_report(report)
     return report
+
+
+def _annotate_author_report(report: dict[str, Any]) -> None:
+    """Author screens are decided by the human read, with length exceptions explicit."""
+    report['judge_meets_numeric_rule'] = report['meets_decision_rule']
+    report['meets_decision_rule'] = False  # cannot authorize a change before Erik's read
+    report['decision_rule'] = "Erik's blind read with a one-line why decides; judge is information only."
+    report['min_balance'] = _OPENROUTER_MIN_BALANCE
+    report['length_matching'] = {
+        'total_words_tolerance': 0.15, 'words_per_line_tolerance': 0.25,
+        'gap_definition': 'larger / smaller - 1', 'max_regenerations': 2,
+        'unmatched_pair_positions': [
+            i for i, pair in enumerate(report['pairs'], 1) if not pair['length_match']['matched']
+        ],
+    }
 
 def _print_dimension_table(per_dimension_counts: dict[str, dict[str, int]]) -> None:
     print(f"{'dimension':<24}{'variant':>8}{'tie':>8}{'control':>8}")
@@ -3764,6 +3851,8 @@ def _append_experiments_row(
         meets_decision_rule=report["meets_decision_rule"], target_win_rate=report["target_win_rate"],
         target_dimension=report["target_dimension"],
     )
+    if variant.get('AUTHOR_MODE'):
+        decision = 'Awaiting Erik blind read; judge informational'
 
     row = (
         f"| {report['generated_at']} | {result_path.stem} | {lever} | "
@@ -3788,7 +3877,10 @@ def _load_sweep_variants(sweep_dir: Path) -> dict[str, dict[str, Any]]:
     variant_files = sorted(sweep_dir.glob("*.json"))
     if not variant_files:
         raise SystemExit(f"conversation_lab ab: --sweep directory has no *.json variant files: {sweep_dir}")
-    return {vf.stem: _load_variant_file(vf) for vf in variant_files}
+    variants = {vf.stem: _load_variant_file(vf) for vf in variant_files}
+    if any(v.get('AUTHOR_MODE') for v in variants.values()):
+        raise ConversationLabError('AUTHOR_MODE requires --variant for length matching, not --sweep')
+    return variants
 
 def _generate_sweep_control(
     *,
@@ -7869,6 +7961,10 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     ab.add_argument("--dry-run", action="store_true")
+    ab.add_argument(
+        '--min-balance', type=float, default=0.0,
+        help='Keep this many USD in OpenRouter for production; checked before each paid call.',
+    )
     ab.add_argument("--no-log", action="store_true", help="Do not append a row to the experiments log")
     ab.add_argument("--experiments-log", default=None, help=f"Override the EXPERIMENTS.md path (default: {DEFAULT_EXPERIMENTS_LOG})")
     ab.add_argument("--results-dir", default=None)
@@ -8141,7 +8237,10 @@ def main(argv: list[str] | None = None) -> None:
     if max_cost_arg is not None and not (isfinite(max_cost_arg) and max_cost_arg > 0):
         raise SystemExit(f"conversation_lab: --max-cost must be a positive finite amount, got {max_cost_arg!r}")
 
-    global _OPENROUTER_KEY_BEFORE, _OPENROUTER_KEY_AFTER
+    global _OPENROUTER_KEY_BEFORE, _OPENROUTER_KEY_AFTER, _OPENROUTER_MIN_BALANCE
+    _OPENROUTER_MIN_BALANCE = getattr(args, 'min_balance', 0.0)
+    if not isfinite(_OPENROUTER_MIN_BALANCE) or _OPENROUTER_MIN_BALANCE < 0:
+        raise SystemExit('conversation_lab: --min-balance must be nonnegative and finite')
     _OPENROUTER_KEY_BEFORE = None
     _OPENROUTER_KEY_AFTER = None
 

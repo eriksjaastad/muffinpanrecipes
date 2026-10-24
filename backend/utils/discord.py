@@ -16,6 +16,8 @@ them by name.
 """
 
 import os
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Optional
 
 from backend.utils.alerts import _pytest_gate, send_alert  # noqa: F401
@@ -109,11 +111,35 @@ def notify_pipeline_failure(
         "Pipeline failure alert: recipe=%s stage=%s concept=%s error=%s",
         recipe_id, stage, concept, error_message,
     )
-    return send_alert(
-        subject="Pipeline failed",
-        body=f"{_short(stage)} · {_short(recipe_id)}",
-        severity="critical",
-    )
+    body = f"{_short(stage)} · {_short(recipe_id)}"
+    if _held("Pipeline failed", body):
+        return False
+    return send_alert(subject="Pipeline failed", body=body, severity="critical")
+
+
+_failure_alerts_held: ContextVar[bool] = ContextVar("failure_alerts_held", default=False)
+
+
+@contextmanager
+def failure_alerts_held():
+    """Hold back failure alerts while cron_repair retries a day (#8605).
+
+    A failed retry is not news: the scheduled run already alerted, and
+    cron_repair sends notify_repair_exhausted when retries run out. A held
+    alert is logged and returns False (not sent). Other alerts still send.
+    """
+    token = _failure_alerts_held.set(True)
+    try:
+        yield
+    finally:
+        _failure_alerts_held.reset(token)
+
+
+def _held(subject: str, body: str) -> bool:
+    if _failure_alerts_held.get():
+        logger.warning("Alert held during a repair retry: %s / %s", subject, body)
+        return True
+    return False
 
 
 def notify_repair_exhausted(episode_id: str, stage: str) -> bool:
@@ -137,6 +163,8 @@ def notify_judge_failure(
     The episode is paused. The alert says only that, with the week and day;
     the verdict is recorded on the episode, not in the alert.
     """
+    if _held("Episode paused", f"{_short(episode_id)} · {_day(stage)}"):
+        return False
     return send_alert(
         subject="Episode paused",
         body=f"{_short(episode_id)} · {_day(stage)}",

@@ -13,7 +13,8 @@ from types import SimpleNamespace
 from typing import cast
 from unittest.mock import patch
 
-from fastapi import Request
+import pytest
+from fastapi import HTTPException, Request
 
 from backend.admin import cron_routes
 from backend.storage import EpisodeReadStale
@@ -117,3 +118,59 @@ def test_an_unreadable_outcome_counts_as_unfinished():
     result, _, _ = _repair(store, _at(15), _generator(), read_back_fails=True)
     assert result.status_code == 500
     assert b"outcome unreadable: EpisodeReadStale" in result.body
+
+
+
+def _outage(store: dict, request_path: str, now: datetime, generator_down: bool):
+    """Run a route through the real judge loop during an outage; return the alerts sent."""
+    def generate(*_a, **_kw):
+        if generator_down:
+            raise RuntimeError("model outage")
+        return [{"character": "Margaret", "message": "Rest them."}]
+
+    def judge(_concept, stage, _dialogue, episode, **_kw):
+        episode.setdefault("judge_scores", {})[stage] = {}
+        return False, "JUDGE ERROR: RuntimeError: provider down"
+
+    def save(_id, data):
+        store["ep"] = copy.deepcopy(data)
+
+    handler = cron_routes.cron_repair if request_path.endswith("repair") else cron_routes.cron_tuesday
+    request = cast(Request, SimpleNamespace(method="GET", url=SimpleNamespace(path=request_path)))
+    sent = []
+    with patch.object(cron_routes, "_verify_cron_secret"), \
+         patch.object(cron_routes, "_verify_day_of_week"), \
+         patch.object(cron_routes, "_current_episode_id", return_value=WEEK), \
+         patch.object(cron_routes, "_utc_now", return_value=now), \
+         patch.object(cron_routes.storage, "load_episode_verified",
+                      side_effect=lambda _id: copy.deepcopy(store["ep"])), \
+         patch.object(cron_routes.storage, "load_episode_strict",
+                      side_effect=lambda _id: copy.deepcopy(store["ep"])), \
+         patch.object(cron_routes.storage, "save_episode", side_effect=save), \
+         patch.object(cron_routes, "_generate_dialogue", side_effect=generate), \
+         patch.object(cron_routes, "_judge_dialogue", judge), \
+         patch.object(cron_routes, "_score_dialogue_qa", lambda *a, **kw: {}), \
+         patch("backend.utils.discord.send_alert", side_effect=lambda **kw: sent.append(kw["subject"]) or True):
+        if handler is cron_routes.cron_repair:
+            assert asyncio.run(handler(request)).status_code == 500
+        else:
+            with pytest.raises(HTTPException):
+                asyncio.run(handler(request))
+    return sent
+
+
+@pytest.mark.parametrize("generator_down, alert", [(False, "Episode paused"), (True, "Pipeline failed")],
+                         ids=["judge-outage", "generator-outage"])
+def test_a_failed_retry_holds_its_alerts_but_the_scheduled_run_still_sends_them(generator_down, alert):
+    store = {"ep": _episode()}
+    assert _outage(store, "/api/cron/repair", _at(15), generator_down) == []
+    assert store["ep"]["stages"]["tuesday"]["status"] == "failed"
+    assert _outage(store, "/api/cron/tuesday", _at(14, 31), generator_down) == [alert]
+
+
+def test_the_hold_ends_with_its_block_even_on_an_exception():
+    from backend.utils import discord
+
+    with pytest.raises(RuntimeError), discord.failure_alerts_held():
+        raise RuntimeError("stage blew up")
+    assert discord._held("Pipeline failed", "tuesday") is False

@@ -72,6 +72,7 @@ from backend.utils.logging import get_logger
 from backend.utils.recipe_copy import generate_intro, recent_openers, recipe_pitch
 from backend.utils import photo_review
 from backend.utils.discord import (
+    failure_alerts_held,
     notify_copy_advisory,
     notify_judge_advisory,
     notify_judge_failure,
@@ -3446,7 +3447,8 @@ async def cron_repair(request: Request):
 
     In the three hours after a day's window (cron time + 45 min) an unfinished
     day is re-run, once per hour, with the day's own handler; a re-run
-    Monday keeps its stored concept. In the fourth hour, if the day is still unfinished, one "Gave up after
+    Monday keeps its stored concept. Failure alerts raised inside a retry
+    are held (failure_alerts_held). In the fourth hour, if the day is still unfinished, one "Gave up after
     3 retries" email goes out, from a separate invocation so a retry killed
     by the Lambda timeout still ends in an email. After that, recover by
     hand (RUNBOOK). A later day is not retried while Monday has no recipe;
@@ -3468,10 +3470,11 @@ async def cron_repair(request: Request):
         if slot == REPAIR_RETRIES:
             result.update(status="gave_up", alert_sent=notify_repair_exhausted(episode_id, day))
             break
-        try:
-            await handler(request)
-        except Exception as exc:  # noqa: BLE001 - the stage saved its failure; the outcome is read back
-            result["error"] = exc.detail if isinstance(exc, HTTPException) else type(exc).__name__
+        with failure_alerts_held():
+            try:
+                await handler(request)
+            except Exception as exc:  # noqa: BLE001 - the stage saved its failure; the outcome is read back
+                result["error"] = exc.detail if isinstance(exc, HTTPException) else type(exc).__name__
         try:
             done = _day_done(storage.load_episode_verified(episode_id) or {}, day)
         except Exception as exc:  # noqa: BLE001 - unreadable is unfinished; the give-up hour still checks
