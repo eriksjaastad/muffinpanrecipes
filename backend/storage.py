@@ -1179,7 +1179,11 @@ class _CloudBackend:
             logger.error(f"Blob save_episode failed for {episode_id}: {e}")
             raise
 
-        # Try local filesystem cache for same-invocation reads (may fail on read-only FS)
+        # Try local filesystem cache for same-invocation reads (may fail on read-only FS).
+        # Not for a prefixed (test/) save: the filesystem ignores the prefix, so
+        # the copy would land among production episodes (#8617).
+        if self.prefix:
+            return
         try:
             self._fs.save_episode(episode_id, data)
         except OSError as exc:

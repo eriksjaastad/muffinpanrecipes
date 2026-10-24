@@ -7,10 +7,11 @@ prefix. Prompts, models, judge, retries, QA and photos are production's; only
 the trigger (this CLI instead of Vercel cron) and the prefix differ. The day
 list comes from vercel.json's crons, so a new or renamed cron is picked up here.
 
-Real paid calls; needs the production secrets:
+Real paid calls; needs the production secrets. Use a week id production will
+not reach soon; it lives only under test/:
 
     doppler run --project muffinpanrecipes --config prd -- \\
-        uv run python scripts/run_week.py --episode test-gougeres --concept "Gruyère Gougères"
+        uv run python scripts/run_week.py --episode 2027-W01 --concept "Gruyère Gougères"
 
 It stops at the first day that does not return 200 and prints the response:
 Sunday returns 202 until a photo is approved in the admin at ?ns=test.
@@ -49,21 +50,16 @@ class _JudgeFailures(logging.Handler):
 def main() -> int:
     days = cron_days()
     parser = argparse.ArgumentParser(description="Run a test week through the production cron handlers.")
-    parser.add_argument("--episode", required=True, help="test episode id, starting test- (stored under test/)")
+    parser.add_argument("--episode", required=True, help="ISO week, e.g. 2026-W44 (stored under test/)")
     parser.add_argument("--concept", help="recipe concept for Monday; omit to let Monday pick")
     parser.add_argument("--days", default=",".join(days), help="comma-separated days (default: all)")
     args = parser.parse_args()
-    # Blob writes go under test/, but the backend also mirrors every episode to
-    # data/episodes/<id>.json unprefixed, so the id itself must never name a
-    # real week. Storage's own id rule then bounds it (photo control, Wednesday).
-    from backend import storage as storage_module
+    # A real ISO week, as production uses: Sunday's character memories are
+    # keyed by it, and it can carry no path characters out of test/.
+    from backend.storage import is_valid_iso_week
 
-    try:
-        storage_module._check_photo_control_args(args.episode)
-    except ValueError:
-        parser.error(f"--episode must be 1-64 letters, digits, - or _, got {args.episode!r}")
-    if not args.episode.startswith("test-"):
-        parser.error(f"--episode must start with 'test-', got {args.episode!r}")
+    if not is_valid_iso_week(args.episode):
+        parser.error(f"--episode must be an ISO week such as 2026-W44, got {args.episode!r}")
     wanted = {d.strip() for d in args.days.split(",") if d.strip()}
     if not wanted:
         parser.error("--days selects no day")
@@ -80,8 +76,14 @@ def main() -> int:
     if not storage.namespaces_episodes():
         parser.error("storage cannot keep test/ separate; run under doppler --config prd")
 
+    # A handler of our own would silence Python's last-resort stderr output,
+    # so the handlers' warnings and errors get a visible sink too.
+    cron_log = logging.getLogger("backend.admin.cron_routes")
+    console = logging.StreamHandler()
+    console.setLevel(logging.WARNING)
     failures = _JudgeFailures()
-    logging.getLogger("backend.admin.cron_routes").addHandler(failures)
+    cron_log.addHandler(console)
+    cron_log.addHandler(failures)
     client = TestClient(app, raise_server_exceptions=False)
     headers = {"Authorization": f"Bearer {os.environ['CRON_SECRET']}"}
     for day in [d for d in days if d in wanted]:
@@ -90,13 +92,15 @@ def main() -> int:
             body["concept"] = args.concept
         failures.count = 0
         resp = client.post(f"/api/cron/{day}", json=body, headers=headers)
-        with storage.prefix_scope("test/"):
-            stage = (storage.load_episode(args.episode) or {}).get("stages", {}).get(day, {})
-        verdict = str(stage.get("judge_verdict") or "")[:100]
-        print(f"{day:<10} HTTP {resp.status_code}  judge FAILs before result: {failures.count}  {verdict}")
+        line = f"{day:<10} HTTP {resp.status_code}  judge FAILs before result: {failures.count}"
         if resp.status_code != 200:
-            print(f"  stopped: {resp.text[:600]}")
+            print(f"{line}\n  stopped: {resp.text[:600]}")
             return 1
+        with storage.prefix_scope("test/"):
+            episode = storage.load_episode(args.episode)
+        stage = (episode.get("stages") or {}).get(day) if isinstance(episode, dict) else None
+        verdict = stage.get("judge_verdict") if isinstance(stage, dict) else "(stage not readable)"
+        print(f"{line}  {str(verdict or '')[:100]}")
     return 0
 
 
