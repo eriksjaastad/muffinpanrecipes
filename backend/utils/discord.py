@@ -116,6 +116,15 @@ def notify_pipeline_failure(
     )
 
 
+def notify_repair_exhausted(episode_id: str, stage: str) -> bool:
+    """Alert when cron_repair's retries of a day all failed (#8605)."""
+    return send_alert(
+        subject="Gave up after 3 retries",
+        body=f"{_short(episode_id)} · {_day(stage)}",
+        severity="critical",
+    )
+
+
 def notify_judge_failure(
     concept: str,
     stage: str,

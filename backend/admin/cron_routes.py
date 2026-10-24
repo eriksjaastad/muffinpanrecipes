@@ -77,6 +77,7 @@ from backend.utils.discord import (
     notify_photos_ready,
     notify_pipeline_failure,
     notify_publish_held,
+    notify_repair_exhausted,
 )
 from backend.utils.model_router import generate_judge_response
 
@@ -3396,6 +3397,84 @@ async def cron_sunday(request: Request):
         "published": True,
         "dialogue_messages": len(dialogue),
     })
+
+
+# ---------------------------------------------------------------------------
+# Repair — re-run a failed or missing day (#8605)
+# ---------------------------------------------------------------------------
+
+REPAIR_RETRIES = 3
+_REPAIR_HANDLERS = {
+    "monday": cron_monday, "tuesday": cron_tuesday, "wednesday": cron_wednesday,
+    "thursday": cron_thursday, "friday": cron_friday, "saturday": cron_saturday,
+}
+
+
+def _repair_slot(episode_id: str, day: str, now: datetime) -> int | None:
+    """Which hour after ``day``'s window this is: 0-2 retry, 3 gives up, else None.
+
+    The window opens at the day's cron time plus the in-flight grace
+    (episode_integrity.stages_due). Counting from the clock instead of a
+    stored counter means no stage save can rewind the cap.
+    """
+    opens = episode_integrity.stage_deadline(episode_id, day) + timedelta(
+        minutes=episode_integrity.STAGE_GRACE_MINUTES)
+    if now < opens:
+        return None
+    slot = int((now - opens) // timedelta(hours=1))
+    return slot if slot <= REPAIR_RETRIES else None
+
+
+def _day_done(ep: dict, day: str) -> bool:
+    if day == "monday":
+        return _monday_recipe_ready(ep)
+    return ep.get("stages", {}).get(day, {}).get("status") == "complete"
+
+
+@router.get("/repair")
+async def cron_repair(request: Request):
+    """Hourly at :20 — re-run a failed or missing Mon-Sat day of this week.
+
+    In the three hours after a day's window (cron time + 45 min) an unfinished
+    day is re-run, once per hour, with the day's own handler; a re-run
+    Monday keeps its stored concept. In the fourth hour, if the day is still unfinished, one "Gave up after
+    3 retries" email goes out, from a separate invocation so a retry killed
+    by the Lambda timeout still ends in an email. After that, recover by
+    hand (RUNBOOK). A later day is not retried while Monday has no recipe;
+    Sunday has its own hold (#8606, #8607). Vercel cron delivery is
+    at-least-once, so a duplicate delivery can run one retry or send the
+    email twice. "repair" is not a weekday, so _verify_day_of_week lets the
+    handlers run on this request.
+    """
+    _verify_cron_secret(request)
+    episode_id, now = _current_episode_id(), _utc_now()
+    ep = storage.load_episode_verified(episode_id)
+    for day, handler in _REPAIR_HANDLERS.items():
+        slot = _repair_slot(episode_id, day, now)
+        if slot is None or not ep or _day_done(ep, day):
+            continue
+        if day != "monday" and not _monday_recipe_ready(ep):
+            continue
+        result = {"stage": day, "episode_id": episode_id, "retry": slot + 1}
+        if slot == REPAIR_RETRIES:
+            result.update(status="gave_up", alert_sent=notify_repair_exhausted(episode_id, day))
+            break
+        try:
+            await handler(request)
+        except Exception as exc:  # noqa: BLE001 - the stage saved its failure; the outcome is read back
+            result["error"] = exc.detail if isinstance(exc, HTTPException) else type(exc).__name__
+        try:
+            done = _day_done(storage.load_episode_verified(episode_id) or {}, day)
+        except Exception as exc:  # noqa: BLE001 - unreadable is unfinished; the give-up hour still checks
+            done, result["error"] = False, f"outcome unreadable: {type(exc).__name__}"
+        result["status"] = "complete" if done else "failed"
+        break
+    else:
+        return {"status": "nothing_to_repair", "episode_id": episode_id}
+    if result.get("status") == "complete":
+        return result
+    from fastapi.responses import JSONResponse
+    return JSONResponse(status_code=500, content=result)
 
 
 # ---------------------------------------------------------------------------
