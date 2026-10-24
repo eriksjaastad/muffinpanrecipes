@@ -159,6 +159,10 @@
         {
             "path": "/api/cron/sunday",
             "schedule": "0 0 * * 0"
+        },
+        {
+            "path": "/api/cron/repair",
+            "schedule": "20 * * * *"
         }
     ],
     "env": {
