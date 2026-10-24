@@ -61,7 +61,8 @@ _EDITORIAL_QA_SYSTEM_PROMPT = (
     "       is borderline. 'Herbed Vegetable Frittata Cups' is better.\n\n"
     "Respond with EXACTLY this format:\n"
     "STATUS: PASS or FAIL\n"
-    "ISSUES: (list each issue on its own line, or 'None' if passing)\n"
+    "ISSUES: (list each issue on its own line as '- CATEGORY: what is wrong', "
+    "or 'None' if passing)\n"
     "SEVERITY: COPY or BLOCKING\n"
     "RECOMMENDATION: (one sentence)\n\n"
     "SEVERITY is COPY only when every issue is wording or style (title rules, "
@@ -111,8 +112,9 @@ _RECIPE_FIX_SYSTEM_PROMPT = (
 def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
     """Attempt to fix recipe issues identified by editorial QA.
 
-    Modifies episode['stages']['monday']['recipe_data'] in place.
-    Returns True if fixes were applied, False if unable to fix.
+    Replaces episode['stages']['monday']['recipe_data'] with a copy whose
+    title, ingredients, instructions and chef_notes come from the fixer.
+    Returns True if fixes were applied, False (recipe untouched) if unable to fix.
     """
     monday = episode.get("stages", {}).get("monday", {})
     recipe = monday.get("recipe_data", {})
@@ -181,39 +183,47 @@ def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
             # Try raw JSON
             fixed = _json.loads(response.strip())
 
-        # Apply title enforcement as extra safety
+        # #8607: the fixer replaces only the fields it is asked to fix, and only
+        # with values of the shape the renderer reads. Everything else stays as
+        # Monday wrote it: a fixer reply can never put an unrenderable value
+        # (a null difficulty, a string servings) into a recipe that Sunday may
+        # publish over a wording-only FAIL. #7853: the description is Marcus's
+        # intro and the pitch Monday's one-liner, and the pan is the baker's
+        # choice, so none of them is the fixer's either. (A QA failure about the
+        # intro therefore cannot be "fixed" here; QA fails again.)
         from backend.utils.recipe_prompts import _enforce_title_rules
-        fixed["title"] = _enforce_title_rules(fixed.get("title", recipe.get("title", "")))
 
-        # Validate we got something reasonable. The list shapes matter (#8607):
-        # a non-list here used to be stored and only fail later, and Sunday
-        # may now publish over a wording-only FAIL of whatever is stored.
+        title = fixed.get("title", recipe.get("title", ""))
         ingredients, instructions = fixed.get("ingredients"), fixed.get("instructions")
-        if (
-            not fixed.get("title")
-            or not isinstance(ingredients, list) or not ingredients
-            or not all(isinstance(ing, (dict, str)) for ing in ingredients)
-            or not isinstance(instructions, list) or not instructions
-            or not all(isinstance(step, str) for step in instructions)
+        chef_notes = fixed.get("chef_notes", recipe.get("chef_notes", ""))
+        if not (
+            isinstance(title, str)
+            and isinstance(ingredients, list) and ingredients
+            and all(
+                isinstance(ing, str)
+                or (isinstance(ing, dict) and all(isinstance(v, str) for v in ing.values()))
+                for ing in ingredients
+            )
+            and isinstance(instructions, list) and instructions
+            and all(isinstance(step, str) for step in instructions)
+            and isinstance(chef_notes, str)
         ):
-            logger.warning("Auto-fix returned incomplete recipe — skipping")
+            logger.warning("Auto-fix returned an incomplete or malformed recipe — skipping")
+            return False
+        title = _enforce_title_rules(title)
+        if not title:
+            logger.warning("Auto-fix returned no usable title — skipping")
             return False
 
-        # #7853: the description is Marcus's intro and the pitch is Monday's
-        # internal one-liner. Neither is the recipe fixer's to rewrite or drop:
-        # carry both over from the recipe that went in. (A QA failure about the
-        # intro itself therefore cannot be "fixed" here; QA fails again and
-        # Sunday refuses, which is the fail-closed outcome.) The stored pan is
-        # likewise the baker's choice, not the fixer's.
-        for owned in ("description", "pitch", "pan_size", "pan_reason"):
-            if owned in recipe:
-                fixed[owned] = recipe[owned]
-            else:
-                fixed.pop(owned, None)
-
-        logger.info(f"Auto-fixed recipe: '{fixed['title']}' ({len(ingredients)} ingredients)")
+        logger.info(f"Auto-fixed recipe: '{title}' ({len(ingredients)} ingredients)")
         # Last, so that every False return leaves the recipe as it was (#8607).
-        monday["recipe_data"] = fixed
+        monday["recipe_data"] = {
+            **recipe,
+            "title": title,
+            "ingredients": ingredients,
+            "instructions": instructions,
+            "chef_notes": chef_notes,
+        }
         return True
 
     # governance: allow-silent SF002: False is the failure signal; the Sunday fix loop breaks, then raises HTTP 400 and notify_judge_failure because QA never passed
@@ -226,34 +236,36 @@ def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
         return False
 
 
-# Labels of the reviewer's reply format in _EDITORIAL_QA_SYSTEM_PROMPT.
-_VERDICT_LABELS = ("STATUS:", "ISSUES:", "SEVERITY:", "RECOMMENDATION:")
+# The one reviewer reply that may publish over a FAIL (#8607): the prompt's
+# format, whole and in order. Each issue is "- CATEGORY: what is wrong", and the
+# recommendation is a finished sentence, so a truncated reply does not match.
+# Each line can match only one way: an ambiguous split such as
+# "[^\n]*\S[^\n]*" backtracks exponentially across issue lines and hung a
+# real five-issue reply.
+_COPY_ONLY_VERDICT_RE = re.compile(
+    r"STATUS: FAIL\n"
+    r"ISSUES:\n"
+    r"(?:- (?!(?i:none)\b)[A-Z][A-Za-z0-9 &/()'.-]*: [^\n]*\S[^\n]*\n)+"
+    r"SEVERITY: COPY\n"
+    r"RECOMMENDATION: \S[^\n]*[.!][\"')]?"
+)
 
 
 def _is_copy_only_verdict(verdict: str) -> bool:
     """Whether the reviewer's own reply is a well-formed FAIL it classed as wording-only (#8607).
 
-    Allow-list, not a search: the whole reply must be the prompt's format and
-    nothing else, in order: "STATUS: FAIL", "ISSUES:" with at least one issue,
-    "SEVERITY: COPY", and a "RECOMMENDATION:" last line. A code fence, a missing,
-    repeated or split label, or BLOCKING anywhere does not match, so it blocks.
-    Only _editorial_qa_review calls this, and only on the reviewer model's
-    reply, so no deterministic or unavailable report can ever be copy-only.
+    Allow-list, not a search: after trimming each line and dropping blank
+    ones, the whole reply must match _COPY_ONLY_VERDICT_RE, and BLOCKING may
+    appear nowhere. A code fence, a missing, repeated or split label, an
+    issue-less or truncated reply, or any extra line does not match, so it
+    blocks. Only _editorial_qa_review calls this, and only on the reviewer
+    model's reply, so no deterministic or unavailable report can be copy-only.
     """
-    lines = [line.strip() for line in verdict.strip().splitlines() if line.strip()]
-    if (
-        len(lines) < 4
-        or lines[0] != "STATUS: FAIL"
-        or not lines[1].startswith("ISSUES:")
-        or lines[-2] != "SEVERITY: COPY"
-        or not lines[-1].startswith("RECOMMENDATION:")
-        or "BLOCKING" in verdict.upper()
-    ):
-        return False
-    issues = [lines[1].removeprefix("ISSUES:").strip(), *lines[2:-2]]
-    issues = [issue for issue in issues if issue and issue.upper() != "NONE"]
-    return bool(issues) and not any(
-        issue.upper().startswith(_VERDICT_LABELS) for issue in issues
+    lines = [line.strip() for line in verdict.splitlines()]
+    normalized = "\n".join(line for line in lines if line)
+    return (
+        _COPY_ONLY_VERDICT_RE.fullmatch(normalized) is not None
+        and "BLOCKING" not in normalized.upper()
     )
 
 

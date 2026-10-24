@@ -35,6 +35,7 @@ import copy
 import hmac
 import json
 import os
+from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -959,7 +960,9 @@ def _announce_advisory_publication(episode_id: str, episode: dict, stage: str, c
     (#7403).
 
     _generate_and_judge_dialogue records that it SELECTED a below-bar
-    dialogue; only the publish path knows whether the recipe went live. The
+    dialogue, and Sunday's editorial QA records a wording-only advisory in
+    ``editorial_qa`` (#8607); only the publish path knows whether the recipe
+    went live. Each record is announced on its own under these rules. The
     publish path sets ``published`` and ``announce_pending`` in the same
     save, before the static source handoff. This function sends only while
     ``announce_pending`` is set AND the handoff has reached ``source_ready``
@@ -969,7 +972,8 @@ def _announce_advisory_publication(episode_id: str, episode: dict, stage: str, c
     publish save and the alert is retried on the next invocation.
 
     Guarantees, stated exactly:
-    - A delivery that ``notify_judge_advisory`` reports as failed (it returns
+    - A delivery that the sender (``notify_judge_advisory`` or
+      ``notify_copy_advisory``) reports as failed (it returns
       False without raising when every channel is down) leaves the record
       pending, so the next invocation tries again. Only a confirmed delivery
       clears it.
@@ -982,25 +986,40 @@ def _announce_advisory_publication(episode_id: str, episode: dict, stage: str, c
       at the same moment can both send: there is no storage-level lock, so
       this is at-least-once under concurrency, not exactly-once.
     """
-    record = episode.get("judge_advisory", {}).get(stage)
+    _announce_record(
+        episode_id, episode, ("judge_advisory", stage), f"{episode_id}/{stage}",
+        lambda record: notify_judge_advisory(
+            concept=concept,
+            stage=stage,
+            verdict=record.get("verdict", ""),
+            episode_id=episode_id,
+            attempts=record.get("attempts", 0),
+            scores=record.get("scores") or {},
+            weakest=record.get("weakest") or [],
+        ),
+    )
+    if stage == "sunday":
+        _announce_record(
+            episode_id, episode, ("editorial_qa",), f"{episode_id} copy check",
+            lambda _record: notify_copy_advisory(episode_id),
+        )
+
+
+def _announce_record(
+    episode_id: str, episode: dict, path: tuple[str, ...], label: str,
+    send: Callable[[dict], bool],
+) -> None:
+    """Send one advisory record's alert under _announce_advisory_publication's rules."""
+    record = _record_at(episode, path)
     if not record or not record.get("published") or not record.get("announce_pending"):
         return
     if _static_deploy_state(episode).get("status") != "source_ready":
         # Pages not confirmed written; the handoff raises its own alert on
         # failure. Stay pending so a later invocation announces after it.
         return
-    delivered = notify_judge_advisory(
-        concept=concept,
-        stage=stage,
-        verdict=record.get("verdict", ""),
-        episode_id=episode_id,
-        attempts=record.get("attempts", 0),
-        scores=record.get("scores") or {},
-        weakest=record.get("weakest") or [],
-    )
-    if not delivered:
+    if not send(record):
         logger.error(
-            f"Advisory alert for {episode_id}/{stage} was not delivered on any channel; "
+            f"Advisory alert for {label} was not delivered on any channel; "
             "left pending for the next Sunday invocation"
         )
         return
@@ -1010,20 +1029,28 @@ def _announce_advisory_publication(episode_id: str, episode: dict, stage: str, c
     # "announced" from memory while storage still says the alert is owed.
     announced_at = datetime.now(timezone.utc).isoformat()
     updated = copy.deepcopy(episode)
-    updated["judge_advisory"][stage]["announce_pending"] = False
-    updated["judge_advisory"][stage]["announced_at"] = announced_at
+    _record_at(updated, path)["announce_pending"] = False
+    _record_at(updated, path)["announced_at"] = announced_at
     try:
         storage.save_episode(episode_id, updated)
     # governance: allow-silent SF002: returns None like every path here; the alert was delivered and announce_pending stays True in storage so the next Sunday invocation re-sends
     except Exception as exc:  # noqa: BLE001 - the publish already succeeded
         logger.error(
-            f"Advisory alert for {episode_id}/{stage} was delivered but its announced marker "
+            f"Advisory alert for {label} was delivered but its announced marker "
             f"could not be saved ({type(exc).__name__}: {exc}); it stays owed, so a later "
             "invocation may send one duplicate"
         )
         return
     record["announce_pending"] = False
     record["announced_at"] = announced_at
+
+
+def _record_at(episode: dict, path: tuple[str, ...]) -> dict | None:
+    """The dict at ``path`` inside the episode, or None if any step is missing."""
+    record = episode
+    for key in path:
+        record = record.get(key) if isinstance(record, dict) else None
+    return record if isinstance(record, dict) else None
 
 
 def _alert_below_bar(
@@ -3248,9 +3275,10 @@ async def cron_sunday(request: Request):
                 # on wording alone (#8607). W42 was lost to "easy" in the
                 # description, which auto-fix never rewrites. Anything else
                 # the reviewer or the deterministic checks fail still stops.
+                # The alert goes out only once the page exists, through
+                # _announce_advisory_publication like the judge advisory's.
                 ep["editorial_qa"]["advisory"] = True
                 ep["events"].append("sunday: editorial QA failed on wording only; publishing (advisory)")
-                ep["editorial_qa"]["alert_sent"] = notify_copy_advisory(episode_id)
             elif not qa_passed:
                 ep["events"].append("sunday: editorial QA FAILED (exhausted retries)")
                 # Recorded as a failed Sunday on the UNPUBLISHED episode so
@@ -3320,14 +3348,16 @@ async def cron_sunday(request: Request):
                 logger.error(f"Memory generation failed (non-fatal): {type(e).__name__}: {e}")
                 pub["events"].append(f"sunday: memory generation failed ({type(e).__name__})")
 
-            # The page exists now, so the advisory record can claim it (#7394).
-            advisory = pub.get("judge_advisory", {}).get("sunday")
-            if advisory and not advisory.get("published"):
-                advisory["published"] = True
-                advisory["published_at"] = pub["published_at"]
-                # Saved in the same write as `published` (#7403): the alert is
-                # owed from here until a delivery is confirmed.
-                advisory["announce_pending"] = True
+            # The page exists now, so each advisory record can claim it
+            # (#7394; the copy advisory, #8607).
+            copy_advisory = pub["editorial_qa"] if pub.get("editorial_qa", {}).get("advisory") else None
+            for advisory in (pub.get("judge_advisory", {}).get("sunday"), copy_advisory):
+                if advisory and not advisory.get("published"):
+                    advisory["published"] = True
+                    advisory["published_at"] = pub["published_at"]
+                    # Saved in the same write as `published` (#7403): the alert is
+                    # owed from here until a delivery is confirmed.
+                    advisory["announce_pending"] = True
 
             # Last step before publication: move the control claimed ->
             # publishing. It fails if the claim was released by the operator
