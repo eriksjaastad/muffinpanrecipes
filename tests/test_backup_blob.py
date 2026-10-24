@@ -93,14 +93,20 @@ def test_a_short_download_fails_and_copies_nothing_offsite(env):
     assert not Path(remote.removeprefix("testlocal:")).exists()
 
 
+def test_a_failed_offsite_copy_fails_the_run(env, tmp_path):
+    root, _ = env
+    (tmp_path / "a-file").write_text("")
+    assert _create(root, f"testlocal:{tmp_path / 'a-file' / 'remote'}") == 1
+    assert _latest(root)["error"] == "rclone copy failed (exit 1)"
+    assert _status(root) == 1
+
+
 def test_a_failed_offsite_check_after_a_good_copy_fails_the_run(env):
     root, remote = env
     real_run = subprocess.run
 
     def run(args, **kwargs):
-        if args[1] == "check":
-            raise subprocess.CalledProcessError(1, args)
-        return real_run(args, **kwargs)
+        return real_run(["false"] if args[1] == "check" else args, **kwargs)
 
     with patch.object(backup_blob.subprocess, "run", run):
         assert _create(root, remote) == 1
@@ -109,9 +115,11 @@ def test_a_failed_offsite_check_after_a_good_copy_fails_the_run(env):
 
 
 @pytest.mark.parametrize("remote, token, error", [
-    ("not-a-remote", "test-token", "Offsite destination must use an existing named rclone remote"),
+    ("testlocal", "test-token", "Offsite destination must use an existing named rclone remote"),
+    ("no-such-remote:records", "test-token", "Offsite destination must use an existing named rclone remote"),
+    ("./testlocal:records", "test-token", "Offsite destination must use an existing named rclone remote"),
     (None, "", "BLOB_READ_WRITE_TOKEN is required; run under Doppler"),
-], ids=["bad-remote", "no-token"])
+], ids=["no-colon", "unknown-remote", "local-path-with-colon", "no-token"])
 def test_a_setup_failure_after_a_success_is_recorded_and_status_fails(env, monkeypatch, remote, token, error):
     root, good_remote = env
     assert _create(root, good_remote) == 0
@@ -170,7 +178,7 @@ def test_any_listed_pathnames_all_survive_with_their_own_bytes(pathnames):
     """Duplicates, '..', '/', NUL and 'manifest.json' included: no body overwrites another."""
     records = [{"pathname": p, "url": str(i), "size": len(str(i))} for i, p in enumerate(pathnames)]
     with tempfile.TemporaryDirectory() as tmp, \
-         patch.object(backup_blob, "rclone"), \
+         patch.object(backup_blob, "rclone", return_value="testlocal:\n"), \
          patch.object(backup_blob, "list_records", return_value=records), \
          patch.object(backup_blob.requests, "get",
                       side_effect=lambda url, **_kw: MagicMock(content=url.encode(), raise_for_status=lambda: None)), \

@@ -56,9 +56,10 @@ def write_json(path: Path, data: dict) -> None:
     temporary.replace(path)
 
 
-def rclone(*args: str) -> None:
+def rclone(*args: str) -> str:
     try:
-        subprocess.run(["rclone", *args], check=True, capture_output=True, timeout=1200)
+        return subprocess.run(["rclone", *args], check=True, capture_output=True, text=True,
+                              timeout=1200).stdout
     except subprocess.CalledProcessError as exc:
         raise BackupError(f"rclone {args[0]} failed (exit {exc.returncode})") from None
     except subprocess.TimeoutExpired:
@@ -91,7 +92,11 @@ def download(blob: _CloudBackend, record: dict, path: Path) -> dict:
 
 def snapshot(directory: Path, remote: str) -> dict:
     """Download, manifest, copy and verify one run; raise on any failure."""
-    if ":" not in remote or remote.startswith(("/", ":")):
+    # rclone reads a destination whose prefix is not a configured remote name
+    # as a local path or an on-the-fly backend (./gbackup:x, /x:y, :local:x),
+    # so check the prefix against the remotes rclone actually has.
+    name, colon, _ = remote.partition(":")
+    if not colon or f"{name}:" not in rclone("listremotes").splitlines():
         raise BackupError("Offsite destination must use an existing named rclone remote")
     if not os.environ.get("BLOB_READ_WRITE_TOKEN"):
         raise BackupError("BLOB_READ_WRITE_TOKEN is required; run under Doppler")
