@@ -1,0 +1,15 @@
+{
+  "base_sha": "c7313573c00ed94d6552b1427e12c43d2b9efebf",
+  "seed": 8383,
+  "memory": "stubbed empty and available",
+  "capture": "SHA256 of JSON array of generate_response keyword arguments, sort_keys=True",
+  "day_sha256": {
+    "monday": "ced1a728b41e04d818264d34774ec151621d4877920a34dbc905ee01bcb5a6fc",
+    "tuesday": "9453ffcfd22035dc7a4aee50869fd790f72fc04cac5509e98072c03696a498b7",
+    "wednesday": "56e36e48920ded29eb8c27d93b021f44e2ed945935be3371c382cea83427213e",
+    "thursday": "2528006d4b85cb128b3957d0619aaabc0f6388ba8fb67ce3da794f5cd239a263",
+    "friday": "b21a5b015f3e5d210fb76daa43a321e5d159a9e2041b3fcf21ed1c2ee8d0257d",
+    "saturday": "a5f06677f04064efb1c710abbb7e9f449e765a69d9c980e59d928fbbcdd9081e",
+    "sunday": "37a4c44f4c3f7818a119f36c52ae69d1e6d98e0f99cfe6992e71ba16b48554bd"
+  }
+}

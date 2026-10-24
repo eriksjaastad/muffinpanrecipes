@@ -346,6 +346,13 @@ EXPERIMENTS.md.
 | S5-MM | Replication | MiMo V2.6 Pro | as above | as above | as above | as above | future | - | - |
 | S5-QW | Replication | Qwen3.5-27B | as above | as above | as above | as above | future | - | - |
 | S5-KM | Replication | Kimi K3 | as above | as above | as above | as above | future | - | - |
+| S6 | Does one author write a better Monday meeting? (#8383) | Haiku 4.5 / Opus 5.5 informational judge | Production vs AUTHOR_MODE; author sees Method and judge_recipe_facts | 14 (7 v3 recipes x 2) | Erik's blind picks with one-line why | Human preference decides; judge informational. Each pair within 15% total words and 25% words/line (larger/smaller - 1); regenerate author at most twice, report remaining exceptions. Silent roster members allowed, traits as tendencies. | 14 picks saved 2026-10-17; preference unresolved, 3 reasons persisted | Human 7 author / 7 control, largely opening-hook judgments; original 14/14 length matched. Separate format validation 12/14 matched, exceptions 13/14 reported. Raw, attribution and offline metrics in EXPERIMENTS.md | $2.799075 including failures and format validation; $12.200925 remains for card #8384; reserve $20 |
+
+S6 follows Erik's 2026-10-17 card amendments: the human read decides, overriding
+the judge-based ship rules above for this study. The legacy full-cast and fixed-trait
+judge penalties are information, not gates. No production change or full-week study
+starts before the corresponding human pick. S6's bundled change includes giving
+the author recipe Method/facts that the production control does not see.
 
 **Deviations (rule 9).**
 - **D1 (2026-10-01, Erik approved).** S0a failed V6 pooled and V7. The plan names no V6-fail
