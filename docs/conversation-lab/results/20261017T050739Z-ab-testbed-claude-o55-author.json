@@ -1,0 +1,612 @@
+{
+  "command": "ab",
+  "mode": "testbed",
+  "evaluator_prompt_version": "pairwise-v2-candidate-versions-character-rules",
+  "evaluator_prompt_sha256": "c6570e4d93e3470eff97f779e4998b4aec0f8c04e6499f46c402c0af50d67329",
+  "generated_at": "2026-10-17T05:08:28.048877+00:00",
+  "concept": null,
+  "stage": "monday",
+  "testbed_path": "/Users/eriksjaastad/projects/muffinpanrecipes/docs/conversation-lab/testbed-v3.json",
+  "scenario_count": 1,
+  "panel_size": 1,
+  "runs_per_scenario": 2,
+  "variant_file": "docs/conversation-lab/variants/author.json",
+  "variant_name": "author",
+  "variant_keys": [
+    "AUTHOR_MODE"
+  ],
+  "requested_runs": 2,
+  "aborted": true,
+  "max_calls": 686,
+  "max_calls_derived": true,
+  "max_cost": 2.94,
+  "calls_used": 19,
+  "dry_run": false,
+  "target_dimension": "turn_taking",
+  "decision_rule": "Erik's blind read with a one-line why decides; judge is information only.",
+  "cost_summary": {
+    "by_model": {
+      "openrouter/anthropic/claude-haiku-4.5": {
+        "calls": 19,
+        "tokens_in": 52577,
+        "tokens_out": 1010,
+        "cost": 0.057627,
+        "unpriced_calls": 0
+      }
+    },
+    "total_cost": 0.057627,
+    "unpriced_calls": 0,
+    "total_calls": 19,
+    "total_tokens_in": 52577,
+    "total_tokens_out": 1010
+  },
+  "jev_cost_usd": 0,
+  "provider_route": {
+    "order": [
+      "anthropic"
+    ],
+    "allow_fallbacks": false
+  },
+  "models": {
+    "set": "claude-o55",
+    "dialogue": "anthropic/claude-haiku-4.5",
+    "judge": "anthropic/claude-opus-5.5"
+  },
+  "cost_by_model": {
+    "openrouter/anthropic/claude-haiku-4.5": 0.057627
+  },
+  "total_cost_usd": 0.057627,
+  "openrouter_key": {
+    "before": {
+      "limit": 100.0,
+      "limit_remaining": 83.012854368,
+      "usage": 91.483328896
+    },
+    "after": {
+      "limit": 100.0,
+      "limit_remaining": 82.979793368,
+      "usage": 91.516389896
+    }
+  },
+  "scenarios": [
+    {
+      "id": "2026-W36",
+      "concept": "Caramelized Custard Tart Cups",
+      "category": "sweet",
+      "cuisine": "Portuguese",
+      "source_episode": "2026-W36",
+      "partial_pairs": [
+        {
+          "run_index": 1,
+          "status": "error_mid_arm",
+          "control_messages": [
+            {
+              "day": "monday",
+              "stage": "brainstorm",
+              "character": "Margaret Chen",
+              "message": "Portuguese custard tarts. Muffin pan. Real laminated pastry, proper caramel. We're doing this right.",
+              "timestamp": "2026-10-17T09:00:00+00:00",
+              "model": "openrouter/anthropic/claude-haiku-4.5",
+              "attachments": []
+            },
+            {
+              "day": "monday",
+              "stage": "brainstorm",
+              "character": "Marcus Reid",
+              "message": "That commitment to doing it right - that's where the story lives, because these tarts demand respect for technique in a way that feels almost contrary to the muffin pan format.",
+              "timestamp": "2026-10-17T09:48:00+00:00",
+              "model": "openrouter/anthropic/claude-haiku-4.5",
+              "attachments": []
+            },
+            {
+              "day": "monday",
+              "stage": "brainstorm",
+              "character": "Margaret Chen",
+              "message": "The lamination needs vertical rise. The pan walls give it that structure.",
+              "timestamp": "2026-10-17T10:36:00+00:00",
+              "model": "openrouter/anthropic/claude-haiku-4.5",
+              "attachments": []
+            },
+            {
+              "day": "monday",
+              "stage": "brainstorm",
+              "character": "Julian Torres",
+              "message": "The pan walls force vertical rise - the steam gets trapped and the lamination shatters instead of spreads.",
+              "timestamp": "2026-10-17T11:24:00+00:00",
+              "model": "openrouter/anthropic/claude-haiku-4.5",
+              "attachments": []
+            },
+            {
+              "day": "monday",
+              "stage": "brainstorm",
+              "character": "Margaret Chen",
+              "message": "The steam shatters it. That's the whole point.",
+              "timestamp": "2026-10-17T12:12:00+00:00",
+              "model": "openrouter/anthropic/claude-haiku-4.5",
+              "attachments": []
+            },
+            {
+              "day": "monday",
+              "stage": "brainstorm",
+              "character": "Marcus Reid",
+              "message": "So the caramel isn't decoration - it's proof the pastry shattered the way it should, which means the pan's geometry actually enabled the technique instead of compromising it.",
+              "timestamp": "2026-10-17T13:00:00+00:00",
+              "model": "openrouter/anthropic/claude-haiku-4.5",
+              "attachments": []
+            },
+            {
+              "day": "monday",
+              "stage": "brainstorm",
+              "character": "Julian Torres",
+              "message": "The cross-section is the only shot that proves the lamination shattered right - the caramel's just surface evidence.",
+              "timestamp": "2026-10-17T13:48:00+00:00",
+              "model": "openrouter/anthropic/claude-haiku-4.5",
+              "attachments": []
+            },
+            {
+              "day": "monday",
+              "stage": "brainstorm",
+              "character": "Stephanie 'Steph' Whitmore",
+              "message": "But doesn't the caramel on top sell the whole thing the moment someone sees it - like that's what makes them want to bite in?",
+              "timestamp": "2026-10-17T14:36:00+00:00",
+              "model": "openrouter/anthropic/claude-haiku-4.5",
+              "attachments": []
+            },
+            {
+              "day": "monday",
+              "stage": "brainstorm",
+              "character": "Ria Castillo",
+              "message": "The caramel gets the stop, but they'll reshare the cross-section. We need both shots back-to-back.",
+              "timestamp": "2026-10-17T15:24:00+00:00",
+              "model": "openrouter/anthropic/claude-haiku-4.5",
+              "attachments": []
+            },
+            {
+              "day": "monday",
+              "stage": "brainstorm",
+              "character": "Marcus Reid",
+              "message": "The lamination's the story, the caramel's the proof - I can work with that. See you all tomorrow.",
+              "timestamp": "2026-10-17T16:12:00+00:00",
+              "model": "openrouter/anthropic/claude-haiku-4.5",
+              "attachments": []
+            }
+          ],
+          "control_stop_check_log": [],
+          "control_director_log": [],
+          "control_rewrite_log": [
+            {
+              "day": "monday",
+              "speaker": "Margaret Chen",
+              "faults": [
+                "word_budget"
+              ],
+              "rewritten": true,
+              "draft_words": 32,
+              "final_words": 14,
+              "draft": "Alright. We're doing Portuguese custard tarts in a muffin pan this week. The real ones - laminated pastry, proper caramel on top, lemon custard that actually sets. Not some Instagram shortcut version.",
+              "cot_retry": false
+            },
+            {
+              "day": "monday",
+              "speaker": "Marcus Reid",
+              "faults": [],
+              "rewritten": false,
+              "draft_words": 31,
+              "final_words": 31,
+              "draft": "That commitment to doing it right - that's where the story lives, because these tarts demand respect for technique in a way that feels almost contrary to the muffin pan format.",
+              "cot_retry": false
+            },
+            {
+              "day": "monday",
+              "speaker": "Margaret Chen",
+              "faults": [
+                "repetition",
+                "word_budget"
+              ],
+              "rewritten": true,
+              "draft_words": 39,
+              "final_words": 12,
+              "draft": "The lamination is the whole point - that's not contrary to the pan, that's exactly why it works. Walls hold the layers vertical while they puff, keeps them from spreading into each other like some sad sheet pan disaster.",
+              "cot_retry": false
+            },
+            {
+              "day": "monday",
+              "speaker": "Julian Torres",
+              "faults": [
+                "word_budget"
+              ],
+              "rewritten": true,
+              "draft_words": 37,
+              "final_words": 18,
+              "draft": "The lamination creates those shattered layers when the steam hits the walls - that's exactly why the muffin pan's depth matters here, it traps the moisture and forces the pastry to puff vertically instead of spreading out.",
+              "cot_retry": false
+            },
+            {
+              "day": "monday",
+              "speaker": "Margaret Chen",
+              "faults": [
+                "shape:dash_clause",
+                "word_budget"
+              ],
+              "rewritten": true,
+              "draft_words": 27,
+              "final_words": 8,
+              "draft": "The steam does shatter it - that's the whole point. You get the crisp exterior without the spread, which is exactly what past\u00e9is de nata should be.",
+              "cot_retry": false
+            },
+            {
+              "day": "monday",
+              "speaker": "Marcus Reid",
+              "faults": [],
+              "rewritten": false,
+              "draft_words": 28,
+              "final_words": 28,
+              "draft": "So the caramel isn't decoration - it's proof the pastry shattered the way it should, which means the pan's geometry actually enabled the technique instead of compromising it.",
+              "cot_retry": false
+            },
+            {
+              "day": "monday",
+              "speaker": "Julian Torres",
+              "faults": [
+                "shape:dash_clause"
+              ],
+              "rewritten": true,
+              "draft_words": 26,
+              "final_words": 18,
+              "draft": "That caramel isn't just visual language - it's documentation of the process actually working, which means we shoot the cross-section to show the shattered layers underneath.",
+              "cot_retry": false
+            },
+            {
+              "day": "monday",
+              "speaker": "Stephanie 'Steph' Whitmore",
+              "faults": [
+                "repetition"
+              ],
+              "rewritten": true,
+              "draft_words": 22,
+              "final_words": 25,
+              "draft": "Wait, but if we're only showing the cross-section, how do people know what it actually tastes like when they bite into it?",
+              "cot_retry": false
+            },
+            {
+              "day": "monday",
+              "speaker": "Ria Castillo",
+              "faults": [
+                "repetition",
+                "shape:dash_clause",
+                "word_budget"
+              ],
+              "rewritten": true,
+              "draft_words": 37,
+              "final_words": 15,
+              "draft": "Caramel sells the click, but the shatter is what makes someone reshare - they need to *see* it break when they bite. We get both: hero shot of that blistered top, then the cross-section moment right after.",
+              "cot_retry": false
+            },
+            {
+              "day": "monday",
+              "speaker": "Marcus Reid",
+              "faults": [
+                "repetition",
+                "shape:dash_clause",
+                "word_budget"
+              ],
+              "rewritten": true,
+              "draft_words": 47,
+              "final_words": 18,
+              "draft": "The cross-section tells the technical story, the caramel sells the desire - that's the two-act narrative we're running with. I'll write toward that split, let the pastry layers do the heavy lifting, and trust the images to carry what the words can't quite reach. Good week ahead.",
+              "cot_retry": false
+            }
+          ],
+          "variant_messages": [],
+          "judge_orientations": [],
+          "author_attempts": [],
+          "variant_calls_before_abort": 1,
+          "author_invalid_scene": "Margaret: Caramelized custard tart cups. Portuguese. That's the concept\u2014let's move.\n\nMarcus: I was thinking about the lamination angle, the way the puff pastry spirals create this visual metaphor for time, you know? Each layer a moment of\u2014\n\nSteph: Wait, can we just confirm everyone's comfortable with the muffin tin format? Or should we be exploring a different vessel?\n\nJulian: The overhead will be stunning. Caramelized spots against the golden pastry\u2014high contrast, dramatic lighting. We shoot at 500 degrees if we have to.\n\nRia: Hold on. Fifteen-second hero is Margaret pulling these out steaming, right? That's the hook. The wobble, the caramel char. That's what performs.\n\nMargaret: The custard sets as it cools. Ten to fifteen minutes. If you're filming, you're filming the window, not the result.\n\nMarcus: Which raises an interesting question about temporality in recipe content\u2014the Hegelian dialectic between process and completion\u2014\n\nSteph: I think what Ria's saying is the video captures the transformation moment, and that's actually perfect for social because it's visceral and\u2014\n\nMargaret: It's also true. The recipe works. No substitutions needed. We make it.\n\nJulian: Agreed. I'm already seeing the color palette.\n\nRia: Monday we shoot. Tuesday we post. This one's clean.",
+          "scenario_id": "2026-W36"
+        }
+      ],
+      "completed_pairs": 0,
+      "overall_counts": {},
+      "per_dimension_counts": {
+        "title_fidelity": {},
+        "arc_resolution": {},
+        "voice_distinctiveness": {},
+        "technical_credibility": {},
+        "natural_progression": {},
+        "promise_delivery": {},
+        "turn_taking": {},
+        "cast_coverage": {},
+        "emotional_range": {},
+        "register_naturalness": {}
+      },
+      "target_win_rate": 0.0,
+      "worst_other_dimension_loss_rate": 0.0,
+      "dimensions_losing_to_control": [],
+      "meets_decision_rule": false,
+      "metric_deltas": {},
+      "metric_coverage": {}
+    }
+  ],
+  "pairs": [],
+  "partial_pairs": [
+    {
+      "run_index": 1,
+      "status": "error_mid_arm",
+      "control_messages": [
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "Portuguese custard tarts. Muffin pan. Real laminated pastry, proper caramel. We're doing this right.",
+          "timestamp": "2026-10-17T09:00:00+00:00",
+          "model": "openrouter/anthropic/claude-haiku-4.5",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Marcus Reid",
+          "message": "That commitment to doing it right - that's where the story lives, because these tarts demand respect for technique in a way that feels almost contrary to the muffin pan format.",
+          "timestamp": "2026-10-17T09:48:00+00:00",
+          "model": "openrouter/anthropic/claude-haiku-4.5",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "The lamination needs vertical rise. The pan walls give it that structure.",
+          "timestamp": "2026-10-17T10:36:00+00:00",
+          "model": "openrouter/anthropic/claude-haiku-4.5",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Julian Torres",
+          "message": "The pan walls force vertical rise - the steam gets trapped and the lamination shatters instead of spreads.",
+          "timestamp": "2026-10-17T11:24:00+00:00",
+          "model": "openrouter/anthropic/claude-haiku-4.5",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "The steam shatters it. That's the whole point.",
+          "timestamp": "2026-10-17T12:12:00+00:00",
+          "model": "openrouter/anthropic/claude-haiku-4.5",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Marcus Reid",
+          "message": "So the caramel isn't decoration - it's proof the pastry shattered the way it should, which means the pan's geometry actually enabled the technique instead of compromising it.",
+          "timestamp": "2026-10-17T13:00:00+00:00",
+          "model": "openrouter/anthropic/claude-haiku-4.5",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Julian Torres",
+          "message": "The cross-section is the only shot that proves the lamination shattered right - the caramel's just surface evidence.",
+          "timestamp": "2026-10-17T13:48:00+00:00",
+          "model": "openrouter/anthropic/claude-haiku-4.5",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "But doesn't the caramel on top sell the whole thing the moment someone sees it - like that's what makes them want to bite in?",
+          "timestamp": "2026-10-17T14:36:00+00:00",
+          "model": "openrouter/anthropic/claude-haiku-4.5",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Ria Castillo",
+          "message": "The caramel gets the stop, but they'll reshare the cross-section. We need both shots back-to-back.",
+          "timestamp": "2026-10-17T15:24:00+00:00",
+          "model": "openrouter/anthropic/claude-haiku-4.5",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Marcus Reid",
+          "message": "The lamination's the story, the caramel's the proof - I can work with that. See you all tomorrow.",
+          "timestamp": "2026-10-17T16:12:00+00:00",
+          "model": "openrouter/anthropic/claude-haiku-4.5",
+          "attachments": []
+        }
+      ],
+      "control_stop_check_log": [],
+      "control_director_log": [],
+      "control_rewrite_log": [
+        {
+          "day": "monday",
+          "speaker": "Margaret Chen",
+          "faults": [
+            "word_budget"
+          ],
+          "rewritten": true,
+          "draft_words": 32,
+          "final_words": 14,
+          "draft": "Alright. We're doing Portuguese custard tarts in a muffin pan this week. The real ones - laminated pastry, proper caramel on top, lemon custard that actually sets. Not some Instagram shortcut version.",
+          "cot_retry": false
+        },
+        {
+          "day": "monday",
+          "speaker": "Marcus Reid",
+          "faults": [],
+          "rewritten": false,
+          "draft_words": 31,
+          "final_words": 31,
+          "draft": "That commitment to doing it right - that's where the story lives, because these tarts demand respect for technique in a way that feels almost contrary to the muffin pan format.",
+          "cot_retry": false
+        },
+        {
+          "day": "monday",
+          "speaker": "Margaret Chen",
+          "faults": [
+            "repetition",
+            "word_budget"
+          ],
+          "rewritten": true,
+          "draft_words": 39,
+          "final_words": 12,
+          "draft": "The lamination is the whole point - that's not contrary to the pan, that's exactly why it works. Walls hold the layers vertical while they puff, keeps them from spreading into each other like some sad sheet pan disaster.",
+          "cot_retry": false
+        },
+        {
+          "day": "monday",
+          "speaker": "Julian Torres",
+          "faults": [
+            "word_budget"
+          ],
+          "rewritten": true,
+          "draft_words": 37,
+          "final_words": 18,
+          "draft": "The lamination creates those shattered layers when the steam hits the walls - that's exactly why the muffin pan's depth matters here, it traps the moisture and forces the pastry to puff vertically instead of spreading out.",
+          "cot_retry": false
+        },
+        {
+          "day": "monday",
+          "speaker": "Margaret Chen",
+          "faults": [
+            "shape:dash_clause",
+            "word_budget"
+          ],
+          "rewritten": true,
+          "draft_words": 27,
+          "final_words": 8,
+          "draft": "The steam does shatter it - that's the whole point. You get the crisp exterior without the spread, which is exactly what past\u00e9is de nata should be.",
+          "cot_retry": false
+        },
+        {
+          "day": "monday",
+          "speaker": "Marcus Reid",
+          "faults": [],
+          "rewritten": false,
+          "draft_words": 28,
+          "final_words": 28,
+          "draft": "So the caramel isn't decoration - it's proof the pastry shattered the way it should, which means the pan's geometry actually enabled the technique instead of compromising it.",
+          "cot_retry": false
+        },
+        {
+          "day": "monday",
+          "speaker": "Julian Torres",
+          "faults": [
+            "shape:dash_clause"
+          ],
+          "rewritten": true,
+          "draft_words": 26,
+          "final_words": 18,
+          "draft": "That caramel isn't just visual language - it's documentation of the process actually working, which means we shoot the cross-section to show the shattered layers underneath.",
+          "cot_retry": false
+        },
+        {
+          "day": "monday",
+          "speaker": "Stephanie 'Steph' Whitmore",
+          "faults": [
+            "repetition"
+          ],
+          "rewritten": true,
+          "draft_words": 22,
+          "final_words": 25,
+          "draft": "Wait, but if we're only showing the cross-section, how do people know what it actually tastes like when they bite into it?",
+          "cot_retry": false
+        },
+        {
+          "day": "monday",
+          "speaker": "Ria Castillo",
+          "faults": [
+            "repetition",
+            "shape:dash_clause",
+            "word_budget"
+          ],
+          "rewritten": true,
+          "draft_words": 37,
+          "final_words": 15,
+          "draft": "Caramel sells the click, but the shatter is what makes someone reshare - they need to *see* it break when they bite. We get both: hero shot of that blistered top, then the cross-section moment right after.",
+          "cot_retry": false
+        },
+        {
+          "day": "monday",
+          "speaker": "Marcus Reid",
+          "faults": [
+            "repetition",
+            "shape:dash_clause",
+            "word_budget"
+          ],
+          "rewritten": true,
+          "draft_words": 47,
+          "final_words": 18,
+          "draft": "The cross-section tells the technical story, the caramel sells the desire - that's the two-act narrative we're running with. I'll write toward that split, let the pastry layers do the heavy lifting, and trust the images to carry what the words can't quite reach. Good week ahead.",
+          "cot_retry": false
+        }
+      ],
+      "variant_messages": [],
+      "judge_orientations": [],
+      "author_attempts": [],
+      "variant_calls_before_abort": 1,
+      "author_invalid_scene": "Margaret: Caramelized custard tart cups. Portuguese. That's the concept\u2014let's move.\n\nMarcus: I was thinking about the lamination angle, the way the puff pastry spirals create this visual metaphor for time, you know? Each layer a moment of\u2014\n\nSteph: Wait, can we just confirm everyone's comfortable with the muffin tin format? Or should we be exploring a different vessel?\n\nJulian: The overhead will be stunning. Caramelized spots against the golden pastry\u2014high contrast, dramatic lighting. We shoot at 500 degrees if we have to.\n\nRia: Hold on. Fifteen-second hero is Margaret pulling these out steaming, right? That's the hook. The wobble, the caramel char. That's what performs.\n\nMargaret: The custard sets as it cools. Ten to fifteen minutes. If you're filming, you're filming the window, not the result.\n\nMarcus: Which raises an interesting question about temporality in recipe content\u2014the Hegelian dialectic between process and completion\u2014\n\nSteph: I think what Ria's saying is the video captures the transformation moment, and that's actually perfect for social because it's visceral and\u2014\n\nMargaret: It's also true. The recipe works. No substitutions needed. We make it.\n\nJulian: Agreed. I'm already seeing the color palette.\n\nRia: Monday we shoot. Tuesday we post. This one's clean.",
+      "scenario_id": "2026-W36"
+    }
+  ],
+  "rewrite_summary": {
+    "control": {
+      "lines": 0,
+      "rewritten": 0,
+      "rewrite_rate": 0.0,
+      "fault_counts": {},
+      "cot_retry": 0
+    },
+    "variant": {
+      "lines": 0,
+      "rewritten": 0,
+      "rewrite_rate": 0.0,
+      "fault_counts": {},
+      "cot_retry": 0
+    }
+  },
+  "length_stats": {
+    "control": {},
+    "variant": {}
+  },
+  "results_file": "/Users/eriksjaastad/projects/muffinpanrecipes/docs/conversation-lab/results/20261017T050739Z-ab-testbed-claude-o55-author.json",
+  "completed_pairs": 0,
+  "overall_counts": {},
+  "per_dimension_counts": {
+    "title_fidelity": {},
+    "arc_resolution": {},
+    "voice_distinctiveness": {},
+    "technical_credibility": {},
+    "natural_progression": {},
+    "promise_delivery": {},
+    "turn_taking": {},
+    "cast_coverage": {},
+    "emotional_range": {},
+    "register_naturalness": {}
+  },
+  "target_win_rate": 0.0,
+  "worst_other_dimension_loss_rate": 0.0,
+  "dimensions_losing_to_control": [],
+  "meets_decision_rule": false,
+  "metric_deltas": {},
+  "metric_coverage": {},
+  "error": "ValueError: Author scene has 11 lines; expected 6-10 for monday",
+  "judge_meets_numeric_rule": false,
+  "min_balance": 20.0,
+  "length_matching": {
+    "total_words_tolerance": 0.15,
+    "words_per_line_tolerance": 0.25,
+    "gap_definition": "larger / smaller - 1",
+    "max_regenerations": 2,
+    "unmatched_pair_positions": []
+  }
+}
