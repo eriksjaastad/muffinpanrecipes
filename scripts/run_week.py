@@ -12,10 +12,9 @@ Real paid calls; needs the production secrets:
     doppler run --project muffinpanrecipes --config prd -- \\
         uv run python scripts/run_week.py --episode test-gougeres --concept "Gruyère Gougères"
 
---from-episode copies a production week's stages that come before the first
-requested day into the test episode, so a later day can be replayed against a
-real week (Sunday still needs a photo approved in the admin at ?ns=test).
-Judge FAILED attempts are counted from the handler's own log lines.
+It stops at the first day that does not return 200 and prints the response:
+Sunday returns 202 until a photo is approved in the admin at ?ns=test.
+Judge FAILED attempts are counted per day from the handler's own log lines.
 """
 
 from __future__ import annotations
@@ -24,6 +23,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -53,10 +53,14 @@ def main() -> int:
     parser.add_argument("--episode", required=True, help="test episode id (stored under test/)")
     parser.add_argument("--concept", help="recipe concept for Monday; omit to let Monday pick")
     parser.add_argument("--days", default=",".join(days), help="comma-separated days (default: all)")
-    parser.add_argument("--from-episode", help="production episode whose earlier stages seed the test episode")
     args = parser.parse_args()
-    wanted = [d.strip() for d in args.days.split(",") if d.strip()]
-    if unknown := sorted(set(wanted) - set(days)):
+    # A path character in the id would let the storage URL escape test/.
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*", args.episode):
+        parser.error(f"--episode must be letters, digits and dashes, got {args.episode!r}")
+    wanted = {d.strip() for d in args.days.split(",") if d.strip()}
+    if not wanted:
+        parser.error("--days selects no day")
+    if unknown := sorted(wanted - set(days)):
         parser.error(f"unknown day(s) {unknown}; choose from {days}")
 
     from fastapi.testclient import TestClient
@@ -64,15 +68,10 @@ def main() -> int:
     from backend.admin.app import app
     from backend.storage import storage
 
-    if args.from_episode:
-        source = storage.load_episode(args.from_episode)
-        if source is None:
-            parser.error(f"production episode {args.from_episode!r} not found")
-        keep = days[: days.index(wanted[0])]
-        source["stages"] = {d: s for d, s in source.get("stages", {}).items() if d in keep}
-        source["episode_id"] = args.episode
-        with storage.prefix_scope("test/"):
-            storage.save_episode(args.episode, source)
+    # The filesystem fallback ignores the test/ prefix, so without Blob this
+    # would write ordinary local episodes, not an isolated test week.
+    if not storage.namespaces_episodes():
+        parser.error("storage cannot keep test/ separate; run under doppler --config prd")
 
     failures = _JudgeFailures()
     logging.getLogger("backend.admin.cron_routes").addHandler(failures)
