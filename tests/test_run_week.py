@@ -46,6 +46,7 @@ def _run(monkeypatch, argv, statuses=None, judge_fails=None, load=None):
     monkeypatch.setattr(type(storage), "load_episode", lambda self, episode_id: load)
     monkeypatch.setattr(type(storage), "namespaces_episodes", lambda self: True)
     monkeypatch.setenv("CRON_SECRET", "x")
+    monkeypatch.setenv("RUN_WEEK_SANDBOX", str(run_week.ROOT))
     monkeypatch.setattr(sys, "argv", ["run_week.py", *argv])
     return run_week.main(), posted
 
@@ -80,6 +81,7 @@ def test_handler_warnings_still_reach_the_console(monkeypatch, capsys):
     monkeypatch.setattr(TestClient, "post", post)
     monkeypatch.setattr(type(storage), "namespaces_episodes", lambda self: True)
     monkeypatch.setenv("CRON_SECRET", "x")
+    monkeypatch.setenv("RUN_WEEK_SANDBOX", str(run_week.ROOT))
     monkeypatch.setattr(sys, "argv", ["run_week.py", "--episode", "2027-W01", "--days", "monday"])
     run_week.main()
     assert "QA scoring failed" in capsys.readouterr().err
@@ -105,6 +107,7 @@ def test_bad_arguments_stop_before_any_call(monkeypatch, argv):
 def test_storage_without_namespaces_stops_before_any_call(monkeypatch):
     monkeypatch.setattr(TestClient, "post", lambda *a, **k: pytest.fail("posted"))
     monkeypatch.setattr(type(storage), "namespaces_episodes", lambda self: False)
+    monkeypatch.setenv("RUN_WEEK_SANDBOX", str(run_week.ROOT))
     monkeypatch.setattr(sys, "argv", ["run_week.py", "--episode", "2027-W01"])
     with pytest.raises(SystemExit):
         run_week.main()
@@ -120,3 +123,24 @@ def test_only_the_selected_days_run_in_schedule_order(days):
         code, posted = _run(monkeypatch, ["--episode", "2027-W01", "--days", ",".join(days)])
     assert code == 0
     assert [path.rsplit("/", 1)[-1] for path, _ in posted] == [d for d in DAYS if d in days]
+
+
+def test_a_week_runs_from_a_throwaway_copy_that_is_deleted_afterwards(monkeypatch):
+    """Handlers write repo-relative files; they must land in the copy, not the checkout."""
+    seen = {}
+
+    def fake_run(cmd, cwd, env, timeout):
+        seen.update(cwd=Path(cwd), script=Path(cmd[1]), sandbox=env["RUN_WEEK_SANDBOX"], argv=cmd[2:])
+        assert (Path(cwd) / "vercel.json").read_text() == (ROOT / "vercel.json").read_text()
+        return type("Done", (), {"returncode": 3})()
+
+    real_run = run_week.subprocess.run
+    monkeypatch.setattr(run_week.subprocess, "run",
+                        lambda cmd, **kw: real_run(cmd, **kw) if cmd[0] == "git" else fake_run(cmd, **kw))
+    monkeypatch.delenv("RUN_WEEK_SANDBOX", raising=False)
+    monkeypatch.setattr(sys, "argv", ["run_week.py", "--episode", "2027-W01", "--days", "monday"])
+    assert run_week.main() == 3
+    assert seen["cwd"].resolve() != ROOT and seen["script"].is_relative_to(seen["cwd"])
+    assert seen["sandbox"] == str(seen["cwd"].resolve())
+    assert seen["argv"] == ["--episode", "2027-W01", "--days", "monday"]
+    assert not seen["cwd"].exists()

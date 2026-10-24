@@ -13,6 +13,12 @@ not reach soon; it lives only under test/:
     doppler run --project muffinpanrecipes --config prd -- \\
         uv run python scripts/run_week.py --episode 2027-W01 --concept "Gruyère Gougères"
 
+It runs inside a throwaway copy of the checkout's tracked files (working-tree
+content), deleted afterwards. Production's handlers also write repo-relative
+files (agent memories, image jobs, local images, an episode mirror); on Vercel
+those land on an ephemeral filesystem, and here they land in the copy, so no
+local week can leave state behind that a later run or tool reads.
+
 It stops at the first day that does not return 200 and prints the response:
 Sunday returns 202 until a photo is approved in the admin at ?ns=test.
 Judge FAILED attempts are counted per day from the handler's own log lines.
@@ -24,7 +30,10 @@ import argparse
 import json
 import logging
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -47,6 +56,24 @@ class _JudgeFailures(logging.Handler):
             self.count += 1
 
 
+def _run_in_sandbox(argv: list[str]) -> int:
+    """Re-run this command from a temporary copy of the tracked files; return its exit code."""
+    tracked = subprocess.run(
+        ["git", "-C", str(ROOT), "ls-files", "-z", "--cached"],
+        capture_output=True, check=True, text=True, timeout=60,
+    ).stdout.split("\0")
+    with tempfile.TemporaryDirectory(prefix="run_week-") as tmp:
+        for rel in filter(None, tracked):
+            if (ROOT / rel).is_file():
+                (Path(tmp) / rel).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(ROOT / rel, Path(tmp) / rel)
+        env = {**os.environ, "RUN_WEEK_SANDBOX": str(Path(tmp).resolve())}
+        return subprocess.run(
+            [sys.executable, str(Path(tmp) / "scripts" / "run_week.py"), *argv],
+            cwd=tmp, env=env, timeout=4 * 3600,
+        ).returncode
+
+
 def main() -> int:
     days = cron_days()
     parser = argparse.ArgumentParser(description="Run a test week through the production cron handlers.")
@@ -60,6 +87,8 @@ def main() -> int:
 
     if not is_valid_iso_week(args.episode):
         parser.error(f"--episode must be an ISO week such as 2026-W44, got {args.episode!r}")
+    if os.environ.get("RUN_WEEK_SANDBOX") != str(ROOT):
+        return _run_in_sandbox(sys.argv[1:])
     wanted = {d.strip() for d in args.days.split(",") if d.strip()}
     if not wanted:
         parser.error("--days selects no day")

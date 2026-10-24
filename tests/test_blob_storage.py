@@ -97,17 +97,6 @@ class TestCloudBackendSaveEpisode:
 
         assert cloud_backend._episode_cache[("", "ep-test-001")] == sample_episode
 
-    def test_a_test_prefixed_save_writes_no_local_copy(self, cloud_backend, sample_episode):
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {"url": "https://example.com/ep.json"}
-        with patch("requests.put", return_value=mock_resp) as mock_put, \
-             patch.object(cloud_backend._fs, "save_episode") as local_copy:
-            with cloud_backend.prefix_scope("test/"):
-                cloud_backend.save_episode("2026-W42", sample_episode)
-            cloud_backend.save_episode("2026-W42", sample_episode)
-        assert "test/episodes/2026-W42.json" in mock_put.call_args_list[0][0][0]
-        local_copy.assert_called_once_with("2026-W42", sample_episode)
-
     def test_save_raises_on_api_failure(self, cloud_backend, sample_episode):
         mock_resp = MagicMock()
         mock_resp.raise_for_status.side_effect = Exception("500 Server Error")
