@@ -2102,9 +2102,9 @@ def _distribute_images_wednesday(
 
     elif style == "scatter":
         # One image per Julian message, discussion happens in between
+        # With fewer Julian messages than images, the last one carries the rest.
         for i, img in enumerate(image_paths[:3]):
-            if i < len(julian_msgs):
-                julian_msgs[i].attachments = [img]
+            julian_msgs[min(i, len(julian_msgs) - 1)].attachments.append(img)
 
     else:  # two_one
         # First 2 together ("here's what I've got so far"), third after debate
@@ -2599,7 +2599,7 @@ def _author_prompt(
     personas: dict[str, dict[str, Any]], names: list[str], concept: str, day: str,
     recipe_context: str | None, recipe_facts: str | None, event: str | None,
     highlights: list[str], recent_lines: list[str], length_target: dict | None,
-    photography_context: dict | None = None,
+    photography_context: dict | None = None, retry_note: str | None = None,
 ) -> str:
     """Give a scene author character references and the meeting's factual context."""
     sheets = []
@@ -2615,8 +2615,9 @@ def _author_prompt(
     length = f"Write {lo}-{hi} dialogue lines."
     photography = (
         f"Photography context:\n{json.dumps(photography_context, ensure_ascii=False)}\n"
-        if day == "wednesday" and photography_context else ""
+        if photography_context else ""
     )
+    retry = f"An earlier draft of this meeting was rejected. {retry_note} Fix that in this draft.\n" if retry_note else ""
     if length_target:
         length = (
             f"Write exactly {length_target['lines']} dialogue lines (production range {lo}-{hi}), "
@@ -2627,7 +2628,7 @@ def _author_prompt(
         f"Write the whole {day.title()} meeting as a fiction writer writing a scene.\n"
         f"Concept: {concept}\nTask: {DAY_MEETING_GOAL[day]['objective']}\n"
         f"Recipe: {recipe_context or concept}\nRecipe Method and facts:\n{recipe_facts or '(not supplied)'}\n"
-        f"{photography}"
+        f"{photography}{retry}"
         f"Injected event: {event or '(none)'}\n"
         f"Prior-day highlights:\n" + "\n".join(highlights or ['(none)']) + "\n"
         "Earlier dialogue:\n" + "\n".join(recent_lines or ['(none)']) + "\n\n"
@@ -2742,7 +2743,7 @@ def run_simulation(
             prompt = _author_prompt(
                 personas, names, concept, day, recipe_context, recipe_facts,
                 injected_event, week_highlights, recent_lines, author_length_target,
-                photography_context,
+                photography_context, retry_note,
             )
             if mode == 'template':
                 count = (author_length_target or {}).get('lines', TICKS_RANGE[day][0])
