@@ -55,7 +55,6 @@ from backend.admin.cron.editorial_qa import (
     QA_UNAVAILABLE_MARKER,
     _auto_fix_recipe,
     _editorial_qa_review,
-    is_copy_only_failure,
 )
 from backend.judge_rubric import CHARACTER_RULES
 from backend.recipe_model import ingredient_names
@@ -3214,7 +3213,7 @@ async def cron_sunday(request: Request):
             )
 
             # Editorial QA gate with auto-fix retry loop
-            qa_passed, qa_report = _editorial_qa_review(ep)
+            qa_passed, qa_report, qa_copy_only = _editorial_qa_review(ep)
             fix_attempts = 0
             while (
                 not qa_passed
@@ -3232,7 +3231,7 @@ async def cron_sunday(request: Request):
 
                 if _auto_fix_recipe(ep, qa_report):
                     ep["events"].append(f"sunday: auto-fix applied (attempt {fix_attempts})")
-                    qa_passed, qa_report = _editorial_qa_review(ep)
+                    qa_passed, qa_report, qa_copy_only = _editorial_qa_review(ep)
                 else:
                     ep["events"].append(f"sunday: auto-fix failed (attempt {fix_attempts})")
                     break
@@ -3243,7 +3242,7 @@ async def cron_sunday(request: Request):
                 "reviewed_at": datetime.now(timezone.utc).isoformat(),
                 "fix_attempts": fix_attempts,
             }
-            if not qa_passed and is_copy_only_failure(qa_report):
+            if not qa_passed and qa_copy_only:
                 # Erik, 2026-10-24: a finished week publishes rather than dying
                 # on wording alone (#8607). W42 was lost to "easy" in the
                 # description, which auto-fix never rewrites. Anything else

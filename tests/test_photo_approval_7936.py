@@ -137,7 +137,7 @@ def _request(method="POST", path="/api/cron/sunday"):
 
 
 @contextmanager
-def _sunday_env(store, test=False, dialogue_effect=None, qa=(True, "PASS")):
+def _sunday_env(store, test=False, dialogue_effect=None, qa=(True, "PASS", False)):
     body = cron_routes.StageRequest(episode_id=EP_ID, force=True, test=test)
     dialogue = MagicMock(return_value=([{"character": "Devon Park", "message": "Ready."}], "PASS"))
     if dialogue_effect:
@@ -352,7 +352,7 @@ def test_sunday_that_finds_a_claim_stops_before_spending():
 @pytest.mark.parametrize("failure", ["qa", "dialogue"])
 def test_pre_publication_failure_saves_unpublished_and_releases_the_claim(failure):
     store, ep, _ = _approved_store()
-    kw = {"qa": (False, "STATUS: FAIL bad yield")} if failure == "qa" else \
+    kw = {"qa": (False, "STATUS: FAIL bad yield", False)} if failure == "qa" else \
         {"dialogue_effect": RuntimeError("provider down")}
     with patch.object(cron_routes, "_auto_fix_recipe", return_value=False):
         env = _sunday(store, **kw)

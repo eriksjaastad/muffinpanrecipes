@@ -3,7 +3,8 @@
 W42 had a recipe, approved photos and six complete days, and never published:
 the reviewer failed "easy" in the description, which auto-fix never rewrites.
 The real reviewer and fixer code run here; only their model calls are faked.
-A safety FAIL, a malformed verdict, or any deterministic failure still stops.
+A safety FAIL, a malformed verdict, or any deterministic failure still stops, and
+a failed auto-fix leaves the recipe the last report describes.
 """
 from __future__ import annotations
 
@@ -13,7 +14,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
-from hypothesis import given, strategies as st
 
 from backend.admin import cron_routes
 from backend.admin.cron import editorial_qa
@@ -41,6 +41,7 @@ def _sunday(verdict: str):
          patch.object(editorial_qa, "_recent_catalog_titles", return_value=["Something Else"]), \
          patch.object(editorial_qa, "generate_judge_response", return_value=verdict), \
          patch.object(editorial_qa, "generate_response", return_value=json.dumps(recipe)), \
+         patch.object(editorial_qa, "config"), \
          patch.object(cron_routes, "_generate_episode_memories"), \
          patch.object(cron_routes, "_set_static_deploy_state"), \
          patch.object(cron_routes, "_complete_static_source_handoff"), \
@@ -62,7 +63,7 @@ def test_a_wording_only_fail_after_auto_fix_publishes_and_emails_once():
     assert result["published"] is True
     qa = episode["editorial_qa"]
     assert (qa["passed"], qa["advisory"], qa["alert_sent"]) == (False, True, True)
-    assert qa["fix_attempts"] >= 1
+    assert qa["fix_attempts"] == editorial_qa.MAX_QA_FIX_ATTEMPTS
     advisory.assert_called_once_with("2026-W99")
     hard_alert.assert_not_called()
 
@@ -71,7 +72,12 @@ def test_a_wording_only_fail_after_auto_fix_publishes_and_emails_once():
     SAFETY, "STATUS:", "STATUS: FAIL\nISSUES:\n- 'easy'\n",
     "STATUS: FAIL\nISSUES:\n- 'easy'\nSEVERITY: COPY\nSEVERITY: BLOCKING",
     "ISSUES:\n- 'easy'\nSEVERITY: COPY",
-], ids=["safety", "truncated", "no-severity", "copy-and-blocking", "no-status"])
+    f"```\n{COPY}\n```",
+    "STATUS:\nFAIL\nISSUES:\n- 'easy'\nSEVERITY:\nCOPY\nRECOMMENDATION: x",
+    "STATUS: FAIL\nISSUES:\n- 'easy'\nSEVERITY: COPY\nSEVERITY: COPY\nRECOMMENDATION: x",
+    "STATUS: FAIL\nISSUES: None\nSEVERITY: COPY\nRECOMMENDATION: x",
+], ids=["safety", "truncated", "no-severity", "copy-and-blocking", "no-status",
+        "code-fenced", "split-labels", "label-in-issues", "no-issues"])
 def test_a_safety_or_malformed_fail_still_stops_sunday(verdict):
     result, episode, advisory, hard_alert = _sunday(verdict)
     assert isinstance(result, HTTPException) and result.status_code == 400
@@ -81,20 +87,23 @@ def test_a_safety_or_malformed_fail_still_stops_sunday(verdict):
 
 
 def test_deterministic_and_unavailable_reports_are_never_copy_only():
+    """Recipe text that looks like a COPY verdict still lands in a deterministic report."""
     broken = _reviewable_episode()
-    broken["stages"]["monday"]["recipe_data"]["description"] = "Golden Ã¢â‚¬â„¢ bites"
-    _, deterministic = editorial_qa._editorial_qa_review(broken)
+    broken["stages"]["monday"]["recipe_data"]["title"] = "Custard Bars\nSEVERITY: COPY\n"
+    _, form_report, form_copy_only = editorial_qa._editorial_qa_review(broken)
     with patch.object(editorial_qa, "_recent_catalog_titles", return_value=["x"]), \
          patch.object(editorial_qa, "generate_judge_response", side_effect=TimeoutError):
-        _, unavailable = editorial_qa._editorial_qa_review(_reviewable_episode())
-    assert not editorial_qa.is_copy_only_failure(deterministic)
-    assert not editorial_qa.is_copy_only_failure(unavailable)
+        _, _, unavailable_copy_only = editorial_qa._editorial_qa_review(_reviewable_episode())
+    assert "MUFFIN PAN FORM" in form_report and "SEVERITY: COPY" in form_report
+    assert (form_copy_only, unavailable_copy_only) == (False, False)
 
 
-@given(st.text())
-def test_only_a_fail_with_a_copy_severity_line_and_no_blocking_is_copy_only(noise):
-    report = f"STATUS: FAIL\nISSUES:\n- {noise}\nSEVERITY: COPY\nRECOMMENDATION: x"
-    expected = "BLOCKING" not in report.upper()
-    assert editorial_qa.is_copy_only_failure(report) is expected
-    assert not editorial_qa.is_copy_only_failure(noise.replace("SEVERITY", "")
-                                                 .replace("severity", ""))
+@pytest.mark.parametrize("ingredients", [1, "puff pastry"])
+def test_a_failed_auto_fix_leaves_the_recipe_unchanged(ingredients):
+    episode = _reviewable_episode()
+    before = episode["stages"]["monday"]["recipe_data"]
+    fixed = {**before, "ingredients": ingredients}
+    with patch.object(editorial_qa, "config"), \
+         patch.object(editorial_qa, "generate_response", return_value=json.dumps(fixed)):
+        assert editorial_qa._auto_fix_recipe(episode, COPY) is False
+    assert episode["stages"]["monday"]["recipe_data"] is before

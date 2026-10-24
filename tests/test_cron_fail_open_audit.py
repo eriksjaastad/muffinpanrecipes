@@ -66,7 +66,7 @@ def test_editorial_qa_fails_closed_when_the_reviewer_throws() -> None:
              editorial_qa, "generate_judge_response",
              side_effect=RuntimeError("provider 503"),
          ):
-        passed, report = cron_routes._editorial_qa_review(_reviewable_episode())
+        passed, report, _ = cron_routes._editorial_qa_review(_reviewable_episode())
 
     assert passed is False
     assert cron_routes.QA_UNAVAILABLE_MARKER in report
@@ -79,7 +79,7 @@ def test_editorial_qa_still_passes_a_clean_recipe() -> None:
              editorial_qa, "generate_judge_response",
              return_value="STATUS: PASS\nISSUES: None\nRECOMMENDATION: Ship it.",
          ):
-        passed, _report = cron_routes._editorial_qa_review(_reviewable_episode())
+        passed, _report, _ = cron_routes._editorial_qa_review(_reviewable_episode())
 
     assert passed is True
 

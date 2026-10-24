@@ -185,8 +185,17 @@ def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
         from backend.utils.recipe_prompts import _enforce_title_rules
         fixed["title"] = _enforce_title_rules(fixed.get("title", recipe.get("title", "")))
 
-        # Validate we got something reasonable
-        if not fixed.get("title") or not fixed.get("ingredients") or not fixed.get("instructions"):
+        # Validate we got something reasonable. The list shapes matter (#8607):
+        # a non-list here used to be stored and only fail later, and Sunday
+        # may now publish over a wording-only FAIL of whatever is stored.
+        ingredients, instructions = fixed.get("ingredients"), fixed.get("instructions")
+        if (
+            not fixed.get("title")
+            or not isinstance(ingredients, list) or not ingredients
+            or not all(isinstance(ing, (dict, str)) for ing in ingredients)
+            or not isinstance(instructions, list) or not instructions
+            or not all(isinstance(step, str) for step in instructions)
+        ):
             logger.warning("Auto-fix returned incomplete recipe — skipping")
             return False
 
@@ -202,9 +211,9 @@ def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
             else:
                 fixed.pop(owned, None)
 
-        # Update recipe data in place
+        logger.info(f"Auto-fixed recipe: '{fixed['title']}' ({len(ingredients)} ingredients)")
+        # Last, so that every False return leaves the recipe as it was (#8607).
         monday["recipe_data"] = fixed
-        logger.info(f"Auto-fixed recipe: '{fixed['title']}' ({len(fixed['ingredients'])} ingredients)")
         return True
 
     # governance: allow-silent SF002: False is the failure signal; the Sunday fix loop breaks, then raises HTTP 400 and notify_judge_failure because QA never passed
@@ -217,24 +226,41 @@ def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
         return False
 
 
+# Labels of the reviewer's reply format in _EDITORIAL_QA_SYSTEM_PROMPT.
+_VERDICT_LABELS = ("STATUS:", "ISSUES:", "SEVERITY:", "RECOMMENDATION:")
+
+
+def _is_copy_only_verdict(verdict: str) -> bool:
+    """Whether the reviewer's own reply is a well-formed FAIL it classed as wording-only (#8607).
+
+    Allow-list, not a search: the whole reply must be the prompt's format and
+    nothing else, in order: "STATUS: FAIL", "ISSUES:" with at least one issue,
+    "SEVERITY: COPY", and a "RECOMMENDATION:" last line. A code fence, a missing,
+    repeated or split label, or BLOCKING anywhere does not match, so it blocks.
+    Only _editorial_qa_review calls this, and only on the reviewer model's
+    reply, so no deterministic or unavailable report can ever be copy-only.
+    """
+    lines = [line.strip() for line in verdict.strip().splitlines() if line.strip()]
+    if (
+        len(lines) < 4
+        or lines[0] != "STATUS: FAIL"
+        or not lines[1].startswith("ISSUES:")
+        or lines[-2] != "SEVERITY: COPY"
+        or not lines[-1].startswith("RECOMMENDATION:")
+        or "BLOCKING" in verdict.upper()
+    ):
+        return False
+    issues = [lines[1].removeprefix("ISSUES:").strip(), *lines[2:-2]]
+    issues = [issue for issue in issues if issue and issue.upper() != "NONE"]
+    return bool(issues) and not any(
+        issue.upper().startswith(_VERDICT_LABELS) for issue in issues
+    )
+
+
 # Sentinel prefix marking a QA report that means "the reviewer never ran",
 # as opposed to "the reviewer ran and rejected the recipe". The Sunday loop
 # checks for it so it doesn't burn auto-fix LLM calls trying to repair a
 # recipe nobody actually reviewed.
-_COPY_ONLY_RE = re.compile(r"^STATUS:\s*FAIL\s*$.*^SEVERITY:\s*COPY\s*$", re.MULTILINE | re.DOTALL)
-
-
-def is_copy_only_failure(report: str) -> bool:
-    """Whether a QA report is the reviewer's well-formed FAIL on wording alone (#8607).
-
-    Only such a FAIL may publish once auto-fix is spent. Deterministic,
-    unavailable and malformed reports carry no SEVERITY: COPY line, and a
-    report that also says BLOCKING anywhere is never copy-only, so all of
-    those still stop Sunday.
-    """
-    return bool(_COPY_ONLY_RE.search(report)) and "BLOCKING" not in report.upper()
-
-
 QA_UNAVAILABLE_MARKER = "EDITORIAL QA UNAVAILABLE"
 
 
@@ -277,10 +303,12 @@ def _recent_catalog_titles(limit: int = 8) -> list[str]:
         return []
 
 
-def _editorial_qa_review(episode: dict) -> tuple[bool, str]:
+def _editorial_qa_review(episode: dict) -> tuple[bool, str, bool]:
     """Run editorial QA on the complete recipe before publish.
 
-    Returns (passed: bool, report: str).
+    Returns (passed, report, copy_only). copy_only is true only for the
+    reviewer model's own well-formed wording-only FAIL (#8607); every
+    deterministic and unavailable report returns False.
     """
     monday = episode.get("stages", {}).get("monday", {})
     recipe = monday.get("recipe_data", {})
@@ -326,7 +354,7 @@ def _editorial_qa_review(episode: dict) -> tuple[bool, str]:
             "Text contains double-encoded UTF-8 (mojibake)."
         )
         logger.warning(f"Editorial QA FAIL (encoding): {len(encoding_flags)} issues found")
-        return False, report
+        return False, report, False
 
     from backend.utils.muffin_pan_form import check_muffin_pan_form
 
@@ -340,7 +368,7 @@ def _editorial_qa_review(episode: dict) -> tuple[bool, str]:
             "removal from the pan."
         )
         logger.warning(f"Editorial QA FAIL (muffin-pan form): {form_issue}")
-        return False, report
+        return False, report, False
 
     # Layer 2.5 (#7099): the recipe itself. Not redundant with Monday's gate
     # — _auto_fix_recipe REPLACES recipe_data wholesale with free-form LLM
@@ -361,7 +389,7 @@ def _editorial_qa_review(episode: dict) -> tuple[bool, str]:
             "temperature so a reader can confirm it is cooked through."
         )
         logger.warning(f"Editorial QA FAIL (recipe sanity): {sanity.reason}")
-        return False, report
+        return False, report, False
 
     # Format content for LLM review
     ing_text = "\n".join(
@@ -437,7 +465,7 @@ def _editorial_qa_review(episode: dict) -> tuple[bool, str]:
         ).strip()
         passed = "STATUS: PASS" in verdict.upper() or verdict.upper().startswith("PASS")
         logger.info(f"Editorial QA verdict: {verdict[:300]}")
-        return passed, verdict
+        return passed, verdict, not passed and _is_copy_only_verdict(verdict)
     except Exception as e:
         # FAIL CLOSED (#6505, #6856). This used to return
         # (True, "EDITORIAL QA ERROR (defaulting to PASS)"), so a provider
@@ -451,4 +479,4 @@ def _editorial_qa_review(episode: dict) -> tuple[bool, str]:
             "RECOMMENDATION: The editorial reviewer could not run, so this "
             "recipe has NOT been reviewed. Do not publish until the reviewer "
             "is reachable; re-fire /api/cron/sunday once it is."
-        )
+        ), False
