@@ -239,13 +239,13 @@ def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
 # The one reviewer reply that may publish over a FAIL (#8607): the prompt's
 # format, whole and in order. Each issue is "- CATEGORY: what is wrong", and the
 # recommendation is a finished sentence, so a truncated reply does not match.
-# Each line can match only one way: an ambiguous split such as
-# "[^\n]*\S[^\n]*" backtracks exponentially across issue lines and hung a
-# real five-issue reply.
+# Each line can match only one way (the category has no colon, the text
+# starts at its first non-space and runs to the newline): the ambiguous
+# "[^\n]*\S[^\n]*" this replaced backtracked across issue lines and hung.
 _COPY_ONLY_VERDICT_RE = re.compile(
     r"STATUS: FAIL\n"
     r"ISSUES:\n"
-    r"(?:- (?!(?i:none)\b)[A-Z][A-Za-z0-9 &/()'.-]*: [^\n]*\S[^\n]*\n)+"
+    r"(?:- (?!(?i:none)\b)[A-Z][A-Za-z0-9 &/()'.-]*: \S[^\n]*\n)+"
     r"SEVERITY: COPY\n"
     r"RECOMMENDATION: \S[^\n]*[.!][\"')]?"
 )

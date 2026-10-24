@@ -119,8 +119,8 @@ def test_no_copy_advisory_when_publication_never_happens():
     advisory.assert_not_called()
 
 
-_text = st.text(alphabet=string.ascii_letters + string.digits + " ,'", min_size=1).filter(
-    lambda t: t.strip() and "BLOCKING" not in t.upper())
+_text = st.text(alphabet=string.ascii_letters + string.digits + " ,'", min_size=1).map(str.strip).filter(
+    lambda t: t and "BLOCKING" not in t.upper())
 _category = st.from_regex(r"[A-Z][A-Z ]{0,12}", fullmatch=True).filter(
     lambda c: not re.match(r"none\b", c, re.IGNORECASE) and "BLOCKING" not in c)
 
