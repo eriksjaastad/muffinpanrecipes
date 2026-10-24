@@ -92,11 +92,13 @@ def download(blob: _CloudBackend, record: dict, path: Path) -> dict:
 
 def snapshot(directory: Path, remote: str) -> dict:
     """Download, manifest, copy and verify one run; raise on any failure."""
-    # rclone reads a destination whose prefix is not a configured remote name
-    # as a local path or an on-the-fly backend (./gbackup:x, /x:y, :local:x),
-    # so check the prefix against the remotes rclone actually has.
+    # rclone reads a destination whose prefix is not a configured remote as a
+    # local path or an on-the-fly backend (./gbackup:x, /x:y, :local:x), so let
+    # rclone resolve it and require the remote it names. An unknown remote
+    # fails here as an rclone error.
     name, colon, _ = remote.partition(":")
-    if not colon or f"{name}:" not in rclone("listremotes").splitlines():
+    resolved = json.loads(rclone("backend", "features", remote))["Name"]
+    if not colon or resolved != name.split(",")[0]:
         raise BackupError("Offsite destination must use an existing named rclone remote")
     if not os.environ.get("BLOB_READ_WRITE_TOKEN"):
         raise BackupError("BLOB_READ_WRITE_TOKEN is required; run under Doppler")

@@ -44,7 +44,8 @@ PAGES = [
 def env(tmp_path, monkeypatch):
     monkeypatch.setenv("BLOB_READ_WRITE_TOKEN", "test-token")
     monkeypatch.setenv("RCLONE_CONFIG_TESTLOCAL_TYPE", "local")
-    return tmp_path / "backups", f"testlocal:{tmp_path / 'remote'}"
+    # rclone accepts an env-defined remote in any case; listremotes shows only lowercase.
+    return tmp_path / "backups", f"TestLocal:{tmp_path / 'remote'}"
 
 
 def _get(url, **_kw):
@@ -72,7 +73,7 @@ def test_a_run_copies_every_record_once_by_manifest_and_skips_images_and_test(en
     report = _latest(root)
     assert report["status"] == "complete" and report["blobs"] == 5
 
-    copied = Path(report["destination"].removeprefix("testlocal:"))
+    copied = Path(report["destination"].removeprefix("TestLocal:"))
     manifest = json.loads((copied / "manifest.json").read_text())
     by_name = {b["pathname"]: (copied / b["file"]).read_bytes() for b in manifest["blobs"]}
     assert by_name == {"episodes/2026-W43.json": b"{}{}", "manifest.json": b"m",
@@ -90,7 +91,7 @@ def test_a_short_download_fails_and_copies_nothing_offsite(env):
 
     assert _create(root, remote, get=short) == 1
     assert "got 3 bytes, listed 4" in _latest(root)["error"]
-    assert not Path(remote.removeprefix("testlocal:")).exists()
+    assert not Path(remote.removeprefix("TestLocal:")).exists()
 
 
 def test_a_failed_offsite_copy_fails_the_run(env, tmp_path):
@@ -115,11 +116,12 @@ def test_a_failed_offsite_check_after_a_good_copy_fails_the_run(env):
 
 
 @pytest.mark.parametrize("remote, token, error", [
-    ("testlocal", "test-token", "Offsite destination must use an existing named rclone remote"),
-    ("no-such-remote:records", "test-token", "Offsite destination must use an existing named rclone remote"),
+    ("local", "test-token", "Offsite destination must use an existing named rclone remote"),
+    ("no-such-remote:records", "test-token", "rclone backend failed (exit 1)"),
     ("./testlocal:records", "test-token", "Offsite destination must use an existing named rclone remote"),
+    (":local:records", "test-token", "Offsite destination must use an existing named rclone remote"),
     (None, "", "BLOB_READ_WRITE_TOKEN is required; run under Doppler"),
-], ids=["no-colon", "unknown-remote", "local-path-with-colon", "no-token"])
+], ids=["no-colon", "unknown-remote", "local-path-with-colon", "on-the-fly-backend", "no-token"])
 def test_a_setup_failure_after_a_success_is_recorded_and_status_fails(env, monkeypatch, remote, token, error):
     root, good_remote = env
     assert _create(root, good_remote) == 0
@@ -178,7 +180,7 @@ def test_any_listed_pathnames_all_survive_with_their_own_bytes(pathnames):
     """Duplicates, '..', '/', NUL and 'manifest.json' included: no body overwrites another."""
     records = [{"pathname": p, "url": str(i), "size": len(str(i))} for i, p in enumerate(pathnames)]
     with tempfile.TemporaryDirectory() as tmp, \
-         patch.object(backup_blob, "rclone", return_value="testlocal:\n"), \
+         patch.object(backup_blob, "rclone", return_value='{"Name": "testlocal"}'), \
          patch.object(backup_blob, "list_records", return_value=records), \
          patch.object(backup_blob.requests, "get",
                       side_effect=lambda url, **_kw: MagicMock(content=url.encode(), raise_for_status=lambda: None)), \
