@@ -55,6 +55,7 @@ from backend.admin.cron.editorial_qa import (
     QA_UNAVAILABLE_MARKER,
     _auto_fix_recipe,
     _editorial_qa_review,
+    is_copy_only_failure,
 )
 from backend.judge_rubric import CHARACTER_RULES
 from backend.recipe_model import ingredient_names
@@ -72,6 +73,7 @@ from backend.utils.logging import get_logger
 from backend.utils.recipe_copy import generate_intro, recent_openers, recipe_pitch
 from backend.utils import photo_review
 from backend.utils.discord import (
+    notify_copy_advisory,
     notify_judge_advisory,
     notify_judge_failure,
     notify_photos_ready,
@@ -3241,7 +3243,15 @@ async def cron_sunday(request: Request):
                 "reviewed_at": datetime.now(timezone.utc).isoformat(),
                 "fix_attempts": fix_attempts,
             }
-            if not qa_passed:
+            if not qa_passed and is_copy_only_failure(qa_report):
+                # Erik, 2026-10-24: a finished week publishes rather than dying
+                # on wording alone (#8607). W42 was lost to "easy" in the
+                # description, which auto-fix never rewrites. Anything else
+                # the reviewer or the deterministic checks fail still stops.
+                ep["editorial_qa"]["advisory"] = True
+                ep["events"].append("sunday: editorial QA failed on wording only; publishing (advisory)")
+                ep["editorial_qa"]["alert_sent"] = notify_copy_advisory(episode_id)
+            elif not qa_passed:
                 ep["events"].append("sunday: editorial QA FAILED (exhausted retries)")
                 # Recorded as a failed Sunday on the UNPUBLISHED episode so
                 # the monitor reports the QA failure (#7936): the raise below
@@ -3268,7 +3278,7 @@ async def cron_sunday(request: Request):
                     status_code=400,
                     detail=f"Editorial QA failed after {fix_attempts} auto-fix attempts.\n{qa_report}",
                 )
-            if fix_attempts > 0:
+            elif fix_attempts > 0:
                 ep["events"].append(f"sunday: editorial QA PASSED after {fix_attempts} auto-fix(es)")
             else:
                 ep["events"].append("sunday: editorial QA PASSED")

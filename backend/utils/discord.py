@@ -174,6 +174,18 @@ def notify_judge_advisory(
     )
 
 
+def notify_copy_advisory(episode_id: str) -> bool:
+    """Alert when Sunday publishes over a wording-only copy FAIL (#8607).
+
+    The reviewer's report is recorded on the episode (editorial_qa), not here.
+    """
+    return send_alert(
+        subject="Publishing · Copy check below bar",
+        body=f"{_short(episode_id)} · {_day('sunday')}",
+        severity="warning",
+    )
+
+
 def notify_batch_complete(
     recipe_count: int,
     recipe_titles: list[str],

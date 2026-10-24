@@ -62,7 +62,12 @@ _EDITORIAL_QA_SYSTEM_PROMPT = (
     "Respond with EXACTLY this format:\n"
     "STATUS: PASS or FAIL\n"
     "ISSUES: (list each issue on its own line, or 'None' if passing)\n"
+    "SEVERITY: COPY or BLOCKING\n"
     "RECOMMENDATION: (one sentence)\n\n"
+    "SEVERITY is COPY only when every issue is wording or style (title rules, "
+    "brand voice, punctuation, repeated words) and the recipe is safe, accurate, "
+    "coherent and cookable as written. Any safety, food-safety temperature, "
+    "factual, measurement, coherence or plausibility issue is BLOCKING.\n\n"
     "Be strict. A recipe with ANY encoding issue, factual error, or title rule "
     "violation is an automatic FAIL."
 )
@@ -216,6 +221,20 @@ def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
 # as opposed to "the reviewer ran and rejected the recipe". The Sunday loop
 # checks for it so it doesn't burn auto-fix LLM calls trying to repair a
 # recipe nobody actually reviewed.
+_COPY_ONLY_RE = re.compile(r"^STATUS:\s*FAIL\s*$.*^SEVERITY:\s*COPY\s*$", re.MULTILINE | re.DOTALL)
+
+
+def is_copy_only_failure(report: str) -> bool:
+    """Whether a QA report is the reviewer's well-formed FAIL on wording alone (#8607).
+
+    Only such a FAIL may publish once auto-fix is spent. Deterministic,
+    unavailable and malformed reports carry no SEVERITY: COPY line, and a
+    report that also says BLOCKING anywhere is never copy-only, so all of
+    those still stop Sunday.
+    """
+    return bool(_COPY_ONLY_RE.search(report)) and "BLOCKING" not in report.upper()
+
+
 QA_UNAVAILABLE_MARKER = "EDITORIAL QA UNAVAILABLE"
 
 
