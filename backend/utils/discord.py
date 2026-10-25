@@ -20,7 +20,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Optional
 
-from backend.utils.alerts import _pytest_gate, send_alert  # noqa: F401
+from backend.utils.alerts import _pytest_gate, send_alert, send_alert_confirming_email  # noqa: F401
 from backend.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -206,8 +206,10 @@ def notify_copy_advisory(episode_id: str) -> bool:
     """Alert when Sunday publishes over a wording-only copy FAIL (#8607).
 
     The reviewer's report is recorded on the episode (editorial_qa), not here.
+    Returns whether EMAIL accepted it: the caller clears the owed alert only
+    on True, and Erik reads email, not Discord.
     """
-    return send_alert(
+    return send_alert_confirming_email(
         subject="Publishing · Copy check below bar",
         body=f"{_short(episode_id)} · {_day('sunday')}",
         severity="warning",

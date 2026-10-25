@@ -59,13 +59,12 @@ _EDITORIAL_QA_SYSTEM_PROMPT = (
     "       ANY of the last 3 published recipes, it FAILS for lack of variety.\n"
     "    d. The title should evoke the DISH, not the METHOD. 'Roasted Veggie Egg Cups'\n"
     "       is borderline. 'Herbed Vegetable Frittata Cups' is better.\n\n"
-    "Respond with EXACTLY this format:\n"
-    "STATUS: PASS or FAIL\n"
-    "ISSUES: (list each issue on its own line as '- CATEGORY: what is wrong', "
-    "or 'None' if passing)\n"
-    "SEVERITY: COPY or BLOCKING\n"
-    "RECOMMENDATION: (one sentence)\n\n"
-    "SEVERITY is COPY only when every issue is wording or style (title rules, "
+    "Respond with ONLY one JSON object, no other text:\n"
+    '{"status": "PASS" or "FAIL", "severity": "COPY" or "BLOCKING", '
+    '"issues": [{"category": "...", "detail": "what is wrong"}], '
+    '"recommendation": "one sentence"}\n'
+    "issues is [] when passing; severity is still required.\n\n"
+    "severity is COPY only when every issue is wording or style (title rules, "
     "brand voice, punctuation, repeated words) and the recipe is safe, accurate, "
     "coherent and cookable as written. Any safety, food-safety temperature, "
     "factual, measurement, coherence or plausibility issue is BLOCKING.\n\n"
@@ -236,36 +235,54 @@ def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
         return False
 
 
-# The one reviewer reply that may publish over a FAIL (#8607): the prompt's
-# format, whole and in order. Each issue is "- CATEGORY: what is wrong", and the
-# recommendation is a finished sentence, so a truncated reply does not match.
-# Each line can match only one way (the category has no colon, the text
-# starts at its first non-space and runs to the newline): the ambiguous
-# "[^\n]*\S[^\n]*" this replaced backtracked across issue lines and hung.
-_COPY_ONLY_VERDICT_RE = re.compile(
-    r"STATUS: FAIL\n"
-    r"ISSUES:\n"
-    r"(?:- (?!(?i:none)\b)[A-Z][A-Za-z0-9 &/()'.-]*: \S[^\n]*\n)+"
-    r"SEVERITY: COPY\n"
-    r"RECOMMENDATION: \S[^\n]*[.!][\"')]?"
-)
+_VERDICT_KEYS = {"status", "severity", "issues", "recommendation"}
 
 
-def _is_copy_only_verdict(verdict: str) -> bool:
-    """Whether the reviewer's own reply is a well-formed FAIL it classed as wording-only (#8607).
+def _parse_reviewer_verdict(reply: str) -> dict | None:
+    """The reviewer's JSON verdict, or None unless it is complete and well-formed (#8607).
 
-    Allow-list, not a search: after trimming each line and dropping blank
-    ones, the whole reply must match _COPY_ONLY_VERDICT_RE, and BLOCKING may
-    appear nowhere. A code fence, a missing, repeated or split label, an
-    issue-less or truncated reply, or any extra line does not match, so it
-    blocks. Only _editorial_qa_review calls this, and only on the reviewer
-    model's reply, so no deterministic or unavailable report can be copy-only.
+    Completeness is structural, not textual: the whole reply must be one JSON
+    object with exactly the four keys; status PASS|FAIL; severity
+    COPY|BLOCKING; issues a list of objects whose category and detail are
+    non-empty strings, empty exactly when status is PASS; recommendation a
+    non-empty string. A truncated reply does not parse, and a preamble makes
+    it not one object, so both are None, which blocks. The one wrapper
+    accepted is a fence around the WHOLE reply, which models add unasked.
     """
-    lines = [line.strip() for line in verdict.splitlines()]
-    normalized = "\n".join(line for line in lines if line)
+    lines = reply.strip().splitlines()
+    if len(lines) >= 3 and lines[0].strip() in ("```", "```json") and lines[-1].strip() == "```":
+        reply = "\n".join(lines[1:-1])
+    try:
+        verdict = json.loads(reply)
+    # governance: allow-silent SF002: None means an unreadable verdict; _editorial_qa_review then fails closed and Sunday does not publish
+    except ValueError:
+        return None
+    if not isinstance(verdict, dict) or set(verdict) != _VERDICT_KEYS:
+        return None
+    issues = verdict["issues"]
+
+    def text(value: object) -> bool:
+        return isinstance(value, str) and bool(value.strip())
+
+    if (
+        verdict["status"] not in ("PASS", "FAIL")
+        or verdict["severity"] not in ("COPY", "BLOCKING")
+        or not text(verdict["recommendation"])
+        or not isinstance(issues, list)
+        or not all(isinstance(i, dict) and set(i) == {"category", "detail"}
+                   and text(i["category"]) and text(i["detail"]) for i in issues)
+        or (verdict["status"] == "PASS") != (not issues)
+    ):
+        return None
+    return verdict
+
+
+def _verdict_report(verdict: dict) -> str:
+    """The stored, human-readable QA report for a parsed verdict."""
+    issues = "\n".join(f"- {i['category']}: {i['detail']}" for i in verdict["issues"]) or "None"
     return (
-        _COPY_ONLY_VERDICT_RE.fullmatch(normalized) is not None
-        and "BLOCKING" not in normalized.upper()
+        f"STATUS: {verdict['status']}\nISSUES:\n{issues}\n"
+        f"SEVERITY: {verdict['severity']}\nRECOMMENDATION: {verdict['recommendation']}"
     )
 
 
@@ -469,15 +486,19 @@ def _editorial_qa_review(episode: dict) -> tuple[bool, str, bool]:
     )
 
     try:
-        verdict = generate_judge_response(
+        reply = generate_judge_response(
             prompt=review_prompt,
             system_prompt=_EDITORIAL_QA_SYSTEM_PROMPT,
             model=config.judge_model,
             temperature=0.2,
         ).strip()
-        passed = "STATUS: PASS" in verdict.upper() or verdict.upper().startswith("PASS")
-        logger.info(f"Editorial QA verdict: {verdict[:300]}")
-        return passed, verdict, not passed and _is_copy_only_verdict(verdict)
+        logger.info(f"Editorial QA verdict: {reply[:300]}")
+        verdict = _parse_reviewer_verdict(reply)
+        if verdict is None:
+            # FAIL CLOSED: an unreadable verdict is not a review.
+            return False, f"STATUS: FAIL\nISSUES:\n- MALFORMED REVIEWER REPLY: {reply[:1000]}", False
+        passed = verdict["status"] == "PASS"
+        return passed, _verdict_report(verdict), not passed and verdict["severity"] == "COPY"
     except Exception as e:
         # FAIL CLOSED (#6505, #6856). This used to return
         # (True, "EDITORIAL QA ERROR (defaulting to PASS)"), so a provider

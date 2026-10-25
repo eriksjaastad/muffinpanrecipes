@@ -11,9 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-import re
 import string
-import threading
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -25,10 +23,16 @@ from backend.admin.cron import editorial_qa
 from tests.test_advisory_judge_publishes import _sunday_episode, _sunday_request
 from tests.test_cron_fail_open_audit import _reviewable_episode
 
-COPY = ("STATUS: FAIL\nISSUES:\n- TITLE RULE VIOLATION (10b): 'easy' in the description\n"
-        "SEVERITY: COPY\nRECOMMENDATION: Drop 'easy'.")
-SAFETY = ("STATUS: FAIL\nISSUES:\n- Chicken is only taken to 120F internal temperature\n"
-          "SEVERITY: BLOCKING\nRECOMMENDATION: Cook chicken to 165F.")
+def _reply(status="FAIL", severity="COPY", issues=(("TITLE RULES", "'easy' in the description"),),
+           recommendation="Drop 'easy'.", **extra):
+    return json.dumps({"status": status, "severity": severity,
+                       "issues": [{"category": c, "detail": d} for c, d in issues],
+                       "recommendation": recommendation, **extra})
+
+
+COPY = _reply()
+SAFETY = _reply(severity="BLOCKING", issues=(("FOOD SAFETY", "Chicken only reaches 120F"),),
+                recommendation="Cook chicken to 165F.")
 
 
 def _pages_written(_episode_id, ep):
@@ -80,18 +84,19 @@ def test_a_wording_only_fail_after_auto_fix_publishes_and_emails_once():
 
 
 @pytest.mark.parametrize("verdict", [
-    SAFETY, "STATUS:", "STATUS: FAIL\nISSUES:\n- 'easy'\n",
-    "STATUS: FAIL\nISSUES:\n- 'easy'\nSEVERITY: COPY\nSEVERITY: BLOCKING",
-    "ISSUES:\n- 'easy'\nSEVERITY: COPY",
-    f"```\n{COPY}\n```",
-    "STATUS:\nFAIL\nISSUES:\n- 'easy'\nSEVERITY:\nCOPY\nRECOMMENDATION: x",
-    "STATUS: FAIL\nISSUES:\n- 'easy'\nSEVERITY: COPY\nSEVERITY: COPY\nRECOMMENDATION: x",
-    "STATUS: FAIL\nISSUES: None\nSEVERITY: COPY\nRECOMMENDATION: x",
-    "STATUS: FAIL\nISSUES:\n- None\nSEVERITY: COPY\nRECOMMENDATION: Nothing to fix.",
-    COPY.split("RECOMMENDATION:")[0] + "RECOMMENDATION:",
-], ids=["safety", "truncated", "no-severity", "copy-and-blocking", "no-status",
-        "code-fenced", "split-labels", "label-in-issues", "no-issues", "none-bullet",
-        "cut-after-recommendation"])
+    SAFETY,
+    COPY[:-20],                                         # truncated
+    _reply(issues=()),                                  # FAIL with no issues
+    _reply(recommendation=" "),                         # empty recommendation
+    _reply(severity="copy"),                            # not an allowed value
+    _reply(extra_key="x"),                              # unexpected key
+    json.dumps({"status": "FAIL", "issues": [], "recommendation": "x"}),  # missing severity
+    _reply(issues=(("TITLE RULES", ""),)),              # empty issue detail
+    f"Here is my verdict:\n{COPY}",                     # preamble
+    f"{COPY}\nThanks!",                                 # trailing text
+    "STATUS: FAIL\nISSUES:\n- TITLE: 'easy'\nSEVERITY: COPY\nRECOMMENDATION: Drop it.",  # old text format
+], ids=["safety", "truncated", "no-issues", "empty-recommendation", "bad-severity", "extra-key",
+        "missing-severity", "empty-detail", "preamble", "trailing", "old-text-format"])
 def test_a_safety_or_malformed_fail_still_stops_sunday(verdict):
     result, episode, advisory, hard_alert = _sunday(verdict)
     assert isinstance(result, HTTPException) and result.status_code == 400
@@ -103,12 +108,12 @@ def test_a_safety_or_malformed_fail_still_stops_sunday(verdict):
 def test_deterministic_and_unavailable_reports_are_never_copy_only():
     """Recipe text that looks like a COPY verdict still lands in a deterministic report."""
     broken = _reviewable_episode()
-    broken["stages"]["monday"]["recipe_data"]["title"] = "Custard Bars\nSEVERITY: COPY\n"
+    broken["stages"]["monday"]["recipe_data"]["title"] = f"Custard Bars {COPY}"
     _, form_report, form_copy_only = editorial_qa._editorial_qa_review(broken)
     with patch.object(editorial_qa, "_recent_catalog_titles", return_value=["x"]), \
          patch.object(editorial_qa, "generate_judge_response", side_effect=TimeoutError):
         _, _, unavailable_copy_only = editorial_qa._editorial_qa_review(_reviewable_episode())
-    assert "MUFFIN PAN FORM" in form_report and "SEVERITY: COPY" in form_report
+    assert "MUFFIN PAN FORM" in form_report and COPY in form_report
     assert (form_copy_only, unavailable_copy_only) == (False, False)
 
 
@@ -119,41 +124,23 @@ def test_no_copy_advisory_when_publication_never_happens():
     advisory.assert_not_called()
 
 
-_text = st.text(alphabet=string.ascii_letters + string.digits + " ,'", min_size=1).map(str.strip).filter(
-    lambda t: t and "BLOCKING" not in t.upper())
-_category = st.from_regex(r"[A-Z][A-Z ]{0,12}", fullmatch=True).filter(
-    lambda c: not re.match(r"none\b", c, re.IGNORECASE) and "BLOCKING" not in c)
+_words = st.text(alphabet=string.ascii_letters + string.digits + " ,'.", min_size=1).filter(str.strip)
 
 
 @st.composite
-def _copy_verdicts(draw):
-    issues = draw(st.lists(st.tuples(_category, _text), min_size=1, max_size=4))
-    return ("STATUS: FAIL\nISSUES:\n" + "".join(f"- {c}: {t}\n" for c, t in issues)
-            + f"SEVERITY: COPY\nRECOMMENDATION: {draw(_text)}.")
+def _verdicts(draw):
+    status = draw(st.sampled_from(["PASS", "FAIL"]))
+    issues = [] if status == "PASS" else draw(st.lists(st.tuples(_words, _words), min_size=1, max_size=4))
+    return status, _reply(status=status, severity=draw(st.sampled_from(["COPY", "BLOCKING"])),
+                          issues=issues, recommendation=draw(_words))
 
 
-@given(_copy_verdicts())
-def test_every_well_formed_copy_verdict_is_copy_only_and_none_of_its_prefixes_is(verdict):
-    assert editorial_qa._is_copy_only_verdict(verdict)
-    assert not any(editorial_qa._is_copy_only_verdict(verdict[:end]) for end in range(len(verdict)))
-
-
-@given(_copy_verdicts(), st.text(min_size=1).filter(str.strip))
-def test_anything_before_or_after_a_copy_verdict_blocks(verdict, extra):
-    assert not editorial_qa._is_copy_only_verdict(f"{extra}\n{verdict}")
-    assert not editorial_qa._is_copy_only_verdict(f"{verdict}\n{extra}")
-
-
-def test_a_long_reply_that_does_not_match_is_rejected_quickly():
-    """An ambiguous line pattern backtracked exponentially and hung on a real five-issue reply."""
-    issues = "".join(f"- CATEGORY {i}: " + "word " * 60 + "\n" for i in range(8))
-    verdict = f"STATUS: FAIL\nISSUES:\n{issues}SEVERITY: COPY\nRECOMMENDATION:"
-    result = []
-    worker = threading.Thread(target=lambda: result.append(editorial_qa._is_copy_only_verdict(verdict)),
-                              daemon=True)
-    worker.start()
-    worker.join(timeout=5)
-    assert result == [False]
+@given(_verdicts(), st.booleans())
+def test_every_complete_verdict_parses_and_no_truncation_of_it_does(case, fenced):
+    status, reply = case
+    wrapped = f"```json\n{reply}\n```" if fenced else reply
+    assert editorial_qa._parse_reviewer_verdict(wrapped)["status"] == status
+    assert not any(editorial_qa._parse_reviewer_verdict(reply[:end]) for end in range(len(reply)))
 
 
 def test_the_fixer_replaces_only_the_fields_it_fixes():
@@ -179,3 +166,19 @@ def test_a_failed_auto_fix_leaves_the_recipe_unchanged(ingredients):
          patch.object(editorial_qa, "generate_response", return_value=json.dumps(fixed)):
         assert editorial_qa._auto_fix_recipe(episode, COPY) is False
     assert episode["stages"]["monday"]["recipe_data"] is before
+
+
+def test_the_copy_alert_counts_as_sent_only_when_email_accepts_it(monkeypatch):
+    """Discord alone must not clear the owed alert: Erik reads email."""
+    from backend.utils import alerts, discord
+
+    def discord_ok(*_a):
+        return True
+
+    def email_down(*_a):
+        return False
+
+    monkeypatch.setattr(alerts, "_pytest_gate", lambda: False)
+    monkeypatch.setattr(alerts, "_send_email", email_down)
+    monkeypatch.setattr(alerts, "_BACKENDS", [discord_ok, email_down])
+    assert discord.notify_copy_advisory("2026-W99") is False

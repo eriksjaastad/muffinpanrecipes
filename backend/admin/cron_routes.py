@@ -985,6 +985,12 @@ def _announce_advisory_publication(episode_id: str, episode: dict, stage: str, c
       the next invocation may send one duplicate. Two invocations running
       at the same moment can both send: there is no storage-level lock, so
       this is at-least-once under concurrency, not exactly-once.
+
+    Re-firing a published Sunday (RUNBOOK "Sunday duplicate publish") is
+    free of side effects only when ``static_deploy.status`` is
+    ``source_ready`` or later AND neither ``judge_advisory.sunday`` nor
+    ``editorial_qa`` has ``announce_pending`` true; otherwise the re-fire
+    finishes the handoff or sends the owed alert and writes the episode.
     """
     _announce_record(
         episode_id, episode, ("judge_advisory", stage), f"{episode_id}/{stage}",
