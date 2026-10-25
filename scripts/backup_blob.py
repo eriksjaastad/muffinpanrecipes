@@ -25,6 +25,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
@@ -40,6 +41,10 @@ DEFAULT_BACKUPS = Path.home() / ".local/state/muffinpanrecipes/backups"
 DEFAULT_REMOTE = "gbackup:db-backups/muffinpanrecipes"
 SKIPPED_PREFIXES = ("images/", "test/")
 MAX_LIST_PAGES = 50
+# rclone's configured-remote name syntax, minus spaces. A destination whose
+# prefix is not a plain name (./gbackup:x, /x:y, :local:x, name,opt=v:x) is
+# read by rclone as a local path or an on-the-fly backend, never a config entry.
+REMOTE_NAME = re.compile(r"[A-Za-z0-9_.+@][A-Za-z0-9_.+@-]*")
 
 
 class BackupError(RuntimeError):
@@ -92,14 +97,11 @@ def download(blob: _CloudBackend, record: dict, path: Path) -> dict:
 
 def snapshot(directory: Path, remote: str) -> dict:
     """Download, manifest, copy and verify one run; raise on any failure."""
-    # rclone reads a destination whose prefix is not a configured remote as a
-    # local path or an on-the-fly backend (./gbackup:x, /x:y, :local:x), so let
-    # rclone resolve it and require the remote it names. An unknown remote
-    # fails here as an rclone error.
     name, colon, _ = remote.partition(":")
-    resolved = json.loads(rclone("backend", "features", remote))["Name"]
-    if not colon or resolved != name.split(",")[0]:
+    if not colon or not REMOTE_NAME.fullmatch(name):
         raise BackupError("Offsite destination must use an existing named rclone remote")
+    # Fail before downloading: rclone errors on a name it has no config for.
+    rclone("backend", "features", remote)
     if not os.environ.get("BLOB_READ_WRITE_TOKEN"):
         raise BackupError("BLOB_READ_WRITE_TOKEN is required; run under Doppler")
     blob = _CloudBackend()

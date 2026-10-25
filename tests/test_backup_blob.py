@@ -120,8 +120,11 @@ def test_a_failed_offsite_check_after_a_good_copy_fails_the_run(env):
     ("no-such-remote:records", "test-token", "rclone backend failed (exit 1)"),
     ("./testlocal:records", "test-token", "Offsite destination must use an existing named rclone remote"),
     (":local:records", "test-token", "Offsite destination must use an existing named rclone remote"),
+    ("/tmp/x:records", "test-token", "Offsite destination must use an existing named rclone remote"),
+    ("testlocal,links=true:records", "test-token", "Offsite destination must use an existing named rclone remote"),
     (None, "", "BLOB_READ_WRITE_TOKEN is required; run under Doppler"),
-], ids=["no-colon", "unknown-remote", "local-path-with-colon", "on-the-fly-backend", "no-token"])
+], ids=["no-colon", "unknown-remote", "local-path-with-colon", "on-the-fly-backend", "absolute-path",
+       "connection-string", "no-token"])
 def test_a_setup_failure_after_a_success_is_recorded_and_status_fails(env, monkeypatch, remote, token, error):
     root, good_remote = env
     assert _create(root, good_remote) == 0
@@ -130,6 +133,16 @@ def test_a_setup_failure_after_a_success_is_recorded_and_status_fails(env, monke
     assert _create(root, remote or good_remote) == 1
     assert _latest(root)["error"] == error
     assert _status(root) == 1
+
+
+def test_an_alias_remote_is_a_valid_destination(env, monkeypatch, tmp_path):
+    root, _ = env
+    monkeypatch.setenv("RCLONE_CONFIG_TESTALIAS_TYPE", "alias")
+    monkeypatch.setenv("RCLONE_CONFIG_TESTALIAS_REMOTE", f"TestLocal:{tmp_path / 'aliased'}")
+
+    assert _create(root, "TestAlias:records") == 0
+    run_id = _latest(root)["run_id"]
+    assert (tmp_path / "aliased" / "records" / run_id / "manifest.json").is_file()
 
 
 @pytest.mark.parametrize("pages, error", [
