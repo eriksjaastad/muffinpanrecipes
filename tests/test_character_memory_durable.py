@@ -673,7 +673,7 @@ def test_cron_sunday_records_memory_events(monkeypatch):
          patch.object(cron_routes.storage, "load_episode", return_value=episode), \
          patch.object(cron_routes.storage, "save_episode"), \
          patch.object(cron_routes, "_generate_and_judge_dialogue", return_value=([], "STATUS: PASS")), \
-         patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "STATUS: PASS")), \
+         patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "STATUS: PASS", False)), \
          patch.object(cron_routes, "_complete_static_source_handoff"), \
          patch.object(
              cron_routes,

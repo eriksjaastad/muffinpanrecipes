@@ -541,7 +541,7 @@ def test_the_handler_claims_publication_only_after_the_episode_is_saved():
          patch.object(cron_routes.storage, "save_episode", side_effect=_save), \
          patch.object(cron_routes, "_generate_and_judge_dialogue",
                       return_value=([{"character": "Devon Park", "message": "live"}], "FAIL")), \
-         patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "clean")), \
+         patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "clean", False)), \
          patch.object(cron_routes, "_generate_episode_memories"), \
          patch.object(cron_routes, "_set_static_deploy_state"), \
          patch.object(cron_routes, "_complete_static_source_handoff",
@@ -579,7 +579,7 @@ def test_no_advisory_alert_when_the_reader_pages_fail_to_write():
          patch.object(cron_routes.storage, "save_episode"), \
          patch.object(cron_routes, "_generate_and_judge_dialogue",
                       return_value=([{"character": "Devon Park", "message": "live"}], "FAIL")), \
-         patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "clean")), \
+         patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "clean", False)), \
          patch.object(cron_routes, "_generate_episode_memories"), \
          patch.object(cron_routes, "_set_static_deploy_state"), \
          patch.object(cron_routes, "notify_pipeline_failure"), \
@@ -694,7 +694,7 @@ def test_the_sunday_route_sends_no_alert_when_the_retry_passes():
                       lambda stage, concept, **kw: _dialogue("clean")), \
          patch.object(cron_routes, "_judge_dialogue", lambda *a, **kw: (True, "PASS")), \
          patch.object(cron_routes, "_score_dialogue_qa", lambda *a, **kw: {}), \
-         patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "clean")), \
+         patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "clean", False)), \
          patch.object(cron_routes, "_generate_episode_memories"), \
          patch.object(cron_routes, "_set_static_deploy_state"), \
          patch.object(cron_routes, "_complete_static_source_handoff"), \

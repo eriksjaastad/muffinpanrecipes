@@ -593,7 +593,7 @@ def test_post_claim_qa_failure_after_a_hold_is_a_failed_sunday_not_a_hold():
     store, wed = _held_store()
     decide(EP_ID, store.get(EP_ID), store=store)
     with patch.object(cron_routes, "_auto_fix_recipe", return_value=False):
-        env = _sunday(store, qa=(False, "STATUS: FAIL"))
+        env = _sunday(store, qa=(False, "STATUS: FAIL", False))
     assert _status(env) == 400
     saved = store.get(EP_ID)
     assert "publish_hold" not in saved and saved["stages"]["sunday"]["status"] == "failed"

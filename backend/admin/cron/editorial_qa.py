@@ -14,8 +14,9 @@ from datetime import datetime, timezone
 
 from backend.config import config
 from backend.storage import storage
+from backend.utils.catalog import CatalogUnavailableError, catalog_recipes, load_published_catalog
 from backend.utils.discord import notify_pipeline_failure
-from backend.utils.episode_integrity import DAY_ORDER
+from backend.utils.episode_integrity import DAY_ORDER, _catalog_titles_excluding_self
 from backend.utils.logging import get_logger
 from backend.utils.model_router import generate_judge_response, generate_response
 from backend.utils.pan_library import SIZES, pan_size_of
@@ -25,6 +26,7 @@ from backend.utils.recipe_sanity import (
     check_recipe_sanity,
 )
 from backend.utils.text_sanitize import has_encoding_issues
+from backend.utils.title_validator import check_title_conflict
 
 # The cron routes' own logger, so these log lines read exactly as before the split.
 logger = get_logger("backend.admin.cron_routes")
@@ -59,10 +61,15 @@ _EDITORIAL_QA_SYSTEM_PROMPT = (
     "       ANY of the last 3 published recipes, it FAILS for lack of variety.\n"
     "    d. The title should evoke the DISH, not the METHOD. 'Roasted Veggie Egg Cups'\n"
     "       is borderline. 'Herbed Vegetable Frittata Cups' is better.\n\n"
-    "Respond with EXACTLY this format:\n"
-    "STATUS: PASS or FAIL\n"
-    "ISSUES: (list each issue on its own line, or 'None' if passing)\n"
-    "RECOMMENDATION: (one sentence)\n\n"
+    "Respond with ONLY one JSON object, no other text:\n"
+    '{"status": "PASS" or "FAIL", "severity": "COPY" or "BLOCKING", '
+    '"issues": [{"category": "...", "detail": "what is wrong"}], '
+    '"recommendation": "one sentence"}\n'
+    "issues is [] when passing; severity is still required.\n\n"
+    "severity is COPY only when every issue is wording or style (title rules, "
+    "brand voice, punctuation, repeated words) and the recipe is safe, accurate, "
+    "coherent and cookable as written. Any safety, food-safety temperature, "
+    "factual, measurement, coherence or plausibility issue is BLOCKING.\n\n"
     "Be strict. A recipe with ANY encoding issue, factual error, or title rule "
     "violation is an automatic FAIL."
 )
@@ -103,11 +110,18 @@ _RECIPE_FIX_SYSTEM_PROMPT = (
 )
 
 
+# Each number the fixer may correct, with its smallest valid value: a no-bake
+# recipe cooks for 0 minutes, but nothing serves 0.
+_FIXER_NUMBER_FIELDS = {"servings": 1, "prep_time": 0, "cook_time": 0}
+
+
 def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
     """Attempt to fix recipe issues identified by editorial QA.
 
-    Modifies episode['stages']['monday']['recipe_data'] in place.
-    Returns True if fixes were applied, False if unable to fix.
+    Replaces episode['stages']['monday']['recipe_data'] with a copy whose
+    title, ingredients, instructions, chef_notes and any servings, prep_time
+    or cook_time it sends come from the fixer.
+    Returns True if fixes were applied, False (recipe untouched) if unable to fix.
     """
     monday = episode.get("stages", {}).get("monday", {})
     recipe = monday.get("recipe_data", {})
@@ -176,30 +190,59 @@ def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
             # Try raw JSON
             fixed = _json.loads(response.strip())
 
-        # Apply title enforcement as extra safety
+        # #8607: the fixer replaces only the fields it is asked to fix, and only
+        # with values of the shape the renderer reads. Everything else stays as
+        # Monday wrote it: a fixer reply can never put an unrenderable value
+        # (a null difficulty, a string servings) into a recipe that Sunday may
+        # publish over a wording-only FAIL. #7853: the description is Marcus's
+        # intro and the pitch Monday's one-liner, and the pan is the baker's
+        # choice, so none of them is the fixer's either. (A QA failure about the
+        # intro therefore cannot be "fixed" here; QA fails again.)
         from backend.utils.recipe_prompts import _enforce_title_rules
-        fixed["title"] = _enforce_title_rules(fixed.get("title", recipe.get("title", "")))
 
-        # Validate we got something reasonable
-        if not fixed.get("title") or not fixed.get("ingredients") or not fixed.get("instructions"):
-            logger.warning("Auto-fix returned incomplete recipe — skipping")
+        title = fixed.get("title", recipe.get("title", ""))
+        ingredients, instructions = fixed.get("ingredients"), fixed.get("instructions")
+        chef_notes = fixed.get("chef_notes", recipe.get("chef_notes", ""))
+        # The fixer may correct the numbers too (a 35-minute bake), and the
+        # renderer prints them into the card and the schema, so each one it
+        # sends must be a whole number of minutes or servings, as Monday's are.
+        numbers = {k: fixed[k] for k in _FIXER_NUMBER_FIELDS if k in fixed}
+        if not (
+            all(type(v) is int and _FIXER_NUMBER_FIELDS[k] <= v <= 1440 for k, v in numbers.items())
+            and isinstance(title, str)
+            and isinstance(ingredients, list) and ingredients
+            and all(
+                isinstance(ing, str)
+                or (isinstance(ing, dict) and all(isinstance(v, str) for v in ing.values()))
+                for ing in ingredients
+            )
+            and isinstance(instructions, list) and instructions
+            and all(isinstance(step, str) for step in instructions)
+            and isinstance(chef_notes, str)
+        ):
+            logger.warning("Auto-fix returned an incomplete or malformed recipe — skipping")
+            return False
+        title = _enforce_title_rules(title)
+        if not title:
+            logger.warning("Auto-fix returned no usable title — skipping")
             return False
 
-        # #7853: the description is Marcus's intro and the pitch is Monday's
-        # internal one-liner. Neither is the recipe fixer's to rewrite or drop:
-        # carry both over from the recipe that went in. (A QA failure about the
-        # intro itself therefore cannot be "fixed" here; QA fails again and
-        # Sunday refuses, which is the fail-closed outcome.) The stored pan is
-        # likewise the baker's choice, not the fixer's.
-        for owned in ("description", "pitch", "pan_size", "pan_reason"):
-            if owned in recipe:
-                fixed[owned] = recipe[owned]
-            else:
-                fixed.pop(owned, None)
-
-        # Update recipe data in place
-        monday["recipe_data"] = fixed
-        logger.info(f"Auto-fixed recipe: '{fixed['title']}' ({len(fixed['ingredients'])} ingredients)")
+        logger.info(f"Auto-fixed recipe: '{title}' ({len(ingredients)} ingredients)")
+        # Last, so that every False return leaves the recipe as it was (#8607).
+        fixed_recipe = {
+            **recipe,
+            "title": title,
+            "ingredients": ingredients,
+            "instructions": instructions,
+            "chef_notes": chef_notes,
+            **numbers,
+        }
+        # Calories per serving is Monday's figure for Monday's ingredients and
+        # servings, and the reviewer never sees it. When a fix changes either,
+        # the figure is stale, so it goes (the renderer omits a missing one).
+        if (ingredients, fixed_recipe.get("servings")) != (recipe.get("ingredients"), recipe.get("servings")):
+            fixed_recipe.pop("calories", None)
+        monday["recipe_data"] = fixed_recipe
         return True
 
     # governance: allow-silent SF002: False is the failure signal; the Sunday fix loop breaks, then raises HTTP 400 and notify_judge_failure because QA never passed
@@ -210,6 +253,83 @@ def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
         # The recipe is left untouched, so nothing half-fixed can publish.
         logger.error(f"Auto-fix failed (recipe left unmodified): {type(e).__name__}: {e}")
         return False
+
+
+_VERDICT_KEYS = {"status", "severity", "issues", "recommendation"}
+
+
+def _parse_reviewer_verdict(reply: str) -> dict | None:
+    """The reviewer's JSON verdict, or None unless it is complete and well-formed (#8607).
+
+    Completeness is structural, not textual: the whole reply must be one JSON
+    object with exactly the four keys; status PASS|FAIL; severity
+    COPY|BLOCKING; issues a list of objects whose category and detail are
+    non-empty strings, empty exactly when status is PASS; recommendation a
+    non-empty string; no key repeated in any object. A truncated reply does
+    not parse, and a preamble makes it not one object, so both are None, which
+    blocks. The one wrapper accepted is a fence around the WHOLE reply, which
+    models add unasked.
+    """
+    lines = reply.strip().splitlines()
+    if len(lines) >= 3 and lines[0].strip() in ("```", "```json") and lines[-1].strip() == "```":
+        reply = "\n".join(lines[1:-1])
+
+    def unique_keys(pairs: list[tuple[str, object]]) -> dict:
+        # json.loads keeps the last of two equal keys, so a reply naming its
+        # severity twice would be read as whichever came second.
+        if len({k for k, _ in pairs}) != len(pairs):
+            raise ValueError("duplicate key in reviewer verdict")
+        return dict(pairs)
+
+    try:
+        verdict = json.loads(reply, object_pairs_hook=unique_keys)
+    # governance: allow-silent SF002: None means an unreadable verdict; _editorial_qa_review then fails closed and Sunday does not publish
+    except ValueError:
+        return None
+    if not isinstance(verdict, dict) or set(verdict) != _VERDICT_KEYS:
+        return None
+    issues = verdict["issues"]
+
+    def text(value: object) -> bool:
+        return isinstance(value, str) and bool(value.strip())
+
+    if (
+        verdict["status"] not in ("PASS", "FAIL")
+        or verdict["severity"] not in ("COPY", "BLOCKING")
+        or not text(verdict["recommendation"])
+        or not isinstance(issues, list)
+        or not all(isinstance(i, dict) and set(i) == {"category", "detail"}
+                   and text(i["category"]) and text(i["detail"]) for i in issues)
+        or (verdict["status"] == "PASS") != (not issues)
+    ):
+        return None
+    return verdict
+
+
+def _catalog_collision(episode: dict) -> str | None:
+    """Why this recipe's title collides with the live catalog, or None (#8607).
+
+    A copy-only FAIL publishes a recipe the reviewer rejected, and the
+    reviewer may class a repeated title as wording. So that publish first
+    applies the rule Monday's baker gate and the integrity monitor apply,
+    check_title_conflict against the strictly read catalog minus this
+    episode's own entry. An unreadable catalog counts as a collision.
+    """
+    try:
+        recipes = catalog_recipes(load_published_catalog())
+    except CatalogUnavailableError as e:
+        return f"the published catalog could not be read ({e})"
+    title = episode.get("stages", {}).get("monday", {}).get("recipe_data", {}).get("title", "")
+    return check_title_conflict(title, _catalog_titles_excluding_self(episode, recipes))
+
+
+def _verdict_report(verdict: dict) -> str:
+    """The stored, human-readable QA report for a parsed verdict."""
+    issues = "\n".join(f"- {i['category']}: {i['detail']}" for i in verdict["issues"]) or "None"
+    return (
+        f"STATUS: {verdict['status']}\nISSUES:\n{issues}\n"
+        f"SEVERITY: {verdict['severity']}\nRECOMMENDATION: {verdict['recommendation']}"
+    )
 
 
 # Sentinel prefix marking a QA report that means "the reviewer never ran",
@@ -258,10 +378,13 @@ def _recent_catalog_titles(limit: int = 8) -> list[str]:
         return []
 
 
-def _editorial_qa_review(episode: dict) -> tuple[bool, str]:
+def _editorial_qa_review(episode: dict) -> tuple[bool, str, bool]:
     """Run editorial QA on the complete recipe before publish.
 
-    Returns (passed: bool, report: str).
+    Returns (passed, report, copy_only). copy_only is true only for the
+    reviewer model's own well-formed wording-only FAIL (#8607) that names no
+    BLOCKING issue and whose title clears the catalog (_catalog_collision);
+    every deterministic and unavailable report returns False.
     """
     monday = episode.get("stages", {}).get("monday", {})
     recipe = monday.get("recipe_data", {})
@@ -307,7 +430,7 @@ def _editorial_qa_review(episode: dict) -> tuple[bool, str]:
             "Text contains double-encoded UTF-8 (mojibake)."
         )
         logger.warning(f"Editorial QA FAIL (encoding): {len(encoding_flags)} issues found")
-        return False, report
+        return False, report, False
 
     from backend.utils.muffin_pan_form import check_muffin_pan_form
 
@@ -321,7 +444,7 @@ def _editorial_qa_review(episode: dict) -> tuple[bool, str]:
             "removal from the pan."
         )
         logger.warning(f"Editorial QA FAIL (muffin-pan form): {form_issue}")
-        return False, report
+        return False, report, False
 
     # Layer 2.5 (#7099): the recipe itself. Not redundant with Monday's gate
     # — _auto_fix_recipe REPLACES recipe_data wholesale with free-form LLM
@@ -342,7 +465,7 @@ def _editorial_qa_review(episode: dict) -> tuple[bool, str]:
             "temperature so a reader can confirm it is cooked through."
         )
         logger.warning(f"Editorial QA FAIL (recipe sanity): {sanity.reason}")
-        return False, report
+        return False, report, False
 
     # Format content for LLM review
     ing_text = "\n".join(
@@ -410,15 +533,28 @@ def _editorial_qa_review(episode: dict) -> tuple[bool, str]:
     )
 
     try:
-        verdict = generate_judge_response(
+        reply = generate_judge_response(
             prompt=review_prompt,
             system_prompt=_EDITORIAL_QA_SYSTEM_PROMPT,
             model=config.judge_model,
             temperature=0.2,
         ).strip()
-        passed = "STATUS: PASS" in verdict.upper() or verdict.upper().startswith("PASS")
-        logger.info(f"Editorial QA verdict: {verdict[:300]}")
-        return passed, verdict
+        logger.info(f"Editorial QA verdict: {reply[:300]}")
+        verdict = _parse_reviewer_verdict(reply)
+        if verdict is None:
+            # FAIL CLOSED: an unreadable verdict is not a review.
+            return False, f"STATUS: FAIL\nISSUES:\n- MALFORMED REVIEWER REPLY: {reply[:1000]}", False
+        passed = verdict["status"] == "PASS"
+        # The BLOCKING veto: a COPY verdict that names a blocking issue anywhere
+        # (e.g. category "FOOD SAFETY (BLOCKING)") contradicts itself, and blocks.
+        named_blocking = any("BLOCKING" in field.upper() for field in (
+            verdict["recommendation"], *(v for i in verdict["issues"] for v in i.values())))
+        copy_only = not passed and verdict["severity"] == "COPY" and not named_blocking
+        report = _verdict_report(verdict)
+        if copy_only and (collision := _catalog_collision(episode)):
+            copy_only = False
+            report += f"\n- TITLE REPETITION (blocks publishing over the copy FAIL): {collision}"
+        return passed, report, copy_only
     except Exception as e:
         # FAIL CLOSED (#6505, #6856). This used to return
         # (True, "EDITORIAL QA ERROR (defaulting to PASS)"), so a provider
@@ -432,4 +568,4 @@ def _editorial_qa_review(episode: dict) -> tuple[bool, str]:
             "RECOMMENDATION: The editorial reviewer could not run, so this "
             "recipe has NOT been reviewed. Do not publish until the reviewer "
             "is reachable; re-fire /api/cron/sunday once it is."
-        )
+        ), False
