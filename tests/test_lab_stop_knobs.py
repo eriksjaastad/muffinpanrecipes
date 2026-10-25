@@ -23,6 +23,12 @@ from backend.utils.stop_check import (
     check_scene_done,
 )
 
+@pytest.fixture(autouse=True)
+def _per_line_path(monkeypatch):
+    """These tests cover the per-line generator; production uses the author (#8384)."""
+    monkeypatch.setattr(sdw, "AUTHOR_MODE", False)
+
+
 # ---------------------------------------------------------------------------
 # simulate_dialogue_week: phase behaviour for each WINDDOWN_TRIGGER
 # ---------------------------------------------------------------------------

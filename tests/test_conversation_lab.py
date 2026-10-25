@@ -30,6 +30,12 @@ import scripts.conversation_metrics as cm
 import scripts.simulate_dialogue_week as sdw
 from backend.utils import model_router
 
+@pytest.fixture(autouse=True)
+def _per_line_path(monkeypatch):
+    """These tests cover the per-line generator; production uses the author (#8384)."""
+    monkeypatch.setattr(sdw, "AUTHOR_MODE", False)
+
+
 pytestmark = pytest.mark.usefixtures("openrouter_lab")
 
 # ---------------------------------------------------------------------------

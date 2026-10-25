@@ -305,8 +305,13 @@ STOP_CHECK: dict = {
 # valid with WINDDOWN_TRIGGER == "check".
 OPEN_ENDED_MAX_TICKS: dict = {}
 
-# Lab-only whole-scene experiment (#8383). Never enabled from the environment.
-AUTHOR_MODE: bool = False
+# One author writes each day's whole meeting (#8383 lab, production since #8384).
+# Measured through the production handlers on the same week: the per-line path
+# passed 1 of 6 days on the first judge try (Monday failed all 3), the author 6
+# of 6. The per-line path below stays until its deletion card; tests that cover
+# it set this to False. Never enabled from the environment.
+AUTHOR_MODE: bool = True
+_AUTHOR_PARSE_TRIES = 3
 
 # Every stop check is appended here (day, tick, decided, pushback, provider,
 # model, cost_usd). run_simulation clears it at start; the conversation lab
@@ -2102,9 +2107,9 @@ def _distribute_images_wednesday(
 
     elif style == "scatter":
         # One image per Julian message, discussion happens in between
+        # With fewer Julian messages than images, the last one carries the rest.
         for i, img in enumerate(image_paths[:3]):
-            if i < len(julian_msgs):
-                julian_msgs[i].attachments = [img]
+            julian_msgs[min(i, len(julian_msgs) - 1)].attachments.append(img)
 
     else:  # two_one
         # First 2 together ("here's what I've got so far"), third after debate
@@ -2599,19 +2604,28 @@ def _author_prompt(
     personas: dict[str, dict[str, Any]], names: list[str], concept: str, day: str,
     recipe_context: str | None, recipe_facts: str | None, event: str | None,
     highlights: list[str], recent_lines: list[str], length_target: dict | None,
+    photography_context: dict | None = None, retry_note: str | None = None,
 ) -> str:
     """Give a scene author character references and the meeting's factual context."""
     sheets = []
     for name in names:
         persona = personas[name]
+        # The same memories build_system_prompt gives a per-line speaker.
+        remembered = [f"- {m.get('concept', 'unknown')}: {m.get('summary', '')}" for m in _load_memories(name)]
         sheets.append(
             f"{name} ({persona['role']})\nBiography:\n{_load_bio(name)}\n"
             f"Voice reference:\n{_strip_word_caps(_CHARACTER_VOICE_GUIDES.get(name, ''))}\n"
             f"Example lines:\n" + "\n".join(_CHARACTER_EXAMPLE_MESSAGES.get(name, []))
+            + "\nRemembers from recent weeks:\n" + ("\n".join(remembered) or "(nothing specific)")
         )
     lo, hi = TICKS_RANGE[day]
     labels = ['Steph' if name == "Stephanie 'Steph' Whitmore" else name.split()[0] for name in names]
     length = f"Write {lo}-{hi} dialogue lines."
+    photography = (
+        f"Photography context:\n{json.dumps(photography_context, ensure_ascii=False)}\n"
+        if photography_context else ""
+    )
+    retry = f"An earlier draft of this meeting was rejected. {retry_note} Fix that in this draft.\n" if retry_note else ""
     if length_target:
         length = (
             f"Write exactly {length_target['lines']} dialogue lines (production range {lo}-{hi}), "
@@ -2622,6 +2636,7 @@ def _author_prompt(
         f"Write the whole {day.title()} meeting as a fiction writer writing a scene.\n"
         f"Concept: {concept}\nTask: {DAY_MEETING_GOAL[day]['objective']}\n"
         f"Recipe: {recipe_context or concept}\nRecipe Method and facts:\n{recipe_facts or '(not supplied)'}\n"
+        f"{photography}{retry}"
         f"Injected event: {event or '(none)'}\n"
         f"Prior-day highlights:\n" + "\n".join(highlights or ['(none)']) + "\n"
         "Earlier dialogue:\n" + "\n".join(recent_lines or ['(none)']) + "\n\n"
@@ -2701,9 +2716,6 @@ def run_simulation(
     # the first time each character's name hit the cache.
     _system_prompt_cache.clear()
 
-    if AUTHOR_MODE and stage_only != 'monday':
-        raise ValueError("AUTHOR_MODE currently supports Monday-only lab runs (#8383)")
-
     personas = load_personas()
     start = datetime.now(timezone.utc).replace(hour=9, minute=0, second=0, microsecond=0)
     messages: list[Message] = message_sink if message_sink is not None else []
@@ -2739,21 +2751,33 @@ def run_simulation(
             prompt = _author_prompt(
                 personas, names, concept, day, recipe_context, recipe_facts,
                 injected_event, week_highlights, recent_lines, author_length_target,
+                photography_context, retry_note,
             )
-            if mode == 'template':
-                count = (author_length_target or {}).get('lines', TICKS_RANGE[day][0])
-                text = '\n'.join(f"{names[i % len(names)]}: {json.dumps(f'Let us discuss {concept}.')}" for i in range(count))
-            else:
-                text = generate_response(prompt=prompt, model=default_model, temperature=0.8)
-            try:
-                scene = _parse_author_scene(text, names)
-            except ValueError as exc:
-                exc.author_invalid_scene = text
-                raise
+            # A reply the parser rejects is rewritten, told why, up to
+            # _AUTHOR_PARSE_TRIES times, then raises: production must not lose a
+            # day to one stray narration line. The lab (author_length_target)
+            # counts and regenerates its own attempts, so it gets one try.
+            tries = 1 if author_length_target else _AUTHOR_PARSE_TRIES
+            for attempt in range(tries):
+                if mode == 'template':
+                    count = (author_length_target or {}).get('lines', TICKS_RANGE[day][0])
+                    text = '\n'.join(f"{names[i % len(names)]}: {json.dumps(f'Let us discuss {concept}.')}" for i in range(count))
+                else:
+                    text = generate_response(prompt=prompt, model=default_model, temperature=0.8)
+                try:
+                    scene = _parse_author_scene(text, names)
+                    break
+                except ValueError as exc:
+                    exc.author_invalid_scene = text
+                    if attempt + 1 == tries:
+                        raise
+                    prompt += f"\n\nYour previous draft was rejected: {exc}. Follow the output format exactly."
             for tick, (speaker, line) in enumerate(scene):
                 ts = start + timedelta(days=day_i, minutes=tick * (480 // len(scene)))
                 messages.append(Message(day, stage, speaker, line, ts.isoformat(), default_model))
                 recent_lines.append(f"{speaker.split()[0]}: {line}")
+            if day == "wednesday" and image_paths:
+                _distribute_images_wednesday(messages, image_paths, day)
             continue
 
         # Override scene direction if photography context provides one

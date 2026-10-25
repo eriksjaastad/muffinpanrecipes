@@ -140,6 +140,7 @@ def test_a_retry_is_told_why_the_judge_rejected_the_attempt_before_it(monkeypatc
     only the model call and the judge are stubbed, so every hop is real."""
     import scripts.simulate_dialogue_week as sdw
 
+    monkeypatch.setattr(sdw, "AUTHOR_MODE", False)  # per-line prompts; the author's retry line: test_author_mode
     prompts: list[str] = []
     seen_by_attempt: list[int] = []
 
