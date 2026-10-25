@@ -61,7 +61,7 @@ LOCAL_DEV=true PYTHONPATH=. doppler run -- uv run uvicorn \
 Wednesday's cron shoots the week's photos with Gemini (`backend/agents/art_director.py`), each
 prompt naming one real muffin pan from `backend/utils/pan_library.py`. Erik approves a photo on
 the admin photo review before Sunday publishes. The older RunPod / R2 scripts
-(`generate_image_prompts.py`, `trigger_generation.py`, `direct_harvest.py`) are not part of the
+(`generate_image_prompts.py`, `direct_harvest.py`) are not part of the
 weekly pipeline.
 
 ## 💰 Vercel Cost Management

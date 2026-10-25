@@ -453,7 +453,7 @@ class PageReadError(RuntimeError):
     """
 
 
-_ISO_WEEK_RE = re.compile(r"^(\d{4})-W(\d{2})$")
+_ISO_WEEK_RE = re.compile(r"([0-9]{4})-W([0-9]{2})")
 
 
 def parse_iso_week(week: str) -> tuple[int, int]:
@@ -466,7 +466,7 @@ def parse_iso_week(week: str) -> tuple[int, int]:
     unparsed label must never silently participate in that ordering as if
     it were real.
     """
-    match = _ISO_WEEK_RE.match(week or "")
+    match = _ISO_WEEK_RE.fullmatch(week or "")
     if not match:
         raise ValueError(f"not a valid ISO week string (expected 'YYYY-Www'): {week!r}")
     year, week_num = int(match.group(1)), int(match.group(2))
