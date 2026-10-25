@@ -12,7 +12,7 @@ import asyncio
 import contextlib
 import json
 import string
-from unittest.mock import AsyncMock, patch
+from unittest.mock import DEFAULT, AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -39,7 +39,17 @@ def _pages_written(_episode_id, ep):
     ep["static_deploy"] = {"status": "source_ready", "phase": "manual_deploy"}
 
 
-def _sunday(verdict: str, mark_publishing_error: Exception | None = None):
+# The live catalog holds this week's own entry (a re-fire), which never counts as a collision.
+OWN_ENTRY = {"recipes": [{"title": "Portuguese Custard Tart Cups", "episode_id": "2026-W99"}]}
+
+
+def _raise_or(value):
+    if isinstance(value, Exception):
+        raise value
+    return value
+
+
+def _sunday(verdict: str, mark_publishing_error: Exception | None = None, catalog=OWN_ENTRY):
     episode = _sunday_episode()
     episode["stages"]["monday"] = _reviewable_episode()["stages"]["monday"]
     recipe = episode["stages"]["monday"]["recipe_data"]
@@ -51,10 +61,11 @@ def _sunday(verdict: str, mark_publishing_error: Exception | None = None):
          patch.object(cron_routes.storage, "save_episode"), \
          patch.object(cron_routes, "_generate_and_judge_dialogue",
                       return_value=([{"character": "Devon Park", "message": "live"}], "PASS")), \
-         patch.object(editorial_qa, "_recent_catalog_titles", return_value=["Something Else"]), \
-         patch.object(editorial_qa, "generate_judge_response", return_value=verdict), \
-         patch.object(editorial_qa, "generate_response", return_value=json.dumps(recipe)), \
-         patch.object(editorial_qa, "config"), \
+         patch.multiple(editorial_qa, config=DEFAULT,
+                        _recent_catalog_titles=MagicMock(return_value=["Something Else"]),
+                        load_published_catalog=MagicMock(side_effect=lambda: _raise_or(catalog)),
+                        generate_judge_response=MagicMock(return_value=verdict),
+                        generate_response=MagicMock(return_value=json.dumps(recipe))), \
          patch.object(cron_routes, "_generate_episode_memories"), \
          patch.object(cron_routes, "_set_static_deploy_state"), \
          patch.object(cron_routes, "_complete_static_source_handoff", side_effect=_pages_written), \
@@ -107,6 +118,19 @@ def test_a_safety_or_malformed_fail_still_stops_sunday(verdict):
     result, episode, advisory, hard_alert = _sunday(verdict)
     assert isinstance(result, HTTPException) and result.status_code == 400
     assert episode["stages"]["sunday"]["status"] == "failed"
+    advisory.assert_not_called()
+    hard_alert.assert_called_once()
+
+
+@pytest.mark.parametrize("catalog", [
+    {"recipes": [{"title": "Portuguese Custard Tart Cups", "episode_id": "2026-W40"}]},
+    {"recipes": [{"title": "Portuguese Custard Tart Cups"}]},  # a legacy entry with no episode_id
+    editorial_qa.CatalogUnavailableError("blob down"),
+], ids=["published-elsewhere", "legacy-entry", "catalog-unreadable"])
+def test_a_copy_fail_never_publishes_a_title_the_catalog_already_has(catalog):
+    result, episode, advisory, hard_alert = _sunday(COPY, catalog=catalog)
+    assert isinstance(result, HTTPException) and result.status_code == 400
+    assert "TITLE REPETITION (blocks publishing over the copy FAIL)" in episode["editorial_qa"]["report"]
     advisory.assert_not_called()
     hard_alert.assert_called_once()
 
@@ -171,6 +195,21 @@ def test_the_fixer_replaces_only_the_fields_it_fixes():
         assert editorial_qa._auto_fix_recipe(episode, COPY) is True
     after = episode["stages"]["monday"]["recipe_data"]
     assert after == {**before, "title": "Golden Custard Cups", "servings": 10, "cook_time": 0}
+
+
+@pytest.mark.parametrize("change, keeps_calories", [
+    ({"title": "Golden Custard Cups"}, True),
+    ({"servings": 6}, False),
+    ({"ingredients": [{"item": "eggs", "amount": "4", "notes": ""}]}, False),
+])
+def test_a_fix_to_ingredients_or_servings_drops_the_stale_calorie_figure(change, keeps_calories):
+    episode = _reviewable_episode()
+    before = {**episode["stages"]["monday"]["recipe_data"], "servings": 12, "calories": 240}
+    episode["stages"]["monday"]["recipe_data"] = before
+    with patch.object(editorial_qa, "config"), \
+         patch.object(editorial_qa, "generate_response", return_value=json.dumps({**before, **change})):
+        assert editorial_qa._auto_fix_recipe(episode, COPY) is True
+    assert ("calories" in episode["stages"]["monday"]["recipe_data"]) is keeps_calories
 
 
 @pytest.mark.parametrize("change", [

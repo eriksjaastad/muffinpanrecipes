@@ -14,8 +14,9 @@ from datetime import datetime, timezone
 
 from backend.config import config
 from backend.storage import storage
+from backend.utils.catalog import CatalogUnavailableError, catalog_recipes, load_published_catalog
 from backend.utils.discord import notify_pipeline_failure
-from backend.utils.episode_integrity import DAY_ORDER
+from backend.utils.episode_integrity import DAY_ORDER, _catalog_titles_excluding_self
 from backend.utils.logging import get_logger
 from backend.utils.model_router import generate_judge_response, generate_response
 from backend.utils.pan_library import SIZES, pan_size_of
@@ -25,6 +26,7 @@ from backend.utils.recipe_sanity import (
     check_recipe_sanity,
 )
 from backend.utils.text_sanitize import has_encoding_issues
+from backend.utils.title_validator import check_title_conflict
 
 # The cron routes' own logger, so these log lines read exactly as before the split.
 logger = get_logger("backend.admin.cron_routes")
@@ -227,7 +229,7 @@ def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
 
         logger.info(f"Auto-fixed recipe: '{title}' ({len(ingredients)} ingredients)")
         # Last, so that every False return leaves the recipe as it was (#8607).
-        monday["recipe_data"] = {
+        fixed_recipe = {
             **recipe,
             "title": title,
             "ingredients": ingredients,
@@ -235,6 +237,12 @@ def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
             "chef_notes": chef_notes,
             **numbers,
         }
+        # Calories per serving is Monday's figure for Monday's ingredients and
+        # servings, and the reviewer never sees it. When a fix changes either,
+        # the figure is stale, so it goes (the renderer omits a missing one).
+        if (ingredients, fixed_recipe.get("servings")) != (recipe.get("ingredients"), recipe.get("servings")):
+            fixed_recipe.pop("calories", None)
+        monday["recipe_data"] = fixed_recipe
         return True
 
     # governance: allow-silent SF002: False is the failure signal; the Sunday fix loop breaks, then raises HTTP 400 and notify_judge_failure because QA never passed
@@ -298,6 +306,23 @@ def _parse_reviewer_verdict(reply: str) -> dict | None:
     return verdict
 
 
+def _catalog_collision(episode: dict) -> str | None:
+    """Why this recipe's title collides with the live catalog, or None (#8607).
+
+    A copy-only FAIL publishes a recipe the reviewer rejected, and the
+    reviewer may class a repeated title as wording. So that publish first
+    applies the rule Monday's baker gate and the integrity monitor apply,
+    check_title_conflict against the strictly read catalog minus this
+    episode's own entry. An unreadable catalog counts as a collision.
+    """
+    try:
+        recipes = catalog_recipes(load_published_catalog())
+    except CatalogUnavailableError as e:
+        return f"the published catalog could not be read ({e})"
+    title = episode.get("stages", {}).get("monday", {}).get("recipe_data", {}).get("title", "")
+    return check_title_conflict(title, _catalog_titles_excluding_self(episode, recipes))
+
+
 def _verdict_report(verdict: dict) -> str:
     """The stored, human-readable QA report for a parsed verdict."""
     issues = "\n".join(f"- {i['category']}: {i['detail']}" for i in verdict["issues"]) or "None"
@@ -357,8 +382,9 @@ def _editorial_qa_review(episode: dict) -> tuple[bool, str, bool]:
     """Run editorial QA on the complete recipe before publish.
 
     Returns (passed, report, copy_only). copy_only is true only for the
-    reviewer model's own well-formed wording-only FAIL (#8607); every
-    deterministic and unavailable report returns False.
+    reviewer model's own well-formed wording-only FAIL (#8607) that names no
+    BLOCKING issue and whose title clears the catalog (_catalog_collision);
+    every deterministic and unavailable report returns False.
     """
     monday = episode.get("stages", {}).get("monday", {})
     recipe = monday.get("recipe_data", {})
@@ -524,7 +550,11 @@ def _editorial_qa_review(episode: dict) -> tuple[bool, str, bool]:
         named_blocking = any("BLOCKING" in field.upper() for field in (
             verdict["recommendation"], *(v for i in verdict["issues"] for v in i.values())))
         copy_only = not passed and verdict["severity"] == "COPY" and not named_blocking
-        return passed, _verdict_report(verdict), copy_only
+        report = _verdict_report(verdict)
+        if copy_only and (collision := _catalog_collision(episode)):
+            copy_only = False
+            report += f"\n- TITLE REPETITION (blocks publishing over the copy FAIL): {collision}"
+        return passed, report, copy_only
     except Exception as e:
         # FAIL CLOSED (#6505, #6856). This used to return
         # (True, "EDITORIAL QA ERROR (defaulting to PASS)"), so a provider
