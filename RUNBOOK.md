@@ -584,7 +584,7 @@ PR #45 fixed the production behavior:
 - `cron_sunday` checks `ep["published_at"]` before generating dialogue, running editorial QA, saving episode data, rendering pages, or updating the catalog.
 - If `published_at` exists, Sunday returns `already_published=true` and never regenerates dialogue, re-runs editorial QA, or re-publishes, even when the request body has `force=true`. It does two bounded catch-up steps, both no-ops once complete:
   - finishes a static source handoff left `pending` or `failed` in the sources phase (writes the reader pages and catalog, and alerts if that fails);
-  - sends an advisory "published below the judge bar" alert that is still owed (`judge_advisory.sunday.announce_pending` is true and the handoff reached `source_ready`), then records `announced_at` (#7403). Records published before 2026-09-30 never carry `announce_pending` and are never re-announced;
+  - sends any advisory alert still owed (the judge's below-bar notice and the copy-check notice), then records `announced_at` (#7403, #8607). The rules are in `_announce_advisory_publication`'s docstring;
   - It does NOT touch a "kitchen took the week off" note on the successor week (#7630, see "Late/recovered Sunday publish and next week's homepage note" below).
 - Catalog publish dedup is no longer slug-only.
 
@@ -595,7 +595,7 @@ First confirm the episode is already published in Vercel Blob. This reads the ep
 ```bash
 cd "$HOME/projects/muffinpanrecipes"
 WEEK=2026-W20 doppler run --project muffinpanrecipes --config prd -- \
-  uv run python -c 'import os; from backend.storage import storage; ep = storage.load_episode(os.environ["WEEK"]) or {}; print("episode:", os.environ["WEEK"]); print("published_at_present:", bool(ep.get("published_at"))); print("sunday_status:", ep.get("stages", {}).get("sunday", {}).get("status")); print("events_tail:", ep.get("events", [])[-5:]); print("static_deploy.status:", ep.get("static_deploy", {}).get("status")); print("judge_advisory.sunday.announce_pending:", ep.get("judge_advisory", {}).get("sunday", {}).get("announce_pending"))'
+  uv run python -c 'import os; from backend.storage import storage; ep = storage.load_episode(os.environ["WEEK"]) or {}; print("episode:", os.environ["WEEK"]); print("published_at_present:", bool(ep.get("published_at"))); print("sunday_status:", ep.get("stages", {}).get("sunday", {}).get("status")); print("events_tail:", ep.get("events", [])[-5:]); print("static_deploy.status:", ep.get("static_deploy", {}).get("status")); print("judge_advisory.sunday.announce_pending:", ep.get("judge_advisory", {}).get("sunday", {}).get("announce_pending")); print("editorial_qa.announce_pending:", ep.get("editorial_qa", {}).get("announce_pending"))'
 ```
 
 Expected:
@@ -613,7 +613,7 @@ uv run pytest tests/test_sunday_publish_idempotency.py -q
 
 Expected: both tests pass, including `test_cron_sunday_returns_without_side_effects_when_already_published`.
 
-If you must confirm the live endpoint, do it only after the Blob check shows `published_at_present: True`. This POST is not read-only: if the episode's handoff is unfinished or an advisory alert is still owed, it completes them (see the bullets above). Check `static_deploy.status` and `judge_advisory.sunday.announce_pending` in the Blob read first if you need a side-effect-free check:
+If you must confirm the live endpoint, do it only after the Blob check shows `published_at_present: True`. This POST is not read-only: if the episode's handoff is unfinished or an advisory alert is still owed, it completes them. Which stored fields make it side-effect free is stated in `_announce_advisory_publication`'s docstring (`backend/admin/cron_routes.py`); check them in the Blob read first:
 
 ```bash
 WEEK=2026-W20 doppler run --project muffinpanrecipes --config prd -- \

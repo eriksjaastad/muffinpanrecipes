@@ -38,6 +38,7 @@ import os
 from unittest.mock import MagicMock, patch
 
 import pytest
+from hypothesis import given, strategies as st
 from pathlib import Path
 
 from backend.admin import cron_routes
@@ -45,6 +46,7 @@ from backend.admin.cron import memories as cron_memories
 from tests.photo_review_helpers import approved_wednesday
 from backend.storage import (
     CharacterMemoryUnavailable,
+    _check_photo_control_args,
     is_valid_iso_week,
     parse_iso_week,
     validate_character_memory_entry,
@@ -74,7 +76,12 @@ def test_parse_iso_week_parses_real_weeks():
 
 @pytest.mark.parametrize(
     "week",
-    ["test-week", "not-a-week", "2026-40", "2026-W", "2026-W99", "", None, "2026-W1"],
+    [
+        "test-week", "not-a-week", "2026-40", "2026-W", "2026-W99", "", None, "2026-W1",
+        # Non-ASCII digits and a trailing newline: photo-control storage and
+        # Blob paths take only ASCII letters and digits.
+        "\uff12\uff10\uff12\uff17-W\uff10\uff11", "\u0662\u0660\u0662\u0667-W01", "2027-W01\n",
+    ],
 )
 def test_parse_iso_week_rejects_non_iso_labels(week):
     with pytest.raises(ValueError):
@@ -86,6 +93,21 @@ def test_is_valid_iso_week_matches_parse_iso_week():
     assert is_valid_iso_week("test-week") is False
     assert is_valid_iso_week(None) is False
     assert is_valid_iso_week(12345) is False
+
+
+_ANY_DIGITS = st.characters(categories=["Nd"])
+
+
+@given(
+    st.text(_ANY_DIGITS, min_size=4, max_size=4),
+    st.text(_ANY_DIGITS, min_size=2, max_size=2),
+    st.sampled_from(["", "\n", " "]),
+)
+def test_every_valid_week_is_a_valid_photo_control_id(year, week_num, suffix):
+    """run_week checks only is_valid_iso_week, so it must imply the stricter ID rule downstream."""
+    week = f"{year}-W{week_num}{suffix}"
+    if is_valid_iso_week(week):
+        _check_photo_control_args(week)
 
 
 # ---------------------------------------------------------------------------
@@ -673,7 +695,7 @@ def test_cron_sunday_records_memory_events(monkeypatch):
          patch.object(cron_routes.storage, "load_episode", return_value=episode), \
          patch.object(cron_routes.storage, "save_episode"), \
          patch.object(cron_routes, "_generate_and_judge_dialogue", return_value=([], "STATUS: PASS")), \
-         patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "STATUS: PASS")), \
+         patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "STATUS: PASS", False)), \
          patch.object(cron_routes, "_complete_static_source_handoff"), \
          patch.object(
              cron_routes,

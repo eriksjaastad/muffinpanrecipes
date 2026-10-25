@@ -119,7 +119,7 @@ def test_cron_sunday_still_publishes_unpublished_episode(monkeypatch):
              [{"character": "Devon Park", "message": "Ready."}],
              "PASS - ready",
          )) as generate_dialogue, \
-         patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "STATUS: PASS")), \
+         patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "STATUS: PASS", False)), \
          patch.object(cron_routes, "_generate_episode_memories"), \
          patch.object(cron_routes, "regenerate_and_upload"), \
          patch.object(

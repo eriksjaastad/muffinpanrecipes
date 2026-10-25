@@ -24,7 +24,7 @@ external_resources:
     purpose: Legacy RunPod harvest only; production images moved to Gemini in #8068.
     env_vars:
       - STABILITY_API_KEY
-    notes: Used only by scripts/direct_harvest.py, which scripts/trigger_generation.py uploads to R2. The one paid path that does not go through OpenRouter.
+    notes: Used only by scripts/direct_harvest.py, run by hand. The one paid path that does not go through OpenRouter.
 
   - name: Vercel
     purpose: Hosting and Vercel Blob storage for episodes, pages, and images.
@@ -47,11 +47,3 @@ external_resources:
       - DOPPLER_TOKEN
     notes: Run commands via "doppler run -- <command>".
 
-  - name: Cloudflare R2
-    purpose: Image generation job handoff to RunPod.
-    env_vars:
-      - MUFFINPANRECIPES_R2_ACCESS_KEY_ID
-      - MUFFINPANRECIPES_R2_SECRET_ACCESS_KEY
-      - MUFFINPANRECIPES_R2_ENDPOINT
-      - MUFFINPANRECIPES_R2_BUCKET_NAME
-    notes: Used by scripts/trigger_generation.py.

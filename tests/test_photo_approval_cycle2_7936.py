@@ -396,7 +396,7 @@ def test_post_claim_failure_is_reported_not_masked_by_the_old_hold(failure):
     kw: dict = {}
     extra = nullcontext()
     if failure == "editorial_qa":
-        kw = {"qa": (False, "STATUS: FAIL bad yield")}
+        kw = {"qa": (False, "STATUS: FAIL bad yield", False)}
         extra = patch.object(cron_routes, "_auto_fix_recipe", return_value=False)
     elif failure == "dialogue":
         kw = {"dialogue_effect": RuntimeError("provider down")}
@@ -443,7 +443,7 @@ def test_a_legitimate_hold_after_a_failed_attempt_supersedes_the_failed_stage():
     """QA fails after a claim; Erik rejects the photos; the next Sunday is an honest hold."""
     store, wed = _held_then_approved()
     with patch.object(cron_routes, "_auto_fix_recipe", return_value=False):
-        assert _status(_sunday(store, qa=(False, "STATUS: FAIL"))) == 400
+        assert _status(_sunday(store, qa=(False, "STATUS: FAIL", False))) == 400
     assert store.get(EP_ID)["stages"]["sunday"]["status"] == "failed"
     decide(EP_ID, store.get(EP_ID), action="reject", store=store)
     env = _sunday(store)

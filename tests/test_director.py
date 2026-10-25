@@ -25,6 +25,12 @@ from backend.utils.director import (
     roll_day,
 )
 
+@pytest.fixture(autouse=True)
+def _per_line_path(monkeypatch):
+    """These tests cover the per-line generator; production uses the author (#8384)."""
+    monkeypatch.setattr(sdw, "AUTHOR_MODE", False)
+
+
 CHARACTERS = [
     "Margaret Chen",
     "Stephanie 'Steph' Whitmore",
