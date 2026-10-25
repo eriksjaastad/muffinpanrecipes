@@ -135,8 +135,9 @@ def test_a_setup_failure_after_a_success_is_recorded_and_status_fails(env, monke
     assert _status(root) == 1
 
 
-@pytest.mark.parametrize("remote, subpath", [("réserve:records", "records/"), ("TestLocal:", "")],
-                         ids=["unicode-name", "bare-remote-root"])
+@pytest.mark.parametrize("remote, subpath", [("réserve:records", "records/"), ("TestLocal:", ""),
+                                            ("TestLocal:records:", "records:/")],
+                         ids=["unicode-name", "bare-remote-root", "path-ending-in-colon"])
 def test_a_configured_remote_root_or_unicode_name_receives_the_run(env, monkeypatch, tmp_path, remote, subpath):
     root, _ = env
     config = tmp_path / "rclone.conf"

@@ -25,6 +25,7 @@ import fcntl
 import hashlib
 import json
 import os
+import posixpath
 import re
 import subprocess
 import sys
@@ -99,7 +100,7 @@ def download(blob: _CloudBackend, record: dict, path: Path) -> dict:
 
 def snapshot(directory: Path, remote: str) -> dict:
     """Download, manifest, copy and verify one run; raise on any failure."""
-    name, colon, _ = remote.partition(":")
+    name, colon, path = remote.partition(":")
     if not colon or not REMOTE_NAME.fullmatch(name):
         raise BackupError("Offsite destination must use an existing named rclone remote")
     # Fail before downloading: rclone errors on a name it has no config for.
@@ -114,8 +115,9 @@ def snapshot(directory: Path, remote: str) -> dict:
     blobs = [download(blob, record, directory / "blobs" / f"{index:05d}")
              for index, record in enumerate(records)]
     write_json(directory / "manifest.json", {"run_id": directory.name, "blobs": blobs})
-    # A bare "name:" is the remote's own root; "name:/" would be filesystem /.
-    destination = remote + ("" if remote.endswith((":", "/")) else "/") + directory.name
+    # Join onto the path after the name: a bare "name:" stays the remote's
+    # own root, where "name:/" would be filesystem /.
+    destination = f"{name}:{posixpath.join(path, directory.name)}"
     rclone("copy", str(directory), destination)
     rclone("check", str(directory), destination, "--one-way")
     return {"blobs": len(blobs), "bytes": sum(b["bytes"] for b in blobs), "destination": destination}
