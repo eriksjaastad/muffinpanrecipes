@@ -236,3 +236,14 @@ def test_a_rejected_author_reply_is_rewritten_and_three_rejections_raise(monkeyp
     with pytest.raises(ValueError):
         run()
     assert len(prompts) == sim._AUTHOR_PARSE_TRIES
+
+
+def test_the_author_sees_each_characters_saved_memories(monkeypatch):
+    """Per-line speakers get their recent weeks from _load_memories; the author must too."""
+    prompts = []
+    monkeypatch.setattr(sim, '_load_memories', lambda name: [
+        {'concept': 'Lemon Bars', 'summary': f'{name.split()[0]} burned the crust.'}])
+    monkeypatch.setattr(sim, 'generate_response', lambda **k: prompts.append(k['prompt']) or _scene_for('monday'))
+    run()
+    assert all(f"- Lemon Bars: {n.split()[0]} burned the crust." in prompts[0]
+               for n in sim.participants_for_day('monday'))

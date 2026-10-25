@@ -2610,10 +2610,13 @@ def _author_prompt(
     sheets = []
     for name in names:
         persona = personas[name]
+        # The same memories build_system_prompt gives a per-line speaker.
+        remembered = [f"- {m.get('concept', 'unknown')}: {m.get('summary', '')}" for m in _load_memories(name)]
         sheets.append(
             f"{name} ({persona['role']})\nBiography:\n{_load_bio(name)}\n"
             f"Voice reference:\n{_strip_word_caps(_CHARACTER_VOICE_GUIDES.get(name, ''))}\n"
             f"Example lines:\n" + "\n".join(_CHARACTER_EXAMPLE_MESSAGES.get(name, []))
+            + "\nRemembers from recent weeks:\n" + ("\n".join(remembered) or "(nothing specific)")
         )
     lo, hi = TICKS_RANGE[day]
     labels = ['Steph' if name == "Stephanie 'Steph' Whitmore" else name.split()[0] for name in names]
