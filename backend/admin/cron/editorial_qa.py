@@ -108,11 +108,15 @@ _RECIPE_FIX_SYSTEM_PROMPT = (
 )
 
 
+_FIXER_NUMBER_FIELDS = ("servings", "prep_time", "cook_time")
+
+
 def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
     """Attempt to fix recipe issues identified by editorial QA.
 
     Replaces episode['stages']['monday']['recipe_data'] with a copy whose
-    title, ingredients, instructions and chef_notes come from the fixer.
+    title, ingredients, instructions, chef_notes and any servings, prep_time
+    or cook_time it sends come from the fixer.
     Returns True if fixes were applied, False (recipe untouched) if unable to fix.
     """
     monday = episode.get("stages", {}).get("monday", {})
@@ -195,8 +199,13 @@ def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
         title = fixed.get("title", recipe.get("title", ""))
         ingredients, instructions = fixed.get("ingredients"), fixed.get("instructions")
         chef_notes = fixed.get("chef_notes", recipe.get("chef_notes", ""))
+        # The fixer may correct the numbers too (a 35-minute bake), and the
+        # renderer prints them into the card and the schema, so each one it
+        # sends must be a whole number of minutes or servings, as Monday's are.
+        numbers = {k: fixed[k] for k in _FIXER_NUMBER_FIELDS if k in fixed}
         if not (
-            isinstance(title, str)
+            all(type(v) is int and 0 < v <= 1440 for v in numbers.values())
+            and isinstance(title, str)
             and isinstance(ingredients, list) and ingredients
             and all(
                 isinstance(ing, str)
@@ -222,6 +231,7 @@ def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
             "ingredients": ingredients,
             "instructions": instructions,
             "chef_notes": chef_notes,
+            **numbers,
         }
         return True
 
@@ -245,15 +255,24 @@ def _parse_reviewer_verdict(reply: str) -> dict | None:
     object with exactly the four keys; status PASS|FAIL; severity
     COPY|BLOCKING; issues a list of objects whose category and detail are
     non-empty strings, empty exactly when status is PASS; recommendation a
-    non-empty string. A truncated reply does not parse, and a preamble makes
-    it not one object, so both are None, which blocks. The one wrapper
-    accepted is a fence around the WHOLE reply, which models add unasked.
+    non-empty string; no key repeated in any object. A truncated reply does
+    not parse, and a preamble makes it not one object, so both are None, which
+    blocks. The one wrapper accepted is a fence around the WHOLE reply, which
+    models add unasked.
     """
     lines = reply.strip().splitlines()
     if len(lines) >= 3 and lines[0].strip() in ("```", "```json") and lines[-1].strip() == "```":
         reply = "\n".join(lines[1:-1])
+
+    def unique_keys(pairs: list[tuple[str, object]]) -> dict:
+        # json.loads keeps the last of two equal keys, so a reply naming its
+        # severity twice would be read as whichever came second.
+        if len({k for k, _ in pairs}) != len(pairs):
+            raise ValueError("duplicate key in reviewer verdict")
+        return dict(pairs)
+
     try:
-        verdict = json.loads(reply)
+        verdict = json.loads(reply, object_pairs_hook=unique_keys)
     # governance: allow-silent SF002: None means an unreadable verdict; _editorial_qa_review then fails closed and Sunday does not publish
     except ValueError:
         return None
@@ -498,7 +517,12 @@ def _editorial_qa_review(episode: dict) -> tuple[bool, str, bool]:
             # FAIL CLOSED: an unreadable verdict is not a review.
             return False, f"STATUS: FAIL\nISSUES:\n- MALFORMED REVIEWER REPLY: {reply[:1000]}", False
         passed = verdict["status"] == "PASS"
-        return passed, _verdict_report(verdict), not passed and verdict["severity"] == "COPY"
+        # The BLOCKING veto: a COPY verdict that names a blocking issue anywhere
+        # (e.g. category "FOOD SAFETY (BLOCKING)") contradicts itself, and blocks.
+        named_blocking = any("BLOCKING" in field.upper() for field in (
+            verdict["recommendation"], *(v for i in verdict["issues"] for v in i.values())))
+        copy_only = not passed and verdict["severity"] == "COPY" and not named_blocking
+        return passed, _verdict_report(verdict), copy_only
     except Exception as e:
         # FAIL CLOSED (#6505, #6856). This used to return
         # (True, "EDITORIAL QA ERROR (defaulting to PASS)"), so a provider

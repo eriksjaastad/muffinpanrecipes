@@ -95,8 +95,14 @@ def test_a_wording_only_fail_after_auto_fix_publishes_and_emails_once():
     f"Here is my verdict:\n{COPY}",                     # preamble
     f"{COPY}\nThanks!",                                 # trailing text
     "STATUS: FAIL\nISSUES:\n- TITLE: 'easy'\nSEVERITY: COPY\nRECOMMENDATION: Drop it.",  # old text format
+    COPY.replace('"severity": "COPY"', '"severity": "BLOCKING", "severity": "COPY"'),  # repeated key
+    COPY.replace('"category": "TITLE RULES"', '"category": "x", "category": "TITLE RULES"'),
+    _reply(issues=(("FOOD SAFETY (BLOCKING)", "Chicken only reaches 120F"),)),  # COPY naming BLOCKING
+    _reply(recommendation="Blocking: cook chicken to 165F."),
 ], ids=["safety", "truncated", "no-issues", "empty-recommendation", "bad-severity", "extra-key",
-        "missing-severity", "empty-detail", "preamble", "trailing", "old-text-format"])
+        "missing-severity", "empty-detail", "preamble", "trailing", "old-text-format",
+        "repeated-severity", "repeated-issue-key", "copy-names-blocking-issue",
+        "copy-names-blocking-recommendation"])
 def test_a_safety_or_malformed_fail_still_stops_sunday(verdict):
     result, episode, advisory, hard_alert = _sunday(verdict)
     assert isinstance(result, HTTPException) and result.status_code == 400
@@ -143,25 +149,39 @@ def test_every_complete_verdict_parses_and_no_truncation_of_it_does(case, fenced
     assert not any(editorial_qa._parse_reviewer_verdict(reply[:end]) for end in range(len(reply)))
 
 
+@given(_verdicts(), st.sampled_from(sorted(editorial_qa._VERDICT_KEYS)), st.sampled_from(["COPY", "PASS", []]))
+def test_no_verdict_with_a_repeated_key_parses(case, key, value):
+    """json.loads keeps the last of two equal keys; the parser must refuse instead."""
+    _, reply = case
+    assert editorial_qa._parse_reviewer_verdict(f'{{"{key}": {json.dumps(value)}, {reply[1:]}') is None
+
+
 def test_the_fixer_replaces_only_the_fields_it_fixes():
-    """A fixer reply cannot put an unrenderable value into the recipe Sunday publishes."""
+    """A fixer reply cannot put an unrenderable value into the recipe Sunday publishes,
+    and its corrected times and servings are kept."""
     episode = _reviewable_episode()
-    before = {**episode["stages"]["monday"]["recipe_data"], "difficulty": "medium", "servings": 12}
+    before = {**episode["stages"]["monday"]["recipe_data"], "difficulty": "medium",
+              "servings": 12, "prep_time": 15, "cook_time": 20}
     episode["stages"]["monday"]["recipe_data"] = before
-    fixed = {**before, "title": "Golden Custard Cups", "difficulty": None, "servings": "twelve",
-             "description": "fixer's own"}
+    fixed = {**before, "title": "Golden Custard Cups", "difficulty": None, "servings": 10,
+             "cook_time": 35, "description": "fixer's own"}
+    del fixed["prep_time"]
     with patch.object(editorial_qa, "config"), \
          patch.object(editorial_qa, "generate_response", return_value=json.dumps(fixed)):
         assert editorial_qa._auto_fix_recipe(episode, COPY) is True
     after = episode["stages"]["monday"]["recipe_data"]
-    assert after == {**before, "title": "Golden Custard Cups"}
+    assert after == {**before, "title": "Golden Custard Cups", "servings": 10, "cook_time": 35}
 
 
-@pytest.mark.parametrize("ingredients", [1, "puff pastry", [{"item": None}]])
-def test_a_failed_auto_fix_leaves_the_recipe_unchanged(ingredients):
+@pytest.mark.parametrize("change", [
+    {"ingredients": 1}, {"ingredients": "puff pastry"}, {"ingredients": [{"item": None}]},
+    {"servings": "twelve"}, {"servings": 0}, {"cook_time": 35.5}, {"cook_time": True},
+    {"prep_time": None}, {"prep_time": 10**400}, {"cook_time": -5}, {"cook_time": float("inf")},
+])
+def test_a_failed_auto_fix_leaves_the_recipe_unchanged(change):
     episode = _reviewable_episode()
     before = episode["stages"]["monday"]["recipe_data"]
-    fixed = {**before, "ingredients": ingredients}
+    fixed = {**before, **change}
     with patch.object(editorial_qa, "config"), \
          patch.object(editorial_qa, "generate_response", return_value=json.dumps(fixed)):
         assert editorial_qa._auto_fix_recipe(episode, COPY) is False
