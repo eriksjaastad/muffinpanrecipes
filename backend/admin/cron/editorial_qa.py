@@ -108,7 +108,9 @@ _RECIPE_FIX_SYSTEM_PROMPT = (
 )
 
 
-_FIXER_NUMBER_FIELDS = ("servings", "prep_time", "cook_time")
+# Each number the fixer may correct, with its smallest valid value: a no-bake
+# recipe cooks for 0 minutes, but nothing serves 0.
+_FIXER_NUMBER_FIELDS = {"servings": 1, "prep_time": 0, "cook_time": 0}
 
 
 def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
@@ -204,7 +206,7 @@ def _auto_fix_recipe(episode: dict, qa_report: str) -> bool:
         # sends must be a whole number of minutes or servings, as Monday's are.
         numbers = {k: fixed[k] for k in _FIXER_NUMBER_FIELDS if k in fixed}
         if not (
-            all(type(v) is int and 0 < v <= 1440 for v in numbers.values())
+            all(type(v) is int and _FIXER_NUMBER_FIELDS[k] <= v <= 1440 for k, v in numbers.items())
             and isinstance(title, str)
             and isinstance(ingredients, list) and ingredients
             and all(

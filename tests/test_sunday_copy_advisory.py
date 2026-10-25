@@ -164,19 +164,19 @@ def test_the_fixer_replaces_only_the_fields_it_fixes():
               "servings": 12, "prep_time": 15, "cook_time": 20}
     episode["stages"]["monday"]["recipe_data"] = before
     fixed = {**before, "title": "Golden Custard Cups", "difficulty": None, "servings": 10,
-             "cook_time": 35, "description": "fixer's own"}
+             "cook_time": 0, "description": "fixer's own"}  # a no-bake correction
     del fixed["prep_time"]
     with patch.object(editorial_qa, "config"), \
          patch.object(editorial_qa, "generate_response", return_value=json.dumps(fixed)):
         assert editorial_qa._auto_fix_recipe(episode, COPY) is True
     after = episode["stages"]["monday"]["recipe_data"]
-    assert after == {**before, "title": "Golden Custard Cups", "servings": 10, "cook_time": 35}
+    assert after == {**before, "title": "Golden Custard Cups", "servings": 10, "cook_time": 0}
 
 
 @pytest.mark.parametrize("change", [
     {"ingredients": 1}, {"ingredients": "puff pastry"}, {"ingredients": [{"item": None}]},
     {"servings": "twelve"}, {"servings": 0}, {"cook_time": 35.5}, {"cook_time": True},
-    {"prep_time": None}, {"prep_time": 10**400}, {"cook_time": -5}, {"cook_time": float("inf")},
+    {"prep_time": None}, {"prep_time": 10**400}, {"cook_time": -5}, {"cook_time": float("inf")}, {"prep_time": 1441},
 ])
 def test_a_failed_auto_fix_leaves_the_recipe_unchanged(change):
     episode = _reviewable_episode()
