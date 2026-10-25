@@ -41,10 +41,12 @@ DEFAULT_BACKUPS = Path.home() / ".local/state/muffinpanrecipes/backups"
 DEFAULT_REMOTE = "gbackup:db-backups/muffinpanrecipes"
 SKIPPED_PREFIXES = ("images/", "test/")
 MAX_LIST_PAGES = 50
-# rclone's configured-remote name syntax, minus spaces. A destination whose
-# prefix is not a plain name (./gbackup:x, /x:y, :local:x, name,opt=v:x) is
-# read by rclone as a local path or an on-the-fly backend, never a config entry.
-REMOTE_NAME = re.compile(r"[A-Za-z0-9_.+@][A-Za-z0-9_.+@-]*")
+# rclone's configured-remote name syntax (fspath: Unicode letters, digits,
+# _ . + @, and inner spaces or dashes; no leading dash or space, no trailing
+# space). A destination whose prefix is not such a name (./gbackup:x, /x:y,
+# :local:x, name,opt=v:x) is read by rclone as a local path or an on-the-fly
+# backend, never a config entry.
+REMOTE_NAME = re.compile(r"[\w.+@](?:[\w.+@ -]*[\w.+@-])?")
 
 
 class BackupError(RuntimeError):
@@ -112,7 +114,8 @@ def snapshot(directory: Path, remote: str) -> dict:
     blobs = [download(blob, record, directory / "blobs" / f"{index:05d}")
              for index, record in enumerate(records)]
     write_json(directory / "manifest.json", {"run_id": directory.name, "blobs": blobs})
-    destination = remote.rstrip("/") + "/" + directory.name
+    # A bare "name:" is the remote's own root; "name:/" would be filesystem /.
+    destination = remote + ("" if remote.endswith((":", "/")) else "/") + directory.name
     rclone("copy", str(directory), destination)
     rclone("check", str(directory), destination, "--one-way")
     return {"blobs": len(blobs), "bytes": sum(b["bytes"] for b in blobs), "destination": destination}

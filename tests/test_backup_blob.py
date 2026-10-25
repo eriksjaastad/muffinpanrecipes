@@ -135,6 +135,21 @@ def test_a_setup_failure_after_a_success_is_recorded_and_status_fails(env, monke
     assert _status(root) == 1
 
 
+@pytest.mark.parametrize("remote, subpath", [("réserve:records", "records/"), ("TestLocal:", "")],
+                         ids=["unicode-name", "bare-remote-root"])
+def test_a_configured_remote_root_or_unicode_name_receives_the_run(env, monkeypatch, tmp_path, remote, subpath):
+    root, _ = env
+    config = tmp_path / "rclone.conf"
+    config.write_text("[réserve]\ntype = local\n")
+    monkeypatch.setenv("RCLONE_CONFIG", str(config))
+    target = tmp_path / "cwd"
+    target.mkdir()
+    monkeypatch.chdir(target)  # a local remote's root is the working directory
+
+    assert _create(root, remote) == 0
+    assert (target / f"{subpath}{_latest(root)['run_id']}" / "manifest.json").is_file()
+
+
 def test_an_alias_remote_is_a_valid_destination(env, monkeypatch, tmp_path):
     root, _ = env
     monkeypatch.setenv("RCLONE_CONFIG_TESTALIAS_TYPE", "alias")
