@@ -30,6 +30,10 @@ from backend.admin.cron import editorial_qa
 # Editorial QA must fail CLOSED (#6505)
 # ---------------------------------------------------------------------------
 
+
+PASS_REPLY = ('{"status": "PASS", "severity": "COPY", "issues": [], '
+              '"recommendation": "Ship it."}')
+
 def _reviewable_episode() -> dict:
     return {
         "episode_id": "2026-W36",
@@ -66,7 +70,7 @@ def test_editorial_qa_fails_closed_when_the_reviewer_throws() -> None:
              editorial_qa, "generate_judge_response",
              side_effect=RuntimeError("provider 503"),
          ):
-        passed, report = cron_routes._editorial_qa_review(_reviewable_episode())
+        passed, report, _ = cron_routes._editorial_qa_review(_reviewable_episode())
 
     assert passed is False
     assert cron_routes.QA_UNAVAILABLE_MARKER in report
@@ -77,9 +81,9 @@ def test_editorial_qa_still_passes_a_clean_recipe() -> None:
     with patch.object(editorial_qa, "_recent_catalog_titles", return_value=["Something Else"]), \
          patch.object(
              editorial_qa, "generate_judge_response",
-             return_value="STATUS: PASS\nISSUES: None\nRECOMMENDATION: Ship it.",
+             return_value=PASS_REPLY,
          ):
-        passed, _report = cron_routes._editorial_qa_review(_reviewable_episode())
+        passed, _report, _ = cron_routes._editorial_qa_review(_reviewable_episode())
 
     assert passed is True
 
@@ -88,7 +92,7 @@ def test_editorial_qa_review_states_the_recipes_pan() -> None:
     episode = _reviewable_episode()
     episode["stages"]["monday"]["recipe_data"]["pan_size"] = "mini"
     with patch.object(editorial_qa, "_recent_catalog_titles", return_value=["Something Else"]), \
-         patch.object(editorial_qa, "generate_judge_response", return_value="STATUS: PASS") as judge:
+         patch.object(editorial_qa, "generate_judge_response", return_value=PASS_REPLY) as judge:
         cron_routes._editorial_qa_review(episode)
 
     assert "Pan: 24-cup mini muffin pan" in judge.call_args.kwargs["prompt"]
@@ -103,7 +107,7 @@ def test_missing_catalog_context_alerts_instead_of_passing_silently() -> None:
     with patch.object(editorial_qa, "_recent_catalog_titles", return_value=[]), \
          patch.object(
              editorial_qa, "generate_judge_response",
-             return_value="STATUS: PASS\nISSUES: None\nRECOMMENDATION: Ship it.",
+             return_value=PASS_REPLY,
          ), \
          patch.object(editorial_qa, "notify_pipeline_failure") as notify:
         cron_routes._editorial_qa_review(_reviewable_episode())
@@ -200,7 +204,7 @@ def test_degraded_catalog_alerts_once_per_episode_not_per_retry() -> None:
     with patch.object(editorial_qa, "_recent_catalog_titles", return_value=[]), \
          patch.object(
              editorial_qa, "generate_judge_response",
-             return_value="STATUS: PASS\nISSUES: None\nRECOMMENDATION: Ship it.",
+             return_value=PASS_REPLY,
          ), \
          patch.object(editorial_qa, "notify_pipeline_failure") as notify:
         for _ in range(3):

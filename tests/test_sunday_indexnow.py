@@ -74,7 +74,7 @@ def _run_sunday(body: cron_routes.StageRequest, indexnow_result: IndexNowResult)
              [{"character": "Devon Park", "message": "Ready."}],
              "PASS - ready",
          )), \
-         patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "STATUS: PASS")), \
+         patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "STATUS: PASS", False)), \
          patch.object(cron_routes, "_generate_episode_memories"), \
          patch.object(cron_routes, "regenerate_and_upload"), \
          patch.object(cron_routes, "_indexnow_submit_urls", return_value=indexnow_result) as indexnow_submit, \

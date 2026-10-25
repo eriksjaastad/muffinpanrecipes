@@ -32,6 +32,12 @@ from scripts.simulate_dialogue_week import (
 
 
 @pytest.fixture(autouse=True)
+def _per_line_path(monkeypatch):
+    """These tests cover the per-line generator; production uses the author (#8384)."""
+    monkeypatch.setattr(sim, "AUTHOR_MODE", False)
+
+
+@pytest.fixture(autouse=True)
 def _restore_global_rng():
     """Seed freely without leaking RNG state into whatever runs next.
 

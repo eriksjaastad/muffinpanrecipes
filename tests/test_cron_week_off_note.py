@@ -402,7 +402,7 @@ def test_cron_sunday_does_not_set_week_off_note_when_publish_succeeds():
          patch.object(cron_routes, "_generate_and_judge_dialogue", return_value=(
              [{"character": "Devon Park", "message": "Ready."}], "PASS - ready",
          )), \
-         patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "STATUS: PASS")), \
+         patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "STATUS: PASS", False)), \
          patch.object(cron_routes, "_generate_episode_memories"), \
          patch.object(cron_routes, "_indexnow_submit_urls",
                       return_value=IndexNowResult(ok=True, status_code=200, detail="submitted")), \
@@ -459,7 +459,7 @@ def test_cron_sunday_late_publish_leaves_the_successors_note_alone():
          patch.object(cron_routes, "_generate_and_judge_dialogue", return_value=(
              [{"character": "Devon Park", "message": "Ready."}], "PASS - ready",
          )), \
-         patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "STATUS: PASS")), \
+         patch.object(cron_routes, "_editorial_qa_review", return_value=(True, "STATUS: PASS", False)), \
          patch.object(cron_routes, "_generate_episode_memories"), \
          patch.object(cron_routes, "_indexnow_submit_urls",
                       return_value=IndexNowResult(ok=True, status_code=200, detail="submitted")), \
