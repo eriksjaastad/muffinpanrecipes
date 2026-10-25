@@ -31,14 +31,6 @@ Single source of truth for every environment variable the muffinpanrecipes codeb
 | `ALERT_EMAIL_FROM` | O | `backend/config.py` (`alert_email_from`) | Sender address for alert emails. Defaults to `alerts@send.synthinsightlabs.com` (Erik's already-verified sending domain); override only if muffinpanrecipes.com gets its own verified Resend domain |
 | `NEWSLETTER_API_KEY` | O, S | `backend/newsletter/manager.py:53` | Newsletter service auth (currently unused — `NEWSLETTER_SERVICE=file`) |
 
-### R2 (unused — scripts/trigger_generation.py only)
-| Var | Flags | Read at | Purpose |
-|---|---|---|---|
-| `MUFFINPANRECIPES_R2_ACCESS_KEY_ID` | O, S | `scripts/trigger_generation.py:27` | Cloudflare R2 access key (legacy path, not on critical path) |
-| `MUFFINPANRECIPES_R2_SECRET_ACCESS_KEY` | O, S | `scripts/trigger_generation.py:28` | R2 secret |
-| `MUFFINPANRECIPES_R2_ENDPOINT` | O, S | `scripts/trigger_generation.py:29` | R2 endpoint URL |
-| `MUFFINPANRECIPES_R2_BUCKET_NAME` | O, S | `scripts/trigger_generation.py:30` | R2 bucket name |
-
 ---
 
 ## Model configuration
