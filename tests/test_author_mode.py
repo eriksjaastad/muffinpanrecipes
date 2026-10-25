@@ -102,10 +102,10 @@ def test_author_full_week_carries_lines_and_finishes_wednesday_photography(monke
     assert {m['day'] for m in result['messages']} == set(sim.DAY_ORDER)
 
 
-def test_default_off_prompts_are_byte_identical_to_main(monkeypatch):
+def test_per_line_prompts_are_byte_identical_to_main(monkeypatch):
     # Immutable pre-change captures: no remote, Git history or moving ref needed.
     fixture = json.loads((Path(__file__).parent / 'fixtures/author-off-prompts.json').read_text())
-    assert sim.AUTHOR_MODE is False
+    monkeypatch.setattr(sim, 'AUTHOR_MODE', False)
     monkeypatch.setattr(sim, '_load_memories', lambda name: [])
     monkeypatch.setattr(sim, '_load_memories_or_unavailable', lambda name: ([], False))
     for day in sim.DAY_ORDER:
@@ -123,6 +123,7 @@ def test_default_off_prompts_are_byte_identical_to_main(monkeypatch):
 
 
 def test_length_matching_regenerates_twice_and_reports_exceptions(monkeypatch):
+    monkeypatch.setattr(sim, 'AUTHOR_MODE', False)  # the variant must restore it
     assert lab._arm_call_reservation('monday', {'AUTHOR_MODE': True}, dry_run=False) == 9
     reference = [{'character': 'Margaret Chen', 'message': 'one two three four'}] * 6
     oversized = [{'character': 'Margaret Chen', 'message': 'one two three four five six'}] * 6
@@ -191,3 +192,47 @@ def test_author_screen_reserves_the_per_line_control_budget(monkeypatch):
         budget=lab.CallBudget(max_calls=9), max_cost=3, dry_run=False, pairs=pairs,
     )
     assert pairs == []
+
+
+def _scene_for(day):
+    first = [n.split()[0] if not n.startswith('Stephanie') else 'Steph' for n in sim.participants_for_day(day)]
+    return '\n'.join(f'{first[i % len(first)]}: "Line {i}."' for i in range(8))
+
+
+def test_production_writes_each_day_with_the_author_and_feeds_it_the_judges_reason(monkeypatch):
+    """#8384: the author is the default, and a retry tells it why the last draft failed."""
+    prompts = []
+    monkeypatch.setattr(sim, 'generate_turn', lambda **k: pytest.fail('per-line path called'))
+    for day in sim.DAY_ORDER:
+        monkeypatch.setattr(sim, 'generate_response',
+                            lambda day=day, **k: prompts.append(k['prompt']) or _scene_for(day))
+        run(stage_only=day, retry_note='Nobody answered the skeptic.',
+            photography_context={'human_review': {'approved': 2}})
+    assert len(prompts) == len(sim.DAY_ORDER)
+    assert all('An earlier draft of this meeting was rejected. Nobody answered the skeptic.' in p
+               for p in prompts)
+    assert all('"approved": 2' in p for p in prompts)
+
+
+@pytest.mark.parametrize('julian_lines', [1, 2, 3])
+def test_scatter_delivery_never_drops_a_photo(monkeypatch, julian_lines):
+    monkeypatch.setattr(sim.random, 'choice', lambda options: 'scatter')
+    msgs = [sim.Message('wednesday', 'photo', 'Julian Torres' if i < julian_lines else 'Margaret Chen',
+                        'line', '', 'stub') for i in range(4)]
+    sim._distribute_images_wednesday(msgs, ['a.png', 'b.png', 'c.png'], 'wednesday')
+    assert sorted(p for m in msgs for p in m.attachments) == ['a.png', 'b.png', 'c.png']
+
+
+def test_a_rejected_author_reply_is_rewritten_and_three_rejections_raise(monkeypatch):
+    replies = iter(['Narrator: The kitchen is quiet.', _scene_for('monday')])
+    prompts = []
+    monkeypatch.setattr(sim, 'generate_response', lambda **k: prompts.append(k['prompt']) or next(replies))
+    result = run()
+    assert len(prompts) == 2 and 'Your previous draft was rejected' in prompts[1]
+    assert result['messages']
+
+    prompts.clear()
+    monkeypatch.setattr(sim, 'generate_response', lambda **k: prompts.append(k['prompt']) or 'Narrator: x')
+    with pytest.raises(ValueError):
+        run()
+    assert len(prompts) == sim._AUTHOR_PARSE_TRIES

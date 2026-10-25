@@ -305,8 +305,13 @@ STOP_CHECK: dict = {
 # valid with WINDDOWN_TRIGGER == "check".
 OPEN_ENDED_MAX_TICKS: dict = {}
 
-# Lab-only whole-scene experiment (#8383). Never enabled from the environment.
-AUTHOR_MODE: bool = False
+# One author writes each day's whole meeting (#8383 lab, production since #8384).
+# Measured through the production handlers on the same week: the per-line path
+# passed 1 of 6 days on the first judge try (Monday failed all 3), the author 6
+# of 6. The per-line path below stays until its deletion card; tests that cover
+# it set this to False. Never enabled from the environment.
+AUTHOR_MODE: bool = True
+_AUTHOR_PARSE_TRIES = 3
 
 # Every stop check is appended here (day, tick, decided, pushback, provider,
 # model, cost_usd). run_simulation clears it at start; the conversation lab
@@ -2745,16 +2750,25 @@ def run_simulation(
                 injected_event, week_highlights, recent_lines, author_length_target,
                 photography_context, retry_note,
             )
-            if mode == 'template':
-                count = (author_length_target or {}).get('lines', TICKS_RANGE[day][0])
-                text = '\n'.join(f"{names[i % len(names)]}: {json.dumps(f'Let us discuss {concept}.')}" for i in range(count))
-            else:
-                text = generate_response(prompt=prompt, model=default_model, temperature=0.8)
-            try:
-                scene = _parse_author_scene(text, names)
-            except ValueError as exc:
-                exc.author_invalid_scene = text
-                raise
+            # A reply the parser rejects is rewritten, told why, up to
+            # _AUTHOR_PARSE_TRIES times, then raises: production must not lose a
+            # day to one stray narration line. The lab (author_length_target)
+            # counts and regenerates its own attempts, so it gets one try.
+            tries = 1 if author_length_target else _AUTHOR_PARSE_TRIES
+            for attempt in range(tries):
+                if mode == 'template':
+                    count = (author_length_target or {}).get('lines', TICKS_RANGE[day][0])
+                    text = '\n'.join(f"{names[i % len(names)]}: {json.dumps(f'Let us discuss {concept}.')}" for i in range(count))
+                else:
+                    text = generate_response(prompt=prompt, model=default_model, temperature=0.8)
+                try:
+                    scene = _parse_author_scene(text, names)
+                    break
+                except ValueError as exc:
+                    exc.author_invalid_scene = text
+                    if attempt + 1 == tries:
+                        raise
+                    prompt += f"\n\nYour previous draft was rejected: {exc}. Follow the output format exactly."
             for tick, (speaker, line) in enumerate(scene):
                 ts = start + timedelta(days=day_i, minutes=tick * (480 // len(scene)))
                 messages.append(Message(day, stage, speaker, line, ts.isoformat(), default_model))
