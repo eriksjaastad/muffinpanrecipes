@@ -340,9 +340,10 @@ def episode_integrity_failures(
                 "picker did not run, so category balancing is off"
             )
 
-    # 3. Every stage whose cron window has passed must be complete. A Sunday
-    #    deliberately held for photo approval (#7936) is expected waiting,
-    #    not a missing stage; episode_summary reports it instead.
+    # 3. A stage that has already recorded ``failed`` is actionable
+    #    immediately.  The grace window exists to avoid crying wolf while a
+    #    slow cron is still running; it must not hide a terminal outcome that
+    #    the cron has already persisted.
     photo_hold = recorded_photo_hold(episode)
     #    A Sunday attempt that failed after a hold was recorded is a real
     #    failure whatever the calendar says: the hold must not keep it quiet.
@@ -351,8 +352,26 @@ def episode_integrity_failures(
         failures.append(
             f"sunday attempt after the photo hold failed — {attempt_failure[:300]}"
         )
+    failed_days: set[str] = set()
+    for day in DAY_ORDER:
+        stage = stages.get(day) or {}
+        if stage.get("status") != "failed":
+            continue
+        if day == "sunday" and (photo_hold or attempt_failure):
+            continue
+        detail = stage.get("error") or ""
+        failures.append(
+            f"{day} stage is 'failed'" + (f" — {detail[:200]}" if detail else "")
+        )
+        failed_days.add(day)
+
+    # 4. Every other stage whose cron window has passed must be complete. A
+    #    Sunday deliberately held for photo approval (#7936) is expected
+    #    waiting, not a missing stage; episode_summary reports it instead.
     if episode_id:
         for day in stages_due(episode_id, now=now, grace_minutes=grace_minutes):
+            if day in failed_days:
+                continue
             stage_status = (stages.get(day) or {}).get("status")
             if stage_status == "complete":
                 continue
@@ -366,7 +385,7 @@ def episode_integrity_failures(
                 + (f" — {detail[:200]}" if detail else "")
             )
 
-    # 4. The recipe title must not collide with what is already published.
+    # 5. The recipe title must not collide with what is already published.
     if catalog is not None:
         title = _recipe_title(episode)
         if title:
