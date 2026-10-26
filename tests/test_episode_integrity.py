@@ -12,7 +12,7 @@ the channel. The "healthy" cases below are the ones that keep it credible.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import pytest
 
@@ -144,6 +144,39 @@ def test_failed_stage_surfaces_its_error() -> None:
     failures = episode_integrity_failures(episode, catalog=CATALOG, now=SATURDAY_W36)
 
     assert any("Baker produced duplicate title twice" in f for f in failures), failures
+
+
+def test_failed_stage_is_reported_inside_its_grace_window() -> None:
+    """A terminal failure is not a slow in-flight cron and needs no grace."""
+    episode = _healthy_episode(episode_id="2026-W36")
+    episode["stages"]["monday"] = {
+        "status": "failed",
+        "error": "Baker could not clear the safety gate.",
+    }
+    five_minutes_after_monday = datetime(2026, 8, 31, 14, 35, tzinfo=timezone.utc)
+
+    failures = episode_integrity_failures(
+        episode, catalog=CATALOG, now=five_minutes_after_monday
+    )
+
+    assert any(
+        f.startswith("monday stage is 'failed'")
+        and "safety gate" in f
+        for f in failures
+    ), failures
+
+
+def test_in_progress_stage_inside_its_grace_window_is_not_reported() -> None:
+    """A persisted in-flight stage still gets the normal grace period."""
+    episode = _healthy_episode(episode_id="2026-W36")
+    episode["stages"]["monday"] = {"status": "in_progress"}
+    five_minutes_after_monday = datetime(2026, 8, 31, 14, 35, tzinfo=timezone.utc)
+
+    failures = episode_integrity_failures(
+        episode, catalog=CATALOG, now=five_minutes_after_monday
+    )
+
+    assert not any(f.startswith("monday stage is") for f in failures), failures
 
 
 def test_stage_still_inside_its_window_is_not_reported() -> None:
