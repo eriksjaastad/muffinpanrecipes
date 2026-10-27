@@ -1,4 +1,4 @@
-"""Preflight-5 neighbours of the #7936 cycle-3 corrections (F1-F6). Offline only.
+"""Photo-review failure and recovery regressions (#7936). Offline only.
 
 F1 shared published predicate in the cleanup sweep and operator script;
 F2 a week with no reviewable photo set is a truthful failure, not a hold;
@@ -20,7 +20,7 @@ from backend.storage import EpisodeReadStale
 from backend.utils import photo_review
 from backend.utils.episode_integrity import episode_summary, recorded_photo_hold
 from tests.photo_review_helpers import decide, register, wednesday_stage
-from tests.test_photo_approval_7936 import (
+from tests.test_photo_request_decision_lifecycle import (
     EP_ID,
     _Store,
     _approved_store,
@@ -31,8 +31,8 @@ from tests.test_photo_approval_7936 import (
     _status,
     _sunday,
 )
-from tests.test_photo_approval_cycle2_7936 import _monitor, _page
-from tests.test_photo_approval_cycle3_7936 import _held_store, _legacy_published_episode
+from tests.test_photo_claim_publication_lifecycle import _monitor, _page
+from tests.test_photo_claim_publication_invariants import _held_store, _legacy_published_episode
 
 
 # --- F1 ---------------------------------------------------------------------------------

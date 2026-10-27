@@ -631,7 +631,7 @@ def test_a_sunday_held_for_photo_approval_shows_no_week_off_note():
     not "off". Sunday holds it with no note on the episode or the homepage;
     if it never publishes, next Monday's _apply_week_off_note notes it."""
     from tests.photo_review_helpers import register, wednesday_stage
-    from tests.test_photo_approval_7936 import EP_ID, _episode, _status, _Store, _sunday
+    from tests.test_photo_request_decision_lifecycle import EP_ID, _episode, _status, _Store, _sunday
 
     wed = wednesday_stage()
     store = _Store()

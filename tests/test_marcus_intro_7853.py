@@ -248,7 +248,7 @@ def test_an_unreadable_catalog_fails_thursday_before_any_paid_call():
 # --- Sunday ----------------------------------------------------------------------------
 
 def test_sunday_refuses_a_week_without_an_intro_before_any_paid_work():
-    from tests.test_photo_approval_7936 import EP_ID, _approved_store, _status, _sunday
+    from tests.test_photo_request_decision_lifecycle import EP_ID, _approved_store, _status, _sunday
 
     store, _ep, _wed = _approved_store()
     stored = store.get(EP_ID)
@@ -302,7 +302,7 @@ def test_sunday_auto_fix_never_drops_or_rewrites_marcus_intro_or_the_pitch(fixer
 
 
 def test_sunday_without_an_intro_records_a_failed_sunday_and_alerts():
-    from tests.test_photo_approval_7936 import EP_ID, _approved_store, _status, _sunday
+    from tests.test_photo_request_decision_lifecycle import EP_ID, _approved_store, _status, _sunday
 
     store, _ep, _wed = _approved_store()
     stored = store.get(EP_ID)
@@ -386,7 +386,7 @@ def test_monday_without_a_description_line_still_marks_the_new_format():
 
 
 def _new_format_sunday(description: str, thursday_intro: str | None):
-    from tests.test_photo_approval_7936 import EP_ID, _approved_store, _status, _sunday
+    from tests.test_photo_request_decision_lifecycle import EP_ID, _approved_store, _status, _sunday
 
     store, _ep, _wed = _approved_store()
     stored = store.get(EP_ID)

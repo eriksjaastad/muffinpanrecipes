@@ -19,8 +19,8 @@ from backend.storage import PhotoControlConflict
 from backend.utils import photo_review
 from backend.utils.episode_integrity import recorded_photo_hold
 from tests.photo_review_helpers import BLOB, decide, register, wednesday_stage
-from tests.test_art_director_image_pipeline import _png_bytes
-from tests.test_photo_approval_7936 import (
+from tests.test_photo_evaluator_contract_generation import _png_bytes
+from tests.test_photo_request_decision_lifecycle import (
     EP_ID,
     _SAME_ORIGIN,
     _client,

@@ -1,8 +1,4 @@
-"""Photo criteria and automated-review handling (#7936). Offline only.
-
-Moved unchanged from tests/test_photo_approval_7936.py when that file was
-rewritten around the photo-control log.
-"""
+"""Photo criteria and automated-review handling (#7936). Offline only."""
 
 from __future__ import annotations
 

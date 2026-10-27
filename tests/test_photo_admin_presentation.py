@@ -1,4 +1,4 @@
-"""Targeted offline regressions for the fourth #7936 review."""
+"""Offline regressions for photo-review controls on admin surfaces."""
 
 import asyncio
 import json
@@ -11,7 +11,7 @@ from backend.utils import photo_review
 from scripts import cleanup_image_backlog as sweep
 from scripts.simulate_dialogue_week import _build_dynamic_arc
 from tests.photo_review_helpers import decide, register, wednesday_stage
-from tests.test_photo_approval_7936 import EP_ID, _Store, _episode, _request
+from tests.test_photo_request_decision_lifecycle import EP_ID, _Store, _episode, _request
 
 
 @pytest.mark.parametrize("state", ["awaiting", "rejected"])
