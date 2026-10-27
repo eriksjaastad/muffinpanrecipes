@@ -20,12 +20,6 @@ external_resources:
     env_vars: []
     notes: backend/utils/indexnow.py POSTs to https://api.indexnow.org/indexnow. The key is public by design (served at /015dad665f3a6ddeeab4565e96d0dd50.txt from src/), so it is committed rather than kept in Doppler.
 
-  - name: Stability AI
-    purpose: Legacy RunPod harvest only; production images moved to Gemini in #8068.
-    env_vars:
-      - STABILITY_API_KEY
-    notes: Used only by scripts/direct_harvest.py, run by hand. The one paid path that does not go through OpenRouter.
-
   - name: Vercel
     purpose: Hosting and Vercel Blob storage for episodes, pages, and images.
     env_vars:
@@ -46,4 +40,3 @@ external_resources:
     env_vars:
       - DOPPLER_TOKEN
     notes: Run commands via "doppler run -- <command>".
-

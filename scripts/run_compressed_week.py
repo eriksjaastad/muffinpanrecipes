@@ -32,7 +32,7 @@ from backend.utils.model_router import cost_text  # noqa: E402
 
 EPISODES_DIR = ROOT / "data" / "episodes"
 
-# Note: secrets (STABILITY_API_KEY etc.) are injected by 'doppler run --' in cron commands.
+# Note: OPENROUTER_API_KEY and other secrets are injected by 'doppler run --' in cron commands.
 # When running manually, prefix with: doppler run -- python scripts/run_compressed_week.py ...
 
 

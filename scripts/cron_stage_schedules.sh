@@ -48,13 +48,13 @@ _next_hour() {
 _stage_cmd() {
     local stage="$1"
     local extra="${2:-}"
-    # doppler run -- injects STABILITY_API_KEY and all project secrets into the subprocess
+    # doppler run -- injects OPENROUTER_API_KEY and all project secrets into the subprocess
     echo "cd '$ROOT' && PYTHONPATH=. doppler run -- $PY scripts/run_pipeline_stage.py --stage $stage --episode \$(date +%G-W%V) $extra >> '$LOG_DIR/cron_${stage}.log' 2>&1"
 }
 
 _compressed_cmd() {
     # Single command runs all 7 stages with --delay N seconds
-    # doppler run -- injects STABILITY_API_KEY and all project secrets
+    # doppler run -- injects OPENROUTER_API_KEY and all project secrets
     # pick_concept.py selects a fresh concept each run for variety
     local delay="${1:-300}"  # default: 5 min between stages
     echo "cd '$ROOT' && CONCEPT=\$(doppler run -- $PY scripts/pick_concept.py 2>/dev/null || echo 'Weekly Muffin Pan Recipe') && PYTHONPATH=. doppler run -- $PY scripts/run_compressed_week.py --episode-id \$(date +%G-W%V-test) --concept \"\$CONCEPT\" --delay $delay >> '$LOG_DIR/cron_compressed.log' 2>&1"

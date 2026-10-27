@@ -4,7 +4,7 @@ End-to-end integration tests for the complete system.
 Feature: ai-creative-team
 
 These tests call the real pipeline (produce_recipe) which requires
-STABILITY_API_KEY and RECIPE_MODEL. They are skipped unless
+OPENROUTER_API_KEY and RECIPE_MODEL. They are skipped unless
 RUN_LIVE_PROVIDER_TESTS=true is set.
 """
 
