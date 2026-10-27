@@ -1,8 +1,20 @@
+"""Legacy image harvest through OpenRouter's Gemini image model.
+
+Run with ``doppler run -- uv run python scripts/direct_harvest.py`` so
+``OPENROUTER_API_KEY`` is injected. The optional path overrides are
+``WORKSPACE_ROOT`` (default: ``/workspace`` when present, otherwise the repo),
+``JOBS_FILE`` (default: ``$WORKSPACE_ROOT/image_generation_jobs.json``), and
+``OUTPUT_ROOT`` (default: ``$WORKSPACE_ROOT/output/muffin_pan``).
+"""
+
+from io import BytesIO
 import json
 import logging
 import os
 import sys
 from pathlib import Path
+
+from PIL import Image
 
 from backend.utils.image_generation import generate_nano_banana_image
 
@@ -26,6 +38,14 @@ def _openrouter_api_key() -> str:
     if not key:
         raise RuntimeError("OPENROUTER_API_KEY is not set (use `doppler run -- ...`)")
     return key
+
+
+def _as_png(image_bytes: bytes) -> bytes:
+    """Decode provider output and return actual PNG bytes for the .png path."""
+    with Image.open(BytesIO(image_bytes)) as image:
+        output = BytesIO()
+        image.convert("RGB").save(output, format="PNG")
+    return output.getvalue()
 
 
 def generate_image(recipe_id, variant_name, prompt, api_key=None):
@@ -53,7 +73,13 @@ def generate_image(recipe_id, variant_name, prompt, api_key=None):
         logger.error(f"❌ OpenRouter image error for {recipe_id} [{variant_name}]: {e}")
         return False
 
-    file_path.write_bytes(image_bytes)
+    try:
+        png_bytes = _as_png(image_bytes)
+    except Exception as exc:  # noqa: BLE001 - a malformed provider image aborts this job
+        logger.error(f"❌ Invalid image returned for {recipe_id} [{variant_name}]: {exc}")
+        return False
+
+    file_path.write_bytes(png_bytes)
     logger.info(f"✅ Saved to {file_path}")
     return True
 

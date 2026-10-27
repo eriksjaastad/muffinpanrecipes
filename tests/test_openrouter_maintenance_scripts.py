@@ -4,8 +4,18 @@ from __future__ import annotations
 
 import json
 import sys
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
+from PIL import Image
+
+
+def _image_bytes(image_format: str) -> bytes:
+    output = BytesIO()
+    Image.new("RGB", (2, 3), (20, 40, 60)).save(output, format=image_format)
+    return output.getvalue()
 
 
 def test_direct_harvest_uses_openrouter_image_route(monkeypatch, tmp_path):
@@ -18,7 +28,7 @@ def test_direct_harvest_uses_openrouter_image_route(monkeypatch, tmp_path):
 
     def fake_generate(prompt, api_key, **kwargs):
         calls.append((prompt, api_key, kwargs))
-        return b"image-bytes"
+        return _image_bytes("PNG")
 
     monkeypatch.setattr(direct_harvest, "generate_nano_banana_image", fake_generate)
 
@@ -36,7 +46,62 @@ def test_direct_harvest_uses_openrouter_image_route(monkeypatch, tmp_path):
             },
         )
     ]
-    assert (tmp_path / "recipe" / "hero.png").read_bytes() == b"image-bytes"
+    with Image.open(tmp_path / "recipe" / "hero.png") as image:
+        assert image.format == "PNG"
+        assert image.size == (2, 3)
+
+
+@pytest.mark.parametrize("source_format", ["JPEG", "PNG"])
+def test_direct_harvest_normalizes_provider_image_to_png(monkeypatch, tmp_path, source_format):
+    from scripts import direct_harvest
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "openrouter-test")
+    monkeypatch.setattr(direct_harvest, "OUTPUT_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        direct_harvest,
+        "generate_nano_banana_image",
+        lambda *_args, **_kwargs: _image_bytes(source_format),
+    )
+
+    assert direct_harvest.generate_image("recipe", source_format.lower(), "a prompt")
+
+    output = (tmp_path / "recipe" / f"{source_format.lower()}.png").read_bytes()
+    assert output.startswith(b"\x89PNG\r\n\x1a\n")
+    with Image.open(BytesIO(output)) as image:
+        assert image.format == "PNG"
+
+
+def test_direct_harvest_skips_existing_output_without_provider_call(monkeypatch, tmp_path):
+    from scripts import direct_harvest
+
+    monkeypatch.setattr(direct_harvest, "OUTPUT_ROOT", str(tmp_path))
+    output = tmp_path / "recipe" / "hero.png"
+    output.parent.mkdir()
+    original = b"existing-output"
+    output.write_bytes(original)
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("existing output must not trigger an image call")
+
+    monkeypatch.setattr(direct_harvest, "generate_nano_banana_image", fail_if_called)
+
+    assert direct_harvest.generate_image("recipe", "hero", "a prompt")
+    assert output.read_bytes() == original
+
+
+def test_direct_harvest_rejects_malformed_provider_bytes_without_writing(monkeypatch, tmp_path):
+    from scripts import direct_harvest
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "openrouter-test")
+    monkeypatch.setattr(direct_harvest, "OUTPUT_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        direct_harvest,
+        "generate_nano_banana_image",
+        lambda *_args, **_kwargs: b"not-an-image",
+    )
+
+    assert not direct_harvest.generate_image("recipe", "hero", "a prompt")
+    assert not (tmp_path / "recipe" / "hero.png").exists()
 
 
 def test_list_openai_models_reads_openrouter_catalog(monkeypatch, capsys):
