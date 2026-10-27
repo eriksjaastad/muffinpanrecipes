@@ -346,11 +346,31 @@ def _host(value: str) -> str | None:
     return parsed.hostname
 
 
+def _production_alias_deployment_id(
+    production_host: str, project_link: dict[str, str]
+) -> str:
+    """Resolve a production hostname to its deployment ID without broad output."""
+    payload = _vercel_api_json(
+        f"/v4/aliases/{production_host}",
+        {"teamId": project_link["orgId"]},
+    )
+    if payload.get("projectId") != project_link["projectId"]:
+        raise DeployError("Vercel production alias project does not match muffinpanrecipes")
+    deployment_id = payload.get("deploymentId")
+    if not isinstance(deployment_id, str):
+        deployment = payload.get("deployment")
+        deployment_id = deployment.get("id") if isinstance(deployment, dict) else None
+    if not isinstance(deployment_id, str) or not deployment_id:
+        raise DeployError("Vercel production alias response was malformed")
+    return deployment_id
+
+
 def _production_git_sha(production_url: str) -> str | None:
     project_link = _read_project_link()
     production_host = _host(production_url)
     if not production_host:
         raise DeployError("production URL has no hostname")
+    deployment_id = _production_alias_deployment_id(production_host, project_link)
     payload = _vercel_api_json(
         "/v6/deployments",
         {
@@ -365,11 +385,9 @@ def _production_git_sha(production_url: str) -> str | None:
         raise DeployError("Vercel deployment list was malformed")
     for item in deployments:
         projection = _deployment_projection(item)
-        if not projection:
+        if not projection or projection["uid"] != deployment_id:
             continue
-        hosts = {_host(alias) for alias in projection["aliases"]}
-        if production_host in hosts or production_host == _host(projection["url"] or ""):
-            return projection["gitSha"]
+        return projection["gitSha"]
     return None
 
 

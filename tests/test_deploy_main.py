@@ -194,7 +194,11 @@ def test_rest_deployment_lookups_pin_canonical_team(monkeypatch):
                     }
                 ]
             },
-            {"deployments": []},
+            {
+                "projectId": deploy_main.EXPECTED_PROJECT_LINK["projectId"],
+                "deploymentId": "production",
+            },
+            {"deployments": [{"uid": "production", "meta": {"gitSha": SHA}}]},
         ]
     )
     monkeypatch.setattr(
@@ -212,6 +216,12 @@ def test_rest_deployment_lookups_pin_canonical_team(monkeypatch):
     assert calls[0][1]["teamId"] == deploy_main.EXPECTED_PROJECT_LINK["orgId"]
     assert calls[1][1]["projectId"] == deploy_main.EXPECTED_PROJECT_LINK["projectId"]
     assert calls[1][1]["teamId"] == deploy_main.EXPECTED_PROJECT_LINK["orgId"]
+    assert calls[2] == (
+        "/v4/aliases/muffinpanrecipes.com",
+        {"teamId": deploy_main.EXPECTED_PROJECT_LINK["orgId"]},
+    )
+    assert calls[3][1]["projectId"] == deploy_main.EXPECTED_PROJECT_LINK["projectId"]
+    assert calls[3][1]["teamId"] == deploy_main.EXPECTED_PROJECT_LINK["orgId"]
 
 
 def test_preview_excludes_old_same_sha_and_waits_for_ready(monkeypatch):
@@ -466,30 +476,75 @@ def test_cleanup_unregisters_then_uses_recoverable_trash(monkeypatch, tmp_path):
     assert payload.read_text(encoding="utf-8") == "recoverable"
 
 
-def test_production_sha_uses_matching_production_alias(monkeypatch):
+@pytest.mark.parametrize(
+    "alias_payload",
+    [
+        {"projectId": "project", "deploymentId": "production"},
+        {"projectId": "project", "deployment": {"id": "production"}},
+    ],
+)
+def test_production_sha_uses_matching_production_alias(monkeypatch, alias_payload):
+    monkeypatch.setattr(deploy_main, "_read_project_link", lambda: deploy_main.EXPECTED_PROJECT_LINK.copy())
+    alias_payload["projectId"] = deploy_main.EXPECTED_PROJECT_LINK["projectId"]
+    monkeypatch.setattr(
+        deploy_main,
+        "_vercel_api_json",
+        lambda path, params: alias_payload
+        if path.startswith("/v4/aliases/")
+        else {"deployments": [{"uid": "production", "meta": {"gitSha": SHA}}]},
+    )
+
+    assert deploy_main._production_git_sha("https://muffinpanrecipes.com") == SHA
+
+
+def test_production_sha_rejects_alias_for_another_project(monkeypatch):
     monkeypatch.setattr(deploy_main, "_read_project_link", lambda: deploy_main.EXPECTED_PROJECT_LINK.copy())
     monkeypatch.setattr(
         deploy_main,
         "_vercel_api_json",
-        lambda path, params: {
-            "deployments": [
-                {
-                    "url": "preview.example",
-                    "alias": ["other.example"],
-                    "target": "production",
-                    "meta": {"gitSha": "wrong"},
-                },
-                {
-                    "url": "production.example",
-                    "alias": ["muffinpanrecipes.com"],
-                    "target": "production",
-                    "meta": {"gitSha": SHA},
-                },
-            ]
-        },
+        lambda _path, _params: {"projectId": "another-project", "deploymentId": "production"},
     )
 
-    assert deploy_main._production_git_sha("https://muffinpanrecipes.com") == SHA
+    with pytest.raises(deploy_main.DeployError, match="project does not match"):
+        deploy_main._production_git_sha("https://muffinpanrecipes.com")
+
+
+def test_production_sha_rejects_malformed_alias(monkeypatch):
+    monkeypatch.setattr(deploy_main, "_read_project_link", lambda: deploy_main.EXPECTED_PROJECT_LINK.copy())
+    monkeypatch.setattr(
+        deploy_main,
+        "_vercel_api_json",
+        lambda _path, _params: {"projectId": deploy_main.EXPECTED_PROJECT_LINK["projectId"]},
+    )
+
+    with pytest.raises(deploy_main.DeployError, match="alias response was malformed"):
+        deploy_main._production_git_sha("https://muffinpanrecipes.com")
+
+
+def test_production_sha_returns_none_when_alias_deployment_is_missing(monkeypatch):
+    monkeypatch.setattr(deploy_main, "_read_project_link", lambda: deploy_main.EXPECTED_PROJECT_LINK.copy())
+    responses = iter(
+        [
+            {"projectId": deploy_main.EXPECTED_PROJECT_LINK["projectId"], "deploymentId": "missing"},
+            {"deployments": [{"uid": "other", "meta": {"gitSha": SHA}}]},
+        ]
+    )
+    monkeypatch.setattr(deploy_main, "_vercel_api_json", lambda _path, _params: next(responses))
+
+    assert deploy_main._production_git_sha("https://muffinpanrecipes.com") is None
+
+
+def test_production_sha_returns_none_when_matching_deployment_has_no_gitsha(monkeypatch):
+    monkeypatch.setattr(deploy_main, "_read_project_link", lambda: deploy_main.EXPECTED_PROJECT_LINK.copy())
+    responses = iter(
+        [
+            {"projectId": deploy_main.EXPECTED_PROJECT_LINK["projectId"], "deploymentId": "production"},
+            {"deployments": [{"uid": "production", "meta": {}}]},
+        ]
+    )
+    monkeypatch.setattr(deploy_main, "_vercel_api_json", lambda _path, _params: next(responses))
+
+    assert deploy_main._production_git_sha("https://muffinpanrecipes.com") is None
 
 
 def test_deployment_projection_allowlists_gitsha_metadata():
