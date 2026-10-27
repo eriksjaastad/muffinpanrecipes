@@ -7,8 +7,8 @@ Exits 0 on pass, non-zero on any failure. Preview runs are automatically
 side-effect free; production runs announce failures through
 backend/utils/alerts.py::send_alert, which fans out to every configured
 channel (Discord and email, both on every severity since #7097). Use
---no-alert to stay silent. check_alert_channel asserts that path is
-actually deliverable before trusting any of it (#7153).
+--no-alert to stay silent. The alert-channel configuration check runs only
+for normal production mode; preview and explicit ``--no-alert`` runs skip it.
 
 Run modes:
     # Manual
@@ -1124,7 +1124,8 @@ def main() -> int:
     if no_alert:
         print("Alerts and persisted status writes: disabled")
     report = Report()
-    check_alert_channel(report)
+    if not no_alert:
+        check_alert_channel(report)
     check_catalog_counts_match(report, args.baseline, base_url=base_url)
     check_teaser_current_week(report, base_url=base_url)
     check_this_week_page(report, base_url=base_url)

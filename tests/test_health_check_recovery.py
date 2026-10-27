@@ -8,6 +8,7 @@ counterpart (W24, 2026-06-10).
 from __future__ import annotations
 
 import importlib
+from contextlib import ExitStack
 from unittest.mock import patch
 
 import requests
@@ -462,6 +463,52 @@ def test_preview_main_failure_has_no_alert_or_status_side_effects(monkeypatch):
     alert.assert_not_called()
     recovery.assert_not_called()
     write_status.assert_not_called()
+
+
+def _stub_main_checks(stack: ExitStack) -> None:
+    """Keep CLI gating tests focused on alert-channel selection."""
+    for name in (
+        "check_catalog_counts_match",
+        "check_teaser_current_week",
+        "check_this_week_page",
+        "check_episode_integrity",
+        "check_recipe_page_images",
+        "check_sitemap_pages",
+        "check_static_security_headers",
+        "check_unmatched_url_404",
+        "check_character_bios",
+    ):
+        stack.enter_context(patch.object(hc, name, lambda *args, **kwargs: None))
+
+
+def test_preview_main_skips_alert_channel_configuration_check(monkeypatch):
+    with ExitStack() as stack:
+        _stub_main_checks(stack)
+        alert_channel = stack.enter_context(
+            patch.object(hc, "check_alert_channel", side_effect=AssertionError("must skip"))
+        )
+        stack.enter_context(patch.object(hc.sys, "argv", ["health_check.py", "--base-url", "https://preview.example"]))
+        assert hc.main() == 0
+        alert_channel.assert_not_called()
+
+
+def test_no_alert_main_skips_alert_channel_but_production_normal_requires_it(monkeypatch):
+    with ExitStack() as stack:
+        _stub_main_checks(stack)
+        alert_channel = stack.enter_context(patch.object(hc, "check_alert_channel"))
+        stack.enter_context(patch.object(hc, "write_status"))
+        stack.enter_context(patch.object(hc.sys, "argv", ["health_check.py", "--no-alert"]))
+        assert hc.main() == 0
+        alert_channel.assert_not_called()
+
+    with ExitStack() as stack:
+        _stub_main_checks(stack)
+        alert_channel = stack.enter_context(patch.object(hc, "check_alert_channel"))
+        stack.enter_context(patch.object(hc, "post_alert"))
+        stack.enter_context(patch.object(hc, "write_status"))
+        stack.enter_context(patch.object(hc.sys, "argv", ["health_check.py"]))
+        assert hc.main() == 0
+        alert_channel.assert_called_once()
 
 
 def test_static_headers_and_unmatched_url_are_checked():
