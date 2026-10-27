@@ -13,13 +13,24 @@
     <div class="max-w-5xl mx-auto px-4 py-6 sm:px-6 lg:px-8 flex justify-between items-center">
       <div>
         <h1 class="text-2xl font-bold text-gray-900">🧁 Recipe Review</h1>
-        <p class="text-sm text-gray-500">Recipe ID: {{ recipe.recipe_id }}</p>
+        {% if error %}
+          <p class="text-sm text-red-700">Unable to load recipe</p>
+        {% else %}
+          <p class="text-sm text-gray-500">Recipe ID: {{ recipe.recipe_id }}</p>
+        {% endif %}
       </div>
       <a href="/admin/" class="text-sm text-blue-600 hover:text-blue-800">← Back to dashboard</a>
     </div>
   </header>
 
   <main class="max-w-5xl mx-auto px-4 py-8 sm:px-6 lg:px-8 space-y-6">
+    {% if error %}
+    <section class="bg-white shadow rounded-lg p-6" role="alert">
+      <h2 class="text-xl font-semibold text-red-800">Recipe not available</h2>
+      <p class="mt-2 text-gray-700">{{ error }}</p>
+      <a href="/admin/recipes" class="inline-block mt-4 text-sm text-blue-600 hover:text-blue-800">← Back to recipes</a>
+    </section>
+    {% else %}
     <section class="bg-white shadow rounded-lg p-6">
       <h2 class="text-xl font-semibold text-gray-900">{{ recipe.title }}</h2>
       <p class="mt-2 text-gray-700">{{ recipe.description }}</p>
@@ -67,8 +78,10 @@
         <button onclick="rejectRecipe('{{ recipe.recipe_id }}')" class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">Reject</button>
       </div>
     </section>
+    {% endif %}
   </main>
 
+  {% if not error %}
   <script>
     async function approveRecipe(recipeId) {
       const response = await fetch(`/admin/recipes/${recipeId}/approve`, {
@@ -91,5 +104,6 @@
     }
 
   </script>
+  {% endif %}
 </body>
 </html>
