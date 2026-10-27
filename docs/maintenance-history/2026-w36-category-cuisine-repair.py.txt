@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""One-time data fix: W36 "Caramelized Custard Tart Cups" is a pastel de nata
+"""Historical record of the completed W36 category/cuisine repair.
+
+This file is retained for incident archaeology, not as a supported maintenance
+command. The production repair was completed in 2026-W36; do not rerun it.
+
+W36 "Caramelized Custard Tart Cups" is a pastel de nata
 — a Sweet, Portuguese dish — but shipped mislabeled Savory/blank (#6877).
 
 WHY: the 2026-09-05 manual repair re-fired Monday with an explicit
@@ -22,11 +27,6 @@ agree with each other:
 Refuses to run against anything but the one title this was written for —
 this is a scalpel for one known-bad week, not a general category editor.
 
-Usage:
-    doppler run --project muffinpanrecipes --config prd -- \\
-        uv run python scripts/fix_w36_category_cuisine.py            # dry-run
-    doppler run --project muffinpanrecipes --config prd -- \\
-        uv run python scripts/fix_w36_category_cuisine.py --apply
 """
 
 from __future__ import annotations
