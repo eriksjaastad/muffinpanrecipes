@@ -65,6 +65,21 @@ def test_why_box_never_fires_hotkeys_and_keeps_a_draft_across_pairs(page: Page, 
     assert result["human_pick_reasons"] == {"1": "a b t k"}
 
 
+def test_notes_are_a_plain_textarea_and_long_dictation_is_not_truncated(page: Page, serve):
+    start, path = serve
+    _, url = start(1)
+    page.goto(url)
+    box = page.locator("textarea#reason")
+    expect(box).to_be_visible()
+    long_note = "Wispr Flow sentence. " * 30
+    box.fill(long_note)
+    page.get_by_role("button", name="A - pick left (A)").click()
+    expect(page.locator("#finish")).to_be_visible()
+    result = json.loads(path.read_text())
+    assert len(result["human_pick_reasons"]["1"]) > 300
+    assert result["human_pick_reasons"]["1"] == long_note.strip()
+
+
 def test_input_is_ignored_while_a_pick_is_saving(page: Page, serve):
     start, _ = serve
     server, url = start(3)

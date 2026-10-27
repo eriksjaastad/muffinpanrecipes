@@ -7127,7 +7127,7 @@ def _apply_human_picks(
     `human_picks` (arm labels, mapped through `order_by_position` exactly
     like the old inline `pairs --pick` code did), `human_review_order`,
     `human_pick_meta` (#7793 - per-pick longer-arm bookkeeping for the S0b
-    V5 split), `human_pick_reasons` (#8342 - the optional one-line why that
+    V5 split), `human_pick_reasons` (#8342 - the optional multiline note that
     #8275's judge calibration turns into rubric dimensions), and the
     `human_judge_*` agreement stats.
 
@@ -7150,7 +7150,8 @@ def _apply_human_picks(
     human_pick_meta: dict[str, Any] = dict(container.get("human_pick_meta") or {})
     human_pick_reasons: dict[str, str] = dict(container.get("human_pick_reasons") or {})
     for position, label in picks.items():
-        reason = " ".join((reasons or {}).get(position, "").split())
+        raw_reason = (reasons or {}).get(position, "").replace("\r\n", "\n").replace("\r", "\n")
+        reason = "\n".join(line.strip() for line in raw_reason.split("\n")).strip()
         if reason:
             human_pick_reasons[str(position)] = reason
         else:
@@ -7284,6 +7285,16 @@ def cmd_pairs(args: argparse.Namespace) -> None:
 # writing straight to the result file, does.
 # ---------------------------------------------------------------------------
 
+DAY_REVIEW_FOCUS = {
+    "monday": "Lock the weekly recipe concept and creative direction.",
+    "tuesday": "Resolve recipe ratios, method, substitutions, and testing decisions.",
+    "wednesday": "Choose the hero image and settle the photography direction.",
+    "thursday": "Lock the title and approve the written copy.",
+    "friday": "Complete final editorial review and decide specific fixes or approval.",
+    "saturday": "Stage the site, resolve deployment issues, and verify readiness.",
+    "sunday": "Publish, verify the live page, and decide the social rollout.",
+}
+
 
 class PairsReviewState:
     """One `ab` result's pairs, loaded once, re-read from disk on `refresh`.
@@ -7292,6 +7303,10 @@ class PairsReviewState:
     `_apply_human_picks`/`_write_pairs_report_atomic` - the SAME functions
     `pairs --pick` uses - so a pick made in the UI and a pick made on the
     command line for the same file are indistinguishable in the result JSON.
+    The browser uses a plain multiline textarea for optional notes. When the
+    result carries stage/day and review-group metadata, the page also shows
+    the day's focus and this pair's position among the grouped comparisons;
+    no arm identity or judge field is exposed to the browser.
     """
 
     def __init__(self, result_path: Path, variant_name: str | None):
@@ -7369,11 +7384,33 @@ class PairsReviewState:
                 for m in messages
             ]
 
+        scenario = pair.get("scenario_id")
+        day = str(pair.get("day") or self.container.get("stage") or self.report.get("stage") or "").lower()
+        if not day and isinstance(scenario, str):
+            day = next((part.lower() for part in scenario.split(":") if part.lower() in DAY_REVIEW_FOCUS), "")
+
+        review_group = pair.get("review_group") or scenario
+        grouped_positions = [
+            i
+            for i, candidate in enumerate(self.pairs, start=1)
+            if review_group and (candidate.get("review_group") or candidate.get("scenario_id")) == review_group
+        ]
+        comparison_index = grouped_positions.index(position) + 1 if grouped_positions else None
+        comparison_count = len(grouped_positions) if grouped_positions else None
+        version_count = pair.get("version_count")
+        if isinstance(version_count, bool) or not isinstance(version_count, int) or version_count < 2:
+            version_count = None
+
         return {
             "position": position,
             "total": self.total,
-            "scenario": pair.get("scenario_id"),
+            "scenario": scenario,
             "concept": self.container.get("concept") or pair.get("concept"),
+            "day": day or None,
+            "day_focus": pair.get("day_focus") or DAY_REVIEW_FOCUS.get(day),
+            "comparison_index": comparison_index,
+            "comparison_count": comparison_count,
+            "version_count": version_count,
             "picked": self._picked_label(position),
             "reason": (self.container.get("human_pick_reasons") or {}).get(str(position), ""),
             "transcript_a": _as_turns(first_messages),
@@ -7407,6 +7444,7 @@ _PAIRS_UI_HTML = """<!doctype html>
   header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.5rem; margin-bottom: 1rem; }
   h1 { font-size: 1.1rem; margin: 0; }
   #meta { color: #777; font-size: 0.9rem; }
+  #context { margin: -0.5rem 0 1rem; font-size: 0.95rem; }
   .columns { display: flex; gap: 1rem; flex-wrap: wrap; }
   .column { flex: 1 1 320px; min-width: 280px; border: 1px solid #999; border-radius: 8px; padding: 0.75rem 1rem;
             max-height: 65vh; overflow-y: auto; }
@@ -7414,7 +7452,8 @@ _PAIRS_UI_HTML = """<!doctype html>
   .turn { margin: 0 0 0.6rem 0; }
   .speaker { font-weight: 600; }
   .picked { outline: 3px solid #2a7; }
-  #reason { width: 100%; box-sizing: border-box; margin-top: 1rem; font-size: 1rem; padding: 0.5rem; }
+  #reason { width: 100%; min-height: 6rem; resize: vertical; box-sizing: border-box; margin-top: 1rem;
+            font: inherit; padding: 0.5rem; }
   .controls { display: flex; gap: 0.6rem; margin: 1rem 0; flex-wrap: wrap; }
   button { font-size: 1rem; padding: 0.5rem 1.1rem; border-radius: 6px; border: 1px solid #888; cursor: pointer; }
   button.pick-a, button.pick-b, button.pick-tie { font-weight: 600; }
@@ -7422,7 +7461,6 @@ _PAIRS_UI_HTML = """<!doctype html>
   #status { font-size: 0.85rem; color: #777; min-height: 1.2em; }
   #finish { display: none; text-align: center; margin-top: 3rem; }
   #finish h2 { font-size: 1.3rem; }
-  .hint { font-size: 0.8rem; color: #888; }
 </style>
 </head>
 <body>
@@ -7430,12 +7468,13 @@ _PAIRS_UI_HTML = """<!doctype html>
   <h1 id="pair-title">Pair - of -</h1>
   <span id="meta"></span>
 </header>
+<div id="context"></div>
 <div id="review">
   <div class="columns">
     <div class="column" id="col-a"><h2>A</h2><div id="turns-a"></div></div>
     <div class="column" id="col-b"><h2>B</h2><div id="turns-b"></div></div>
   </div>
-  <input id="reason" type="text" maxlength="300" placeholder="Why? (optional, one line - type it, then pick)">
+  <textarea id="reason" rows="4" placeholder="Optional notes"></textarea>
   <div class="controls">
     <button class="pick-a" data-label="A">A - pick left (A)</button>
     <button class="pick-tie" data-label="tie">Tie (T)</button>
@@ -7446,8 +7485,6 @@ _PAIRS_UI_HTML = """<!doctype html>
     </span>
   </div>
   <div id="status"></div>
-  <p class="hint">Hotkeys: A / B / T to pick and advance; Left/Right or J/K to navigate without picking.
-    While typing a why, click the pick button (or click outside the box first to use the hotkeys).</p>
 </div>
 <div id="finish">
   <h2>Done</h2>
@@ -7494,6 +7531,16 @@ async function loadPair(pos) {
   const scenario = pair.scenario ? (" - " + pair.scenario) : "";
   document.getElementById("pair-title").textContent = "Pair " + pair.position + " of " + pair.total + scenario;
   document.getElementById("meta").textContent = pair.concept ? pair.concept : "";
+  const context = [];
+  if (pair.day) {
+    const day = pair.day.charAt(0).toUpperCase() + pair.day.slice(1);
+    context.push(pair.day_focus ? (day + " focus: " + pair.day_focus) : day);
+  }
+  if (pair.comparison_count && pair.comparison_count > 1) {
+    const group = pair.version_count ? (pair.version_count + " versions") : "multiple versions";
+    context.push(group + " · comparison " + pair.comparison_index + " of " + pair.comparison_count);
+  }
+  document.getElementById("context").textContent = context.join(" | ");
   renderTurns(document.getElementById("turns-a"), pair.transcript_a);
   renderTurns(document.getElementById("turns-b"), pair.transcript_b);
   setPickedHighlight(pair.picked);
@@ -8156,8 +8203,10 @@ def _build_parser() -> argparse.ArgumentParser:
             "result's transcripts - replaces the terminal pairs --show/--pick flow for a V6 blind "
             "read. Hotkeys A/B/T record a pick and auto-advance to the next unpicked pair; "
             "Left/Right or J/K navigate without recording; picking an already-picked pair "
-            "overwrites it. An optional one-line why typed in the box before a pick is saved "
+            "overwrites it. Optional multiline notes typed in a plain textarea before a pick are saved "
             "with it as human_pick_reasons[position] (#8342); the hotkeys are off while typing. "
+            "When the result includes stage/day and review-group metadata, the page shows the day's "
+            "focus and this pair's position among the grouped comparisons. "
             "Every pick is written straight to the result file (via the SAME "
             "_apply_human_picks/_write_pairs_report_atomic functions `pairs --pick` uses, so the "
             "two are interchangeable on the same file) - reloading the page resumes at the first "

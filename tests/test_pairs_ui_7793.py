@@ -139,7 +139,9 @@ def test_pair_payload_has_no_arm_names_or_judge_fields(running_server):
     status, payload = rs.get("/api/pair/1")
     assert status == 200
     assert set(payload.keys()) == {
-        "position", "total", "scenario", "concept", "picked", "reason", "transcript_a", "transcript_b",
+        "position", "total", "scenario", "concept", "day", "day_focus",
+        "comparison_index", "comparison_count", "version_count", "picked", "reason",
+        "transcript_a", "transcript_b",
     }
     serialized = json.dumps(payload)
     assert "judge" not in serialized
@@ -149,6 +151,35 @@ def test_pair_payload_has_no_arm_names_or_judge_fields(running_server):
     first_arm, second_arm = cl._blind_order(1)
     expected_a_text = "Control says X." if first_arm == "control" else "Variant says Y."
     assert payload["transcript_a"][0]["message"] == expected_a_text
+    assert payload["day"] == "monday"
+    assert payload["day_focus"] == "Lock the weekly recipe concept and creative direction."
+
+
+def test_pair_payload_explains_day_focus_and_grouped_versions_without_revealing_arms(running_server):
+    pairs = [
+        {
+            **_pair(1, overall="control", control_text="A1", variant_text="B1", scenario_id="week-1:sunday:1"),
+            "day": "sunday", "review_group": "week-1:sunday", "version_count": 4,
+        },
+        {
+            **_pair(2, overall="variant", control_text="A2", variant_text="B2", scenario_id="week-1:sunday:2"),
+            "day": "sunday", "review_group": "week-1:sunday", "version_count": 4,
+        },
+        {
+            **_pair(3, overall="control", control_text="A3", variant_text="B3", scenario_id="week-1:sunday:3"),
+            "day": "sunday", "review_group": "week-1:sunday", "version_count": 4,
+        },
+    ]
+    rs = running_server(pairs)
+    _, payload = rs.get("/api/pair/2")
+    assert payload["day"] == "sunday"
+    assert payload["day_focus"] == "Publish, verify the live page, and decide the social rollout."
+    assert payload["comparison_index"] == 2
+    assert payload["comparison_count"] == 3
+    assert payload["version_count"] == 4
+    serialized = json.dumps(payload)
+    assert '"control"' not in serialized
+    assert '"variant"' not in serialized
 
 
 def test_state_does_not_reveal_stats_before_finished(running_server):
@@ -218,12 +249,20 @@ def test_repicking_an_already_picked_pair_overwrites_it(running_server):
 
 
 def test_pick_why_is_saved_shown_on_reload_and_cleared_by_a_cli_repick(running_server):
-    """#8342: the one-line why #8275's calibration reads sits next to human_picks,
+    """#8342: the multiline why #8275's calibration reads sits next to human_picks,
     and a `pairs --pick` re-pick (which carries no why) never keeps the old one."""
     rs = running_server([_pair(1, overall="control", control_text="A1", variant_text="B1")])
-    rs.post("/api/pick", {"position": 1, "label": "A", "reason": "  B lectures;\n A argues  "})
-    assert json.loads(rs.path.read_text())["human_pick_reasons"] == {"1": "B lectures; A argues"}
-    assert cl.PairsReviewState(rs.path, None).pair_payload(1)["reason"] == "B lectures; A argues"
+    note = "  B lectures;\n\n A argues  "
+    expected = "B lectures;\n\nA argues"
+    rs.post("/api/pick", {"position": 1, "label": "A", "reason": note})
+    assert json.loads(rs.path.read_text())["human_pick_reasons"] == {"1": expected}
+    reloaded = cl.PairsReviewState(rs.path, None)
+    assert reloaded.pair_payload(1)["reason"] == expected
+
+    reloaded.apply_pick(1, "B", "First paragraph.\r\n\r\nSecond paragraph.")
+    assert cl.PairsReviewState(rs.path, None).pair_payload(1)["reason"] == (
+        "First paragraph.\n\nSecond paragraph."
+    )
 
     cl.main(["pairs", "--from", str(rs.path), "--pick", "1:B"])
     assert json.loads(rs.path.read_text())["human_pick_reasons"] == {}
@@ -272,12 +311,26 @@ def test_sweep_result_is_supported_via_variant_name(running_server):
     rs = running_server(pairs, sweep=True, variant_name="only")
     status, payload = rs.get("/api/pair/1")
     assert status == 200
+    assert payload["day"] == "monday"
+    assert payload["day_focus"] == "Lock the weekly recipe concept and creative direction."
     rs.post("/api/pick", {"position": 1, "label": "A"})
     on_disk = json.loads(rs.path.read_text())
     assert on_disk["variants"]["only"]["human_picks"]["1"] in ("control", "variant")
     # the sweep report's own top level must NOT gain human_picks - it belongs
     # to the variant's own sub-dict.
     assert "human_picks" not in on_disk
+
+
+def test_pair_payload_without_day_metadata_degrades_cleanly(tmp_path):
+    path = tmp_path / "no-stage.json"
+    path.write_text(json.dumps({
+        "command": "ab",
+        "mode": "single",
+        "pairs": [_pair(1, overall="tie", control_text="A", variant_text="B")],
+    }))
+    payload = cl.PairsReviewState(path, None).pair_payload(1)
+    assert payload["day"] is None
+    assert payload["day_focus"] is None
 
 
 def test_sweep_without_variant_name_refuses_to_start():
@@ -315,8 +368,6 @@ def test_pick_cli_and_ui_produce_identical_container_state(tmp_path):
 
     # UI path: same two picks, one HTTP POST each.
     state = cl.PairsReviewState(path_ui, None)
-    order1 = cl._blind_order(1)
-    order2 = cl._blind_order(2)
     state.apply_pick(1, "A")
     state.apply_pick(2, "B")
 
