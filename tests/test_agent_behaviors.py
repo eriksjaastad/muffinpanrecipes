@@ -4,7 +4,6 @@ Property-based tests for specific agent behaviors.
 Feature: ai-creative-team
 """
 
-import os
 from pathlib import Path
 from unittest import mock
 
@@ -12,17 +11,11 @@ from hypothesis import given, strategies as st, settings
 import pytest
 
 import backend.agents.baker as baker_module
+import backend.agents.copywriter as copywriter_module
 from backend.agents.factory import create_agent
 from backend.core.task import Task
 from backend.memory.agent_memory import AgentMemory
 from backend.utils import model_router
-
-# governance: allow-silent SF003: opt-in flag for live provider tests; unset means skip, the intended default
-_requires_api_keys = pytest.mark.skipif(
-    os.getenv("RUN_LIVE_PROVIDER_TESTS", "").lower() != "true",
-    reason="Requires API keys. Set RUN_LIVE_PROVIDER_TESTS=true to run.",
-)
-
 
 def _fake_recipe_data(concept: str) -> dict:
     """Stand-in for backend.utils.recipe_prompts.generate_recipe's real LLM
@@ -224,44 +217,42 @@ def test_creative_director_indecisiveness(mock_generate_response) -> None:
     assert ("approved" in output_str or "revisit" in output_str or "discuss" in output_str)
 
 
-@_requires_api_keys
-def test_art_director_shot_count() -> None:
-    """Test that Julian takes many shots (personality quirk)."""
+def test_art_director_shot_contracts() -> None:
+    """Julian's three shot contracts are distinct and muffin-tin specific."""
     ad = create_agent("art_director")
-    
-    task = Task(
-        type="photograph_recipe",
-        content="Photograph this muffin recipe",
-        default_strategy="standard",
+
+    prompts = {
+        variant: ad._build_prompt("Chocolate Muffin Cups", variant)
+        for variant in ad._VARIANTS
+    }
+
+    assert set(prompts) == {"macro_closeup", "overhead_flatlay", "hero_threequarter"}
+    assert len(set(prompts.values())) == 3
+    assert all("muffin" in prompt.lower() and "sheet-pan" in prompt.lower() for prompt in prompts.values())
+
+
+def test_copywriter_verbosity(monkeypatch) -> None:
+    """Marcus preserves the generated long-form copy contract without an API."""
+    body = " ".join(["evocative"] * 450)
+    monkeypatch.setattr(
+        copywriter_module,
+        "generate_description",
+        lambda **_kwargs: {"body": body, "word_count": 450},
     )
-    
-    result = ad.process_task(task)
-    assert result.success
-    
-    # Julian should take 35+ shots
-    if "total_shots" in result.output:
-        assert result.output["total_shots"] >= 35
-        assert result.output["total_shots"] <= 60
-
-
-@_requires_api_keys
-def test_copywriter_verbosity() -> None:
-    """Test that Marcus over-writes everything."""
     copywriter = create_agent("copywriter")
-    
     task = Task(
         type="write_description",
         content="Write a description for chocolate muffins",
-        context={"target_word_count": 200},
+        context={"target_word_count": 200, "recipe_data": {"title": "Chocolate Muffins"}},
         default_strategy="standard",
     )
-    
+
     result = copywriter.process_task(task)
+
     assert result.success
-    
-    # Marcus should write well over the target (at least 2x)
-    if "word_count" in result.output:
-        assert result.output["word_count"] >= 400  # At least 2x target
+    assert result.output["word_count"] == 450
+    assert any(insight.startswith("Wrote 450 words") for insight in result.insights)
+    assert result.output["body"] == body
 
 
 def test_site_architect_efficiency() -> None:

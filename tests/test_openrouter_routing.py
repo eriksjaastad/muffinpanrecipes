@@ -59,6 +59,18 @@ def test_openai_recipe_id_reaches_openrouter_mapped(sent):
     assert request["extra_body"]["provider"] == {"order": ["openai"], "allow_fallbacks": False}
 
 
+def test_google_text_id_reaches_openrouter_mapped(sent):
+    model_router.generate_response("hi", model="google/gemini-3.1-pro-preview", temperature=0.2)
+
+    (request,) = sent
+    assert request["model"] == "google/gemini-3.1-pro-preview"
+    assert request["temperature"] == 0.2
+    assert request["extra_body"]["provider"] == {
+        "order": ["google-ai-studio"],
+        "allow_fallbacks": False,
+    }
+
+
 def test_reasoning_model_sends_effort_and_no_temperature(sent):
     model_router.generate_response("hi", model="openai/gpt-6-astra", temperature=0.7)
 

@@ -140,6 +140,11 @@ class RecipeOrchestrator:
 
         # Start recipe in pipeline
         _context = self.pipeline.start_recipe(recipe_id, concept)
+        # IDEATION is the pre-work state. Enter RECIPE_DEVELOPMENT before the
+        # baker runs so each following advance stores the work product against
+        # the stage that actually produced it and the final advance reaches
+        # COMPLETE instead of leaving a successful recipe in DEPLOYMENT.
+        self.pipeline.advance_stage(recipe_id)
 
         # Execute pipeline stages
         recipe_data = {}
@@ -189,11 +194,6 @@ class RecipeOrchestrator:
             logger.info(f"{' ='*70}")
             self._execute_stage_deployment(recipe_id)
 
-            # Advance to COMPLETE
-            logger.info(f"Advancing recipe {recipe_id} from DEPLOYMENT to COMPLETE")
-            final_stage = self.pipeline.advance_stage(recipe_id)
-            logger.info(f"Recipe {recipe_id} advanced to: {final_stage}")
-
             # Compile final recipe
             recipe = self._compile_recipe(recipe_id, concept, recipe_data, photos, copy_text)
 
@@ -203,6 +203,14 @@ class RecipeOrchestrator:
             # Save outputs - recipes go to pending/ for human review
             recipe.save_to_file(self.recipes_dir, use_status_dir=True)
             self.current_story.save_to_file(self.stories_dir)
+
+            # Completion is a persistence claim: keep the recipe active at
+            # DEPLOYMENT until both durable outputs have been written. A
+            # compile/save failure then reports the honest stage and remains
+            # recoverable instead of creating a false completed record.
+            logger.info(f"Advancing recipe {recipe_id} from DEPLOYMENT to COMPLETE")
+            final_stage = self.pipeline.advance_stage(recipe_id)
+            logger.info(f"Recipe {recipe_id} advanced to: {final_stage}")
 
             logger.info(f"\n{'='*70}")
             logger.info(f"✅ RECIPE PRODUCTION COMPLETE: {recipe.title}")
