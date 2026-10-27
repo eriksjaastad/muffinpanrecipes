@@ -399,6 +399,10 @@ def render_home(recipes: list[dict]) -> str:
     <!-- Editorial Typography: Playfair Display for Serifs, Inter for Sans-Serif.
          Self-hosted via @font-face in site.css (#6433). -->
     <link rel="stylesheet" href="/assets/site.css">
+    <noscript><style>
+      .featured--catalog-pending > * {{ visibility: visible !important; }}
+      .featured--catalog-pending::after {{ display: none !important; }}
+    </style></noscript>
 </head>
 
 <body class="home">
@@ -425,7 +429,7 @@ def render_home(recipes: list[dict]) -> str:
         <!-- Featured Recipe Hero — server-rendered from the build catalog
              (#6821); the JS below repaints this on load from the live
              /recipes.json, replacing (not appending to) this markup. -->
-        <section id="featured-recipe" class="featured" aria-live="polite">
+        <section id="featured-recipe" class="featured featured--catalog-pending" aria-live="polite">
             {featured_markup}
         </section>
 
@@ -485,9 +489,18 @@ def render_home(recipes: list[dict]) -> str:
         let recipes = [];
         let retryCount = 0;
         const MAX_RETRIES = 3;
+        const HYDRATION_TIMEOUT_MS = 5000;
+        const hydrationDeadline = Date.now() + HYDRATION_TIMEOUT_MS;
 
         async function loadRecipes() {{
             const grid = document.getElementById('recipe-grid');
+            const remainingMs = hydrationDeadline - Date.now();
+            if (remainingMs <= 0) {{
+                revealFeaturedFallback();
+                return;
+            }}
+            const controller = new AbortController();
+            const requestTimeout = setTimeout(() => controller.abort(), remainingMs);
 
             // Only show a loading placeholder if the grid is actually empty
             // (JS disabled/blocked JSON, or a retry after failure). The
@@ -503,7 +516,7 @@ def render_home(recipes: list[dict]) -> str:
             }}
 
             try {{
-                const response = await fetch('recipes.json');
+                const response = await fetch('recipes.json', {{ signal: controller.signal }});
 
                 if (!response.ok) {{
                     throw new Error(`HTTP error! status: ${{response.status}}`);
@@ -521,24 +534,33 @@ def render_home(recipes: list[dict]) -> str:
             }} catch (error) {{
                 console.error('Error loading recipes:', error);
 
-                if (retryCount < MAX_RETRIES) {{
+                if (retryCount < MAX_RETRIES && Date.now() < hydrationDeadline) {{
                     retryCount++;
                     console.log(`Retrying recipe load (${{retryCount}}/${{MAX_RETRIES}})...`);
-                    setTimeout(loadRecipes, 1000 * retryCount);
-                }} else if (grid.children.length === 0) {{
-                    // Only show the error state if there is no server-rendered
-                    // content to fall back on — a build-time catalog that's
-                    // merely stale is still a better page than an error banner.
-                    document.getElementById('featured-recipe').innerHTML = '';
-                    grid.innerHTML = `
-                        <div class="grid-state">
-                            <p class="grid-state__error">Oven Error: Could not load recipes.</p>
-                            <button onclick="retryLoad()" class="btn-outline">
-                                Retry Baking
-                            </button>
-                        </div>
-                    `;
+                    const retryDelay = Math.min(
+                        1000 * retryCount,
+                        Math.max(0, hydrationDeadline - Date.now()),
+                    );
+                    setTimeout(loadRecipes, retryDelay);
+                }} else {{
+                    revealFeaturedFallback();
+                    if (grid.children.length === 0) {{
+                        // Only show the error state if there is no server-rendered
+                        // content to fall back on — a build-time catalog that's
+                        // merely stale is still a better page than an error banner.
+                        document.getElementById('featured-recipe').innerHTML = '';
+                        grid.innerHTML = `
+                            <div class="grid-state">
+                                <p class="grid-state__error">Oven Error: Could not load recipes.</p>
+                                <button onclick="retryLoad()" class="btn-outline">
+                                    Retry Baking
+                                </button>
+                            </div>
+                        `;
+                    }}
                 }}
+            }} finally {{
+                clearTimeout(requestTimeout);
             }}
         }}
 
@@ -558,6 +580,10 @@ def render_home(recipes: list[dict]) -> str:
 
         function getFeaturedRecipe() {{
             return recipes.length > 0 ? recipes[0] : null;
+        }}
+
+        function revealFeaturedFallback() {{
+            document.getElementById('featured-recipe').classList.remove('featured--catalog-pending');
         }}
 
         // Build recipe URLs by concatenating the path and slug rather than
@@ -630,7 +656,10 @@ def render_home(recipes: list[dict]) -> str:
         }}
 
         function renderFeaturedRecipe() {{
-            if (recipes.length === 0) return;
+            if (recipes.length === 0) {{
+                revealFeaturedFallback();
+                return;
+            }}
 
             // Pick the first recipe as featured (or you can randomize, or pick by slug)
             const featured = getFeaturedRecipe();
@@ -660,6 +689,7 @@ def render_home(recipes: list[dict]) -> str:
                     </div>
                 </a>
             `;
+            featuredSection.classList.remove('featured--catalog-pending');
         }}
 
         // Character avatar colors (must match episode_renderer.py)
