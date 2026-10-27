@@ -11,6 +11,9 @@ production alias resolves to the fetched SHA.
 Vercel mutations use ``~/.openclaw/workspace/ops/vercel-safe-command.sh`` so
 raw CLI output cannot expose an operations token. Deployment URL discovery and
 production SHA verification use allowlisted Vercel REST fields instead.
+Preview and production metadata each get at most three retries with 1, 2, and
+4 second backoff. After promotion, the expected production SHA is observed
+before the production health check and verified once more afterwards.
 
 Commands (run with Vercel/Doppler credentials already injected)::
 
@@ -47,6 +50,10 @@ GIT_SHA_META_KEY = "gitSha"
 VERCEL_API_BASE = "https://api.vercel.com"
 VERCEL_SAFE_COMMAND = Path.home() / ".openclaw/workspace/ops/vercel-safe-command.sh"
 MAX_PROVIDER_RETRIES = 3
+GIT_TIMEOUT_SECONDS = 60
+VERCEL_TIMEOUT_SECONDS = 300
+HEALTH_TIMEOUT_SECONDS = 300
+CLEANUP_TIMEOUT_SECONDS = 30
 EXPECTED_PROJECT_LINK = {
     "projectId": "prj_zQgUD5QXAc1OHpgyzyTlbqxvN1Ww",
     "orgId": "team_PJUqNMkyhhctGVPOgpjU8F3L",
@@ -58,9 +65,21 @@ class DeployError(RuntimeError):
     """A deploy prerequisite or command failed."""
 
 
-def _run(command: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
+def _run(
+    command: list[str], *, cwd: Path, timeout: int = GIT_TIMEOUT_SECONDS
+) -> subprocess.CompletedProcess[str]:
     """Run one command and raise with its captured, non-secret output."""
-    result = subprocess.run(command, cwd=cwd, capture_output=True, text=True, check=False)
+    try:
+        result = subprocess.run(
+            command,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise DeployError(f"{' '.join(command)} timed out after {timeout}s") from exc
     if result.returncode:
         detail = (result.stderr or result.stdout or "command failed").strip()
         raise DeployError(f"{' '.join(command)}: {detail}")
@@ -68,18 +87,37 @@ def _run(command: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
 
 
 def _git(command: list[str], *, cwd: Path = ROOT) -> str:
-    return _run(["git", *command], cwd=cwd).stdout.strip()
+    return _run(["git", *command], cwd=cwd, timeout=GIT_TIMEOUT_SECONDS).stdout.strip()
+
+
+def _validate_environment_binding() -> None:
+    """Reject partial or conflicting project-binding environment overrides."""
+    project_id = os.environ.get("VERCEL_PROJECT_ID")
+    org_id = os.environ.get("VERCEL_ORG_ID")
+    if (project_id is None) != (org_id is None):
+        raise DeployError("VERCEL_PROJECT_ID and VERCEL_ORG_ID must be provided together")
+    if project_id is not None and (
+        project_id != EXPECTED_PROJECT_LINK["projectId"]
+        or org_id != EXPECTED_PROJECT_LINK["orgId"]
+    ):
+        raise DeployError("Vercel project-binding environment conflicts with muffinpanrecipes")
 
 
 def _vercel(command: list[str]) -> None:
     """Run a Vercel mutation through the credential-safe workspace wrapper."""
+    _validate_environment_binding()
     if not VERCEL_SAFE_COMMAND.is_file():
         raise DeployError(f"Vercel safe command wrapper is missing: {VERCEL_SAFE_COMMAND}")
-    _run([str(VERCEL_SAFE_COMMAND), *command], cwd=ROOT)
+    _run(
+        [str(VERCEL_SAFE_COMMAND), *command],
+        cwd=ROOT,
+        timeout=VERCEL_TIMEOUT_SECONDS,
+    )
 
 
 def _vercel_api_json(path: str, params: dict[str, str]) -> dict[str, Any]:
     """Read a Vercel REST response without exposing its credential or payload."""
+    _validate_environment_binding()
     token = os.environ.get("VERCEL_API_TOKEN")
     if not token:
         raise DeployError("VERCEL_API_TOKEN is required for Vercel REST verification")
@@ -163,21 +201,7 @@ def _detached_origin_main(sha: str) -> Iterator[Path]:
 
 
 def _cleanup_temp_worktree(worktree: Path, parent: Path) -> None:
-    """Unregister the worktree and recoverably trash its temporary parent."""
-    if worktree.exists():
-        try:
-            result = subprocess.run(
-                ["git", "worktree", "remove", "--force", str(worktree)],
-                cwd=ROOT,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-        except OSError:
-            print("WARNING: could not unregister temporary deploy worktree", file=sys.stderr)
-        else:
-            if result.returncode:
-                print("WARNING: could not unregister temporary deploy worktree", file=sys.stderr)
+    """Recoverably trash the temp tree, then prune its Git registration."""
     if parent.exists():
         try:
             result = subprocess.run(
@@ -186,12 +210,27 @@ def _cleanup_temp_worktree(worktree: Path, parent: Path) -> None:
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=CLEANUP_TIMEOUT_SECONDS,
             )
-        except OSError:
+        except (OSError, subprocess.TimeoutExpired):
             print("WARNING: could not trash temporary deploy directory", file=sys.stderr)
         else:
             if result.returncode:
                 print("WARNING: could not trash temporary deploy directory", file=sys.stderr)
+    try:
+        result = subprocess.run(
+            ["git", "worktree", "prune"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=CLEANUP_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        print("WARNING: could not prune temporary deploy worktree registration", file=sys.stderr)
+    else:
+        if result.returncode:
+            print("WARNING: could not prune temporary deploy worktree registration", file=sys.stderr)
 
 
 def _absolute_url(value: str) -> str:
@@ -200,7 +239,7 @@ def _absolute_url(value: str) -> str:
 
 
 def _deployment_projection(value: Any) -> dict[str, Any] | None:
-    """Keep only URL, aliases, target, and gitSha from a deployment object."""
+    """Keep only deployment identity, readiness, routing, and gitSha fields."""
     if not isinstance(value, dict):
         return None
     metadata = value.get("meta")
@@ -222,7 +261,12 @@ def _deployment_projection(value: Any) -> dict[str, Any] | None:
 
 def _preview_deployment_list(project_id: str) -> list[dict[str, Any]]:
     payload = _vercel_api_json(
-        "/v6/deployments", {"projectId": project_id, "limit": "100"}
+        "/v6/deployments",
+        {
+            "projectId": project_id,
+            "teamId": EXPECTED_PROJECT_LINK["orgId"],
+            "limit": "100",
+        },
     )
     deployments = payload.get("deployments")
     if not isinstance(deployments, list):
@@ -276,7 +320,7 @@ def _health_check(worktree: Path, *, base_url: str | None = None) -> None:
     command = [sys.executable, "scripts/health_check.py"]
     if base_url:
         command.extend(["--base-url", base_url])
-    _run(command, cwd=worktree)
+    _run(command, cwd=worktree, timeout=HEALTH_TIMEOUT_SECONDS)
 
 
 def _promote(preview_url: str) -> None:
@@ -295,7 +339,12 @@ def _production_git_sha(production_url: str) -> str | None:
         raise DeployError("production URL has no hostname")
     payload = _vercel_api_json(
         "/v6/deployments",
-        {"projectId": project_link["projectId"], "target": "production", "limit": "100"},
+        {
+            "projectId": project_link["projectId"],
+            "teamId": project_link["orgId"],
+            "target": "production",
+            "limit": "100",
+        },
     )
     deployments = payload.get("deployments")
     if not isinstance(deployments, list):
@@ -326,6 +375,7 @@ def _wait_for_production_sha(production_url: str, expected_sha: str) -> None:
 
 
 def _check(production_url: str) -> int:
+    _validate_environment_binding()
     expected = _fetch_origin_main()
     observed = _production_git_sha(production_url)
     if observed != expected:
@@ -337,6 +387,7 @@ def _check(production_url: str) -> int:
 
 
 def _deploy() -> int:
+    _validate_environment_binding()
     sha = _fetch_origin_main()
     with _detached_origin_main(sha) as worktree:
         preview_url = _deploy_preview(worktree, sha)
@@ -345,6 +396,7 @@ def _deploy() -> int:
         print("Preview health check passed")
         _promote(preview_url)
         print("Preview promoted to production")
+        _wait_for_production_sha(PRODUCTION_URL, sha)
         _health_check(worktree)
         print("Production health check passed")
         _wait_for_production_sha(PRODUCTION_URL, sha)

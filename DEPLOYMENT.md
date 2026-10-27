@@ -108,48 +108,14 @@ same `gitSha`. It requires the source checkout's validated
 the detached worktree. Vercel mutations run through the workspace-safe wrapper;
 deployment URL and production SHA lookup use restricted REST projections.
 
-### Why `--yes`, and why production is checked after promotion
+### Deployment contract
 
-Promoting a preview is a **complete production rebuild**, not an alias flip. That
-is documented, intended Vercel behaviour, not a regression:
-
-> Promoting a preview deployment to production triggers a complete rebuild with
-> production environment variables. If you have different variables set for
-> preview and production, the production values will be used in the new build.
->
-> — <https://vercel.com/docs/deployments/promote-preview-to-production>
-
-Three consequences, all of which have bitten someone here:
-
-1. **It counts against the 5-deploys-per-day cap.** Preview plus promote is two.
-2. **Production does not reflect the change for ~30 seconds.** A header check
-   fired immediately after promote still shows the OLD build. Wait, then verify
-   with a cache-busting query. `vercel promote status` confirms nothing pending.
-3. **`--yes` is mandatory for any non-interactive caller** — CI, or an agent
-   running this through a tool call. Without it the CLI asks "Are you sure you
-   want to continue? (y/N)", gets EOF on stdin, and aborts with "User force
-   closed the prompt". Vercel's docs are explicit: *"For non-interactive
-   environments (CI/CD or automation), add `--yes` to skip the confirmation
-   prompt."* Do not trust `vercel promote --help` here — it describes `-y/--yes`
-   as skipping the prompt "when linking a Project", which undersells it and has
-   already sent one session down a long wrong path.
-
-Because promote rebuilds, the preview you health-checked and the artifact
-serving production are two separate builds from the same fetched SHA. The
-script verifies production itself after promotion rather than trusting the
-preview. The detached worktree is clean by construction, so a dirty caller
-checkout cannot affect the deployment.
-
-**Do not reach for `vercel deploy --prod` or direct `vercel deploy` as a
-substitute.** Promote is strictly better, not merely equivalent: it rebuilds
-*the specific deployment inspected by `deploy_main.py`*, so the thing that ships
-traces back to the artifact that passed preview health. Direct deploys mint a
-brand-new deployment from whatever source is supplied at that moment, with no
-fetched-main or SHA guard. On top of that, Claude
-Code's auto-mode classifier refuses it:
-`--prod` matches its "sensitive remote targets" rule, which flags any argument
-carrying `prod` as a word. `vercel promote --yes` is not blocked and is the
-supported path.
+`scripts/deploy_main.py` owns the detailed timing, retry policy, safe-wrapper
+invocation, project-link validation, preview readiness check, production health
+check, and final `gitSha` provenance proof. It is the only supported production
+deployment entry point. Do not run direct `vercel deploy` or `vercel deploy
+--prod`; use the commands above and treat a missing `production is main` receipt
+as a failed deployment.
 
 Full rebuild (`uv run python -m scripts.build_site --full-rebuild`) is an
 explicit, separate operator action — it is the only supported way to roll out

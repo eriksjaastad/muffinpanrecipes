@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from contextlib import contextmanager
+from pathlib import Path
 from subprocess import CompletedProcess
 
 import pytest
@@ -73,6 +75,7 @@ def test_deploy_sequence_proves_production_is_main_after_health(monkeypatch, tmp
         ("deploy", tmp_path, SHA),
         ("health", tmp_path, "https://preview.example"),
         ("promote", "https://preview.example"),
+        ("proof", deploy_main.PRODUCTION_URL, SHA),
         ("health", tmp_path, None),
         ("proof", deploy_main.PRODUCTION_URL, SHA),
     ]
@@ -153,6 +156,41 @@ def test_preview_deploy_passes_origin_sha_as_gitsha_metadata(monkeypatch, tmp_pa
         "--meta",
         f"gitSha={SHA}",
     ]
+
+
+def test_rest_deployment_lookups_pin_canonical_team(monkeypatch):
+    calls = []
+    responses = iter(
+        [
+            {"deployments": []},
+            {
+                "deployments": [
+                    {
+                        "uid": "new",
+                        "url": "preview.example",
+                        "state": "READY",
+                        "meta": {"gitSha": SHA},
+                    }
+                ]
+            },
+            {"deployments": []},
+        ]
+    )
+    monkeypatch.setattr(
+        deploy_main,
+        "_vercel_api_json",
+        lambda path, params: calls.append((path, params)) or next(responses),
+    )
+    monkeypatch.setattr(deploy_main, "_vercel", lambda _command: None)
+    monkeypatch.setattr(deploy_main, "_read_project_link", lambda: deploy_main.EXPECTED_PROJECT_LINK.copy())
+
+    deploy_main._deploy_preview(Path("/tmp/source"), SHA)
+    deploy_main._production_git_sha(deploy_main.PRODUCTION_URL)
+
+    assert calls[0][1]["projectId"] == deploy_main.EXPECTED_PROJECT_LINK["projectId"]
+    assert calls[0][1]["teamId"] == deploy_main.EXPECTED_PROJECT_LINK["orgId"]
+    assert calls[1][1]["projectId"] == deploy_main.EXPECTED_PROJECT_LINK["projectId"]
+    assert calls[1][1]["teamId"] == deploy_main.EXPECTED_PROJECT_LINK["orgId"]
 
 
 def test_preview_excludes_old_same_sha_and_waits_for_ready(monkeypatch):
@@ -246,6 +284,32 @@ def test_deploy_fails_without_production_sha_proof_and_no_success_receipt(
     assert "production mismatch" in output.err
 
 
+def test_unhealthy_new_production_stops_before_final_provenance(monkeypatch, tmp_path):
+    events = []
+
+    @contextmanager
+    def fake_worktree(_sha):
+        yield tmp_path
+
+    def fake_health(_worktree, base_url=None):
+        events.append(("health", base_url))
+        if base_url is None:
+            raise deploy_main.DeployError("new production is unhealthy")
+
+    def fake_proof(_url, _sha):
+        events.append("proof")
+
+    monkeypatch.setattr(deploy_main, "_fetch_origin_main", lambda: SHA)
+    monkeypatch.setattr(deploy_main, "_detached_origin_main", fake_worktree)
+    monkeypatch.setattr(deploy_main, "_deploy_preview", lambda _worktree, _sha: "https://preview.example")
+    monkeypatch.setattr(deploy_main, "_promote", lambda _url: None)
+    monkeypatch.setattr(deploy_main, "_health_check", fake_health)
+    monkeypatch.setattr(deploy_main, "_wait_for_production_sha", fake_proof)
+
+    assert deploy_main.main([]) == 1
+    assert events == [("health", "https://preview.example"), "proof", ("health", None)]
+
+
 def test_vercel_commands_use_workspace_safe_wrapper(monkeypatch, tmp_path):
     wrapper = tmp_path / "vercel-safe-command.sh"
     wrapper.write_text("#!/bin/sh\n", encoding="utf-8")
@@ -254,7 +318,7 @@ def test_vercel_commands_use_workspace_safe_wrapper(monkeypatch, tmp_path):
     monkeypatch.setattr(
         deploy_main,
         "_run",
-        lambda command, *, cwd: seen.update(command=command, cwd=cwd),
+        lambda command, *, cwd, timeout: seen.update(command=command, cwd=cwd, timeout=timeout),
     )
 
     deploy_main._vercel(["promote", "https://preview.example", "--yes"])
@@ -262,7 +326,36 @@ def test_vercel_commands_use_workspace_safe_wrapper(monkeypatch, tmp_path):
     assert seen == {
         "command": [str(wrapper), "promote", "https://preview.example", "--yes"],
         "cwd": deploy_main.ROOT,
+        "timeout": deploy_main.VERCEL_TIMEOUT_SECONDS,
     }
+
+
+def test_environment_project_binding_allows_absent_or_matching_and_rejects_conflicts(monkeypatch):
+    monkeypatch.delenv("VERCEL_PROJECT_ID", raising=False)
+    monkeypatch.delenv("VERCEL_ORG_ID", raising=False)
+    deploy_main._validate_environment_binding()
+
+    monkeypatch.setenv("VERCEL_PROJECT_ID", deploy_main.EXPECTED_PROJECT_LINK["projectId"])
+    monkeypatch.setenv("VERCEL_ORG_ID", deploy_main.EXPECTED_PROJECT_LINK["orgId"])
+    deploy_main._validate_environment_binding()
+
+    monkeypatch.setenv("VERCEL_PROJECT_ID", "other-project")
+    with pytest.raises(deploy_main.DeployError, match="conflicts"):
+        deploy_main._validate_environment_binding()
+
+    monkeypatch.setenv("VERCEL_PROJECT_ID", deploy_main.EXPECTED_PROJECT_LINK["projectId"])
+    monkeypatch.delenv("VERCEL_ORG_ID")
+    with pytest.raises(deploy_main.DeployError, match="provided together"):
+        deploy_main._validate_environment_binding()
+
+
+def test_run_reports_operation_timeout(monkeypatch, tmp_path):
+    def fake_run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(kwargs.get("args", args[0]), kwargs["timeout"])
+
+    monkeypatch.setattr(deploy_main.subprocess, "run", fake_run)
+    with pytest.raises(deploy_main.DeployError, match="timed out after 7s"):
+        deploy_main._run(["hung-command"], cwd=tmp_path, timeout=7)
 
 
 def test_project_link_must_exist_and_match_expected_project(tmp_path):
@@ -299,9 +392,11 @@ def test_cleanup_unregisters_then_uses_recoverable_trash(monkeypatch, tmp_path):
     parent = tmp_path / "deploy"
     worktree = parent / "source"
     worktree.mkdir(parents=True)
+    payload = worktree / "payload.txt"
+    payload.write_text("recoverable", encoding="utf-8")
     calls = []
 
-    def fake_run(command, *, cwd, capture_output, text, check):
+    def fake_run(command, *, cwd, capture_output, text, check, timeout):
         calls.append(command)
         return CompletedProcess(command, 0, "", "")
 
@@ -309,9 +404,10 @@ def test_cleanup_unregisters_then_uses_recoverable_trash(monkeypatch, tmp_path):
     deploy_main._cleanup_temp_worktree(worktree, parent)
 
     assert calls == [
-        ["git", "worktree", "remove", "--force", str(worktree)],
         ["trash", str(parent)],
+        ["git", "worktree", "prune"],
     ]
+    assert payload.read_text(encoding="utf-8") == "recoverable"
 
 
 def test_production_sha_uses_matching_production_alias(monkeypatch):
