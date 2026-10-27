@@ -7127,7 +7127,7 @@ def _apply_human_picks(
     `human_picks` (arm labels, mapped through `order_by_position` exactly
     like the old inline `pairs --pick` code did), `human_review_order`,
     `human_pick_meta` (#7793 - per-pick longer-arm bookkeeping for the S0b
-    V5 split), `human_pick_reasons` (#8342 - the optional one-line why that
+    V5 split), `human_pick_reasons` (#8342 - the optional multiline note that
     #8275's judge calibration turns into rubric dimensions), and the
     `human_judge_*` agreement stats.
 
@@ -7150,7 +7150,8 @@ def _apply_human_picks(
     human_pick_meta: dict[str, Any] = dict(container.get("human_pick_meta") or {})
     human_pick_reasons: dict[str, str] = dict(container.get("human_pick_reasons") or {})
     for position, label in picks.items():
-        reason = " ".join((reasons or {}).get(position, "").split())
+        raw_reason = (reasons or {}).get(position, "").replace("\r\n", "\n").replace("\r", "\n")
+        reason = "\n".join(line.strip() for line in raw_reason.split("\n")).strip()
         if reason:
             human_pick_reasons[str(position)] = reason
         else:
@@ -7302,6 +7303,10 @@ class PairsReviewState:
     `_apply_human_picks`/`_write_pairs_report_atomic` - the SAME functions
     `pairs --pick` uses - so a pick made in the UI and a pick made on the
     command line for the same file are indistinguishable in the result JSON.
+    The browser uses a plain multiline textarea for optional notes. When the
+    result carries stage/day and review-group metadata, the page also shows
+    the day's focus and this pair's position among the grouped comparisons;
+    no arm identity or judge field is exposed to the browser.
     """
 
     def __init__(self, result_path: Path, variant_name: str | None):
@@ -7380,7 +7385,7 @@ class PairsReviewState:
             ]
 
         scenario = pair.get("scenario_id")
-        day = str(pair.get("day") or self.container.get("stage") or "").lower()
+        day = str(pair.get("day") or self.container.get("stage") or self.report.get("stage") or "").lower()
         if not day and isinstance(scenario, str):
             day = next((part.lower() for part in scenario.split(":") if part.lower() in DAY_REVIEW_FOCUS), "")
 
@@ -8198,8 +8203,10 @@ def _build_parser() -> argparse.ArgumentParser:
             "result's transcripts - replaces the terminal pairs --show/--pick flow for a V6 blind "
             "read. Hotkeys A/B/T record a pick and auto-advance to the next unpicked pair; "
             "Left/Right or J/K navigate without recording; picking an already-picked pair "
-            "overwrites it. An optional one-line why typed in the box before a pick is saved "
+            "overwrites it. Optional multiline notes typed in a plain textarea before a pick are saved "
             "with it as human_pick_reasons[position] (#8342); the hotkeys are off while typing. "
+            "When the result includes stage/day and review-group metadata, the page shows the day's "
+            "focus and this pair's position among the grouped comparisons. "
             "Every pick is written straight to the result file (via the SAME "
             "_apply_human_picks/_write_pairs_report_atomic functions `pairs --pick` uses, so the "
             "two are interchangeable on the same file) - reloading the page resumes at the first "
