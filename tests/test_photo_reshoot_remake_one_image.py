@@ -16,9 +16,9 @@ from backend.agents.factory import create_agent
 from backend.utils import photo_review
 from backend.utils.pan_library import pan_for_week
 from tests.photo_review_helpers import BLOB
-from tests.test_art_director_image_pipeline import _png_bytes
-from tests.test_photo_approval_7936 import EP_ID, _SAME_ORIGIN, _client, _control
-from tests.test_photo_reshoot_8073 import _finish, _start, _store_with_set
+from tests.test_photo_evaluator_contract_generation import _png_bytes
+from tests.test_photo_request_decision_lifecycle import EP_ID, _SAME_ORIGIN, _client, _control
+from tests.test_photo_reshoot_remake_reshoot import _finish, _start, _store_with_set
 
 NEW_PATH = "src/assets/images/r1/g20261009T000000Z-cccccc/round_1/overhead_flatlay.png"
 

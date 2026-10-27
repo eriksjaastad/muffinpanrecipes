@@ -1,4 +1,4 @@
-"""Codex cycle-2 regressions for the photo approval gate (#7936).
+"""Photo-claim and publication lifecycle regressions (#7936).
 
 Five finding families, each reproduced offline against the real handlers,
 the real filesystem photo-control code and an in-memory episode store:
@@ -41,7 +41,7 @@ from backend.utils.episode_integrity import (
     stage_deadline,
 )
 from tests.photo_review_helpers import BLOB, VARIANTS, decide, register, wednesday_stage
-from tests.test_photo_approval_7936 import (
+from tests.test_photo_request_decision_lifecycle import (
     EP_ID,
     _Store,
     _approved_store,
@@ -389,7 +389,7 @@ def _monitor(ep):
 # "no usable selection after the claim" is no longer a reachable post-claim
 # failure: since Codex cycle 3 a claimed version without a valid approved
 # candidate is inconsistent and fails closed at the read boundary
-# (tests/test_photo_approval_cycle3_7936.py), so Sunday never holds such a claim.
+# (tests/test_photo_claim_publication_invariants.py), so Sunday never holds such a claim.
 @pytest.mark.parametrize("failure", ["editorial_qa", "dialogue", "claim_lost"])
 def test_post_claim_failure_is_reported_not_masked_by_the_old_hold(failure):
     store, wed = _held_then_approved()
@@ -735,7 +735,7 @@ def test_derived_request_that_does_not_add_up_is_no_request():
     """A bootstrap view never fabricates a reviewable set from inconsistent episode fields.
 
     Since preflight 5 such a week is a truthful failure (nothing can be
-    approved), not an "awaiting approval" hold; see test_photo_approval_preflight5_7936.
+    approved), not an "awaiting approval" hold; see test_photo_failure_recovery.
     """
     wed = wednesday_stage()
     wed.pop("photo_review")
@@ -894,7 +894,7 @@ def test_claimed_week_without_a_wednesday_mirror_is_frozen_but_inspectable():
 
 def test_test_namespace_proxy_mapping_is_unchanged_by_the_section_move():
     """The review section above the stages still uses the set-bound proxy for test images."""
-    from tests.test_photo_approval_7936 import _real_store
+    from tests.test_photo_request_decision_lifecycle import _real_store
 
     store, wed = _real_store("test/")
     client, patcher = _client(store)

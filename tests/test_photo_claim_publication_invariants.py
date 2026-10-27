@@ -1,4 +1,4 @@
-"""Codex cycle-3 regressions for the photo approval gate (#7936): shared invariants.
+"""Shared photo-claim and publication invariants (#7936).
 
 1. ONE legacy-aware publication predicate (``published_at`` OR a complete
    Sunday, as the static builder decides it) behind every guard that protects
@@ -39,7 +39,7 @@ from backend.utils.episode_integrity import (
     stage_deadline,
 )
 from tests.photo_review_helpers import decide, register, wednesday_stage
-from tests.test_photo_approval_7936 import (
+from tests.test_photo_request_decision_lifecycle import (
     EP_ID,
     _Store,
     _approved_store,
@@ -51,7 +51,7 @@ from tests.test_photo_approval_7936 import (
     _status,
     _sunday,
 )
-from tests.test_photo_approval_cycle2_7936 import _LocalStore, _monitor, _page, _section
+from tests.test_photo_claim_publication_lifecycle import _LocalStore, _monitor, _page, _section
 
 AFTER_SUNDAY = stage_deadline(EP_ID, "sunday") + timedelta(hours=2)
 PUBLISHED_AT = "2026-10-11T00:05:00+00:00"
@@ -165,7 +165,7 @@ def test_legacy_published_week_is_read_only_for_review_and_sunday():
 
 
 def test_wednesday_refuses_to_reshoot_a_legacy_published_week(tmp_path):
-    from tests.test_photo_approval_7936 import _wednesday
+    from tests.test_photo_request_decision_lifecycle import _wednesday
 
     store = _Store()
     store.put(EP_ID, _legacy_published_episode())
