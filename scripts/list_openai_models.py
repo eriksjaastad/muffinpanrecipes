@@ -1,16 +1,27 @@
 #!/usr/bin/env python3
-"""List accessible OpenAI models (chat-capable filtered + raw)."""
+"""List OpenAI models available through OpenRouter (chat-capable filtered + raw)."""
 
 from __future__ import annotations
 
 import json
 import os
 
-from backend.utils.model_router import ensure_openai_model_allowed
+from backend.utils.model_router import OPENROUTER_BASE_URL, ensure_openai_model_allowed
+
+
+def _native_openai_id(model_id: str) -> str | None:
+    """Return the native model id for an OpenRouter OpenAI catalog entry."""
+    provider, separator, native_id = model_id.partition("/")
+    if separator and provider.lower() != "openai":
+        return None
+    return native_id if separator else model_id
 
 
 def is_chat_like(model_id: str) -> bool:
-    low = model_id.lower()
+    native_id = _native_openai_id(model_id)
+    if native_id is None:
+        return False
+    low = native_id.lower()
     blocked = ["embed", "whisper", "tts", "transcribe", "moderation", "image", "dall", "realtime", "audio"]
     if any(b in low for b in blocked):
         return False
@@ -18,19 +29,21 @@ def is_chat_like(model_id: str) -> bool:
 
 
 def main() -> None:
-    key = os.getenv("OPENAI_API_KEY")
+    key = os.getenv("OPENROUTER_API_KEY")
     if not key:
-        raise RuntimeError("OPENAI_API_KEY is not set")
+        raise RuntimeError("OPENROUTER_API_KEY is not set")
 
     from openai import OpenAI
 
-    client = OpenAI(api_key=key)
+    client = OpenAI(base_url=OPENROUTER_BASE_URL, api_key=key)
     models = sorted([m.id for m in client.models.list().data])
     chat_models = [m for m in models if is_chat_like(m)]
 
     allowlisted = []
     blocked = []
-    for m in chat_models:
+    for openrouter_id in chat_models:
+        m = _native_openai_id(openrouter_id)
+        assert m is not None
         try:
             ensure_openai_model_allowed(m)
             allowlisted.append(m)

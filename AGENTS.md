@@ -68,9 +68,9 @@ Wednesday kept the same shape and failed W42 for the same reason (#8293).
 
 Before saying "I need to log in" to any third-party CLI, check Doppler. This repo has `doppler.yaml` pinned to project `muffinpanrecipes`, config `dev`, and production/staging secrets are managed through Doppler sync.
 
-- Check for token names, never values: `doppler secrets --project muffinpanrecipes --config dev --only-names | rg -i 'vercel|gh|github|blob|cron|stability|openai|anthropic|google'`.
+- Check for token names, never values: `doppler secrets --project muffinpanrecipes --config dev --only-names | rg -i 'vercel|gh|github|blob|cron|openrouter|discord|resend|alert|jwt|newsletter|doppler'`.
 - Run env-dependent commands with `doppler run -- <command>`; do not run interactive `vercel login`, `gh auth login`, or provider OAuth until the Doppler check proves the credential is missing.
-- Documented project secret names include `BLOB_READ_WRITE_TOKEN`, `CRON_SECRET`, `STABILITY_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `NANOBANANA_API_KEY`, and Discord webhook vars. If a needed CLI token such as `VERCEL_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` is missing, tell Erik so he can add it to Doppler.
+- Documented project secret names include `BLOB_READ_WRITE_TOKEN`, `CRON_SECRET`, `OPENROUTER_API_KEY`, and Discord webhook vars. If a needed CLI token such as `VERCEL_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` is missing, tell Erik so he can add it to Doppler.
 - Never read, print, log, paste, or commit secret values. Presence checks only.
 
 ## Publishing-path changes require pre-flight
@@ -107,8 +107,8 @@ Run `pt memory search "muffinpanrecipes"` before starting work for prior decisio
 - **Run commands with:** `doppler run -- <command>` (e.g., `doppler run -- python main.py`)
 - Access secrets in code with `os.getenv("SECRET_NAME")` — Doppler injects them at runtime.
 - Before attempting interactive login for any third-party CLI, check Doppler for token names only:
-  `doppler secrets --project muffinpanrecipes --config dev --only-names | rg -i 'vercel|gh|github|blob|cron|stability|openai|anthropic|google'`.
-- Documented project secret names include `BLOB_READ_WRITE_TOKEN`, `CRON_SECRET`, `STABILITY_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `NANOBANANA_API_KEY`, and Discord webhook vars.
+  `doppler secrets --project muffinpanrecipes --config dev --only-names | rg -i 'vercel|gh|github|blob|cron|openrouter|discord|resend|alert|jwt|newsletter|doppler'`.
+- Documented project secret names include `BLOB_READ_WRITE_TOKEN`, `CRON_SECRET`, `OPENROUTER_API_KEY`, and Discord webhook vars.
 - If a needed CLI token such as `VERCEL_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` is missing, tell Erik so he can add it to Doppler. Do not run `vercel login`, `gh auth login`, or provider OAuth first.
 - NEVER hard-code API keys or credentials.
 - NEVER read, log, echo, or store secret values in any file, message, or output.

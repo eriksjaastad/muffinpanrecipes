@@ -18,14 +18,14 @@ Expected output should end with: `projects/muffinpanrecipes`
 Do not print the key value. Only check that it exists.
 
 ```bash
-doppler run -- sh -lc 'if [ -n "$STABILITY_API_KEY" ]; then echo "STABILITY_API_KEY: present"; else echo "STABILITY_API_KEY: missing"; exit 1; fi'
+doppler run -- sh -lc 'if [ -n "$OPENROUTER_API_KEY" ]; then echo "OPENROUTER_API_KEY: present"; else echo "OPENROUTER_API_KEY: missing"; exit 1; fi'
 ```
 
 If output is `missing`, run:
 
 ```bash
 doppler setup
-doppler run -- sh -lc 'if [ -n "$STABILITY_API_KEY" ]; then echo "STABILITY_API_KEY: present"; else echo "STABILITY_API_KEY: missing"; exit 1; fi'
+doppler run -- sh -lc 'if [ -n "$OPENROUTER_API_KEY" ]; then echo "OPENROUTER_API_KEY: present"; else echo "OPENROUTER_API_KEY: missing"; exit 1; fi'
 ```
 
 ## Execution Policy

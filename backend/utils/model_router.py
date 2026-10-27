@@ -167,8 +167,8 @@ def openrouter_model_id(provider: str, model: str) -> str:
 OPENROUTER_PROVIDER_ROUTE = {"order": ["anthropic"], "allow_fallbacks": False}
 
 # OpenRouter provider slug for a vendor whose slug differs from its model-id
-# prefix. Google's own API, the one GOOGLE_API_KEY used to reach, is
-# "google-ai-studio"; Vertex is a different provider.
+# prefix. Google's OpenRouter provider slug is "google-ai-studio"; Vertex is a
+# different provider and direct Google credentials are not used.
 _OPENROUTER_PROVIDER_SLUGS = {"google": "google-ai-studio"}
 
 

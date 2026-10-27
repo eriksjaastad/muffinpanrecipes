@@ -183,7 +183,6 @@ Vercel via the Doppler → Vercel integration (set up once).
 | Secret | Purpose | Doppler config |
 |--------|---------|----------------|
 | `OPENROUTER_API_KEY` | Every model and image call (`backend/utils/model_router.py`, `backend/utils/image_generation.py`), #8343 | `prd`, `stg` |
-| `STABILITY_API_KEY` | Stability AI, used only by `scripts/direct_harvest.py` since #8068 | `prd`, `stg` |
 | `GOOGLE_CLIENT_ID` | OAuth login | `prd`, `stg` |
 | `GOOGLE_CLIENT_SECRET` | OAuth login | `prd`, `stg` |
 | `GOOGLE_AUTHORIZED_EMAILS` | Admin allow-list (comma-sep) | `prd`, `stg` |

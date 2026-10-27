@@ -19,9 +19,7 @@ Single source of truth for every environment variable the muffinpanrecipes codeb
 
 | Var | Flags | Read at | Purpose |
 |---|---|---|---|
-| `OPENROUTER_API_KEY` | R, S | `backend/utils/model_router.py` (`_generate_openrouter`), `backend/agents/art_director.py` (`_photograph_recipe`), `backend/utils/stop_check.py`, `scripts/conversation_lab.py` | Every paid model and image call goes through OpenRouter (#8343) |
-| `OPENAI_API_KEY` | O, S | `scripts/list_openai_models.py:21` | Lists OpenAI's models (a free call); no generation reads it since #8343 |
-| `STABILITY_API_KEY` | O, S | `scripts/validate_env.py`, `scripts/direct_harvest.py:21` | Stability AI auth, used only by `scripts/direct_harvest.py`; the photography stage moved to Gemini in #8068 |
+| `OPENROUTER_API_KEY` | R, S | `backend/utils/model_router.py` (`_generate_openrouter`), `backend/agents/art_director.py` (`_photograph_recipe`), `backend/utils/stop_check.py`, `scripts/conversation_lab.py`, `scripts/direct_harvest.py`, `scripts/list_openai_models.py` | Every paid model and image call goes through OpenRouter (#8343) |
 | `BLOB_READ_WRITE_TOKEN` | R, S | `backend/storage.py:200`, `backend/publishing/site_builder.py`, `scripts/backfill_webp.py:102`, `scripts/fix_catalog.py:56`, `scripts/run_full_week.py:317`, `scripts/score_episodes.py:59`, `scripts/generate_recipe_page.py:527` | Vercel Blob auth for episode + image persistence and the static build's authoritative source reads. `_CloudBackend` crashes on start if missing on Vercel; the Vercel build must receive it at build time |
 | `CRON_SECRET` | R, S | `scripts/run_full_week.py:316`, `backend/admin/cron_routes.py` (via header check) | Vercel cron endpoint shared secret |
 | `JWT_SECRET` | R, S | `backend/auth/session.py:32`, `tests/test_auth.py:109` | Admin UI session token signing |
@@ -68,7 +66,7 @@ Single source of truth for every environment variable the muffinpanrecipes codeb
 | Var | Flags | Read at | Default | Purpose |
 |---|---|---|---|---|
 | `PROJECT_ROOT` | O | `backend/publishing/pipeline.py:51`, `scripts/optimize_images.py:11`, `generate_image_prompts.py:17`, `art_director.py:17`, `trigger_generation.py:22`, `validate_env.py:16` | derived from `__file__` | Repo root path override |
-| `WORKSPACE_ROOT` | O | `scripts/direct_harvest.py:18` | `/workspace` if exists else repo | Legacy harvest workspace |
+| `WORKSPACE_ROOT` | O | `scripts/direct_harvest.py:18` | `/workspace` if exists else repo | Legacy OpenRouter image-harvest workspace |
 | `AI_ROUTER_PATH` | O | `scripts/generate_image_prompts.py:18`, `scripts/art_director.py:18`, `scripts/validate_env.py:23` | `../_tools/ai_router` | Path to the AI router CLI used by a couple of legacy scripts |
 | `OUTPUT_ROOT` | O | `scripts/direct_harvest.py:20` | `$WORKSPACE_ROOT/output/muffin_pan` | Legacy harvest output dir |
 | `JOBS_FILE` | O | `scripts/direct_harvest.py:19` | `$WORKSPACE_ROOT/image_generation_jobs.json` | Legacy harvest job queue |

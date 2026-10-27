@@ -1,10 +1,10 @@
-import os
-import requests
 import json
-import base64
-import sys
 import logging
+import os
+import sys
 from pathlib import Path
+
+from backend.utils.image_generation import generate_nano_banana_image
 
 # Configure logging
 logging.basicConfig(
@@ -18,13 +18,17 @@ logger = logging.getLogger(__name__)
 WORKSPACE_ROOT = Path(os.getenv("WORKSPACE_ROOT", "/workspace" if os.path.exists("/workspace") else Path(__file__).parent.parent))
 JOBS_FILE = os.getenv("JOBS_FILE", str(WORKSPACE_ROOT / "image_generation_jobs.json"))
 OUTPUT_ROOT = os.getenv("OUTPUT_ROOT", str(WORKSPACE_ROOT / "output" / "muffin_pan"))
-API_KEY = os.getenv("STABILITY_API_KEY")
-if not API_KEY:
-    sys.exit("❌ Error: STABILITY_API_KEY missing from environment (use `doppler run -- ...`)")
+IMAGE_MODEL = "gemini-3.1-flash-image"
 
-ENGINE_ID = "stable-diffusion-xl-1024-v1-0" 
 
-def generate_image(recipe_id, variant_name, prompt):
+def _openrouter_api_key() -> str:
+    key = os.getenv("OPENROUTER_API_KEY")
+    if not key:
+        raise RuntimeError("OPENROUTER_API_KEY is not set (use `doppler run -- ...`)")
+    return key
+
+
+def generate_image(recipe_id, variant_name, prompt, api_key=None):
     output_dir = Path(OUTPUT_ROOT) / recipe_id
     output_dir.mkdir(parents=True, exist_ok=True)
     file_path = output_dir / f"{variant_name}.png"
@@ -35,47 +39,30 @@ def generate_image(recipe_id, variant_name, prompt):
         return True
 
     logger.info(f"Direct Harvest: {recipe_id} [{variant_name}]...")
-    
-    url = f"https://api.stability.ai/v1/generation/{ENGINE_ID}/text-to-image"
-    
-    headers = {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "Authorization": f"Bearer {API_KEY}"
-    }
-    
-    body = {
-        "text_prompts": [{"text": prompt}],
-        "cfg_scale": 7, # Default CFG for SDXL balance between prompt adherence and creative quality
-        "height": 1024,
-        "width": 1024,
-        "samples": 1,
-        "steps": 30, # Optimal step count for SDXL 1.0; balance between speed and high-end texture
-    }
 
     try:
-        response = requests.post(url, headers=headers, json=body, timeout=60)
-    except requests.exceptions.Timeout:  # governance: allow-silent SF002: False is the failure signal; main() aborts the batch with exit 1 on any False
-        logger.error(f"❌ Timeout error generating {recipe_id} [{variant_name}] after 60 seconds.")
-        return False
+        image_bytes = generate_nano_banana_image(
+            prompt,
+            api_key or _openrouter_api_key(),
+            model=IMAGE_MODEL,
+            aspect_ratio="1:1",
+            image_size="1K",
+            timeout_s=60,
+        )
     except Exception as e:  # governance: allow-silent SF002: False is the failure signal; main() aborts the batch with exit 1 on any False
-        logger.error(f"❌ Request error for {recipe_id} [{variant_name}]: {e}")
+        logger.error(f"❌ OpenRouter image error for {recipe_id} [{variant_name}]: {e}")
         return False
 
-    if response.status_code != 200:
-        logger.error(f"❌ Failed: {response.text}")
-        return False
-
-    data = response.json()
-    
-    for i, image in enumerate(data["artifacts"]):
-        with open(file_path, "wb") as f:
-            f.write(base64.b64decode(image["base64"]))
-        logger.info(f"✅ Saved to {file_path}")
-    
+    file_path.write_bytes(image_bytes)
+    logger.info(f"✅ Saved to {file_path}")
     return True
 
 def main():
+    try:
+        _openrouter_api_key()
+    except RuntimeError as exc:
+        sys.exit(f"❌ Error: {exc}")
+
     if not os.path.exists(JOBS_FILE):
         print(f"Not found: {JOBS_FILE}")
         return
