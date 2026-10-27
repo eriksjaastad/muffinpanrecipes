@@ -100,13 +100,11 @@ doppler run -- uv run python scripts/deploy_main.py
 doppler run -- uv run python scripts/deploy_main.py --check
 ```
 
-`deploy_main.py` never deploys the caller's checkout. It fetches `origin/main`,
-stamps Vercel with `gitSha=...`, verifies preview before promotion, and verifies
-production after promotion, then proves the production alias resolves to the
-same `gitSha`. It requires the source checkout's validated
-`.vercel/project.json` link and copies only that ignored project binding into
-the detached worktree. Vercel mutations run through the workspace-safe wrapper;
-deployment URL and production SHA lookup use restricted REST projections.
+`deploy_main.py` is the only supported production deployment entry point. It
+binds the deploy to fetched `origin/main`, requires preview health before
+promotion, and requires production health plus provenance after promotion.
+See `uv run python scripts/deploy_main.py --help` and the module docstring for
+the operational procedure and bounded timing.
 
 ### Deployment contract
 

@@ -11,9 +11,10 @@ production alias resolves to the fetched SHA.
 Vercel mutations use ``~/.openclaw/workspace/ops/vercel-safe-command.sh`` so
 raw CLI output cannot expose an operations token. Deployment URL discovery and
 production SHA verification use allowlisted Vercel REST fields instead.
-Preview and production metadata each get at most three retries with 1, 2, and
-4 second backoff. After promotion, the expected production SHA is observed
-before the production health check and verified once more afterwards.
+Preview and production metadata each get at most three retries with 10, 20,
+and 40 second backoff (a bounded ~70 second rebuild window). After promotion,
+the expected production SHA is observed before the production health check and
+verified once more afterwards.
 
 Commands (run with Vercel/Doppler credentials already injected)::
 
@@ -49,7 +50,8 @@ PRODUCTION_URL = "https://muffinpanrecipes.com"
 GIT_SHA_META_KEY = "gitSha"
 VERCEL_API_BASE = "https://api.vercel.com"
 VERCEL_SAFE_COMMAND = Path.home() / ".openclaw/workspace/ops/vercel-safe-command.sh"
-MAX_PROVIDER_RETRIES = 3
+PROVIDER_RETRY_DELAYS_SECONDS = (10, 20, 40)
+MAX_PROVIDER_RETRIES = len(PROVIDER_RETRY_DELAYS_SECONDS)
 GIT_TIMEOUT_SECONDS = 60
 VERCEL_TIMEOUT_SECONDS = 300
 HEALTH_TIMEOUT_SECONDS = 300
@@ -279,7 +281,7 @@ def _preview_deployment_url(project_id: str, sha: str, before_ids: set[str]) -> 
     last_state = "not visible"
     for attempt in range(MAX_PROVIDER_RETRIES + 1):
         if attempt:
-            time.sleep(2 ** (attempt - 1))
+            time.sleep(PROVIDER_RETRY_DELAYS_SECONDS[attempt - 1])
         for deployment in _preview_deployment_list(project_id):
             deployment_id = deployment["uid"]
             if (
@@ -364,7 +366,7 @@ def _wait_for_production_sha(production_url: str, expected_sha: str) -> None:
     observed = None
     for attempt in range(MAX_PROVIDER_RETRIES + 1):
         if attempt:
-            time.sleep(2 ** (attempt - 1))
+            time.sleep(PROVIDER_RETRY_DELAYS_SECONDS[attempt - 1])
         observed = _production_git_sha(production_url)
         if observed == expected_sha:
             return

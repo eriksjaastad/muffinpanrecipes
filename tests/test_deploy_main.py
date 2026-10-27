@@ -215,7 +215,24 @@ def test_preview_excludes_old_same_sha_and_waits_for_ready(monkeypatch):
     monkeypatch.setattr(deploy_main.time, "sleep", sleeps.append)
 
     assert deploy_main._preview_deployment_url("project", SHA, {"old"}) == "https://new.example"
-    assert sleeps == [1]
+    assert sleeps == [10]
+
+
+def test_preview_ready_immediately_needs_no_wait(monkeypatch):
+    monkeypatch.setattr(
+        deploy_main,
+        "_vercel_api_json",
+        lambda path, params: {
+            "deployments": [
+                {"uid": "new", "url": "new.example", "state": "READY", "meta": {"gitSha": SHA}}
+            ]
+        },
+    )
+    sleeps = []
+    monkeypatch.setattr(deploy_main.time, "sleep", sleeps.append)
+
+    assert deploy_main._preview_deployment_url("project", SHA, set()) == "https://new.example"
+    assert sleeps == []
 
 
 def test_preview_retry_exhaustion_is_bounded(monkeypatch):
@@ -235,7 +252,7 @@ def test_preview_retry_exhaustion_is_bounded(monkeypatch):
 
     with pytest.raises(deploy_main.DeployError, match="after 3 retries"):
         deploy_main._preview_deployment_url("project", SHA, set())
-    assert sleeps == [1, 2, 4]
+    assert sleeps == [10, 20, 40]
 
 
 def test_production_sha_proof_waits_for_delayed_convergence(monkeypatch):
@@ -246,7 +263,17 @@ def test_production_sha_proof_waits_for_delayed_convergence(monkeypatch):
 
     deploy_main._wait_for_production_sha(deploy_main.PRODUCTION_URL, SHA)
 
-    assert sleeps == [1, 2]
+    assert sleeps == [10, 20]
+
+
+def test_production_sha_proof_ready_immediately_needs_no_wait(monkeypatch):
+    sleeps = []
+    monkeypatch.setattr(deploy_main, "_production_git_sha", lambda _url: SHA)
+    monkeypatch.setattr(deploy_main.time, "sleep", sleeps.append)
+
+    deploy_main._wait_for_production_sha(deploy_main.PRODUCTION_URL, SHA)
+
+    assert sleeps == []
 
 
 def test_production_sha_proof_times_out_after_three_retries(monkeypatch):
@@ -257,7 +284,7 @@ def test_production_sha_proof_times_out_after_three_retries(monkeypatch):
     with pytest.raises(deploy_main.DeployError, match="after 3 retries"):
         deploy_main._wait_for_production_sha(deploy_main.PRODUCTION_URL, SHA)
 
-    assert sleeps == [1, 2, 4]
+    assert sleeps == [10, 20, 40]
 
 
 def test_deploy_fails_without_production_sha_proof_and_no_success_receipt(
