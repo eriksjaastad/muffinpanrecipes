@@ -98,7 +98,21 @@ Folded in from the original ADR list (README and `_docs_archive/core/ARCHITECTUR
 
 **Alternatives considered:** Deploy-time build via `@vercel/static-build` (rejected: every deploy becomes a full rebuild; unproven in this project's build container). Full static including `/this-week` (rejected: stale between manual deploys, and re-enabling any automated deploy reopens the closed auto-deploy decision). Git growth from committed HTML is roughly one 30 KB file per week, accepted.
 
-**Operator ritual:** weekly `uv run python scripts/build_site.py` (incremental) → commit `src/**` → `vercel deploy` (preview) → `health_check.py --base-url <preview>` → `vercel promote <preview-url> --yes`. `--full-rebuild` only when a renderer change is meant to reach every page. **`DEPLOYMENT.md` owns this procedure** — it explains why `--yes` is required non-interactively, and why promoting is a full production rebuild rather than an alias flip, which is what makes the post-promote production check a separate step. Do not restate the mechanism here; follow the link.
+**Operator ritual:** weekly `uv run python scripts/build_site.py` (incremental) → commit and merge `src/**` → `doppler run -- uv run python scripts/deploy_main.py`. The script fetches `origin/main`, deploys a clean detached worktree with `gitSha` metadata, health-checks preview, promotes, and health-checks production. `--full-rebuild` only when a renderer change is meant to reach every page. **`DEPLOYMENT.md` owns this procedure** — it explains why `--yes` is required non-interactively, and why promoting is a full production rebuild rather than an alias flip, which is what makes the post-promote production check a separate step. Do not restate the mechanism here; follow the link.
+
+### 2026-10-27: Production deploys come only from fetched origin/main (#8616)
+
+**Context:** A deploy command that used the caller's checkout could ship stale
+or dirty source instead of the reviewed main commit.
+
+**Decision:** `scripts/deploy_main.py` fetches `origin/main`, creates a clean
+detached worktree at that SHA, sends `gitSha` metadata to Vercel, health-checks
+preview before promotion, and health-checks production afterwards. `--check`
+fails when production metadata does not match the freshly fetched SHA.
+
+**Reasoning:** The source, preview verification, promotion, and production
+verification are bound to one explicit commit without requiring a clean caller
+checkout.
 
 ### 2026-09-05: Alerts email through the existing Resend setup, routed by severity (#6860)
 
