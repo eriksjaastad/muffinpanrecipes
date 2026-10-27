@@ -2,7 +2,7 @@
 """List OpenAI models available through OpenRouter.
 
 Requires ``OPENROUTER_API_KEY`` (normally injected with ``doppler run``).
-``OPENROUTER_MODEL_ALLOWLIST`` optionally narrows the models accepted by the
+``OPENAI_MODEL_ALLOWLIST`` optionally narrows the models accepted by the
 existing router policy; this script has no filesystem or path overrides.
 """
 

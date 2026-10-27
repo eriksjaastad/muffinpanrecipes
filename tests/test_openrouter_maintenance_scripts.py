@@ -143,6 +143,31 @@ def test_list_openai_models_reads_openrouter_catalog(monkeypatch, capsys):
     ]
 
 
+def test_list_openai_models_honors_openai_model_allowlist(monkeypatch, capsys):
+    from scripts import list_openai_models
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "openrouter-test")
+    monkeypatch.setenv("OPENAI_MODEL_ALLOWLIST", "gpt-5-mini")
+
+    class FakeOpenAI:
+        def __init__(self, **_kwargs):
+            self.models = SimpleNamespace(
+                list=lambda: SimpleNamespace(
+                    data=[
+                        SimpleNamespace(id="openai/gpt-5-mini"),
+                        SimpleNamespace(id="openai/gpt-5-nano"),
+                    ]
+                )
+            )
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+    list_openai_models.main()
+
+    payload = json.loads(capsys.readouterr().out.split("=== json ===", 1)[1])
+    assert payload["allowlisted_chat_models"] == ["gpt-5-mini"]
+    assert payload["blocked_chat_models"] == ["gpt-5-nano"]
+
+
 def test_list_openai_models_requires_openrouter_key(monkeypatch):
     from scripts import list_openai_models
 
