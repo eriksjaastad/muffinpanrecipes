@@ -303,7 +303,11 @@ review_notes: string (nullable, from Erik)
 2. `episode_renderer` renders the recipe page from the episode's `recipe_data` — a single renderer serves every recipe page (the 10 original recipes live as data in `src/seed_recipes.json` and render through the same path)
 3. The published episode and catalog (`pages/recipes.json`) are written to Vercel Blob as authoritative build sources
 4. The episode is marked `published_at` and a retryable source-publication state is stamped on it (sticky idempotency guard)
-5. An operator merges the built artifacts to `main`, then runs `doppler run -- uv run python scripts/deploy_main.py`. The script fetches `origin/main`, deploys only a clean detached worktree with `gitSha` metadata, health-checks preview, deploys that same worktree to production, and health-checks production. `build_site.py --preview` remains a local inspection aid; `DEPLOYMENT.md` owns the exact commands and reasoning
+5. An operator merges the built artifacts to `main`, then runs the supported
+   deployment entry point. Preview health, production health, and provenance
+   are required; see `DEPLOYMENT.md`, `uv run python scripts/deploy_main.py
+   --help`, and its module docstring for commands and gates.
+   `build_site.py --preview` remains a local inspection aid.
 6. `build_site` reads the authoritative Blob sources and emits static recipe pages, the catalog, and sitemap into `src/`, which are committed. This is a pre-commit step, not a deploy-time build — `DECISIONS.md` (2026-09-05) rejected deploy-time rendering explicitly
 7. `/recipes/{slug}` is served from those static artifacts, with the reader lambda as a fallback (`vercel.json` route 11 has `check: true`, route 13 catches the miss). **`/recipes.json` and `/sitemap.xml` are NOT** — `vercel.json` routes 9 and 10 send both to the lambda unconditionally, ahead of `handle: filesystem`. The committed `src/recipes.json` and `src/sitemap.xml` are build inputs and a record, not what readers receive
 

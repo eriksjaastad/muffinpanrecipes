@@ -80,15 +80,11 @@ Before merging anything that touches `cron_routes.py`, `episode_renderer.py`, `s
 ## Production deployment guard
 
 Production deploys use `doppler run -- uv run python scripts/deploy_main.py`.
-The script fetches `origin/main`, deploys only a clean detached worktree at
-that SHA with `gitSha` metadata, health-checks preview, deploys that same
-worktree to production, health-checks production, and proves the production alias resolves to that
-SHA. Use `--check` to fail when production metadata does not match the freshly
-fetched `origin/main`; do not deploy the caller's dirty
-checkout with a direct `vercel deploy`. The script requires the source
-checkout's `.vercel/project.json` to match this repository's project binding,
-copies only that ignored link into the detached worktree, and routes Vercel
-mutations through `~/.openclaw/workspace/ops/vercel-safe-command.sh`.
+Deployments are bound to reviewed `origin/main`, require preview and production
+health/provenance, and must not use the caller's dirty checkout or direct Vercel
+commands. Use `--check` for a read-only production drift check. See
+`uv run python scripts/deploy_main.py --help` and its module docstring for the
+operator commands and gates.
 
 ## Known incident: test-mode prefix contamination
 

@@ -98,17 +98,17 @@ Folded in from the original ADR list (README and `_docs_archive/core/ARCHITECTUR
 
 **Alternatives considered:** Deploy-time build via `@vercel/static-build` (rejected: every deploy becomes a full rebuild; unproven in this project's build container). Full static including `/this-week` (rejected: stale between manual deploys, and re-enabling any automated deploy reopens the closed auto-deploy decision). Git growth from committed HTML is roughly one 30 KB file per week, accepted.
 
-**Operator ritual:** weekly `uv run python scripts/build_site.py` (incremental) → commit and merge `src/**` → `doppler run -- uv run python scripts/deploy_main.py`. The script fetches `origin/main`, deploys a clean detached worktree with `gitSha` metadata, health-checks preview, deploys that same worktree to production, and health-checks production. `--full-rebuild` only when a renderer change is meant to reach every page. **`DEPLOYMENT.md` owns this procedure** — do not restate the command mechanism here; follow the link.
+**Operator ritual:** weekly `uv run python scripts/build_site.py` (incremental) → commit and merge `src/**` → run the deployment command documented in `DEPLOYMENT.md`. `--full-rebuild` only when a renderer change is meant to reach every page. **`DEPLOYMENT.md` owns the procedure** — see the script's help for operational gates.
 
 ### 2026-10-27: Production deploys come only from fetched origin/main (#8616)
 
 **Context:** A deploy command that used the caller's checkout could ship stale
 or dirty source instead of the reviewed main commit.
 
-**Decision:** `scripts/deploy_main.py` fetches `origin/main`, creates a clean
-detached worktree at that SHA, sends `gitSha` metadata to Vercel, health-checks
-preview before the production deploy, and health-checks production afterwards. `--check`
-fails when production metadata does not match the freshly fetched SHA.
+**Decision:** Production deploys use `scripts/deploy_main.py` from reviewed
+`origin/main`; preview and production verification are required, and `--check`
+fails when production does not match the fetched SHA. Operational details live
+in the script help and module docstring.
 
 **Reasoning:** The source, preview verification, production deploy, and production
 verification are bound to one explicit commit without requiring a clean caller
