@@ -5,16 +5,18 @@ The command never deploys the caller's checkout. It fetches ``origin/main``,
 creates a clean detached worktree at that commit, copies the validated source
 project link into the ignored worktree, deploys that directory through the
 workspace Vercel-safe wrapper with ``gitSha`` metadata, runs the preview health
-check, promotes the preview, runs the production health check, and proves the
-production alias resolves to the fetched SHA.
+check, deploys the same directory to production, runs the production health
+check, and proves the production alias resolves to the fetched SHA.
 
 Vercel mutations use ``~/.openclaw/workspace/ops/vercel-safe-command.sh`` so
 raw CLI output cannot expose an operations token. Deployment URL discovery and
 production SHA verification use allowlisted Vercel REST fields instead.
 Preview and production metadata each get at most three retries with 10, 20,
-and 40 second backoff (a bounded ~70 second rebuild window). After promotion,
+and 40 second backoff (a bounded ~70 second rebuild window). After the
+production deploy,
 the expected production SHA is observed before the production health check and
-verified once more afterwards.
+verified once more afterwards. Production uses the protected ``vercel deploy
+--prod --yes`` path; the preview health check always precedes it.
 
 Commands (run with Vercel/Doppler credentials already injected)::
 
@@ -325,8 +327,18 @@ def _health_check(worktree: Path, *, base_url: str | None = None) -> None:
     _run(command, cwd=worktree, timeout=HEALTH_TIMEOUT_SECONDS)
 
 
-def _promote(preview_url: str) -> None:
-    _vercel(["promote", preview_url, "--yes"])
+def _deploy_production(worktree: Path, sha: str) -> None:
+    """Deploy the already-verified detached worktree to production."""
+    _vercel(
+        [
+            "deploy",
+            str(worktree),
+            "--prod",
+            "--yes",
+            "--meta",
+            f"{GIT_SHA_META_KEY}={sha}",
+        ]
+    )
 
 
 def _host(value: str) -> str | None:
@@ -396,8 +408,8 @@ def _deploy() -> int:
         print(f"Preview deployed from origin/main {sha}: {preview_url}")
         _health_check(worktree, base_url=preview_url)
         print("Preview health check passed")
-        _promote(preview_url)
-        print("Preview promoted to production")
+        _deploy_production(worktree, sha)
+        print("Production deployment requested")
         _wait_for_production_sha(PRODUCTION_URL, sha)
         _health_check(worktree)
         print("Production health check passed")

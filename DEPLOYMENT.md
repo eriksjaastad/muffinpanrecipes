@@ -92,28 +92,23 @@ uv run python -m scripts.build_site
 #    related-link updates, index.html, recipes/index.html, recipes.json,
 #    sitemap.xml) on a feature branch and merge the reviewed change to main.
 
-# 3. Fetch origin/main, deploy a clean detached worktree to PREVIEW, health
-#    check it, promote it, and health check PRODUCTION.
+# 3. Run the supported deployment entry point after the reviewed merge.
 doppler run -- uv run python scripts/deploy_main.py
 
-# 4. Read-only drift check: exits 1 if production is not the fetched main SHA.
+# 4. Run the read-only production drift check when needed.
 doppler run -- uv run python scripts/deploy_main.py --check
 ```
 
 `deploy_main.py` is the only supported production deployment entry point. It
-binds the deploy to fetched `origin/main`, requires preview health before
-promotion, and requires production health plus provenance after promotion.
-See `uv run python scripts/deploy_main.py --help` and the module docstring for
-the operational procedure and bounded timing.
+binds deployment to reviewed `origin/main`, requires preview health before the
+production deploy, and requires production health plus provenance afterwards.
+See `uv run python scripts/deploy_main.py --help` and its module docstring for
+the operator commands and gates.
 
 ### Deployment contract
 
-`scripts/deploy_main.py` owns the detailed timing, retry policy, safe-wrapper
-invocation, project-link validation, preview readiness check, production health
-check, and final `gitSha` provenance proof. It is the only supported production
-deployment entry point. Do not run direct `vercel deploy` or `vercel deploy
---prod`; use the commands above and treat a missing `production is main` receipt
-as a failed deployment.
+Do not deploy from a dirty or unreviewed checkout or use direct Vercel commands.
+A deployment is complete only after preview and production verification pass.
 
 Full rebuild (`uv run python -m scripts.build_site --full-rebuild`) is an
 explicit, separate operator action — it is the only supported way to roll out
