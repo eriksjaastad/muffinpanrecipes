@@ -159,12 +159,6 @@ episode_is_published = episode_integrity.episode_is_published
 # module's write path share exactly one copy of the text.
 WEEK_OFF_MESSAGE = episode_integrity.WEEK_OFF_MESSAGE
 
-# Temporary containment for the remainder of W39. This applies only to
-# authenticated scheduled GETs; manual POST recovery remains available.
-_SCHEDULED_PAUSE_EPISODE_ID = "2026-W39"
-_SCHEDULED_PAUSE_STAGES = frozenset({"thursday", "friday", "saturday", "sunday"})
-
-
 STAGE_TO_ROLE = {
     "monday": "brainstorm",
     "tuesday": "recipe_development",
@@ -178,25 +172,6 @@ STAGE_TO_ROLE = {
 def _current_episode_id() -> str:
     """Return the ISO week episode ID, e.g. '2026-W09' (UTC; tests pin this name)."""
     return episode_integrity.current_episode_id(datetime.now(timezone.utc))
-
-
-def _scheduled_w39_pause(request: Request, stage: str) -> dict | None:
-    """Return an explicit pause response for W39's remaining scheduled GETs."""
-    if request.method != "GET" or stage not in _SCHEDULED_PAUSE_STAGES:
-        return None
-    episode_id = _current_episode_id()
-    if episode_id != _SCHEDULED_PAUSE_EPISODE_ID:
-        return None
-    return {
-        "status": "paused",
-        "stage": stage,
-        "episode_id": episode_id,
-        "reason": (
-            "Temporary W39 containment: this scheduled stage was intentionally skipped "
-            "while the existing Tuesday/Wednesday failures remain unresolved. "
-            "No stage was completed or published."
-        ),
-    }
 
 
 def _load_or_create_episode(episode_id: str, concept: str, stage: str) -> dict:
@@ -537,12 +512,16 @@ def _fit_method(steps: list[str], budget: int) -> str:
         if head_len <= tail_len and lo <= hi:
             nxt = numbered[lo]
             if head_len + tail_len + len(nxt) + reserve <= budget:
-                head.append(nxt); head_len += len(nxt) + 1; lo += 1
+                head.append(nxt)
+                head_len += len(nxt) + 1
+                lo += 1
                 took_head = True
         if lo <= hi and (not took_head or tail_len < head_len):
             nxt = numbered[hi]
             if head_len + tail_len + len(nxt) + reserve <= budget:
-                tail.insert(0, nxt); tail_len += len(nxt) + 1; hi -= 1
+                tail.insert(0, nxt)
+                tail_len += len(nxt) + 1
+                hi -= 1
                 took_tail = True
 
     if lo > hi:
@@ -2293,9 +2272,6 @@ async def cron_wednesday(request: Request):
 @router.api_route("/thursday", methods=["GET", "POST"])
 async def cron_thursday(request: Request):
     _verify_cron_secret(request)
-    paused = _scheduled_w39_pause(request, "thursday")
-    if paused is not None:
-        return paused
     body = await _parse_body(request)
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     with _test_mode_scope(body):
@@ -2364,9 +2340,6 @@ async def cron_thursday(request: Request):
 @router.api_route("/friday", methods=["GET", "POST"])
 async def cron_friday(request: Request):
     _verify_cron_secret(request)
-    paused = _scheduled_w39_pause(request, "friday")
-    if paused is not None:
-        return paused
     body = await _parse_body(request)
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     with _test_mode_scope(body):
@@ -2436,9 +2409,6 @@ async def cron_friday(request: Request):
 @router.api_route("/saturday", methods=["GET", "POST"])
 async def cron_saturday(request: Request):
     _verify_cron_secret(request)
-    paused = _scheduled_w39_pause(request, "saturday")
-    if paused is not None:
-        return paused
     body = await _parse_body(request)
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     with _test_mode_scope(body):
@@ -3019,9 +2989,6 @@ def _write_featured_photo(ep: dict, approved: dict, concept: str, episode_id: st
 @router.api_route("/sunday", methods=["GET", "POST"])
 async def cron_sunday(request: Request):
     _verify_cron_secret(request)
-    paused = _scheduled_w39_pause(request, "sunday")
-    if paused is not None:
-        return paused
     body = await _parse_body(request)
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
     with _test_mode_scope(body):

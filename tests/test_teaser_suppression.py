@@ -238,8 +238,8 @@ def test_an_own_week_refusal_note_is_written_until_that_week_publishes():
 # ---------------------------------------------------------------------------
 # pages/latest.json is global and belongs to the CURRENT ISO week only
 # (#7630 — Codex review of 2d0567b/6b86ede). regenerate_and_upload is the
-# single source of truth for this invariant: every caller (each day's cron,
-# a manual force=true retry, scripts/fix_w36_category_cuisine.py) can hand it
+# single source of truth for this invariant: every caller (each day's cron
+# or a manual force=true retry) can hand it
 # any episode, and it must render/upload THAT episode's own page regardless,
 # but only ever touch the global teaser/published marker for the current week.
 # ---------------------------------------------------------------------------
