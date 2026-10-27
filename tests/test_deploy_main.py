@@ -1,0 +1,352 @@
+"""Deployment must be sourced from fetched origin/main and verified by SHA."""
+
+from __future__ import annotations
+
+import json
+from contextlib import contextmanager
+from subprocess import CompletedProcess
+
+import pytest
+
+from scripts import deploy_main
+
+
+SHA = "0123456789abcdef0123456789abcdef01234567"
+
+
+def test_check_returns_zero_when_production_matches_origin_main(monkeypatch, capsys):
+    monkeypatch.setattr(deploy_main, "_fetch_origin_main", lambda: SHA)
+    monkeypatch.setattr(deploy_main, "_production_git_sha", lambda _url: SHA)
+
+    assert deploy_main.main(["--check"]) == 0
+    assert SHA in capsys.readouterr().out
+
+
+def test_check_returns_one_when_production_does_not_match_origin_main(monkeypatch, capsys):
+    monkeypatch.setattr(deploy_main, "_fetch_origin_main", lambda: SHA)
+    monkeypatch.setattr(deploy_main, "_production_git_sha", lambda _url: "different")
+
+    assert deploy_main.main(["--check"]) == 1
+    assert "gitSha mismatch" in capsys.readouterr().err
+
+
+def test_check_returns_one_when_production_metadata_is_missing(monkeypatch, capsys):
+    monkeypatch.setattr(deploy_main, "_fetch_origin_main", lambda: SHA)
+    monkeypatch.setattr(deploy_main, "_production_git_sha", lambda _url: None)
+
+    assert deploy_main.main(["--check"]) == 1
+    assert "found missing" in capsys.readouterr().err
+
+
+def test_deploy_sequence_proves_production_is_main_after_health(monkeypatch, tmp_path, capsys):
+    events = []
+
+    @contextmanager
+    def fake_worktree(sha):
+        events.append(("worktree", sha))
+        yield tmp_path
+
+    monkeypatch.setattr(deploy_main, "_fetch_origin_main", lambda: SHA)
+    monkeypatch.setattr(deploy_main, "_detached_origin_main", fake_worktree)
+    monkeypatch.setattr(
+        deploy_main,
+        "_deploy_preview",
+        lambda worktree, sha: events.append(("deploy", worktree, sha)) or "https://preview.example",
+    )
+    monkeypatch.setattr(
+        deploy_main,
+        "_health_check",
+        lambda worktree, base_url=None: events.append(("health", worktree, base_url)),
+    )
+    monkeypatch.setattr(
+        deploy_main, "_promote", lambda url: events.append(("promote", url))
+    )
+    monkeypatch.setattr(
+        deploy_main,
+        "_wait_for_production_sha",
+        lambda url, sha: events.append(("proof", url, sha)),
+    )
+
+    assert deploy_main.main([]) == 0
+    assert events == [
+        ("worktree", SHA),
+        ("deploy", tmp_path, SHA),
+        ("health", tmp_path, "https://preview.example"),
+        ("promote", "https://preview.example"),
+        ("health", tmp_path, None),
+        ("proof", deploy_main.PRODUCTION_URL, SHA),
+    ]
+    assert f"production is main: gitSha {SHA}" in capsys.readouterr().out
+
+
+def test_detached_worktree_is_created_at_fetched_sha(monkeypatch, tmp_path):
+    commands = []
+    parent = tmp_path / "deploy"
+    parent.mkdir()
+    monkeypatch.setattr(deploy_main.tempfile, "mkdtemp", lambda prefix: str(parent))
+    monkeypatch.setattr(deploy_main, "_read_project_link", lambda: deploy_main.EXPECTED_PROJECT_LINK.copy())
+    monkeypatch.setattr(deploy_main, "_copy_project_link", lambda *args: None)
+    monkeypatch.setattr(deploy_main, "_cleanup_temp_worktree", lambda *args: None)
+
+    def fake_git(command, *, cwd=deploy_main.ROOT):
+        commands.append((command, cwd))
+        if command == ["rev-parse", "HEAD"]:
+            return SHA
+        if command == ["rev-parse", "--abbrev-ref", "HEAD"]:
+            return "HEAD"
+        if command == ["status", "--porcelain"]:
+            return ""
+        return ""
+
+    monkeypatch.setattr(deploy_main, "_git", fake_git)
+
+    with deploy_main._detached_origin_main(SHA) as worktree:
+        assert worktree == parent / "source"
+
+    assert commands[0] == (
+        ["worktree", "add", "--detach", str(parent / "source"), SHA],
+        deploy_main.ROOT,
+    )
+    assert commands[1:] == [
+        (["rev-parse", "HEAD"], parent / "source"),
+        (["rev-parse", "--abbrev-ref", "HEAD"], parent / "source"),
+        (["status", "--porcelain"], parent / "source"),
+    ]
+
+
+def test_preview_deploy_passes_origin_sha_as_gitsha_metadata(monkeypatch, tmp_path):
+    seen = {}
+    responses = iter(
+        [
+            {"deployments": []},
+            {
+                "deployments": [
+                    {
+                        "uid": "new",
+                        "url": "preview.example",
+                        "target": "preview",
+                        "state": "READY",
+                        "meta": {"gitSha": SHA},
+                    }
+                ]
+            },
+        ]
+    )
+
+    def fake_vercel(command):
+        seen["command"] = command
+
+    monkeypatch.setattr(deploy_main, "_vercel", fake_vercel)
+    monkeypatch.setattr(deploy_main, "_read_project_link", lambda: deploy_main.EXPECTED_PROJECT_LINK.copy())
+    monkeypatch.setattr(
+        deploy_main,
+        "_vercel_api_json",
+        lambda path, params: next(responses),
+    )
+
+    assert deploy_main._deploy_preview(tmp_path, SHA) == "https://preview.example"
+    assert seen["command"] == [
+        "deploy",
+        str(tmp_path),
+        "--target=preview",
+        "--yes",
+        "--meta",
+        f"gitSha={SHA}",
+    ]
+
+
+def test_preview_excludes_old_same_sha_and_waits_for_ready(monkeypatch):
+    responses = iter(
+        [
+            {
+                "deployments": [
+                    {"uid": "old", "url": "old.example", "state": "READY", "meta": {"gitSha": SHA}},
+                    {"uid": "new", "url": "new.example", "state": "BUILDING", "meta": {"gitSha": SHA}},
+                ]
+            },
+            {
+                "deployments": [
+                    {"uid": "old", "url": "old.example", "state": "READY", "meta": {"gitSha": SHA}},
+                    {"uid": "new", "url": "new.example", "state": "READY", "meta": {"gitSha": SHA}},
+                ]
+            },
+        ]
+    )
+    sleeps = []
+    monkeypatch.setattr(deploy_main, "_vercel_api_json", lambda path, params: next(responses))
+    monkeypatch.setattr(deploy_main.time, "sleep", sleeps.append)
+
+    assert deploy_main._preview_deployment_url("project", SHA, {"old"}) == "https://new.example"
+    assert sleeps == [1]
+
+
+def test_preview_retry_exhaustion_is_bounded(monkeypatch):
+    deployment = {
+        "uid": "new",
+        "url": "new.example",
+        "state": "BUILDING",
+        "meta": {"gitSha": SHA},
+    }
+    monkeypatch.setattr(
+        deploy_main,
+        "_vercel_api_json",
+        lambda path, params: {"deployments": [deployment]},
+    )
+    sleeps = []
+    monkeypatch.setattr(deploy_main.time, "sleep", sleeps.append)
+
+    with pytest.raises(deploy_main.DeployError, match="after 3 retries"):
+        deploy_main._preview_deployment_url("project", SHA, set())
+    assert sleeps == [1, 2, 4]
+
+
+def test_production_sha_proof_waits_for_delayed_convergence(monkeypatch):
+    observed = iter([None, "different", SHA])
+    sleeps = []
+    monkeypatch.setattr(deploy_main, "_production_git_sha", lambda _url: next(observed))
+    monkeypatch.setattr(deploy_main.time, "sleep", sleeps.append)
+
+    deploy_main._wait_for_production_sha(deploy_main.PRODUCTION_URL, SHA)
+
+    assert sleeps == [1, 2]
+
+
+def test_production_sha_proof_times_out_after_three_retries(monkeypatch):
+    sleeps = []
+    monkeypatch.setattr(deploy_main, "_production_git_sha", lambda _url: None)
+    monkeypatch.setattr(deploy_main.time, "sleep", sleeps.append)
+
+    with pytest.raises(deploy_main.DeployError, match="after 3 retries"):
+        deploy_main._wait_for_production_sha(deploy_main.PRODUCTION_URL, SHA)
+
+    assert sleeps == [1, 2, 4]
+
+
+def test_deploy_fails_without_production_sha_proof_and_no_success_receipt(
+    monkeypatch, tmp_path, capsys
+):
+    @contextmanager
+    def fake_worktree(_sha):
+        yield tmp_path
+
+    monkeypatch.setattr(deploy_main, "_fetch_origin_main", lambda: SHA)
+    monkeypatch.setattr(deploy_main, "_detached_origin_main", fake_worktree)
+    monkeypatch.setattr(deploy_main, "_deploy_preview", lambda _worktree, _sha: "https://preview.example")
+    monkeypatch.setattr(deploy_main, "_health_check", lambda _worktree, base_url=None: None)
+    monkeypatch.setattr(deploy_main, "_promote", lambda _url: None)
+    monkeypatch.setattr(
+        deploy_main,
+        "_wait_for_production_sha",
+        lambda _url, _sha: (_ for _ in ()).throw(deploy_main.DeployError("production mismatch")),
+    )
+
+    assert deploy_main.main([]) == 1
+    output = capsys.readouterr()
+    assert "production is main" not in output.out
+    assert "production mismatch" in output.err
+
+
+def test_vercel_commands_use_workspace_safe_wrapper(monkeypatch, tmp_path):
+    wrapper = tmp_path / "vercel-safe-command.sh"
+    wrapper.write_text("#!/bin/sh\n", encoding="utf-8")
+    seen = {}
+    monkeypatch.setattr(deploy_main, "VERCEL_SAFE_COMMAND", wrapper)
+    monkeypatch.setattr(
+        deploy_main,
+        "_run",
+        lambda command, *, cwd: seen.update(command=command, cwd=cwd),
+    )
+
+    deploy_main._vercel(["promote", "https://preview.example", "--yes"])
+
+    assert seen == {
+        "command": [str(wrapper), "promote", "https://preview.example", "--yes"],
+        "cwd": deploy_main.ROOT,
+    }
+
+
+def test_project_link_must_exist_and_match_expected_project(tmp_path):
+    with pytest.raises(deploy_main.DeployError, match="missing"):
+        deploy_main._read_project_link(tmp_path)
+
+    project_path = tmp_path / ".vercel" / "project.json"
+    project_path.parent.mkdir()
+    project_path.write_text("not json", encoding="utf-8")
+    with pytest.raises(deploy_main.DeployError, match="malformed"):
+        deploy_main._read_project_link(tmp_path)
+
+    project_path.write_text(json.dumps({"projectId": "another-project"}), encoding="utf-8")
+    with pytest.raises(deploy_main.DeployError, match="does not match"):
+        deploy_main._read_project_link(tmp_path)
+
+
+def test_project_link_is_copied_only_after_validation(tmp_path):
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+
+    deploy_main._copy_project_link(worktree, deploy_main.EXPECTED_PROJECT_LINK)
+
+    project_bytes = (worktree / ".vercel" / "project.json").read_text(encoding="utf-8")
+    copied = json.loads(project_bytes)
+    assert copied == deploy_main.EXPECTED_PROJECT_LINK
+    assert project_bytes == json.dumps(deploy_main.EXPECTED_PROJECT_LINK, sort_keys=True) + "\n"
+
+    with pytest.raises(deploy_main.DeployError, match="unvalidated"):
+        deploy_main._copy_project_link(tmp_path / "other", {"projectId": "wrong"})
+
+
+def test_cleanup_unregisters_then_uses_recoverable_trash(monkeypatch, tmp_path):
+    parent = tmp_path / "deploy"
+    worktree = parent / "source"
+    worktree.mkdir(parents=True)
+    calls = []
+
+    def fake_run(command, *, cwd, capture_output, text, check):
+        calls.append(command)
+        return CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(deploy_main.subprocess, "run", fake_run)
+    deploy_main._cleanup_temp_worktree(worktree, parent)
+
+    assert calls == [
+        ["git", "worktree", "remove", "--force", str(worktree)],
+        ["trash", str(parent)],
+    ]
+
+
+def test_production_sha_uses_matching_production_alias(monkeypatch):
+    monkeypatch.setattr(deploy_main, "_read_project_link", lambda: deploy_main.EXPECTED_PROJECT_LINK.copy())
+    monkeypatch.setattr(
+        deploy_main,
+        "_vercel_api_json",
+        lambda path, params: {
+            "deployments": [
+                {
+                    "url": "preview.example",
+                    "alias": ["other.example"],
+                    "target": "production",
+                    "meta": {"gitSha": "wrong"},
+                },
+                {
+                    "url": "production.example",
+                    "alias": ["muffinpanrecipes.com"],
+                    "target": "production",
+                    "meta": {"gitSha": SHA},
+                },
+            ]
+        },
+    )
+
+    assert deploy_main._production_git_sha("https://muffinpanrecipes.com") == SHA
+
+
+def test_deployment_projection_allowlists_gitsha_metadata():
+    payload = {"url": "preview.example", "meta": {"gitSha": SHA, "secret": "ignored"}}
+    assert deploy_main._deployment_projection(payload) == {
+        "uid": None,
+        "url": "preview.example",
+        "aliases": (),
+        "target": None,
+        "state": None,
+        "gitSha": SHA,
+    }

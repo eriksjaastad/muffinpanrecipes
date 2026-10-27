@@ -36,7 +36,7 @@ The site prioritizes the "No-Fluff" philosophy: no bloggy preambles, no life sto
 
 ### Integration Context
 - **Existing infrastructure:** Discord webhooks for notifications (see `EXTERNAL_RESOURCES.yaml`).
-- **Hosting:** Vercel (auto-deploy from GitHub).
+- **Hosting:** Vercel (manual deploy from fetched `origin/main`).
 - **AI models:** Ollama for local LLM (Baker, Copywriter), future cloud models for others.
 
 ## 4) Target Users
@@ -303,7 +303,7 @@ review_notes: string (nullable, from Erik)
 2. `episode_renderer` renders the recipe page from the episode's `recipe_data` — a single renderer serves every recipe page (the 10 original recipes live as data in `src/seed_recipes.json` and render through the same path)
 3. The published episode and catalog (`pages/recipes.json`) are written to Vercel Blob as authoritative build sources
 4. The episode is marked `published_at` and a retryable source-publication state is stamped on it (sticky idempotency guard)
-5. An operator runs the explicit build → verify → promote flow. Note `build_site.py --preview` writes to `.scratch/site-preview` and is a local inspection aid only — the deployable artifacts come from a plain `build_site --full-rebuild`, which writes `src/`, and must be committed. Then `vercel deploy` (preview URL), #6687 against that URL, then `vercel promote <preview-url> --yes`. Promoting triggers a complete production rebuild, not an alias flip, so production is verified again afterwards. `DEPLOYMENT.md` owns the exact commands and the reasoning
+5. An operator merges the built artifacts to `main`, then runs `doppler run -- uv run python scripts/deploy_main.py`. The script fetches `origin/main`, deploys only a clean detached worktree with `gitSha` metadata, health-checks preview, promotes, and health-checks production. `build_site.py --preview` remains a local inspection aid; `DEPLOYMENT.md` owns the exact commands and reasoning
 6. `build_site` reads the authoritative Blob sources and emits static recipe pages, the catalog, and sitemap into `src/`, which are committed. This is a pre-commit step, not a deploy-time build — `DECISIONS.md` (2026-09-05) rejected deploy-time rendering explicitly
 7. `/recipes/{slug}` is served from those static artifacts, with the reader lambda as a fallback (`vercel.json` route 11 has `check: true`, route 13 catches the miss). **`/recipes.json` and `/sitemap.xml` are NOT** — `vercel.json` routes 9 and 10 send both to the lambda unconditionally, ahead of `handle: filesystem`. The committed `src/recipes.json` and `src/sitemap.xml` are build inputs and a record, not what readers receive
 
@@ -398,7 +398,7 @@ GET  /admin/stats                  # Pipeline statistics
 | Component | Technology |
 |-----------|------------|
 | Frontend | Static HTML + Tailwind CSS |
-| Hosting | Vercel (auto-deploy from GitHub) |
+| Hosting | Vercel (manual deploy from fetched `origin/main`) |
 | Image Generation | Stability AI via RunPod |
 | AI Orchestration | AI Router (local-first) + Agent Hub |
 | Admin Dashboard | FastAPI + Tailwind |

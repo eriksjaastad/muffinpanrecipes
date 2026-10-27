@@ -77,6 +77,19 @@ Before saying "I need to log in" to any third-party CLI, check Doppler. This rep
 
 Before merging anything that touches `cron_routes.py`, `episode_renderer.py`, `storage.py`, or the Sunday publish pipeline: read `RUNBOOK.md` at repo root. Match against known incidents. Run `doppler run -- uv run python scripts/health_check.py` before and after to confirm prod is healthy. These paths are live-publishing — a bug ships to readers, not just to a staging env.
 
+## Production deployment guard
+
+Production deploys use `doppler run -- uv run python scripts/deploy_main.py`.
+The script fetches `origin/main`, deploys only a clean detached worktree at
+that SHA with `gitSha` metadata, health-checks preview, promotes it,
+health-checks production, and proves the production alias resolves to that
+SHA. Use `--check` to fail when production metadata does not match the freshly
+fetched `origin/main`; do not deploy the caller's dirty
+checkout with a direct `vercel deploy`. The script requires the source
+checkout's `.vercel/project.json` to match this repository's project binding,
+copies only that ignored link into the detached worktree, and routes Vercel
+mutations through `~/.openclaw/workspace/ops/vercel-safe-command.sh`.
+
 ## Known incident: test-mode prefix contamination
 
 **RUNBOOK.md Incident 1 (2026-04-14).** Running a cron with `test=true` against prod Lambdas contaminated the storage singleton's prefix, causing the entire site to read from `test/pages/*` instead of `pages/*`. Site appeared "rolled back" — no data loss, just wrong read paths. **Permanent fix shipped:** `storage.prefix_scope()` context manager (PR #24, card #5917) wraps every cron handler so the prefix always resets, even on exception. See `RUNBOOK.md` for full diagnosis, recovery steps, and verification commands.
