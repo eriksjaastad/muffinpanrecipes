@@ -925,6 +925,22 @@ def test_render_home_featured_recipe_is_not_duplicated_in_the_grid() -> None:
     assert page.count('href="/recipes/alpha-cups"') == 1
 
 
+def test_render_home_hides_static_hero_until_live_catalog_resolves() -> None:
+    """The build catalog can lag the live Blob catalog between deploys.
+
+    Keep its crawlable/no-JS fallback in the HTML, but do not visibly paint a
+    stale recipe before the client refresh replaces it.
+    """
+    page = render_home(_home_catalog())
+    assert 'class="featured featured--catalog-pending"' in page
+    assert ".featured--catalog-pending > * { visibility: visible !important; }" in page
+    assert "revealFeaturedFallback();" in page
+    assert "featuredSection.classList.remove('featured--catalog-pending');" in page
+    assert "const HYDRATION_TIMEOUT_MS = 5000;" in page
+    assert "new AbortController()" in page
+    assert "fetch('recipes.json', { signal: controller.signal })" in page
+
+
 def test_render_home_handles_empty_catalog_without_crashing() -> None:
     """Defensive only — build_site.py itself refuses an empty catalog before
     ever calling this, but the renderer must not assume a non-empty list."""
