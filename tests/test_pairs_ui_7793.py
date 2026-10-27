@@ -139,7 +139,9 @@ def test_pair_payload_has_no_arm_names_or_judge_fields(running_server):
     status, payload = rs.get("/api/pair/1")
     assert status == 200
     assert set(payload.keys()) == {
-        "position", "total", "scenario", "concept", "picked", "reason", "transcript_a", "transcript_b",
+        "position", "total", "scenario", "concept", "day", "day_focus",
+        "comparison_index", "comparison_count", "version_count", "picked", "reason",
+        "transcript_a", "transcript_b",
     }
     serialized = json.dumps(payload)
     assert "judge" not in serialized
@@ -149,6 +151,33 @@ def test_pair_payload_has_no_arm_names_or_judge_fields(running_server):
     first_arm, second_arm = cl._blind_order(1)
     expected_a_text = "Control says X." if first_arm == "control" else "Variant says Y."
     assert payload["transcript_a"][0]["message"] == expected_a_text
+
+
+def test_pair_payload_explains_day_focus_and_grouped_versions_without_revealing_arms(running_server):
+    pairs = [
+        {
+            **_pair(1, overall="control", control_text="A1", variant_text="B1", scenario_id="week-1:sunday:1"),
+            "day": "sunday", "review_group": "week-1:sunday", "version_count": 4,
+        },
+        {
+            **_pair(2, overall="variant", control_text="A2", variant_text="B2", scenario_id="week-1:sunday:2"),
+            "day": "sunday", "review_group": "week-1:sunday", "version_count": 4,
+        },
+        {
+            **_pair(3, overall="control", control_text="A3", variant_text="B3", scenario_id="week-1:sunday:3"),
+            "day": "sunday", "review_group": "week-1:sunday", "version_count": 4,
+        },
+    ]
+    rs = running_server(pairs)
+    _, payload = rs.get("/api/pair/2")
+    assert payload["day"] == "sunday"
+    assert payload["day_focus"] == "Publish, verify the live page, and decide the social rollout."
+    assert payload["comparison_index"] == 2
+    assert payload["comparison_count"] == 3
+    assert payload["version_count"] == 4
+    serialized = json.dumps(payload)
+    assert '"control"' not in serialized
+    assert '"variant"' not in serialized
 
 
 def test_state_does_not_reveal_stats_before_finished(running_server):
@@ -315,8 +344,6 @@ def test_pick_cli_and_ui_produce_identical_container_state(tmp_path):
 
     # UI path: same two picks, one HTTP POST each.
     state = cl.PairsReviewState(path_ui, None)
-    order1 = cl._blind_order(1)
-    order2 = cl._blind_order(2)
     state.apply_pick(1, "A")
     state.apply_pick(2, "B")
 
