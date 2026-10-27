@@ -81,8 +81,8 @@ Before merging anything that touches `cron_routes.py`, `episode_renderer.py`, `s
 
 Production deploys use `doppler run -- uv run python scripts/deploy_main.py`.
 The script fetches `origin/main`, deploys only a clean detached worktree at
-that SHA with `gitSha` metadata, health-checks preview, promotes it,
-health-checks production, and proves the production alias resolves to that
+that SHA with `gitSha` metadata, health-checks preview, deploys that same
+worktree to production, health-checks production, and proves the production alias resolves to that
 SHA. Use `--check` to fail when production metadata does not match the freshly
 fetched `origin/main`; do not deploy the caller's dirty
 checkout with a direct `vercel deploy`. The script requires the source

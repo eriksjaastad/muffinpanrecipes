@@ -93,7 +93,7 @@ uv run python -m scripts.build_site
 #    sitemap.xml) on a feature branch and merge the reviewed change to main.
 
 # 3. Fetch origin/main, deploy a clean detached worktree to PREVIEW, health
-#    check it, promote it, and health check PRODUCTION.
+#    check it, deploy that same worktree to PRODUCTION, and verify it.
 doppler run -- uv run python scripts/deploy_main.py
 
 # 4. Read-only drift check: exits 1 if production is not the fetched main SHA.
@@ -101,8 +101,8 @@ doppler run -- uv run python scripts/deploy_main.py --check
 ```
 
 `deploy_main.py` is the only supported production deployment entry point. It
-binds the deploy to fetched `origin/main`, requires preview health before
-promotion, and requires production health plus provenance after promotion.
+binds the deploy to fetched `origin/main`, requires preview health before the
+production deploy, and requires production health plus provenance afterwards.
 See `uv run python scripts/deploy_main.py --help` and the module docstring for
 the operational procedure and bounded timing.
 

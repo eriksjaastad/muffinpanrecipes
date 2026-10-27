@@ -40,7 +40,9 @@ def test_check_returns_one_when_production_metadata_is_missing(monkeypatch, caps
     assert "found missing" in capsys.readouterr().err
 
 
-def test_deploy_sequence_proves_production_is_main_after_health(monkeypatch, tmp_path, capsys):
+def test_deploy_sequence_health_precedes_production_deploy_and_proof(
+    monkeypatch, tmp_path, capsys
+):
     events = []
 
     @contextmanager
@@ -61,7 +63,9 @@ def test_deploy_sequence_proves_production_is_main_after_health(monkeypatch, tmp
         lambda worktree, base_url=None: events.append(("health", worktree, base_url)),
     )
     monkeypatch.setattr(
-        deploy_main, "_promote", lambda url: events.append(("promote", url))
+        deploy_main,
+        "_deploy_production",
+        lambda worktree, sha: events.append(("production_deploy", worktree, sha)),
     )
     monkeypatch.setattr(
         deploy_main,
@@ -74,7 +78,7 @@ def test_deploy_sequence_proves_production_is_main_after_health(monkeypatch, tmp
         ("worktree", SHA),
         ("deploy", tmp_path, SHA),
         ("health", tmp_path, "https://preview.example"),
-        ("promote", "https://preview.example"),
+        ("production_deploy", tmp_path, SHA),
         ("proof", deploy_main.PRODUCTION_URL, SHA),
         ("health", tmp_path, None),
         ("proof", deploy_main.PRODUCTION_URL, SHA),
@@ -152,6 +156,23 @@ def test_preview_deploy_passes_origin_sha_as_gitsha_metadata(monkeypatch, tmp_pa
         "deploy",
         str(tmp_path),
         "--target=preview",
+        "--yes",
+        "--meta",
+        f"gitSha={SHA}",
+    ]
+
+
+def test_production_deploy_uses_same_worktree_and_sha(monkeypatch, tmp_path):
+    seen = {}
+
+    monkeypatch.setattr(deploy_main, "_vercel", lambda command: seen.update(command=command))
+
+    deploy_main._deploy_production(tmp_path, SHA)
+
+    assert seen["command"] == [
+        "deploy",
+        str(tmp_path),
+        "--prod",
         "--yes",
         "--meta",
         f"gitSha={SHA}",
@@ -298,7 +319,7 @@ def test_deploy_fails_without_production_sha_proof_and_no_success_receipt(
     monkeypatch.setattr(deploy_main, "_detached_origin_main", fake_worktree)
     monkeypatch.setattr(deploy_main, "_deploy_preview", lambda _worktree, _sha: "https://preview.example")
     monkeypatch.setattr(deploy_main, "_health_check", lambda _worktree, base_url=None: None)
-    monkeypatch.setattr(deploy_main, "_promote", lambda _url: None)
+    monkeypatch.setattr(deploy_main, "_deploy_production", lambda _worktree, _sha: None)
     monkeypatch.setattr(
         deploy_main,
         "_wait_for_production_sha",
@@ -329,7 +350,7 @@ def test_unhealthy_new_production_stops_before_final_provenance(monkeypatch, tmp
     monkeypatch.setattr(deploy_main, "_fetch_origin_main", lambda: SHA)
     monkeypatch.setattr(deploy_main, "_detached_origin_main", fake_worktree)
     monkeypatch.setattr(deploy_main, "_deploy_preview", lambda _worktree, _sha: "https://preview.example")
-    monkeypatch.setattr(deploy_main, "_promote", lambda _url: None)
+    monkeypatch.setattr(deploy_main, "_deploy_production", lambda _worktree, _sha: None)
     monkeypatch.setattr(deploy_main, "_health_check", fake_health)
     monkeypatch.setattr(deploy_main, "_wait_for_production_sha", fake_proof)
 
@@ -348,10 +369,18 @@ def test_vercel_commands_use_workspace_safe_wrapper(monkeypatch, tmp_path):
         lambda command, *, cwd, timeout: seen.update(command=command, cwd=cwd, timeout=timeout),
     )
 
-    deploy_main._vercel(["promote", "https://preview.example", "--yes"])
+    deploy_main._deploy_production(tmp_path, SHA)
 
     assert seen == {
-        "command": [str(wrapper), "promote", "https://preview.example", "--yes"],
+        "command": [
+            str(wrapper),
+            "deploy",
+            str(tmp_path),
+            "--prod",
+            "--yes",
+            "--meta",
+            f"gitSha={SHA}",
+        ],
         "cwd": deploy_main.ROOT,
         "timeout": deploy_main.VERCEL_TIMEOUT_SECONDS,
     }

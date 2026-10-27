@@ -16,7 +16,7 @@ Folded in from the original ADR list (README and `_docs_archive/core/ARCHITECTUR
 
 ### 2026-01-03: Deploy on every push via Vercel's GitHub integration (AD 002)
 
-**Status:** Superseded. Auto-deploy is off; deploys are manual (preview, health check, promote) and capped at 5 a day. See `DEPLOYMENT.md`.
+**Status:** Superseded. Auto-deploy is off; deploys are manual (preview, health check, production deploy) and capped at 5 a day. See `DEPLOYMENT.md`.
 
 ### 2026-01-03: "No-fluff" recipe pages (AD 003)
 
@@ -98,7 +98,7 @@ Folded in from the original ADR list (README and `_docs_archive/core/ARCHITECTUR
 
 **Alternatives considered:** Deploy-time build via `@vercel/static-build` (rejected: every deploy becomes a full rebuild; unproven in this project's build container). Full static including `/this-week` (rejected: stale between manual deploys, and re-enabling any automated deploy reopens the closed auto-deploy decision). Git growth from committed HTML is roughly one 30 KB file per week, accepted.
 
-**Operator ritual:** weekly `uv run python scripts/build_site.py` (incremental) → commit and merge `src/**` → `doppler run -- uv run python scripts/deploy_main.py`. The script fetches `origin/main`, deploys a clean detached worktree with `gitSha` metadata, health-checks preview, promotes, and health-checks production. `--full-rebuild` only when a renderer change is meant to reach every page. **`DEPLOYMENT.md` owns this procedure** — it explains why `--yes` is required non-interactively, and why promoting is a full production rebuild rather than an alias flip, which is what makes the post-promote production check a separate step. Do not restate the mechanism here; follow the link.
+**Operator ritual:** weekly `uv run python scripts/build_site.py` (incremental) → commit and merge `src/**` → `doppler run -- uv run python scripts/deploy_main.py`. The script fetches `origin/main`, deploys a clean detached worktree with `gitSha` metadata, health-checks preview, deploys that same worktree to production, and health-checks production. `--full-rebuild` only when a renderer change is meant to reach every page. **`DEPLOYMENT.md` owns this procedure** — do not restate the command mechanism here; follow the link.
 
 ### 2026-10-27: Production deploys come only from fetched origin/main (#8616)
 
@@ -107,10 +107,10 @@ or dirty source instead of the reviewed main commit.
 
 **Decision:** `scripts/deploy_main.py` fetches `origin/main`, creates a clean
 detached worktree at that SHA, sends `gitSha` metadata to Vercel, health-checks
-preview before promotion, and health-checks production afterwards. `--check`
+preview before the production deploy, and health-checks production afterwards. `--check`
 fails when production metadata does not match the freshly fetched SHA.
 
-**Reasoning:** The source, preview verification, promotion, and production
+**Reasoning:** The source, preview verification, production deploy, and production
 verification are bound to one explicit commit without requiring a clean caller
 checkout.
 
@@ -136,7 +136,7 @@ checkout.
 
 **Decision:** `hero_image_url` on the episode is authoritative in both the renderer and the builder. Sunday writes it before the page renders; `scripts/pin_published_heroes.py` backfilled the 25 live weeks from the exact image each production page shows (0 of 25 differ after rebuild). The fallback route matches `/src/recipes/<slug>/index.html` and the app answers that path like `/recipes/<slug>`; the proof is that a missing slug returns the Lambda's own "Recipe not found", not the static 404.
 
-**Reasoning:** A pin that depends on a rule is not a pin. Two copies of one rule drift. Routing semantics that are not documented must be proven on a preview before promotion, which is why the deploy ritual keeps the preview step.
+**Reasoning:** A pin that depends on a rule is not a pin. Two copies of one rule drift. Routing semantics that are not documented must be proven on a preview before the production deploy, which is why the deploy ritual keeps the preview step.
 
 ### 2026-09-06: Conversation lab - measure, one lever, offline blind A/B, ship, confirm live (#6492)
 
