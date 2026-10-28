@@ -84,39 +84,90 @@ def rclone(*args: str, binary: bool = False) -> str | bytes:
     return result.stdout
 
 
-def _remote_state(remote: str) -> dict | None:
-    """Read the latest remote manifest; missing is valid only before run one."""
-    name, remote_path = _remote_parts(remote)
-    source = f"{name}:{posixpath.join(remote_path, 'latest.json')}"
+def _rclone_read(source: str, *, timeout: int = 120) -> str | None:
+    """Read one remote text object; return None only for expected absence."""
     try:
         result = subprocess.run(
             ["rclone", "cat", source],
             check=False,
             capture_output=True,
             text=True,
-            timeout=120,
+            timeout=timeout,
         )
     except subprocess.TimeoutExpired:
-        raise MirrorError("rclone cat exceeded 2 minutes") from None
+        raise MirrorError(f"rclone cat exceeded {timeout // 60} minutes") from None
     if result.returncode in {3, 4}:
         return None
     if result.returncode:
         raise MirrorError(f"rclone cat failed (exit {result.returncode})")
+    return result.stdout
+
+
+def _remote_state(remote: str) -> dict | None:
+    """Rebuild authoritative state from immutable remote run manifests."""
+    name, remote_path = _remote_parts(remote)
+    manifest_dir = f"{name}:{posixpath.join(remote_path, 'manifests')}"
     try:
-        manifest = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        raise MirrorError("Remote image-mirror state is not valid JSON") from None
-    if manifest.get("version") != 1 or not isinstance(manifest.get("objects"), dict):
-        raise MirrorError("Remote image-mirror state has an unsupported shape")
+        result = subprocess.run(
+            ["rclone", "lsf", manifest_dir, "--files-only"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        raise MirrorError("rclone lsf exceeded 2 minutes") from None
+    if result.returncode in {3, 4}:
+        manifest_names: list[str] = []
+    elif result.returncode:
+        raise MirrorError(f"rclone lsf failed (exit {result.returncode})")
+    else:
+        manifest_names = sorted(
+            name for name in result.stdout.splitlines() if name.endswith(".json")
+        )
+
+    manifests: list[dict] = []
+    for manifest_name in manifest_names:
+        source = f"{manifest_dir}/{manifest_name}"
+        raw = _rclone_read(source)
+        if raw is None:
+            raise MirrorError("An indexed remote image-mirror manifest is missing")
+        try:
+            manifest = json.loads(raw)
+        except json.JSONDecodeError:
+            raise MirrorError("Remote image-mirror state is not valid JSON") from None
+        if manifest.get("version") != 1 or not isinstance(manifest.get("objects"), dict):
+            raise MirrorError("Remote image-mirror state has an unsupported shape")
+        manifests.append(manifest)
+
+    if not manifests:
+        # Compatibility for a copy interrupted before its immutable run
+        # manifest existed. New runs always publish manifests first.
+        raw = _rclone_read(f"{name}:{posixpath.join(remote_path, 'latest.json')}")
+        if raw is None:
+            return None
+        try:
+            manifest = json.loads(raw)
+        except json.JSONDecodeError:
+            raise MirrorError("Remote image-mirror state is not valid JSON") from None
+        if manifest.get("version") != 1 or not isinstance(manifest.get("objects"), dict):
+            raise MirrorError("Remote image-mirror state has an unsupported shape")
+        manifests = [manifest]
+
+    manifests.sort(key=lambda manifest: str(manifest.get("created_at") or ""))
+    objects: dict[str, dict] = {}
+    for manifest in manifests:
+        objects.update(manifest["objects"])
+    latest = manifests[-1]
     return {
         "version": 1,
         "remote": remote,
-        "last_run_id": manifest.get("run_id"),
-        "finished_at": manifest.get("created_at"),
-        "source": manifest.get("source"),
-        "complete": manifest.get("complete", False),
-        "pending_objects": manifest.get("pending_objects"),
-        "objects": manifest["objects"],
+        "last_run_id": latest.get("run_id"),
+        "finished_at": latest.get("created_at"),
+        "source": latest.get("source"),
+        "complete": latest.get("complete", False),
+        "pending_objects": latest.get("pending_objects"),
+        "objects": objects,
     }
 
 
@@ -155,10 +206,15 @@ def _empty_state(remote: str) -> dict:
 
 
 def load_state(path: Path, remote: str) -> dict:
-    if not path.exists():
-        state = _remote_state(remote) or _empty_state(remote)
-    else:
+    # Immutable remote run manifests are authoritative. Local state is a fast
+    # cache only when no remote run exists yet.
+    remote_state = _remote_state(remote)
+    if remote_state is not None:
+        state = remote_state
+    elif path.exists():
         state = json.loads(path.read_text())
+    else:
+        state = _empty_state(remote)
     if state.get("version") != 1 or not isinstance(state.get("objects"), dict):
         raise MirrorError("Local image-mirror state has an unsupported shape")
     if state.get("remote") != remote:
@@ -242,90 +298,117 @@ def mirror(
     max_bytes: int = 0,
 ) -> dict:
     """Mirror a bounded set of changed images and atomically advance state."""
-    name, remote_path = _remote_parts(remote)
-    rclone("backend", "features", remote)
-    if not os.environ.get("BLOB_READ_WRITE_TOKEN"):
-        raise MirrorError("BLOB_READ_WRITE_TOKEN is required; run under Doppler")
     state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     with (state_dir / ".lock").open("a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise MirrorError("Another image mirror is running") from None
+        attempt_path = state_dir / "attempt.json"
+        attempt = {"status": "running", "started_at": clock().isoformat()}
+        write_json(attempt_path, attempt)
+        try:
+            name, remote_path = _remote_parts(remote)
+            rclone("backend", "features", remote)
+            if not os.environ.get("BLOB_READ_WRITE_TOKEN"):
+                raise MirrorError("BLOB_READ_WRITE_TOKEN is required; run under Doppler")
+            state_path = state_dir / "state.json"
+            state = load_state(state_path, remote)
+            blob = _CloudBackend()
+            images = list_images(blob)
+            selected, remaining = select_changes(images, state, max_objects, max_bytes)
+            run_id = clock().strftime("%Y%m%dT%H%M%SZ") + "-" + uuid4().hex[:8]
 
-        state_path = state_dir / "state.json"
-        state = load_state(state_path, remote)
-        blob = _CloudBackend()
-        images = list_images(blob)
-        selected, remaining = select_changes(images, state, max_objects, max_bytes)
-        run_id = clock().strftime("%Y%m%dT%H%M%SZ") + "-" + uuid4().hex[:8]
+            with tempfile.TemporaryDirectory(prefix="muffin-image-mirror-") as temporary:
+                stage = Path(temporary)
+                updated = dict(state["objects"])
+                transferred_bytes = 0
+                for record in selected:
+                    entry = download(blob, record, stage)
+                    updated[record["pathname"]] = entry
+                    transferred_bytes += entry["bytes"]
 
-        with tempfile.TemporaryDirectory(prefix="muffin-image-mirror-") as temporary:
-            stage = Path(temporary)
-            updated = dict(state["objects"])
-            transferred_bytes = 0
-            for record in selected:
-                entry = download(blob, record, stage)
-                updated[record["pathname"]] = entry
-                transferred_bytes += entry["bytes"]
+                manifest = {
+                    "version": 1,
+                    "remote": remote,
+                    "run_id": run_id,
+                    "created_at": clock().isoformat(),
+                    "source": inventory(images),
+                    "complete": remaining == 0,
+                    "pending_objects": remaining,
+                    "transferred_objects": len(selected),
+                    "transferred_bytes": transferred_bytes,
+                    "objects": updated,
+                }
+                manifests = stage / "manifests"
+                manifests.mkdir()
+                write_json(manifests / f"{run_id}.json", manifest)
+                destination = f"{name}:{posixpath.join(remote_path, '')}"
+                rclone("copy", str(stage), destination)
+                rclone("check", str(stage), destination, "--one-way")
+                # Publish latest only after every body and immutable run
+                # manifest verifies. A failed partial copy can never become
+                # recoverable state that claims missing objects are offsite.
+                latest = stage / "latest.json"
+                write_json(latest, manifest)
+                remote_latest = f"{name}:{posixpath.join(remote_path, 'latest.json')}"
+                rclone("copyto", str(latest), remote_latest)
+                if rclone("cat", remote_latest, binary=True) != latest.read_bytes():
+                    raise MirrorError("Remote latest manifest failed byte verification")
 
-            manifest = {
+            local_state = {
                 "version": 1,
                 "remote": remote,
-                "run_id": run_id,
-                "created_at": clock().isoformat(),
-                "source": inventory(images),
-                "complete": remaining == 0,
-                "pending_objects": remaining,
-                "transferred_objects": len(selected),
-                "transferred_bytes": transferred_bytes,
+                "last_run_id": run_id,
+                "finished_at": clock().isoformat(),
+                "source": manifest["source"],
+                "complete": manifest["complete"],
+                "pending_objects": manifest["pending_objects"],
                 "objects": updated,
             }
-            manifests = stage / "manifests"
-            manifests.mkdir()
-            write_json(manifests / f"{run_id}.json", manifest)
-            destination = f"{name}:{posixpath.join(remote_path, '')}"
-            rclone("copy", str(stage), destination)
-            rclone("check", str(stage), destination, "--one-way")
-            # Publish latest only after every body and immutable run manifest
-            # verifies.  A failed partial copy can never become recoverable
-            # state that claims missing objects are safely offsite.
-            latest = stage / "latest.json"
-            write_json(latest, manifest)
-            remote_latest = f"{name}:{posixpath.join(remote_path, 'latest.json')}"
-            rclone("copyto", str(latest), remote_latest)
-            if rclone("cat", remote_latest, binary=True) != latest.read_bytes():
-                raise MirrorError("Remote latest manifest failed byte verification")
-
-        local_state = {
-            "version": 1,
-            "remote": remote,
-            "last_run_id": run_id,
-            "finished_at": clock().isoformat(),
-            "source": manifest["source"],
-            "complete": manifest["complete"],
-            "pending_objects": manifest["pending_objects"],
-            "objects": updated,
-        }
-        write_json(state_path, local_state)
-        return {
-            "status": "complete",
-            "run_id": run_id,
-            "source_objects": len(images),
-            "source_bytes": manifest["source"]["bytes"],
-            "transferred_objects": len(selected),
-            "transferred_bytes": transferred_bytes,
-            "pending_objects": remaining,
-            "mirror_complete": remaining == 0,
-            "destination": remote,
-        }
+            write_json(state_path, local_state)
+            result = {
+                "status": "complete",
+                "run_id": run_id,
+                "source_objects": len(images),
+                "source_bytes": manifest["source"]["bytes"],
+                "transferred_objects": len(selected),
+                "transferred_bytes": transferred_bytes,
+                "pending_objects": remaining,
+                "mirror_complete": remaining == 0,
+                "destination": remote,
+            }
+        except Exception as exc:
+            attempt.update(
+                status="failed",
+                finished_at=clock().isoformat(),
+                error=str(exc) if isinstance(exc, MirrorError) else type(exc).__name__,
+            )
+            write_json(attempt_path, attempt)
+            raise
+        attempt.update(status="complete", finished_at=clock().isoformat(), run_id=result["run_id"])
+        write_json(attempt_path, attempt)
+        return result
 
 
 def status(state_dir: Path) -> dict:
-    state = json.loads((state_dir / "state.json").read_text())
-    age = clock() - datetime.fromisoformat(state["finished_at"])
-    state["stale"] = not timedelta(0) <= age <= timedelta(days=8)
-    state["healthy"] = bool(state.get("complete")) and not state["stale"]
+    state_path = state_dir / "state.json"
+    attempt_path = state_dir / "attempt.json"
+    state = json.loads(state_path.read_text()) if state_path.exists() else {}
+    attempt = json.loads(attempt_path.read_text()) if attempt_path.exists() else None
+    finished_at = state.get("finished_at")
+    stale = (
+        True
+        if not finished_at
+        else not timedelta(0)
+        <= (clock() - datetime.fromisoformat(finished_at))
+        <= timedelta(days=8)
+    )
+    state["stale"] = stale
+    state["last_attempt"] = attempt
+    state["healthy"] = bool(
+        state.get("complete") and not stale and attempt and attempt.get("status") == "complete"
+    )
     return state
 
 

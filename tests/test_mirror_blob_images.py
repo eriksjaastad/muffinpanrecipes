@@ -120,6 +120,42 @@ def test_remote_manifest_recovers_lost_local_state_without_redownload(environmen
     get.assert_not_called()
 
 
+def test_separate_state_directory_continues_from_remote_progress(environment, tmp_path):
+    images = [_image("images/a.webp", b"a"), _image("images/b.webp", b"bb")]
+    _run(environment, images, max_objects=1)
+    _, remote, remote_root = environment
+    second_environment = (tmp_path / "other-state", remote, remote_root)
+
+    report, get = _run(second_environment, images)
+
+    assert report["transferred_objects"] == 1
+    assert report["mirror_complete"] is True
+    assert get.call_args.args[0].endswith("b.webp")
+
+
+def test_failed_attempt_makes_status_unhealthy_until_recovery(environment):
+    image = _image("images/hero.webp", b"body")
+    _run(environment, [image])
+    state_dir, remote, _ = environment
+    assert mirror_blob_images.status(state_dir)["healthy"] is True
+
+    with patch.object(
+        mirror_blob_images,
+        "list_images",
+        side_effect=mirror_blob_images.MirrorError("listing failed"),
+    ):
+        with pytest.raises(mirror_blob_images.MirrorError, match="listing failed"):
+            mirror_blob_images.mirror(state_dir, remote)
+    failed = mirror_blob_images.status(state_dir)
+    assert failed["healthy"] is False
+    assert failed["last_attempt"]["status"] == "failed"
+
+    _run(environment, [image])
+    recovered = mirror_blob_images.status(state_dir)
+    assert recovered["healthy"] is True
+    assert recovered["last_attempt"]["status"] == "complete"
+
+
 def test_remote_failure_does_not_advance_local_state(environment):
     state_dir, remote, _ = environment
     image = _image("images/hero.jpg", b"body")
