@@ -103,13 +103,24 @@ def _rclone_read(source: str, *, timeout: int = 120) -> str | None:
     return result.stdout
 
 
-def _remote_state(remote: str) -> dict | None:
-    """Rebuild authoritative state from immutable remote run manifests."""
+def _source_fingerprint(record: dict) -> str:
+    """Identify one source version without persisting its authenticated URL."""
+    source = {
+        "pathname": record.get("pathname"),
+        "size": int(record.get("size") or 0),
+        "uploaded_at": record.get("uploadedAt"),
+        "url": record.get("url"),
+    }
+    return hashlib.sha256(json.dumps(source, sort_keys=True).encode()).hexdigest()
+
+
+def _remote_state(remote: str, cached_commits: dict | None = None) -> dict:
+    """Rebuild state from conflict-safe per-source-version commit markers."""
     name, remote_path = _remote_parts(remote)
-    manifest_dir = f"{name}:{posixpath.join(remote_path, 'manifests')}"
+    commit_dir = f"{name}:{posixpath.join(remote_path, 'commits')}"
     try:
         result = subprocess.run(
-            ["rclone", "lsf", manifest_dir, "--files-only"],
+            ["rclone", "lsf", commit_dir, "--files-only"],
             check=False,
             capture_output=True,
             text=True,
@@ -118,55 +129,52 @@ def _remote_state(remote: str) -> dict | None:
     except subprocess.TimeoutExpired:
         raise MirrorError("rclone lsf exceeded 2 minutes") from None
     if result.returncode in {3, 4}:
-        manifest_names: list[str] = []
+        commit_names: list[str] = []
     elif result.returncode:
         raise MirrorError(f"rclone lsf failed (exit {result.returncode})")
     else:
-        manifest_names = sorted(
-            name for name in result.stdout.splitlines() if name.endswith(".json")
+        commit_names = sorted(
+            name for name in result.stdout.splitlines() if re.fullmatch(r"[0-9a-f]{64}\.json", name)
         )
 
-    manifests: list[dict] = []
-    for manifest_name in manifest_names:
-        source = f"{manifest_dir}/{manifest_name}"
-        raw = _rclone_read(source)
-        if raw is None:
-            raise MirrorError("An indexed remote image-mirror manifest is missing")
-        try:
-            manifest = json.loads(raw)
-        except json.JSONDecodeError:
-            raise MirrorError("Remote image-mirror state is not valid JSON") from None
-        if manifest.get("version") != 1 or not isinstance(manifest.get("objects"), dict):
-            raise MirrorError("Remote image-mirror state has an unsupported shape")
-        manifests.append(manifest)
+    cached_commits = cached_commits or {}
+    commits: dict[str, dict] = {}
+    for commit_name in commit_names:
+        fingerprint = commit_name.removesuffix(".json")
+        marker = cached_commits.get(fingerprint)
+        if marker is None:
+            raw = _rclone_read(f"{commit_dir}/{commit_name}")
+            if raw is None:
+                raise MirrorError("An indexed image-mirror commit marker is missing")
+            try:
+                marker = json.loads(raw)
+            except json.JSONDecodeError:
+                raise MirrorError("Remote image-mirror commit is not valid JSON") from None
+        if (
+            marker.get("version") != 2
+            or marker.get("source_fingerprint") != fingerprint
+            or not isinstance(marker.get("entry"), dict)
+            or not marker.get("pathname")
+        ):
+            raise MirrorError("Remote image-mirror commit has an unsupported shape")
+        commits[fingerprint] = marker
 
-    if not manifests:
-        # Compatibility for a copy interrupted before its immutable run
-        # manifest existed. New runs always publish manifests first.
-        raw = _rclone_read(f"{name}:{posixpath.join(remote_path, 'latest.json')}")
-        if raw is None:
-            return None
-        try:
-            manifest = json.loads(raw)
-        except json.JSONDecodeError:
-            raise MirrorError("Remote image-mirror state is not valid JSON") from None
-        if manifest.get("version") != 1 or not isinstance(manifest.get("objects"), dict):
-            raise MirrorError("Remote image-mirror state has an unsupported shape")
-        manifests = [manifest]
-
-    manifests.sort(key=lambda manifest: str(manifest.get("created_at") or ""))
     objects: dict[str, dict] = {}
-    for manifest in manifests:
-        objects.update(manifest["objects"])
-    latest = manifests[-1]
+    object_order: dict[str, tuple[str, str, str]] = {}
+    for fingerprint, marker in commits.items():
+        pathname = marker["pathname"]
+        order = (
+            str(marker.get("uploaded_at") or ""),
+            str(marker.get("mirrored_at") or ""),
+            fingerprint,
+        )
+        if order > object_order.get(pathname, ("", "", "")):
+            objects[pathname] = marker["entry"]
+            object_order[pathname] = order
     return {
-        "version": 1,
+        "version": 2,
         "remote": remote,
-        "last_run_id": latest.get("run_id"),
-        "finished_at": latest.get("created_at"),
-        "source": latest.get("source"),
-        "complete": latest.get("complete", False),
-        "pending_objects": latest.get("pending_objects"),
+        "commits": commits,
         "objects": objects,
     }
 
@@ -202,20 +210,14 @@ def inventory(images: list[dict]) -> dict:
 
 
 def _empty_state(remote: str) -> dict:
-    return {"version": 1, "remote": remote, "objects": {}}
+    return {"version": 2, "remote": remote, "commits": {}, "objects": {}}
 
 
 def load_state(path: Path, remote: str) -> dict:
-    # Immutable remote run manifests are authoritative. Local state is a fast
-    # cache only when no remote run exists yet.
-    remote_state = _remote_state(remote)
-    if remote_state is not None:
-        state = remote_state
-    elif path.exists():
-        state = json.loads(path.read_text())
-    else:
-        state = _empty_state(remote)
-    if state.get("version") != 1 or not isinstance(state.get("objects"), dict):
+    cached = json.loads(path.read_text()) if path.exists() else _empty_state(remote)
+    cached_commits = cached.get("commits") if cached.get("version") == 2 else None
+    state = _remote_state(remote, cached_commits)
+    if state.get("version") != 2 or not isinstance(state.get("objects"), dict):
         raise MirrorError("Local image-mirror state has an unsupported shape")
     if state.get("remote") != remote:
         raise MirrorError("Configured image-mirror destination differs from local state")
@@ -223,13 +225,7 @@ def load_state(path: Path, remote: str) -> dict:
 
 
 def _unchanged(record: dict, previous: dict | None) -> bool:
-    uploaded_at = record.get("uploadedAt")
-    return bool(
-        previous
-        and uploaded_at
-        and previous.get("bytes") == int(record.get("size") or 0)
-        and previous.get("uploaded_at") == uploaded_at
-    )
+    return bool(previous and previous.get("source_fingerprint") == _source_fingerprint(record))
 
 
 def select_changes(
@@ -287,6 +283,7 @@ def download(blob: _CloudBackend, record: dict, directory: Path) -> dict:
         "bytes": length,
         "object": f"objects/{sha256}",
         "sha256": sha256,
+        "source_fingerprint": _source_fingerprint(record),
         "uploaded_at": record.get("uploadedAt"),
     }
 
@@ -321,16 +318,44 @@ def mirror(
 
             with tempfile.TemporaryDirectory(prefix="muffin-image-mirror-") as temporary:
                 stage = Path(temporary)
-                updated = dict(state["objects"])
+                bodies = stage / "bodies"
+                bodies.mkdir()
                 transferred_bytes = 0
+                markers: dict[str, dict] = {}
                 for record in selected:
-                    entry = download(blob, record, stage)
-                    updated[record["pathname"]] = entry
+                    entry = download(blob, record, bodies)
                     transferred_bytes += entry["bytes"]
+                    fingerprint = entry["source_fingerprint"]
+                    markers[fingerprint] = {
+                        "version": 2,
+                        "source_fingerprint": fingerprint,
+                        "pathname": record["pathname"],
+                        "uploaded_at": record.get("uploadedAt"),
+                        "mirrored_at": clock().isoformat(),
+                        "entry": entry,
+                    }
 
+                destination = f"{name}:{posixpath.join(remote_path, '')}"
+                rclone("copy", str(bodies), destination)
+                rclone("check", str(bodies), destination, "--one-way")
+
+                # A commit marker becomes authoritative only after its body is
+                # offsite and verified. Per-version markers make overlapping
+                # runners converge without overwriting a shared snapshot.
+                marker_stage = stage / "marker-stage" / "commits"
+                marker_stage.mkdir(parents=True)
+                for fingerprint, marker in markers.items():
+                    write_json(marker_stage / f"{fingerprint}.json", marker)
+                rclone("copy", str(stage / "marker-stage"), destination)
+                rclone("check", str(stage / "marker-stage"), destination, "--one-way")
+
+                verified = _remote_state(remote, {**state["commits"], **markers})
+                remaining = sum(
+                    not _unchanged(image, verified["objects"].get(image.get("pathname")))
+                    for image in images
+                )
                 manifest = {
-                    "version": 1,
-                    "remote": remote,
+                    "version": 2,
                     "run_id": run_id,
                     "created_at": clock().isoformat(),
                     "source": inventory(images),
@@ -338,33 +363,25 @@ def mirror(
                     "pending_objects": remaining,
                     "transferred_objects": len(selected),
                     "transferred_bytes": transferred_bytes,
-                    "objects": updated,
+                    "source_fingerprints": sorted(markers),
                 }
-                manifests = stage / "manifests"
-                manifests.mkdir()
-                write_json(manifests / f"{run_id}.json", manifest)
-                destination = f"{name}:{posixpath.join(remote_path, '')}"
-                rclone("copy", str(stage), destination)
-                rclone("check", str(stage), destination, "--one-way")
-                # Publish latest only after every body and immutable run
-                # manifest verifies. A failed partial copy can never become
-                # recoverable state that claims missing objects are offsite.
-                latest = stage / "latest.json"
-                write_json(latest, manifest)
-                remote_latest = f"{name}:{posixpath.join(remote_path, 'latest.json')}"
-                rclone("copyto", str(latest), remote_latest)
-                if rclone("cat", remote_latest, binary=True) != latest.read_bytes():
-                    raise MirrorError("Remote latest manifest failed byte verification")
+                run_manifest = stage / f"{run_id}.json"
+                write_json(run_manifest, manifest)
+                remote_manifest = f"{name}:{posixpath.join(remote_path, 'runs', run_manifest.name)}"
+                rclone("copyto", str(run_manifest), remote_manifest)
+                if rclone("cat", remote_manifest, binary=True) != run_manifest.read_bytes():
+                    raise MirrorError("Remote run manifest failed byte verification")
 
             local_state = {
-                "version": 1,
+                "version": 2,
                 "remote": remote,
                 "last_run_id": run_id,
                 "finished_at": clock().isoformat(),
                 "source": manifest["source"],
                 "complete": manifest["complete"],
                 "pending_objects": manifest["pending_objects"],
-                "objects": updated,
+                "commits": verified["commits"],
+                "objects": verified["objects"],
             }
             write_json(state_path, local_state)
             result = {
@@ -458,9 +475,9 @@ def main(argv: list[str] | None = None) -> int:
             report = restore_sample(args.state_dir, args.remote, args.pathname, args.output)
             ok = True
         else:
-            if not os.environ.get("BLOB_READ_WRITE_TOKEN"):
-                raise MirrorError("BLOB_READ_WRITE_TOKEN is required; run under Doppler")
             if args.action == "inventory":
+                if not os.environ.get("BLOB_READ_WRITE_TOKEN"):
+                    raise MirrorError("BLOB_READ_WRITE_TOKEN is required; run under Doppler")
                 images = list_images(_CloudBackend())
                 report = {"status": "complete", **inventory(images)}
             else:

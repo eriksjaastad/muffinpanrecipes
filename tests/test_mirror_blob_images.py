@@ -133,6 +133,23 @@ def test_separate_state_directory_continues_from_remote_progress(environment, tm
     assert get.call_args.args[0].endswith("b.webp")
 
 
+def test_stale_overlapping_view_cannot_revert_newer_path_version(environment, tmp_path):
+    old_a = _image("images/a.webp", b"old-a", "2026-10-27T00:00:00Z")
+    old_b = _image("images/b.webp", b"old-b", "2026-10-27T00:00:00Z")
+    _run(environment, [old_a, old_b])
+    new_a = _image("images/a.webp", b"new-a", "2026-10-28T00:00:00Z")
+    _run(environment, [new_a, old_b])
+
+    _, remote, remote_root = environment
+    stale_runner = (tmp_path / "stale-runner", remote, remote_root)
+    new_b = _image("images/b.webp", b"new-b", "2026-10-28T00:00:00Z")
+    _run(stale_runner, [old_a, new_b])
+
+    reconciled = mirror_blob_images.load_state(tmp_path / "third-runner.json", remote)
+    assert reconciled["objects"]["images/a.webp"]["sha256"] == hashlib.sha256(b"new-a").hexdigest()
+    assert reconciled["objects"]["images/b.webp"]["sha256"] == hashlib.sha256(b"new-b").hexdigest()
+
+
 def test_failed_attempt_makes_status_unhealthy_until_recovery(environment):
     image = _image("images/hero.webp", b"body")
     _run(environment, [image])
@@ -154,6 +171,51 @@ def test_failed_attempt_makes_status_unhealthy_until_recovery(environment):
     recovered = mirror_blob_images.status(state_dir)
     assert recovered["healthy"] is True
     assert recovered["last_attempt"]["status"] == "complete"
+
+
+def test_cli_missing_credential_is_recorded_as_failed_attempt(environment, monkeypatch):
+    image = _image("images/hero.webp", b"body")
+    _run(environment, [image])
+    state_dir, remote, _ = environment
+    monkeypatch.delenv("BLOB_READ_WRITE_TOKEN")
+
+    assert (
+        mirror_blob_images.main(["mirror", "--state-dir", str(state_dir), "--remote", remote]) == 1
+    )
+    failed = mirror_blob_images.status(state_dir)
+    assert failed["healthy"] is False
+    assert failed["last_attempt"]["error"] == "BLOB_READ_WRITE_TOKEN is required; run under Doppler"
+
+    monkeypatch.setenv("BLOB_READ_WRITE_TOKEN", "fixture-token")
+    _run(environment, [image])
+    assert mirror_blob_images.status(state_dir)["healthy"] is True
+
+
+def test_body_check_failure_never_publishes_authoritative_commit(environment):
+    state_dir, remote, remote_root = environment
+    image = _image("images/hero.jpg", b"body")
+    real_rclone = mirror_blob_images.rclone
+    checks = 0
+
+    def fail_first_check(*args, **kwargs):
+        nonlocal checks
+        if args[0] == "check":
+            checks += 1
+            if checks == 1:
+                raise mirror_blob_images.MirrorError("body check failed")
+        return real_rclone(*args, **kwargs)
+
+    with (
+        patch.object(mirror_blob_images, "list_images", return_value=[image]),
+        patch.object(mirror_blob_images.requests, "get", return_value=_response(image)),
+        patch.object(mirror_blob_images, "rclone", side_effect=fail_first_check),
+    ):
+        with pytest.raises(mirror_blob_images.MirrorError, match="body check failed"):
+            mirror_blob_images.mirror(state_dir, remote)
+
+    commits = remote_root / "commits"
+    assert not commits.exists() or not list(commits.iterdir())
+    assert mirror_blob_images.status(state_dir)["last_attempt"]["status"] == "failed"
 
 
 def test_remote_failure_does_not_advance_local_state(environment):
