@@ -137,6 +137,19 @@ def test_remote_failure_does_not_advance_local_state(environment):
     assert not (state_dir / "state.json").exists()
 
 
+def test_short_blob_body_does_not_advance_local_state(environment):
+    state_dir, remote, _ = environment
+    image = _image("images/short.jpg", b"x")
+    image["size"] = 2
+    with (
+        patch.object(mirror_blob_images, "list_images", return_value=[image]),
+        patch.object(mirror_blob_images.requests, "get", return_value=_response(image)),
+    ):
+        with pytest.raises(mirror_blob_images.MirrorError, match="got 1 bytes, listed 2"):
+            mirror_blob_images.mirror(state_dir, remote)
+    assert not (state_dir / "state.json").exists()
+
+
 def test_inventory_reports_only_aggregate_non_secret_fields():
     images = [_image("images/a.PNG", b"a"), _image("images/b.webp", b"bb")]
     assert mirror_blob_images.inventory(images) == {
