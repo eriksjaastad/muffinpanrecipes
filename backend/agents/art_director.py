@@ -352,7 +352,7 @@ class ArtDirectorAgent(Agent):
                 images=images_bytes,
                 model=_VISION_MODEL,
                 temperature=0.3,
-                timeout_s=timeout_s,
+                **({"timeout_s": timeout_s} if timeout_s is not None else {}),
             )
             # Strip markdown fences if present
             cleaned = raw.strip()
