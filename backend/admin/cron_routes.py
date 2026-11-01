@@ -3011,23 +3011,52 @@ def _claim_photo_for_sunday(episode_id: str, ep: dict, concept: str) -> photo_re
             raise
         image_set_id = hold.view.image_set_id
     problem = None
+    reshoot = None
     try:
-        reshoot_wednesday_photos(episode_id, image_set_id, automatic_sunday=True)
+        reshoot = reshoot_wednesday_photos(episode_id, image_set_id, automatic_sunday=True)
     except HTTPException as exc:
         problem = f"the reshoot did not produce photos ({exc.detail})"
     ep.clear()
     ep.update(_read_episode_verified(episode_id, concept, "after the automatic reshoot"))
-    # Always retried, even after a failed reshoot: a human approval that raced
-    # the reshoot is claimed here, and a racing rejection propagates from it.
+    view = photo_review.read_view(storage, episode_id, ep)
+    if view.frozen:
+        raise photo_review.PublicationUnderway(f"photo control is {view.state}")
+
+    if reshoot is None:
+        # A failed automatic shoot may still have raced an Erik decision on
+        # the original set. Honor that decision, but never adopt a replacement
+        # set written by Wednesday while the shoot was running.
+        if view.image_set_id != image_set_id:
+            raise photo_review.ReviewConflict(
+                "the photos changed while Sunday's automatic reshoot was running"
+            )
+        in_flight = view.reshoots.get("in_flight") or {}
+        if in_flight.get("automatic_sunday"):
+            # Another Sunday owns the still-active shoot. A hold response
+            # would save a stale episode over that run's later publication.
+            raise photo_review.PublicationUnderway("an automatic photo reshoot is already underway")
+        allow_team_fallback = False
+    else:
+        # Only this run's successfully registered replacement is eligible for
+        # automatic approval. A later Wednesday set belongs to another run.
+        if view.image_set_id != reshoot["image_set_id"]:
+            raise photo_review.ReviewConflict(
+                "the photos changed after Sunday's automatic reshoot completed"
+            )
+        allow_team_fallback = True
+
+    # A human approval on the expected set is claimed here, and a rejection
+    # propagates to the normal hold response. Only our registered reshoot may
+    # receive a new automatic fallback decision.
     try:
-        return photo_review.claim_for_publication(storage, episode_id, ep, allow_team_fallback=True)
+        return photo_review.claim_for_publication(
+            storage, episode_id, ep, allow_team_fallback=allow_team_fallback,
+        )
     except photo_review.PhotoHold as hold:
         if hold.view.state != photo_review.AWAITING:
             raise
         problem = problem or "the reshoot's photos have no usable team winner"
-    view = photo_review.read_view(storage, episode_id, ep)
-    if view.frozen:
-        raise photo_review.PublicationUnderway(f"photo control is {view.state}")
+        view = hold.view
     notify_pipeline_failure(
         recipe_id=ep.get("recipe_id") or "unknown", concept=concept,
         stage="sunday (photo review)",

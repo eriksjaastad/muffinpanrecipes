@@ -352,6 +352,53 @@ def test_sunday_never_reshoots_a_rejected_set(tmp_path):
     _never_published(store)
 
 
+def test_concurrent_wednesday_replacement_is_not_auto_approved(tmp_path):
+    wed = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+    replacement = wednesday_stage(generation="g20261008T000000Z-bbbbbb")
+
+    def photography(*_a, **_k):
+        register(EP_ID, replacement, store)
+        return _photography_result(tmp_path)
+
+    orch = MagicMock()
+    orch.return_value._execute_stage_photography.side_effect = photography
+    env = _sunday_reshooting(store, orch)
+
+    assert _status(env) == 409
+    env.dialogue.assert_not_called()
+    env.qa.assert_not_called()
+    env.catalog.assert_not_called()
+    _never_published(store)
+    ctrl = _control(store)
+    assert ctrl["state"] == photo_review.AWAITING
+    assert ctrl["request"]["image_set_id"] == replacement["photo_review"]["image_set_id"]
+    assert ctrl["decision"] is None
+
+
+def test_rival_sunday_reshoot_returns_underway_without_saving_a_hold():
+    wed = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+    ep = store.get(EP_ID)
+    view = photo_review.read_view(store, EP_ID, ep)
+    photo_review.start_reshoot(
+        store, EP_ID, ep, view.image_set_id, photo_review.RESHOOT_CALLS,
+        automatic_sunday=True,
+    )
+
+    env = _sunday(store)
+
+    assert _status(env) == 409
+    assert json.loads(env.result.body)["status"] == "publication_underway"
+    env.dialogue.assert_not_called()
+    env.qa.assert_not_called()
+    env.catalog.assert_not_called()
+    _never_published(store)
+    assert store.get(EP_ID).get("publish_hold") is None
+
+
 def test_human_pick_during_the_automatic_shoot_is_published_not_the_generated_set(tmp_path):
     wed = wednesday_stage(confirmed_winner={})
     store = _Store({EP_ID: _episode(wed)})
