@@ -369,7 +369,7 @@ def test_checkpoint_recovery_writes_the_same_body_and_cleans_nothing(tmp_path, m
 
 def _held_then_approved():
     """Sunday held the week (hold saved, one alert); Erik then approved candidate 1."""
-    wed = wednesday_stage()
+    wed = wednesday_stage(confirmed_winner={})  # no team winner, so Sunday holds
     ep = _episode(wed)
     store = _Store()
     store.put(EP_ID, ep)

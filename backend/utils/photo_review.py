@@ -899,6 +899,9 @@ def claim_for_publication(store, episode_id: str, verified_ep: dict, *,
     Raises PhotoHold (not approved: no claim taken), PublicationUnderway
     (another run holds or finished it) or PhotoControlUnavailable. Exactly
     one concurrent Sunday can win the create of the claimed version.
+    ``allow_team_fallback`` first approves an undecided (awaiting) set's
+    frozen Wednesday winner, recorded as automatic; a decision is never
+    overridden, and a set with no current winner still holds.
     """
     for _ in range(_CAS_ATTEMPTS):
         view = read_view(store, episode_id, verified_ep)

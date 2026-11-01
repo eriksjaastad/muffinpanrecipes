@@ -3131,12 +3131,17 @@ async def cron_sunday(request: Request):
 
         # #7936: nothing is published, and no paid dialogue or QA runs, until
         # this run holds the exclusive publication claim on an approval of
-        # the CURRENT photos. No reply and a rejection both hold; there is no
-        # force/test bypass. From the claim on, Erik's choices are frozen and
+        # the CURRENT photos. #8606: with no reply from Erik, Sunday approves
+        # Wednesday's frozen team winner (recorded as automatic) when it is
+        # one of the current candidates; an explicit pick always wins, and a
+        # rejection or a week with no usable winner still holds. There is no
+        # force/test bypass. From the claim on, the choice is frozen and
         # Wednesday cannot replace the set, so nothing has to be re-checked
         # after the paid steps; a rival Sunday cannot claim twice.
         try:
-            claimed = photo_review.claim_for_publication(storage, episode_id, ep)
+            claimed = photo_review.claim_for_publication(
+                storage, episode_id, ep, allow_team_fallback=True,
+            )
         except photo_review.PhotoHold as hold:
             return _hold_for_photo_approval(episode_id, ep, concept, hold.reason, hold.view)
         except photo_review.NoReviewablePhotos as exc:

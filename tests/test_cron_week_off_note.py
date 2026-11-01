@@ -633,7 +633,7 @@ def test_a_sunday_held_for_photo_approval_shows_no_week_off_note():
     from tests.photo_review_helpers import register, wednesday_stage
     from tests.test_photo_request_decision_lifecycle import EP_ID, _episode, _status, _Store, _sunday
 
-    wed = wednesday_stage()
+    wed = wednesday_stage(confirmed_winner={})  # no team winner, so Sunday holds
     store = _Store()
     store.put(EP_ID, _episode(wed), "")
     register(EP_ID, wed, store)

@@ -145,7 +145,7 @@ def test_no_photos_failure_that_cannot_be_saved_says_so():
 
 
 def test_genuine_awaiting_and_rejected_holds_are_unchanged():
-    wed = wednesday_stage()
+    wed = wednesday_stage(confirmed_winner={})  # no team winner, so Sunday holds
     store = _Store()
     store.put(EP_ID, _episode(wed))
     register(EP_ID, wed, store)

@@ -247,9 +247,27 @@ def test_team_fallback_preserves_rejection_and_holds_without_a_current_winner():
     assert _control(awaiting)["state"] == photo_review.AWAITING
 
 
+def test_sunday_without_a_decision_publishes_the_team_winner_as_automatic():
+    wed = wednesday_stage()
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+    env = _sunday(store)
+    assert env.error is None and env.result["published"] is True
+    env.held.assert_not_called()
+    published = store.get(EP_ID)
+    assert published["hero_image_url"] == wed["image_urls"][0]
+    assert published["photo_approval"]["path"] == wed["confirmed_winner"]["path"]
+    assert published["photo_approval"]["decided_by"] == "photo_team_automatic_sunday_fallback"
+    ctrl = _control(store)
+    assert ctrl["state"] == "published" and ctrl["decision"]["automatic"] is True
+    states = [json.loads(p.read_text())["state"]
+              for p in sorted((storage_module.PHOTO_CONTROL_DIR / "production" / EP_ID).glob("v*.json"))]
+    assert states == ["awaiting", "approved", "claimed", "publishing", "published"]
+
+
 @pytest.mark.parametrize("prefix", ["", "test/"])
 def test_awaiting_review_holds_before_any_paid_call_and_takes_no_claim(prefix):
-    wed = wednesday_stage()
+    wed = wednesday_stage(confirmed_winner={})  # no team winner to fall back on
     store = _Store()
     store.put(EP_ID, _episode(wed), prefix)
     with store.prefix_scope(prefix):
@@ -276,7 +294,7 @@ def test_rejected_holds_and_repeat_runs_send_one_alert():
 
 
 def test_week_without_a_control_holds_from_the_derived_request_and_writes_no_control():
-    wed = wednesday_stage()
+    wed = wednesday_stage(confirmed_winner={})
     del wed["photo_review"]  # a pre-#7936 Wednesday
     store = _Store({EP_ID: _episode(wed)})
     env = _sunday(store)
@@ -307,7 +325,7 @@ def test_stale_stage_save_cannot_resurrect_an_earlier_approved_set():
     """Approve A, Wednesday reruns B, a stale Thursday save puts A back."""
     a = wednesday_stage(generation="g20260101T000000Z-aaaaaa")
     store, ep, _ = _approved_store(wed=a)
-    b = wednesday_stage(generation="g20260102T000000Z-bbbbbb")
+    b = wednesday_stage(generation="g20260102T000000Z-bbbbbb", confirmed_winner={})
     register(EP_ID, b, store)
     # The stored episode still (again) carries set A and its mirror.
     stale = _episode(a)
@@ -1473,14 +1491,14 @@ def test_checkpoint_publication_is_the_approved_set_even_after_a_stale_mirror():
 
 # --- Authoritative set B, stale mirror A: hold record and admin display --------
 
-def _stale_mirror_store(snapshot=True):
+def _stale_mirror_store(snapshot=True, team_winner=True):
     """Set A approved, Wednesday registers B (awaiting), a stale save restores A's mirror."""
     a = wednesday_stage(generation="g20260101T000000Z-aaaaaa")
     a["photography_data"]["rounds"][0]["variants"][0]["scores"] = {"defects": ["A-only defect"]}
     a["photography_data"]["automated_review_status"] = "passed"
     store, _, _ = _approved_store(wed=a)
     b = wednesday_stage(generation="g20260102T000000Z-bbbbbb")
-    b["confirmed_winner"] = {"variant": VARIANTS[2], "path": b["image_paths"][2]}
+    b["confirmed_winner"] = {"variant": VARIANTS[2], "path": b["image_paths"][2]} if team_winner else {}
     b["photography_data"]["rounds"][0]["variants"][1]["scores"] = {"defects": ["B pan rim warped"]}
     b["photography_data"]["automated_review_status"] = "failed"
     if snapshot:
@@ -1500,7 +1518,8 @@ def _stale_mirror_store(snapshot=True):
 def test_hold_on_the_authoritative_set_is_recognised_by_the_integrity_monitor():
     from backend.utils import episode_integrity
 
-    store, a, b = _stale_mirror_store()
+    # Without a team winner Sunday holds instead of falling back (#8606).
+    store, a, b = _stale_mirror_store(team_winner=False)
     env = _sunday(store)
     assert json.loads(env.result.body)["status"] == "awaiting_photo_approval"
     saved = store.get(EP_ID)

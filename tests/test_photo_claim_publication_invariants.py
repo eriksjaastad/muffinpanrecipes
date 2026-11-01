@@ -462,7 +462,7 @@ def test_frozen_inconsistency_is_none_for_decidable_states():
 # =============================================================================
 
 def _held_store():
-    wed = wednesday_stage()
+    wed = wednesday_stage(confirmed_winner={})  # no team winner, so Sunday holds
     ep = _episode(wed)
     store = _Store()
     store.put(EP_ID, ep)
