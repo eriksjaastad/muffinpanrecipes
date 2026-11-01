@@ -179,6 +179,33 @@ def test_generate_openrouter_derives_route_from_the_model_being_called(monkeypat
 # allow_openrouter_models - additive registration, never a filesystem read
 # ---------------------------------------------------------------------------
 
+def test_vision_timeout_bounds_openrouter_client_and_disables_retries(monkeypatch):
+    captured = {}
+    model_router.reset_cost_log()
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+    model_router.allow_openrouter_models(dialogue="openai/gpt-5-mini", judge="openai/gpt-5-mini")
+
+    class FakeCompletions:
+        def create(self, **_kwargs):
+            usage = SimpleNamespace(prompt_tokens=1, completion_tokens=1, cost=0.0001)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="ok"), finish_reason="stop")],
+                usage=usage, provider="OpenAI",
+            )
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+    monkeypatch.setattr("openai.OpenAI", FakeOpenAI)
+    assert model_router.generate_vision_response(
+        "rate it", [b"png"], model="openai/gpt-5-mini", timeout_s=12.5,
+    ) == "ok"
+    assert captured["timeout"] == 12.5
+    assert captured["max_retries"] == 0
+
+
 def test_allow_openrouter_models_extends_both_allowlists(monkeypatch):
     monkeypatch.delenv("OPENROUTER_MODEL_ALLOWLIST", raising=False)
     with pytest.raises(RuntimeError, match="not allowlisted"):

@@ -310,6 +310,7 @@ def test_sunday_reshoots_a_set_with_no_team_winner_and_publishes_the_new_pick(tm
     env.failure.assert_not_called()
     _, kwargs = orch.return_value._execute_stage_photography.call_args
     assert kwargs["max_rounds"] == 1  # one whole-set round, as the dashboard reshoot
+    assert kwargs["shoot_budget_s"] == cron_routes._SUNDAY_AUTOMATIC_RESHOOT_BUDGET_S
     published = store.get(EP_ID)
     winner = f"src/assets/images/r1/{generation}/round_1/{VARIANTS[0]}.png"
     assert published["photo_approval"]["path"] == winner

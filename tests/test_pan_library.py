@@ -219,16 +219,25 @@ def test_art_director_asks_for_a_bounded_call(monkeypatch):
     assert seen["timeout_s"] == 60
 
 
-def _shoot(agent, tmp_path, monkeypatch, image_call, evaluations):
+def _shoot(agent, tmp_path, monkeypatch, image_call, evaluations, context=None, eval_kwargs=None):
     monkeypatch.setattr(agent, "_repo_root", lambda: tmp_path)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.setattr(agent, "_call_image_model", image_call)
     monkeypatch.setattr(art_director_module, "_check_visual_diversity", lambda _p: True)
     queue = list(evaluations)
-    monkeypatch.setattr(agent, "_evaluate_images_vision", lambda *_a: dict(queue.pop(0)))
+
+    def evaluate(*_args, **kwargs):
+        if eval_kwargs is not None:
+            eval_kwargs.append(kwargs)
+        return dict(queue.pop(0))
+
+    monkeypatch.setattr(agent, "_evaluate_images_vision", evaluate)
+    task_context = {
+        "recipe_id": "rid", "recipe_data": {"title": "Egg Cups"},
+        "episode_id": "2026-W42", **(context or {}),
+    }
     return agent.process_task(Task(
-        type="photograph_recipe", content="shoot",
-        context={"recipe_id": "rid", "recipe_data": {"title": "Egg Cups"}, "episode_id": "2026-W42"},
+        type="photograph_recipe", content="shoot", context=task_context,
     ))
 
 
@@ -295,6 +304,34 @@ def test_per_call_timeout_is_clipped_to_the_remaining_budget(tmp_path: Path, mon
     _shoot(create_agent("art_director"), tmp_path, monkeypatch, clock.image,
            [{"passed": True, "recommended_winner": 1}])
     assert clock.timeouts == [60, 60, 40]
+
+
+def test_bounded_shoot_skips_vision_when_images_use_the_budget(tmp_path: Path, monkeypatch):
+    clock = _Clock(per_call=39)
+    monkeypatch.setattr(art_director_module, "_clock", clock)
+    seen = []
+    result = _shoot(
+        create_agent("art_director"), tmp_path, monkeypatch, clock.image, [],
+        context={"shoot_budget_s": 120}, eval_kwargs=seen,
+    )
+    assert clock.timeouts == [60, 60, 42]
+    assert seen == []
+    assert result.output["automated_review_status"] == "unavailable"
+    assert result.output["winner"]["team_recommended"] is False
+
+
+def test_bounded_shoot_caps_vision_to_the_remaining_budget(tmp_path: Path, monkeypatch):
+    clock = _Clock(per_call=30)
+    monkeypatch.setattr(art_director_module, "_clock", clock)
+    seen = []
+    result = _shoot(
+        create_agent("art_director"), tmp_path, monkeypatch, clock.image,
+        [{"passed": True, "review_status": "passed", "recommended_winner": 1}],
+        context={"shoot_budget_s": 120}, eval_kwargs=seen,
+    )
+    assert clock.timeouts == [60, 60, 60]
+    assert seen == [{"timeout_s": 30.0}]
+    assert result.output["winner"]["team_recommended"] is True
 
 
 def test_reshoot_is_skipped_when_another_round_will_not_fit(tmp_path: Path, monkeypatch):

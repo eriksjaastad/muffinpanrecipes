@@ -256,15 +256,15 @@ class ArtDirectorAgent(Agent):
 
     def _evaluate_images_vision(
         self, image_paths: list[dict[str, Any]], recipe_title: str, recipe_facts: str = "",
-        pan_size: str = "standard",
+        pan_size: str = "standard", timeout_s: float | None = None,
     ) -> dict[str, Any]:
         """Evaluate images using a vision model. Returns per-image scores and pass/fail.
 
         ``review_status`` is the honest label: passed | failed | incomplete |
         unavailable. Only "passed" is an automated pass, and even that is
-        advisory: Sunday publishes only a human-approved photo (#7936). An
-        unavailable review returns passed=False but must not trigger a
-        reshoot; the caller stops on it.
+        advisory: Sunday may use only a passed review's explicit recommendation
+        when Erik has not decided (#8606). An unavailable review returns
+        passed=False but must not trigger another automatic round.
         """
         import json as _json
 
@@ -352,6 +352,7 @@ class ArtDirectorAgent(Agent):
                 images=images_bytes,
                 model=_VISION_MODEL,
                 temperature=0.3,
+                timeout_s=timeout_s,
             )
             # Strip markdown fences if present
             cleaned = raw.strip()
@@ -559,7 +560,7 @@ class ArtDirectorAgent(Agent):
         self, api_key: str, recipe_title: str, recipe_id: str, round_num: int,
         feedback: str | None = None, generation_id: str | None = None,
         pan_clause: str = "", pan_size: str = "standard", deadline: float | None = None,
-        variants: tuple[str, ...] | None = None,
+        variants: tuple[str, ...] | None = None, budget_s: float = _SHOOT_BUDGET_S,
     ) -> tuple[list[dict[str, Any]], Path]:
         """Generate a round's variants (all 3 unless ``variants``). Returns (variant_outputs, round_dir).
 
@@ -580,7 +581,7 @@ class ArtDirectorAgent(Agent):
                 remaining = deadline - _clock()
                 if remaining < _MIN_CALL_S:
                     raise ShootBudgetExceeded(
-                        f"image budget ({_SHOOT_BUDGET_S}s) exhausted before {variant} in round {round_num}"
+                        f"image budget ({budget_s:g}s) exhausted before {variant} in round {round_num}"
                     )
                 timeout_s = min(timeout_s, remaining)
             try:
@@ -588,7 +589,7 @@ class ArtDirectorAgent(Agent):
             except Exception as exc:
                 if deadline is not None and _clock() >= deadline - 1:
                     raise ShootBudgetExceeded(
-                        f"image budget ({_SHOOT_BUDGET_S}s) ran out during {variant} in round {round_num}"
+                        f"image budget ({budget_s:g}s) ran out during {variant} in round {round_num}"
                     ) from exc
                 raise
             out_path = round_dir / f"{variant}.png"
@@ -662,7 +663,14 @@ class ArtDirectorAgent(Agent):
         winner_info: dict[str, Any] | None = None
         winner_was_recommended = False
 
-        deadline = _clock() + _SHOOT_BUDGET_S
+        requested_budget = task.context.get("shoot_budget_s")
+        bounded_budget = (
+            float(requested_budget)
+            if isinstance(requested_budget, (int, float)) and not isinstance(requested_budget, bool)
+            else _SHOOT_BUDGET_S
+        )
+        shoot_budget_s = min(_SHOOT_BUDGET_S, max(_MIN_CALL_S, bounded_budget))
+        deadline = _clock() + shoot_budget_s
         # A caller that pays per image call (the dashboard Reshoot, #8073) can
         # turn the automatic second round off with ``max_rounds=1``.
         max_rounds = min(task.context.get("max_rounds") or self._MAX_ROUNDS, self._MAX_ROUNDS)
@@ -682,7 +690,7 @@ class ArtDirectorAgent(Agent):
                 variant_outputs, round_dir = self._generate_round(
                     api_key, recipe_title, recipe_id, round_num, feedback=feedback,
                     generation_id=generation_id, pan_clause=pan.clause, pan_size=pan.size,
-                    deadline=deadline,
+                    deadline=deadline, budget_s=shoot_budget_s,
                 )
             except ShootBudgetExceeded as exc:
                 if not rounds:
@@ -699,9 +707,25 @@ class ArtDirectorAgent(Agent):
             visually_diverse = _check_visual_diversity(phash_paths)
 
             # Vision evaluation
-            vision_eval = self._evaluate_images_vision(
-                variant_outputs, recipe_title, self._recipe_facts(task), pan.size,
-            )
+            vision_timeout_s = None
+            if requested_budget is not None:
+                remaining = deadline - _clock()
+                if remaining < 5:
+                    vision_eval = {
+                        "passed": False, "review_status": "unavailable",
+                        "retry_eligible": False, "per_image": [],
+                        "reason": "automatic reshoot budget exhausted before vision review",
+                    }
+                else:
+                    vision_timeout_s = min(30.0, remaining)
+                    vision_eval = self._evaluate_images_vision(
+                        variant_outputs, recipe_title, self._recipe_facts(task), pan.size,
+                        timeout_s=vision_timeout_s,
+                    )
+            else:
+                vision_eval = self._evaluate_images_vision(
+                    variant_outputs, recipe_title, self._recipe_facts(task), pan.size,
+                )
             vision_eval.setdefault("review_status", "passed" if vision_eval.get("passed", True) else "failed")
             vision_eval.setdefault(
                 "retry_eligible",
@@ -745,7 +769,12 @@ class ArtDirectorAgent(Agent):
                 # call and is honoured. Only without one does the hero-variety
                 # rotation pick, deterministic by recipe_id.
                 rec = vision_eval.get("recommended_winner")
-                if isinstance(rec, int) and not isinstance(rec, bool) and 1 <= rec <= len(variant_outputs):
+                recommendation_eligible = (
+                    vision_eval.get("passed") is True
+                    and vision_eval.get("review_status") == "passed"
+                )
+                if (recommendation_eligible and isinstance(rec, int)
+                        and not isinstance(rec, bool) and 1 <= rec <= len(variant_outputs)):
                     winner_idx = rec - 1
                     winner_was_recommended = True
                 else:

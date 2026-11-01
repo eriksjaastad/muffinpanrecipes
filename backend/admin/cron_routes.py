@@ -215,6 +215,9 @@ def _new_episode(episode_id: str, concept: str) -> dict:
 # How early the Sunday cron may fire and still count as the week's own
 # Sunday run for the refusal note (#7630).
 _SUNDAY_NOTE_TOLERANCE = timedelta(minutes=5)
+# Keep the automatic photo-only shoot inside the 300s Vercel request while
+# reserving 180s for upload/register plus Sunday dialogue, QA and publication.
+_SUNDAY_AUTOMATIC_RESHOOT_BUDGET_S = 120.0
 
 
 def _utc_now() -> datetime:
@@ -1865,6 +1868,7 @@ class ReshootNotRegistered(RuntimeError):
 def _shoot_and_register(
     episode_id: str, ep: dict, concept: str, recipe_data: dict, *,
     max_rounds: int | None = None, reshoot_id: str | None = None,
+    shoot_budget_s: float | None = None,
 ) -> tuple[dict, dict, list[str], list[str]]:
     """Shoot Wednesday's images, upload them, and put the new set up for review.
 
@@ -1872,6 +1876,8 @@ def _shoot_and_register(
     and URLs. The cron replaces the whole stage with a fresh one; a dashboard
     ``reshoot`` (#8073) keeps the stored stage and replaces only its photo
     fields. ``max_rounds=1`` turns the automatic second round off.
+    ``shoot_budget_s`` bounds image generation and vision evaluation so a
+    Sunday caller can reserve time for its remaining publish workflow.
     """
     orchestrator = _get_orchestrator()(data_dir=_episodes_data_dir())
     recipe_id = ep.get("recipe_id") or "unknown"
@@ -1883,6 +1889,7 @@ def _shoot_and_register(
         previous_pan_material=_previous_pan_material(episode_id),
         # Only a dashboard reshoot limits the rounds, so the cron's call is unchanged.
         **({"max_rounds": max_rounds} if max_rounds else {}),
+        **({"shoot_budget_s": shoot_budget_s} if shoot_budget_s is not None else {}),
     )
     # photography_result is now a full dict with rounds, vision eval, winner, selected_shots
     image_paths: list[str] = photography_result.get("selected_shots", []) if isinstance(photography_result, dict) else []
@@ -2135,6 +2142,9 @@ def reshoot_wednesday_photos(episode_id: str, image_set_id: str, *, automatic_su
         episode_id, image_set_id, photo_review.RESHOOT_CALLS, "reshoot",
         lambda ep, concept, recipe_data, _started, reshoot_id: _shoot_and_register(
             episode_id, ep, concept, recipe_data, max_rounds=1, reshoot_id=reshoot_id,
+            shoot_budget_s=(
+                _SUNDAY_AUTOMATIC_RESHOOT_BUDGET_S if automatic_sunday else None
+            ),
         )[0],
         automatic_sunday=automatic_sunday,
     )

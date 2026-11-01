@@ -542,6 +542,7 @@ def _generate_openrouter(
     model: str,
     temperature: float,
     images: Optional[list[bytes]] = None,
+    timeout_s: float | None = None,
 ) -> str:
     """Generate through OpenRouter's OpenAI-compatible chat-completions API.
 
@@ -560,12 +561,17 @@ def _generate_openrouter(
     except Exception as e:
         raise RuntimeError("openai package is not installed") from e
 
-    # The SDK's own default client (redirects, limits, timeouts unchanged),
-    # plus the hook that counts every request it sends.
-    client = OpenAI(
-        base_url=OPENROUTER_BASE_URL, api_key=api_key,
-        http_client=DefaultHttpxClient(event_hooks={"request": [_count_sent_request]}),
-    )
+    # Keep SDK defaults for ordinary calls. A bounded workflow may supply a
+    # timeout and disable SDK retries so its wall-clock reservation is real.
+    # The request hook still counts every request sent.
+    client_kwargs: dict[str, Any] = {
+        "base_url": OPENROUTER_BASE_URL,
+        "api_key": api_key,
+        "http_client": DefaultHttpxClient(event_hooks={"request": [_count_sent_request]}),
+    }
+    if timeout_s is not None:
+        client_kwargs.update(timeout=timeout_s, max_retries=0)
+    client = OpenAI(**client_kwargs)
     messages: list[dict[str, Any]] = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
@@ -751,6 +757,7 @@ def generate_vision_response(
     system_prompt: Optional[str] = None,
     model: str = "openai/gpt-5-mini",
     temperature: float = 0.3,
+    timeout_s: float | None = None,
 ) -> str:
     """Generate a text response from a vision-capable LLM given images.
 
@@ -761,6 +768,8 @@ def generate_vision_response(
         model: Provider-prefixed model name, checked against that
                provider's allowlist and sent through OpenRouter.
         temperature: Sampling temperature.
+        timeout_s: Optional wall-clock timeout for a bounded vision request;
+                   SDK transport retries are disabled when supplied.
 
     Returns:
         Generated text.
@@ -771,7 +780,7 @@ def generate_vision_response(
     return _generate_openrouter(
         prompt=prompt, system_prompt=system_prompt,
         model=openrouter_model_id(routed.provider, routed.model),
-        temperature=temperature, images=images,
+        temperature=temperature, images=images, timeout_s=timeout_s,
     )
 
 

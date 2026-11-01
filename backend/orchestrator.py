@@ -285,6 +285,7 @@ class RecipeOrchestrator:
         episode_id: Optional[str] = None,
         previous_pan_material: Optional[str] = None,
         max_rounds: Optional[int] = None,
+        shoot_budget_s: Optional[float] = None,
     ) -> Dict:
         """Execute art director's photography stage.
 
@@ -294,6 +295,8 @@ class RecipeOrchestrator:
         director uses the current week; ``previous_pan_material`` keeps the
         material from repeating last week's. ``max_rounds=1`` turns the automatic
         second round off, so the stage costs exactly one set of image calls.
+        ``shoot_budget_s`` is an optional end-to-end photography deadline used
+        by Sunday to reserve the rest of its Lambda request.
         """
         art_director = self.agents["art_director"]
 
@@ -302,7 +305,7 @@ class RecipeOrchestrator:
             content="Photograph this recipe",
             context={"recipe_id": recipe_id, "recipe_data": recipe_data, "episode_id": episode_id,
                      "previous_pan_material": previous_pan_material,
-                     "max_rounds": max_rounds}
+                     "max_rounds": max_rounds, "shoot_budget_s": shoot_budget_s}
         )
 
         result = art_director.process_task(task)
