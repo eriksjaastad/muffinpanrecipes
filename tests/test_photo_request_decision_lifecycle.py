@@ -34,7 +34,7 @@ from backend.storage import (
     _FilesystemBackend,
 )
 from backend.utils import photo_review
-from tests.photo_review_helpers import BLOB, VARIANTS, decide, register, wednesday_stage
+from tests.photo_review_helpers import BLOB, VARIANTS, decide, register, sunday_reshoot_refused, wednesday_stage  # noqa: F401 - pytest fixture, used by usefixtures/pytestmark
 
 EP_ID = "2026-W41"
 
@@ -265,7 +265,145 @@ def test_sunday_without_a_decision_publishes_the_team_winner_as_automatic():
     assert states == ["awaiting", "approved", "claimed", "publishing", "published"]
 
 
+def _sunday_reshooting(store, orch):
+    """Sunday on the real reshoot path with a fake shoot, so no provider is called."""
+    store.save_image = lambda p, _b: f"{BLOB}/{p.split('images/')[1]}"
+    with patch.object(cron_routes, "_get_orchestrator", return_value=orch), \
+         patch.object(cron_routes, "_previous_pan_material", return_value=None), \
+         patch.object(cron_routes, "notify_photos_ready", return_value=True):
+        return _sunday(store)
+
+
+def test_sunday_reshoots_a_set_with_no_team_winner_and_publishes_the_new_pick(tmp_path):
+    generation = "g20261007T000000Z-abcdef"
+    wed = wednesday_stage(confirmed_winner={})  # the awaiting set has no usable winner
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+    orch = MagicMock()
+    orch.return_value._execute_stage_photography.return_value = _photography_result(tmp_path, generation)
+
+    env = _sunday_reshooting(store, orch)
+
+    assert env.error is None and env.result["published"] is True
+    env.held.assert_not_called()
+    env.failure.assert_not_called()
+    _, kwargs = orch.return_value._execute_stage_photography.call_args
+    assert kwargs["max_rounds"] == 1  # one whole-set round, as the dashboard reshoot
+    published = store.get(EP_ID)
+    winner = f"src/assets/images/r1/{generation}/round_1/{VARIANTS[0]}.png"
+    assert published["photo_approval"]["path"] == winner
+    assert published["photo_approval"]["decided_by"] == "photo_team_automatic_sunday_fallback"
+    assert published["hero_image_url"] == f"{BLOB}/r1/{generation}/round_1/{VARIANTS[0]}.png"
+    ctrl = _control(store)
+    assert ctrl["state"] == "published" and ctrl["reshoots"]["calls_used"] == photo_review.RESHOOT_CALLS
+    states = [json.loads(p.read_text())["state"]
+              for p in sorted((storage_module.PHOTO_CONTROL_DIR / "production" / EP_ID).glob("v*.json"))]
+    # awaiting (first set), awaiting (reshoot started), awaiting (new set), then the claim chain
+    assert states == ["awaiting", "awaiting", "awaiting", "approved", "claimed", "publishing", "published"]
+
+
+@pytest.mark.parametrize("failure, spent, expected_calls_used", [
+    # Two calls left and a set needs three: refused before any shoot, nothing added.
+    ("cap", photo_review.RESHOOT_CALL_CAP - 2, photo_review.RESHOOT_CALL_CAP - 2),
+    # The shoot itself fails: its calls were counted before it ran, and are not refunded.
+    ("generation", 0, photo_review.RESHOOT_CALLS),
+])
+def test_sunday_without_a_usable_winner_after_the_reshoot_publishes_nothing(tmp_path, failure, spent, expected_calls_used):
+    wed = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+    if spent:
+        ep = store.get(EP_ID)
+        view = photo_review.read_view(store, EP_ID, ep)
+        started = photo_review.start_reshoot(store, EP_ID, ep, view.image_set_id, spent)
+        photo_review.clear_reshoot_in_flight(store, EP_ID, started.reshoots["in_flight"]["id"])
+    orch = MagicMock()
+    if failure == "generation":
+        orch.return_value._execute_stage_photography.side_effect = RuntimeError("image provider down")
+    else:
+        orch.return_value._execute_stage_photography.return_value = _photography_result(tmp_path)
+
+    env = _sunday_reshooting(store, orch)
+
+    assert json.loads(env.result.body)["status"] == "awaiting_photo_approval"
+    env.dialogue.assert_not_called()
+    env.qa.assert_not_called()
+    env.catalog.assert_not_called()
+    _never_published(store)
+    assert env.failure.call_count == 1
+    assert "cannot publish without a photo approval" in env.failure.call_args.kwargs["error_message"]
+    assert _control(store)["state"] == photo_review.AWAITING and _control(store)["decision"] is None
+    assert _control(store)["reshoots"]["calls_used"] == expected_calls_used
+    assert orch.return_value._execute_stage_photography.call_count == (0 if failure == "cap" else 1)
+
+
+def test_sunday_never_reshoots_a_rejected_set(tmp_path):
+    wed = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+    decide(EP_ID, store.get(EP_ID), action="reject", store=store)
+    orch = MagicMock()
+
+    env = _sunday_reshooting(store, orch)
+
+    assert json.loads(env.result.body)["status"] == "photos_rejected"
+    orch.return_value._execute_stage_photography.assert_not_called()
+    assert not _control(store).get("reshoots", {}).get("calls_used")
+    _never_published(store)
+
+
+def test_human_pick_during_the_automatic_shoot_is_published_not_the_generated_set(tmp_path):
+    wed = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+
+    def photography(*_a, **_k):
+        decide(EP_ID, store.get(EP_ID), pick=2, store=store)  # Erik picks candidate 2 meanwhile
+        return _photography_result(tmp_path)
+
+    orch = MagicMock()
+    orch.return_value._execute_stage_photography.side_effect = photography
+    env = _sunday_reshooting(store, orch)
+
+    assert env.error is None and env.result["published"] is True
+    env.held.assert_not_called()
+    env.failure.assert_not_called()
+    published = store.get(EP_ID)
+    assert published["photo_approval"]["path"] == wed["image_paths"][1]
+    assert published["photo_approval"]["decided_by"] == "site editor"
+    assert published["hero_image_url"] == wed["image_urls"][1]
+    ctrl = _control(store)
+    assert ctrl["state"] == "published"
+    assert ctrl["request"]["image_set_id"] == wed["photo_review"]["image_set_id"]
+    assert ctrl["decision"]["decided_by"] == "site editor" and ctrl["decision"].get("automatic") is None
+    assert ctrl["reshoots"]["calls_used"] == photo_review.RESHOOT_CALLS
+
+
+def test_rejection_during_the_automatic_shoot_registers_nothing_and_holds_without_a_failure_alert(tmp_path):
+    wed = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+
+    def photography(*_a, **_k):
+        decide(EP_ID, store.get(EP_ID), action="reject", store=store)  # Erik rejects meanwhile
+        return _photography_result(tmp_path)
+
+    orch = MagicMock()
+    orch.return_value._execute_stage_photography.side_effect = photography
+    env = _sunday_reshooting(store, orch)
+
+    assert json.loads(env.result.body)["status"] == "photos_rejected"
+    orch.return_value._execute_stage_photography.assert_called_once()
+    ctrl = _control(store)
+    assert ctrl["state"] == photo_review.REJECTED
+    assert ctrl["request"]["image_set_id"] == wed["photo_review"]["image_set_id"]
+    env.catalog.assert_not_called()
+    _never_published(store)
+    assert not [c for c in env.failure.call_args_list if c.kwargs.get("stage") == "sunday (photo review)"]
+
+
 @pytest.mark.parametrize("prefix", ["", "test/"])
+@pytest.mark.usefixtures("sunday_reshoot_refused")
 def test_awaiting_review_holds_before_any_paid_call_and_takes_no_claim(prefix):
     wed = wednesday_stage(confirmed_winner={})  # no team winner to fall back on
     store = _Store()
@@ -293,6 +431,7 @@ def test_rejected_holds_and_repeat_runs_send_one_alert():
     _never_published(store)
 
 
+@pytest.mark.usefixtures("sunday_reshoot_refused")
 def test_week_without_a_control_holds_from_the_derived_request_and_writes_no_control():
     wed = wednesday_stage(confirmed_winner={})
     del wed["photo_review"]  # a pre-#7936 Wednesday
@@ -321,6 +460,7 @@ def test_approved_photo_is_claimed_then_published_everywhere():
     assert states == ["awaiting", "approved", "claimed", "publishing", "published"]
 
 
+@pytest.mark.usefixtures("sunday_reshoot_refused")
 def test_stale_stage_save_cannot_resurrect_an_earlier_approved_set():
     """Approve A, Wednesday reruns B, a stale Thursday save puts A back."""
     a = wednesday_stage(generation="g20260101T000000Z-aaaaaa")
@@ -1515,6 +1655,7 @@ def _stale_mirror_store(snapshot=True, team_winner=True):
     return store, a, b
 
 
+@pytest.mark.usefixtures("sunday_reshoot_refused")
 def test_hold_on_the_authoritative_set_is_recognised_by_the_integrity_monitor():
     from backend.utils import episode_integrity
 

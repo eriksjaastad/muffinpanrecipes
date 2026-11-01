@@ -7,11 +7,29 @@ tests/conftest.py points at a per-test temporary directory. No storage or
 provider calls leave the machine.
 """
 
+import pytest
+from fastapi import HTTPException
+
+from backend.admin import cron_routes
 from backend.storage import storage
 from backend.utils import photo_review
 
 VARIANTS = ("macro_closeup", "overhead_flatlay", "hero_threequarter")
 BLOB = "https://store.public.blob.vercel-storage.com/images"
+
+
+@pytest.fixture
+def sunday_reshoot_refused(monkeypatch):
+    """Sunday's automatic reshoot (#8606) is refused, as at the call cap.
+
+    For tests whose subject is the hold itself: a set with no team winner
+    holds, and the refusal is the alerted failure the real cap sends. Tests of
+    the reshoot itself do not use this and run the real path with a fake shoot.
+    """
+    def _refused(*_args, **_kwargs):
+        raise HTTPException(status_code=409, detail="Reshoot limit reached: 9 of 9 reshoot image calls used for this episode.")
+
+    monkeypatch.setattr(cron_routes, "reshoot_wednesday_photos", _refused)
 
 
 def wednesday_stage(recipe_id: str = "r1", generation: str = "g20260101T000000Z-aaaaaa", **overrides) -> dict:

@@ -29,10 +29,12 @@ import pytest
 from fastapi import HTTPException
 
 from backend.admin import cron_routes
-from tests.photo_review_helpers import approved_wednesday
+from tests.photo_review_helpers import approved_wednesday, sunday_reshoot_refused  # noqa: F401 - pytest fixture, used by usefixtures/pytestmark
 from backend.storage import storage
 from backend.utils import episode_integrity
 from backend.utils.indexnow import IndexNowResult
+
+pytestmark = pytest.mark.usefixtures("sunday_reshoot_refused")
 
 # Monday of W37 (2026-09-07); W36 (2026-08-31 through 2026-09-06) is the
 # week immediately before it — matches the fixtures in test_episode_integrity.py.

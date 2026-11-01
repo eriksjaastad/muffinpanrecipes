@@ -19,7 +19,7 @@ import pytest
 from backend.storage import EpisodeReadStale
 from backend.utils import photo_review
 from backend.utils.episode_integrity import episode_summary, recorded_photo_hold
-from tests.photo_review_helpers import decide, register, wednesday_stage
+from tests.photo_review_helpers import decide, register, sunday_reshoot_refused, wednesday_stage  # noqa: F401 - pytest fixture, used by usefixtures/pytestmark
 from tests.test_photo_request_decision_lifecycle import (
     EP_ID,
     _Store,
@@ -33,6 +33,8 @@ from tests.test_photo_request_decision_lifecycle import (
 )
 from tests.test_photo_claim_publication_lifecycle import _monitor, _page
 from tests.test_photo_claim_publication_invariants import _held_store, _legacy_published_episode
+
+pytestmark = pytest.mark.usefixtures("sunday_reshoot_refused")
 
 
 # --- F1 ---------------------------------------------------------------------------------
@@ -150,8 +152,9 @@ def test_genuine_awaiting_and_rejected_holds_are_unchanged():
     store.put(EP_ID, _episode(wed))
     register(EP_ID, wed, store)
     env = _sunday(store)
+    # The refused automatic reshoot (#8606) is the one alerted failure here.
     assert json.loads(env.result.body)["status"] == "awaiting_photo_approval" and env.held.call_count == 1
-    assert env.failure.call_count == 0
+    assert env.failure.call_count == 1
     decide(EP_ID, store.get(EP_ID), action="reject", store=store)
     env = _sunday(store)
     assert json.loads(env.result.body)["status"] == "photos_rejected" and env.failure.call_count == 0

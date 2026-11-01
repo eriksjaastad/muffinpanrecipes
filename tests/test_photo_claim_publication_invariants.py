@@ -38,7 +38,8 @@ from backend.utils.episode_integrity import (
     recorded_photo_hold,
     stage_deadline,
 )
-from tests.photo_review_helpers import decide, register, wednesday_stage
+from tests.photo_review_helpers import decide, register, sunday_reshoot_refused, wednesday_stage  # noqa: F401 - pytestmark
+
 from tests.test_photo_request_decision_lifecycle import (
     EP_ID,
     _Store,
@@ -52,6 +53,8 @@ from tests.test_photo_request_decision_lifecycle import (
     _sunday,
 )
 from tests.test_photo_claim_publication_lifecycle import _LocalStore, _monitor, _page, _section
+
+pytestmark = pytest.mark.usefixtures("sunday_reshoot_refused")
 
 AFTER_SUNDAY = stage_deadline(EP_ID, "sunday") + timedelta(hours=2)
 PUBLISHED_AT = "2026-10-11T00:05:00+00:00"

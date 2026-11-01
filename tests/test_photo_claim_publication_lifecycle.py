@@ -40,7 +40,7 @@ from backend.utils.episode_integrity import (
     recorded_photo_hold,
     stage_deadline,
 )
-from tests.photo_review_helpers import BLOB, VARIANTS, decide, register, wednesday_stage
+from tests.photo_review_helpers import BLOB, VARIANTS, decide, register, sunday_reshoot_refused, wednesday_stage  # noqa: F401 - pytest fixture, used by usefixtures/pytestmark
 from tests.test_photo_request_decision_lifecycle import (
     EP_ID,
     _Store,
@@ -54,6 +54,8 @@ from tests.test_photo_request_decision_lifecycle import (
     _status,
     _sunday,
 )
+
+pytestmark = pytest.mark.usefixtures("sunday_reshoot_refused")
 
 AFTER_SUNDAY = stage_deadline(EP_ID, "sunday") + timedelta(hours=2)
 SET_ID = "0123456789abcdef"

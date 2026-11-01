@@ -2052,13 +2052,15 @@ def _register_photos(
 _RESHOOT_RELOAD = "Reload the page to see the current photos and reshoot calls left."
 
 
-def _reshoot_flow(episode_id: str, image_set_id: str, calls: int, noun: str, shoot, precheck=None) -> dict:
+def _reshoot_flow(episode_id: str, image_set_id: str, calls: int, noun: str, shoot, precheck=None,
+                  *, automatic_sunday: bool = False) -> dict:
     """The shared frame of a dashboard reshoot (#8073): checks, count the calls, shoot, report.
 
     ``shoot(ep, concept, recipe_data, started, reshoot_id)`` makes and registers
     the new set and returns the stored Wednesday stage. ``precheck(ep)`` may
     refuse before anything is counted; ``noun`` ("reshoot" or "remake") words the
-    failures. Raises HTTPException: 409 when refused,
+    failures. ``automatic_sunday`` (#8606) passes through to ``start_reshoot``.
+    Raises HTTPException: 409 when refused,
     404/503 on a missing or unreadable episode, 502 on a failed shoot.
     """
     try:
@@ -2085,7 +2087,9 @@ def _reshoot_flow(episode_id: str, image_set_id: str, calls: int, noun: str, sho
                 detail=f"Could not read the current photos ({type(exc).__name__}); nothing was counted or changed.",
             )
     try:
-        started = photo_review.start_reshoot(storage, episode_id, ep, image_set_id, calls)
+        started = photo_review.start_reshoot(
+            storage, episode_id, ep, image_set_id, calls, automatic_sunday=automatic_sunday,
+        )
     except (photo_review.ReshootRefused, photo_review.ReviewConflict) as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     except Exception as exc:
@@ -2118,19 +2122,21 @@ def _reshoot_flow(episode_id: str, image_set_id: str, calls: int, noun: str, sho
     }
 
 
-def reshoot_wednesday_photos(episode_id: str, image_set_id: str) -> dict:
+def reshoot_wednesday_photos(episode_id: str, image_set_id: str, *, automatic_sunday: bool = False) -> dict:
     """Dashboard Reshoot (#8073): new Wednesday images for a page's current set.
 
     Photos only: Wednesday's dialogue, status and completed_at are kept, and no
     dialogue is paid for. The new set is registered unapproved, which voids any
     earlier approval, and one "Photos ready" email goes out. Runs inside the
-    caller's request (admin and cron share one Lambda).
+    caller's request (admin and cron share one Lambda). ``automatic_sunday``
+    (#8606) marks the shoot as Sunday's own, so it cannot void a human decision.
     """
     return _reshoot_flow(
         episode_id, image_set_id, photo_review.RESHOOT_CALLS, "reshoot",
         lambda ep, concept, recipe_data, _started, reshoot_id: _shoot_and_register(
             episode_id, ep, concept, recipe_data, max_rounds=1, reshoot_id=reshoot_id,
         )[0],
+        automatic_sunday=automatic_sunday,
     )
 
 
@@ -2986,6 +2992,54 @@ def _write_featured_photo(ep: dict, approved: dict, concept: str, episode_id: st
             break
 
 
+def _claim_photo_for_sunday(episode_id: str, ep: dict, concept: str) -> photo_review.ControlView:
+    """Sunday's publication claim (#7936), with one automatic reshoot (#8606).
+
+    An awaiting set with no usable frozen team winner gets one whole-set
+    reshoot through the dashboard's call cap and in-flight marker, then the
+    claim is tried again on the episode re-read after it. A rejection never
+    reshoots. ``ep`` is refreshed in place, so the caller holds the episode
+    the claim was made against. Raises PhotoHold when no usable winner results
+    (nothing is claimed, nothing is published) and PublicationUnderway when
+    another run froze the week meanwhile.
+    """
+    try:
+        return photo_review.claim_for_publication(storage, episode_id, ep, allow_team_fallback=True)
+    except photo_review.PhotoHold as hold:
+        # Only an undecided set reshoots: an approval Erik made is never voided.
+        if hold.view.state != photo_review.AWAITING:
+            raise
+        image_set_id = hold.view.image_set_id
+    problem = None
+    try:
+        reshoot_wednesday_photos(episode_id, image_set_id, automatic_sunday=True)
+    except HTTPException as exc:
+        problem = f"the reshoot did not produce photos ({exc.detail})"
+    ep.clear()
+    ep.update(_read_episode_verified(episode_id, concept, "after the automatic reshoot"))
+    # Always retried, even after a failed reshoot: a human approval that raced
+    # the reshoot is claimed here, and a racing rejection propagates from it.
+    try:
+        return photo_review.claim_for_publication(storage, episode_id, ep, allow_team_fallback=True)
+    except photo_review.PhotoHold as hold:
+        if hold.view.state != photo_review.AWAITING:
+            raise
+        problem = problem or "the reshoot's photos have no usable team winner"
+    view = photo_review.read_view(storage, episode_id, ep)
+    if view.frozen:
+        raise photo_review.PublicationUnderway(f"photo control is {view.state}")
+    notify_pipeline_failure(
+        recipe_id=ep.get("recipe_id") or "unknown", concept=concept,
+        stage="sunday (photo review)",
+        error_message=(
+            f"Sunday {episode_id} cannot publish without a photo approval: {problem}. "
+            "Nothing was published or spent on dialogue; the photo review is waiting for Erik's "
+            "pick. Pick a photo or reject the set, then re-fire Sunday."
+        ),
+    )
+    raise photo_review.PhotoHold("awaiting_photo_approval", view)
+
+
 @router.api_route("/sunday", methods=["GET", "POST"])
 async def cron_sunday(request: Request):
     _verify_cron_secret(request)
@@ -3133,15 +3187,13 @@ async def cron_sunday(request: Request):
         # this run holds the exclusive publication claim on an approval of
         # the CURRENT photos. #8606: with no reply from Erik, Sunday approves
         # Wednesday's frozen team winner (recorded as automatic) when it is
-        # one of the current candidates; an explicit pick always wins, and a
-        # rejection or a week with no usable winner still holds. There is no
-        # force/test bypass. From the claim on, the choice is frozen and
-        # Wednesday cannot replace the set, so nothing has to be re-checked
-        # after the paid steps; a rival Sunday cannot claim twice.
+        # one of the current candidates, reshooting the set once first when it
+        # has none; an explicit pick always wins, and a rejection still holds.
+        # There is no force/test bypass. From the claim on, the choice is
+        # frozen and Wednesday cannot replace the set, so nothing has to be
+        # re-checked after the paid steps; a rival Sunday cannot claim twice.
         try:
-            claimed = photo_review.claim_for_publication(
-                storage, episode_id, ep, allow_team_fallback=True,
-            )
+            claimed = _claim_photo_for_sunday(episode_id, ep, concept)
         except photo_review.PhotoHold as hold:
             return _hold_for_photo_approval(episode_id, ep, concept, hold.reason, hold.view)
         except photo_review.NoReviewablePhotos as exc:

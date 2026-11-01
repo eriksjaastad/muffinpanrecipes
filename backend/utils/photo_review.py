@@ -701,8 +701,12 @@ def register_request(store, episode_id: str, request: dict, *, reshoot_id: str |
         view = _derived_view(episode_id, None) if ctrl is None else _view_from_control(episode_id, ctrl)
         if view.frozen:
             raise PublicationUnderway(f"photo control is {view.state}; the image set is frozen")
-        if reshoot_id is not None and (view.reshoots.get("in_flight") or {}).get("id") != reshoot_id:
+        in_flight = view.reshoots.get("in_flight") or {}
+        if reshoot_id is not None and in_flight.get("id") != reshoot_id:
             raise ReshootRefused("Newer photos took over while this reshoot ran; its photos were not registered.")
+        # An automatic Sunday reshoot must not overwrite a human decision made while it ran.
+        if reshoot_id is not None and in_flight.get("automatic_sunday") and view.state != AWAITING:
+            raise ReshootRefused("Erik decided the photos while this automatic reshoot ran; its photos were not registered.")
         try:
             return _append(store, view, state=AWAITING, request=request, decision=None, claim=None,
                            event="wednesday: new image set",
@@ -712,14 +716,17 @@ def register_request(store, episode_id: str, request: dict, *, reshoot_id: str |
     raise ReviewConflict("photo control kept changing while Wednesday registered its photos")
 
 
-def start_reshoot(store, episode_id: str, verified_ep: dict | None, image_set: str, calls: int) -> ControlView:
+def start_reshoot(store, episode_id: str, verified_ep: dict | None, image_set: str, calls: int,
+                  *, automatic_sunday: bool = False) -> ControlView:
     """Dashboard Reshoot (#8073): count ``calls`` image calls and mark a shoot in flight.
 
     One compare-and-swap does both jobs. The cap is checked against the count
     on the control, and two clicks that both read version N cannot both create
     N+1; the loser re-reads, sees ``in_flight`` and is refused. Raises
     ReshootRefused (frozen, published, stale page, a shoot in flight, over the
-    cap), PhotoControlUnavailable on storage failure.
+    cap), PhotoControlUnavailable on storage failure. ``automatic_sunday``
+    (#8606) starts only while the set is undecided, and the marker records it
+    so ``register_request`` can refuse if Erik decides during the shoot.
     """
     for _ in range(_CAS_ATTEMPTS):
         view = read_view(store, episode_id, verified_ep)
@@ -729,6 +736,8 @@ def start_reshoot(store, episode_id: str, verified_ep: dict | None, image_set: s
             raise ReshootRefused("Episode is already published; its hero is pinned.")
         if view.request is None or not image_set or image_set != view.image_set_id:
             raise ReshootRefused("The photos changed since this page loaded; reload and review again.")
+        if automatic_sunday and view.state != AWAITING:
+            raise ReshootRefused("Erik decided the photos; no automatic reshoot is needed.")
         in_flight = view.reshoots.get("in_flight")
         if isinstance(in_flight, dict):
             try:
@@ -742,8 +751,10 @@ def start_reshoot(store, episode_id: str, verified_ep: dict | None, image_set: s
             raise ReshootRefused(
                 f"Reshoot limit reached: {used} of {RESHOOT_CALL_CAP} reshoot image calls used for this episode."
             )
-        reshoots = {"calls_used": used + calls,
-                    "in_flight": {"id": secrets.token_hex(8), "started_at": _now()}}
+        marker = {"id": secrets.token_hex(8), "started_at": _now()}
+        if automatic_sunday:
+            marker["automatic_sunday"] = True
+        reshoots = {"calls_used": used + calls, "in_flight": marker}
         try:
             return _append(store, view, state=view.state or AWAITING, request=view.request,
                            decision=view.decision, claim=None, event="reshoot: started", reshoots=reshoots)
