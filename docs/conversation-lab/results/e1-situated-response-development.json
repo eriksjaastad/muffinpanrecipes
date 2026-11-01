@@ -1,0 +1,818 @@
+{
+  "evidence_sha256": "5519bfcbcea80058f4467c17dc89dc4cefa7d55125429110c651d080a044c875",
+  "pairs": [
+    {
+      "agrees_with_human": true,
+      "control": {
+        "adjacent_turn_count": 4,
+        "adjacent_turn_evidence": [
+          {
+            "answer_cue": null,
+            "linked": false,
+            "shared_terms": [],
+            "turn": 2
+          },
+          {
+            "answer_cue": null,
+            "linked": false,
+            "shared_terms": [],
+            "turn": 3
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "cool",
+              "crisp"
+            ],
+            "turn": 4
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "labneh",
+              "shell"
+            ],
+            "turn": 5
+          }
+        ],
+        "adjacent_turn_linked_count": 2,
+        "adjacent_turn_uptake_rate": 0.5,
+        "baseline_adjacency_share_with_link": 0.5,
+        "room_continuity_reset_count": 1,
+        "room_continuity_reset_hits": [
+          {
+            "phrases": [
+              "everyone here"
+            ],
+            "turn": 1
+          }
+        ]
+      },
+      "human_pick": "variant",
+      "measurement_pick": "variant",
+      "pair": 1,
+      "scenario_id": "2026-W40:sunday:3",
+      "variant": {
+        "adjacent_turn_count": 4,
+        "adjacent_turn_evidence": [
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "go",
+              "tartlets"
+            ],
+            "turn": 2
+          },
+          {
+            "answer_cue": null,
+            "linked": false,
+            "shared_terms": [],
+            "turn": 3
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "actually"
+            ],
+            "turn": 4
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "good",
+              "shot",
+              "that's"
+            ],
+            "turn": 5
+          }
+        ],
+        "adjacent_turn_linked_count": 3,
+        "adjacent_turn_uptake_rate": 0.75,
+        "baseline_adjacency_share_with_link": 0.75,
+        "room_continuity_reset_count": 1,
+        "room_continuity_reset_hits": [
+          {
+            "phrases": [
+              "everyone here"
+            ],
+            "turn": 1
+          }
+        ]
+      }
+    },
+    {
+      "agrees_with_human": true,
+      "control": {
+        "adjacent_turn_count": 5,
+        "adjacent_turn_evidence": [
+          {
+            "answer_cue": null,
+            "linked": false,
+            "shared_terms": [],
+            "turn": 2
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "batter"
+            ],
+            "turn": 3
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "deepens",
+              "nuttiness",
+              "overnight"
+            ],
+            "turn": 4
+          },
+          {
+            "answer_cue": null,
+            "linked": false,
+            "shared_terms": [],
+            "turn": 5
+          },
+          {
+            "answer_cue": null,
+            "linked": false,
+            "shared_terms": [],
+            "turn": 6
+          }
+        ],
+        "adjacent_turn_linked_count": 2,
+        "adjacent_turn_uptake_rate": 0.4,
+        "baseline_adjacency_share_with_link": 0.4,
+        "room_continuity_reset_count": 0,
+        "room_continuity_reset_hits": []
+      },
+      "human_pick": "variant",
+      "measurement_pick": "variant",
+      "pair": 2,
+      "scenario_id": "2026-W41:sunday:1",
+      "variant": {
+        "adjacent_turn_count": 5,
+        "adjacent_turn_evidence": [
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "black",
+              "i'm",
+              "live",
+              "ready",
+              "sesame"
+            ],
+            "turn": 2
+          },
+          {
+            "answer_cue": null,
+            "linked": false,
+            "shared_terms": [],
+            "turn": 3
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "shot",
+              "steam"
+            ],
+            "turn": 4
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "shot"
+            ],
+            "turn": 5
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "shot"
+            ],
+            "turn": 6
+          }
+        ],
+        "adjacent_turn_linked_count": 4,
+        "adjacent_turn_uptake_rate": 0.8,
+        "baseline_adjacency_share_with_link": 0.8,
+        "room_continuity_reset_count": 0,
+        "room_continuity_reset_hits": []
+      }
+    },
+    {
+      "agrees_with_human": false,
+      "control": {
+        "adjacent_turn_count": 9,
+        "adjacent_turn_evidence": [
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "macro",
+              "shatter"
+            ],
+            "turn": 2
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "hand",
+              "need",
+              "shatter"
+            ],
+            "turn": 3
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "need",
+              "people",
+              "scroll"
+            ],
+            "turn": 4
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "scroll",
+              "see"
+            ],
+            "turn": 5
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "hand",
+              "scroll",
+              "second",
+              "shot"
+            ],
+            "turn": 6
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "hand",
+              "shot"
+            ],
+            "turn": 7
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "pan"
+            ],
+            "turn": 8
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "we're"
+            ],
+            "turn": 9
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "everything",
+              "macro"
+            ],
+            "turn": 10
+          }
+        ],
+        "adjacent_turn_linked_count": 9,
+        "adjacent_turn_uptake_rate": 1.0,
+        "baseline_adjacency_share_with_link": 1.0,
+        "room_continuity_reset_count": 0,
+        "room_continuity_reset_hits": []
+      },
+      "human_pick": "variant",
+      "measurement_pick": "control",
+      "pair": 4,
+      "scenario_id": "2026-W42:wednesday:3",
+      "variant": {
+        "adjacent_turn_count": 6,
+        "adjacent_turn_evidence": [
+          {
+            "answer_cue": null,
+            "linked": false,
+            "shared_terms": [],
+            "turn": 2
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "shattering"
+            ],
+            "turn": 3
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "people"
+            ],
+            "turn": 4
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "bite",
+              "cross",
+              "first",
+              "section"
+            ],
+            "turn": 5
+          },
+          {
+            "answer_cue": null,
+            "linked": false,
+            "shared_terms": [],
+            "turn": 6
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "drain"
+            ],
+            "turn": 7
+          }
+        ],
+        "adjacent_turn_linked_count": 4,
+        "adjacent_turn_uptake_rate": 0.6667,
+        "baseline_adjacency_share_with_link": 0.6667,
+        "room_continuity_reset_count": 0,
+        "room_continuity_reset_hits": []
+      }
+    },
+    {
+      "agrees_with_human": true,
+      "control": {
+        "adjacent_turn_count": 7,
+        "adjacent_turn_evidence": [
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "we're",
+              "whole"
+            ],
+            "turn": 2
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "cheese",
+              "crown",
+              "puff"
+            ],
+            "turn": 3
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "crop",
+              "shot",
+              "what's"
+            ],
+            "turn": 4
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "crop"
+            ],
+            "turn": 5
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "actually",
+              "reshoot",
+              "rise",
+              "steam"
+            ],
+            "turn": 6
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "crown",
+              "mechanism",
+              "show",
+              "steam"
+            ],
+            "turn": 7
+          },
+          {
+            "answer_cue": null,
+            "linked": false,
+            "shared_terms": [],
+            "turn": 8
+          }
+        ],
+        "adjacent_turn_linked_count": 6,
+        "adjacent_turn_uptake_rate": 0.8571,
+        "baseline_adjacency_share_with_link": 0.8571,
+        "room_continuity_reset_count": 0,
+        "room_continuity_reset_hits": []
+      },
+      "human_pick": "control",
+      "measurement_pick": "control",
+      "pair": 5,
+      "scenario_id": "2026-W43:friday:3",
+      "variant": {
+        "adjacent_turn_count": 7,
+        "adjacent_turn_evidence": [
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "hollow"
+            ],
+            "turn": 2
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "angle",
+              "steam",
+              "we're"
+            ],
+            "turn": 3
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "batter",
+              "chives"
+            ],
+            "turn": 4
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "chives"
+            ],
+            "turn": 5
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "chives",
+              "gruy",
+              "lead",
+              "re",
+              "right"
+            ],
+            "turn": 6
+          },
+          {
+            "answer_cue": null,
+            "linked": false,
+            "shared_terms": [],
+            "turn": 7
+          },
+          {
+            "answer_cue": null,
+            "linked": false,
+            "shared_terms": [],
+            "turn": 8
+          }
+        ],
+        "adjacent_turn_linked_count": 5,
+        "adjacent_turn_uptake_rate": 0.7143,
+        "baseline_adjacency_share_with_link": 0.7143,
+        "room_continuity_reset_count": 0,
+        "room_continuity_reset_hits": []
+      }
+    },
+    {
+      "agrees_with_human": true,
+      "control": {
+        "adjacent_turn_count": 7,
+        "adjacent_turn_evidence": [
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "we're",
+              "whole"
+            ],
+            "turn": 2
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "cheese",
+              "crown",
+              "puff"
+            ],
+            "turn": 3
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "crop",
+              "shot",
+              "what's"
+            ],
+            "turn": 4
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "crop"
+            ],
+            "turn": 5
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "actually",
+              "reshoot",
+              "rise",
+              "steam"
+            ],
+            "turn": 6
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "crown",
+              "mechanism",
+              "show",
+              "steam"
+            ],
+            "turn": 7
+          },
+          {
+            "answer_cue": null,
+            "linked": false,
+            "shared_terms": [],
+            "turn": 8
+          }
+        ],
+        "adjacent_turn_linked_count": 6,
+        "adjacent_turn_uptake_rate": 0.8571,
+        "baseline_adjacency_share_with_link": 0.8571,
+        "room_continuity_reset_count": 0,
+        "room_continuity_reset_hits": []
+      },
+      "human_pick": "control",
+      "measurement_pick": "control",
+      "pair": 6,
+      "scenario_id": "2026-W43:friday:2",
+      "variant": {
+        "adjacent_turn_count": 9,
+        "adjacent_turn_evidence": [
+          {
+            "answer_cue": null,
+            "linked": false,
+            "shared_terms": [],
+            "turn": 2
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "overhead"
+            ],
+            "turn": 3
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "open",
+              "overhead"
+            ],
+            "turn": 4
+          },
+          {
+            "answer_cue": null,
+            "linked": false,
+            "shared_terms": [],
+            "turn": 5
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "see",
+              "that's"
+            ],
+            "turn": 6
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "need",
+              "right",
+              "see",
+              "that's"
+            ],
+            "turn": 7
+          },
+          {
+            "answer_cue": null,
+            "linked": false,
+            "shared_terms": [],
+            "turn": 8
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "chives",
+              "fresh"
+            ],
+            "turn": 9
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "copy"
+            ],
+            "turn": 10
+          }
+        ],
+        "adjacent_turn_linked_count": 6,
+        "adjacent_turn_uptake_rate": 0.6667,
+        "baseline_adjacency_share_with_link": 0.6667,
+        "room_continuity_reset_count": 0,
+        "room_continuity_reset_hits": []
+      }
+    },
+    {
+      "agrees_with_human": false,
+      "control": {
+        "adjacent_turn_count": 6,
+        "adjacent_turn_evidence": [
+          {
+            "answer_cue": null,
+            "linked": false,
+            "shared_terms": [],
+            "turn": 2
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "that's"
+            ],
+            "turn": 3
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "shot",
+              "steam"
+            ],
+            "turn": 4
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "shot",
+              "steam"
+            ],
+            "turn": 5
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "steam"
+            ],
+            "turn": 6
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "steam",
+              "structure"
+            ],
+            "turn": 7
+          }
+        ],
+        "adjacent_turn_linked_count": 5,
+        "adjacent_turn_uptake_rate": 0.8333,
+        "baseline_adjacency_share_with_link": 0.8333,
+        "room_continuity_reset_count": 0,
+        "room_continuity_reset_hits": []
+      },
+      "human_pick": "variant",
+      "measurement_pick": "control",
+      "pair": 7,
+      "scenario_id": "2026-W43:monday:1",
+      "variant": {
+        "adjacent_turn_count": 7,
+        "adjacent_turn_evidence": [
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "uniform"
+            ],
+            "turn": 2
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "pan"
+            ],
+            "turn": 3
+          },
+          {
+            "answer_cue": null,
+            "linked": false,
+            "shared_terms": [],
+            "turn": 4
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "that's"
+            ],
+            "turn": 5
+          },
+          {
+            "answer_cue": null,
+            "linked": false,
+            "shared_terms": [],
+            "turn": 6
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "actually"
+            ],
+            "turn": 7
+          },
+          {
+            "answer_cue": null,
+            "linked": true,
+            "shared_terms": [
+              "shot",
+              "that's"
+            ],
+            "turn": 8
+          }
+        ],
+        "adjacent_turn_linked_count": 5,
+        "adjacent_turn_uptake_rate": 0.7143,
+        "baseline_adjacency_share_with_link": 0.7143,
+        "room_continuity_reset_count": 0,
+        "room_continuity_reset_hits": []
+      }
+    }
+  ],
+  "split": "development",
+  "study": "E1 situated-response measurement"
+}
