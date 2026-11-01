@@ -874,7 +874,26 @@ def hold_reason(view: ControlView) -> str | None:
     return "awaiting_photo_approval"
 
 
-def claim_for_publication(store, episode_id: str, verified_ep: dict) -> ControlView:
+def _team_winner_candidate(view: ControlView) -> dict | None:
+    """Resolve Wednesday's frozen team winner to one current candidate.
+
+    The recommendation is only authoritative for the request that contains
+    its snapshot. Matching by canonical path keeps a stale episode mirror
+    or a winner from an older image set from selecting current pixels.
+    """
+    snapshot = request_snapshot(view.request)
+    winner = (snapshot or {}).get("confirmed_winner")
+    winner_path = winner.get("path") if isinstance(winner, dict) else None
+    if not _nonempty_str(winner_path):
+        return None
+    matches = [c for c in (view.request or {}).get("candidates", []) if c.get("path") == winner_path]
+    if len(matches) != 1:
+        return None
+    return {k: matches[0].get(k) for k in ("index", "path", "url", "variant", "round")}
+
+
+def claim_for_publication(store, episode_id: str, verified_ep: dict, *,
+                          allow_team_fallback: bool = False) -> ControlView:
     """Sunday, BEFORE any paid work: take the exclusive publication claim.
 
     Raises PhotoHold (not approved: no claim taken), PublicationUnderway
@@ -893,6 +912,35 @@ def claim_for_publication(store, episode_id: str, verified_ep: dict) -> ControlV
                 "Wednesday left no reviewable photo set (no uploaded candidates with usable URLs); "
                 "nothing can be approved. Re-fire Wednesday to produce photos."
             )
+        if allow_team_fallback and view.state == AWAITING:
+            selected = _team_winner_candidate(view)
+            if selected is not None:
+                decision = {
+                    "status": APPROVED,
+                    "image_set_id": view.image_set_id,
+                    "selected": selected,
+                    "decided_at": _now(),
+                    "decided_by": "photo_team_automatic_sunday_fallback",
+                    "decided_by_id": None,
+                    "automatic": True,
+                }
+                try:
+                    _append(
+                        store,
+                        view,
+                        state=APPROVED,
+                        request=view.request,
+                        decision=decision,
+                        claim=None,
+                        event="sunday: team winner auto-approved",
+                    )
+                except PhotoControlConflict:
+                    # A human decision or another Sunday won. Re-read and
+                    # honor that newest state instead of overwriting it.
+                    continue
+                # Claim from a fresh read so this path has the same race
+                # semantics as an explicit approval.
+                continue
         reason = hold_reason(view)
         if reason:
             raise PhotoHold(reason, view)

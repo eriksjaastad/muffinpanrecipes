@@ -195,6 +195,58 @@ def _approved_store(pick=1, prefix="", wed=None):
 
 # --- Sunday gate --------------------------------------------------------------
 
+def test_team_fallback_approves_and_claims_the_frozen_wednesday_winner():
+    wed = wednesday_stage()
+    ep = _episode(wed)
+    store = _Store({EP_ID: ep})
+    register(EP_ID, wed, store)
+
+    claimed = photo_review.claim_for_publication(
+        store, EP_ID, ep, allow_team_fallback=True,
+    )
+
+    assert claimed.state == photo_review.CLAIMED
+    assert claimed.selected["path"] == wed["confirmed_winner"]["path"]
+    assert claimed.decision["automatic"] is True
+    assert claimed.decision["decided_by"] == "photo_team_automatic_sunday_fallback"
+    assert claimed.raw["event"] == "sunday: publication claimed"
+    assert _control(store)["version"] == 3
+
+
+def test_team_fallback_never_overrides_an_explicit_human_pick():
+    store, ep, wed = _approved_store(pick=2)
+
+    claimed = photo_review.claim_for_publication(
+        store, EP_ID, ep, allow_team_fallback=True,
+    )
+
+    assert claimed.selected["path"] == wed["image_paths"][1]
+    assert claimed.decision["decided_by"] == "site editor"
+    assert claimed.decision.get("automatic") is None
+    assert _control(store)["version"] == 3
+
+
+def test_team_fallback_preserves_rejection_and_holds_without_a_current_winner():
+    rejected, ep, _ = _approved_store()
+    decide(EP_ID, ep, action="reject", store=rejected)
+    with pytest.raises(photo_review.PhotoHold, match="photos_rejected"):
+        photo_review.claim_for_publication(
+            rejected, EP_ID, ep, allow_team_fallback=True,
+        )
+    assert _control(rejected)["state"] == photo_review.REJECTED
+
+    wed = wednesday_stage()
+    wed["confirmed_winner"] = {"path": "src/assets/images/r1/stale/round_1/old.png"}
+    ep = _episode(wed)
+    awaiting = _Store({EP_ID: ep})
+    register(EP_ID, wed, awaiting)
+    with pytest.raises(photo_review.PhotoHold, match="awaiting_photo_approval"):
+        photo_review.claim_for_publication(
+            awaiting, EP_ID, ep, allow_team_fallback=True,
+        )
+    assert _control(awaiting)["state"] == photo_review.AWAITING
+
+
 @pytest.mark.parametrize("prefix", ["", "test/"])
 def test_awaiting_review_holds_before_any_paid_call_and_takes_no_claim(prefix):
     wed = wednesday_stage()
