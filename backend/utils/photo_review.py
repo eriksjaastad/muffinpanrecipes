@@ -895,7 +895,7 @@ def _team_winner_candidate(view: ControlView) -> dict | None:
     snapshot = request_snapshot(view.request)
     winner = (snapshot or {}).get("confirmed_winner")
     winner_path = winner.get("path") if isinstance(winner, dict) else None
-    if not _nonempty_str(winner_path):
+    if not _nonempty_str(winner_path) or winner.get("team_recommended") is not True:
         return None
     matches = [c for c in (view.request or {}).get("candidates", []) if c.get("path") == winner_path]
     if len(matches) != 1:

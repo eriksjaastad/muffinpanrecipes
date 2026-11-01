@@ -44,7 +44,8 @@ def wednesday_stage(recipe_id: str = "r1", generation: str = "g20260101T000000Z-
         "status": "complete",
         "completed_at": "2026-01-01T12:00:00+00:00",
         "confirmed_winner": {"variant": VARIANTS[0], "path": paths[0],
-                             "featured_image": f"src/assets/images/{recipe_id}.png"},
+                             "featured_image": f"src/assets/images/{recipe_id}.png",
+                             "team_recommended": True},
         "image_status": "auto_selected",
         "photography_data": {"rounds": [{
             "round": 1,

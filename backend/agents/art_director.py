@@ -660,6 +660,7 @@ class ArtDirectorAgent(Agent):
         shot_count = random.randint(35, 55)
         rounds: list[dict[str, Any]] = []
         winner_info: dict[str, Any] | None = None
+        winner_was_recommended = False
 
         deadline = _clock() + _SHOOT_BUDGET_S
         # A caller that pays per image call (the dashboard Reshoot, #8073) can
@@ -746,6 +747,7 @@ class ArtDirectorAgent(Agent):
                 rec = vision_eval.get("recommended_winner")
                 if isinstance(rec, int) and not isinstance(rec, bool) and 1 <= rec <= len(variant_outputs):
                     winner_idx = rec - 1
+                    winner_was_recommended = True
                 else:
                     winner_idx = int(hashlib.sha1(recipe_id.encode()).hexdigest(), 16) % len(variant_outputs)
                 winner_info = {
@@ -761,6 +763,10 @@ class ArtDirectorAgent(Agent):
             last_variants = rounds[-1]["variants"]
             winner_info = {**last_variants[0], "round": len(rounds), "generation_id": generation_id}
         automated_review_status = rounds[-1]["vision_evaluation"].get("review_status", "failed")
+        # Only the vision judge's explicit recommendation may publish without
+        # Erik. Deterministic rotation and the failed-round placeholder remain
+        # useful display winners, but they are never publication approvals.
+        winner_info["team_recommended"] = winner_was_recommended
         winner_info["automated_review_status"] = automated_review_status
 
         # Copy winner to featured image location (local temp or repo)

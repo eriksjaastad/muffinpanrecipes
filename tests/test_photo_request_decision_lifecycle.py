@@ -274,6 +274,27 @@ def _sunday_reshooting(store, orch):
         return _sunday(store)
 
 
+@pytest.mark.parametrize("review_status", ["unavailable", "failed"])
+def test_sunday_reshoots_display_winner_without_explicit_team_recommendation(tmp_path, review_status):
+    generation = "g20261007T000000Z-abcdef"
+    wed = wednesday_stage()
+    wed["confirmed_winner"]["team_recommended"] = False
+    wed["confirmed_winner"]["automated_review_status"] = review_status
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+    orch = MagicMock()
+    orch.return_value._execute_stage_photography.return_value = _photography_result(tmp_path, generation)
+
+    env = _sunday_reshooting(store, orch)
+
+    assert env.error is None and env.result["published"] is True
+    orch.return_value._execute_stage_photography.assert_called_once()
+    published = store.get(EP_ID)
+    winner = f"src/assets/images/r1/{generation}/round_1/{VARIANTS[0]}.png"
+    assert published["photo_approval"]["path"] == winner
+    assert published["photo_approval"]["path"] != wed["confirmed_winner"]["path"]
+
+
 def test_sunday_reshoots_a_set_with_no_team_winner_and_publishes_the_new_pick(tmp_path):
     generation = "g20261007T000000Z-abcdef"
     wed = wednesday_stage(confirmed_winner={})  # the awaiting set has no usable winner
@@ -1276,7 +1297,7 @@ def _photography_result(tmp_path, generation="g20261007T000000Z-abcdef"):
         variants.append({"variant": v, "path": f"src/assets/images/r1/{generation}/round_1/{v}.png",
                          "local_path": str(local)})
     return {"rounds": [{"round": 1, "variants": variants, "passed": True}],
-            "winner": {**variants[0], "round": 1}, "generation_id": generation,
+            "winner": {**variants[0], "round": 1, "team_recommended": True}, "generation_id": generation,
             "selected_shots": [v["path"] for v in variants]}
 
 

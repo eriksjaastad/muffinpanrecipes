@@ -40,14 +40,10 @@ doppler run --project muffinpanrecipes --config prd -- sh -lc \
 
 ## Photo approval: Sunday says "awaiting_photo_approval", "photos_rejected" or "publication_underway" (#7936)
 
-Expected, not a failure. Sunday publishes only a photo from the CURRENT
-Wednesday image set, and runs no dialogue, QA or publish until then. With no
-decision from Erik, Sunday publishes Wednesday's team winner (recorded as
-automatic). If that set has no usable winner, Sunday first runs one reshoot of
-the set (the call cap below) and claims again. If that still gives no usable
-winner, or the reshoot is refused or fails, Sunday alerts and publishes
-nothing. The monitor shows the week as "not published: awaiting photo
-approval", not as a missing Sunday.
+Expected photo-control status surfaces, not proof that the pipeline crashed.
+Inspect the current control and use the status-specific recovery procedures below.
+The monitor shows a held week as "not published: awaiting photo approval", not
+as a missing Sunday.
 
 **One authority: the photo-control log.** `photo_control/<week>/vNNNNNN.json`
 in Blob (`test/photo_control/...` for test weeks; `data/photo_control/production/` locally).
