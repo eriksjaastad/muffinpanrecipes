@@ -30,12 +30,6 @@ import scripts.conversation_metrics as cm
 import scripts.simulate_dialogue_week as sdw
 from backend.utils import model_router
 
-@pytest.fixture(autouse=True)
-def _per_line_path(monkeypatch):
-    """These tests cover the per-line generator; production uses the author (#8384)."""
-    monkeypatch.setattr(sdw, "AUTHOR_MODE", False)
-
-
 pytestmark = pytest.mark.usefixtures("openrouter_lab")
 
 # ---------------------------------------------------------------------------
@@ -486,7 +480,7 @@ def test_append_experiments_row_finds_table_after_prose_paragraph(tmp_path, monk
     text = log_path.read_text()
     assert text.count("| Date") == 1, "a second table header was synthesized"
     lines = text.splitlines()
-    header_i = next(i for i, l in enumerate(lines) if l.startswith("| Date"))
+    header_i = next(i for i, line in enumerate(lines) if line.startswith("| Date"))
     assert lines[header_i + 1].startswith("|--")
     assert lines[header_i + 2].startswith("| "), "row did not land right after the separator"
     assert text.index("| 20") < text.index("## Heat map baseline")
@@ -1545,7 +1539,7 @@ def test_ab_max_calls_denies_before_generation_when_arm_reservation_cannot_fit(t
         "ab",
         "--concept", "Test Muffins", "--stage", "monday", "--runs", "3",
         "--variant", str(variant_path), "--recipe-context", "anchor",
-        "--max-calls", "11", "--results-dir", str(results_dir),
+        "--max-calls", "8", "--results-dir", str(results_dir),
     ])
 
     [result_file] = list(results_dir.glob("*-ab-*.json"))
@@ -1553,7 +1547,7 @@ def test_ab_max_calls_denies_before_generation_when_arm_reservation_cannot_fit(t
     assert report["aborted"] is True
     assert report["completed_pairs"] == 0
     assert report["calls_used"] == 0
-    assert generated == [], "an arm with a 40-call worst case cannot fit into 11 calls"
+    assert generated == [], "a 9-call authored reservation cannot fit into 8 calls"
 
 # ---------------------------------------------------------------------------
 # --max-cost aborts once total_cost has already reached the cap - finding
@@ -1645,19 +1639,11 @@ def test_ab_aborts_when_cost_cap_already_reached(tmp_path, monkeypatch):
 # not only at the next arm/judge boundary.
 # ---------------------------------------------------------------------------
 
-def test_arm_call_reservation_honors_variant_open_ended_max_ticks_above_unpatched():
-    """monday's unpatched TICKS_RANGE upper bound is 10 (== the floor); a
-    variant that raises OPEN_ENDED_MAX_TICKS['monday'] to 25 must make the
-    reservation bigger, not silently keep reserving for 10."""
-    unpatched = cl._arm_call_reservation("monday", None, dry_run=False)
-    variant = {"WINDDOWN_TRIGGER": "check", "OPEN_ENDED_MAX_TICKS": {"monday": 25}}
-    patched = cl._arm_call_reservation("monday", variant, dry_run=False)
-    assert patched > unpatched
-    assert patched == 25 * (cl._MAX_CALLS_PER_TURN + cl._MAX_STOP_CHECK_ATTEMPTS_PER_TICK)
+def test_arm_call_reservation_covers_three_authored_parse_attempts():
+    assert cl._arm_call_reservation(dry_run=False) == 9
 
 def test_arm_call_reservation_dry_run_is_always_zero():
-    variant = {"WINDDOWN_TRIGGER": "check", "OPEN_ENDED_MAX_TICKS": {"monday": 25}}
-    assert cl._arm_call_reservation("monday", variant, dry_run=True) == 0
+    assert cl._arm_call_reservation(dry_run=True) == 0
 
 def test_run_arm_and_count_raises_lab_budget_abort_mid_arm(monkeypatch):
     """#7714 round 2: the guard is installed by the CALLER (see
@@ -1734,27 +1720,12 @@ def test_generate_day_highlights_fallback_lets_lab_budget_abort_through(monkeypa
     with pytest.raises(cl.LabBudgetAbort):
         sdw._generate_day_highlights("monday", day_messages, "Test Muffins", "stub")
 
-def test_ab_survives_a_lab_budget_abort_raised_inside_the_director(tmp_path, monkeypatch):
-    """#7714 round 2: a LabBudgetAbort raised deep inside run_simulation's
-    per-day DIRECTOR call (backend.utils.director.direct_day -> its own
-    `except Exception as exc: raise DirectorError(...)`) must still reach
-    `ab`'s own command-level handling as a clean aborted/partial RESULT -
-    not a crash, not a DirectorError, not a hang. This exercises the real
-    (unmocked) run_simulation/direct_day code, only the model boundary is
-    faked, so it proves the propagation chain end to end rather than just
-    each broad-except site in isolation."""
-    monkeypatch.setattr(sdw, "DIRECTOR", {
-        "enabled": True, "probability": 1.0, "intensity": 3,
-        "rng_seed": 0, "no_repeat_window": 14,
-    })
-
+def test_ab_survives_a_lab_budget_abort_raised_inside_authored_generation(tmp_path, monkeypatch):
+    """An authored-generation budget abort becomes a clean partial result."""
     def raises_abort(**kwargs):
         raise cl.LabBudgetAbort("--max-calls would be exceeded")
 
-    # The director's own generate_response call is what raises - dialogue
-    # generation is never reached, since the director runs before the
-    # first tick of the day.
-    monkeypatch.setattr("backend.utils.director.generate_response", raises_abort)
+    monkeypatch.setattr(sdw, "generate_response", raises_abort)
 
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "V"})
     results_dir = tmp_path / "results"
@@ -1804,7 +1775,7 @@ def test_ab_mid_arm_guard_stops_a_runaway_variant_arm_and_writes_partial(tmp_pat
     partial, aborted `ab` result."""
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
     variant = {"_SHARED_CHARACTER_RULES": "V"}
-    reservation = cl._arm_call_reservation("monday", variant, dry_run=False)
+    reservation = cl._arm_call_reservation(dry_run=False)
 
     call_count = {"n": 0}
 
@@ -1872,7 +1843,7 @@ def test_ab_control_arm_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatc
     proves the CONTROL arm's saved partial pair holds exactly the N turns
     generated before the guard fired, not zero and not all of them."""
     variant = {"_SHARED_CHARACTER_RULES": "V"}
-    reservation = cl._arm_call_reservation("monday", variant, dry_run=False)
+    reservation = cl._arm_call_reservation(dry_run=False)
 
     def fake_generate_openrouter(**kw):
         model_router._record_cost("openrouter", "anthropic/claude-haiku-4.5", 10, 10, actual_cost=0.00006)
@@ -1949,7 +1920,7 @@ def test_ab_variant_arm_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatc
     control side stays cheap (zero real calls), so the shared guard's
     live count is entirely the variant's own turns when it fires."""
     variant = {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"}
-    reservation = cl._arm_call_reservation("monday", variant, dry_run=False)
+    reservation = cl._arm_call_reservation(dry_run=False)
 
     def fake_generate_openrouter(**kw):
         model_router._record_cost("openrouter", "anthropic/claude-haiku-4.5", 10, 10, actual_cost=0.00006)
@@ -2027,7 +1998,7 @@ def test_ab_sweep_control_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypa
     """Same proof for the sweep's shared control loop: the aborted
     (scenario, run) key's stored transcript holds exactly the N turns
     generated before the guard fired."""
-    reservation = cl._arm_call_reservation("monday", None, dry_run=False)
+    reservation = cl._arm_call_reservation(dry_run=False)
 
     def fake_generate_openrouter(**kw):
         model_router._record_cost("openrouter", "anthropic/claude-haiku-4.5", 10, 10, actual_cost=0.00006)
@@ -2105,7 +2076,7 @@ def test_bench_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatch):
     """Same proof for bench: the saved aborted run holds exactly the N
     turns generated before the guard fired, marked aborted_mid_arm, and
     stays out of `runs`, the aggregate and completed_runs."""
-    reservation = cl._MAX_CALLS_PER_TURN * cl._max_turns_for_stage("saturday")
+    reservation = cl._arm_call_reservation(dry_run=False)
 
     def fake_generate_openrouter(**kw):
         model_router._record_cost("openrouter", "anthropic/claude-haiku-4.5", 10, 10, actual_cost=0.00006)
@@ -2170,11 +2141,13 @@ def test_bench_non_budget_error_saves_partial_turns_and_reports_error(tmp_path, 
     assert report["runs"] == []
     assert report["completed_runs"] == 0
 
-def test_run_simulation_without_a_sink_returns_the_same_result_as_before(monkeypatch):
-    """#7714 round 3: message_sink is additive - production (and every
-    call that omits it) must get byte-identical behavior to before it
-    existed."""
-    monkeypatch.setattr(sdw, "generate_turn", lambda **kwargs: "Line.")
+def test_run_simulation_without_a_sink_returns_the_same_result(monkeypatch):
+    """The optional sink does not change authored simulation output."""
+    monkeypatch.setattr(
+        sdw,
+        "generate_response",
+        lambda **kwargs: '\n'.join(['Margaret: "Line."'] * 6),
+    )
 
     kwargs = dict(
         concept="Jalapeno Corn Dog Bites",
@@ -2183,7 +2156,7 @@ def test_run_simulation_without_a_sink_returns_the_same_result_as_before(monkeyp
         stage_only="monday",
         injected_event=None,
         ticks_per_day=3,
-        mode="llm",
+        mode="openai",
         prompt_style="scene",
         character_models=None,
     )
@@ -2234,25 +2207,8 @@ def test_ab_default_max_cost_is_five_dollars(tmp_path, monkeypatch):
 # --max-calls is DERIVED per mode when omitted - finding (3)
 # ---------------------------------------------------------------------------
 
-def test_max_turns_for_stage_floors_at_ten():
-    # monday's TICKS_RANGE upper bound is already 10.
-    assert cl._max_turns_for_stage("monday") == 10
-    # thursday's upper bound is 5 - floored up to 10.
-    assert cl._max_turns_for_stage("thursday") == 10
-    # Wednesday can expand to 7 turns normally or 10 after a reshoot.
-    assert cl._max_turns_for_stage("wednesday") >= 10
-    # An unknown stage falls back to (4, 6) - still floored to 10.
-    assert cl._max_turns_for_stage("not-a-real-day") == 10
-
 def test_ab_single_concept_default_max_calls_is_derived_from_arm_reservation(tmp_path, monkeypatch):
-    """#7732: a single --concept/--recipe-context run's default used to be a
-    flat 120 regardless of the variant - below one open-ended variant arm's
-    own reservation (see the next test). It is now one worst-case
-    reservation per pair: control arm + variant arm (each the per-arm
-    reservation _generate_and_judge_pairs checks before every arm) + both
-    judge orientations with their JSON retries. For a plain variant on
-    "monday" (max_turns 10, no stop check) each arm is 4 * 10 = 40 and the
-    judge allowance is 2 * (1 + 2) = 6, so runs=50 derives 50 * 86 = 4300."""
+    """The default reserves both authored arms and judge retries per pair."""
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "V"})
     results_dir = tmp_path / "results"
@@ -2265,14 +2221,10 @@ def test_ab_single_concept_default_max_calls_is_derived_from_arm_reservation(tmp
 
     [result_file] = list(results_dir.glob("*-ab-*.json"))
     report = json.loads(result_file.read_text())
-    assert report["max_calls"] == 50 * (40 + 40 + 2 * (1 + cl._JUDGE_JSON_MAX_RETRIES))
+    assert report["max_calls"] == 50 * (9 + 9 + 2 * (1 + cl._JUDGE_JSON_MAX_RETRIES))
 
 def test_ab_single_concept_default_max_calls_covers_open_ended_variant_reservation(tmp_path, monkeypatch):
-    """The bug this fixes: a variant that opens WINDDOWN_TRIGGER to "check"
-    and raises OPEN_ENDED_MAX_TICKS["monday"] to 25 gives that arm a
-    175-call reservation (25 * (4 generation calls + 3 stop-check attempts)
-    per tick) - well above the old flat 120 default, so `ab` used to refuse
-    before making a single call. The derived default must cover it."""
+    """Legacy per-line turn knobs do not change authored-arm reservations."""
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
     # HISTORY_DEPTH must be raised in the same variant or validate_variant's
     # invariant check (later_turns must exceed the tick ceiling) refuses this
@@ -2292,7 +2244,7 @@ def test_ab_single_concept_default_max_calls_covers_open_ended_variant_reservati
 
     [result_file] = list(results_dir.glob("*-ab-*.json"))
     report = json.loads(result_file.read_text())
-    variant_arm, control_arm = 175, 40
+    variant_arm, control_arm = 9, 9
     judge = 2 * (1 + cl._JUDGE_JSON_MAX_RETRIES)
     assert report["max_calls"] == 1 * (control_arm + variant_arm + judge)
     assert report["max_calls"] > variant_arm
@@ -2339,14 +2291,12 @@ def test_ab_testbed_default_max_calls_is_derived_from_panel_size_and_runs(tmp_pa
     # monday's max_turns is 10 -> 2 scenarios * 2 runs * (40 + 40 + 6) = 344
     # (control arm + variant arm at four request attempts per turn, plus both
     # judge orientations with their two JSON retries each).
-    assert report["max_calls"] == 2 * 2 * (40 + 40 + 2 * (1 + cl._JUDGE_JSON_MAX_RETRIES))
+    assert report["max_calls"] == 2 * 2 * (9 + 9 + 2 * (1 + cl._JUDGE_JSON_MAX_RETRIES))
     assert report["max_calls_derived"] is True
     assert report["panel_size"] == 2
 
 def test_ab_testbed_default_max_calls_honours_an_open_ended_variant(tmp_path, monkeypatch):
-    """Codex review of a887a20: --testbed used to size every arm from the
-    module default (4 * max_turns = 40 on Monday), so an open-ended variant's
-    175-call arm was under-reserved. Each pair now reserves its own arms."""
+    """Legacy per-line turn knobs do not change authored-arm reservations."""
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
     testbed_path = _write_testbed(tmp_path, [
         {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
@@ -2363,7 +2313,7 @@ def test_ab_testbed_default_max_calls_honours_an_open_ended_variant(tmp_path, mo
         "--results-dir", str(results_dir),
     ])
     report = json.loads(next(results_dir.glob("*-ab-testbed-*.json")).read_text())
-    assert report["max_calls"] == 1 * 2 * (40 + 175 + 2 * (1 + cl._JUDGE_JSON_MAX_RETRIES))
+    assert report["max_calls"] == 1 * 2 * (9 + 9 + 2 * (1 + cl._JUDGE_JSON_MAX_RETRIES))
 
 
 def test_derive_max_calls_sweep_counts_the_shared_control_once():
@@ -2373,7 +2323,7 @@ def test_derive_max_calls_sweep_counts_the_shared_control_once():
     got = cl._derive_max_calls(
         "sweep", scenario_count=3, runs=2, stage="monday", sweep_variants=[plain, open_ended],
     )
-    assert got == 3 * 2 * (40 + (40 + judge) + (175 + judge))
+    assert got == 3 * 2 * (9 + (9 + judge) + (9 + judge))
 
 
 def test_default_cap_lets_a_pair_finish_when_every_judge_orientation_needs_its_retries(tmp_path, monkeypatch):
@@ -2382,9 +2332,8 @@ def test_default_cap_lets_a_pair_finish_when_every_judge_orientation_needs_its_r
     judged. With the derived default, a pair whose two orientations each use
     every allowed retry must still complete."""
     def full_arm(**_kw):
-        # Spend this arm's entire worst-case reservation (Monday: 4 * 10),
-        # recorded the way real generation calls are counted.
-        for _ in range(40):
+        # Spend this arm's entire authored-scene parse/retry reservation.
+        for _ in range(9):
             cl.model_router._record_cost("openrouter", "anthropic/claude-haiku-4.5", 0, 0, actual_cost=0.0)
         return {"messages": _messages("X")}
 
@@ -3131,7 +3080,7 @@ def test_ab_sweep_control_mid_arm_guard_stops_a_runaway_run(tmp_path, monkeypatc
     mid-flight. --max-calls is set to EXACTLY the reservation so the
     coarse check clears; only the mid-arm guard can stop the runaway
     control arm from there."""
-    reservation = cl._arm_call_reservation("monday", None, dry_run=False)
+    reservation = cl._arm_call_reservation(dry_run=False)
 
     call_count = {"n": 0}
 
@@ -3174,7 +3123,7 @@ def test_ab_sweep_variant_mid_arm_guard_stops_a_runaway_run(tmp_path, monkeypatc
     stop its runaway arm. The control arm stays cheap so control_aborted
     is False and the variant's own guard is what fires."""
     variant = {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"}
-    reservation = cl._arm_call_reservation("monday", variant, dry_run=False)
+    reservation = cl._arm_call_reservation(dry_run=False)
 
     call_count = {"n": 0}
 
@@ -3562,7 +3511,7 @@ def test_bench_mid_arm_guard_stops_a_runaway_run(tmp_path, monkeypatch):
     firing on the live call count as the runaway run makes far more real
     calls than that reservation, can be what stops it."""
     call_count = {"n": 0}
-    reservation = cl._MAX_CALLS_PER_TURN * cl._max_turns_for_stage("saturday")
+    reservation = cl._arm_call_reservation(dry_run=False)
 
     def fake_generate_openrouter(**kw):
         call_count["n"] += 1
@@ -4511,17 +4460,9 @@ def test_bench_derives_max_calls_from_runs_when_the_flag_is_omitted(tmp_path, mo
 
     cl.cmd_bench(_bench_args(tmp_path, runs=3, max_calls=None))
 
-    # Pinned to a literal, not to a re-typed copy of the implementation's
-    # own expression: 3 runs x (4 calls/turn x 10 turns + 2 judge calls)
-    # = 126. 10 is _MIN_MAX_TURNS_FLOOR (saturday's TICKS_RANGE upper bound
-    # of 6 is below it); 4 is _MAX_CALLS_PER_TURN, traced through
-    # generate_turn as initial + CoT retry + fault rewrite + CoT retry on
-    # the rewrite. Re-stating `runs * (N * max_turns + 2)` here would
-    # absorb a coordinated change silently - this literal was 66 while the
-    # per-turn factor was wrongly 2, and Codex caught that, not this test.
-    # If this fails, re-derive the budget deliberately rather than pasting
-    # the new expression in.
-    assert _read_bench(tmp_path)["max_calls"] == 126
+    # Three scene attempts x three router empty-response attempts, plus two
+    # judge calls, for each of three runs.
+    assert _read_bench(tmp_path)["max_calls"] == 33
 
 # ---------------------------------------------------------------------------
 # bench: the five findings from Codex's review of PR #119
@@ -4641,20 +4582,13 @@ def test_bench_refuses_to_compare_a_dry_run_against_a_paid_baseline(tmp_path, mo
 # bench: Codex's second review of PR #119 (findings on the first round's fixes)
 # ---------------------------------------------------------------------------
 
-def test_bench_reserves_four_calls_per_turn_not_two(tmp_path, monkeypatch):
-    """A turn can cost 4 paid calls, so 2x turns was never a worst case.
-
-    generate_turn: initial response, _guard_cot_leak retry, fault rewrite,
-    _guard_cot_leak retry on the rewrite. With a 10-turn ceiling an arm can
-    spend 40, so `--max-calls 20` must refuse to start it rather than admit
-    it and blow the documented hard bound.
-    """
+def test_bench_reserves_three_authored_attempts_with_router_retries(tmp_path, monkeypatch):
+    """The arm cap covers three scene parses and router retries per attempt."""
     monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
     monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
     monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
 
-    assert cl._MAX_CALLS_PER_TURN == 4
-    cl.cmd_bench(_bench_args(tmp_path, runs=2, max_calls=20))
+    cl.cmd_bench(_bench_args(tmp_path, runs=2, max_calls=8))
 
     report = _read_bench(tmp_path, "saturday-n2")
     assert report["aborted"] is True
@@ -4874,10 +4808,10 @@ def test_calibrate_and_rejudge_result_paths_also_embed_the_model_set(tmp_path, m
     results = tmp_path / "results"
 
     calibrate_path = cl._unique_result_path(
-        results, f"20260930T183723Z-calibrate-claude-o55-2026-W36-monday"
+        results, "20260930T183723Z-calibrate-claude-o55-2026-W36-monday"
     )
     rejudge_path = cl._unique_result_path(
-        results, f"20260930T183723Z-rejudge-deepseek-o55-some-source-stem"
+        results, "20260930T183723Z-rejudge-deepseek-o55-some-source-stem"
     )
     assert "claude-o55" in calibrate_path.name
     assert "deepseek-o55" in rejudge_path.name
@@ -5786,11 +5720,11 @@ def test_bench_main_table_does_not_fabricate_a_score_for_an_unscored_dimension(
     cl.cmd_bench(_bench_args(tmp_path, runs=3))
     out = capsys.readouterr().out
 
-    dim_line = next(l for l in out.splitlines() if l.startswith("voice_distinctiveness"))
+    dim_line = next(line for line in out.splitlines() if line.startswith("voice_distinctiveness"))
     assert "NOT SCORED" in dim_line
     assert "0.00" not in dim_line, "a 1-5 dimension must never be reported as 0.00"
     # The dimension that WAS scored still reports normally.
-    assert "4.00" in next(l for l in out.splitlines() if l.startswith("turn_taking"))
+    assert "4.00" in next(line for line in out.splitlines() if line.startswith("turn_taking"))
 
 # ---------------------------------------------------------------------------
 # bench: Codex's thirteenth review (a P1 - the first since round two)
@@ -5813,7 +5747,7 @@ def test_bench_log_row_survives_pipes_and_newlines(tmp_path, monkeypatch):
         _bench_args(tmp_path, runs=2, label="a|b\nc", no_log=False, experiments_log=str(log))
     )
 
-    rows = [l for l in log.read_text().splitlines() if l.startswith("| 2")]
+    rows = [line for line in log.read_text().splitlines() if line.startswith("| 2")]
     assert len(rows) == 1, "the row must not split into several"
     # Count only UNESCAPED delimiters - an escaped `\|` still contains a
     # pipe character, so a raw count would include the very thing the

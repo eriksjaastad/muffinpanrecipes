@@ -31,10 +31,9 @@ import requests
 
 from backend.config import config
 from backend.storage import CharacterMemoryUnavailable, storage
-from backend.utils.director import Direction, direct_day, roll_day
+from backend.utils.director import Direction
 from backend.utils.logging import get_logger
 from backend.utils.model_router import generate_response
-from backend.utils.stop_check import StopCheckError, check_scene_done
 
 logger = get_logger(__name__)
 
@@ -308,12 +307,6 @@ STOP_CHECK: dict = {
 # valid with WINDDOWN_TRIGGER == "check".
 OPEN_ENDED_MAX_TICKS: dict = {}
 
-# One author writes each day's whole meeting (#8383 lab, production since #8384).
-# Measured through the production handlers on the same week: the per-line path
-# passed 1 of 6 days on the first judge try (Monday failed all 3), the author 6
-# of 6. The per-line path below stays until its deletion card; tests that cover
-# it set this to False. Never enabled from the environment.
-AUTHOR_MODE: bool = True
 _AUTHOR_PARSE_TRIES = 3
 _AUTHOR_IMAGE_TIMEOUT_SECONDS = 20
 _AUTHOR_IMAGE_MAX_BYTES = 12 * 1024 * 1024
@@ -2702,7 +2695,7 @@ def _generate_episode_memories(
 def _author_prompt(
     personas: dict[str, dict[str, Any]], names: list[str], concept: str, day: str,
     recipe_context: str | None, recipe_facts: str | None, event: str | None,
-    highlights: list[str], recent_lines: list[str], length_target: dict | None,
+    highlights: list[str], recent_lines: list[str],
     photography_context: dict | None = None, retry_note: str | None = None,
     candidate_image_count: int = 0,
 ) -> str:
@@ -2710,7 +2703,7 @@ def _author_prompt(
     sheets = []
     for name in names:
         persona = personas[name]
-        # The same memories build_system_prompt gives a per-line speaker.
+        # Give the author the saved context that informs each character.
         remembered = [f"- {m.get('concept', 'unknown')}: {m.get('summary', '')}" for m in _load_memories(name)]
         sheets.append(
             f"{name} ({persona['role']})\nBiography:\n{_load_bio(name)}\n"
@@ -2733,12 +2726,6 @@ def _author_prompt(
         if candidate_image_count else ""
     )
     retry = f"An earlier draft of this meeting was rejected. {retry_note} Fix that in this draft.\n" if retry_note else ""
-    if length_target:
-        length = (
-            f"Write exactly {length_target['lines']} dialogue lines (production range {lo}-{hi}), "
-            f"with about {length_target['words']} words in the entire scene. "
-            "Vary individual line lengths freely; this is a scene length target."
-        )
     return (
         f"Write the whole {day.title()} meeting as a fiction writer writing a scene.\n"
         f"Concept: {concept}\nTask: {DAY_MEETING_GOAL[day]['objective']}\n"
@@ -2819,13 +2806,9 @@ def run_simulation(
     # even if this function never returns (e.g. an exception mid-run). Production never passes it -
     # this parameter and the branch below are the only difference from before it existed.
     retry_note: str | None = None,  # #8264: the judge's reason an earlier attempt at this day failed
-    author_length_target: dict | None = None,  # lab's control length, never control text
 ) -> dict[str, Any]:
     # #6968: force a fresh memory snapshot for this run. Without this, a
-    # process that stays warm across stages/weeks (a long-lived Lambda, or a
-    # local script simulating multiple weeks in one process) would keep
-    # serving system prompts built from whichever week's memory was loaded
-    # the first time each character's name hit the cache.
+    # warm process could serve character sheets from an earlier run.
     _system_prompt_cache.clear()
 
     personas = load_personas()
@@ -2833,274 +2816,54 @@ def run_simulation(
     messages: list[Message] = message_sink if message_sink is not None else []
     recent_lines: list[str] = list(initial_recent_lines) if initial_recent_lines else []
     week_highlights: list[str] = list(initial_highlights) if initial_highlights else []
-    # In-run director history (#7679): later days in the same simulated week
-    # must not repeat an earlier day's (character, category) pairing, summary,
-    # or scene.
-    director_history: list[dict] = []
-
     STOP_CHECK_LOG.clear()
     DIRECTOR_LOG.clear()
     REWRITE_LOG.clear()
-    if WINDDOWN_TRIGGER not in ("regex", "off", "check"):
-        raise ValueError(
-            f"WINDDOWN_TRIGGER must be 'regex', 'off', or 'check', got {WINDDOWN_TRIGGER!r}"
-        )
-    if OPEN_ENDED_MAX_TICKS and WINDDOWN_TRIGGER != "check":
-        raise ValueError("OPEN_ENDED_MAX_TICKS requires WINDDOWN_TRIGGER == 'check'")
-
-    # Detect first episode — every character genuinely has no memory (#5030,
-    # #6968 review finding 3).
-    first_episode = _is_genuinely_first_episode(
-        _load_memories_or_unavailable(name) for name in personas
-    )
 
     days = [stage_only] if stage_only else DAY_ORDER
     for day_i, day in enumerate(days):
         stage = DAY_STAGE[day]
         names = participants_for_day(day)
 
-        if AUTHOR_MODE:
-            # Template mode is the zero-provider-call plumbing check. It must
-            # not fetch remote pixels either; paid/live conversation tests do
-            # load and reuse the stored candidate set.
-            candidate_images = (
-                [] if mode == "template" else _author_candidate_images(day, image_paths, image_urls)
-            )
-            prompt = _author_prompt(
-                personas, names, concept, day, recipe_context, recipe_facts,
-                injected_event, week_highlights, recent_lines, author_length_target,
-                photography_context, retry_note, len(candidate_images),
-            )
-            # A reply the parser rejects is rewritten, told why, up to
-            # _AUTHOR_PARSE_TRIES times, then raises: production must not lose a
-            # day to one stray narration line. The lab (author_length_target)
-            # counts and regenerates its own attempts, so it gets one try.
-            tries = 1 if author_length_target else _AUTHOR_PARSE_TRIES
-            for attempt in range(tries):
-                if mode == 'template':
-                    count = (author_length_target or {}).get('lines', TICKS_RANGE[day][0])
-                    text = '\n'.join(f"{names[i % len(names)]}: {json.dumps(f'Let us discuss {concept}.')}" for i in range(count))
-                else:
-                    text = generate_response(
-                        prompt=prompt,
-                        model=default_model,
-                        temperature=0.8,
-                        images=candidate_images or None,
-                    )
-                try:
-                    scene = _parse_author_scene(text, names)
-                    break
-                except ValueError as exc:
-                    exc.author_invalid_scene = text
-                    if attempt + 1 == tries:
-                        raise
-                    prompt += f"\n\nYour previous draft was rejected: {exc}. Follow the output format exactly."
-            for tick, (speaker, line) in enumerate(scene):
-                ts = start + timedelta(days=day_i, minutes=tick * (480 // len(scene)))
-                messages.append(Message(day, stage, speaker, line, ts.isoformat(), default_model))
-                recent_lines.append(f"{speaker.split()[0]}: {line}")
-            if day == "wednesday" and image_paths:
-                _distribute_images_wednesday(messages, image_paths, day)
-            continue
-
-        # Override scene direction if photography context provides one
-        photo_scene = _build_photography_scene_direction(photography_context, day)
-        _original_direction = DAY_STAGE_DIRECTIONS.get(day, "")
-        if photo_scene:
-            DAY_STAGE_DIRECTIONS[day] = photo_scene
-
-        # Variable message count — sample fresh each day/run
-        open_ended_cap = OPEN_ENDED_MAX_TICKS.get(day) if OPEN_ENDED_MAX_TICKS else None
-        if open_ended_cap is not None:
-            # Open-ended safety cap: the day may still end EARLIER than this
-            # (the tick after goal_met becomes the closing turn), but it can
-            # never run past it.
-            day_ticks = open_ended_cap
-        elif ticks_per_day > 0:
-            # Caller passed explicit count (e.g. pipeline stage calling with ticks_per_day=4)
-            day_ticks = ticks_per_day
-        else:
-            lo, hi = TICKS_RANGE.get(day, (4, 6))
-            day_ticks = random.randint(lo, hi)
-
-        # Wednesday with photography context needs enough messages for hero debate
-        if day == "wednesday" and photography_context and open_ended_cap is None:
-            if photography_context.get("reshoot_happened"):
-                day_ticks = max(day_ticks, 10)  # panic + reshoot + hero debate
-            else:
-                day_ticks = max(day_ticks, 7)  # drop shots + disagree + converge on hero
-
-        speak_counts: dict[str, int] = {name: 0 for name in names}
-        day_messages_by_char: dict[str, list[str]] = {name: [] for name in names}
-        goal = DAY_MEETING_GOAL[day]
-        goal_met = False
-
-        # Director (#7679): roll and direct the scene ONCE per day, before the
-        # first turn. Skipped in template mode so --dry-run stays zero-API.
-        # DirectorError propagates (no silent empty result); a fallback
-        # direction simply runs the day with today's plain scene.
-        direction = None
-        if DIRECTOR["enabled"] and mode != "template":
-            rolls = roll_day(
-                seed_key=concept,
-                characters=names,
-                probability=DIRECTOR["probability"],
-                rng_seed=DIRECTOR["rng_seed"],
-                day=day,
-            )
-            direction = direct_day(
-                day=day,
-                concept=concept,
-                objective=goal["objective"],
-                rolls=rolls,
-                intensity=DIRECTOR["intensity"],
-                history=director_history,
-                model=default_model,
-                no_repeat_window=DIRECTOR["no_repeat_window"],
-            )
-            for roll in rolls:
-                if not roll.has_something:
-                    continue
-                line = (direction.characters or {}).get(roll.character, "").strip()
-                if not line:
-                    continue
-                director_history.append({
-                    "day": day,
-                    "character": roll.character,
-                    "category": roll.category,
-                    "summary": " ".join(line.split()[:10]),
-                    "scene": direction.scene,
-                })
-            DIRECTOR_LOG.append({
-                "day": day,
-                "rolls": [
-                    {
-                        "character": r.character,
-                        "category": r.category,
-                        "u": r.u,
-                        "has_something": r.has_something,
-                    }
-                    for r in rolls
-                ],
-                "direction": (
-                    {"scene": direction.scene, "characters": direction.characters}
-                    if not direction.fallback
-                    else None
-                ),
-                "fallback": direction.fallback,
-            })
-
-        for tick in range(day_ticks):
-            # In an open-ended day, the tick after goal_met is the closing
-            # turn and the day ends after it.
-            goal_already_met = goal_met
-            # Determine conversation phase
-            if open_ended_cap is not None and goal_already_met:
-                turn_phase = "closing"
-            elif tick == day_ticks - 1:
-                turn_phase = "closing"
-            elif goal_met or tick >= day_ticks - 2:
-                turn_phase = "winding_down"
-            else:
-                turn_phase = "active"
-
-            speaker = _select_next_speaker(names, day, tick, recent_lines, speak_counts, day_ticks)
-            speak_counts[speaker] = speak_counts.get(speaker, 0) + 1
-            persona = personas[speaker]
-            ts = start + timedelta(days=day_i, minutes=tick * (480 // max(1, day_ticks)))
-            deadline = deadline_for_day(day)
-            model = choose_model(speaker, default_model, character_models)
-
-            line = generate_turn(
-                persona=persona,
-                concept=concept,
-                day=day,
-                stage=stage,
-                deadline=deadline,
-                recent_lines=recent_lines,
-                event=injected_event,
-                model=model,
-                mode=mode,
-                prompt_style=prompt_style,
-                day_turn=tick + 1,
-                is_last_turn=(tick == day_ticks - 1) or (open_ended_cap is not None and goal_already_met),
-                photography_context=photography_context,
-                phase=turn_phase,
-                prior_own_messages=day_messages_by_char.get(speaker, []),
-                is_first_episode=first_episode,
-                week_highlights=week_highlights if week_highlights else None,
-                highlight_format=highlight_format,
-                recipe_context=recipe_context,
-                recipe_facts=recipe_facts,
-                direction=direction,
-                retry_note=retry_note,
-            )
-            day_messages_by_char[speaker].append(line)
-            recent_lines.append(f"{speaker.split()[0]}: {line}")
-            messages.append(Message(day=day, stage=stage, character=speaker, message=line, timestamp=ts.isoformat(), model=model))
-
-            # Check if meeting goal was met (only after a few turns of discussion)
-            if WINDDOWN_TRIGGER == "regex":
-                if not goal_met and tick >= 2:
-                    combined = " ".join(recent_lines[-3:]).lower()
-                    if re.search(goal["completion_signal"], combined):
-                        goal_met = True
-            elif WINDDOWN_TRIGGER == "check":
-                # mode="template" is the lab's zero-API dry run; the stop check
-                # is a paid call, so it is skipped there like the director.
-                if not goal_met and tick >= 2 and mode != "template":
-                    try:
-                        result = check_scene_done(
-                            lines=recent_lines,
-                            provider=STOP_CHECK["provider"],
-                            day=day,
-                            objective=goal["objective"],
-                            haiku_model=default_model,
-                        )
-                    except StopCheckError as exc:
-                        raise StopCheckError(f"stop check failed on {day} tick {tick}: {exc}") from exc
-                    STOP_CHECK_LOG.append({
-                        "day": day,
-                        "tick": tick,
-                        "decided": result.decided,
-                        "pushback": result.pushback,
-                        "provider": result.provider,
-                        "model": result.model,
-                        "cost_usd": result.cost_usd,
-                    })
-                    decided_ok = result.decided >= STOP_CHECK["decided_threshold"]
-                    pushback_ok = (
-                        (not STOP_CHECK["require_pushback"])
-                        or result.pushback >= STOP_CHECK["pushback_threshold"]
-                    )
-                    if decided_ok and pushback_ok:
-                        goal_met = True
-            # WINDDOWN_TRIGGER == "off": goal_met is never set; phases are
-            # purely tick-based.
-
-            if open_ended_cap is not None and goal_already_met:
-                break  # the closing turn that follows goal_met just finished
-
-        # Generate highlights for this day to carry forward into later days
-        if mode == "llm" and not stage_only:
-            day_msgs = [m for m in messages if m.day == day]
-            if day_msgs:
-                highlight = _generate_day_highlights(
-                    day=day,
-                    day_messages=day_msgs,
-                    concept=concept,
-                    model=default_model,
+        # Template mode is the zero-provider-call plumbing check. It must not
+        # fetch remote pixels either; paid/live conversation tests do load and
+        # reuse the stored candidate set.
+        candidate_images = (
+            [] if mode == "template" else _author_candidate_images(day, image_paths, image_urls)
+        )
+        prompt = _author_prompt(
+            personas, names, concept, day, recipe_context, recipe_facts,
+            injected_event, week_highlights, recent_lines,
+            photography_context, retry_note, len(candidate_images),
+        )
+        for attempt in range(_AUTHOR_PARSE_TRIES):
+            if mode == "template":
+                count = TICKS_RANGE[day][0]
+                text = "\n".join(
+                    f"{names[i % len(names)]}: {json.dumps(f'Let us discuss {concept}.')}"
+                    for i in range(count)
                 )
-                if highlight:
-                    week_highlights.append(f"{day.title()}: {highlight}")
-
-        # After all Wednesday messages are generated, distribute image attachments
+            else:
+                text = generate_response(
+                    prompt=prompt,
+                    model=default_model,
+                    temperature=0.8,
+                    images=candidate_images or None,
+                )
+            try:
+                scene = _parse_author_scene(text, names)
+                break
+            except ValueError as exc:
+                exc.author_invalid_scene = text
+                if attempt + 1 == _AUTHOR_PARSE_TRIES:
+                    raise
+                prompt += f"\n\nYour previous draft was rejected: {exc}. Follow the output format exactly."
+        for tick, (speaker, line) in enumerate(scene):
+            ts = start + timedelta(days=day_i, minutes=tick * (480 // len(scene)))
+            messages.append(Message(day, stage, speaker, line, ts.isoformat(), default_model))
+            recent_lines.append(f"{speaker.split()[0]}: {line}")
         if day == "wednesday" and image_paths:
             _distribute_images_wednesday(messages, image_paths, day)
-
-        # Restore original scene direction if we overrode it
-        if photo_scene:
-            DAY_STAGE_DIRECTIONS[day] = _original_direction
 
     by_character: dict[str, int] = {}
     by_model: dict[str, int] = {}
