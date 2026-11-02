@@ -151,7 +151,7 @@ this function, in the voice guides it reads.
 one-line scene-setting direction for each day of the week (Monday's
 "Slack pings stack up...", Wednesday's lighting-test debate, etc). This is
 the lever for changing what a day is *about*.
-- `retired_per_character_day_goals` - `scripts/simulate_dialogue_week.py:78`. Per-day,
+- <code>CHARACTER&#95;DAY&#95;GOALS</code> (retired) - `scripts/simulate_dialogue_week.py:78`. Per-day,
 per-character goals (e.g. Monday's Margaret: "You have strong feelings
 about whether this concept respects the craft."). This is the lever for
 changing what a specific character is trying to do on a specific day, and
@@ -200,7 +200,7 @@ Saturday's one-line direction is what the model keeps reciting.
 16 of 25 weeks, "people need to see" close behind. Metric: `pitch_vocab_rate`
 (shipped in `conversation_metrics.py`) plus the same cross-week hot-phrase
 detector, classified into the `Pitch vocabulary` AREA. Lever:
-`retired_per_character_day_goals` (`scripts/simulate_dialogue_week.py:78`) - Ria's
+<code>CHARACTER&#95;DAY&#95;GOALS</code> (retired) (`scripts/simulate_dialogue_week.py:78`) - Ria's
 per-day goal text is what teaches her the phrase.
 - **Brand reinforcement** - the pan-case mechanism justification the shared
 rules force reads as marketing copy dropped into a group chat, even though
@@ -213,7 +213,7 @@ language the Monday pan-first rules demand, not from the noun itself.
 Metric: `brand_term_rate` in `conversation_metrics.py` (`BRAND_TERM_PATTERNS`,
 `AREA_METRICS["Brand reinforcement"]`); `conversation_heatmap.py` reports it as
 an area and in the structure-rates-by-day table. Lever: the Monday-specific rules in
-`scripts/simulate_dialogue_week.py` - `retired_per_character_day_goals`'s `monday`
+`scripts/simulate_dialogue_week.py` - <code>CHARACTER&#95;DAY&#95;GOALS</code> (retired)'s `monday`
 entries (`scripts/simulate_dialogue_week.py:79-86`), `DAY_STAGE_DIRECTIONS`'s
 `monday` entry (`scripts/simulate_dialogue_week.py:135`), and the pan-first
 / mechanism clauses inside `_SHARED_CHARACTER_RULES`'s "THE MUFFIN PAN IS
@@ -593,7 +593,7 @@ day" per-character goal** - target: short-line rate, question rate.
 target: Brand reinforcement and Structure. The "THE MUFFIN PAN IS THE
 POINT" block in `_SHARED_CHARACTER_RULES`
 (`scripts/simulate_dialogue_week.py:386-400`) and Monday's
-`retired_per_character_day_goals` / `DAY_STAGE_DIRECTIONS` entries are what push
+<code>CHARACTER&#95;DAY&#95;GOALS</code> (retired) / `DAY_STAGE_DIRECTIONS` entries are what push
 `brand_term_rate` to 32% on Mondays against 7-12% other days (see "Areas"
 above). Predicted: `brand_term_rate` down, dash-clause rate down (the
 mechanism-justification clause is itself a claim-dash-mechanism sentence
