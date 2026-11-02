@@ -26,12 +26,7 @@ Five subcommands:
   ab --stage DAY --variant PATH --testbed [PATH] [--runs N] [--target DIM]
      [--max-calls N] [--max-cost USD] [--dry-run] [--no-log]
       The offline controlled experiment: generate N control/variant pairs
-      through the *production* call shape
-      (scripts.simulate_dialogue_week.run_simulation with
-      mode="openai", plus a
-      recipe_context anchor - see .scratch/regen_w36.py and
-      backend/admin/cron_routes.py's `_generate_dialogue` for the exact
-      shape this mirrors), then judge every pair TWICE with positions
+      through the shared authored-scene `run_simulation` API. The lab adds frozen prior lines, optional recipe facts, and recovery accounting beyond the production cron call, then judge every pair TWICE with positions
       swapped so the judge's own position bias cancels out. A dimension
       counts as a win only when both orderings agree; otherwise it is a
       tie. --dry-run runs entirely on mode="template" (zero API calls) and
