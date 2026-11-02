@@ -148,16 +148,10 @@ def _load_simulation_runs(sim_dir: Path, limit: int = 100) -> List[dict]:
 
         message_models = {m.get('model') for m in messages if isinstance(m, dict) and m.get('model')}
 
-        character_models = payload.get('character_models') or {}
-        character_model_values = set()
-        if isinstance(character_models, dict):
-            character_model_values = {v for v in character_models.values() if isinstance(v, str) and v}
-
         models = sorted({
             *message_models,
             *(payload.get('models') or []),
             payload.get('default_model'),
-            *character_model_values,
         } - {None, ''})
 
         generated_at = payload.get('generated_at')
@@ -167,7 +161,6 @@ def _load_simulation_runs(sim_dir: Path, limit: int = 100) -> List[dict]:
             'generated_at': generated_at,
             'generated_at_dt': _safe_parse_iso(generated_at),
             'concept': payload.get('concept') or 'Unknown concept',
-            'prompt_style': payload.get('prompt_style') or 'unknown',
             'default_model': payload.get('default_model'),
             'models': models,
             'message_count': len(messages),
@@ -206,9 +199,7 @@ def _build_selected_simulation(run: dict) -> dict:
         'filename': run['filename'],
         'concept': run['concept'],
         'generated_at': run['generated_at'],
-        'prompt_style': run['prompt_style'],
         'default_model': payload.get('default_model'),
-        'character_models': payload.get('character_models') or {},
         'models': run['models'],
         'messages': messages,
         'day_counts': day_counts,

@@ -81,11 +81,10 @@ The lab as it stands cannot run all of this. The following is the minimum, kept 
 | P1 | `calibrate --models` | V2 with the Opus 5.5 judge; `calibrate` has no model-set option today | small |
 | P2 | a re-judge command: re-run the judge on a saved `ab` result without regenerating | V3 test-retest | small |
 | P3 | offline metrics script: `conversation_metrics` on both arms of every saved `ab` result, per recipe | S1 absolute benchmarks at zero API cost | analysis script |
-| P4 | a variant key that appends the scenario's `judge_recipe_facts` to the speakers' recipe context | R3; the variant mechanism changes simulator attributes, not scenario inputs | small |
-| P5 | head-to-head mode (a variant as the control arm) | required before S3, whose arms are compared against the S2 winner, not production; also answers S2's second question (see S2, limitation) | medium; not needed for S0-S2 |
+| P4 | retired recipe-fact visibility lever | historical prerequisite removed by #8385 | retired |
+| P5 | retired head-to-head control-arm mode | depended on retired S3 plan | retired |
 
-**P0-P4 shipped 2026-09-30 (card #7791).** P5 is not part of this slice - still
-planned, needed before S3. Usage for each:
+**P0-P3 shipped 2026-09-30 (card #7791).** P4 was later retired with the per-speaker architecture, and P5 was not pursued because its S3 consumer was retired by #8385. Retained usage:
 
 - **P0** - `scripts/lab_models.json` gained `claude-o55` (dialogue
   `anthropic/claude-haiku-4.5`) and `deepseek-o55` (dialogue
@@ -255,7 +254,8 @@ setting:
   that move.
 - Estimated cost: screen about $12 on Haiku; confirmation about $6 per arm.
 
-### S3. Register without losing the argument
+### Historical S3. Register without losing the argument
+This planned per-speaker study was retired by #8385 and is not runnable on the authored-only lab.
 The open problem: limits-off gives real pushback in speeches, and numeric caps give chat
 length with no pushback. Each lever is one arm compared head-to-head against the S2 winner
 (needs P5), screened then confirmed:
@@ -270,6 +270,9 @@ length with no pushback. Each lever is one arm compared head-to-head against the
 
 The order is R1, R1b, R2, R3, R4. A lever that is not in this table needs its own registry row
 before it runs.
+
+### Current authored-scene studies
+Current experiments may vary `TICKS_RANGE`, the sole accepted authored-scene variant. Any new lever must first be implemented explicitly in `_author_prompt` or `DAY_MEETING_GOAL`, covered by a no-op rejection test, and preregistered with one predicted outcome before a paid run. The retired R1-R4 plan above must not be reused as a runnable command.
 
 ### S4. End-to-end week
 The best confirmed configuration, run as Erik's chained week (Monday first, freeze, carry
@@ -320,12 +323,12 @@ EXPERIMENTS.md.
 
 | ID | Question | Model | Arms | N (screen / confirm) | Primary outcome | Decision rule | Status | Result | Cost |
 |---|---|---|---|---|---|---|---|---|---|
-| P | Lab prerequisites P0-P4 (before S0a); P5 (before S3) | - | - | - | - | tests pass, independent review | planned | - | - |
+| P | Lab prerequisites P0-P3 retained; P4-P5 retired | - | - | - | - | tests pass, independent review | P0-P3 shipped; P4-P5 retired | - | - |
 | S0a | Is Opus 5.5 a valid judge? (gate) | Haiku, DeepSeek | V1-V4, V6, V7 + two 14-pair pilots | 28 pilot pairs | thresholds in 3.1 | all pass | **FAIL (V6, V7); deviation D1** | V1 10/10, V2 100%, V3 85.7%, V4 10.7% pass. V6 pooled 14/25 = 56% (Haiku 9/11 = 81.8%, DeepSeek 5/14 = 35.7%), kappa 0; V7 gap 46 pts. Erik picked the bundle 28/28; the bundle was the longer transcript in all 28. | ~$7.20 |
 | S0b | Is the judge biased toward length? (running) | all | V5, ongoing V6 | every judged pair | 3.1 | 3.1 | planned | - | - |
 | S1 | Where are baseline and bundle in absolute terms? | all | both arms of every ab result | no API calls | section 4 metrics | descriptive | planned | - | $0 |
 | S2 | Which of the five changes matter? | Haiku | B + A1, A2, A4, A5 (A3 dropped, D2) | 14 / 42 | win rate vs baseline | section 5.5, Holm | screen done 2026-10-01; A4 moves (D3 rule); not confirmed | Overall W/T/L vs baseline: B 6/3/5, A1 7/3/4, A2 5/4/5, A4 10/2/2 (sign p 0.039 unadjusted, 0.195 Holm x5; 5/7 recipes), A5 8/2/4. B re-screened 6/3/5 vs 9/2/3 in the S0a pilot: a 14-pair screen swings by about 3 pairs on rerun. A4 = bundle with production's 6-10 line count kept: 7.7 lines at 90 words/line (production 8.1 lines at 21). | $10.31 |
-| S3 | Can we keep pushback at chat length? | Haiku | R1, R1b, R2-R4, head-to-head (P5) | 14 / 42 | win rate vs S2 winner | section 5.5 | planned | - | - |
+| S3 | Can we keep pushback at chat length? | Haiku | R1, R1b, R2-R4, head-to-head (P5) | 14 / 42 | win rate vs S2 winner | section 5.5 | retired by #8385 | - | - |
 | S4 | Best config, full week | Haiku | chained | 14 per day / 42 per day that changes | win rate per day | screen; 5.5 per shipped day | planned | - | - |
 | S5-DS | Replication | DeepSeek v4.1 Flash | S1, S2 screen, S4 | as above | as above | as above | planned | - | - |
 | S5-GM | Replication | Gemini | as above | as above | as above | as above | future | - | - |

@@ -105,10 +105,6 @@
                             <dd>{{ selected_run.generated_at or 'n/a' }}</dd>
                         </div>
                         <div>
-                            <dt class="font-medium">Prompt style</dt>
-                            <dd>{{ selected_run.prompt_style or 'n/a' }}</dd>
-                        </div>
-                        <div>
                             <dt class="font-medium">Mode</dt>
                             <dd>{{ selected_run.mode or 'n/a' }}</dd>
                         </div>
@@ -133,18 +129,6 @@
                     {% endif %}
                 </div>
 
-                <div>
-                    <h3 class="text-sm font-semibold text-slate-500 uppercase tracking-wide">Character model overrides
-                    </h3>
-                    <ul class="mt-2 space-y-1 text-sm">
-                        {% for character, model in selected_run.character_models.items() %}
-                        <li class="px-2 py-1 rounded bg-slate-100 text-slate-700"><span class="font-medium">{{ character
-                                }}</span>: {{ model }}</li>
-                        {% else %}
-                        <li class="text-slate-500 text-sm">None</li>
-                        {% endfor %}
-                    </ul>
-                </div>
 
                 <div>
                     <h3 class="text-sm font-semibold text-slate-500 uppercase tracking-wide">Day totals</h3>

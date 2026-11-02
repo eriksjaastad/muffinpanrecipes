@@ -1521,7 +1521,6 @@ def run_simulation(
     photography_context: dict | None = None,  # full photography data with rounds/reshoot
     initial_highlights: list[str] | None = None,  # pre-computed week highlights for context injection
     initial_recent_lines: list[str] | None = None,  # seed recent_lines (e.g. Saturday msgs for Sunday-only runs)
-    highlight_format: str = "plain",  # "plain" or "xml" — controls how week context is injected
     recipe_context: str | None = None,  # one-line recipe summary; anchors dialogue to the actual dish
     recipe_facts: str | None = None,  # #7791 P4: the judge's ground-truth facts; only reaches a speaker
     # shown to the whole-scene author alongside the recipe summary
