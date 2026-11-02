@@ -632,6 +632,36 @@ def test_sunday_claims_the_registered_reshoot_without_a_cloud_freshness_reread(t
     assert store.get(EP_ID)["photo_approval"]["decided_by"] == "photo_team_automatic_sunday_fallback"
 
 
+def test_automatic_reshoot_returns_registered_episode_without_a_post_release_control_read(tmp_path):
+    wed = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+    current = photo_review.read_view(store, EP_ID, store.get(EP_ID))
+    orch = MagicMock()
+    orch.return_value._execute_stage_photography.return_value = _photography_result(tmp_path)
+    store.save_image = lambda p, _b: f"{BLOB}/{p.split('images/')[1]}"
+    real_finish = photo_review.finish_request_registration
+
+    def finish_then_make_control_unreadable(*args, **kwargs):
+        ready = real_finish(*args, **kwargs)
+        store.fail_control_read = PhotoControlUnavailable("control unavailable after release")
+        return ready
+
+    with patch.object(cron_routes, "storage", store), \
+         patch.object(cron_routes, "_get_orchestrator", return_value=orch), \
+         patch.object(cron_routes, "_previous_pan_material", return_value=None), \
+         patch.object(cron_routes, "_monotonic", return_value=1000.0), \
+         patch.object(cron_routes, "notify_photos_ready", return_value=True), \
+         patch.object(photo_review, "finish_request_registration", side_effect=finish_then_make_control_unreadable):
+        result = cron_routes.reshoot_wednesday_photos(
+            EP_ID, current.image_set_id,
+            automatic_sunday=True, shoot_deadline=2000.0,
+        )
+
+    assert result["registered_episode"]["stages"]["wednesday"]["photo_review"]["image_set_id"] == result["image_set_id"]
+    assert result["calls_left"] == photo_review.RESHOOT_CALL_CAP - photo_review.RESHOOT_CALLS
+
+
 def test_sunday_spends_no_photo_calls_when_preflight_consumes_the_window(tmp_path):
     wed = wednesday_stage(confirmed_winner={})
     store = _Store({EP_ID: _episode(wed)})
@@ -1915,9 +1945,8 @@ def test_wednesday_rerun_after_an_approval_keeps_the_photos_and_reruns_the_dialo
 
 
 @pytest.mark.parametrize("dialogue_fails", [False, True])
-@pytest.mark.parametrize("change", ["claimed", "rejected"])
-def test_kept_photos_rerun_saves_nothing_when_the_review_changes_during_the_dialogue(
-    tmp_path, change, dialogue_fails,
+def test_kept_photos_rerun_saves_nothing_when_the_editor_rejects_during_dialogue(
+    tmp_path, dialogue_fails,
 ):
     """Neither the stage's save nor _run_stage's failure save may run after
     Sunday claimed the approved set, or the editor rejected it, mid-dialogue."""
@@ -1927,10 +1956,7 @@ def test_kept_photos_rerun_saves_nothing_when_the_review_changes_during_the_dial
     before = copy.deepcopy(store.get(EP_ID))
 
     def review_changes_meanwhile(*_a, **_k):
-        if change == "claimed":
-            photo_review.claim_for_publication(store, EP_ID, store.get(EP_ID))
-        else:
-            decide(EP_ID, store.get(EP_ID), action="reject", store=store)
+        decide(EP_ID, store.get(EP_ID), action="reject", store=store)
         if dialogue_fails:
             raise RuntimeError("judge failed all attempts")
         return [{"character": "Julian Torres", "message": "Again."}], "PASS"
@@ -1938,8 +1964,29 @@ def test_kept_photos_rerun_saves_nothing_when_the_review_changes_during_the_dial
     rerun = _wednesday(store, tmp_path, dialogue_effect=review_changes_meanwhile)
 
     assert getattr(rerun.error, "status_code", None) == 409
-    assert _control(store)["state"] == change
+    assert _control(store)["state"] == "rejected"
     assert store.get(EP_ID) == before
+
+
+def test_kept_photos_rerun_blocks_rival_sunday_until_its_final_save(tmp_path):
+    store = _Store()
+    _wednesday(store, tmp_path)
+    decide(EP_ID, store.get(EP_ID), store=store)
+
+    def rival_sunday_while_dialogue_runs(*_a, **_k):
+        pending = photo_review.read_view(store, EP_ID, store.get(EP_ID))
+        assert pending.reshoots["in_flight"]["episode_write_pending"] is True
+        with pytest.raises(photo_review.PublicationUnderway, match="still finishing"):
+            photo_review.claim_for_publication(store, EP_ID, store.get(EP_ID))
+        return [{"character": "Julian Torres", "message": "Again."}], "PASS"
+
+    rerun = _wednesday(store, tmp_path, dialogue_effect=rival_sunday_while_dialogue_runs)
+
+    assert rerun.error is None
+    final = store.get(EP_ID)
+    assert final["stages"]["wednesday"]["status"] == "complete"
+    ready = photo_review.read_view(store, EP_ID, final)
+    assert ready.state == "approved" and "in_flight" not in ready.reshoots
 
 
 def test_wednesday_refuses_a_claimed_week_before_paying_for_photos(tmp_path):

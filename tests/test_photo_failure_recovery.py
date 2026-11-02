@@ -210,11 +210,11 @@ def test_failed_hold_clear_never_records_a_successful_clear_event():
     saved = store.get(EP_ID)
     assert "sunday: hold cleared (approved photo claimed)" not in saved["events"]
     assert "publish_hold" in saved
-    # The attempt record itself persisted here (the predicate only refused the clear),
-    # and it carries the honest events.
-    assert "sunday: hold clear NOT persisted (save failed)" in saved["events"]
-    assert "sunday: attempt after hold failed" in saved["events"]
-    assert saved["publish_hold"]["last_attempt"]["outcome"] == "failed"
+    # No follow-up stale save is attempted after the claim is released. The
+    # persisted episode therefore remains the earlier, truthful hold.
+    assert "sunday: hold clear NOT persisted (save failed)" not in saved["events"]
+    assert "sunday: attempt after hold failed" not in saved["events"]
+    assert saved["publish_hold"]["last_attempt"]["outcome"] == "held"
     store.fail_save = None
     env = _sunday(store)
     assert env.result["published"] is True
@@ -251,8 +251,8 @@ def test_failed_hold_clear_keeps_an_earlier_genuine_clear_event_in_history():
     assert events.count("sunday: hold cleared (approved photo claimed)") == 1, "only the historical success remains"
     assert events.index("sunday: hold cleared (approved photo claimed)") == 1, "the historical event kept its slot"
     assert events[: len(before_events)] == before_events, "no earlier history was removed or reordered"
-    assert events[-2:] == ["sunday: hold clear NOT persisted (save failed)", "sunday: attempt after hold failed"]
-    assert "publish_hold" in saved and saved["publish_hold"]["last_attempt"]["outcome"] == "failed"
+    assert events == before_events
+    assert "publish_hold" in saved and saved["publish_hold"]["last_attempt"]["outcome"] == "held"
     store.fail_save = None
     assert _sunday(store).result["published"] is True
     assert store.get(EP_ID)["events"].count("sunday: hold cleared (approved photo claimed)") == 2
