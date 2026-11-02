@@ -73,6 +73,7 @@ def test_recommended_winner_one_is_honoured(art_director, tmp_path, monkeypatch)
                          {"passed": True, "review_status": "passed", "recommended_winner": 1})
     assert out["winner"]["variant"] == out["rounds"][0]["variants"][0]["variant"]
     assert out["automated_review_status"] == "passed"
+    assert out["winner"]["team_recommended"] is True
 
 
 def test_unavailable_review_stops_without_reshoot_and_is_not_approved(art_director, tmp_path, monkeypatch):
@@ -80,6 +81,7 @@ def test_unavailable_review_stops_without_reshoot_and_is_not_approved(art_direct
                              {"passed": False, "review_status": "unavailable", "fallback": True})
     assert len(calls) == 1 and len(out["rounds"]) == 1
     assert out["automated_review_status"] == "unavailable"
+    assert out["winner"]["team_recommended"] is False
 
 
 def test_failed_rounds_never_report_approved(art_director, tmp_path, monkeypatch):
@@ -87,6 +89,7 @@ def test_failed_rounds_never_report_approved(art_director, tmp_path, monkeypatch
                              {"passed": False, "review_status": "failed", "reason": "fused wells"})
     assert len(calls) == art_director._MAX_ROUNDS
     assert out["automated_review_status"] == "failed"
+    assert out["winner"]["team_recommended"] is False
 
 
 
@@ -145,10 +148,13 @@ def test_partial_image_set_is_not_ranked_or_reshot(art_director, tmp_path):
 
 
 @pytest.mark.parametrize("evaluation", [
-    {"passed": False, "review_status": "failed", "retry_eligible": False, "reason": "fused wells"},
-    {"passed": False, "review_status": "incomplete", "retry_eligible": False},
+    {"passed": False, "review_status": "failed", "retry_eligible": False,
+     "reason": "fused wells", "recommended_winner": 1},
+    {"passed": False, "review_status": "incomplete", "retry_eligible": False,
+     "recommended_winner": 1},
 ])
 def test_quality_only_or_incomplete_review_stops_after_one_round(art_director, tmp_path, monkeypatch, evaluation):
     out, calls = _photograph(art_director, tmp_path, monkeypatch, evaluation)
     assert len(calls) == 1 and len(out["rounds"]) == 1
     assert out["automated_review_status"] == evaluation["review_status"]
+    assert out["winner"]["team_recommended"] is False

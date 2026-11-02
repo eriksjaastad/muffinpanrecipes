@@ -39,6 +39,7 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from time import monotonic as _monotonic
 
 from fastapi import APIRouter, HTTPException, Request, status
 
@@ -215,6 +216,12 @@ def _new_episode(episode_id: str, concept: str) -> dict:
 # How early the Sunday cron may fire and still count as the week's own
 # Sunday run for the refusal note (#7630).
 _SUNDAY_NOTE_TOLERANCE = timedelta(minutes=5)
+# Keep the automatic photo-only shoot inside the 300s Vercel request while
+# reserving 180s for upload/register plus Sunday dialogue, QA and publication.
+# This window starts when the route is entered, not when image generation
+# eventually begins, so slow auth/storage/preflight work cannot borrow from the
+# reserved publish time.
+_SUNDAY_AUTOMATIC_RESHOOT_WINDOW_S = 120.0
 
 
 def _utc_now() -> datetime:
@@ -1561,6 +1568,31 @@ def _save_stage_failure(ep: dict, stage: str, error: Exception) -> None:
     )
 
 
+def _failure_without_episode_save(
+    ep: dict,
+    concept: str,
+    stage: str,
+    detail: str,
+    *,
+    status_code: int = 503,
+) -> HTTPException:
+    """Alert and return an HTTP refusal when this request owns no safe save."""
+    logger.error(detail)
+    try:
+        notify_pipeline_failure(
+            recipe_id=ep.get("recipe_id") or "unknown",
+            concept=concept or "unknown",
+            stage=stage,
+            error_message=detail,
+        )
+    except Exception as notify_exc:  # noqa: BLE001 - preserve the no-save refusal
+        logger.error(
+            f"Could not send the no-save failure alert for {stage}: "
+            f"{type(notify_exc).__name__}: {notify_exc}"
+        )
+    return HTTPException(status_code=status_code, detail=detail)
+
+
 
 def _sunday_window_reached(episode_id: str) -> bool:
     """Whether the week's own Sunday cron time has arrived (within the
@@ -1865,6 +1897,8 @@ class ReshootNotRegistered(RuntimeError):
 def _shoot_and_register(
     episode_id: str, ep: dict, concept: str, recipe_data: dict, *,
     max_rounds: int | None = None, reshoot_id: str | None = None,
+    shoot_budget_s: float | None = None, shoot_deadline: float | None = None,
+    defer_registration_finish: bool = False,
 ) -> tuple[dict, dict, list[str], list[str]]:
     """Shoot Wednesday's images, upload them, and put the new set up for review.
 
@@ -1872,6 +1906,8 @@ def _shoot_and_register(
     and URLs. The cron replaces the whole stage with a fresh one; a dashboard
     ``reshoot`` (#8073) keeps the stored stage and replaces only its photo
     fields. ``max_rounds=1`` turns the automatic second round off.
+    ``shoot_budget_s`` bounds image generation and vision evaluation so a
+    Sunday caller can reserve time for its remaining publish workflow.
     """
     orchestrator = _get_orchestrator()(data_dir=_episodes_data_dir())
     recipe_id = ep.get("recipe_id") or "unknown"
@@ -1883,6 +1919,8 @@ def _shoot_and_register(
         previous_pan_material=_previous_pan_material(episode_id),
         # Only a dashboard reshoot limits the rounds, so the cron's call is unchanged.
         **({"max_rounds": max_rounds} if max_rounds else {}),
+        **({"shoot_budget_s": shoot_budget_s} if shoot_budget_s is not None else {}),
+        **({"shoot_deadline": shoot_deadline} if shoot_deadline is not None else {}),
     )
     # photography_result is now a full dict with rounds, vision eval, winner, selected_shots
     image_paths: list[str] = photography_result.get("selected_shots", []) if isinstance(photography_result, dict) else []
@@ -1961,12 +1999,25 @@ def _shoot_and_register(
         "confirmed_winner": photography_result.get("winner", {}) if isinstance(photography_result, dict) else {},
     }
     return _register_photos(
-        episode_id, ep, concept, wed, photo_review.new_review(wed), reshoot_id=reshoot_id,
+        episode_id,
+        ep,
+        concept,
+        wed,
+        photo_review.new_review(wed),
+        reshoot_id=reshoot_id,
+        finish_registration=not defer_registration_finish,
     ), photography_result, image_paths, image_urls
 
 
 def _register_photos(
-    episode_id: str, ep: dict, concept: str, wed: dict, request: dict, *, reshoot_id: str | None = None,
+    episode_id: str,
+    ep: dict,
+    concept: str,
+    wed: dict,
+    request: dict,
+    *,
+    reshoot_id: str | None = None,
+    finish_registration: bool = True,
 ) -> dict:
     """Put ``request`` up for review: register it, mirror it on the episode, send the email.
 
@@ -1994,7 +2045,13 @@ def _register_photos(
                 "The photos were generated but not registered (episode not found on re-read)."
             )
     try:
-        photo_review.register_request(storage, episode_id, request, reshoot_id=reshoot_id)
+        registered = photo_review.register_request(
+            storage,
+            episode_id,
+            request,
+            reshoot_id=reshoot_id,
+            defer_publication_until_episode_saved=True,
+        )
     except photo_review.PublicationUnderway as exc:
         detail = (
             f"Wednesday {episode_id}: {exc}. The new photos were saved under their own "
@@ -2006,6 +2063,10 @@ def _register_photos(
         )
         raise HTTPException(status_code=409, detail=detail)
     wed["photo_review"] = {k: request[k] for k in ("image_set_id", "generated_at", "requested_at")}
+    registration_marker = registered.reshoots.get("in_flight") or {}
+    registration_pending = registration_marker.get("registration_pending") is True
+    if not registration_pending:
+        raise RuntimeError("photo registration did not retain its publication barrier")
     if reshoot_id:
         # Merge only the photo fields into the episode read before registering,
         # so Wednesday's dialogue, status and completed_at stay.
@@ -2044,7 +2105,49 @@ def _register_photos(
         "at": datetime.now(timezone.utc).isoformat(),
     }
     storage.save_episode(episode_id, ep)
+    if registration_pending and finish_registration:
+        # Every producer retains its control marker until all whole-episode
+        # writes above are finished.  This exact transition is what makes the
+        # new set eligible for a rival publication claim or replacement.
+        photo_review.finish_request_registration(
+            storage, episode_id, registration_marker["id"],
+        )
+    elif registration_pending:
+        # Internal handoff only; assigned after the persisted saves above and
+        # removed by cron_wednesday before its next save.
+        wed["_registration_id"] = registration_marker["id"]
     return wed
+
+
+@contextmanager
+def _finish_photo_write_after_stage(episode_id: str, owner: dict[str, str | None]):
+    """Release Wednesday's control lease only after its final success/failure save."""
+    failed = False
+    try:
+        yield
+    except BaseException:
+        failed = True
+        raise
+    finally:
+        write_id = owner.get("id")
+        if write_id is not None:
+            try:
+                if owner.get("kind") == "episode_write":
+                    photo_review.finish_episode_write(
+                        storage, episode_id, write_id, "wednesday approved-photo reuse",
+                    )
+                else:
+                    photo_review.finish_request_registration(
+                        storage, episode_id, write_id,
+                    )
+            except Exception as exc:
+                if not failed:
+                    raise
+                logger.error(
+                    f"Wednesday {episode_id}: failed to release photo write lease after stage "
+                    f"failure ({type(exc).__name__}: {exc}); the lease expires after "
+                    f"{photo_review.RESHOOT_IN_FLIGHT_S}s"
+                )
 
 
 # After a failure the handler cannot always know what the photo control
@@ -2052,13 +2155,15 @@ def _register_photos(
 _RESHOOT_RELOAD = "Reload the page to see the current photos and reshoot calls left."
 
 
-def _reshoot_flow(episode_id: str, image_set_id: str, calls: int, noun: str, shoot, precheck=None) -> dict:
+def _reshoot_flow(episode_id: str, image_set_id: str, calls: int, noun: str, shoot, precheck=None,
+                  *, automatic_sunday: bool = False, deadline: float | None = None) -> dict:
     """The shared frame of a dashboard reshoot (#8073): checks, count the calls, shoot, report.
 
     ``shoot(ep, concept, recipe_data, started, reshoot_id)`` makes and registers
     the new set and returns the stored Wednesday stage. ``precheck(ep)`` may
     refuse before anything is counted; ``noun`` ("reshoot" or "remake") words the
-    failures. Raises HTTPException: 409 when refused,
+    failures. ``automatic_sunday`` (#8606) passes through to ``start_reshoot``.
+    Raises HTTPException: 409 when refused,
     404/503 on a missing or unreadable episode, 502 on a failed shoot.
     """
     try:
@@ -2084,8 +2189,16 @@ def _reshoot_flow(episode_id: str, image_set_id: str, calls: int, noun: str, sho
                 status_code=503,
                 detail=f"Could not read the current photos ({type(exc).__name__}); nothing was counted or changed.",
             )
+    if deadline is not None and _monotonic() >= deadline:
+        raise HTTPException(
+            status_code=409,
+            detail="The automatic photo window expired during reshoot preflight; nothing was counted or changed.",
+        )
     try:
-        started = photo_review.start_reshoot(storage, episode_id, ep, image_set_id, calls)
+        started = photo_review.start_reshoot(
+            storage, episode_id, ep, image_set_id, calls,
+            automatic_sunday=automatic_sunday, deadline=deadline,
+        )
     except (photo_review.ReshootRefused, photo_review.ReviewConflict) as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     except Exception as exc:
@@ -2111,26 +2224,45 @@ def _reshoot_flow(episode_id: str, image_set_id: str, calls: int, noun: str, sho
         logger.error(f"Photo {noun} failed for {episode_id}: {type(exc).__name__}: {exc}")
         detail = str(exc) if isinstance(exc, ReshootNotRegistered) else f"The {noun} failed ({type(exc).__name__})."
         raise HTTPException(status_code=502, detail=f"{detail} {_RESHOOT_RELOAD}") from exc
-    view = photo_review.read_view(storage, episode_id, None)
-    return {
+    # Sunday's registration already carried forward the exact verified episode.
+    # Do not add an unneeded control read after its write lease is released: if
+    # that read failed, the caller would lose the registered episode and could
+    # fall back to saving its older snapshot. The reserved view has the same
+    # call count; dashboard callers still receive a fresh post-registration read.
+    view = started if automatic_sunday else photo_review.read_view(storage, episode_id, None)
+    result = {
         "image_set_id": wed["photo_review"]["image_set_id"],
         "calls_left": view.reshoot_calls_left,
     }
+    if automatic_sunday:
+        # _register_photos already freshness-verified this episode before it
+        # registered and saved the replacement set. Carry that exact object
+        # into Sunday's claim rather than immediately asking an eventually
+        # consistent cloud read to rediscover the write it just accepted.
+        result["registered_episode"] = copy.deepcopy(ep)
+    return result
 
 
-def reshoot_wednesday_photos(episode_id: str, image_set_id: str) -> dict:
+def reshoot_wednesday_photos(
+    episode_id: str, image_set_id: str, *, automatic_sunday: bool = False,
+    shoot_deadline: float | None = None,
+) -> dict:
     """Dashboard Reshoot (#8073): new Wednesday images for a page's current set.
 
     Photos only: Wednesday's dialogue, status and completed_at are kept, and no
     dialogue is paid for. The new set is registered unapproved, which voids any
     earlier approval, and one "Photos ready" email goes out. Runs inside the
-    caller's request (admin and cron share one Lambda).
+    caller's request (admin and cron share one Lambda). ``automatic_sunday``
+    (#8606) marks the shoot as Sunday's own, so it cannot void a human decision.
     """
     return _reshoot_flow(
         episode_id, image_set_id, photo_review.RESHOOT_CALLS, "reshoot",
         lambda ep, concept, recipe_data, _started, reshoot_id: _shoot_and_register(
             episode_id, ep, concept, recipe_data, max_rounds=1, reshoot_id=reshoot_id,
+            shoot_deadline=shoot_deadline if automatic_sunday else None,
         )[0],
+        automatic_sunday=automatic_sunday,
+        deadline=shoot_deadline if automatic_sunday else None,
     )
 
 
@@ -2195,23 +2327,84 @@ async def cron_wednesday(request: Request):
       # image set would race publication. Refuse BEFORE paying for images.
       _refuse_wednesday_on_frozen_photos(episode_id, ep, concept)
 
-      with _run_stage(ep, "wednesday"):
+      # This second control read can race Sunday's publication after the
+      # frozen-photo check above. It must happen outside _run_stage: until a
+      # write lease is acquired, this caller's whole-episode snapshot is not
+      # safe to persist, even as a failure record.
+      try:
+          kept = _approved_wednesday_photos(episode_id, ep, concept)
+      except Exception as exc:
+          detail = (
+              f"Wednesday could not resolve approved photos for {episode_id}: "
+              f"{type(exc).__name__}: {exc}. Nothing was saved; re-fire Wednesday."
+          )
+          notify_pipeline_failure(
+              recipe_id=ep.get("recipe_id") or "unknown",
+              concept=concept,
+              stage="wednesday (photo review)",
+              error_message=detail,
+          )
+          raise HTTPException(status_code=503, detail=detail) from exc
+
+      photo_write_owner: dict[str, str | None] = {"id": None, "kind": None}
+      with _finish_photo_write_after_stage(episode_id, photo_write_owner), \
+           _run_stage(ep, "wednesday"):
         # #8297: a re-fire after Erik approved a photo keeps that set and reruns
         # only the dialogue. Reshooting replaced the photos he had picked when
         # only the conversation had failed (W42). No image is generated and no
         # "Photos ready" alert goes out; to replace an approved set, choose
         # "None usable" first and the re-fire reshoots.
-        kept = _approved_wednesday_photos(episode_id, ep, concept)
         if kept is not None:
-            wed, kept_version = kept
+            wed, kept_view = kept
+            try:
+                write_id, _ = photo_review.begin_episode_write(
+                    storage, episode_id, kept_view,
+                    "wednesday approved-photo reuse", ep,
+                )
+            except (photo_review.PublicationUnderway, photo_review.ReviewConflict) as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"The photo review for {episode_id} changed before Wednesday could "
+                        f"reserve its final saves: {exc}. Re-fire Wednesday."
+                    ),
+                ) from exc
+            except Exception as exc:
+                detail = (
+                    f"Wednesday could not reserve the approved-photo episode writes for "
+                    f"{episode_id}: {type(exc).__name__}: {exc}. Nothing was saved; "
+                    "re-fire Wednesday."
+                )
+                notify_pipeline_failure(
+                    recipe_id=ep.get("recipe_id") or "unknown",
+                    concept=concept,
+                    stage="wednesday (photo review)",
+                    error_message=detail,
+                )
+                raise HTTPException(status_code=503, detail=detail) from exc
+            photo_write_owner.update(id=write_id, kind="episode_write")
             photography_result = wed["photography_data"]
             image_paths = wed["image_paths"]
             image_urls = wed["image_urls"]
             ep["events"].append("wednesday: kept the approved photos")
         else:
-            wed, photography_result, image_paths, image_urls = _shoot_and_register(
-                episode_id, ep, concept, recipe_data,
-            )
+            try:
+                wed, photography_result, image_paths, image_urls = _shoot_and_register(
+                    episode_id, ep, concept, recipe_data,
+                    defer_registration_finish=True,
+                )
+            except HTTPException:
+                raise
+            except Exception as exc:
+                detail = (
+                    f"Wednesday failed before it acquired an episode-write lease for "
+                    f"{episode_id}: {type(exc).__name__}: {exc}. Nothing was saved; "
+                    "re-fire Wednesday."
+                )
+                raise _failure_without_episode_save(
+                    ep, concept, "wednesday", detail, status_code=500,
+                ) from exc
+            photo_write_owner.update(id=wed.pop("_registration_id"), kind="registration")
 
         wed_photo_ctx = photography_result if isinstance(photography_result, dict) else None
         review_ctx = _photo_review_dialogue_context(episode_id, ep)
@@ -2229,19 +2422,16 @@ async def cron_wednesday(request: Request):
             )
         finally:
             if kept is not None:
-                # The kept set's approval can change while this dialogue runs:
-                # Sunday claims it, or the editor re-picks or chooses "None
-                # usable" (a reshoot registers a new, unapproved set, so only
-                # this path needs it). Every such change is a new control
-                # version. Before either whole-episode save, the stage's or
-                # _run_stage's failure save, refuse if it moved; the 409
-                # replaces a dialogue failure, which the change makes moot.
-                current = _refuse_wednesday_on_frozen_photos(episode_id, ep, concept)
-                if current is None or current.version != kept_version:
+                # Human decisions remain available while the whole-episode
+                # writer holds its lease. If one changed, do not persist the
+                # pre-decision stage snapshot; the lease is released outside
+                # _run_stage after this HTTP refusal saves nothing.
+                current = photo_review.read_view(storage, episode_id, ep)
+                if current.state != kept_view.state or current.decision != kept_view.decision:
                     raise HTTPException(
                         status_code=409,
                         detail=(
-                            f"The photo review for {episode_id} changed while Wednesday's "
+                            f"The photo decision for {episode_id} changed while Wednesday's "
                             "dialogue ran; nothing was saved. Re-fire Wednesday."
                         ),
                     )
@@ -2530,7 +2720,9 @@ def photo_review_namespace(prefix: str) -> str:
     return "test" if prefix == "test/" else ""
 
 
-def _approved_wednesday_photos(episode_id: str, ep: dict, concept: str) -> tuple[dict, int] | None:
+def _approved_wednesday_photos(
+    episode_id: str, ep: dict, concept: str,
+) -> tuple[dict, photo_review.ControlView] | None:
     """Wednesday's stage rebuilt from the approved current image set, with the
     control version it was read at, or None to shoot.
 
@@ -2554,7 +2746,7 @@ def _approved_wednesday_photos(episode_id: str, ep: dict, concept: str) -> tuple
         "stage": "photography",
         "concept": concept,
         **{k: stage[k] for k in _PRESERVED_ON_FAILURE["wednesday"] if k in stage},
-    }, view.version
+    }, view
 
 
 def _refuse_wednesday_on_frozen_photos(
@@ -2644,35 +2836,6 @@ def _read_episode_verified(episode_id: str, concept: str, purpose: str) -> dict 
         )
 
 
-def _record_failed_hold_attempt(episode_id: str, ep: dict, detail: str) -> str:
-    """A Sunday that found an earlier hold and then failed before deciding (#7936).
-
-    Marks ``publish_hold.last_attempt`` failed and saves, so the integrity
-    monitor stops reading the week as quietly "awaiting photo approval" and
-    reports this failure instead. Returns a sentence for the alert: either
-    that the attempt was recorded, or that it could NOT be (the monitor will
-    then still show the hold, which the alert says plainly).
-    """
-    hold = ep.get("publish_hold")
-    if not isinstance(hold, dict):
-        return ""
-    hold["last_attempt"] = {
-        "at": datetime.now(timezone.utc).isoformat(),
-        "outcome": "failed",
-        "detail": detail[:500],
-    }
-    ep.setdefault("events", []).append("sunday: attempt after hold failed")
-    try:
-        storage.save_episode(episode_id, ep)
-    except Exception as exc:
-        return (
-            " The failed attempt could NOT be recorded on the episode either "
-            f"({type(exc).__name__}: {exc}); until a Sunday run succeeds, the monitor will keep "
-            "showing the earlier photo hold. Treat this alert as the record."
-        )
-    return " The failed attempt was recorded on the episode; the monitor reports it."
-
-
 def _no_reviewable_photos_failure(episode_id: str, ep: dict, concept: str, detail: str):
     """Wednesday is complete but nothing can be approved (#7936, preflight 5).
 
@@ -2720,46 +2883,103 @@ def _hold_for_photo_approval(episode_id: str, ep: dict, concept: str, reason: st
     """
     from fastapi.responses import JSONResponse
 
-    image_set = view.image_set_id
-    episode_changed = False
-    if view.version and view.request:
-        before = copy.deepcopy((ep.get("stages") or {}).get("wednesday"))
-        photo_review.apply_request_mirror(ep, view.request)
-        episode_changed = before != ep["stages"]["wednesday"]
-    # An earlier Sunday that failed after its claim (editorial QA, dialogue)
-    # left a failed stage. This run is deliberately waiting, which is the
-    # current truth; the failure stays in events/editorial_qa. The monitor
-    # does not recognise a hold beside a Sunday stage, so the stale one goes.
-    stale_sunday = (ep.get("stages") or {}).get("sunday")
-    if isinstance(stale_sunday, dict) and stale_sunday.get("status") != "complete":
-        ep["stages"].pop("sunday", None)
-        ep.setdefault("events", []).append("sunday: earlier failed attempt superseded by hold")
-        episode_changed = True
-    prior = ep.get("publish_hold") if isinstance(ep.get("publish_hold"), dict) else {}
-    prior_attempt = prior.get("last_attempt") if isinstance(prior.get("last_attempt"), dict) else {}
-    if prior_attempt.get("outcome") == "failed":
-        # This run reached the hold decision, so the earlier failed attempt
-        # is superseded; the hold is quiet again.
-        episode_changed = True
-    if episode_changed or not (
-        prior.get("reason") == reason and prior.get("image_set_id") == image_set and prior.get("notified")
-    ):
-        same_hold = prior.get("reason") == reason and prior.get("image_set_id") == image_set
-        hold = {
-            "reason": reason,
-            "image_set_id": image_set,
-            "since": prior.get("since") or datetime.now(timezone.utc).isoformat(),
-            "notified": bool(same_hold and prior.get("notified")),
-            "last_attempt": {"at": datetime.now(timezone.utc).isoformat(), "outcome": "held"},
-        }
-        ep["publish_hold"] = hold
-        ep.setdefault("events", []).append(f"sunday: held ({reason})")
-        storage.save_episode(episode_id, ep)
-        if not hold["notified"]:
-            hold["notified"] = bool(notify_publish_held(
-                episode_id, reason, namespace=photo_review_namespace(storage.prefix),
-            ))
+    # Reserve the control before saving this whole-episode snapshot.  A slow
+    # notification may let another Sunday or Wednesday advance the control;
+    # without this lease our later save could erase that publication or
+    # replacement.  If the control already advanced, return a conflict and do
+    # not touch the stale episode.
+    failed = False
+    try:
+        write_id, _ = photo_review.begin_episode_write(
+            storage, episode_id, view, "sunday photo hold", ep,
+        )
+    except (photo_review.PublicationUnderway, photo_review.ReviewConflict) as exc:
+        return _publication_underway_response(episode_id, concept, str(exc))
+    except Exception as exc:
+        detail = (
+            f"Sunday could not reserve the photo-hold episode write for {episode_id}: "
+            f"{type(exc).__name__}: {exc}. Nothing was saved; reload before retrying."
+        )
+        raise _failure_without_episode_save(
+            ep, concept, "sunday (photo hold)", detail,
+        ) from exc
+
+    try:
+        image_set = view.image_set_id
+        episode_changed = False
+        if view.version and view.request:
+            before = copy.deepcopy((ep.get("stages") or {}).get("wednesday"))
+            photo_review.apply_request_mirror(ep, view.request)
+            episode_changed = before != ep["stages"]["wednesday"]
+        # An earlier Sunday that failed after its claim (editorial QA, dialogue)
+        # left a failed stage. This run is deliberately waiting, which is the
+        # current truth; the failure stays in events/editorial_qa. The monitor
+        # does not recognise a hold beside a Sunday stage, so the stale one goes.
+        stale_sunday = (ep.get("stages") or {}).get("sunday")
+        if isinstance(stale_sunday, dict) and stale_sunday.get("status") != "complete":
+            ep["stages"].pop("sunday", None)
+            ep.setdefault("events", []).append("sunday: earlier failed attempt superseded by hold")
+            episode_changed = True
+        prior = ep.get("publish_hold") if isinstance(ep.get("publish_hold"), dict) else {}
+        prior_attempt = prior.get("last_attempt") if isinstance(prior.get("last_attempt"), dict) else {}
+        if prior_attempt.get("outcome") == "failed":
+            # This run reached the hold decision, so the earlier failed attempt
+            # is superseded; the hold is quiet again.
+            episode_changed = True
+        if episode_changed or not (
+            prior.get("reason") == reason and prior.get("image_set_id") == image_set and prior.get("notified")
+        ):
+            same_hold = prior.get("reason") == reason and prior.get("image_set_id") == image_set
+            hold = {
+                "reason": reason,
+                "image_set_id": image_set,
+                "since": prior.get("since") or datetime.now(timezone.utc).isoformat(),
+                "notified": bool(same_hold and prior.get("notified")),
+                "last_attempt": {"at": datetime.now(timezone.utc).isoformat(), "outcome": "held"},
+            }
+            ep["publish_hold"] = hold
+            ep.setdefault("events", []).append(f"sunday: held ({reason})")
             storage.save_episode(episode_id, ep)
+            if not hold["notified"]:
+                hold["notified"] = bool(notify_publish_held(
+                    episode_id, reason, namespace=photo_review_namespace(storage.prefix),
+                ))
+                storage.save_episode(episode_id, ep)
+    except HTTPException:
+        failed = True
+        raise
+    except Exception as exc:
+        failed = True
+        detail = (
+            f"Sunday could not persist the photo hold for {episode_id}: "
+            f"{type(exc).__name__}: {exc}. The alert is the record; no later "
+            "stage-failure save was attempted."
+        )
+        raise _failure_without_episode_save(
+            ep, concept, "sunday (photo hold)", detail,
+        ) from exc
+    finally:
+        try:
+            photo_review.finish_episode_write(
+                storage, episode_id, write_id, "sunday photo hold",
+            )
+        except Exception as exc:
+            if failed:
+                logger.error(
+                    f"Sunday {episode_id}: failed to release the photo-hold lease after "
+                    f"an earlier refusal ({type(exc).__name__}: {exc}); it expires after "
+                    f"{photo_review.RESHOOT_IN_FLIGHT_S}s"
+                )
+            else:
+                failed = True
+                detail = (
+                    f"Sunday saved the photo hold for {episode_id} but could not release "
+                    f"its write lease: {type(exc).__name__}: {exc}. No additional episode "
+                    "save was attempted; reload before retrying."
+                )
+                raise _failure_without_episode_save(
+                    ep, concept, "sunday (photo hold)", detail,
+                ) from exc
 
     return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content={
         "status": reason,
@@ -2841,7 +3061,9 @@ def _complete_checkpointed_publication(episode_id: str, ep: dict, concept: str, 
             f"{type(exc).__name__}: {exc}. Nothing was published or spent."
         )
         raise _sunday_storage_failure(
-            episode_id, concept, detail + _record_failed_hold_attempt(episode_id, ep, detail),
+            episode_id,
+            concept,
+            detail + " The caller's episode was not saved because photo-control ownership is unknown.",
         )
     if view.state not in (photo_review.PUBLISHING, photo_review.PUBLISHED):
         return None
@@ -2986,8 +3208,102 @@ def _write_featured_photo(ep: dict, approved: dict, concept: str, episode_id: st
             break
 
 
+def _claim_photo_for_sunday(
+    episode_id: str, ep: dict, concept: str, *, shoot_deadline: float,
+) -> photo_review.ControlView:
+    """Sunday's publication claim (#7936), with one automatic reshoot (#8606).
+
+    An awaiting set with no usable frozen team winner gets one whole-set
+    reshoot through the dashboard's call cap and in-flight marker, then the
+    claim is tried again on the episode re-read after it. A rejection never
+    reshoots. ``ep`` is refreshed in place, so the caller holds the episode
+    the claim was made against. Raises PhotoHold when no usable winner results
+    (nothing is claimed, nothing is published) and PublicationUnderway when
+    another run froze the week meanwhile.
+    """
+    try:
+        return photo_review.claim_for_publication(storage, episode_id, ep, allow_team_fallback=True)
+    except photo_review.PhotoHold as hold:
+        # Only an undecided set reshoots: an approval Erik made is never voided.
+        if hold.view.state != photo_review.AWAITING:
+            raise
+        image_set_id = hold.view.image_set_id
+    problem = None
+    reshoot = None
+    if _monotonic() >= shoot_deadline:
+        problem = "the automatic photo window expired before image generation"
+    else:
+        try:
+            reshoot = reshoot_wednesday_photos(
+                episode_id, image_set_id, automatic_sunday=True,
+                shoot_deadline=shoot_deadline,
+            )
+        except HTTPException as exc:
+            problem = f"the reshoot did not produce photos ({exc.detail})"
+    if reshoot is None:
+        ep.clear()
+        ep.update(_read_episode_verified(episode_id, concept, "after the automatic reshoot"))
+    else:
+        registered_episode = reshoot.get("registered_episode")
+        if not isinstance(registered_episode, dict):
+            raise RuntimeError("automatic reshoot did not return its registered episode")
+        ep.clear()
+        ep.update(registered_episode)
+    view = photo_review.read_view(storage, episode_id, ep)
+    if view.frozen:
+        raise photo_review.PublicationUnderway(f"photo control is {view.state}")
+
+    if reshoot is None:
+        # A failed automatic shoot may still have raced an Erik decision on
+        # the original set. Honor that decision, but never adopt a replacement
+        # set written by Wednesday while the shoot was running.
+        if view.image_set_id != image_set_id:
+            raise photo_review.ReviewConflict(
+                "the photos changed while Sunday's automatic reshoot was running"
+            )
+        in_flight = view.reshoots.get("in_flight") or {}
+        if in_flight.get("automatic_sunday") and photo_review.reshoot_in_flight_active(view):
+            # Another Sunday owns the still-active shoot. A hold response
+            # would save a stale episode over that run's later publication.
+            raise photo_review.PublicationUnderway("an automatic photo reshoot is already underway")
+        allow_team_fallback = False
+    else:
+        # Only this run's successfully registered replacement is eligible for
+        # automatic approval. A later Wednesday set belongs to another run.
+        if view.image_set_id != reshoot["image_set_id"]:
+            raise photo_review.ReviewConflict(
+                "the photos changed after Sunday's automatic reshoot completed"
+            )
+        allow_team_fallback = True
+
+    # A human approval on the expected set is claimed here, and a rejection
+    # propagates to the normal hold response. Only our registered reshoot may
+    # receive a new automatic fallback decision.
+    try:
+        return photo_review.claim_for_publication(
+            storage, episode_id, ep, allow_team_fallback=allow_team_fallback,
+            expected_image_set_id=(reshoot["image_set_id"] if reshoot is not None else None),
+        )
+    except photo_review.PhotoHold as hold:
+        if hold.view.state != photo_review.AWAITING:
+            raise
+        problem = problem or "the reshoot's photos have no usable team winner"
+        view = hold.view
+    notify_pipeline_failure(
+        recipe_id=ep.get("recipe_id") or "unknown", concept=concept,
+        stage="sunday (photo review)",
+        error_message=(
+            f"Sunday {episode_id} cannot publish without a photo approval: {problem}. "
+            "Nothing was published or spent on dialogue; the photo review is waiting for Erik's "
+            "pick. Pick a photo or reject the set, then re-fire Sunday."
+        ),
+    )
+    raise photo_review.PhotoHold("awaiting_photo_approval", view)
+
+
 @router.api_route("/sunday", methods=["GET", "POST"])
 async def cron_sunday(request: Request):
+    automatic_reshoot_deadline = _monotonic() + _SUNDAY_AUTOMATIC_RESHOOT_WINDOW_S
     _verify_cron_secret(request)
     body = await _parse_body(request)
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
@@ -3131,12 +3447,18 @@ async def cron_sunday(request: Request):
 
         # #7936: nothing is published, and no paid dialogue or QA runs, until
         # this run holds the exclusive publication claim on an approval of
-        # the CURRENT photos. No reply and a rejection both hold; there is no
-        # force/test bypass. From the claim on, Erik's choices are frozen and
-        # Wednesday cannot replace the set, so nothing has to be re-checked
-        # after the paid steps; a rival Sunday cannot claim twice.
+        # the CURRENT photos. #8606: with no reply from Erik, Sunday approves
+        # Wednesday's frozen team winner (recorded as automatic) when it is
+        # one of the current candidates, reshooting the set once first when it
+        # has none; an explicit pick always wins, and a rejection still holds.
+        # There is no force/test bypass. From the claim on, the choice is
+        # frozen and Wednesday cannot replace the set, so nothing has to be
+        # re-checked after the paid steps; a rival Sunday cannot claim twice.
         try:
-            claimed = photo_review.claim_for_publication(storage, episode_id, ep)
+            claimed = _claim_photo_for_sunday(
+                episode_id, ep, concept,
+                shoot_deadline=automatic_reshoot_deadline,
+            )
         except photo_review.PhotoHold as hold:
             return _hold_for_photo_approval(episode_id, ep, concept, hold.reason, hold.view)
         except photo_review.NoReviewablePhotos as exc:
@@ -3152,7 +3474,9 @@ async def cron_sunday(request: Request):
                 "published or spent; run Sunday again."
             )
             raise _sunday_storage_failure(
-                episode_id, concept, detail + _record_failed_hold_attempt(episode_id, ep, detail),
+                episode_id,
+                concept,
+                detail + " The stale episode was not saved because photo-control ownership changed.",
                 status_code=409,
             )
         except Exception as exc:
@@ -3161,7 +3485,9 @@ async def cron_sunday(request: Request):
                 f"{type(exc).__name__}: {exc}. Nothing was published or spent."
             )
             raise _sunday_storage_failure(
-                episode_id, concept, detail + _record_failed_hold_attempt(episode_id, ep, detail),
+                episode_id,
+                concept,
+                detail + " The caller's episode was not saved because photo-control ownership is unknown.",
             )
         # #7936: the hold an earlier Sunday recorded while waiting is obsolete
         # the moment an approval is claimed. It is cleared in storage FIRST,
@@ -3191,11 +3517,10 @@ async def cron_sunday(request: Request):
                     f"publishing ({type(exc).__name__}: {exc}). The approval was handed back; "
                     "nothing was spent. Run Sunday again in a minute."
                 )
-                # The hold is still in storage; put the failed attempt on it
-                # (same store, so this usually fails too and the alert says so).
-                ep["publish_hold"] = hold_before
                 raise _sunday_storage_failure(
-                    episode_id, concept, detail + _record_failed_hold_attempt(episode_id, ep, detail),
+                    episode_id,
+                    concept,
+                    detail + " The caller's episode was not saved after the claim was released.",
                 )
         approved_photo = claimed.selected
         if approved_photo is None:

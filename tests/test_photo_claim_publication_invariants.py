@@ -38,7 +38,8 @@ from backend.utils.episode_integrity import (
     recorded_photo_hold,
     stage_deadline,
 )
-from tests.photo_review_helpers import decide, register, wednesday_stage
+from tests.photo_review_helpers import decide, register, sunday_reshoot_refused, wednesday_stage  # noqa: F401 - pytestmark
+
 from tests.test_photo_request_decision_lifecycle import (
     EP_ID,
     _Store,
@@ -52,6 +53,8 @@ from tests.test_photo_request_decision_lifecycle import (
     _sunday,
 )
 from tests.test_photo_claim_publication_lifecycle import _LocalStore, _monitor, _page, _section
+
+pytestmark = pytest.mark.usefixtures("sunday_reshoot_refused")
 
 AFTER_SUNDAY = stage_deadline(EP_ID, "sunday") + timedelta(hours=2)
 PUBLISHED_AT = "2026-10-11T00:05:00+00:00"
@@ -462,7 +465,7 @@ def test_frozen_inconsistency_is_none_for_decidable_states():
 # =============================================================================
 
 def _held_store():
-    wed = wednesday_stage()
+    wed = wednesday_stage(confirmed_winner={})  # no team winner, so Sunday holds
     ep = _episode(wed)
     store = _Store()
     store.put(EP_ID, ep)
@@ -490,29 +493,25 @@ def _break_authority(store, how):
 
 
 @pytest.mark.parametrize("how", ["read_error", "malformed_control", "inconsistent_frozen"])
-def test_authority_failure_after_a_hold_is_reported_not_hidden(how):
+def test_authority_failure_after_a_hold_alerts_without_saving_a_stale_episode(how):
     store, wed = _held_store()
+    before = copy.deepcopy(store.get(EP_ID))
     _break_authority(store, how)
     env = _sunday(store)
     assert _status(env) == 503
     env.dialogue.assert_not_called()
     _never_published(store)
     assert env.failure.call_count == 1
-    assert "was recorded on the episode" in env.failure.call_args.kwargs["error_message"]
+    assert "ownership is unknown" in env.failure.call_args.kwargs["error_message"]
     assert env.held.call_count == 0
     saved = store.get(EP_ID)
-    attempt = saved["publish_hold"]["last_attempt"]
-    assert attempt["outcome"] == "failed" and "photo control" in attempt["detail"]
-    assert failed_hold_attempt(saved)
-    assert recorded_photo_hold(saved) is None
+    assert saved == before
+    assert failed_hold_attempt(saved) is None
+    assert recorded_photo_hold(saved) == "awaiting_photo_approval"
     failures, summary = _monitor(saved)
-    assert any(f.startswith("sunday attempt after the photo hold failed") for f in failures), failures
-    assert len([f for f in failures if f.startswith("sunday")]) == 1, "one Sunday line, not a duplicate"
-    assert "awaiting photo approval" not in summary
-    # Before the Sunday deadline the failure is still reported: it happened.
-    early = episode_integrity_failures(saved, now=stage_deadline(EP_ID, "sunday") - timedelta(days=1))
-    assert any(f.startswith("sunday attempt after the photo hold failed") for f in early)
-    # The hold itself is untouched apart from the attempt record.
+    assert not [f for f in failures if f.startswith("sunday")]
+    assert summary.endswith("not published: awaiting photo approval")
+    # The alert, not an unsafe whole-episode write, records the authority failure.
     assert saved["publish_hold"]["reason"] == "awaiting_photo_approval" and saved["publish_hold"]["notified"]
 
 
@@ -520,7 +519,7 @@ def test_a_confirmed_hold_after_a_failed_attempt_is_quiet_again_without_a_second
     store, wed = _held_store()
     store.fail_control_read = PhotoControlUnavailable("blob list failed")
     assert _status(_sunday(store)) == 503
-    assert recorded_photo_hold(store.get(EP_ID)) is None
+    assert recorded_photo_hold(store.get(EP_ID)) == "awaiting_photo_approval"
     store.fail_control_read = None
     env = _sunday(store)
     assert json.loads(env.result.body)["status"] == "awaiting_photo_approval"
@@ -542,8 +541,7 @@ def test_failed_attempt_that_cannot_be_persisted_is_declared_in_the_alert():
     assert _status(env) == 503
     env.dialogue.assert_not_called()
     message = env.failure.call_args.kwargs["error_message"]
-    assert "could NOT be recorded" in message and "monitor will keep showing the earlier photo hold" in message
-    assert "was recorded" not in message.replace("could NOT be recorded", "")
+    assert "ownership is unknown" in message and "was not saved" in message
     # Storage is exactly as before: the monitor still shows the hold (the alert is the record).
     assert store.get(EP_ID) == before
     assert recorded_photo_hold(store.get(EP_ID)) == "awaiting_photo_approval"
@@ -558,14 +556,12 @@ def test_hold_clear_failure_after_approval_records_the_attempt_or_says_it_could_
     env.dialogue.assert_not_called()
     message = env.failure.call_args.kwargs["error_message"]
     assert "could not clear the previous photo hold" in message
-    # Only the clear itself was refused (the predicate keys on its event); the failed attempt
-    # is then recorded on the restored hold, and the alert says so truthfully.
-    assert "was recorded on the episode" in message
+    assert "was not saved after the claim was released" in message
     assert _control(store)["state"] == "approved" and _control(store)["claim"] is None
     saved = store.get(EP_ID)
-    assert saved["publish_hold"]["last_attempt"]["outcome"] == "failed"
+    assert saved["publish_hold"]["last_attempt"]["outcome"] == "held"
     assert "sunday: hold cleared (approved photo claimed)" not in saved["events"]
-    assert recorded_photo_hold(saved) is None, "the monitor reports the failed attempt, not a quiet hold"
+    assert recorded_photo_hold(saved) == "awaiting_photo_approval"
     store.fail_save = None
     assert _sunday(store).result["published"] is True
 
@@ -803,13 +799,13 @@ def test_mark_publishing_refuses_a_checkpoint_naming_another_control_version():
     assert _control(store)["state"] == "claimed"
 
 
-def test_recorded_sunday_stage_outranks_an_older_failed_hold_attempt():
-    """A later real Sunday stage is the most recent truth; the attempt record does not duplicate or mask it."""
+def test_recorded_sunday_stage_outranks_an_older_hold_after_authority_failure():
+    """A later real Sunday stage is newer truth than the untouched earlier hold."""
     store, wed = _held_store()
     store.fail_control_read = PhotoControlUnavailable("down")
     assert _status(_sunday(store)) == 503
     saved = store.get(EP_ID)
-    assert failed_hold_attempt(saved)
+    assert failed_hold_attempt(saved) is None
     # A stale save (or a later run) leaves a real failed Sunday stage beside the old hold.
     saved["stages"]["sunday"] = {"status": "failed", "error": "editorial QA exhausted retries"}
     store.put(EP_ID, saved)

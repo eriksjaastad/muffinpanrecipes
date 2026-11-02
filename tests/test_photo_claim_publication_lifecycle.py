@@ -40,7 +40,7 @@ from backend.utils.episode_integrity import (
     recorded_photo_hold,
     stage_deadline,
 )
-from tests.photo_review_helpers import BLOB, VARIANTS, decide, register, wednesday_stage
+from tests.photo_review_helpers import BLOB, VARIANTS, decide, register, sunday_reshoot_refused, wednesday_stage  # noqa: F401 - pytest fixture, used by usefixtures/pytestmark
 from tests.test_photo_request_decision_lifecycle import (
     EP_ID,
     _Store,
@@ -54,6 +54,8 @@ from tests.test_photo_request_decision_lifecycle import (
     _status,
     _sunday,
 )
+
+pytestmark = pytest.mark.usefixtures("sunday_reshoot_refused")
 
 AFTER_SUNDAY = stage_deadline(EP_ID, "sunday") + timedelta(hours=2)
 SET_ID = "0123456789abcdef"
@@ -369,7 +371,7 @@ def test_checkpoint_recovery_writes_the_same_body_and_cleans_nothing(tmp_path, m
 
 def _held_then_approved():
     """Sunday held the week (hold saved, one alert); Erik then approved candidate 1."""
-    wed = wednesday_stage()
+    wed = wednesday_stage(confirmed_winner={})  # no team winner, so Sunday holds
     ep = _episode(wed)
     store = _Store()
     store.put(EP_ID, ep)
@@ -632,7 +634,7 @@ def test_an_approval_with_an_unusable_selection_selects_nothing(selected):
     env = _sunday(store)
     assert json.loads(env.result.body)["status"] == "awaiting_photo_approval"
     env.dialogue.assert_not_called()
-    assert _control(store)["version"] == 2 or _control(store)["version"] == 1  # hold writes no control
+    assert _control(store)["version"] == 3  # hold reservation and release
     assert _control(store)["state"] == "approved"
 
 

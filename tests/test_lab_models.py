@@ -11,6 +11,7 @@ from __future__ import annotations
 import builtins
 import importlib
 import json
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -178,6 +179,86 @@ def test_generate_openrouter_derives_route_from_the_model_being_called(monkeypat
 # ---------------------------------------------------------------------------
 # allow_openrouter_models - additive registration, never a filesystem read
 # ---------------------------------------------------------------------------
+
+def test_vision_timeout_bounds_openrouter_client_and_disables_retries(monkeypatch):
+    captured = {}
+    model_router.reset_cost_log()
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+    model_router.allow_openrouter_models(dialogue="openai/gpt-5-mini", judge="openai/gpt-5-mini")
+
+    class FakeCompletions:
+        def create(self, **_kwargs):
+            usage = SimpleNamespace(prompt_tokens=1, completion_tokens=1, cost=0.0001)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="ok"), finish_reason="stop")],
+                usage=usage, provider="OpenAI",
+            )
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+    monkeypatch.setattr("openai.OpenAI", FakeOpenAI)
+    assert model_router.generate_vision_response(
+        "rate it", [b"png"], model="openai/gpt-5-mini", timeout_s=12.5,
+    ) == "ok"
+    assert captured["timeout"] == 12.5
+    assert captured["max_retries"] == 0
+
+
+def test_bounded_vision_empty_stop_does_not_restart_the_timeout(monkeypatch):
+    captured = {"requests": 0}
+    model_router.reset_cost_log()
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+    model_router.allow_openrouter_models(dialogue="openai/gpt-5-mini", judge="openai/gpt-5-mini")
+
+    class FakeCompletions:
+        def create(self, **_kwargs):
+            captured["requests"] += 1
+            usage = SimpleNamespace(prompt_tokens=1, completion_tokens=1, cost=0.0001)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=""), finish_reason="stop")],
+                usage=usage, provider="OpenAI",
+            )
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+    monkeypatch.setattr("openai.OpenAI", FakeOpenAI)
+    with pytest.raises(RuntimeError, match="empty content.*finish_reason='stop'"):
+        model_router.generate_vision_response(
+            "rate it", [b"png"], model="openai/gpt-5-mini", timeout_s=12.5,
+        )
+    assert captured["requests"] == 1
+    assert captured["timeout"] == 12.5
+    assert captured["max_retries"] == 0
+
+
+def test_bounded_vision_enforces_elapsed_wall_clock(monkeypatch):
+    model_router.reset_cost_log()
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+    model_router.allow_openrouter_models(dialogue="openai/gpt-5-mini", judge="openai/gpt-5-mini")
+
+    class FakeOpenAI:
+        def __init__(self, **_kwargs):
+            self.chat = SimpleNamespace(completions=SimpleNamespace())
+
+    def trickling_request(*_args, **_kwargs):
+        time.sleep(1.0)
+        return "too late", "stop", 1
+
+    monkeypatch.setattr("openai.OpenAI", FakeOpenAI)
+    monkeypatch.setattr(model_router, "_openrouter_attempt", trickling_request)
+    started = time.monotonic()
+    with pytest.raises(model_router.OpenRouterWallClockTimeout, match="wall-clock timeout"):
+        model_router.generate_vision_response(
+            "rate it", [b"png"], model="openai/gpt-5-mini", timeout_s=0.05,
+        )
+    assert time.monotonic() - started < 0.5
+
 
 def test_allow_openrouter_models_extends_both_allowlists(monkeypatch):
     monkeypatch.delenv("OPENROUTER_MODEL_ALLOWLIST", raising=False)
