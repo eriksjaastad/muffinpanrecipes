@@ -130,37 +130,14 @@ historical design notes; they are not accepted A/B variant levers. A variant
 using one of them is rejected before either arm can start, so it cannot spend
 on a no-op experiment.
 
-Verified against the code on 2026-09-06 (line numbers will drift; grep the
-symbol name if a citation looks stale):
+Current authored-scene controls:
 
-- `_SHARED_CHARACTER_RULES` - `scripts/simulate_dialogue_week.py:368`. The
-universal behavior rules injected into every character's system prompt
-(turn length, "talk about the food not the technology", stay in your
-lane). Older notes call this `_SHARED_RULES`; the actual symbol in the
-current code is `_SHARED_CHARACTER_RULES`. This is where the v2 nudge
-(pan-case example removal) and the #6840 turn-taking directive both live.
-- `_REACTION_DIRECTIVE` - `scripts/simulate_dialogue_week.py:248`, the
-#6840 turn-taking rule itself ("Your first sentence must respond to what
-was just said...").
-- <code>build&#95;system&#95;prompt</code> (retired) - `scripts/simulate_dialogue_week.py:484`. Assembles
-a character's full system prompt from their persona card, voice guide, and
-`_SHARED_CHARACTER_RULES`. Per-character voice tuning happens upstream of
-this function, in the voice guides it reads.
-- `DAY_STAGE_DIRECTIONS` - `scripts/simulate_dialogue_week.py:134`. The
-one-line scene-setting direction for each day of the week (Monday's
-"Slack pings stack up...", Wednesday's lighting-test debate, etc). This is
-the lever for changing what a day is *about*.
-- <code>CHARACTER&#95;DAY&#95;GOALS</code> (retired) - `scripts/simulate_dialogue_week.py:78`. Per-day,
-per-character goals (e.g. Monday's Margaret: "You have strong feelings
-about whether this concept respects the craft."). This is the lever for
-changing what a specific character is trying to do on a specific day, and
-is what the #6832 roster fix (Julian added to Monday, Devon to Tuesday)
-had to be made consistent with.
-- `_JUDGE_SYSTEM_PROMPT` - `backend/admin/cron_routes.py:267`. The judge's
-own instructions and scoring rubric. Changing this changes what gets
-measured, not what gets generated - treat it as a separate, rarer kind of
-experiment (see "grader calibration" above), never bundle a judge-prompt
-change with a character-prompt change in the same experiment.
+- `TICKS_RANGE` sets the requested line range and is the only accepted `ab` variant.
+- `DAY_MEETING_GOAL` and `_author_prompt` define the whole-scene task and context. Changes require an authored-scene experiment, not a per-speaker variant.
+- `_JUDGE_SYSTEM_PROMPT` in `backend/admin/cron_routes.py` defines the production judge. Judge changes are separate calibration experiments and must never be bundled with generator changes.
+- `_SHARED_CHARACTER_RULES` is retained only as a `score_quality` prompt-echo reference; it is not injected into the authored prompt.
+
+Historical per-speaker identifiers such as <code>&#95;REACTION&#95;DIRECTIVE</code>, <code>build&#95;system&#95;prompt</code>, <code>DAY&#95;STAGE&#95;DIRECTIONS</code>, and <code>CHARACTER&#95;DAY&#95;GOALS</code> are retired. Their measured behavior remains documented in DIALS.md and EXPERIMENTS.md, but they are not runnable levers.
 
 ## Areas
 
@@ -169,21 +146,20 @@ different weeks' dialogue no matter which dish is in the prompt, found by
 grepping the corpus for phrases and shapes that repeat across weeks rather
 than by reading one week closely. Each names the metric(s) that track it
 (all shipped in `scripts/conversation_metrics.py` and
-`scripts/conversation_heatmap.py`) and the prompt lever most likely to move
-it.
+`scripts/conversation_heatmap.py`) and the historical source recorded for the retired per-speaker architecture. Those source labels are provenance, not runnable current levers.
 
 - **Structure** - claim-dash-mechanism sentences ("X sets the tone - the
 sear locks in the crust"), a uniform turn length around 24 words, almost no
 short lines. Metric: `dash_clause_rate` and `length_stdev`, alongside the
 existing `length_stats` mean (all shipped in `conversation_metrics.py`).
-Lever: `_SHARED_CHARACTER_RULES` / `_REACTION_DIRECTIVE`
+Historical source: `_SHARED_CHARACTER_RULES` / <code>&#95;REACTION&#95;DIRECTIVE</code>
 (`scripts/simulate_dialogue_week.py:368` / `:248`).
 - **Frames** - "X is the story / the hook / the key", "that's what / where
-...". Metric: `frame_claim_rate` (shipped). Lever:
-`_SHARED_CHARACTER_RULES` / `_REACTION_DIRECTIVE`.
+...". Metric: `frame_claim_rate` (shipped). Historical source:
+`_SHARED_CHARACTER_RULES` / <code>&#95;REACTION&#95;DIRECTIVE</code>.
 - **Agree-openers** - a turn opening with agreement before anything else:
 "Fair", "Yeah", "Marcus is right". Metric: `agree_opener_rate` (shipped).
-Lever: `_SHARED_CHARACTER_RULES` / `_REACTION_DIRECTIVE`.
+Historical source: `_SHARED_CHARACTER_RULES` / <code>&#95;REACTION&#95;DIRECTIVE</code>.
 - **Boilerplate** - specific lines recited near-verbatim across many weeks
 regardless of the dish: the Saturday "recipe now should be live in a few"
 line appeared in 23 of 25 weeks; the photography "cross section / three
@@ -193,12 +169,12 @@ detector (an n-gram of `--min-ngram` words or more, default 3, appearing in at
 least `--min-weeks` distinct weeks,
 classified into the `Boilerplate` AREA) - distinct from `repeated_phrases`'
 within-episode n-gram detector, which stays in `conversation_metrics.py`.
-Lever: `DAY_STAGE_DIRECTIONS` (`scripts/simulate_dialogue_week.py:134`) -
+Historical source: <code>DAY&#95;STAGE&#95;DIRECTIONS</code> (`scripts/simulate_dialogue_week.py:134`) -
 Saturday's one-line direction is what the model keeps reciting.
 - **Pitch vocabulary** - Ria's own recurring phrases: "stops the scroll" in
 16 of 25 weeks, "people need to see" close behind. Metric: `pitch_vocab_rate`
 (shipped in `conversation_metrics.py`) plus the same cross-week hot-phrase
-detector, classified into the `Pitch vocabulary` AREA. Lever:
+detector, classified into the `Pitch vocabulary` AREA. Historical source:
 <code>CHARACTER&#95;DAY&#95;GOALS</code> (retired) (`scripts/simulate_dialogue_week.py:78`) - Ria's
 per-day goal text is what teaches her the phrase.
 - **Brand reinforcement** - the pan-case mechanism justification the shared
@@ -211,9 +187,9 @@ average week. The forced feel comes from the mechanism-justification
 language the Monday pan-first rules demand, not from the noun itself.
 Metric: `brand_term_rate` in `conversation_metrics.py` (`BRAND_TERM_PATTERNS`,
 `AREA_METRICS["Brand reinforcement"]`); `conversation_heatmap.py` reports it as
-an area and in the structure-rates-by-day table. Lever: the Monday-specific rules in
+an area and in the structure-rates-by-day table. Historical source: the retired Monday-specific rules in
 `scripts/simulate_dialogue_week.py` - <code>CHARACTER&#95;DAY&#95;GOALS</code> (retired)'s `monday`
-entries (`scripts/simulate_dialogue_week.py:79-86`), `DAY_STAGE_DIRECTIONS`'s
+entries (`scripts/simulate_dialogue_week.py:79-86`), <code>DAY&#95;STAGE&#95;DIRECTIONS</code> (retired)'s
 `monday` entry (`scripts/simulate_dialogue_week.py:135`), and the pan-first
 / mechanism clauses inside `_SHARED_CHARACTER_RULES`'s "THE MUFFIN PAN IS
 THE POINT" block (`scripts/simulate_dialogue_week.py:386-400`).
@@ -539,11 +515,9 @@ exact flag. Every call bills through OpenRouter (#8343), so the cost is
 OpenRouter's own `usage.cost` for dialogue and judge calls alike, not an
 estimate from a local price table.
 
-## Lever catalog
+## Historical lever catalog (retired per-speaker architecture)
 
-Twelve candidate levers, one per experiment - never stack two (see "Rules"
-below). Each names its target area (see "Areas" above) and the movement it
-predicts.
+These twelve candidates are preserved as experiment provenance and must not be passed to the authored-only lab. A current study must follow the authored-scene rules above and use `TICKS_RANGE` or an explicitly implemented whole-scene lever.
 
 1. **Sentence-length variation rule** - target: Structure. Predicted:
 short-line rate up, length stdev up.

@@ -1274,17 +1274,12 @@ def _run_arm(
 ) -> dict[str, Any]:
     """Call run_simulation with the exact production call shape.
 
-    Mirrors backend/admin/cron_routes.py's `_generate_dialogue` (~line
-    228) and .scratch/regen_w36.py: mode="openai",
-    mode="template" for a zero-API-call plumbing check.
+    Mirrors backend/admin/cron_routes.py's `_generate_dialogue` call. Dry-run substitutes `mode="template"` for a zero-API-call plumbing check.
 
     `prior_lines` (frozen earlier days from `conversation_lab freeze`)
     seed run_simulation's `initial_recent_lines` so a stage-only run sees
     exactly the lines a full-week run would have accumulated by that day.
-    `initial_highlights` stays None on purpose: run_simulation only builds
-    week highlights when mode=="llm" (see its `_generate_day_highlights`
-    call site), and production/this lab call with mode="openai" - so a real
-    full-week openai run would carry an empty week-highlights list too.
+    `initial_highlights` stays None because the production stage call does not pass precomputed highlights.
 
     `message_sink`, when given, is forwarded UNCHANGED to
     `run_simulation`'s own `message_sink` (#7714) - see that function's
