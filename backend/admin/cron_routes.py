@@ -3089,6 +3089,7 @@ def _claim_photo_for_sunday(
     try:
         return photo_review.claim_for_publication(
             storage, episode_id, ep, allow_team_fallback=allow_team_fallback,
+            expected_image_set_id=(reshoot["image_set_id"] if reshoot is not None else None),
         )
     except photo_review.PhotoHold as hold:
         if hold.view.state != photo_review.AWAITING:

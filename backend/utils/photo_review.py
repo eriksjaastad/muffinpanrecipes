@@ -904,7 +904,8 @@ def _team_winner_candidate(view: ControlView) -> dict | None:
 
 
 def claim_for_publication(store, episode_id: str, verified_ep: dict, *,
-                          allow_team_fallback: bool = False) -> ControlView:
+                          allow_team_fallback: bool = False,
+                          expected_image_set_id: str | None = None) -> ControlView:
     """Sunday, BEFORE any paid work: take the exclusive publication claim.
 
     Raises PhotoHold (not approved: no claim taken), PublicationUnderway
@@ -913,6 +914,9 @@ def claim_for_publication(store, episode_id: str, verified_ep: dict, *,
     ``allow_team_fallback`` first approves an undecided (awaiting) set's
     frozen Wednesday winner, recorded as automatic; a decision is never
     overridden, and a set with no current winner still holds.
+    ``expected_image_set_id`` pins every CAS read to one set. It is used after
+    Sunday's own reshoot so a concurrent Wednesday replacement cannot become
+    the automatic fallback between comparison, approval, and claim.
     """
     for _ in range(_CAS_ATTEMPTS):
         view = read_view(store, episode_id, verified_ep)
@@ -925,6 +929,10 @@ def claim_for_publication(store, episode_id: str, verified_ep: dict, *,
             raise NoReviewablePhotos(
                 "Wednesday left no reviewable photo set (no uploaded candidates with usable URLs); "
                 "nothing can be approved. Re-fire Wednesday to produce photos."
+            )
+        if expected_image_set_id is not None and view.image_set_id != expected_image_set_id:
+            raise ReviewConflict(
+                "the photos changed while Sunday tried to claim its automatic reshoot"
             )
         if allow_team_fallback and view.state == AWAITING:
             selected = _team_winner_candidate(view)

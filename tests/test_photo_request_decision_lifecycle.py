@@ -247,6 +247,37 @@ def test_team_fallback_preserves_rejection_and_holds_without_a_current_winner():
     assert _control(awaiting)["state"] == photo_review.AWAITING
 
 
+def test_expected_reshoot_set_is_checked_again_after_lost_auto_approval_race():
+    original = wednesday_stage()
+    replacement = wednesday_stage(generation="g20261008T000000Z-bbbbbb")
+    ep = _episode(original)
+    store = _Store({EP_ID: ep})
+    register(EP_ID, original, store)
+    real_append = photo_review._append
+    raced = False
+
+    def replace_before_approval(*args, **kwargs):
+        nonlocal raced
+        if not raced and kwargs.get("event") == "sunday: team winner auto-approved":
+            raced = True
+            register(EP_ID, replacement, store)
+            raise photo_review.PhotoControlConflict("Wednesday replaced the set")
+        return real_append(*args, **kwargs)
+
+    with patch.object(photo_review, "_append", side_effect=replace_before_approval):
+        with pytest.raises(photo_review.ReviewConflict, match="photos changed"):
+            photo_review.claim_for_publication(
+                store, EP_ID, ep, allow_team_fallback=True,
+                expected_image_set_id=original["photo_review"]["image_set_id"],
+            )
+
+    ctrl = _control(store)
+    assert raced is True
+    assert ctrl["request"]["image_set_id"] == replacement["photo_review"]["image_set_id"]
+    assert ctrl["state"] == photo_review.AWAITING
+    assert ctrl["decision"] is None
+
+
 def test_sunday_without_a_decision_publishes_the_team_winner_as_automatic():
     wed = wednesday_stage()
     store = _Store({EP_ID: _episode(wed)})

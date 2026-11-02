@@ -590,7 +590,13 @@ def _generate_openrouter(
     prompt_bytes = _prompt_bytes(prompt, system_prompt)
     finish_reason: Any = None
     completion_tokens: Any = None
-    for attempt in range(_OPENROUTER_EMPTY_STOP_MAX_ATTEMPTS):
+    # A caller-supplied timeout is a total reservation owned by a bounded
+    # workflow, not a fresh allowance for each application-level retry. The
+    # SDK timeout/max_retries pair bounds one HTTP request; limiting this loop
+    # to that one request keeps an empty-stop response from multiplying the
+    # caller's wall-clock budget.
+    max_attempts = 1 if timeout_s is not None else _OPENROUTER_EMPTY_STOP_MAX_ATTEMPTS
+    for attempt in range(max_attempts):
         if attempt:
             # A retry is another paid call: it passes the caller's guard too.
             _fire_pre_call_hook("openrouter", model, prompt_bytes)
