@@ -20,7 +20,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 
@@ -1157,9 +1157,75 @@ def test_failed_hold_write_never_leaks_publication():
     calls = []
     store.fail_save = lambda data: not calls and not calls.append(1)  # the hold's own save fails once
     env = _sunday(store)
-    assert _status(env) == 500
+    assert _status(env) == 503
     _never_published(store)
     assert _control(store)["state"] == "rejected"
+
+
+def test_hold_reservation_failure_alerts_without_saving():
+    store, ep, _ = _approved_store()
+    decide(EP_ID, ep, action="reject", store=store)
+    before = copy.deepcopy(store.get(EP_ID))
+    saves_before = len(store.saves)
+
+    with patch.object(
+        photo_review, "begin_episode_write",
+        side_effect=PhotoControlUnavailable("control write unavailable"),
+    ):
+        env = _sunday(store)
+
+    assert _status(env) == 503
+    assert store.get(EP_ID) == before
+    assert len(store.saves) == saves_before
+    assert env.failure.call_count == 1
+    assert "Nothing was saved" in env.failure.call_args.kwargs["error_message"]
+
+
+def test_failed_hold_save_cannot_overwrite_publication_after_lease_release():
+    store, ep, _ = _approved_store()
+    decide(EP_ID, ep, action="reject", store=store)
+    stale = copy.deepcopy(store.get(EP_ID))
+    view = photo_review.read_view(store, EP_ID, stale)
+    real_finish = photo_review.finish_episode_write
+    failed = []
+
+    def approve_during_notification(*_args, **_kwargs):
+        decide(EP_ID, store.get(EP_ID), store=store)
+        return True
+
+    def fail_second_hold_save(data):
+        hold = data.get("publish_hold") or {}
+        if hold.get("notified") and not failed:
+            failed.append(True)
+            return True
+        return False
+
+    def release_then_publish(*args, **kwargs):
+        result = real_finish(*args, **kwargs)
+        live = copy.deepcopy(store.get(EP_ID))
+        claimed = photo_review.claim_for_publication(store, EP_ID, live)
+        publication = cron_routes._published_copy(live, claimed, [], "PASS", live["concept"])
+        publishing = photo_review.mark_publishing(store, claimed, publication)
+        store.put(EP_ID, publication)
+        photo_review.mark_published(store, publishing, publication["published_at"])
+        return result
+
+    store.fail_save = fail_second_hold_save
+    with patch.object(cron_routes, "storage", store), \
+         patch.object(cron_routes, "notify_publish_held", side_effect=approve_during_notification), \
+         patch.object(cron_routes, "notify_pipeline_failure", return_value=True), \
+         patch.object(photo_review, "finish_episode_write", side_effect=release_then_publish):
+        with pytest.raises(HTTPException) as raised:
+            with cron_routes._run_stage(stale, "sunday"):
+                cron_routes._hold_for_photo_approval(
+                    EP_ID, stale, stale["concept"], "photos_rejected", view,
+                )
+
+    assert raised.value.status_code == 503
+    final = store.get(EP_ID)
+    assert final.get("published_at")
+    assert final["stages"]["sunday"]["status"] == "complete"
+    assert _control(store)["state"] == photo_review.PUBLISHED
 
 
 def test_failed_publishing_save_stays_frozen_and_is_completed_from_the_checkpoint():
@@ -1924,9 +1990,9 @@ def test_a_shoot_out_of_time_fails_the_wednesday_stage_and_alerts(tmp_path):
     orch.return_value._execute_stage_photography.side_effect = ShootBudgetExceeded("image budget (180s) exhausted")
     run = _wednesday(store, tmp_path, orch=orch)
     assert run.error is not None
-    wed = store.get(EP_ID)["stages"]["wednesday"]
-    assert wed["status"] == "failed"
-    assert "image budget" in str(wed.get("error", ""))
+    assert "wednesday" not in store.get(EP_ID)["stages"]
+    assert "Nothing was saved" in run.failure.call_args.kwargs["error_message"]
+    assert "image budget" in run.failure.call_args.kwargs["error_message"]
     assert run.failure.called
 
 
@@ -2078,6 +2144,35 @@ def test_wednesday_that_loses_to_a_claim_does_not_replace_the_set(tmp_path):
     ctrl = _control(store)
     assert ctrl["state"] == "claimed" and ctrl["request"]["image_set_id"] == wed["photo_review"]["image_set_id"]
     assert not [k for k, _ in run.order if k == "notify"]
+
+
+def test_wednesday_generation_failure_cannot_overwrite_rival_publication(tmp_path):
+    wed = wednesday_stage()
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+    published = []
+
+    def rival_publishes_then_generation_fails(*_args, **_kwargs):
+        live = copy.deepcopy(store.get(EP_ID))
+        claimed = photo_review.claim_for_publication(
+            store, EP_ID, live, allow_team_fallback=True,
+        )
+        publication = cron_routes._published_copy(live, claimed, [], "PASS", live["concept"])
+        publishing = photo_review.mark_publishing(store, claimed, publication)
+        store.put(EP_ID, publication)
+        photo_review.mark_published(store, publishing, publication["published_at"])
+        published.append(copy.deepcopy(publication))
+        raise RuntimeError("image provider failed after rival publication")
+
+    orch = MagicMock()
+    orch.return_value._execute_stage_photography.side_effect = rival_publishes_then_generation_fails
+    run = _wednesday(store, tmp_path, orch=orch)
+
+    assert getattr(run.error, "status_code", None) == 500
+    assert published and store.get(EP_ID) == published[0]
+    assert _control(store)["state"] == photo_review.PUBLISHED
+    assert run.failure.call_count == 1
+    assert "Nothing was saved" in run.failure.call_args.kwargs["error_message"]
 
 
 def test_wednesday_dialogue_failure_keeps_photos_and_request(tmp_path):

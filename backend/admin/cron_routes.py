@@ -1568,6 +1568,31 @@ def _save_stage_failure(ep: dict, stage: str, error: Exception) -> None:
     )
 
 
+def _failure_without_episode_save(
+    ep: dict,
+    concept: str,
+    stage: str,
+    detail: str,
+    *,
+    status_code: int = 503,
+) -> HTTPException:
+    """Alert and return an HTTP refusal when this request owns no safe save."""
+    logger.error(detail)
+    try:
+        notify_pipeline_failure(
+            recipe_id=ep.get("recipe_id") or "unknown",
+            concept=concept or "unknown",
+            stage=stage,
+            error_message=detail,
+        )
+    except Exception as notify_exc:  # noqa: BLE001 - preserve the no-save refusal
+        logger.error(
+            f"Could not send the no-save failure alert for {stage}: "
+            f"{type(notify_exc).__name__}: {notify_exc}"
+        )
+    return HTTPException(status_code=status_code, detail=detail)
+
+
 
 def _sunday_window_reached(episode_id: str) -> bool:
     """Whether the week's own Sunday cron time has arrived (within the
@@ -2363,10 +2388,22 @@ async def cron_wednesday(request: Request):
             image_urls = wed["image_urls"]
             ep["events"].append("wednesday: kept the approved photos")
         else:
-            wed, photography_result, image_paths, image_urls = _shoot_and_register(
-                episode_id, ep, concept, recipe_data,
-                defer_registration_finish=True,
-            )
+            try:
+                wed, photography_result, image_paths, image_urls = _shoot_and_register(
+                    episode_id, ep, concept, recipe_data,
+                    defer_registration_finish=True,
+                )
+            except HTTPException:
+                raise
+            except Exception as exc:
+                detail = (
+                    f"Wednesday failed before it acquired an episode-write lease for "
+                    f"{episode_id}: {type(exc).__name__}: {exc}. Nothing was saved; "
+                    "re-fire Wednesday."
+                )
+                raise _failure_without_episode_save(
+                    ep, concept, "wednesday", detail, status_code=500,
+                ) from exc
             photo_write_owner.update(id=wed.pop("_registration_id"), kind="registration")
 
         wed_photo_ctx = photography_result if isinstance(photography_result, dict) else None
@@ -2851,12 +2888,21 @@ def _hold_for_photo_approval(episode_id: str, ep: dict, concept: str, reason: st
     # without this lease our later save could erase that publication or
     # replacement.  If the control already advanced, return a conflict and do
     # not touch the stale episode.
+    failed = False
     try:
         write_id, _ = photo_review.begin_episode_write(
             storage, episode_id, view, "sunday photo hold", ep,
         )
     except (photo_review.PublicationUnderway, photo_review.ReviewConflict) as exc:
         return _publication_underway_response(episode_id, concept, str(exc))
+    except Exception as exc:
+        detail = (
+            f"Sunday could not reserve the photo-hold episode write for {episode_id}: "
+            f"{type(exc).__name__}: {exc}. Nothing was saved; reload before retrying."
+        )
+        raise _failure_without_episode_save(
+            ep, concept, "sunday (photo hold)", detail,
+        ) from exc
 
     try:
         image_set = view.image_set_id
@@ -2899,10 +2945,41 @@ def _hold_for_photo_approval(episode_id: str, ep: dict, concept: str, reason: st
                     episode_id, reason, namespace=photo_review_namespace(storage.prefix),
                 ))
                 storage.save_episode(episode_id, ep)
-    finally:
-        photo_review.finish_episode_write(
-            storage, episode_id, write_id, "sunday photo hold",
+    except HTTPException:
+        failed = True
+        raise
+    except Exception as exc:
+        failed = True
+        detail = (
+            f"Sunday could not persist the photo hold for {episode_id}: "
+            f"{type(exc).__name__}: {exc}. The alert is the record; no later "
+            "stage-failure save was attempted."
         )
+        raise _failure_without_episode_save(
+            ep, concept, "sunday (photo hold)", detail,
+        ) from exc
+    finally:
+        try:
+            photo_review.finish_episode_write(
+                storage, episode_id, write_id, "sunday photo hold",
+            )
+        except Exception as exc:
+            if failed:
+                logger.error(
+                    f"Sunday {episode_id}: failed to release the photo-hold lease after "
+                    f"an earlier refusal ({type(exc).__name__}: {exc}); it expires after "
+                    f"{photo_review.RESHOOT_IN_FLIGHT_S}s"
+                )
+            else:
+                failed = True
+                detail = (
+                    f"Sunday saved the photo hold for {episode_id} but could not release "
+                    f"its write lease: {type(exc).__name__}: {exc}. No additional episode "
+                    "save was attempted; reload before retrying."
+                )
+                raise _failure_without_episode_save(
+                    ep, concept, "sunday (photo hold)", detail,
+                ) from exc
 
     return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content={
         "status": reason,
