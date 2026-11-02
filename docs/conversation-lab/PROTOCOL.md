@@ -359,8 +359,7 @@ is no absolute number for a later run to move away from. Erik, 2026-09-19:
 enough numbers to find some sort of average. We make one change and then
 see where that average moves."*
 
-`bench` runs a single arm N times through the same production call shape
-`ab` uses, and reports, per run and aggregated:
+`bench` runs a single arm N times through the same authored-scene API path `ab` uses. Both lab commands may add frozen prior lines, recipe facts, and recovery accounting that the production cron does not pass, and reports, per run and aggregated:
 
 - every deterministic metric from `scripts/conversation_metrics.py` as
 mean / sample stdev / standard error / min / max;

@@ -398,14 +398,14 @@ A head-to-head pair costs the same as a normal pair.
 
 | Block | Arithmetic | Estimate |
 |---|---|---|
-| Prerequisites P0-P5 | engineering time | no API cost |
+| Retained prerequisites P0-P3 (P4-P5 retired) | engineering time | no API cost |
 | S0a | Haiku pilot 14 x $0.16 + DeepSeek pilot 14 x $0.07 + smoke, calibrate and re-judge of 28 pairs (judge only) | about $6 |
 | S1 | offline | $0 |
 | S2 | screen A1-A5: 70 x $0.16 = $11; confirm B + 2-3 arms: 126-168 x $0.16 = $20-27 | $31-38 |
-| S3 | screen R1-R4: 56 x $0.16 = $9; confirm 1-2 arms: 42-84 x $0.16 = $7-13 | $16-22 |
+| Historical S3 (retired by #8385) | no future runs | -e |
 | S4 | screen 7 days x 14 = 98 x $0.16 = $16; confirm each changed day 42 x $0.16 = $6.70 (0-7 days; planning assumption 4) | $16-63, plan $43 |
 | S5-DS | S2 screen 84 x $0.07 = $6; S4 screen 98 x $0.07 = $7; 2-4 confirmations x 42 x $0.07 = $6-12 | $19-25 |
-| **Program to S5-DS** | | **$88-154; plan about $120** |
+| **Current program to S5-DS (excluding retired S3)** | | **-132; plan about ** |
 | S5-GM, S5-GPT, S5-MM, S5-QW, S5-KM | same blocks as S5-DS at each model's price | estimated once their tier is chosen |
 
 The OpenRouter key has $32.81 left (09-29). That covers S0a and the S2 screen, with room for
