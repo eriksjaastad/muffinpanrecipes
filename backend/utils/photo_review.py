@@ -707,13 +707,53 @@ def register_request(store, episode_id: str, request: dict, *, reshoot_id: str |
         # An automatic Sunday reshoot must not overwrite a human decision made while it ran.
         if reshoot_id is not None and in_flight.get("automatic_sunday") and view.state != AWAITING:
             raise ReshootRefused("Erik decided the photos while this automatic reshoot ran; its photos were not registered.")
+        reshoots = {k: v for k, v in view.reshoots.items() if k != "in_flight"}
+        if reshoot_id is not None and in_flight.get("automatic_sunday"):
+            # Registration is not publication-ready until _register_photos has
+            # finished every whole-episode save.  Otherwise a rival Sunday can
+            # claim this replacement during the photos-ready notification and
+            # the registering run can subsequently overwrite its publication.
+            pending = dict(in_flight)
+            pending["registration_pending"] = True
+            reshoots["in_flight"] = pending
         try:
             return _append(store, view, state=AWAITING, request=request, decision=None, claim=None,
                            event="wednesday: new image set",
-                           reshoots={k: v for k, v in view.reshoots.items() if k != "in_flight"})
+                           reshoots=reshoots)
         except PhotoControlConflict:
             continue
     raise ReviewConflict("photo control kept changing while Wednesday registered its photos")
+
+
+def finish_reshoot_registration(store, episode_id: str, reshoot_id: str) -> ControlView:
+    """Make a registered automatic replacement eligible after episode writes end.
+
+    The exact reshoot marker is retained by ``register_request`` while
+    ``_register_photos`` saves the episode and records notification status.
+    Clearing it is the publication eligibility boundary.  Human decisions made
+    meanwhile are preserved; a newer set or reshoot is never cleared.
+    """
+    for _ in range(_CAS_ATTEMPTS):
+        view = read_view(store, episode_id, None)
+        in_flight = view.reshoots.get("in_flight") or {}
+        if in_flight.get("id") != reshoot_id or not in_flight.get("registration_pending"):
+            raise ReshootRefused(
+                "The automatic reshoot registration changed before it became publishable."
+            )
+        try:
+            return _append(
+                store,
+                view,
+                state=view.state,
+                request=view.request,
+                decision=view.decision,
+                claim=None,
+                event="reshoot: registration complete",
+                reshoots={k: v for k, v in view.reshoots.items() if k != "in_flight"},
+            )
+        except PhotoControlConflict:
+            continue
+    raise ReviewConflict("photo control kept changing while the reshoot registration finished")
 
 
 def reshoot_in_flight_active(view: ControlView) -> bool:
@@ -936,6 +976,29 @@ def claim_for_publication(store, episode_id: str, verified_ep: dict, *,
         view = read_view(store, episode_id, verified_ep)
         if view.frozen:
             raise PublicationUnderway(f"photo control is already {view.state}")
+        in_flight = view.reshoots.get("in_flight") or {}
+        if in_flight.get("automatic_sunday") and in_flight.get("registration_pending"):
+            # A replacement is registered in the control, but its producer
+            # still owns whole-episode writes.  It becomes claimable only when
+            # that producer explicitly finishes registration.  The 360-second
+            # lease outlives Vercel's 300-second function ceiling, so an
+            # expired marker cannot belong to a process that may still save.
+            if reshoot_in_flight_active(view):
+                raise PublicationUnderway("automatic photo registration is still finishing")
+            try:
+                _append(
+                    store,
+                    view,
+                    state=view.state,
+                    request=view.request,
+                    decision=view.decision,
+                    claim=None,
+                    event="reshoot: expired registration recovered",
+                    reshoots={k: v for k, v in view.reshoots.items() if k != "in_flight"},
+                )
+            except PhotoControlConflict:
+                continue
+            continue
         if view.request is None:
             # No valid candidates were ever uploaded (or the derived request
             # does not add up): there is nothing a human could approve, so

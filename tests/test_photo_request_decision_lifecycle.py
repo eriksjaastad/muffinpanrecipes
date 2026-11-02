@@ -353,8 +353,167 @@ def test_sunday_reshoots_a_set_with_no_team_winner_and_publishes_the_new_pick(tm
     assert ctrl["state"] == "published" and ctrl["reshoots"]["calls_used"] == photo_review.RESHOOT_CALLS
     states = [json.loads(p.read_text())["state"]
               for p in sorted((storage_module.PHOTO_CONTROL_DIR / "production" / EP_ID).glob("v*.json"))]
-    # awaiting (first set), awaiting (reshoot started), awaiting (new set), then the claim chain
-    assert states == ["awaiting", "awaiting", "awaiting", "approved", "claimed", "publishing", "published"]
+    # awaiting (first set), reshoot start, pending registration, completed
+    # registration, then the approval/claim/publication chain.
+    assert states == [
+        "awaiting", "awaiting", "awaiting", "awaiting",
+        "approved", "claimed", "publishing", "published",
+    ]
+
+
+def test_rival_sunday_cannot_publish_while_reshoot_registration_still_saves(tmp_path):
+    """The photos-ready callback may overlap another scheduled Sunday.
+
+    The replacement must not become claimable until the registering run has
+    made its final whole-episode save, or that save can erase the rival's
+    completed publication.
+    """
+    original = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(original)})
+    register(EP_ID, original, store)
+    ep = store.get(EP_ID)
+    current = photo_review.read_view(store, EP_ID, ep)
+    started = photo_review.start_reshoot(
+        store,
+        EP_ID,
+        ep,
+        current.image_set_id,
+        photo_review.RESHOOT_CALLS,
+        automatic_sunday=True,
+    )
+    generation = "g20261008T000000Z-race01"
+    result = _photography_result(tmp_path, generation)
+    replacement = {
+        "photography_data": result,
+        "reshoot_happened": True,
+        "image_paths": [v["path"] for v in result["rounds"][0]["variants"]],
+        "image_urls": [f"{BLOB}/{v['path'].split('images/')[1]}" for v in result["rounds"][0]["variants"]],
+        "image_status": "auto_selected",
+        "confirmed_winner": result["winner"],
+    }
+    request = photo_review.new_review(replacement)
+    rival_attempted = False
+
+    def rival_sunday(*_args, **_kwargs):
+        nonlocal rival_attempted
+        rival_attempted = True
+        pending = photo_review.read_view(store, EP_ID, store.get(EP_ID))
+        assert pending.reshoots["in_flight"]["registration_pending"] is True
+        with pytest.raises(photo_review.PublicationUnderway, match="registration is still finishing"):
+            photo_review.claim_for_publication(
+                store, EP_ID, store.get(EP_ID), allow_team_fallback=True,
+            )
+        return True
+
+    with patch.object(cron_routes, "storage", store), \
+         patch.object(cron_routes, "notify_photos_ready", side_effect=rival_sunday):
+        cron_routes._register_photos(
+            EP_ID,
+            ep,
+            ep["concept"],
+            replacement,
+            request,
+            reshoot_id=started.reshoots["in_flight"]["id"],
+        )
+
+    assert rival_attempted is True
+    assert not store.get(EP_ID).get("published_at")
+    ready = photo_review.read_view(store, EP_ID, store.get(EP_ID))
+    assert "in_flight" not in ready.reshoots
+    claimed = photo_review.claim_for_publication(
+        store,
+        EP_ID,
+        store.get(EP_ID),
+        allow_team_fallback=True,
+        expected_image_set_id=request["image_set_id"],
+    )
+    assert claimed.state == photo_review.CLAIMED
+
+
+def test_expired_pending_registration_recovers_after_function_ceiling(tmp_path):
+    """A killed registrar cannot strand an otherwise registered replacement."""
+    original = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(original)})
+    register(EP_ID, original, store)
+    ep = store.get(EP_ID)
+    current = photo_review.read_view(store, EP_ID, ep)
+    with patch.object(photo_review, "_now", return_value="2020-01-01T00:00:00+00:00"):
+        started = photo_review.start_reshoot(
+            store,
+            EP_ID,
+            ep,
+            current.image_set_id,
+            photo_review.RESHOOT_CALLS,
+            automatic_sunday=True,
+        )
+    replacement = wednesday_stage(generation="g20261008T000000Z-expire")
+    request = photo_review.new_review(replacement)
+    pending = photo_review.register_request(
+        store,
+        EP_ID,
+        request,
+        reshoot_id=started.reshoots["in_flight"]["id"],
+    )
+    assert pending.reshoots["in_flight"]["registration_pending"] is True
+
+    claimed = photo_review.claim_for_publication(
+        store,
+        EP_ID,
+        ep,
+        allow_team_fallback=True,
+        expected_image_set_id=request["image_set_id"],
+    )
+
+    assert claimed.state == photo_review.CLAIMED
+    assert "in_flight" not in claimed.reshoots
+    events = [
+        json.loads(path.read_text())["event"]
+        for path in sorted(
+            (storage_module.PHOTO_CONTROL_DIR / "production" / EP_ID).glob("v*.json")
+        )
+    ]
+    assert "reshoot: expired registration recovered" in events
+
+
+def test_human_pick_during_registration_is_preserved_before_eligibility(tmp_path):
+    original = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(original)})
+    register(EP_ID, original, store)
+    ep = store.get(EP_ID)
+    started = photo_review.start_reshoot(
+        store,
+        EP_ID,
+        ep,
+        photo_review.read_view(store, EP_ID, ep).image_set_id,
+        photo_review.RESHOOT_CALLS,
+        automatic_sunday=True,
+    )
+    replacement = wednesday_stage(generation="g20261008T000000Z-human1")
+    replacement.update(reshoot_happened=True, image_status="auto_selected")
+    request = photo_review.new_review(replacement)
+
+    def human_picks(*_args, **_kwargs):
+        decide(EP_ID, store.get(EP_ID), pick=2, store=store)
+        with pytest.raises(photo_review.PublicationUnderway, match="registration is still finishing"):
+            photo_review.claim_for_publication(store, EP_ID, store.get(EP_ID))
+        return True
+
+    with patch.object(cron_routes, "storage", store), \
+         patch.object(cron_routes, "notify_photos_ready", side_effect=human_picks):
+        cron_routes._register_photos(
+            EP_ID,
+            ep,
+            ep["concept"],
+            replacement,
+            request,
+            reshoot_id=started.reshoots["in_flight"]["id"],
+        )
+
+    claimed = photo_review.claim_for_publication(store, EP_ID, store.get(EP_ID))
+    assert claimed.state == photo_review.CLAIMED
+    assert claimed.selected["path"] == replacement["image_paths"][1]
+    assert claimed.decision["decided_by"] == "site editor"
+    assert claimed.decision.get("automatic") is None
 
 
 def test_sunday_claims_the_registered_reshoot_without_a_cloud_freshness_reread(tmp_path):
