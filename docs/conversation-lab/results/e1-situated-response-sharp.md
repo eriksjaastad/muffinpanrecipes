@@ -2,7 +2,7 @@
 
 Date: 2026-11-01
 Card: #108610799669506048
-Reviewed implementation: scorer frozen at `4d0dbc8`; holdout report at `e3427ad`
+Reviewed implementation: scorer frozen at `4d0dbc8`; remediation at `c96f6e1`
 
 ## Phase 2 — Dogfood
 
@@ -45,6 +45,13 @@ provider or model call was made.
   provenance checks; added structured evidence-category flags without changing
   the frozen comparison; and added an end-to-end hermetic test covering source
   hashes, the sealed split, receipt metadata, and flags.
+
+- **Second independent-review remediation:** recorded the failed E1 hypothesis
+  in canonical `EXPERIMENTS.md`; changed the end-to-end test to assert the
+  complete receipt and prove evidence corruption trips the SHA-256 guard; and
+  made invalid direct split values fail closed. Focused tests passed 4/4,
+  focused Ruff and `git diff --check` passed, and the managed full suite passed
+  3,231 tests with one audited skip and 57 inherited warnings.
 
 ## Verdict
 
