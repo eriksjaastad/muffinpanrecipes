@@ -361,7 +361,10 @@ def test_sunday_reshoots_a_set_with_no_team_winner_and_publishes_the_new_pick(tm
     ]
 
 
-def test_rival_sunday_cannot_publish_while_reshoot_registration_still_saves(tmp_path):
+@pytest.mark.parametrize("automatic_sunday", [False, True])
+def test_rival_sunday_cannot_publish_while_reshoot_registration_still_saves(
+    tmp_path, automatic_sunday,
+):
     """The photos-ready callback may overlap another scheduled Sunday.
 
     The replacement must not become claimable until the registering run has
@@ -379,7 +382,7 @@ def test_rival_sunday_cannot_publish_while_reshoot_registration_still_saves(tmp_
         ep,
         current.image_set_id,
         photo_review.RESHOOT_CALLS,
-        automatic_sunday=True,
+        automatic_sunday=automatic_sunday,
     )
     generation = "g20261008T000000Z-race01"
     result = _photography_result(tmp_path, generation)
@@ -392,6 +395,9 @@ def test_rival_sunday_cannot_publish_while_reshoot_registration_still_saves(tmp_
         "confirmed_winner": result["winner"],
     }
     request = photo_review.new_review(replacement)
+    competing = photo_review.new_review(
+        wednesday_stage(generation="g20261008T000000Z-rival2")
+    )
     rival_attempted = False
 
     def rival_sunday(*_args, **_kwargs):
@@ -402,6 +408,13 @@ def test_rival_sunday_cannot_publish_while_reshoot_registration_still_saves(tmp_
         with pytest.raises(photo_review.PublicationUnderway, match="registration is still finishing"):
             photo_review.claim_for_publication(
                 store, EP_ID, store.get(EP_ID), allow_team_fallback=True,
+            )
+        with pytest.raises(photo_review.PublicationUnderway, match="registration is still saving"):
+            photo_review.register_request(
+                store,
+                EP_ID,
+                competing,
+                defer_publication_until_episode_saved=True,
             )
         return True
 
@@ -430,6 +443,34 @@ def test_rival_sunday_cannot_publish_while_reshoot_registration_still_saves(tmp_
     assert claimed.state == photo_review.CLAIMED
 
 
+def test_initial_wednesday_registration_is_not_claimable_until_final_save():
+    wed = wednesday_stage(generation="g20261008T000000Z-initial")
+    ep = _episode(wed)
+    ep["stages"].pop("wednesday")
+    store = _Store({EP_ID: ep})
+    request = photo_review.new_review(wed)
+
+    def rival_sunday(*_args, **_kwargs):
+        with pytest.raises(photo_review.PublicationUnderway, match="registration is still finishing"):
+            photo_review.claim_for_publication(
+                store, EP_ID, store.get(EP_ID), allow_team_fallback=True,
+            )
+        return True
+
+    with patch.object(cron_routes, "storage", store), \
+         patch.object(cron_routes, "notify_photos_ready", side_effect=rival_sunday):
+        cron_routes._register_photos(
+            EP_ID, ep, ep["concept"], wed, request,
+        )
+
+    ready = photo_review.read_view(store, EP_ID, store.get(EP_ID))
+    assert "in_flight" not in ready.reshoots
+    claimed = photo_review.claim_for_publication(
+        store, EP_ID, store.get(EP_ID), allow_team_fallback=True,
+    )
+    assert claimed.state == photo_review.CLAIMED
+
+
 def test_expired_pending_registration_recovers_after_function_ceiling(tmp_path):
     """A killed registrar cannot strand an otherwise registered replacement."""
     original = wednesday_stage(confirmed_winner={})
@@ -453,6 +494,7 @@ def test_expired_pending_registration_recovers_after_function_ceiling(tmp_path):
         EP_ID,
         request,
         reshoot_id=started.reshoots["in_flight"]["id"],
+        defer_publication_until_episode_saved=True,
     )
     assert pending.reshoots["in_flight"]["registration_pending"] is True
     assert photo_review.apply_request_mirror(ep, request) is True
@@ -499,6 +541,7 @@ def test_expired_pending_registration_without_episode_mirror_fails_closed():
         EP_ID,
         request,
         reshoot_id=started.reshoots["in_flight"]["id"],
+        defer_publication_until_episode_saved=True,
     )
 
     with pytest.raises(photo_review.ReviewConflict, match="missing from the episode"):

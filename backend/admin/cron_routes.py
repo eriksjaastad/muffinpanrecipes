@@ -2007,7 +2007,11 @@ def _register_photos(
             )
     try:
         registered = photo_review.register_request(
-            storage, episode_id, request, reshoot_id=reshoot_id,
+            storage,
+            episode_id,
+            request,
+            reshoot_id=reshoot_id,
+            defer_publication_until_episode_saved=True,
         )
     except photo_review.PublicationUnderway as exc:
         detail = (
@@ -2020,9 +2024,10 @@ def _register_photos(
         )
         raise HTTPException(status_code=409, detail=detail)
     wed["photo_review"] = {k: request[k] for k in ("image_set_id", "generated_at", "requested_at")}
-    registration_pending = (
-        (registered.reshoots.get("in_flight") or {}).get("registration_pending") is True
-    )
+    registration_marker = registered.reshoots.get("in_flight") or {}
+    registration_pending = registration_marker.get("registration_pending") is True
+    if not registration_pending:
+        raise RuntimeError("photo registration did not retain its publication barrier")
     if reshoot_id:
         # Merge only the photo fields into the episode read before registering,
         # so Wednesday's dialogue, status and completed_at stay.
@@ -2061,11 +2066,13 @@ def _register_photos(
         "at": datetime.now(timezone.utc).isoformat(),
     }
     storage.save_episode(episode_id, ep)
-    if reshoot_id and registration_pending:
-        # Automatic Sunday replacements retain their control marker until all
-        # whole-episode writes above are finished.  This exact transition is
-        # what makes the new set eligible for a rival publication claim.
-        photo_review.finish_reshoot_registration(storage, episode_id, reshoot_id)
+    if registration_pending:
+        # Every producer retains its control marker until all whole-episode
+        # writes above are finished.  This exact transition is what makes the
+        # new set eligible for a rival publication claim or replacement.
+        photo_review.finish_request_registration(
+            storage, episode_id, registration_marker["id"],
+        )
     return wed
 
 

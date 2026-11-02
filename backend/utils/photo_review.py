@@ -684,7 +684,14 @@ def _append(store, view: ControlView, *, state: str, request: dict | None, decis
 
 # --- Transitions -----------------------------------------------------------------
 
-def register_request(store, episode_id: str, request: dict, *, reshoot_id: str | None = None) -> ControlView:
+def register_request(
+    store,
+    episode_id: str,
+    request: dict,
+    *,
+    reshoot_id: str | None = None,
+    defer_publication_until_episode_saved: bool = False,
+) -> ControlView:
     """Wednesday: make ``request`` the current set, voiding any earlier decision.
 
     ``reshoot_id`` (a dashboard reshoot, #8073) registers only while that
@@ -696,24 +703,36 @@ def register_request(store, episode_id: str, request: dict, *, reshoot_id: str |
     """
     if not _valid_request(request):
         raise PhotoReviewError("No uploaded candidate photos to review")
+    registration_id = reshoot_id or secrets.token_hex(8)
     for _ in range(_CAS_ATTEMPTS):
         ctrl = store.read_photo_control(episode_id)
         view = _derived_view(episode_id, None) if ctrl is None else _view_from_control(episode_id, ctrl)
         if view.frozen:
             raise PublicationUnderway(f"photo control is {view.state}; the image set is frozen")
         in_flight = view.reshoots.get("in_flight") or {}
+        if (
+            in_flight.get("registration_pending")
+            and in_flight.get("id") != reshoot_id
+            and reshoot_in_flight_active(view)
+        ):
+            raise PublicationUnderway(
+                "another photo registration is still saving the episode"
+            )
         if reshoot_id is not None and in_flight.get("id") != reshoot_id:
             raise ReshootRefused("Newer photos took over while this reshoot ran; its photos were not registered.")
         # An automatic Sunday reshoot must not overwrite a human decision made while it ran.
         if reshoot_id is not None and in_flight.get("automatic_sunday") and view.state != AWAITING:
             raise ReshootRefused("Erik decided the photos while this automatic reshoot ran; its photos were not registered.")
         reshoots = {k: v for k, v in view.reshoots.items() if k != "in_flight"}
-        if reshoot_id is not None and in_flight.get("automatic_sunday"):
+        if defer_publication_until_episode_saved:
             # Registration is not publication-ready until _register_photos has
             # finished every whole-episode save.  Otherwise a rival Sunday can
             # claim this replacement during the photos-ready notification and
             # the registering run can subsequently overwrite its publication.
-            pending = dict(in_flight)
+            pending = dict(in_flight) if reshoot_id is not None else {
+                "id": registration_id,
+                "started_at": _now(),
+            }
             pending["registration_pending"] = True
             reshoots["in_flight"] = pending
         try:
@@ -725,8 +744,8 @@ def register_request(store, episode_id: str, request: dict, *, reshoot_id: str |
     raise ReviewConflict("photo control kept changing while Wednesday registered its photos")
 
 
-def finish_reshoot_registration(store, episode_id: str, reshoot_id: str) -> ControlView:
-    """Make a registered automatic replacement eligible after episode writes end.
+def finish_request_registration(store, episode_id: str, registration_id: str) -> ControlView:
+    """Make a registered photo request eligible after episode writes end.
 
     The exact reshoot marker is retained by ``register_request`` while
     ``_register_photos`` saves the episode and records notification status.
@@ -736,7 +755,7 @@ def finish_reshoot_registration(store, episode_id: str, reshoot_id: str) -> Cont
     for _ in range(_CAS_ATTEMPTS):
         view = read_view(store, episode_id, None)
         in_flight = view.reshoots.get("in_flight") or {}
-        if in_flight.get("id") != reshoot_id or not in_flight.get("registration_pending"):
+        if in_flight.get("id") != registration_id or not in_flight.get("registration_pending"):
             raise ReshootRefused(
                 "The automatic reshoot registration changed before it became publishable."
             )
@@ -977,7 +996,7 @@ def claim_for_publication(store, episode_id: str, verified_ep: dict, *,
         if view.frozen:
             raise PublicationUnderway(f"photo control is already {view.state}")
         in_flight = view.reshoots.get("in_flight") or {}
-        if in_flight.get("automatic_sunday") and in_flight.get("registration_pending"):
+        if in_flight.get("registration_pending"):
             # A replacement is registered in the control, but its producer
             # still owns whole-episode writes.  It becomes claimable only when
             # that producer explicitly finishes registration.  The 360-second
