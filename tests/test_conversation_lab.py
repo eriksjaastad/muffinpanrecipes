@@ -66,6 +66,8 @@ def _messages(tag: str, count: int = 2) -> list[dict]:
 def _complete_judge_scores(value: int = 4) -> dict[str, int]:
     return {dim: value for dim in cl.JUDGE_DIMENSIONS}
 
+EFFECTIVE_VARIANT = {"TICKS_RANGE": {"monday": [7, 9]}}
+
 def _write_variant(tmp_path, payload: dict) -> "cl.Path":
     path = tmp_path / "variant.json"
     path.write_text(json.dumps(payload))
@@ -102,44 +104,43 @@ def _block_network(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_apply_variant_refuses_unknown_attribute():
-    with pytest.raises(cl.ConversationLabError, match="unknown attribute"):
+    with pytest.raises(cl.ConversationLabError, match="does not affect authored scenes"):
         cl._apply_variant(sdw, {"_DOES_NOT_EXIST": "x"})
 
 def test_apply_variant_refuses_callable_attribute():
-    with pytest.raises(cl.ConversationLabError, match="not a string/dict"):
+    with pytest.raises(cl.ConversationLabError, match="does not affect authored scenes"):
         cl._apply_variant(sdw, {"build_system_prompt": "x"})
 
 def test_apply_and_restore_variant_round_trips():
-    original = sdw._SHARED_CHARACTER_RULES
-    saved = cl._apply_variant(sdw, {"_SHARED_CHARACTER_RULES": "VARIANT TEXT"})
-    assert sdw._SHARED_CHARACTER_RULES == "VARIANT TEXT"
+    original = sdw.TICKS_RANGE
+    saved = cl._apply_variant(sdw, EFFECTIVE_VARIANT)
+    assert sdw.TICKS_RANGE["monday"] == (7, 9)
     cl._restore_variant(sdw, saved)
-    assert sdw._SHARED_CHARACTER_RULES == original
+    assert sdw.TICKS_RANGE == original
 
-def test_apply_variant_clears_prompt_cache():
-    sdw._system_prompt_cache["Margaret Chen"] = "stale cached prompt"
-    saved = cl._apply_variant(sdw, {"_SHARED_CHARACTER_RULES": "VARIANT TEXT"})
-    assert "Margaret Chen" not in sdw._system_prompt_cache
-    cl._restore_variant(sdw, saved)
-    assert "Margaret Chen" not in sdw._system_prompt_cache
+def test_apply_variant_rejects_retired_lever_before_mutation():
+    before = sdw.TICKS_RANGE
+    with pytest.raises(cl.ConversationLabError, match="does not affect authored scenes"):
+        cl._apply_variant(sdw, {"_SHARED_CHARACTER_RULES": "VARIANT TEXT"})
+    assert sdw.TICKS_RANGE is before
 
 # ---------------------------------------------------------------------------
 # ab: pairing, variant-arm-only patching, restore-on-error
 # ---------------------------------------------------------------------------
 
 def test_ab_pairs_control_then_variant_per_run_and_restores_after_each(tmp_path, monkeypatch):
-    original_rules = sdw._SHARED_CHARACTER_RULES
-    seen: list[tuple[int, str]] = []
+    original_ticks = sdw.TICKS_RANGE
+    seen: list[tuple[int, tuple[int, int]]] = []
 
     def fake_run_simulation(*, concept, default_model, run_index, stage_only, mode, recipe_context, **kwargs):
-        current = sdw._SHARED_CHARACTER_RULES
+        current = sdw.TICKS_RANGE["monday"]
         seen.append((run_index, current))
-        tag = "VARIANT" if current == "VARIANT_RULES" else "CONTROL"
+        tag = "VARIANT" if current == (7, 9) else "CONTROL"
         return {"messages": _messages(tag)}
 
     monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
 
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     results_dir = tmp_path / "results"
 
     cl.main([
@@ -149,13 +150,13 @@ def test_ab_pairs_control_then_variant_per_run_and_restores_after_each(tmp_path,
     ])
 
     # control_1, variant_1, control_2, variant_2 - in that exact order.
-    assert [s[1] for s in seen] == [original_rules, "VARIANT_RULES", original_rules, "VARIANT_RULES"]
+    assert [s[1] for s in seen] == [original_ticks["monday"], (7, 9), original_ticks["monday"], (7, 9)]
     assert [s[0] for s in seen] == [1, 1, 2, 2]
     # The module is left exactly as it started.
-    assert sdw._SHARED_CHARACTER_RULES == original_rules
+    assert sdw.TICKS_RANGE == original_ticks
 
 def test_ab_restores_variant_even_when_variant_arm_raises(tmp_path, monkeypatch):
-    original_rules = sdw._SHARED_CHARACTER_RULES
+    original_ticks = sdw.TICKS_RANGE
     call_count = {"n": 0}
 
     def flaky_run_simulation(*, concept, default_model, run_index, stage_only, mode, recipe_context, **kwargs):
@@ -165,7 +166,7 @@ def test_ab_restores_variant_even_when_variant_arm_raises(tmp_path, monkeypatch)
         return {"messages": _messages("CONTROL")}
 
     monkeypatch.setattr(sdw, "run_simulation", flaky_run_simulation)
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
 
     with pytest.raises(RuntimeError, match="boom"):
         cl.main([
@@ -174,7 +175,7 @@ def test_ab_restores_variant_even_when_variant_arm_raises(tmp_path, monkeypatch)
             "--dry-run", "--results-dir", str(tmp_path / "results"),
         ])
 
-    assert sdw._SHARED_CHARACTER_RULES == original_rules
+    assert sdw.TICKS_RANGE == original_ticks
 
 # ---------------------------------------------------------------------------
 # ab: --dry-run makes zero judge calls
@@ -188,7 +189,7 @@ def test_ab_dry_run_never_calls_the_judge(tmp_path, monkeypatch):
 
     monkeypatch.setattr(model_router, "generate_judge_response", fail_judge)
 
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     results_dir = tmp_path / "results"
 
     cl.main([
@@ -230,7 +231,7 @@ def test_ab_pairwise_judge_agreement_counts_as_win(tmp_path, monkeypatch):
 
     monkeypatch.setattr(model_router, "generate_judge_response", content_aware_judge)
 
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     results_dir = tmp_path / "results"
 
     cl.main([
@@ -265,7 +266,7 @@ def test_ab_pairwise_judge_disagreement_results_in_tie(tmp_path, monkeypatch):
 
     monkeypatch.setattr(model_router, "generate_judge_response", positionally_biased_judge)
 
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     results_dir = tmp_path / "results"
 
     cl.main([
@@ -285,7 +286,7 @@ def test_ab_pairwise_judge_disagreement_results_in_tie(tmp_path, monkeypatch):
 
 def _make_fake_run_simulation():
     def fake_run_simulation(*, concept, default_model, run_index, stage_only, mode, recipe_context, **kwargs):
-        tag = "VARIANT_TAG" if sdw._SHARED_CHARACTER_RULES == "VARIANT_RULES" else "CONTROL_TAG"
+        tag = "VARIANT_TAG" if sdw.TICKS_RANGE["monday"] == (7, 9) else "CONTROL_TAG"
         return {"messages": _messages(tag)}
     return fake_run_simulation
 
@@ -297,7 +298,7 @@ def test_ab_dry_run_ignores_paid_call_cap_and_reports_zero_calls(tmp_path, monke
     # Template arms make no paid requests. --max-calls controls provider work,
     # so it must not truncate a free plumbing run or count template messages.
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     results_dir = tmp_path / "results"
 
     cl.main([
@@ -319,7 +320,7 @@ def test_ab_dry_run_ignores_paid_call_cap_and_reports_zero_calls(tmp_path, monke
 
 def test_ab_results_file_has_expected_schema(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     results_dir = tmp_path / "results"
 
     cl.main([
@@ -346,7 +347,7 @@ def test_ab_results_file_has_expected_schema(tmp_path, monkeypatch):
 
 def test_ab_appends_experiments_row_with_header_on_first_write(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     results_dir = tmp_path / "lab" / "results"
     log_path = tmp_path / "lab" / "EXPERIMENTS.md"
 
@@ -365,7 +366,7 @@ def test_ab_experiments_log_is_independent_of_results_dir(tmp_path, monkeypatch)
     review finding c) - pointing results somewhere unrelated must not
     silently redirect EXPERIMENTS.md too."""
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     results_dir = tmp_path / "somewhere" / "unrelated" / "results"
     log_path = tmp_path / "lab" / "EXPERIMENTS.md"
 
@@ -380,7 +381,7 @@ def test_ab_experiments_log_is_independent_of_results_dir(tmp_path, monkeypatch)
 
 def test_ab_no_log_does_not_touch_experiments_file(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     results_dir = tmp_path / "lab" / "results"
 
     cl.main([
@@ -403,7 +404,7 @@ def test_ab_without_experiments_log_or_no_log_never_touches_tracked_file(tmp_pat
     before = real_log.read_bytes()
 
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
 
     cl.main([
         "ab", "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
@@ -434,7 +435,7 @@ def test_append_experiments_row_inserts_into_table_not_after_later_sections(tmp_
         "Some unrelated section content that must stay AFTER the table.\n"
     )
 
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
 
     cl.main([
         "ab", "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
@@ -446,7 +447,7 @@ def test_append_experiments_row_inserts_into_table_not_after_later_sections(tmp_
     text = log_path.read_text()
     experiments_idx = text.index("## Experiments")
     heat_map_idx = text.index("## Heat map baseline")
-    row_idx = text.index("| _SHARED_CHARACTER_RULES |")
+    row_idx = text.index("| TICKS_RANGE |")
     assert experiments_idx < row_idx < heat_map_idx
 
 def test_append_experiments_row_finds_table_after_prose_paragraph(tmp_path, monkeypatch):
@@ -470,7 +471,7 @@ def test_append_experiments_row_finds_table_after_prose_paragraph(tmp_path, monk
         "## Heat map baseline v0\n\n"
         "Section content that must stay AFTER the table.\n"
     )
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     cl.main([
         "ab", "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
         "--variant", str(variant_path), "--recipe-context", "anchor",
@@ -495,7 +496,7 @@ def test_ab_tolerates_and_appends_to_an_existing_experiments_file(tmp_path, monk
     existing = "# Conversation Lab Experiments\n\nSome pre-existing prose and a table.\n"
     (lab_dir / "EXPERIMENTS.md").write_text(existing)
 
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
 
     cl.main([
         "ab", "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
@@ -515,7 +516,7 @@ def test_ab_tolerates_and_appends_to_an_existing_experiments_file(tmp_path, monk
 
 def test_ab_without_dry_run_fails_loud_when_openrouter_key_unset(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
 
     with pytest.raises(SystemExit, match="OPENROUTER_API_KEY is not set"):
         cl.main([
@@ -800,7 +801,7 @@ def test_ab_uses_one_episode_snapshot_for_anchor_and_every_judge_orientation(tmp
     monkeypatch.setattr(cl, "_load_episode", load_once)
     monkeypatch.setattr(sdw, "run_simulation", fake_simulation)
     monkeypatch.setattr(model_router, "generate_judge_response", fake_judge)
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
 
     cl.main([
         "ab",
@@ -854,10 +855,12 @@ def test_calibrate_uses_one_snapshot_and_monday_fallback_for_all_judges(tmp_path
 def test_manual_recipe_context_does_not_load_or_supply_facts(tmp_path, monkeypatch):
     anchors: list[str | None] = []
     prompts: list[str] = []
+    ticks_seen: list[tuple[int, int]] = []
 
     def fake_simulation(**kwargs):
         anchors.append(kwargs["recipe_context"])
-        tag = "VARIANT" if sdw._SHARED_CHARACTER_RULES == "VARIANT_RULES" else "CONTROL"
+        ticks_seen.append(sdw.TICKS_RANGE["monday"])
+        tag = "VARIANT" if sdw.TICKS_RANGE["monday"] == (7, 9) else "CONTROL"
         return {"messages": [{"character": "Margaret Chen", "message": f"{tag} generated"}]}
 
     def fake_judge(*, prompt, **_kwargs):
@@ -867,7 +870,7 @@ def test_manual_recipe_context_does_not_load_or_supply_facts(tmp_path, monkeypat
     monkeypatch.setattr(cl, "_load_episode", _fail_episode_load)
     monkeypatch.setattr(sdw, "run_simulation", fake_simulation)
     monkeypatch.setattr(model_router, "generate_judge_response", fake_judge)
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
 
     cl.main([
         "ab",
@@ -878,6 +881,7 @@ def test_manual_recipe_context_does_not_load_or_supply_facts(tmp_path, monkeypat
 
     assert len(anchors) == 2  # control + variant
     assert anchors == ["manual anchor", "manual anchor"]
+    assert ticks_seen == [(6, 10), (7, 9)]
     assert len(prompts) == 2  # both judge orientations
     assert all("RECIPE GROUND TRUTH" not in prompt for prompt in prompts)
     orientations = []
@@ -890,7 +894,7 @@ def test_manual_recipe_context_does_not_load_or_supply_facts(tmp_path, monkeypat
 def test_episode_load_failure_propagates_before_generation(tmp_path, monkeypatch):
     monkeypatch.setattr(cl, "_load_episode", _raise_snapshot_unavailable)
     monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
 
     with pytest.raises(RuntimeError, match="snapshot unavailable"):
         cl.main([
@@ -1351,7 +1355,7 @@ def test_ab_writes_partial_result_on_exception_mid_run(tmp_path, monkeypatch):
 
     monkeypatch.setattr(model_router, "generate_judge_response", flaky_judge)
 
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     results_dir = tmp_path / "results"
 
     with pytest.raises(SystemExit):
@@ -1396,7 +1400,7 @@ def test_second_orientation_failure_persists_both_attempts(
     monkeypatch.setattr(model_router, "generate_judge_response", fail_second_orientation)
     results_dir = tmp_path / "results"
     if command == "ab":
-        variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT"})
+        variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
         cli_args = [
             "ab",
             "--concept", "Fixture", "--stage", "monday", "--runs", "1",
@@ -1410,7 +1414,7 @@ def test_second_orientation_failure_persists_both_attempts(
         ])
         sweep_dir = tmp_path / "sweep"
         sweep_dir.mkdir()
-        (sweep_dir / "variant.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "VARIANT"}))
+        (sweep_dir / "variant.json").write_text(json.dumps(EFFECTIVE_VARIANT))
         cli_args = [
             "ab",
             "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
@@ -1532,7 +1536,7 @@ def test_calibrate_writes_partial_result_on_exception_mid_run(tmp_path, monkeypa
 def test_ab_max_calls_denies_before_generation_when_arm_reservation_cannot_fit(tmp_path, monkeypatch):
     generated = []
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: generated.append(kw))
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     results_dir = tmp_path / "results"
 
     cl.main([
@@ -1617,7 +1621,7 @@ def test_would_exceed_cost_trusts_openrouter_actual_cost(monkeypatch):
 def test_ab_aborts_when_cost_cap_already_reached(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
     monkeypatch.setattr(model_router, "get_cost_entries", lambda: [{"actual_cost": 10.0}])
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     results_dir = tmp_path / "results"
 
     cl.main([
@@ -1634,7 +1638,7 @@ def test_ab_aborts_when_cost_cap_already_reached(tmp_path, monkeypatch):
 
 # ---------------------------------------------------------------------------
 # #7714 finding 3: arm_call_reservation must honor a variant's raised
-# TICKS_RANGE/OPEN_ENDED_MAX_TICKS, not just the unpatched module defaults -
+# TICKS_RANGE, not just the unpatched module defaults -
 # and a runaway arm must be stoppable mid-flight (the mid-arm budget guard),
 # not only at the next arm/judge boundary.
 # ---------------------------------------------------------------------------
@@ -1727,7 +1731,7 @@ def test_ab_survives_a_lab_budget_abort_raised_inside_authored_generation(tmp_pa
 
     monkeypatch.setattr(sdw, "generate_response", raises_abort)
 
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "V"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     results_dir = tmp_path / "results"
 
     cl.main([
@@ -1774,7 +1778,7 @@ def test_ab_mid_arm_guard_stops_a_runaway_variant_arm_and_writes_partial(tmp_pat
     inside the arm can be what stops the runaway loop and produces the
     partial, aborted `ab` result."""
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
-    variant = {"_SHARED_CHARACTER_RULES": "V"}
+    variant = EFFECTIVE_VARIANT
     reservation = cl._arm_call_reservation(dry_run=False)
 
     call_count = {"n": 0}
@@ -1825,7 +1829,7 @@ def _erroring_turn_generator(sink, n, *, model="anthropic/claude-haiku-4-5-20251
     """Generate exactly `n` real turns, then raise a plain RuntimeError -
     standing in for any NON-budget mid-arm failure (the empty-content
     RuntimeError from an OpenRouter reasoning model, a CoT-leak retry
-    that still leaks, a DirectorError, a Haiku stop-check failure).
+    that still leaks, a retired per-line director error, a Haiku stop-check failure).
     #7714 round 4 finding 1: partial-work recovery must cover these too,
     not just LabBudgetAbort."""
     for i in range(n):
@@ -1842,7 +1846,7 @@ def test_ab_control_arm_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatc
     already generated (real, paid work). message_sink fixes that - this
     proves the CONTROL arm's saved partial pair holds exactly the N turns
     generated before the guard fired, not zero and not all of them."""
-    variant = {"_SHARED_CHARACTER_RULES": "V"}
+    variant = EFFECTIVE_VARIANT
     reservation = cl._arm_call_reservation(dry_run=False)
 
     def fake_generate_openrouter(**kw):
@@ -1878,10 +1882,10 @@ def test_ab_control_arm_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatc
 
 def test_ab_control_arm_non_budget_error_saves_partial_turns_and_reports_error(tmp_path, monkeypatch):
     """#7714 round 4 finding 1: a non-budget mid-arm failure (empty-
-    content RuntimeError, CoT-leak, DirectorError, ...) must ALSO save
+    content RuntimeError, CoT-leak, retired per-line director error, ...) must ALSO save
     the turns generated before it - not just LabBudgetAbort - AND still
     propagate as a truthful error (not silently become a clean abort)."""
-    variant = {"_SHARED_CHARACTER_RULES": "V"}
+    variant = EFFECTIVE_VARIANT
     n = 3
 
     def fake_generate_openrouter(**kw):
@@ -1919,7 +1923,7 @@ def test_ab_variant_arm_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatc
     """Same proof as the control-arm test above, for the VARIANT arm: the
     control side stays cheap (zero real calls), so the shared guard's
     live count is entirely the variant's own turns when it fires."""
-    variant = {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"}
+    variant = EFFECTIVE_VARIANT
     reservation = cl._arm_call_reservation(dry_run=False)
 
     def fake_generate_openrouter(**kw):
@@ -1928,7 +1932,7 @@ def test_ab_variant_arm_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypatc
 
     def fake_run_simulation(*, message_sink=None, **kwargs):
         sink = message_sink if message_sink is not None else []
-        if sdw._SHARED_CHARACTER_RULES == "VARIANT_RULES":
+        if sdw.TICKS_RANGE["monday"] == (7, 9):
             _runaway_turn_generator(sink)
         return {"messages": [m.__dict__ for m in sink]}
 
@@ -1958,7 +1962,7 @@ def test_ab_variant_arm_non_budget_error_saves_partial_turns_and_reports_error(t
     """#7714 round 4 finding 1, variant side: control stays cheap (zero
     real calls); the variant arm's non-budget failure must save its own
     partial turns and propagate as a truthful error."""
-    variant = {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"}
+    variant = EFFECTIVE_VARIANT
     n = 3
 
     def fake_generate_openrouter(**kw):
@@ -1967,7 +1971,7 @@ def test_ab_variant_arm_non_budget_error_saves_partial_turns_and_reports_error(t
 
     def fake_run_simulation(*, message_sink=None, **kwargs):
         sink = message_sink if message_sink is not None else []
-        if sdw._SHARED_CHARACTER_RULES == "VARIANT_RULES":
+        if sdw.TICKS_RANGE["monday"] == (7, 9):
             _erroring_turn_generator(sink, n)
         return {"messages": [m.__dict__ for m in sink]}
 
@@ -2017,7 +2021,7 @@ def test_ab_sweep_control_mid_arm_abort_saves_exactly_n_turns(tmp_path, monkeypa
     ])
     sweep_dir = tmp_path / "sweep"
     sweep_dir.mkdir()
-    (sweep_dir / "only.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "V"}))
+    (sweep_dir / "only.json").write_text(json.dumps(EFFECTIVE_VARIANT))
     results_dir = tmp_path / "results"
 
     cl.main([
@@ -2056,7 +2060,7 @@ def test_ab_sweep_control_non_budget_error_saves_partial_turns_and_reports_error
     ])
     sweep_dir = tmp_path / "sweep"
     sweep_dir.mkdir()
-    (sweep_dir / "only.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "V"}))
+    (sweep_dir / "only.json").write_text(json.dumps(EFFECTIVE_VARIANT))
     results_dir = tmp_path / "results"
 
     with pytest.raises(RuntimeError, match="simulated non-budget mid-arm failure"):
@@ -2190,7 +2194,7 @@ def test_budget_guard_counts_calls_recorded_before_install(monkeypatch):
 
 def test_ab_default_max_cost_is_five_dollars(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     results_dir = tmp_path / "results"
 
     cl.main([
@@ -2210,7 +2214,7 @@ def test_ab_default_max_cost_is_five_dollars(tmp_path, monkeypatch):
 def test_ab_single_concept_default_max_calls_is_derived_from_arm_reservation(tmp_path, monkeypatch):
     """The default reserves both authored arms and judge retries per pair."""
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "V"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     results_dir = tmp_path / "results"
 
     cl.main([
@@ -2224,16 +2228,9 @@ def test_ab_single_concept_default_max_calls_is_derived_from_arm_reservation(tmp
     assert report["max_calls"] == 50 * (9 + 9 + 2 * (1 + cl._JUDGE_JSON_MAX_RETRIES))
 
 def test_ab_single_concept_default_max_calls_covers_open_ended_variant_reservation(tmp_path, monkeypatch):
-    """Legacy per-line turn knobs do not change authored-arm reservations."""
+    """A valid TICKS_RANGE variant uses the same reserved arm ceiling."""
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
-    # HISTORY_DEPTH must be raised in the same variant or validate_variant's
-    # invariant check (later_turns must exceed the tick ceiling) refuses this
-    # variant before any derivation happens - unrelated to the fix here.
-    variant_path = _write_variant(tmp_path, {
-        "WINDDOWN_TRIGGER": "check",
-        "OPEN_ENDED_MAX_TICKS": {"monday": 25},
-        "HISTORY_DEPTH": {"early": [30, 30], "late": [20, 16]},
-    })
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     results_dir = tmp_path / "results"
 
     cl.main([
@@ -2254,11 +2251,7 @@ def test_ab_single_concept_explicit_max_calls_is_not_rederived(tmp_path, monkeyp
     default, same as --testbed/--sweep (test_ab_testbed_explicit_max_calls_
     is_not_rederived)."""
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
-    variant_path = _write_variant(tmp_path, {
-        "WINDDOWN_TRIGGER": "check",
-        "OPEN_ENDED_MAX_TICKS": {"monday": 25},
-        "HISTORY_DEPTH": {"early": [30, 30], "late": [20, 16]},
-    })
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     results_dir = tmp_path / "results"
 
     cl.main([
@@ -2277,7 +2270,7 @@ def test_ab_testbed_default_max_calls_is_derived_from_panel_size_and_runs(tmp_pa
         {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
         {"id": "s2", "concept": "Scenario Two", "recipe_context": "anchor two"},
     ])
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "V"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     results_dir = tmp_path / "results"
 
     cl.main([
@@ -2296,16 +2289,12 @@ def test_ab_testbed_default_max_calls_is_derived_from_panel_size_and_runs(tmp_pa
     assert report["panel_size"] == 2
 
 def test_ab_testbed_default_max_calls_honours_an_open_ended_variant(tmp_path, monkeypatch):
-    """Legacy per-line turn knobs do not change authored-arm reservations."""
+    """A TICKS_RANGE variant does not change the arm reservation ceiling."""
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
     testbed_path = _write_testbed(tmp_path, [
         {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
     ])
-    variant_path = _write_variant(tmp_path, {
-        "WINDDOWN_TRIGGER": "check",
-        "OPEN_ENDED_MAX_TICKS": {"monday": 25},
-        "HISTORY_DEPTH": {"early": [30, 30], "late": [20, 16]},
-    })
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     results_dir = tmp_path / "results"
     cl.main([
         "ab", "--stage", "monday", "--variant", str(variant_path),
@@ -2317,11 +2306,11 @@ def test_ab_testbed_default_max_calls_honours_an_open_ended_variant(tmp_path, mo
 
 
 def test_derive_max_calls_sweep_counts_the_shared_control_once():
-    plain = {"_SHARED_CHARACTER_RULES": "V"}
-    open_ended = {"WINDDOWN_TRIGGER": "check", "OPEN_ENDED_MAX_TICKS": {"monday": 25}}
+    plain = EFFECTIVE_VARIANT
+    alternate = {"TICKS_RANGE": {"monday": [8, 10]}}
     judge = 2 * (1 + cl._JUDGE_JSON_MAX_RETRIES)
     got = cl._derive_max_calls(
-        "sweep", scenario_count=3, runs=2, stage="monday", sweep_variants=[plain, open_ended],
+        "sweep", scenario_count=3, runs=2, stage="monday", sweep_variants=[plain, alternate],
     )
     assert got == 3 * 2 * (9 + (9 + judge) + (9 + judge))
 
@@ -2338,7 +2327,7 @@ def test_default_cap_lets_a_pair_finish_when_every_judge_orientation_needs_its_r
         return {"messages": _messages("X")}
 
     monkeypatch.setattr(sdw, "run_simulation", full_arm)
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "V"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "openai/dialogue", "openai/judge"))
     calls = {"n": 0}
     good = json.dumps({"winner": "A", "per_dimension": {d: "tie" for d in cl.ALL_JUDGE_DIMENSIONS}, "reason": "r"})
@@ -2366,7 +2355,7 @@ def test_ab_testbed_explicit_max_calls_is_not_rederived(tmp_path, monkeypatch):
     testbed_path = _write_testbed(tmp_path, [
         {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
     ])
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "V"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     results_dir = tmp_path / "results"
 
     cl.main([
@@ -2404,7 +2393,7 @@ def test_calibrate_dry_run_verdict_is_dry_run_not_grader(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_ab_requires_concept_without_testbed(tmp_path):
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "V"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     with pytest.raises(SystemExit, match="--concept is required"):
         cl.main([
             "ab", "--stage", "monday", "--runs", "1", "--variant", str(variant_path),
@@ -2412,7 +2401,7 @@ def test_ab_requires_concept_without_testbed(tmp_path):
         ])
 
 def test_ab_requires_runs_without_testbed(tmp_path):
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "V"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     with pytest.raises(SystemExit, match="--runs is required"):
         cl.main([
             "ab", "--concept", "X", "--stage", "monday", "--variant", str(variant_path),
@@ -2427,7 +2416,7 @@ def test_ab_requires_variant_or_sweep(tmp_path):
         ])
 
 def test_ab_variant_and_sweep_are_mutually_exclusive(tmp_path):
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "V"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     sweep_dir = tmp_path / "sweep"
     sweep_dir.mkdir()
     with pytest.raises(SystemExit, match="pass --variant or --sweep, not both"):
@@ -2465,7 +2454,7 @@ def test_ab_testbed_runs_every_scenario_and_aggregates(tmp_path, monkeypatch):
         {"id": "s2", "concept": "Scenario Two", "category": "savory", "cuisine": None,
          "recipe_context": "anchor two", "source_episode": "2026-W02"},
     ])
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     results_dir = tmp_path / "results"
 
     cl.main([
@@ -2493,7 +2482,7 @@ def test_ab_testbed_default_runs_is_three(tmp_path, monkeypatch):
     testbed_path = _write_testbed(tmp_path, [
         {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
     ])
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     results_dir = tmp_path / "results"
 
     cl.main([
@@ -2508,7 +2497,7 @@ def test_ab_testbed_default_runs_is_three(tmp_path, monkeypatch):
 
 def test_ab_testbed_forbids_concept_and_recipe_context(tmp_path):
     testbed_path = _write_testbed(tmp_path, [{"id": "s1", "concept": "C", "recipe_context": "r"}])
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "V"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
 
     with pytest.raises(SystemExit, match="cannot be combined"):
         cl.main([
@@ -2518,7 +2507,7 @@ def test_ab_testbed_forbids_concept_and_recipe_context(tmp_path):
         ])
 
 def test_ab_testbed_missing_file_exits(tmp_path):
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "V"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     with pytest.raises(SystemExit, match="testbed file not found"):
         cl.main([
             "ab", "--stage", "monday", "--variant", str(variant_path),
@@ -2554,7 +2543,7 @@ def test_ab_testbed_writes_partial_result_on_exception_in_a_later_scenario(tmp_p
         {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
         {"id": "s2", "concept": "Scenario Two", "recipe_context": "anchor two"},
     ])
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     results_dir = tmp_path / "results"
 
     with pytest.raises(SystemExit):
@@ -2599,7 +2588,7 @@ def test_default_testbed_is_v2_with_real_titles():
 
 def test_ab_target_accepts_a_lab_only_dimension(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     results_dir = tmp_path / "results"
 
     cl.main([
@@ -2736,7 +2725,7 @@ def test_ab_result_stores_both_transcripts_per_pair(tmp_path, monkeypatch):
     """`pairs` needs the raw messages, not just the summaries - finding
     (k)'s prerequisite."""
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     results_dir = tmp_path / "results"
 
     cl.main([
@@ -2761,7 +2750,7 @@ def test_pairs_addresses_by_position_not_run_index_in_a_testbed_result(tmp_path,
         {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
         {"id": "s2", "concept": "Scenario Two", "recipe_context": "anchor two"},
     ])
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     results_dir = tmp_path / "results"
 
     cl.main([
@@ -2790,7 +2779,7 @@ def test_pairs_addresses_by_position_not_run_index_in_a_testbed_result(tmp_path,
 
 def test_metric_deltas_are_generic_over_every_numeric_summary_key(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     results_dir = tmp_path / "results"
 
     cl.main([
@@ -2888,7 +2877,7 @@ def test_nullable_metric_report_writer_preserves_pair_evidence(tmp_path):
     })()
     path = tmp_path / "result.json"
     report = cl._build_ab_report(
-        args, tmp_path / "variant.json", {"_SHARED_CHARACTER_RULES": "test"},
+        args, tmp_path / "variant.json", EFFECTIVE_VARIANT,
         [pair], False, type("Budget", (), {"used": 2})(), path,
     )
     cl._write_json_result(path, report)
@@ -2930,13 +2919,13 @@ def test_ab_sweep_generates_control_exactly_once_per_scenario_run(tmp_path, monk
     """The whole point of --sweep: the control transcript for a given
     (scenario, run) is generated ONCE, then reused against every variant -
     not regenerated per variant."""
-    original_rules = sdw._SHARED_CHARACTER_RULES
-    call_log: list[str] = []
+    original_ticks = sdw.TICKS_RANGE["monday"]
+    call_log: list[tuple[int, int]] = []
 
     def fake_run_simulation(*, concept, default_model, run_index, stage_only, mode, recipe_context, **kwargs):
-        current = sdw._SHARED_CHARACTER_RULES
+        current = sdw.TICKS_RANGE["monday"]
         call_log.append(current)
-        tag = "VARIANT" if current != original_rules else "CONTROL"
+        tag = "VARIANT" if current != original_ticks else "CONTROL"
         return {"messages": _messages(tag)}
 
     monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
@@ -2947,8 +2936,8 @@ def test_ab_sweep_generates_control_exactly_once_per_scenario_run(tmp_path, monk
     ])
     sweep_dir = tmp_path / "sweep"
     sweep_dir.mkdir()
-    (sweep_dir / "variant_a.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "A_RULES"}))
-    (sweep_dir / "variant_b.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "B_RULES"}))
+    (sweep_dir / "variant_a.json").write_text(json.dumps(EFFECTIVE_VARIANT))
+    (sweep_dir / "variant_b.json").write_text(json.dumps(EFFECTIVE_VARIANT))
 
     results_dir = tmp_path / "results"
 
@@ -2957,7 +2946,7 @@ def test_ab_sweep_generates_control_exactly_once_per_scenario_run(tmp_path, monk
         "--runs", "1", "--dry-run", "--results-dir", str(results_dir),
     ])
 
-    control_calls = [c for c in call_log if c == original_rules]
+    control_calls = [c for c in call_log if c == original_ticks]
     assert len(control_calls) == 2  # 2 scenarios x 1 run, regardless of 2 variants
     assert len(call_log) == 6  # 2 control + 2 (variant_a) + 2 (variant_b)
 
@@ -2985,7 +2974,7 @@ def test_ab_sweep_ranks_three_variants_and_result_schema(tmp_path, monkeypatch):
     sweep_dir = tmp_path / "sweep"
     sweep_dir.mkdir()
     for name in ("alpha", "beta", "gamma"):
-        (sweep_dir / f"{name}.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "VARIANT_RULES"}))
+        (sweep_dir / f"{name}.json").write_text(json.dumps(EFFECTIVE_VARIANT))
 
     results_dir = tmp_path / "results"
 
@@ -3054,7 +3043,7 @@ def test_ab_sweep_per_variant_cost_cap_abort_writes_partial(tmp_path, monkeypatc
     ])
     sweep_dir = tmp_path / "sweep"
     sweep_dir.mkdir()
-    (sweep_dir / "only.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "V"}))
+    (sweep_dir / "only.json").write_text(json.dumps(EFFECTIVE_VARIANT))
 
     results_dir = tmp_path / "results"
 
@@ -3102,7 +3091,7 @@ def test_ab_sweep_control_mid_arm_guard_stops_a_runaway_run(tmp_path, monkeypatc
     ])
     sweep_dir = tmp_path / "sweep"
     sweep_dir.mkdir()
-    (sweep_dir / "only.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "V"}))
+    (sweep_dir / "only.json").write_text(json.dumps(EFFECTIVE_VARIANT))
     results_dir = tmp_path / "results"
 
     cl.main([
@@ -3122,7 +3111,7 @@ def test_ab_sweep_variant_mid_arm_guard_stops_a_runaway_run(tmp_path, monkeypatc
     - only the mid-arm guard installed for this variant's whole run can
     stop its runaway arm. The control arm stays cheap so control_aborted
     is False and the variant's own guard is what fires."""
-    variant = {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"}
+    variant = EFFECTIVE_VARIANT
     reservation = cl._arm_call_reservation(dry_run=False)
 
     call_count = {"n": 0}
@@ -3133,7 +3122,7 @@ def test_ab_sweep_variant_mid_arm_guard_stops_a_runaway_run(tmp_path, monkeypatc
         return "ok"
 
     def maybe_runaway_run_simulation(**kwargs):
-        if sdw._SHARED_CHARACTER_RULES == "VARIANT_RULES":
+        if sdw.TICKS_RANGE["monday"] == (7, 9):
             for _ in range(reservation * 3):
                 model_router.generate_response(prompt="x", model="anthropic/claude-haiku-4-5-20251001")
         return {"messages": _messages("X")}
@@ -3166,7 +3155,7 @@ def test_ab_sweep_variant_non_budget_error_saves_partial_turns_and_reports_error
     """#7714 round 4 finding 1, sweep variant side: control stays cheap;
     the variant's own non-budget failure must save its partial turns AND
     propagate as a truthful error, not become a clean aborted variant."""
-    variant = {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"}
+    variant = EFFECTIVE_VARIANT
     n = 3
 
     def fake_generate_openrouter(**kw):
@@ -3175,7 +3164,7 @@ def test_ab_sweep_variant_non_budget_error_saves_partial_turns_and_reports_error
 
     def fake_run_simulation(*, message_sink=None, **kwargs):
         sink = message_sink if message_sink is not None else []
-        if sdw._SHARED_CHARACTER_RULES == "VARIANT_RULES":
+        if sdw.TICKS_RANGE["monday"] == (7, 9):
             _erroring_turn_generator(sink, n)
         return {"messages": [m.__dict__ for m in sink]}
 
@@ -3218,8 +3207,8 @@ def test_ab_sweep_dry_run_makes_zero_judge_calls(tmp_path, monkeypatch):
     ])
     sweep_dir = tmp_path / "sweep"
     sweep_dir.mkdir()
-    (sweep_dir / "a.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "V"}))
-    (sweep_dir / "b.json").write_text(json.dumps({"_REACTION_DIRECTIVE": "extra beat"}))
+    (sweep_dir / "a.json").write_text(json.dumps(EFFECTIVE_VARIANT))
+    (sweep_dir / "b.json").write_text(json.dumps(EFFECTIVE_VARIANT))
 
     results_dir = tmp_path / "results"
 
@@ -3254,7 +3243,7 @@ def test_ab_sweep_empty_directory_exits(tmp_path):
 def test_ab_sweep_forbids_concept(tmp_path):
     sweep_dir = tmp_path / "sweep"
     sweep_dir.mkdir()
-    (sweep_dir / "a.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "V"}))
+    (sweep_dir / "a.json").write_text(json.dumps(EFFECTIVE_VARIANT))
     with pytest.raises(SystemExit, match="cannot be combined"):
         cl.main([
             "ab", "--sweep", str(sweep_dir), "--stage", "monday", "--concept", "Not Allowed",
@@ -3266,7 +3255,7 @@ def test_pairs_from_sweep_result_requires_variant_name(tmp_path, monkeypatch):
     testbed_path = _write_testbed(tmp_path, [{"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"}])
     sweep_dir = tmp_path / "sweep"
     sweep_dir.mkdir()
-    (sweep_dir / "only.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "V"}))
+    (sweep_dir / "only.json").write_text(json.dumps(EFFECTIVE_VARIANT))
     results_dir = tmp_path / "results"
 
     cl.main([
@@ -3282,62 +3271,7 @@ def test_pairs_from_sweep_result_requires_variant_name(tmp_path, monkeypatch):
     updated = json.loads(result_file.read_text())
     assert updated["variants"]["only"]["human_picks"]["1"] in ("control", "variant")
 
-# --- validation must precede any paid generation (Codex audit) -----------------
-
-def test_validate_variant_rejects_a_partial_history_depth():
-    """A missing 'late' key used to KeyError on the first Friday, mid-run."""
-    with pytest.raises(cl.ConversationLabError) as exc:
-        cl.validate_variant(sdw, {"HISTORY_DEPTH": {"early": (8, 4)}})
-    assert "late" in str(exc.value)
-
-def test_validate_variant_rejects_booleans_as_depths():
-    """bool is a subclass of int in Python; True is not a history depth."""
-    with pytest.raises(cl.ConversationLabError):
-        cl.validate_variant(sdw, {"HISTORY_DEPTH": {"early": (True, 4), "late": (8, 4)}})
-
-@pytest.mark.parametrize(
-    "bad",
-    [
-        "not-a-dict",
-        {"early": (8, 4)},
-        {"early": (8, 4), "late": "nope"},
-        {"early": (8, 4), "late": (0, 4)},
-        {"early": (8, 4), "late": (8, 4, 2)},
-    ],
-)
-def test_validate_variant_rejects_malformed_shapes(bad):
-    with pytest.raises(cl.ConversationLabError):
-        cl.validate_variant(sdw, {"HISTORY_DEPTH": bad})
-
-def test_validate_variant_accepts_a_well_formed_override():
-    cl.validate_variant(sdw, {"HISTORY_DEPTH": {"early": (10, 6), "late": (14, 10)}})
-
-def test_apply_variant_validates_every_key_before_mutating_any():
-    """An invalid second key must not leave the first one installed.
-
-    _apply_variant raises before returning its restore map, so a partially
-    applied variant left the module patched with nothing to restore from.
-    """
-    before = sdw._REACTION_DIRECTIVE
-    with pytest.raises(cl.ConversationLabError):
-        cl._apply_variant(
-            sdw,
-            {"_REACTION_DIRECTIVE": "patched", "HISTORY_DEPTH": {"early": (8, 4)}},
-        )
-    assert sdw._REACTION_DIRECTIVE == before, "module was left partially patched"
-
-def test_apply_variant_round_trips_a_valid_multi_key_variant():
-    before_directive = sdw._REACTION_DIRECTIVE
-    before_depth = sdw.HISTORY_DEPTH
-    original = cl._apply_variant(
-        sdw,
-        {"_REACTION_DIRECTIVE": "patched", "HISTORY_DEPTH": {"early": (10, 6), "late": (14, 10)}},
-    )
-    assert sdw._REACTION_DIRECTIVE == "patched"
-    assert sdw.HISTORY_DEPTH == {"early": (10, 6), "late": (14, 10)}
-    cl._restore_variant(sdw, original)
-    assert sdw._REACTION_DIRECTIVE == before_directive
-    assert sdw.HISTORY_DEPTH == before_depth
+# --- authored variant validation must precede any paid generation -----------
 
 def test_a_malformed_variant_costs_nothing(monkeypatch):
     """Drive the REAL experiment path, not the validator directly.
@@ -3363,7 +3297,7 @@ def test_a_malformed_variant_costs_nothing(monkeypatch):
             stage="tuesday",
             recipe_context=None,
             runs=2,
-            variant={"HISTORY_DEPTH": {"early": (8, 4)}},   # missing "late"
+        variant={"_SHARED_CHARACTER_RULES": "ignored"},
             mode="openai",
             default_model="test-model",
             judge_model="test-judge",
@@ -3398,7 +3332,7 @@ def test_a_valid_variant_does_reach_generation(monkeypatch):
             stage="tuesday",
             recipe_context=None,
             runs=1,
-            variant={"HISTORY_DEPTH": {"early": (10, 6), "late": (14, 10)}},
+            variant={"TICKS_RANGE": {"tuesday": (7, 9)}},
             mode="openai",
             default_model="test-model",
             judge_model="test-judge",
@@ -3411,40 +3345,12 @@ def test_a_valid_variant_does_reach_generation(monkeypatch):
 
     assert calls == ["generated"], "a valid variant should have reached generation"
     # and the module must not be left patched by the aborted run
-    assert sdw.HISTORY_DEPTH != {"early": (10, 6), "late": (14, 10)}
+    assert sdw.TICKS_RANGE["tuesday"] != (7, 9)
 
-# --- output-contract guards are sweepable levers -----------------------------
-
-@pytest.mark.parametrize(
-    "variant",
-    [
-        {"SHAPE_WINDOW": 0},
-        {"SHAPE_WINDOW": True},
-        {"SHAPE_WINDOW": "three"},
-        {"SHAPE_MAX_IN_WINDOW": 0},
-        {"WORD_BUDGET_TOLERANCE": 0.5},
-        {"WORD_BUDGET_TOLERANCE": True},
-        {"WORD_BUDGET_TOLERANCE": "loose"},
-    ],
-)
-def test_guard_levers_reject_malformed_values(variant):
+@pytest.mark.parametrize("bad", [None, {}, {"monday": [0, 2]}, {"monday": [True, 3]}])
+def test_effective_authored_lever_rejects_malformed_line_ranges(bad):
     with pytest.raises(cl.ConversationLabError):
-        cl.validate_variant(sdw, variant)
-
-def test_guard_levers_accept_a_strict_enforcement_sweep():
-    """WORD_BUDGET_TOLERANCE 1.0 is the "hold them to the stated max" arm."""
-    cl.validate_variant(
-        sdw, {"WORD_BUDGET_TOLERANCE": 1.0, "SHAPE_WINDOW": 4, "SHAPE_MAX_IN_WINDOW": 1}
-    )
-
-def test_guard_levers_round_trip_through_apply_and_restore():
-    before = (sdw.SHAPE_WINDOW, sdw.SHAPE_MAX_IN_WINDOW, sdw.WORD_BUDGET_TOLERANCE)
-    original = cl._apply_variant(
-        sdw, {"SHAPE_WINDOW": 5, "SHAPE_MAX_IN_WINDOW": 1, "WORD_BUDGET_TOLERANCE": 1.0}
-    )
-    assert (sdw.SHAPE_WINDOW, sdw.SHAPE_MAX_IN_WINDOW, sdw.WORD_BUDGET_TOLERANCE) == (5, 1, 1.0)
-    cl._restore_variant(sdw, original)
-    assert (sdw.SHAPE_WINDOW, sdw.SHAPE_MAX_IN_WINDOW, sdw.WORD_BUDGET_TOLERANCE) == before
+        cl.validate_variant(sdw, {"TICKS_RANGE": bad})
 
 # ---------------------------------------------------------------------------
 # bench (#7314): single-arm characterization
@@ -5485,7 +5391,9 @@ def test_bench_compare_survives_a_changed_prompt_lever(tmp_path, monkeypatch):
     baseline = str(_bench_path(tmp_path, "control"))
 
     # The lever under test changes between benches.
-    monkeypatch.setattr(sdw, "_REACTION_DIRECTIVE", "A COMPLETELY DIFFERENT DIRECTIVE\n")
+    changed_ticks = dict(sdw.TICKS_RANGE)
+    changed_ticks["saturday"] = (6, 7)
+    monkeypatch.setattr(sdw, "TICKS_RANGE", changed_ticks)
     _patch_varying_generation(monkeypatch, sdw, [4, 5, 4, 5])
     monkeypatch.setattr(cl, "judge_dialogue", lambda *a, **k: (True, "PASS"))
     cl.cmd_bench(_bench_args(tmp_path, runs=4, label="variant", compare=baseline))
@@ -5643,7 +5551,7 @@ def test_judge_input_digest_preserves_cast_ORDER():
     """Codex: I was sorting expected_cast and hiding a real difference.
 
     run_simulation passes participants_for_day()'s ORDERED list into
-    _select_next_speaker, whose weighted selection iterates it, and
+    retired weighted speaker scheduler, whose weighted selection iterates it, and
     _judge_dialogue renders the roster in that order. Two orderings really
     do produce different conversations and different judge input.
     """
@@ -5971,7 +5879,7 @@ def test_ab_testbed_prior_days_passes_identical_context_to_both_arms(tmp_path, m
         {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
     ])
     frozen = _write_frozen(tmp_path, "monday", "s1")
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     results_dir = tmp_path / "results"
 
     cl.main([
@@ -5998,7 +5906,7 @@ def test_ab_testbed_prior_days_refuses_missing_scenario(tmp_path, monkeypatch):
         {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
     ])
     frozen = _write_frozen(tmp_path, "monday", "some-other-scenario")
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
 
     with pytest.raises(SystemExit, match="lacks scenario 's1'"):
         cl.main([
@@ -6013,7 +5921,7 @@ def test_ab_testbed_prior_days_refuses_stage_or_later_day(tmp_path, monkeypatch)
     testbed_path = _write_testbed(tmp_path, [
         {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
     ])
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
 
     # Frozen file contains exactly the --stage day.
     frozen_monday = _write_frozen(tmp_path, "monday", "s1")
@@ -6044,7 +5952,7 @@ def test_ab_sweep_prior_days_gives_control_and_variant_the_same_context(tmp_path
     frozen = _write_frozen(tmp_path, "monday", "s1")
     sweep_dir = tmp_path / "sweep"
     sweep_dir.mkdir()
-    (sweep_dir / "v.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "VARIANT_RULES"}))
+    (sweep_dir / "v.json").write_text(json.dumps({"TICKS_RANGE": {"tuesday": [7, 9]}}))
 
     cl.main([
         "ab", "--sweep", str(sweep_dir), "--testbed", str(testbed_path),
@@ -6065,7 +5973,7 @@ def test_ab_sweep_prior_days_gives_control_and_variant_the_same_context(tmp_path
 
 def test_ab_single_concept_refuses_prior_days(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", lambda **_kwargs: {"messages": _messages("X")})
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
     frozen = _write_frozen(tmp_path, "monday", "s1")
 
     with pytest.raises(SystemExit, match="--prior-days requires --testbed or --sweep"):
@@ -6084,7 +5992,7 @@ def test_ab_without_prior_days_keeps_initial_recent_lines_none(tmp_path, monkeyp
     testbed_path = _write_testbed(tmp_path, [
         {"id": "s1", "concept": "Scenario One", "recipe_context": "anchor one"},
     ])
-    variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
+    variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
 
     cl.main([
         "ab", "--variant", str(variant_path), "--testbed", str(testbed_path),

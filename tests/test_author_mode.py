@@ -35,8 +35,6 @@ def test_run_simulation_uses_authored_scene_and_preserves_prompt_context(monkeyp
         return scene
 
     monkeypatch.setattr(sim, "generate_response", generate)
-    monkeypatch.setattr(sim, "generate_turn", lambda **_: pytest.fail("per-line route called"))
-    monkeypatch.setattr(sim, "_select_next_speaker", lambda *a: pytest.fail("scheduler called"))
     monkeypatch.setattr(
         sim,
         "_load_memories",

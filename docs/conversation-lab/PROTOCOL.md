@@ -122,6 +122,15 @@ why this step exists now, not just as a formality.
 
 ## Where the levers live
 
+Current `conversation_lab ab` and `ab --sweep` runs use the authored-only
+`run_simulation` path. Of the constants described below, only `TICKS_RANGE`
+affects authored output: it sets the requested line range, and template mode
+uses its lower bound for line count. The older per-line prompt, history,
+rewrite, stop, director, and recipe-fact visibility controls below are kept as
+historical design notes; they are not accepted A/B variant levers. A variant
+using one of them is rejected before either arm can start, so it cannot spend
+on a no-op experiment.
+
 Verified against the code on 2026-09-06 (line numbers will drift; grep the
 symbol name if a citation looks stale):
 
@@ -134,7 +143,7 @@ current code is `_SHARED_CHARACTER_RULES`. This is where the v2 nudge
 - `_REACTION_DIRECTIVE` - `scripts/simulate_dialogue_week.py:248`, the
 #6840 turn-taking rule itself ("Your first sentence must respond to what
 was just said...").
-- `build_system_prompt` - `scripts/simulate_dialogue_week.py:484`. Assembles
+- `retired per-speaker prompt builder` - `scripts/simulate_dialogue_week.py:484`. Assembles
 a character's full system prompt from their persona card, voice guide, and
 `_SHARED_CHARACTER_RULES`. Per-character voice tuning happens upstream of
 this function, in the voice guides it reads.
@@ -142,7 +151,7 @@ this function, in the voice guides it reads.
 one-line scene-setting direction for each day of the week (Monday's
 "Slack pings stack up...", Wednesday's lighting-test debate, etc). This is
 the lever for changing what a day is *about*.
-- `CHARACTER_DAY_GOALS` - `scripts/simulate_dialogue_week.py:78`. Per-day,
+- `retired_per_character_day_goals` - `scripts/simulate_dialogue_week.py:78`. Per-day,
 per-character goals (e.g. Monday's Margaret: "You have strong feelings
 about whether this concept respects the craft."). This is the lever for
 changing what a specific character is trying to do on a specific day, and
@@ -191,7 +200,7 @@ Saturday's one-line direction is what the model keeps reciting.
 16 of 25 weeks, "people need to see" close behind. Metric: `pitch_vocab_rate`
 (shipped in `conversation_metrics.py`) plus the same cross-week hot-phrase
 detector, classified into the `Pitch vocabulary` AREA. Lever:
-`CHARACTER_DAY_GOALS` (`scripts/simulate_dialogue_week.py:78`) - Ria's
+`retired_per_character_day_goals` (`scripts/simulate_dialogue_week.py:78`) - Ria's
 per-day goal text is what teaches her the phrase.
 - **Brand reinforcement** - the pan-case mechanism justification the shared
 rules force reads as marketing copy dropped into a group chat, even though
@@ -204,7 +213,7 @@ language the Monday pan-first rules demand, not from the noun itself.
 Metric: `brand_term_rate` in `conversation_metrics.py` (`BRAND_TERM_PATTERNS`,
 `AREA_METRICS["Brand reinforcement"]`); `conversation_heatmap.py` reports it as
 an area and in the structure-rates-by-day table. Lever: the Monday-specific rules in
-`scripts/simulate_dialogue_week.py` - `CHARACTER_DAY_GOALS`'s `monday`
+`scripts/simulate_dialogue_week.py` - `retired_per_character_day_goals`'s `monday`
 entries (`scripts/simulate_dialogue_week.py:79-86`), `DAY_STAGE_DIRECTIONS`'s
 `monday` entry (`scripts/simulate_dialogue_week.py:135`), and the pan-first
 / mechanism clauses inside `_SHARED_CHARACTER_RULES`'s "THE MUFFIN PAN IS
@@ -443,28 +452,9 @@ somewhat smaller than the line count suggests.
 
 ### What the caps actually guarantee
 
-The paid call caps have different guarantees. `--max-calls` uses a
-structural reservation before each A/B generation arm: four requests per
-turn for the initial generation, CoT retry, fault rewrite, and rewrite CoT
-retry. Testbed/sweep defaults reserve that amount for both arms plus two
-pairwise judge requests. `bench` reserves the same four requests per turn
-and two requests for its production judge, which may retry once. Reports
-still record observed calls, not reservations. Dry runs reserve and record
-zero calls.
+The paid call caps have different guarantees. `--max-calls` reserves three authored-scene attempts for each arm, and each attempt includes the router.s bounded empty-response retries. Testbed and sweep modes add both position-swapped judge orientations with their JSON retry allowances. Reports record observed calls, not reservations. Dry runs reserve and record zero calls.
 
-`--max-cost` reads the billed OpenRouter cost of every call so far and,
-before each call, reserves that call's worst case (prompt bytes plus the
-full output ceiling at the model's published price); see
-`_installed_budget_guard`.
-
-Four, not two, and the difference is the whole point of the guard: one
-turn can cost the initial `generate_response`, `_guard_cot_leak`'s retry
-on it, the fault rewrite (repetition / saturated shape / word budget), and
-`_guard_cot_leak`'s retry on *that*. A first attempt at this reserved two
-and called it a worst case, which meant an arm admitted under
-`--max-calls 20` could still spend 40. If you change `generate_turn`'s
-retry structure, change `_MAX_CALLS_PER_TURN` with it. What gets *recorded* afterwards is the actual count, so
-`calls_used` reports spending, not reservations.
+`--max-cost` installs the router pre-call guard for every authored-scene and judge request. It reserves each request.s worst case from prompt bytes, output ceiling, and published model price before allowing the call. See `_installed_budget_guard`.
 
 For unguarded runs, `--max-cost` is weaker and honestly so: it is checked
 between units, so a single arm can carry the router-estimated total past
@@ -603,7 +593,7 @@ day" per-character goal** - target: short-line rate, question rate.
 target: Brand reinforcement and Structure. The "THE MUFFIN PAN IS THE
 POINT" block in `_SHARED_CHARACTER_RULES`
 (`scripts/simulate_dialogue_week.py:386-400`) and Monday's
-`CHARACTER_DAY_GOALS` / `DAY_STAGE_DIRECTIONS` entries are what push
+`retired_per_character_day_goals` / `DAY_STAGE_DIRECTIONS` entries are what push
 `brand_term_rate` to 32% on Mondays against 7-12% other days (see "Areas"
 above). Predicted: `brand_term_rate` down, dash-clause rate down (the
 mechanism-justification clause is itself a claim-dash-mechanism sentence

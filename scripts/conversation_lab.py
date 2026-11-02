@@ -65,14 +65,11 @@ Five subcommands:
       The --variant file is a JSON object mapping
       scripts.simulate_dialogue_week module attribute names to replacement
       values (a string or a dict). Only existing, non-callable module
-      attributes may be overridden - see ALLOWED_VARIANT_ATTRS below for the
-      documented, useful levers (docs/conversation-lab/PROTOCOL.md's "Where
-      the levers live"). The lever set spans the character-prompt levers
-      (_SHARED_CHARACTER_RULES, _REACTION_DIRECTIVE, DAY_STAGE_DIRECTIONS,
-      CHARACTER_DAY_GOALS), the history window HISTORY_DEPTH, the
-      output-contract guards (SHAPE_WINDOW, SHAPE_MAX_IN_WINDOW,
-      WORD_BUDGET_TOLERANCE, REWRITE_GUARDS, WORD_CAPS), the scene-length
-      range TICKS_RANGE, and recipe-fact visibility. The patch applies
+      attributes may be overridden. TICKS_RANGE is the sole effective
+      authored-scene lever: _author_prompt uses it for the requested line
+      range, and template mode uses its lower bound for line count. Per-line
+      prompt, rewrite, stop, director, and recipe-fact visibility controls do
+      not affect authored scenes and are rejected before generation. The patch applies
       to the variant arm's generation call only and is always restored
       afterward, even on error.
 
@@ -261,7 +258,6 @@ from backend.admin.cron_routes import (
 )
 from backend.judge_rubric import CHARACTER_RULES, JUDGE_DIMENSIONS, JUDGE_SCORE_RANGE
 from backend.utils import model_router
-from backend.utils import stop_check
 from backend.utils.episode_integrity import PLACEHOLDER_CONCEPT, _recipe_title
 from scripts.conversation_metrics import summarize
 
@@ -408,52 +404,11 @@ _OPENROUTER_MODEL_PRICES: dict[str, tuple[float, float]] | None = None
 _CDN_BASE = "https://gtczmjysc51nh8fq.public.blob.vercel-storage.com/episodes"
 _CDN_TIMEOUT_SECONDS = 8
 
-# The module attribute names worth varying in an `ab` experiment - the
-# character-prompt levers documented in docs/conversation-lab/PROTOCOL.md's
-# "Where the levers live" (build_system_prompt itself is a function, not a
-# string/dict, so it is not a valid variant *value* even though it is where
-# these constants get assembled; _JUDGE_SYSTEM_PROMPT lives in
-# backend/admin/cron_routes.py, a file this tool never edits or patches -
-# PROTOCOL.md deliberately treats a judge-prompt change as a separate,
-# rarer kind of experiment, never bundled with a character-prompt change).
-ALLOWED_VARIANT_ATTRS: tuple[str, ...] = (
-    "_SHARED_CHARACTER_RULES",
-    "_REACTION_DIRECTIVE",
-    "DAY_STAGE_DIRECTIONS",
-    "CHARACTER_DAY_GOALS",
-    # #7158: the history window was a local in generate_turn, so #7160 could not be
-    # measured here at all. Shape is {"early"|"late": (opening_turn, later_turns)}.
-    "HISTORY_DEPTH",
-    # Output-contract guards. Levers so the sweep can answer "does enforcing the
-    # budget hurt the writing?" rather than us guessing.
-    "SHAPE_WINDOW",
-    "SHAPE_MAX_IN_WINDOW",
-    "WORD_BUDGET_TOLERANCE",
-    # Per-line rewrite guards (#7705). A variant may carry a SUBSET of the
-    # {"repetition", "shape", "word_budget"} bool keys; _apply_variant merges the
-    # subset onto the module default, so the patched module always has all three.
-    # A guard set False is not evaluated as a fault, so it cannot trigger a rewrite.
-    "REWRITE_GUARDS",
-    # Word-caps knob (#7705 follow-on). False strips every numeric length
-    # constraint from the voice guides/shared rules and suppresses the
-    # word_budget rewrite fault for that arm.
-    "WORD_CAPS",
-    # Wind-down/stop knobs (#7680, #7681, #7629). TICKS_RANGE and
-    # OPEN_ENDED_MAX_TICKS raise a scene's turn count; WINDDOWN_TRIGGER and
-    # STOP_CHECK choose how the scene decides it is done.
-    "TICKS_RANGE",
-    "WINDDOWN_TRIGGER",
-    "STOP_CHECK",
-    "OPEN_ENDED_MAX_TICKS",
-    # Director knob (#7679, absorbs #7677). When enabled, run_simulation rolls
-    # and directs each scene before the first turn (one Haiku call per day).
-    "DIRECTOR",
-    # #7791 P4 / RESEARCH_PLAN.md S3 R3. False (default) is production-identical:
-    # speakers see only the recipe_context anchor. True appends the scenario's
-    # judge_recipe_facts to that anchor so speakers argue from the same facts
-    # the judge scores against.
-    "SPEAKERS_SEE_JUDGE_RECIPE_FACTS",
-)
+# `run_simulation` authors a whole scene in one call. TICKS_RANGE is the sole
+# variant constant read by that path: _author_prompt includes its line range,
+# and template mode uses its lower bound. Legacy per-line controls are no-ops
+# here and must be rejected before a paid control arm can start.
+ALLOWED_VARIANT_ATTRS: tuple[str, ...] = ("TICKS_RANGE",)
 
 # JUDGE_DIMENSIONS (imported above from backend/judge_rubric.py) is the 8 the
 # production judge scores; never add a lab-only dimension to it.
@@ -717,81 +672,9 @@ def _models_arg_for(args: argparse.Namespace) -> str | None:
 def _resolve_lab_model_set(args: argparse.Namespace) -> "LabModelSet":
     """The LabModelSet an `ab` invocation uses - always the REAL ids, never
     collapsed to "template" by --dry-run, so provider_route reporting and the
-    STOP_CHECK/haiku compatibility check both reason about the actual set even
-    under a zero-cost dry run.
+    report records the actual set even under a zero-cost dry run.
     """
     return _LAB_MODELS.get(_models_arg_for(args) or _LAB_MODELS.default)
-
-
-def _refuse_if_stop_check_conflicts_with_models(
-    args: argparse.Namespace, variant: dict[str, Any] | None,
-) -> None:
-    """STOP_CHECK['provider'] == "haiku" always calls Claude Haiku
-    (backend/utils/stop_check.py's HAIKU_MODEL, through model_router) - it
-    never routes through --models. Running a non-default model set (e.g. --models deepseek) with a
-    haiku stop check would silently spend on Claude while everything else in
-    the run is billed to a different vendor, so refuse instead of doing that
-    quietly. The lab's own convention is STOP_CHECK provider="jev" (see
-    scripts/simulate_dialogue_week.py); stop_check.py's haiku path stays out
-    of scope for #7714 (it is not swappable via lab_models.json).
-
-    STOP_CHECK is only ever consulted when WINDDOWN_TRIGGER == "check" -
-    scripts/simulate_dialogue_week.py's run_simulation calls check_scene_done
-    (which reads STOP_CHECK['provider']) inside the `elif WINDDOWN_TRIGGER ==
-    "check":` branch of its per-tick loop, and nowhere else in the codebase.
-    The "regex" (production default) and "off" triggers never call it, so an
-    arm whose effective WINDDOWN_TRIGGER isn't "check" cannot spend on Claude
-    no matter what STOP_CHECK says - refusing that arm was over-strict and
-    blocked every WINDDOWN_TRIGGER="check" + STOP_CHECK provider="jev" variant
-    from running with a non-default model set, since the unpatched control
-    module default (WINDDOWN_TRIGGER="regex", STOP_CHECK provider="haiku")
-    always looked like a conflict.
-
-    Checks BOTH the control arm (the module's current, unpatched
-    WINDDOWN_TRIGGER/STOP_CHECK - control is never variant-patched) and the
-    variant arm (the variant's own WINDDOWN_TRIGGER/STOP_CHECK overrides, if
-    any, else the same module defaults) - each arm's *effective* pairing.
-
-    Runs under --dry-run too (unlike the OpenRouter key/balance preflight,
-    which needs the network): this check only reads the lab-models registry
-    and module attributes already loaded in memory, no network call and no
-    credential read, so there is no cost reason to skip it. #7680's bug was
-    found in a real run, not a dry run, specifically because this used to
-    return early here - a --dry-run of the exact same variant/--models combo
-    could not have caught it.
-    """
-    model_set = _resolve_lab_model_set(args)
-    if model_set.name == _LAB_MODELS.default:
-        return
-
-    control_trigger = simulate_module.WINDDOWN_TRIGGER
-    control_provider = simulate_module.STOP_CHECK.get("provider")
-
-    is_dict = isinstance(variant, dict)
-    variant_trigger = (
-        variant.get("WINDDOWN_TRIGGER")
-        if is_dict and "WINDDOWN_TRIGGER" in variant
-        else control_trigger
-    )
-    variant_stop_check = variant.get("STOP_CHECK") if is_dict else None
-    variant_provider = (
-        variant_stop_check.get("provider")
-        if isinstance(variant_stop_check, dict) and "provider" in variant_stop_check
-        else control_provider
-    )
-
-    control_conflict = control_trigger == "check" and control_provider == "haiku"
-    variant_conflict = variant_trigger == "check" and variant_provider == "haiku"
-
-    if control_conflict or variant_conflict:
-        raise SystemExit(
-            f"conversation_lab: --models {model_set.name!r} cannot run with STOP_CHECK "
-            "provider='haiku' - stop_check.py's haiku provider always calls "
-            "Claude Haiku, never through --models, so this would silently spend "
-            "on Claude while everything else runs on a different model set. Set STOP_CHECK "
-            f"provider to 'jev' in the variant, or drop --models to use the "
-            f"{_LAB_MODELS.default!r} default."
-        )
 
 
 def _is_local_model(model_id: str) -> bool:
@@ -1089,56 +972,13 @@ def _openrouter_router_cost_by_model() -> dict[str, float]:
     return totals
 
 
-def _jev_router_cost_by_model() -> dict[str, float]:
-    """Jev cost totals from the model router's ledger - EVERY HTTP attempt
-    backend.utils.stop_check._record_jev_attempt recorded via
-    record_external_cost (success, retry, and terminal failure), not just
-    the successful ones scripts.simulate_dialogue_week.STOP_CHECK_LOG
-    holds.
-
-    #7714 round 2, finding 4: the OLD per-pair helper
-    (`_jev_cost_by_model_from_log`, removed) derived cost from
-    STOP_CHECK_LOG snapshots attached to each pair, which only ever
-    contain the LAST successful check per tick - a retried/failed attempt
-    was already charged against --max-cost (see `_lab_cost_total`), but
-    never showed up in the REPORTED total, so the report could read lower
-    than what the cap actually saw. This reads the SAME ledger the cap
-    reads, so the two can never disagree.
-    """
-    totals: dict[str, float] = {}
-    entries = model_router.get_cost_entries()
-    for entry in entries:
-        if not isinstance(entry, dict) or entry.get("provider") != "jev":
-            continue
-        actual = entry.get("actual_cost")
-        if isinstance(actual, bool) or not isinstance(actual, (int, float)) or not isfinite(actual):
-            continue
-        model = str(entry.get("model") or "typesafe/jev-1.13")
-        key = f"jev/{model}"
-        totals[key] = round(totals.get(key, 0.0) + float(actual), 9)
-    return totals
-
-
-def _jev_cost_usd_total() -> float:
-    """Total Jev spend, from the same router ledger --max-cost reads (see
-    `_lab_cost_total`) - so `jev_cost_usd` in a report can never read
-    lower than what the cap actually saw (#7714 finding 4)."""
-    return round(sum(_jev_router_cost_by_model().values()), 9)
-
-
 def _openrouter_cost_by_model_for_pairs(
     pairs: list[dict[str, Any]],
     partial_pairs: list[dict[str, Any]] | None = None,
 ) -> dict[str, float]:
-    """OpenRouter dialogue/judge cost + Jev stop-check cost, both read from
-    the model router's ledger (#7714 round 2, finding 4). `pairs`/
-    `partial_pairs` are accepted for call-site compatibility but no longer
-    read - Jev cost used to be derived from THEIR per-pair stop-check
-    logs, which undercounted (see `_jev_router_cost_by_model`)."""
+    """OpenRouter dialogue/judge cost from the model router's ledger."""
     del pairs, partial_pairs
-    totals = _openrouter_router_cost_by_model()
-    totals.update(_jev_router_cost_by_model())
-    return totals
+    return _openrouter_router_cost_by_model()
 
 
 def _openrouter_cost_by_model_for_sweep(
@@ -1148,9 +988,7 @@ def _openrouter_cost_by_model_for_sweep(
     """See `_openrouter_cost_by_model_for_pairs` - same fix, same reason;
     `control_transcripts`/`variant_reports` are no longer read."""
     del control_transcripts, variant_reports
-    totals = _openrouter_router_cost_by_model()
-    totals.update(_jev_router_cost_by_model())
-    return totals
+    return _openrouter_router_cost_by_model()
 
 
 def _openrouter_cost_report(cost_by_model: dict[str, float]) -> dict[str, Any]:
@@ -1309,18 +1147,6 @@ def _load_variant_file(path: Path) -> dict[str, Any]:
         raise SystemExit(f"conversation_lab: variant file must be a non-empty JSON object: {path}")
     return data
 
-def _clear_prompt_cache(module: Any) -> None:
-    """build_system_prompt caches per-character prompts by (persona name,
-    WORD_CAPS) — see scripts/simulate_dialogue_week.py's
-    `_system_prompt_cache` — so a lever change to e.g.
-    _SHARED_CHARACTER_RULES or WORD_CAPS is silently ignored for any
-    character whose prompt was already built this process, unless the
-    cache is cleared both when applying a variant and when restoring the
-    control."""
-    cache = getattr(module, "_system_prompt_cache", None)
-    if isinstance(cache, dict):
-        cache.clear()
-
 def _apply_variant(module: Any, variant: dict[str, Any]) -> dict[str, Any]:
     """setattr the variant values onto `module`; return originals for restore.
 
@@ -1345,13 +1171,7 @@ def _apply_variant(module: Any, variant: dict[str, Any]) -> dict[str, Any]:
             # own type is tuples - normalise on the way in so the patched module
             # looks exactly like the default shape.
             value = {day: tuple(pair) for day, pair in value.items()}
-        elif name == "REWRITE_GUARDS":
-            # validate_variant allows a SUBSET of the three bool guards; merge
-            # the subset onto the module default so the patched module always
-            # carries exactly {"repetition", "shape", "word_budget"}.
-            value = {**getattr(module, name), **value}
         setattr(module, name, value)
-    _clear_prompt_cache(module)
     return original
 
 def validate_variant(module: Any, variant: dict[str, Any]) -> None:
@@ -1364,136 +1184,19 @@ def validate_variant(module: Any, variant: dict[str, Any]) -> None:
     false.
     """
     for name, value in variant.items():
-        if not hasattr(module, name):
+        if name not in ALLOWED_VARIANT_ATTRS:
             raise ConversationLabError(
-                f"variant file names unknown attribute {name!r} on {module.__name__} - "
+                f"variant lever {name!r} does not affect authored scenes; "
                 f"allowed levers: {', '.join(ALLOWED_VARIANT_ATTRS)}"
             )
-        if callable(getattr(module, name)):
-            raise ConversationLabError(
-                f"refusing to patch {name!r} - it is a function, not a string/dict "
-                "constant this variant mechanism can safely restore"
-            )
         _validate_lever_shape(name, value)
-    _validate_history_depth_invariant(module, variant)
 
 def _validate_lever_shape(name: str, value: Any) -> None:
-    """Reject a structurally wrong lever BEFORE any API call is made.
-
-    _apply_variant used to setattr any dict straight onto the module. A
-    HISTORY_DEPTH override missing the "late" key raised KeyError inside
-    generate_turn the moment the run reached Friday - after the earlier days had
-    already been generated and paid for, against the $5/experiment cap. Fail at
-    patch time, naming the key, instead of mid-run.
-    """
-    if name in ("SHAPE_WINDOW", "SHAPE_MAX_IN_WINDOW"):
-        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-            raise ConversationLabError(
-                f"{name} must be a positive integer, got {value!r}"
-            )
-        return
-    if name == "WORD_BUDGET_TOLERANCE":
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 1:
-            raise ConversationLabError(
-                f"WORD_BUDGET_TOLERANCE must be a number >= 1 (1.0 enforces the stated "
-                f"maximum exactly; higher allows slack), got {value!r}"
-            )
-        return
-    if name == "WINDDOWN_TRIGGER":
-        if value not in ("regex", "off", "check"):
-            raise ConversationLabError(
-                f"WINDDOWN_TRIGGER must be one of 'regex', 'off', 'check', got {value!r}"
-            )
-        return
-    if name == "STOP_CHECK":
-        _validate_stop_check_shape(value)
-        return
+    """Reject a malformed effective lever before any generation can cost money."""
     if name == "TICKS_RANGE":
         _validate_ticks_range_shape(value)
         return
-    if name == "OPEN_ENDED_MAX_TICKS":
-        _validate_open_ended_max_ticks_shape(value)
-        return
-    if name == "DIRECTOR":
-        _validate_director_shape(value)
-        return
-    if name == "REWRITE_GUARDS":
-        _validate_rewrite_guards_shape(value)
-        return
-    if name == "WORD_CAPS":
-        if not isinstance(value, bool):
-            raise ConversationLabError(
-                f"{name} must be a bool, got {value!r}"
-            )
-        return
-    if name == "SPEAKERS_SEE_JUDGE_RECIPE_FACTS":
-        if not isinstance(value, bool):
-            raise ConversationLabError(
-                f"SPEAKERS_SEE_JUDGE_RECIPE_FACTS must be a bool, got {value!r}"
-            )
-        return
-    if name != "HISTORY_DEPTH":
-        return
-    if not isinstance(value, dict):
-        raise ConversationLabError(
-            f"HISTORY_DEPTH must be a dict of {{'early'|'late': [opening_turn, later_turns]}}, "
-            f"got {type(value).__name__}"
-        )
-    missing = sorted({"early", "late"} - set(value))
-    if missing:
-        raise ConversationLabError(
-            f"HISTORY_DEPTH override is missing required key(s) {missing}. "
-            "Both 'early' (mon-thu) and 'late' (fri-sun) must be present, or the "
-            "run crashes partway through the week with the earlier days already paid for."
-        )
-    for key in ("early", "late"):
-        pair = value[key]
-        if not isinstance(pair, (list, tuple)) or len(pair) != 2:
-            raise ConversationLabError(
-                f"HISTORY_DEPTH['{key}'] must be a 2-item [opening_turn, later_turns], got {pair!r}"
-            )
-        if not all(isinstance(n, int) and not isinstance(n, bool) and n > 0 for n in pair):
-            raise ConversationLabError(
-                f"HISTORY_DEPTH['{key}'] entries must be positive integers, got {pair!r}"
-            )
-
-def _validate_stop_check_shape(value: Any) -> None:
-    expected_keys = {"provider", "decided_threshold", "require_pushback", "pushback_threshold"}
-    if not isinstance(value, dict) or set(value) != expected_keys:
-        missing = sorted(expected_keys - (set(value) if isinstance(value, dict) else set()))
-        extra = sorted((set(value) if isinstance(value, dict) else set()) - expected_keys)
-        raise ConversationLabError(
-            f"STOP_CHECK must be a dict with exactly the keys {sorted(expected_keys)}; "
-            f"missing {missing}, unexpected {extra}, got {type(value).__name__}"
-        )
-    provider = value["provider"]
-    if provider not in ("jev", "haiku"):
-        raise ConversationLabError(
-            f"STOP_CHECK['provider'] must be 'jev' or 'haiku', got {provider!r}"
-        )
-    decided_threshold = value["decided_threshold"]
-    if (
-        isinstance(decided_threshold, bool)
-        or not isinstance(decided_threshold, (int, float))
-        or not 0 <= decided_threshold <= 1
-    ):
-        raise ConversationLabError(
-            f"STOP_CHECK['decided_threshold'] must be a number 0-1, got {decided_threshold!r}"
-        )
-    require_pushback = value["require_pushback"]
-    if not isinstance(require_pushback, bool):
-        raise ConversationLabError(
-            f"STOP_CHECK['require_pushback'] must be a bool, got {require_pushback!r}"
-        )
-    pushback_threshold = value["pushback_threshold"]
-    if (
-        isinstance(pushback_threshold, bool)
-        or not isinstance(pushback_threshold, (int, float))
-        or not 0 <= pushback_threshold <= 1
-    ):
-        raise ConversationLabError(
-            f"STOP_CHECK['pushback_threshold'] must be a number 0-1, got {pushback_threshold!r}"
-        )
+    raise ConversationLabError(f"unsupported variant lever {name!r}")
 
 def _validate_ticks_range_shape(value: Any) -> None:
     if not isinstance(value, dict) or not value:
@@ -1523,131 +1226,9 @@ def _validate_ticks_range_shape(value: Any) -> None:
                 f"TICKS_RANGE[{day!r}] must satisfy 1 <= lo <= hi, got {pair!r}"
             )
 
-def _validate_open_ended_max_ticks_shape(value: Any) -> None:
-    if not isinstance(value, dict) or not value:
-        raise ConversationLabError(
-            f"OPEN_ENDED_MAX_TICKS must be a non-empty dict of day -> cap >= 3, "
-            f"got {type(value).__name__}"
-        )
-    for day, cap in value.items():
-        if day not in simulate_module.DAY_ORDER:
-            raise ConversationLabError(
-                f"OPEN_ENDED_MAX_TICKS has unknown day {day!r} "
-                f"(expected one of {simulate_module.DAY_ORDER})"
-            )
-        if isinstance(cap, bool) or not isinstance(cap, int) or cap < 3:
-            raise ConversationLabError(
-                f"OPEN_ENDED_MAX_TICKS[{day!r}] must be an integer >= 3, got {cap!r}"
-            )
-
-def _validate_director_shape(value: Any) -> None:
-    expected_keys = {"enabled", "probability", "intensity", "rng_seed", "no_repeat_window"}
-    if not isinstance(value, dict) or set(value) != expected_keys:
-        missing = sorted(expected_keys - (set(value) if isinstance(value, dict) else set()))
-        extra = sorted((set(value) if isinstance(value, dict) else set()) - expected_keys)
-        raise ConversationLabError(
-            f"DIRECTOR must be a dict with exactly the keys {sorted(expected_keys)}; "
-            f"missing {missing}, unexpected {extra}, got {type(value).__name__}"
-        )
-    enabled = value["enabled"]
-    if not isinstance(enabled, bool):
-        raise ConversationLabError(
-            f"DIRECTOR['enabled'] must be a bool, got {enabled!r}"
-        )
-    probability = value["probability"]
-    if (
-        isinstance(probability, bool)
-        or not isinstance(probability, (int, float))
-        or not 0 <= probability <= 1
-    ):
-        raise ConversationLabError(
-            f"DIRECTOR['probability'] must be a number 0-1, got {probability!r}"
-        )
-    intensity = value["intensity"]
-    if isinstance(intensity, bool) or not isinstance(intensity, int) or not 1 <= intensity <= 5:
-        raise ConversationLabError(
-            f"DIRECTOR['intensity'] must be an integer 1-5, got {intensity!r}"
-        )
-    rng_seed = value["rng_seed"]
-    if isinstance(rng_seed, bool) or not isinstance(rng_seed, int):
-        raise ConversationLabError(
-            f"DIRECTOR['rng_seed'] must be an int, got {rng_seed!r}"
-        )
-    no_repeat_window = value["no_repeat_window"]
-    if (
-        isinstance(no_repeat_window, bool)
-        or not isinstance(no_repeat_window, int)
-        or no_repeat_window < 0
-    ):
-        raise ConversationLabError(
-            f"DIRECTOR['no_repeat_window'] must be an integer >= 0, got {no_repeat_window!r}"
-        )
-
-def _validate_rewrite_guards_shape(value: Any) -> None:
-    """REWRITE_GUARDS accepts a non-empty SUBSET of the three bool guards.
-
-    A variant file may override only the guards it cares about - the merge in
-    _apply_variant fills in the missing keys from the module default, so the
-    patched module always carries exactly {'repetition', 'shape',
-    'word_budget'} with bool values.
-    """
-    expected_keys = {"repetition", "shape", "word_budget"}
-    if not isinstance(value, dict) or not value or not set(value) <= expected_keys:
-        extra = sorted((set(value) if isinstance(value, dict) else set()) - expected_keys)
-        raise ConversationLabError(
-            f"REWRITE_GUARDS must be a non-empty dict with a subset of keys "
-            f"{sorted(expected_keys)}; unexpected {extra}, got {type(value).__name__}"
-        )
-    for key, flag in value.items():
-        if not isinstance(flag, bool):
-            raise ConversationLabError(
-                f"REWRITE_GUARDS[{key!r}] must be a bool, got {flag!r}"
-            )
-
-def _validate_history_depth_invariant(module: Any, variant: dict[str, Any]) -> None:
-    """Refuse a variant whose max tick count would swallow the history floor.
-
-    HISTORY_DEPTH's later_turns floor must stay ABOVE the largest tick count a
-    scene can run (scripts/simulate_dialogue_week.py's comment above
-    HISTORY_DEPTH): once a scene's own premise scrolls out of the window nobody
-    can answer or close it. A variant that raises TICKS_RANGE upper bounds or
-    OPEN_ENDED_MAX_TICKS toward that floor must also raise HISTORY_DEPTH in the
-    SAME variant, or it would only fail mid-run, after paid calls.
-    """
-    history = variant.get("HISTORY_DEPTH")
-    if history is None:
-        history = getattr(module, "HISTORY_DEPTH")
-
-    def later_turns(day: str) -> int:
-        key = "late" if day in ("friday", "saturday", "sunday") else "early"
-        return history[key][1]
-
-    problems: list[str] = []
-    ticks_range = variant.get("TICKS_RANGE")
-    if isinstance(ticks_range, dict):
-        for day, pair in ticks_range.items():
-            if pair[1] >= later_turns(day):
-                problems.append(
-                    f"TICKS_RANGE[{day!r}] upper bound {pair[1]} reaches "
-                    f"HISTORY_DEPTH later_turns {later_turns(day)}"
-                )
-    open_ended = variant.get("OPEN_ENDED_MAX_TICKS")
-    if isinstance(open_ended, dict):
-        for day, cap in open_ended.items():
-            if cap >= later_turns(day):
-                problems.append(
-                    f"OPEN_ENDED_MAX_TICKS[{day!r}] cap {cap} reaches "
-                    f"HISTORY_DEPTH later_turns {later_turns(day)}"
-                )
-    if problems:
-        raise ConversationLabError(
-            "; ".join(problems) + ". Set HISTORY_DEPTH higher in the same variant."
-        )
-
 def _restore_variant(module: Any, original: dict[str, Any]) -> None:
     for name, value in original.items():
         setattr(module, name, value)
-    _clear_prompt_cache(module)
 
 # ---------------------------------------------------------------------------
 # Generation (production call shape)
@@ -1688,11 +1269,9 @@ def _run_arm(
     partway through, most commonly a LabBudgetAbort from the ambient
     mid-arm guard.
 
-    `recipe_facts` (#7791 P4), when given, is forwarded UNCHANGED to
-    `run_simulation`'s own `recipe_facts` - it only reaches a speaker prompt
-    when the SPEAKERS_SEE_JUDGE_RECIPE_FACTS variant lever is True (default
-    False, production-identical); passing it here costs nothing when the
-    lever is off.
+    `recipe_facts`, when given, is forwarded UNCHANGED to `run_simulation`;
+    authored prompts include it directly, so it is part of both arms' shared
+    context rather than a variant lever.
     """
     return simulate_module.run_simulation(
         concept=concept,
@@ -1716,21 +1295,16 @@ def _run_arm(
 class LabBudgetAbort(BaseException):
     """Raised by the mid-arm budget guard (see `_installed_budget_guard`)
     the moment --max-calls or --max-cost would be exceeded by the very
-    next paid call/attempt - checked INSIDE a running arm, not only at the
+    next paid call - checked INSIDE a running arm, not only at the
     coarser arm/judge boundaries the existing `budget.would_exceed(
     arm_call_reservation)`/`_would_exceed_cost(max_cost)` checks already
-    guard. #7714 finding 3: an open-ended arm (OPEN_ENDED_MAX_TICKS) can
-    run well past either cap between one boundary check and the next, and
-    every Jev stop-check HTTP attempt (#7714 finding 2) never reached
-    either cap at all before this guard existed.
+    guard. It prevents a multi-call authored arm from crossing a cap between the
+    coarser arm and judge boundaries.
 
     Deliberately derives from BaseException, not Exception (#7714 round 2,
     finding 3) - the SAME family as KeyboardInterrupt/SystemExit. This
     abort has to travel out through arbitrary library code on the arm's
-    call path - backend.utils.director's `except Exception as exc: raise
-    DirectorError(...)`, backend.utils.stop_check's `_check_haiku`
-    `except Exception as exc: raise StopCheckError(...)`,
-    scripts.simulate_dialogue_week's best-effort highlight/memory
+    call path - including best-effort highlight/memory
     generation `except Exception: continue` - none of which this module
     is allowed to special-case for a lab-only signal, and any of which
     silently converted or swallowed the OLD RuntimeError-based abort,
@@ -1747,10 +1321,8 @@ class LabBudgetAbort(BaseException):
 
 @contextmanager
 def _installed_budget_guard(budget: CallBudget, max_cost: float | None, baseline_cost: float = 0.0):
-    """Install a pre-call hook on backend.utils.model_router and a
-    pre-attempt hook on backend.utils.stop_check for the duration of the
-    `with` block. Both hooks are the SAME closure: the moment the next
-    paid unit (a model_router call, or a single Jev HTTP attempt/retry)
+    """Install a pre-call hook on backend.utils.model_router for the duration of
+    the `with` block. The moment the next paid model call
     would push the running call count past --max-calls or the running
     cost past --max-cost (relative to `baseline_cost` - see
     `_would_exceed_cost`), it raises LabBudgetAbort instead of letting the
@@ -1796,14 +1368,7 @@ def _installed_budget_guard(budget: CallBudget, max_cost: float | None, baseline
     used_before = budget.used
 
     def _guard(provider: str | None = None, model: str | None = None, prompt_bytes: int | None = None) -> None:
-        """`provider`/`model`/`prompt_bytes` describe the NEXT call about
-        to be made (#7714 finding 2): `model_router.set_pre_call_hook`
-        passes the real triple for every generation/judge call;
-        `stop_check.set_pre_attempt_hook` calls with no arguments (a Jev
-        HTTP attempt has no model_router provider/model of its own), which
-        is exactly how the branches below tell a Jev attempt apart from an
-        OpenRouter call without needing a separate flag.
-        """
+        """Describe the next generation or judge call before it is made."""
         calls_blocked = False
         if calls_before is not None:
             calls_now = _calls_now()
@@ -1812,8 +1377,7 @@ def _installed_budget_guard(budget: CallBudget, max_cost: float | None, baseline
         cost_blocked = False
         if max_cost is not None:
             if provider is not None:
-                # A model_router call: OpenRouter (#8343), or the free
-                # local model (#8344), which reserves nothing.
+                # OpenRouter (#8343), or the free local model (#8344).
                 # #7714 finding 2: --max-cost used to admit a call whenever
                 # ANY money remained, regardless of that call's possible
                 # cost - with a 32768-token completion ceiling
@@ -1835,29 +1399,16 @@ def _installed_budget_guard(budget: CallBudget, max_cost: float | None, baseline
                 # (total, reservation or the cap itself) blocks instead of
                 # comparing False and admitting the call.
                 cost_blocked = total is None or not ((total - baseline_cost) + worst_case <= max_cost)
-            else:
-                # A Jev HTTP attempt (stop_check's hook call) - no
-                # per-model price to look up, so reserve the same
-                # documented conservative per-attempt estimate the cost
-                # log itself charges a failed/unmetered attempt (see
-                # backend.utils.stop_check._JEV_FAILED_ATTEMPT_COST_ESTIMATE_USD).
-                total = _total_cost_or_none()
-                cost_blocked = (
-                    total is None
-                    or not ((total - baseline_cost) + stop_check._JEV_FAILED_ATTEMPT_COST_ESTIMATE_USD <= max_cost)
-                )
         if calls_blocked or cost_blocked:
             raise LabBudgetAbort(
-                "--max-calls or --max-cost would be exceeded by the next paid call/attempt"
+                "--max-calls or --max-cost would be exceeded by the next paid call"
             )
 
     previous_router_hook = model_router.set_pre_call_hook(_guard)
-    previous_stop_check_hook = stop_check.set_pre_attempt_hook(_guard)
     try:
         yield
     finally:
         model_router.set_pre_call_hook(previous_router_hook)
-        stop_check.set_pre_attempt_hook(previous_stop_check_hook)
 
 def _run_arm_and_count(
     concept: str,
@@ -1936,45 +1487,6 @@ def _run_arm_and_count(
     calls = delta if delta > 0 else message_count
     return result, calls
 
-def _snapshot_stop_check_log() -> list[dict[str, Any]]:
-    """Copy the simulator's STOP_CHECK_LOG (a list of dicts) after one arm."""
-    log = getattr(simulate_module, "STOP_CHECK_LOG", [])
-    return list(log) if isinstance(log, list) else []
-
-def _snapshot_director_log() -> list[dict[str, Any]]:
-    """Copy the simulator's DIRECTOR_LOG (a list of dicts) after one arm."""
-    log = getattr(simulate_module, "DIRECTOR_LOG", [])
-    return list(log) if isinstance(log, list) else []
-
-def _snapshot_rewrite_log() -> list[dict[str, Any]]:
-    """Copy the simulator's REWRITE_LOG (a list of dicts) after one arm."""
-    log = getattr(simulate_module, "REWRITE_LOG", [])
-    return list(log) if isinstance(log, list) else []
-
-def _rewrite_summary(entries: Any) -> dict[str, Any]:
-    """Per-arm rewrite accounting: lines, rewritten count/rate, fault counts,
-    and CoT-guard retry count (#7705)."""
-    entries = [e for e in (entries or []) if isinstance(e, dict)]
-    rewritten = sum(1 for e in entries if e.get("rewritten") is True)
-    fault_counts: Counter[str] = Counter()
-    cot_retry = 0
-    for entry in entries:
-        faults = entry.get("faults")
-        if isinstance(faults, list):
-            for fault in faults:
-                if isinstance(fault, str):
-                    fault_counts[fault] += 1
-        if entry.get("cot_retry") is True:
-            cot_retry += 1
-    n = len(entries)
-    return {
-        "lines": n,
-        "rewritten": rewritten,
-        "rewrite_rate": round(rewritten / n, 4) if n else 0.0,
-        "fault_counts": dict(fault_counts),
-        "cot_retry": cot_retry,
-    }
-
 def _length_stats(messages: Any) -> dict[str, dict[str, float | int | None]]:
     """mean/median/max words per line, per character, for one arm's transcript.
 
@@ -2012,17 +1524,6 @@ def _pair_arm_length_stats(pairs: list[dict[str, Any]]) -> dict[str, dict[str, A
         ),
     }
 
-
-def _pair_arm_rewrite_summaries(pairs: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    """The control/variant rewrite_summary block for a set of completed pairs."""
-    return {
-        "control": _rewrite_summary(
-            [entry for pair in pairs for entry in (pair.get("control_rewrite_log") or [])]
-        ),
-        "variant": _rewrite_summary(
-            [entry for pair in pairs for entry in (pair.get("variant_rewrite_log") or [])]
-        ),
-    }
 
 # ---------------------------------------------------------------------------
 # Pairwise judge
@@ -2929,9 +2430,6 @@ def _generate_and_judge_pairs(
                     "run_index": run_index,
                     "status": "aborted_mid_arm" if isinstance(exc, LabBudgetAbort) else "error_mid_arm",
                     "control_messages": getattr(exc, "conversation_lab_partial_messages", []),
-                    "control_stop_check_log": _snapshot_stop_check_log(),
-                    "control_director_log": _snapshot_director_log(),
-                    "control_rewrite_log": _snapshot_rewrite_log(),
                     "control_calls_before_abort": made,
                     "variant_messages": None,
                     "judge_orientations": [],
@@ -2940,18 +2438,12 @@ def _generate_and_judge_pairs(
                     raise
                 aborted = True
                 break
-            control_stop_check_log = _snapshot_stop_check_log()
-            control_director_log = _snapshot_director_log()
-            control_rewrite_log = _snapshot_rewrite_log()
             control_cost = _lab_cost_total() - pair_cost_start
             budget.record(0 if dry_run else control_calls)
             pending_pair: dict[str, Any] = {
                 "run_index": run_index,
                 "status": "control_generated",
                 "control_messages": control_result.get("messages", []),
-                "control_stop_check_log": control_stop_check_log,
-                "control_director_log": control_director_log,
-                "control_rewrite_log": control_rewrite_log,
                 "variant_messages": None,
                 "judge_orientations": [],
             }
@@ -2989,9 +2481,6 @@ def _generate_and_judge_pairs(
                         raise
                     aborted = True
                     break
-                variant_stop_check_log = _snapshot_stop_check_log()
-                variant_director_log = _snapshot_director_log()
-                variant_rewrite_log = _snapshot_rewrite_log()
             finally:
                 _restore_variant(simulate_module, restore_pending)
                 restore_pending = None
@@ -3000,9 +2489,6 @@ def _generate_and_judge_pairs(
             control_messages = control_result.get("messages", [])
             variant_messages = variant_result.get("messages", [])
             pending_pair["variant_messages"] = variant_messages
-            pending_pair["variant_stop_check_log"] = variant_stop_check_log
-            pending_pair["variant_director_log"] = variant_director_log
-            pending_pair["variant_rewrite_log"] = variant_rewrite_log
             pending_pair["status"] = "awaiting_judges"
 
             if dry_run:
@@ -3037,12 +2523,6 @@ def _generate_and_judge_pairs(
                 "run_index": run_index,
                 "control_messages": control_messages,
                 "variant_messages": variant_messages,
-                "control_stop_check_log": control_stop_check_log,
-                "variant_stop_check_log": variant_stop_check_log,
-                "control_director_log": control_director_log,
-                "variant_director_log": variant_director_log,
-                "control_rewrite_log": control_rewrite_log,
-                "variant_rewrite_log": variant_rewrite_log,
                 "control_summary": summarize(control_messages, expected_cast, concept=concept, day=stage),
                 "variant_summary": summarize(variant_messages, expected_cast, concept=concept, day=stage),
                 "judge": combined,
@@ -3103,7 +2583,6 @@ def _derive_max_calls(
     scenario_count: int,
     runs: int,
     stage: str,
-    variant: dict[str, Any] | None = None,
     sweep_variants: list[dict[str, Any]] | None = None,
 ) -> int:
     """The --max-calls default when the flag itself is omitted (None).
@@ -3129,7 +2608,7 @@ def _derive_max_calls(
     judge = _judge_call_reservation()
     if mode == "sweep":
         per_unit = control + sum(
-            _arm_call_reservation(dry_run=False) + judge for v in (sweep_variants or [])
+            _arm_call_reservation(dry_run=False) + judge for _ in (sweep_variants or [])
         )
     else:
         per_unit = control + _arm_call_reservation(dry_run=False) + judge
@@ -3149,12 +2628,14 @@ def cmd_ab(args: argparse.Namespace) -> None:
     mode, default_model, judge_model = _resolve_models_for_args(args)
 
     if args.sweep:
-        _cmd_ab_sweep(args, mode, default_model, judge_model)
+        _cmd_ab_sweep(
+            args, mode, default_model, judge_model,
+            variants=getattr(args, "_sweep_variants", None),
+        )
         return
 
     variant_path = Path(args.variant)
-    variant = _load_variant_file(variant_path)
-    _refuse_if_stop_check_conflicts_with_models(args, variant)
+    variant = getattr(args, "_variant_body", None) or _load_variant_file(variant_path)
 
     if args.testbed is not None:
         _cmd_ab_testbed(args, variant_path, variant, mode, default_model, judge_model)
@@ -3167,7 +2648,7 @@ def cmd_ab(args: argparse.Namespace) -> None:
 
     if args.max_calls is None:
         args.max_calls = _derive_max_calls(
-            "single", scenario_count=1, runs=args.runs, stage=args.stage, variant=variant
+            "single", scenario_count=1, runs=args.runs, stage=args.stage
         )
     budget = CallBudget(max_calls=args.max_calls)
 
@@ -3225,7 +2706,7 @@ def _cmd_ab_testbed(
     max_calls_derived = args.max_calls is None
     if max_calls_derived:
         args.max_calls = _derive_max_calls(
-            "testbed", scenario_count=len(scenarios), runs=runs, stage=args.stage, variant=variant
+            "testbed", scenario_count=len(scenarios), runs=runs, stage=args.stage
         )
     budget = CallBudget(max_calls=args.max_calls)
     expected_cast = simulate_module.participants_for_day(args.stage)
@@ -3400,11 +2881,9 @@ def _build_ab_report(
         "target_dimension": args.target,
         "decision_rule": DECISION_RULE_TEXT,
         "cost_summary": cost_summary,
-        "jev_cost_usd": _jev_cost_usd_total(),
         **_openrouter_fields_for(args, _openrouter_cost_by_model_for_pairs(pairs, partial_pairs or [])),
         "pairs": pairs,
         "partial_pairs": partial_pairs or [],
-        "rewrite_summary": _pair_arm_rewrite_summaries(pairs),
         "length_stats": _pair_arm_length_stats(pairs),
         "results_file": str(result_path),
         **_aggregate_pairs(pairs, args.target, args.dry_run),
@@ -3455,12 +2934,10 @@ def _build_testbed_ab_report(
         "target_dimension": args.target,
         "decision_rule": DECISION_RULE_TEXT,
         "cost_summary": cost_summary,
-        "jev_cost_usd": _jev_cost_usd_total(),
         **_openrouter_fields_for(args, _openrouter_cost_by_model_for_pairs(all_pairs, partial_pairs or [])),
         "scenarios": scenario_reports,
         "pairs": all_pairs,
         "partial_pairs": partial_pairs or [],
-        "rewrite_summary": _pair_arm_rewrite_summaries(all_pairs),
         "length_stats": _pair_arm_length_stats(all_pairs),
         "results_file": str(result_path),
         **_aggregate_pairs(all_pairs, args.target, args.dry_run),
@@ -3532,7 +3009,6 @@ def _print_ab_report(report: dict[str, Any]) -> None:
     _print_metric_deltas(report["metric_deltas"], report.get("metric_coverage"))
     print(f"\nDECISION RULE (informational, not enforced): {report['decision_rule']}")
     print(f"cost summary: {report['cost_summary']}")
-    print(f"jev cost: ${report['jev_cost_usd']:.9f}")
     _print_openrouter_costs(report)
     print(f"\nresults written to: {report['results_file']}")
 
@@ -3566,7 +3042,6 @@ def _print_testbed_ab_report(report: dict[str, Any]) -> None:
     _print_metric_deltas(report["metric_deltas"], report.get("metric_coverage"))
     print(f"\nDECISION RULE (informational, not enforced): {report['decision_rule']}")
     print(f"cost summary: {report['cost_summary']}")
-    print(f"jev cost: ${report['jev_cost_usd']:.9f}")
     _print_openrouter_costs(report)
     print(f"\nresults written to: {report['results_file']}")
 
@@ -3771,22 +3246,12 @@ def _generate_sweep_control(
                     transcripts[(scenario["id"], run_index)] = {
                         "status": "aborted_mid_arm" if isinstance(exc, LabBudgetAbort) else "error_mid_arm",
                         "messages": getattr(exc, "conversation_lab_partial_messages", []),
-                        "stop_check_log": _snapshot_stop_check_log(),
-                        "director_log": _snapshot_director_log(),
-                        "rewrite_log": _snapshot_rewrite_log(),
                         "calls_before_abort": made,
                     }
                     if not isinstance(exc, LabBudgetAbort):
                         raise
                     return True
                 budget.record(0 if dry_run else calls)
-                # The shared control is generated once, up front; its stop-check,
-                # director, and rewrite logs would be long gone from the module by
-                # the time its pairs are judged, so copy them into the stored
-                # transcript now.
-                result["stop_check_log"] = _snapshot_stop_check_log()
-                result["director_log"] = _snapshot_director_log()
-                result["rewrite_log"] = _snapshot_rewrite_log()
                 transcripts[(scenario["id"], run_index)] = result
     return False
 
@@ -3855,17 +3320,11 @@ def _run_sweep_variant(
                     break
 
                 control_messages = control_result.get("messages", [])
-                control_stop_check_log = control_result.get("stop_check_log", [])
-                control_director_log = control_result.get("director_log", [])
-                control_rewrite_log = control_result.get("rewrite_log", [])
                 pending_pair: dict[str, Any] = {
                     "scenario_id": scenario["id"],
                     "run_index": run_index,
                     "status": "control_generated",
                     "control_messages": control_messages,
-                    "control_stop_check_log": control_stop_check_log,
-                    "control_director_log": control_director_log,
-                    "control_rewrite_log": control_rewrite_log,
                     "variant_messages": None,
                     "judge_orientations": [],
                 }
@@ -3896,9 +3355,6 @@ def _run_sweep_variant(
                             raise
                         aborted = True
                         break
-                    variant_stop_check_log = _snapshot_stop_check_log()
-                    variant_director_log = _snapshot_director_log()
-                    variant_rewrite_log = _snapshot_rewrite_log()
                 finally:
                     _restore_variant(simulate_module, restore_pending)
                     restore_pending = None
@@ -3906,9 +3362,6 @@ def _run_sweep_variant(
 
                 variant_messages = variant_result.get("messages", [])
                 pending_pair["variant_messages"] = variant_messages
-                pending_pair["variant_stop_check_log"] = variant_stop_check_log
-                pending_pair["variant_director_log"] = variant_director_log
-                pending_pair["variant_rewrite_log"] = variant_rewrite_log
                 pending_pair["status"] = "awaiting_judges"
 
                 if dry_run:
@@ -3946,12 +3399,6 @@ def _run_sweep_variant(
                     "run_index": run_index,
                     "control_messages": control_messages,
                     "variant_messages": variant_messages,
-                    "control_stop_check_log": control_stop_check_log,
-                    "variant_stop_check_log": variant_stop_check_log,
-                    "control_director_log": control_director_log,
-                    "variant_director_log": variant_director_log,
-                    "control_rewrite_log": control_rewrite_log,
-                    "variant_rewrite_log": variant_rewrite_log,
                     "control_summary": summarize(control_messages, expected_cast, concept=scenario["concept"], day=stage),
                     "variant_summary": summarize(variant_messages, expected_cast, concept=scenario["concept"], day=stage),
                     "judge": combined,
@@ -3996,7 +3443,6 @@ def _build_sweep_variant_report(
         "cost": cost,
         "pairs": pairs,
         "partial_pairs": partial_pairs or [],
-        "rewrite_summary": _pair_arm_rewrite_summaries(pairs),
         "length_stats": _pair_arm_length_stats(pairs),
         **_aggregate_pairs(pairs, target, dry_run),
     }
@@ -4147,28 +3593,10 @@ def _build_sweep_report(
                 for message in (result.get("messages") or [])
             ]
         ),
-        "rewrite_summary": {
-            "control": _rewrite_summary(
-                [
-                    entry
-                    for result in control_transcripts.values()
-                    for entry in (result.get("rewrite_log") or [])
-                ]
-            ),
-            "variant": _rewrite_summary(
-                [
-                    entry
-                    for variant_report in variant_reports.values()
-                    for pair in variant_report.get("pairs", [])
-                    for entry in (pair.get("variant_rewrite_log") or [])
-                ]
-            ),
-        },
         "dry_run": bool(args.dry_run),
         "target_dimension": args.target,
         "decision_rule": DECISION_RULE_TEXT,
         "cost_summary": cost_summary,
-        "jev_cost_usd": _jev_cost_usd_total(),
         **_openrouter_fields_for(args, _openrouter_cost_by_model_for_sweep(control_transcripts, variant_reports)),
         "variants": variant_reports,
         "ranking": _rank_sweep_variants(variant_reports, args.target),
@@ -4196,7 +3624,6 @@ def _print_sweep_report(report: dict[str, Any]) -> None:
         f"charged to the sweep, not to any one variant{abort_note}"
     )
     print(f"max_cost per variant: ${report['max_cost_per_variant']:.2f}  dry_run={report['dry_run']}")
-    print(f"jev cost: ${report['jev_cost_usd']:.9f}")
 
     print(f"\n--- variant ranking (target: {report['target_dimension']}) ---")
     for entry in report["ranking"]:
@@ -4281,6 +3708,7 @@ def _cmd_ab_sweep(
     mode: str,
     default_model: str,
     judge_model: str,
+    variants: dict[str, dict[str, Any]] | None = None,
 ) -> None:
     if args.concept or args.recipe_context or args.from_episode:
         raise SystemExit(
@@ -4288,7 +3716,7 @@ def _cmd_ab_sweep(
             "--recipe-context, or --from-episode - scenarios come from the testbed panel"
         )
     sweep_dir = Path(args.sweep)
-    variants = _load_sweep_variants(sweep_dir)
+    variants = variants or _load_sweep_variants(sweep_dir)
 
     testbed_path = Path(args.testbed) if args.testbed else DEFAULT_TESTBED_PATH
     scenarios = _load_testbed(testbed_path)
@@ -4316,7 +3744,6 @@ def _cmd_ab_sweep(
             validate_variant(simulate_module, _variant_body)
         except ConversationLabError as exc:
             raise ConversationLabError(f"variant {_variant_name!r}: {exc}") from exc
-        _refuse_if_stop_check_conflicts_with_models(args, _variant_body)
 
     control_budget = CallBudget(max_calls=args.max_calls)
     control_baseline = _total_cost_or_none() or 0.0
@@ -5344,16 +4771,6 @@ def _validate_bench_args(args: argparse.Namespace) -> None:
             f"result filename."
         )
 
-# The most paid calls ONE dialogue turn can cost, traced through
-# scripts/simulate_dialogue_week.py's generate_turn:
-#   1. the initial generate_response
-#   2. _guard_cot_leak's retry on that response
-#   3. the fault rewrite (repetition / saturated shape / word budget)
-#   4. _guard_cot_leak's retry on the rewrite
-# Codex caught this on PR #119: the first fix reserved 2x turns and called
-# it a worst case, so an arm admitted under `--max-calls 20` could still
-# spend 40 when both guards fired. A reservation that is not actually the
-# maximum is not a guard at all.
 def _publish_json_atomically(path: Path, payload: dict[str, Any]) -> None:
     """Serialize to a sibling `.partial` WRITE BUFFER, then rename onto `path`.
 
@@ -5664,7 +5081,7 @@ def _judge_input_digest(
         },
         "recipe_facts": recipe_facts or "",
         # NOT sorted (Codex): run_simulation passes participants_for_day()'s
-        # ORDERED list into _select_next_speaker, whose weighted selection
+        # ORDERED list into retired weighted speaker scheduler, whose weighted selection
         # iterates it, and _judge_dialogue renders the roster in that same
         # order. Sorting here hid a difference that really does change both
         # the generated conversation and the judge's input.
@@ -7752,14 +7169,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
     ab = sub.add_parser(
         "ab",
-        help="Offline blind, position-swapped A/B between a control and one or many variant prompt levers.",
+        help="Offline blind, position-swapped A/B between a control and one or many authored-scene line-range variants.",
         description=(
             "Generate N control/variant pairs through the production call "
             "shape (mode='openai', prompt_style='scene', ticks_per_day=0) "
             "and judge each pair twice with positions swapped. --variant is "
             "a JSON object mapping scripts.simulate_dialogue_week module "
             "attribute names to replacement values (a string or a dict) - "
-            "allowed levers: " + ", ".join(ALLOWED_VARIANT_ATTRS) + ". "
+            "effective authored-scene lever: " + ", ".join(ALLOWED_VARIANT_ATTRS) + ". "
             "--dry-run runs mode='template' (zero API calls) and skips the "
             "judge (every verdict is 'tie', dry_run=true). Pass exactly one "
             "of --variant (a single variant, optionally --testbed for the "
@@ -7772,7 +7189,7 @@ def _build_parser() -> argparse.ArgumentParser:
     ab.add_argument("--runs", type=int, default=None, help="Required unless --testbed or --sweep is passed")
     ab.add_argument(
         "--variant", default=None, type=Path,
-        help="JSON file: {attribute_name: replacement_value}. Required unless --sweep is passed; mutually exclusive with --sweep",
+        help="JSON file containing an effective authored-scene lever (currently TICKS_RANGE). Required unless --sweep is passed; mutually exclusive with --sweep",
     )
     ab.add_argument(
         "--sweep", default=None,
@@ -8117,6 +7534,17 @@ def main(argv: list[str] | None = None) -> None:
     _OPENROUTER_KEY_AFTER = None
 
     try:
+        if args.command == "ab":
+            if args.variant:
+                args._variant_body = _load_variant_file(Path(args.variant))
+                validate_variant(simulate_module, args._variant_body)
+            elif args.sweep:
+                args._sweep_variants = _load_sweep_variants(Path(args.sweep))
+                for name, variant in args._sweep_variants.items():
+                    try:
+                        validate_variant(simulate_module, variant)
+                    except ConversationLabError as exc:
+                        raise ConversationLabError(f"variant {name!r}: {exc}") from exc
         if args.command in _PAID_COMMANDS and not args.dry_run:
             _local_model_preflight(args)
             _openrouter_preflight(args)
