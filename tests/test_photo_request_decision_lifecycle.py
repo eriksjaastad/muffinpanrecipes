@@ -265,11 +265,13 @@ def test_sunday_without_a_decision_publishes_the_team_winner_as_automatic():
     assert states == ["awaiting", "approved", "claimed", "publishing", "published"]
 
 
-def _sunday_reshooting(store, orch):
+def _sunday_reshooting(store, orch, clock=None):
     """Sunday on the real reshoot path with a fake shoot, so no provider is called."""
+    clock = clock or (lambda: 1000.0)
     store.save_image = lambda p, _b: f"{BLOB}/{p.split('images/')[1]}"
     with patch.object(cron_routes, "_get_orchestrator", return_value=orch), \
          patch.object(cron_routes, "_previous_pan_material", return_value=None), \
+         patch.object(cron_routes, "_monotonic", side_effect=clock), \
          patch.object(cron_routes, "notify_photos_ready", return_value=True):
         return _sunday(store)
 
@@ -310,7 +312,7 @@ def test_sunday_reshoots_a_set_with_no_team_winner_and_publishes_the_new_pick(tm
     env.failure.assert_not_called()
     _, kwargs = orch.return_value._execute_stage_photography.call_args
     assert kwargs["max_rounds"] == 1  # one whole-set round, as the dashboard reshoot
-    assert kwargs["shoot_budget_s"] == cron_routes._SUNDAY_AUTOMATIC_RESHOOT_BUDGET_S
+    assert kwargs["shoot_deadline"] == 1000.0 + cron_routes._SUNDAY_AUTOMATIC_RESHOOT_WINDOW_S
     published = store.get(EP_ID)
     winner = f"src/assets/images/r1/{generation}/round_1/{VARIANTS[0]}.png"
     assert published["photo_approval"]["path"] == winner
@@ -322,6 +324,47 @@ def test_sunday_reshoots_a_set_with_no_team_winner_and_publishes_the_new_pick(tm
               for p in sorted((storage_module.PHOTO_CONTROL_DIR / "production" / EP_ID).glob("v*.json"))]
     # awaiting (first set), awaiting (reshoot started), awaiting (new set), then the claim chain
     assert states == ["awaiting", "awaiting", "awaiting", "approved", "claimed", "publishing", "published"]
+
+
+def test_sunday_claims_the_registered_reshoot_without_a_cloud_freshness_reread(tmp_path):
+    """The write just accepted by storage is authoritative even if its read replica lags."""
+    wed = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+    orch = MagicMock()
+    orch.return_value._execute_stage_photography.return_value = _photography_result(tmp_path)
+    verified_reads = 0
+    load_verified = store.load_episode_verified
+
+    def lag_after_registration(episode_id):
+        nonlocal verified_reads
+        verified_reads += 1
+        if verified_reads > 3:
+            raise EpisodeReadStale("cloud replica still exposes the pre-reshoot episode")
+        return load_verified(episode_id)
+
+    store.load_episode_verified = lag_after_registration
+
+    env = _sunday_reshooting(store, orch)
+
+    assert env.error is None and env.result["published"] is True
+    assert verified_reads == 3
+    assert store.get(EP_ID)["photo_approval"]["decided_by"] == "photo_team_automatic_sunday_fallback"
+
+
+def test_sunday_spends_no_photo_calls_when_preflight_consumes_the_window(tmp_path):
+    wed = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+    orch = MagicMock()
+    ticks = iter((1000.0, 1121.0))
+
+    env = _sunday_reshooting(store, orch, clock=lambda: next(ticks))
+
+    assert json.loads(env.result.body)["status"] == "awaiting_photo_approval"
+    orch.return_value._execute_stage_photography.assert_not_called()
+    assert not _control(store).get("reshoots", {}).get("calls_used")
+    assert "window expired" in env.failure.call_args.kwargs["error_message"]
 
 
 @pytest.mark.parametrize("failure, spent, expected_calls_used", [

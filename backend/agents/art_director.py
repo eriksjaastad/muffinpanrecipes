@@ -664,13 +664,22 @@ class ArtDirectorAgent(Agent):
         winner_was_recommended = False
 
         requested_budget = task.context.get("shoot_budget_s")
+        requested_deadline = task.context.get("shoot_deadline")
         bounded_budget = (
             float(requested_budget)
             if isinstance(requested_budget, (int, float)) and not isinstance(requested_budget, bool)
             else _SHOOT_BUDGET_S
         )
-        shoot_budget_s = min(_SHOOT_BUDGET_S, max(_MIN_CALL_S, bounded_budget))
-        deadline = _clock() + shoot_budget_s
+        started_at = _clock()
+        relative_deadline = started_at + min(
+            _SHOOT_BUDGET_S, max(_MIN_CALL_S, bounded_budget),
+        )
+        if isinstance(requested_deadline, (int, float)) and not isinstance(requested_deadline, bool):
+            deadline = min(relative_deadline, float(requested_deadline))
+        else:
+            deadline = relative_deadline
+        shoot_budget_s = max(0.0, deadline - started_at)
+        bounded_shoot = requested_budget is not None or requested_deadline is not None
         # A caller that pays per image call (the dashboard Reshoot, #8073) can
         # turn the automatic second round off with ``max_rounds=1``.
         max_rounds = min(task.context.get("max_rounds") or self._MAX_ROUNDS, self._MAX_ROUNDS)
@@ -708,7 +717,7 @@ class ArtDirectorAgent(Agent):
 
             # Vision evaluation
             vision_timeout_s = None
-            if requested_budget is not None:
+            if bounded_shoot:
                 remaining = deadline - _clock()
                 if remaining < 5:
                     vision_eval = {

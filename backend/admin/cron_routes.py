@@ -39,6 +39,7 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from time import monotonic as _monotonic
 
 from fastapi import APIRouter, HTTPException, Request, status
 
@@ -217,7 +218,10 @@ def _new_episode(episode_id: str, concept: str) -> dict:
 _SUNDAY_NOTE_TOLERANCE = timedelta(minutes=5)
 # Keep the automatic photo-only shoot inside the 300s Vercel request while
 # reserving 180s for upload/register plus Sunday dialogue, QA and publication.
-_SUNDAY_AUTOMATIC_RESHOOT_BUDGET_S = 120.0
+# This window starts when the route is entered, not when image generation
+# eventually begins, so slow auth/storage/preflight work cannot borrow from the
+# reserved publish time.
+_SUNDAY_AUTOMATIC_RESHOOT_WINDOW_S = 120.0
 
 
 def _utc_now() -> datetime:
@@ -1868,7 +1872,7 @@ class ReshootNotRegistered(RuntimeError):
 def _shoot_and_register(
     episode_id: str, ep: dict, concept: str, recipe_data: dict, *,
     max_rounds: int | None = None, reshoot_id: str | None = None,
-    shoot_budget_s: float | None = None,
+    shoot_budget_s: float | None = None, shoot_deadline: float | None = None,
 ) -> tuple[dict, dict, list[str], list[str]]:
     """Shoot Wednesday's images, upload them, and put the new set up for review.
 
@@ -1890,6 +1894,7 @@ def _shoot_and_register(
         # Only a dashboard reshoot limits the rounds, so the cron's call is unchanged.
         **({"max_rounds": max_rounds} if max_rounds else {}),
         **({"shoot_budget_s": shoot_budget_s} if shoot_budget_s is not None else {}),
+        **({"shoot_deadline": shoot_deadline} if shoot_deadline is not None else {}),
     )
     # photography_result is now a full dict with rounds, vision eval, winner, selected_shots
     image_paths: list[str] = photography_result.get("selected_shots", []) if isinstance(photography_result, dict) else []
@@ -2123,13 +2128,23 @@ def _reshoot_flow(episode_id: str, image_set_id: str, calls: int, noun: str, sho
         detail = str(exc) if isinstance(exc, ReshootNotRegistered) else f"The {noun} failed ({type(exc).__name__})."
         raise HTTPException(status_code=502, detail=f"{detail} {_RESHOOT_RELOAD}") from exc
     view = photo_review.read_view(storage, episode_id, None)
-    return {
+    result = {
         "image_set_id": wed["photo_review"]["image_set_id"],
         "calls_left": view.reshoot_calls_left,
     }
+    if automatic_sunday:
+        # _register_photos already freshness-verified this episode before it
+        # registered and saved the replacement set. Carry that exact object
+        # into Sunday's claim rather than immediately asking an eventually
+        # consistent cloud read to rediscover the write it just accepted.
+        result["registered_episode"] = copy.deepcopy(ep)
+    return result
 
 
-def reshoot_wednesday_photos(episode_id: str, image_set_id: str, *, automatic_sunday: bool = False) -> dict:
+def reshoot_wednesday_photos(
+    episode_id: str, image_set_id: str, *, automatic_sunday: bool = False,
+    shoot_deadline: float | None = None,
+) -> dict:
     """Dashboard Reshoot (#8073): new Wednesday images for a page's current set.
 
     Photos only: Wednesday's dialogue, status and completed_at are kept, and no
@@ -2142,9 +2157,7 @@ def reshoot_wednesday_photos(episode_id: str, image_set_id: str, *, automatic_su
         episode_id, image_set_id, photo_review.RESHOOT_CALLS, "reshoot",
         lambda ep, concept, recipe_data, _started, reshoot_id: _shoot_and_register(
             episode_id, ep, concept, recipe_data, max_rounds=1, reshoot_id=reshoot_id,
-            shoot_budget_s=(
-                _SUNDAY_AUTOMATIC_RESHOOT_BUDGET_S if automatic_sunday else None
-            ),
+            shoot_deadline=shoot_deadline if automatic_sunday else None,
         )[0],
         automatic_sunday=automatic_sunday,
     )
@@ -3002,7 +3015,9 @@ def _write_featured_photo(ep: dict, approved: dict, concept: str, episode_id: st
             break
 
 
-def _claim_photo_for_sunday(episode_id: str, ep: dict, concept: str) -> photo_review.ControlView:
+def _claim_photo_for_sunday(
+    episode_id: str, ep: dict, concept: str, *, shoot_deadline: float,
+) -> photo_review.ControlView:
     """Sunday's publication claim (#7936), with one automatic reshoot (#8606).
 
     An awaiting set with no usable frozen team winner gets one whole-set
@@ -3022,12 +3037,25 @@ def _claim_photo_for_sunday(episode_id: str, ep: dict, concept: str) -> photo_re
         image_set_id = hold.view.image_set_id
     problem = None
     reshoot = None
-    try:
-        reshoot = reshoot_wednesday_photos(episode_id, image_set_id, automatic_sunday=True)
-    except HTTPException as exc:
-        problem = f"the reshoot did not produce photos ({exc.detail})"
-    ep.clear()
-    ep.update(_read_episode_verified(episode_id, concept, "after the automatic reshoot"))
+    if _monotonic() >= shoot_deadline:
+        problem = "the automatic photo window expired before image generation"
+    else:
+        try:
+            reshoot = reshoot_wednesday_photos(
+                episode_id, image_set_id, automatic_sunday=True,
+                shoot_deadline=shoot_deadline,
+            )
+        except HTTPException as exc:
+            problem = f"the reshoot did not produce photos ({exc.detail})"
+    if reshoot is None:
+        ep.clear()
+        ep.update(_read_episode_verified(episode_id, concept, "after the automatic reshoot"))
+    else:
+        registered_episode = reshoot.get("registered_episode")
+        if not isinstance(registered_episode, dict):
+            raise RuntimeError("automatic reshoot did not return its registered episode")
+        ep.clear()
+        ep.update(registered_episode)
     view = photo_review.read_view(storage, episode_id, ep)
     if view.frozen:
         raise photo_review.PublicationUnderway(f"photo control is {view.state}")
@@ -3081,6 +3109,7 @@ def _claim_photo_for_sunday(episode_id: str, ep: dict, concept: str) -> photo_re
 
 @router.api_route("/sunday", methods=["GET", "POST"])
 async def cron_sunday(request: Request):
+    automatic_reshoot_deadline = _monotonic() + _SUNDAY_AUTOMATIC_RESHOOT_WINDOW_S
     _verify_cron_secret(request)
     body = await _parse_body(request)
     _verify_day_of_week(request.url.path.rstrip("/").rsplit("/", 1)[-1], body)
@@ -3232,7 +3261,10 @@ async def cron_sunday(request: Request):
         # frozen and Wednesday cannot replace the set, so nothing has to be
         # re-checked after the paid steps; a rival Sunday cannot claim twice.
         try:
-            claimed = _claim_photo_for_sunday(episode_id, ep, concept)
+            claimed = _claim_photo_for_sunday(
+                episode_id, ep, concept,
+                shoot_deadline=automatic_reshoot_deadline,
+            )
         except photo_review.PhotoHold as hold:
             return _hold_for_photo_approval(episode_id, ep, concept, hold.reason, hold.view)
         except photo_review.NoReviewablePhotos as exc:

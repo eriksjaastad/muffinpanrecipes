@@ -334,6 +334,37 @@ def test_bounded_shoot_caps_vision_to_the_remaining_budget(tmp_path: Path, monke
     assert result.output["winner"]["team_recommended"] is True
 
 
+def test_absolute_deadline_does_not_restart_when_the_shoot_begins(tmp_path: Path, monkeypatch):
+    clock = _Clock(per_call=20)
+    clock.now = 1060.0  # Sunday entered at 1000; preflight already spent 60 seconds.
+    monkeypatch.setattr(art_director_module, "_clock", clock)
+    seen = []
+
+    result = _shoot(
+        create_agent("art_director"), tmp_path, monkeypatch, clock.image,
+        [{"passed": True, "review_status": "passed", "recommended_winner": 1}],
+        context={"shoot_deadline": 1120.0}, eval_kwargs=seen,
+    )
+
+    assert clock.timeouts == [60, 40.0, 20.0]
+    assert seen == []
+    assert result.output["automated_review_status"] == "unavailable"
+
+
+def test_expired_absolute_deadline_starts_no_image_call(tmp_path: Path, monkeypatch):
+    clock = _Clock(per_call=1)
+    clock.now = 1121.0
+    monkeypatch.setattr(art_director_module, "_clock", clock)
+
+    with pytest.raises(art_director_module.ShootBudgetExceeded):
+        _shoot(
+            create_agent("art_director"), tmp_path, monkeypatch, clock.image, [],
+            context={"shoot_deadline": 1120.0},
+        )
+
+    assert clock.timeouts == []
+
+
 def test_reshoot_is_skipped_when_another_round_will_not_fit(tmp_path: Path, monkeypatch):
     clock = _Clock(per_call=35)  # round 1 takes 105s; 75s left < 105s
     monkeypatch.setattr(art_director_module, "_clock", clock)
