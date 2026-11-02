@@ -17,11 +17,11 @@ import pytest
 import scripts.conversation_lab as cl
 from backend.utils import model_router
 from tests.test_openrouter_lab import _fake_openrouter
-from tests.test_research_prereqs_7791 import (
-    _fake_ab_result,
-    _fake_pair,
-    _mock_openrouter_preflight,
-    _no_judge_calls,
+from tests.conversation_research_helpers import (
+    fake_ab_result as _fake_ab_result,
+    fake_pair as _fake_pair,
+    mock_openrouter_preflight as _mock_openrouter_preflight,
+    no_judge_calls as _no_judge_calls,
 )
 
 
