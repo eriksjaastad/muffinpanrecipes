@@ -3069,7 +3069,7 @@ def _claim_photo_for_sunday(
                 "the photos changed while Sunday's automatic reshoot was running"
             )
         in_flight = view.reshoots.get("in_flight") or {}
-        if in_flight.get("automatic_sunday"):
+        if in_flight.get("automatic_sunday") and photo_review.reshoot_in_flight_active(view):
             # Another Sunday owns the still-active shoot. A hold response
             # would save a stale episode over that run's later publication.
             raise photo_review.PublicationUnderway("an automatic photo reshoot is already underway")

@@ -716,6 +716,26 @@ def register_request(store, episode_id: str, request: dict, *, reshoot_id: str |
     raise ReviewConflict("photo control kept changing while Wednesday registered its photos")
 
 
+def reshoot_in_flight_active(view: ControlView) -> bool:
+    """Whether the current reshoot marker is still inside its lease.
+
+    Unreadable timestamps fail closed as active. Every caller deciding whether
+    a rival shoot owns the set uses this rule so an expired crash marker cannot
+    become a permanent publication block.
+    """
+    in_flight = view.reshoots.get("in_flight")
+    if not isinstance(in_flight, dict):
+        return False
+    try:
+        age = (
+            datetime.now(timezone.utc)
+            - datetime.fromisoformat(str(in_flight.get("started_at")))
+        ).total_seconds()
+    except (TypeError, ValueError):
+        return True
+    return age < RESHOOT_IN_FLIGHT_S
+
+
 def start_reshoot(store, episode_id: str, verified_ep: dict | None, image_set: str, calls: int,
                   *, automatic_sunday: bool = False) -> ControlView:
     """Dashboard Reshoot (#8073): count ``calls`` image calls and mark a shoot in flight.
@@ -738,14 +758,8 @@ def start_reshoot(store, episode_id: str, verified_ep: dict | None, image_set: s
             raise ReshootRefused("The photos changed since this page loaded; reload and review again.")
         if automatic_sunday and view.state != AWAITING:
             raise ReshootRefused("Erik decided the photos; no automatic reshoot is needed.")
-        in_flight = view.reshoots.get("in_flight")
-        if isinstance(in_flight, dict):
-            try:
-                age = (datetime.now(timezone.utc) - datetime.fromisoformat(str(in_flight.get("started_at")))).total_seconds()
-            except ValueError:  # governance: allow-silent SF002: an unreadable start time cannot prove the shoot is dead, so it counts as in flight
-                age = 0.0
-            if age < RESHOOT_IN_FLIGHT_S:
-                raise ReshootRefused("A reshoot is already running. Wait for it to finish, then reload.")
+        if reshoot_in_flight_active(view):
+            raise ReshootRefused("A reshoot is already running. Wait for it to finish, then reload.")
         used = int(view.reshoots.get("calls_used") or 0)
         if used + calls > RESHOOT_CALL_CAP:
             raise ReshootRefused(

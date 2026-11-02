@@ -495,6 +495,36 @@ def test_rival_sunday_reshoot_returns_underway_without_saving_a_hold():
     assert store.get(EP_ID).get("publish_hold") is None
 
 
+def test_expired_capped_sunday_reshoot_becomes_an_actionable_hold():
+    wed = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+    ep = store.get(EP_ID)
+    view = photo_review.read_view(store, EP_ID, ep)
+    photo_review._append(
+        store, view, state=view.state, request=view.request, decision=view.decision,
+        claim=None, event="test: expired automatic reshoot",
+        reshoots={
+            "calls_used": photo_review.RESHOOT_CALL_CAP,
+            "in_flight": {
+                "id": "expired-sunday",
+                "started_at": "2020-01-01T00:00:00+00:00",
+                "automatic_sunday": True,
+            },
+        },
+    )
+
+    env = _sunday(store)
+
+    assert _status(env) == 202
+    assert json.loads(env.result.body)["status"] == "awaiting_photo_approval"
+    env.dialogue.assert_not_called()
+    env.qa.assert_not_called()
+    env.catalog.assert_not_called()
+    _never_published(store)
+    assert "Reshoot limit reached" in env.failure.call_args.kwargs["error_message"]
+
+
 def test_human_pick_during_the_automatic_shoot_is_published_not_the_generated_set(tmp_path):
     wed = wednesday_stage(confirmed_winner={})
     store = _Store({EP_ID: _episode(wed)})
