@@ -985,6 +985,12 @@ def claim_for_publication(store, episode_id: str, verified_ep: dict, *,
             # expired marker cannot belong to a process that may still save.
             if reshoot_in_flight_active(view):
                 raise PublicationUnderway("automatic photo registration is still finishing")
+            episode_mirror = episode_request(verified_ep)
+            if not episode_mirror or episode_mirror.get("image_set_id") != view.image_set_id:
+                raise ReviewConflict(
+                    "expired automatic photo registration is missing from the episode; "
+                    "refusing to publish"
+                )
             try:
                 _append(
                     store,

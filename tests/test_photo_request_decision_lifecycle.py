@@ -455,6 +455,8 @@ def test_expired_pending_registration_recovers_after_function_ceiling(tmp_path):
         reshoot_id=started.reshoots["in_flight"]["id"],
     )
     assert pending.reshoots["in_flight"]["registration_pending"] is True
+    assert photo_review.apply_request_mirror(ep, request) is True
+    store.put(EP_ID, ep)
 
     claimed = photo_review.claim_for_publication(
         store,
@@ -473,6 +475,44 @@ def test_expired_pending_registration_recovers_after_function_ceiling(tmp_path):
         )
     ]
     assert "reshoot: expired registration recovered" in events
+
+
+def test_expired_pending_registration_without_episode_mirror_fails_closed():
+    original = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(original)})
+    ep = store.get(EP_ID)
+    register(EP_ID, original, store)
+    current = photo_review.read_view(store, EP_ID, ep)
+    with patch.object(photo_review, "_now", return_value="2020-01-01T00:00:00+00:00"):
+        started = photo_review.start_reshoot(
+            store,
+            EP_ID,
+            ep,
+            current.image_set_id,
+            photo_review.RESHOOT_CALLS,
+            automatic_sunday=True,
+        )
+    replacement = wednesday_stage(generation="g20261008T000000Z-nosave")
+    request = photo_review.new_review(replacement)
+    photo_review.register_request(
+        store,
+        EP_ID,
+        request,
+        reshoot_id=started.reshoots["in_flight"]["id"],
+    )
+
+    with pytest.raises(photo_review.ReviewConflict, match="missing from the episode"):
+        photo_review.claim_for_publication(
+            store,
+            EP_ID,
+            ep,
+            allow_team_fallback=True,
+            expected_image_set_id=request["image_set_id"],
+        )
+
+    pending = photo_review.read_view(store, EP_ID, ep)
+    assert pending.state == photo_review.AWAITING
+    assert pending.reshoots["in_flight"]["registration_pending"] is True
 
 
 def test_human_pick_during_registration_is_preserved_before_eligibility(tmp_path):
