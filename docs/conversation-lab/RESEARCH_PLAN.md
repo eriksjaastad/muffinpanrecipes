@@ -116,11 +116,7 @@ planned, needed before S3. Usage for each:
   API calls:
   `uv run scripts/lab_offline_metrics.py 'docs/conversation-lab/results/*-ab-*.json'`
   `uv run scripts/lab_offline_metrics.py RESULT.json --json`
-- **P4** - the `SPEAKERS_SEE_JUDGE_RECIPE_FACTS` variant lever (default
-  `False`, production-identical) appends the scenario's `judge_recipe_facts`
-  to what speakers see, via a variant file:
-  `echo '{"SPEAKERS_SEE_JUDGE_RECIPE_FACTS": true}' > variant.json`
-  `uv run scripts/conversation_lab.py ab --testbed --stage monday --runs 3 --variant variant.json`
+- **Historical P4 (retired 2026-11-02, #8385)** - <code>SPEAKERS&#95;SEE&#95;JUDGE&#95;RECIPE&#95;FACTS</code> appended the scenario's `judge_recipe_facts` to each speaker prompt. The authored-only lab no longer accepts or runs this per-speaker lever; `TICKS_RANGE` is the sole current variant. The original runnable record remains at commit `61d86a4`.
 
 **V6 blind reads use `pairs-ui` (card #7793), shipped 2026-09-30.** Reviewer
 mechanics and invocation details are owned by `conversation_lab.py pairs-ui

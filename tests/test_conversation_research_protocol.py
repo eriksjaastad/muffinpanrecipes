@@ -9,7 +9,6 @@ closed.
   unchanged instrument is reported as a V3 test-retest.
 - `scripts/lab_offline_metrics.py` computes metrics from saved JSON with zero
   API calls and refuses sweep or empty results.
-- The SPEAKERS_SEE_JUDGE_RECIPE_FACTS variant lever (R3) reaches the prompt.
 - Cost caps, prices, usage costs and balances that are non-finite or negative
   block rather than admit; the atomic pick writer trashes its temp file.
 

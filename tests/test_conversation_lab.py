@@ -2227,7 +2227,7 @@ def test_ab_single_concept_default_max_calls_is_derived_from_arm_reservation(tmp
     report = json.loads(result_file.read_text())
     assert report["max_calls"] == 50 * (9 + 9 + 2 * (1 + cl._JUDGE_JSON_MAX_RETRIES))
 
-def test_ab_single_concept_default_max_calls_covers_open_ended_variant_reservation(tmp_path, monkeypatch):
+def test_ab_single_concept_default_max_calls_covers_authored_variant_reservation(tmp_path, monkeypatch):
     """A valid TICKS_RANGE variant uses the same reserved arm ceiling."""
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
     variant_path = _write_variant(tmp_path, EFFECTIVE_VARIANT)
@@ -2281,14 +2281,13 @@ def test_ab_testbed_default_max_calls_is_derived_from_panel_size_and_runs(tmp_pa
 
     [result_file] = list(results_dir.glob("*-ab-testbed-*.json"))
     report = json.loads(result_file.read_text())
-    # monday's max_turns is 10 -> 2 scenarios * 2 runs * (40 + 40 + 6) = 344
-    # (control arm + variant arm at four request attempts per turn, plus both
-    # judge orientations with their two JSON retries each).
+    # Two scenarios x two runs x (9 control + 9 variant + 6 judge) calls.
+    # Each authored arm reserves three parse attempts with three router attempts.
     assert report["max_calls"] == 2 * 2 * (9 + 9 + 2 * (1 + cl._JUDGE_JSON_MAX_RETRIES))
     assert report["max_calls_derived"] is True
     assert report["panel_size"] == 2
 
-def test_ab_testbed_default_max_calls_honours_an_open_ended_variant(tmp_path, monkeypatch):
+def test_ab_testbed_default_max_calls_honours_an_authored_variant(tmp_path, monkeypatch):
     """A TICKS_RANGE variant does not change the arm reservation ceiling."""
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages("X")})
     testbed_path = _write_testbed(tmp_path, [
@@ -4110,20 +4109,13 @@ def test_dry_episode_wednesday_bench_can_probe_missing_review_candidates(
     assert report["image_urls"] == []
 
 
-def test_photo_comparison_uses_effective_rendered_inputs_not_audit_metadata():
+def test_photo_comparison_tracks_entire_authored_context():
     base = {"winner": {"variant": "hero_threequarter"}, "rounds": []}
-    # These fields are retained in reports but do not affect the simulator's
-    # dynamic arc, photo direction, or Wednesday turn floor.
-    changed = {
-        **base,
-        "provider": "another-provider",
-        "cost": 99,
-        "selected_shots": ["different-cdn-url.png"],
-        "rounds": [],
-    }
+    changed = {**base, "provider": "another-provider"}
     baseline = {"stage": "wednesday", "concept": "Spiral Bites", "photography_context": base}
     current = {"stage": "wednesday", "concept": "Spiral Bites", "photography_context": changed}
-    cl._assert_comparable_scenario(baseline, current)
+    with pytest.raises(cl.ConversationLabError, match="photography_context authored prompt"):
+        cl._assert_comparable_scenario(baseline, current)
 
 
 @pytest.mark.parametrize(
@@ -4142,7 +4134,7 @@ def test_photo_comparison_rejects_changes_to_effective_wednesday_prompts(
 ):
     baseline = {"stage": "wednesday", "concept": "Spiral Bites", "photography_context": baseline_context}
     current = {"stage": "wednesday", "concept": "Spiral Bites", "photography_context": current_context}
-    with pytest.raises(cl.ConversationLabError, match="photography_context effective"):
+    with pytest.raises(cl.ConversationLabError, match="photography_context authored prompt"):
         cl._assert_comparable_scenario(baseline, current)
 
 
@@ -4153,86 +4145,28 @@ def test_photo_comparison_treats_none_and_empty_context_as_same(stage):
     cl._assert_comparable_scenario(baseline, current)
 
 
-def test_nonempty_wednesday_context_changes_turn_floor_even_if_metadata_is_unused():
+def test_nonempty_context_changes_authored_prompt():
     baseline = {"stage": "wednesday", "concept": "Spiral Bites", "photography_context": None}
     current = {"stage": "wednesday", "concept": "Spiral Bites", "photography_context": {"provider": "legacy"}}
-    with pytest.raises(cl.ConversationLabError, match="photography_context effective"):
+    with pytest.raises(cl.ConversationLabError, match="photography_context authored prompt"):
         cl._assert_comparable_scenario(baseline, current)
 
 
-def test_friday_ignores_gallery_and_unused_round_metadata_but_tracks_reshoot_winner_round():
-    baseline_context = {
-        "reshoot_happened": False,
-        "winner": {"variant": "same", "round": 1},
-        "rounds": [{"variants": [{"variant": "a"}]}],
-    }
-    changed_irrelevant = {
-        "reshoot_happened": False,
-        "winner": {"variant": "same", "round": 5},
-        "rounds": [{"variants": [{"variant": "other", "url": "new-url"}]}],
-    }
-    cl._assert_comparable_scenario(
-        {"stage": "friday", "concept": "Spiral Bites", "photography_context": baseline_context,
-         "image_paths": ["old.png"]},
-        {"stage": "friday", "concept": "Spiral Bites", "photography_context": changed_irrelevant,
-         "image_paths": ["new.png"]},
-    )
-
-    baseline_context["reshoot_happened"] = True
-    changed_irrelevant["reshoot_happened"] = True
-    with pytest.raises(cl.ConversationLabError, match="photography_context effective"):
+def test_friday_comparison_tracks_complete_authored_photo_payload():
+    baseline_context = {"winner": {"variant": "same"}, "provider": "one"}
+    changed_context = {"winner": {"variant": "same"}, "provider": "two"}
+    with pytest.raises(cl.ConversationLabError, match="photography_context authored prompt"):
         cl._assert_comparable_scenario(
             {"stage": "friday", "concept": "Spiral Bites", "photography_context": baseline_context},
-            {"stage": "friday", "concept": "Spiral Bites", "photography_context": changed_irrelevant},
+            {"stage": "friday", "concept": "Spiral Bites", "photography_context": changed_context},
         )
 
 
-def test_truthy_reshoot_changes_effective_wednesday_floor():
-    falsey = {"reshoot_happened": False, "winner": {"variant": "same"}}
-    truthy = {"reshoot_happened": "false", "winner": {"variant": "same"}}
-    assert cl._effective_bench_photography_inputs("wednesday", "Spiral Bites", falsey)["wednesday_tick_floor"] == 7
-    assert cl._effective_bench_photography_inputs("wednesday", "Spiral Bites", truthy)["wednesday_tick_floor"] == 10
-    with pytest.raises(cl.ConversationLabError, match="photography_context effective"):
-        cl._assert_comparable_scenario(
-            {"stage": "wednesday", "concept": "Spiral Bites", "photography_context": falsey},
-            {"stage": "wednesday", "concept": "Spiral Bites", "photography_context": truthy},
-        )
-
-
-def test_invalid_effective_photo_data_fails_before_generation(tmp_path, monkeypatch):
-    episode = _snapshot_episode()
-    episode["stages"]["wednesday"] = {
-        "status": "complete",
-        "completed_at": "2026-11-12T12:00:00+00:00",
-        "photography_data": {
-            "winner": "malformed",
-            "rounds": [{
-                "round": 1,
-                "variants": [{"path": "hero.png", "variant": "hero_threequarter"}],
-            }],
-        },
-        "image_paths": ["hero.png"],
-        "image_urls": ["https://store.public.blob.vercel-storage.com/images/hero.png"],
-    }
-    monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: episode)
-    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
-    generated = []
-
-    def sentinel_generation(**kwargs):
-        generated.append(kwargs)
-        raise AssertionError("invalid effective photo input reached generation")
-
-    monkeypatch.setattr(sdw, "run_simulation", sentinel_generation)
-    with pytest.raises(cl.ConversationLabError, match="photography inputs cannot be rendered"):
-        cl.cmd_bench(_bench_args(
-            tmp_path,
-            stage="wednesday",
-            concept=None,
-            recipe_context=None,
-            from_episode="snapshot-week",
-            runs=1,
-        ))
-    assert generated == []
+def test_effective_photo_inputs_preserve_complete_mapping():
+    context = {"provider": "legacy", "winner": {"variant": "same"}, "rounds": []}
+    effective = cl._effective_bench_photography_inputs("wednesday", "Spiral Bites", context)
+    assert effective == {"author_prompt_photography_context": context}
+    assert effective["author_prompt_photography_context"] is not context
 
 
 def test_bench_photo_baseline_mismatch_is_rejected_before_generation(tmp_path, monkeypatch):
@@ -4377,9 +4311,9 @@ def test_bench_derives_max_calls_from_runs_when_the_flag_is_omitted(tmp_path, mo
 def test_bench_refuses_to_start_an_arm_that_cannot_fit_the_call_budget(tmp_path, monkeypatch):
     """Codex P1: the cap must be a real upper bound, not a last-observed guess.
 
-    `run_simulation` makes one paid call PER TURN plus rewrite retries. The
-    old check reserved the PREVIOUS arm's count, seeded at 1, so
-    `--max-calls 1` passed the check and then spent a whole day of turns.
+    Each authored scene can use all parse attempts and router empty-response
+    retries. The old check reserved the previous arm's observed count, so a
+    low cap could pass before a more expensive arm started.
     """
     monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
     monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
@@ -5672,10 +5606,9 @@ def test_bench_log_row_survives_pipes_and_newlines(tmp_path, monkeypatch):
 def test_judge_input_digest_preserves_cast_ORDER():
     """Codex: I was sorting expected_cast and hiding a real difference.
 
-    run_simulation passes participants_for_day()'s ORDERED list into
-    retired weighted speaker scheduler, whose weighted selection iterates it, and
-    _judge_dialogue renders the roster in that order. Two orderings really
-    do produce different conversations and different judge input.
+    run_simulation renders participants_for_day()'s ORDERED list into the
+    authored prompt, and _judge_dialogue renders the roster in that order. Two
+    orderings really do produce different conversations and judge input.
     """
     a = ["Devon Park", "Margaret Chen"]
     b = ["Margaret Chen", "Devon Park"]

@@ -1,13 +1,13 @@
 external_resources:
   - name: OpenRouter
-    purpose: Every paid model call (#8343) - Anthropic dialogue and judge, OpenAI recipe and vision, Gemini images, the lab, and Jev stop checks - on one bill.
+    purpose: Every paid model call (#8343) - Anthropic dialogue and judge, OpenAI recipe and vision, Gemini images, the lab - on one bill.
     env_vars:
       - OPENROUTER_API_KEY
       - OPENROUTER_MODEL_ALLOWLIST
       - ANTHROPIC_MODEL_ALLOWLIST
       - OPENAI_MODEL_ALLOWLIST
       - GOOGLE_MODEL_ALLOWLIST
-    notes: Chat completions via backend/utils/model_router.py (provider-prefixed ids mapped by OPENROUTER_MODEL_IDS, each pinned to its own vendor with no fallbacks; usage.cost requested), images via backend/utils/image_generation.py, Jev decisions via backend/utils/stop_check.py, key limit via https://openrouter.ai/api/v1/key in scripts/conversation_lab.py.
+    notes: Chat completions via backend/utils/model_router.py (provider-prefixed ids mapped by OPENROUTER_MODEL_IDS, each pinned to its own vendor with no fallbacks; usage.cost requested), images via backend/utils/image_generation.py, key limit via https://openrouter.ai/api/v1/key in scripts/conversation_lab.py.
 
   - name: Bing Webmaster Tools API
     purpose: SEO baseline (crawl stats, query stats, index status) for the apex property https://muffinpanrecipes.com.

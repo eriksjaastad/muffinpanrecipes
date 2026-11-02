@@ -468,7 +468,7 @@ anchors. Version a current-anchor panel before claiming a production result, or
 the sweep is silently testing a different context format than production uses.
 
 **On enforcement:** there is no post-generation word-count check in
-`retired per-speaker turn generator`. The voice guides already say MAXIMUM with a number and the
+<code>generate&#95;turn</code> (retired). The voice guides already say MAXIMUM with a number and the
 replacement shared text already forbids exceeding it, so "add the words HARD
 LIMIT" is another untested hypothesis. A bounded validate-and-rewrite step would
 enforce the stated contract directly — evaluate the quality cost of actually
@@ -492,8 +492,8 @@ right, and it is measurable. Across **all 1,053 stored dialogue lines**:
 In W38 specifically it was **21 of 21 lines** — monday, tuesday and wednesday,
 five characters, 100%.
 
-**Every vocabulary guard passed all of it.** `retired vocabulary-similarity guard` is a
-Jaccard over tokens and `retired trigram guard` is word trigrams; both are
+**Every vocabulary guard passed all of it.** <code>&#95;is&#95;repetitive&#95;candidate</code> (retired) is a
+Jaccard over tokens and <code>&#95;shared&#95;trigram&#95;with&#95;recent</code> (retired) is word trigrams; both are
 blind to syntax. The words differed every time. The shape never did.
 
 This is the near-miss recorded further up this file finally landing: banning em
@@ -658,7 +658,7 @@ These entries were `docs/research/*.md` and `docs/conversation-lab/{SPEAKER_ATTR
 
 ### 2026-03-03 to 2026-03-04 — Dialogue bookends: opener/closer directives v1 to v3
 
-What was tested: character-driven opening greetings and closing sign-offs for each day's conversation, with no extra messages (only better direction of the first and last turns that already exist). Code: `_DAY_OPENER_CONTEXT`, `_DAY_CLOSER_CONTEXT`, `_CHARACTER_EXAMPLE_MESSAGES`, and `is_last_turn` in `retired per-speaker turn generator()` of `scripts/simulate_dialogue_week.py`. No card number in the source. Setup: full-week runs; Tests 1-4 one run each, Test 5 three runs.
+What was tested: character-driven opening greetings and closing sign-offs for each day's conversation, with no extra messages (only better direction of the first and last turns that already exist). Code: `_DAY_OPENER_CONTEXT`, `_DAY_CLOSER_CONTEXT`, `_CHARACTER_EXAMPLE_MESSAGES`, and `is_last_turn` in <code>generate&#95;turn</code>() (retired)` of `scripts/simulate_dialogue_week.py`. No card number in the source. Setup: full-week runs; Tests 1-4 one run each, Test 5 three runs.
 
 - Test 1, GPT-5.1, v1 soft directives ("Start with a brief, natural greeting or arrival moment..."; "Wrap up naturally..."), Mini Shepherd's Pies: openers ~60% (4 clear, 1 borderline, 2 missed), closers ~15% (1 clear, 1 borderline, 5 missed), QA 75. Models summarized decisions and forgot to say goodbye; openers failed where voice dominated (Margaret, Steph). Decision: tighten the language before switching models.
 - Test 2, GPT-5.1, v2 explicit structure ("STRUCTURE: Your FIRST sentence must be a greeting...", "Your FINAL sentence must be a goodbye", with concrete examples such as "logging off"), same concept: openers ~70% (5 clear, 1 borderline, 1 missed), closers ~70% (5 of 7), QA 76. Devon's "efficient" voice resisted the greeting; Margaret closed 5 of 7 days.
@@ -681,7 +681,7 @@ Full log: `git show eb90b0f:docs/research/BOOKEND_TESTING_LOG.md`
 
 ### 2026-03-05 — Self-awareness anti-repetition and concept-aware phrase scoring (#5031)
 
-What changed: `retired per-speaker turn generator()` in `simulate_dialogue_week.py` now shows each character what they already said that day ("You already said today: ... Do NOT repeat these phrases, ideas, or sentence structures. Say something new."). Setup: concept Jalapeno Corn Dog Bites, v3 bookend directives, 3 full-week GPT-5.1 runs plus 1 Claude Haiku 4.5 run.
+What changed: <code>generate&#95;turn</code>() (retired)` in `simulate_dialogue_week.py` now shows each character what they already said that day ("You already said today: ... Do NOT repeat these phrases, ideas, or sentence structures. Say something new."). Setup: concept Jalapeno Corn Dog Bites, v3 bookend directives, 3 full-week GPT-5.1 runs plus 1 Claude Haiku 4.5 run.
 
 | Run | QA | Prohibited | Cross-char penalty | Notes |
 |---|---|---|---|---|
@@ -758,7 +758,7 @@ Local evidence at source `2b426d40ca16ab0c603f023cb029afda2fc902ae`:
 | Actual five-line W25 Thursday | unavailable; 2/5 lines scored | too little repeated-speaker evidence |
 
 Inputs, outputs and source hashes: `results/20260923-voice-attribution-audit.json` (rotation section keeps the exact original/rotated transcripts and shows identical outputs for seeds 1, 2, 3). To reproduce, load `speaker_attribution` from the recorded PR #126 source and call it on each scenario's `messages` (the W25 scenario uses `source_turns`).
-- `retired per-speaker prompt builder` already supplies substantial character material (biography, contradictions, relationships, voice guide, examples, memories or first-week fallback, signature phrases, triggers); the four numeric traits are not rendered. The DIALS.md 2(c) denominator/coverage issue is #7430; its ratio is not used as evidence here. Wednesday's opener gets a predetermined photography winner and a later wind-down line says the decision is made; the photography path floors the scene at seven turns without a reshoot, ten with one (plausible limits on disagreement and resolution, not proof that longer dialogue or hidden information would help; see #7161, #7352; keep the authorization gate on automatic injected events).
+- <code>build&#95;system&#95;prompt</code> (retired) already supplies substantial character material (biography, contradictions, relationships, voice guide, examples, memories or first-week fallback, signature phrases, triggers); the four numeric traits are not rendered. The DIALS.md 2(c) denominator/coverage issue is #7430; its ratio is not used as evidence here. Wednesday's opener gets a predetermined photography winner and a later wind-down line says the decision is made; the photography path floors the scene at seven turns without a reshoot, ten with one (plausible limits on disagreement and resolution, not proof that longer dialogue or hidden information would help; see #7161, #7352; keep the authorization gate on automatic injected events).
 
 Research that fits (all "does not prove" for our case): InCharacter (Wang et al., ACL 2024) separates behavioral fidelity from surface recognizability, but its scales are not validated for this cast; CharacterEval (Tu et al., ACL 2024) says ground scores in reviewed human examples, not import its Chinese-language leaderboard; Topic Confusion Task (Altakrori et al., Findings of EMNLP 2021) says validate with same-topic characters and topic-shift controls; Shi et al. 2024 (arXiv 2406.07791) says keep both orientations and report order disagreement, since two orders with different winners are uncertain evidence even if our rule calls them a tie; PersonaWeaver (Qraitem et al., 2026 preprint) is a lead for #7161, vary how a character responds for a concrete reason instead of adding biography or catchphrases; SOTOPIA (Zhou et al., arXiv 2310.11667 and EMNLP 2024) shows omniscient simulation overstates performance, but recipe facts are needed for credibility, so it is not evidence that withholding them would help.
 
