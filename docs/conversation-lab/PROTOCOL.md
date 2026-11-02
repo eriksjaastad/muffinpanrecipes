@@ -94,8 +94,7 @@ to get the current baseline scores for the dimension you think is weak.
 dimension(s) Y. Name the dimensions. One lever per experiment - if two
 levers move at once, a win or loss cannot be attributed to either.
 3. **Offline blind A/B.** Generate N pairs (control prompt vs. variant
-prompt) through the *production* call shape (`mode="openai"`, plus a `recipe_context` anchor -
-see `scripts/conversation_lab.py --help` for the exact invocation), then
+prompt) through the shared authored-scene API. The lab adds frozen prior lines, optional recipe facts, and recovery accounting beyond the production cron call (see `scripts/conversation_lab.py --help`), then
 judge each pair **position-swapped** (variant-first and variant-second)
 so the judge's own position bias cancels out, and **blind** (the judge is
 not told which transcript is control vs. variant).
