@@ -94,8 +94,7 @@ to get the current baseline scores for the dimension you think is weak.
 dimension(s) Y. Name the dimensions. One lever per experiment - if two
 levers move at once, a win or loss cannot be attributed to either.
 3. **Offline blind A/B.** Generate N pairs (control prompt vs. variant
-prompt) through the *production* call shape (`mode="openai",
-prompt_style="scene", ticks_per_day=0`, plus a `recipe_context` anchor -
+prompt) through the *production* call shape (`mode="openai"`, plus a `recipe_context` anchor -
 see `scripts/conversation_lab.py --help` for the exact invocation), then
 judge each pair **position-swapped** (variant-first and variant-second)
 so the judge's own position bias cancels out, and **blind** (the judge is
@@ -422,17 +421,7 @@ For Wednesday, the generation call also receives that episode stage's
 the Wednesday cron does. Friday receives Wednesday's `photography_data`
 when it is a dict and no image paths, as the Friday cron does. The bench
 freezes these raw inputs before run one, gives each run fresh copies, and
-retains them and their provenance in the report for audit. The recorded
-effective photo payload is descriptive output, not an evaluator or generator
-fingerprint: comparison re-renders both raw snapshots through the current
-`_build_dynamic_arc` and `_build_photography_scene_direction` helpers and
-compares those prompt strings plus Wednesday's effective turn floor. Image
-paths are attachment-only and are not part of textual comparison. Thus unused
-metadata and path changes remain comparable when rendered prompts and turn
-floor are unchanged; changes that affect those actual inputs are rejected
-before generation. Absent and present-but-empty values remain comparable when
-they render identically. Older results without photo fields remain usable
-when the current effective photo inputs are empty. Manual `--recipe-context`
+retains them and their provenance in the report for audit. The effective photo payload is the exact JSON string inserted into the authored prompt. Comparison rejects any byte-changing context difference, including key-order or audit-metadata changes, before generation. Image paths remain attachment-only and are not part of textual comparison. Absent and present-but-empty contexts are comparable because neither is inserted into the prompt. Older results without photo fields remain usable only when the current authored photo context is also empty. Manual `--recipe-context`
 benches continue to run without photo context.
 
 With `--recipe-context` the stage is judged in isolation, which is cheaper
@@ -494,15 +483,7 @@ decision rule, then a live week.
 
 ## Cost budget
 
-`ab --runs` has no default - pick N per experiment. At N=5 pairs (a common
-choice, not a default): roughly 80 Haiku 4.5 turns (dialogue generation for
-5 pairs x 2 variants x ~8 turns/day x however many days are in scope) plus
-10 judge calls (5 pairs x 2 judge orders for the position swap). Every
-`ab` mode derives its default call cap from N by summing one worst-case
-reservation per judged pair: the control arm plus the variant arm (each
-reflecting its own turn count and stop check) plus both judge orientations
-with their retries, times panel size and runs (#7732; single-concept runs
-used a flat 120 until 2026-09-30, below one open-ended arm). `bench`
+`ab --runs` has no default - pick N per experiment. At N=5 pairs (a common choice, not a default), each pair reserves two authored-scene arms. Each arm permits three parse attempts and each model-router call permits its bounded empty-response retries; the pair also reserves both position-swapped judge orientations and their parse retries. Every `ab` mode derives its default call cap from that structural ceiling times panel size and runs. `bench`
 derives its own (see its `--max-calls` help).
 
 **Amended 2026-09-19 (#7314).** The 120 figure was written when N=5 was

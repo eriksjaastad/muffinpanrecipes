@@ -23,20 +23,7 @@ dialogue** — prompt, personality dials, judge, cast, turn counts, openers. It 
 design record: what was intended, what actually binds in code, and what was measured
 against the 917-line corpus.
 
-It already answers the question you are probably about to ask. Section 2(c),
-"Backstory is pasted in; nothing per character binds," records that the four numeric
-traits in `agent_personalities.json` — `verbosity`, `directness`, `formality`,
-`emotional_expressiveness` — do not bind. Nothing acts on them:
-`build_system_prompt` touches `communication_style` only to pull `signature_phrases`.
-Section 4 is the per-character fix, already specified. That work is card #6966 and has
-never been started.
-
-**Do not conclude from that the characters are thinly drawn.** `build_system_prompt`
-(scripts/simulate_dialogue_week.py) pastes eight per-character blocks, among them a voice
-guide and few-shot example messages; 2(c) lists them and measures how much character
-material reaches the prompt against the shared rules. The voices blur anyway, which is why
-"add more character material" is a hypothesis rather than an obvious fix; few-shot depth
-has already been swept and ruled out (#7206).
+DIALS.md sections 2(c) and 4 describe the retired per-speaker architecture and remain historical evidence. The current whole-scene author receives each character's biography, voice guide, examples, and memories through `_author_prompt`; the four numeric traits in `agent_personalities.json` still do not bind directly. Evaluate any new character-control proposal against that authored architecture and the existing measurements before changing production.
 
 Read DIALS.md's measurements in DIALS.md and do not restate them here.
 

@@ -97,10 +97,7 @@ def _generate_stage_dialogue(
         run_index=1,
         stage_only=stage,
         injected_event=None,
-        ticks_per_day=0,       # 0 = use variable TICKS_RANGE per day (natural variation)
         mode=mode,
-        prompt_style="scene",
-        character_models=None,
         image_paths=image_paths or [],
         photography_context=photography_context,
     )

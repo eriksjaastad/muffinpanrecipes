@@ -229,7 +229,8 @@ S0a pilots (baseline and bundle, Haiku and DeepSeek). Every later result is read
 terms, not only as "beat baseline". No API cost. `bench` is not used: it takes no variant or
 testbed and scores with the production judge, not the fixed lab instrument.
 
-### S2. Ablation of the limits-off bundle (Erik, 09-29)
+### Historical S2. Ablation of the limits-off bundle (Erik, 09-29)
+This completed study describes the retired per-speaker system and is not a runnable current plan after #8385.
 The bundle is locked as the reference arm B. Each of five arms puts back one production
 setting:
 
@@ -349,7 +350,7 @@ the author recipe Method/facts that the production control does not see.
   every pilot pair, so a length-matched read is still owed (section 8).
 - **D2 (2026-10-01).** A3 (production history depth) is not runnable on Monday. The lab refuses
   a variant whose history window does not exceed its tick cap
-  (`_validate_history_depth_invariant`), so A3 cannot run alongside the 25-tick open-ended cap.
+  (<code>&#95;validate&#95;history&#95;depth&#95;invariant</code> (retired)), so A3 cannot run alongside the 25-tick open-ended cap.
   Without that cap Monday runs at most 10 lines, inside production's 12-line window, so history
   depth has no effect there. History depth is coupled to open-ended length, as the stop check
   is. A3 is recorded as UNTESTED: no S2 arm measures production history depth (A4 and B both

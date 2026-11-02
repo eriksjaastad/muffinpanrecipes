@@ -124,7 +124,7 @@ checkout.
 
 ### 2026-09-05: The dialogue judge scores dimensions and fails closed (#6861, #6832, #6840)
 
-**Decision:** The judge returns structured JSON with eight 1–5 scores (the six rubric dimensions plus turn-taking and cast coverage), a verdict, the weakest dimensions and a one-line reason; scores persist on the stage as `judge_scores`. Unparseable judge output is a FAIL after one retry, never a default PASS. The roster bug behind W36's photographer-less photography discussion is fixed with the minimal lever: Julian joins Monday, Devon joins Tuesday, matching what `CHARACTER_DAY_GOALS` already assumed. Exactly one turn-taking prompt nudge lands (permission for short replies and answering the question first), logged in the tuning record. Flat dialogue was diagnosed as prompt-level: the per-turn reaction directive already exists, so no architectural rewrite.
+**Decision:** The judge returns structured JSON with eight 1–5 scores (the six rubric dimensions plus turn-taking and cast coverage), a verdict, the weakest dimensions and a one-line reason; scores persist on the stage as `judge_scores`. Unparseable judge output is a FAIL after one retry, never a default PASS. The roster bug behind W36's photographer-less photography discussion is fixed with the minimal lever: Julian joins Monday, Devon joins Tuesday, matching what <code>CHARACTER&#95;DAY&#95;GOALS</code> (retired) already assumed. Exactly one turn-taking prompt nudge lands (permission for short replies and answering the question first), logged in the tuning record. Flat dialogue was diagnosed as prompt-level: the per-turn reaction directive already exists, so no architectural rewrite.
 
 ### 2026-09-05: Cloud image-variant cleanup is an honest no-op (#6712)
 

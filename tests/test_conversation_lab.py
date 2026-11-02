@@ -109,7 +109,7 @@ def test_apply_variant_refuses_unknown_attribute():
 
 def test_apply_variant_refuses_callable_attribute():
     with pytest.raises(cl.ConversationLabError, match="does not affect authored scenes"):
-        cl._apply_variant(sdw, {"build_system_prompt": "x"})
+        cl._apply_variant(sdw, {"_UNKNOWN_VARIANT_ATTR": "x"})
 
 def test_apply_and_restore_variant_round_trips():
     original = sdw.TICKS_RANGE
@@ -2159,10 +2159,7 @@ def test_run_simulation_without_a_sink_returns_the_same_result(monkeypatch):
         run_index=0,
         stage_only="monday",
         injected_event=None,
-        ticks_per_day=3,
         mode="openai",
-        prompt_style="scene",
-        character_models=None,
     )
     # Speaker selection uses module-level `random` state - seed identically
     # before each call so the only variable between them is message_sink.
@@ -4162,11 +4159,23 @@ def test_friday_comparison_tracks_complete_authored_photo_payload():
         )
 
 
-def test_effective_photo_inputs_preserve_complete_mapping():
+def test_effective_photo_inputs_preserve_exact_authored_serialization():
     context = {"provider": "legacy", "winner": {"variant": "same"}, "rounds": []}
     effective = cl._effective_bench_photography_inputs("wednesday", "Spiral Bites", context)
-    assert effective == {"author_prompt_photography_context": context}
-    assert effective["author_prompt_photography_context"] is not context
+    assert effective == {
+        "author_prompt_photography_json": json.dumps(context, ensure_ascii=False),
+    }
+
+
+def test_photo_comparison_rejects_key_order_prompt_change():
+    baseline_context = {"provider": "legacy", "cost": 1}
+    current_context = {"cost": 1, "provider": "legacy"}
+    assert baseline_context == current_context
+    with pytest.raises(cl.ConversationLabError, match="photography_context authored prompt"):
+        cl._assert_comparable_scenario(
+            {"stage": "wednesday", "concept": "Spiral Bites", "photography_context": baseline_context},
+            {"stage": "wednesday", "concept": "Spiral Bites", "photography_context": current_context},
+        )
 
 
 def test_bench_photo_baseline_mismatch_is_rejected_before_generation(tmp_path, monkeypatch):

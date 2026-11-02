@@ -7,10 +7,6 @@ Examples:
 
   PYTHONPATH=. uv run scripts/simulate_dialogue_week.py \
     --concept "Mini Shepherd's Pies" --stage friday --event "ingredient shortage: cheddar"
-
-  PYTHONPATH=. uv run scripts/simulate_dialogue_week.py \
-    --concept "Brown Butter Pecan Tassies" \
-    --character-models '{"Margaret Chen":"openai/gpt-5.1","default":"openai/gpt-5-mini"}'
 """
 
 from __future__ import annotations
@@ -1631,10 +1627,7 @@ def run_simulation(
     run_index: int,
     stage_only: str | None,
     injected_event: str | None,
-    ticks_per_day: int,
     mode: str,
-    prompt_style: str,
-    character_models: dict[str, str] | None,
     image_paths: list[str] | None = None,  # 3 image paths from photography stage
     image_urls: list[str] | None = None,  # aligned public candidates for author vision/retries
     photography_context: dict | None = None,  # full photography data with rounds/reshoot
@@ -1717,8 +1710,6 @@ def run_simulation(
         "run": run_index,
         "concept": concept,
         "default_model": default_model,
-        "prompt_style": prompt_style,
-        "character_models": character_models or {},
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "messages": [m.__dict__ for m in messages],
         "name_strip_transcript": [m.message for m in messages],
@@ -1742,20 +1733,16 @@ def main() -> None:
     parser.add_argument("--concept", required=True)
     parser.add_argument("--model", default=config.dialogue_model, help=f"Single default model (current: {config.dialogue_model})")
     parser.add_argument("--models", default=None, help="Comma-separated models for comparison")
-    parser.add_argument("--character-models", default=None, help="JSON map of character=>model, with optional default")
     parser.add_argument("--runs", type=int, default=1)
     parser.add_argument("--stage", choices=DAY_ORDER, default=None)
     parser.add_argument("--event", default=None)
-    parser.add_argument("--ticks-per-day", type=int, default=6)
     parser.add_argument("--mode", choices=["llm", "template"], default="llm")
-    parser.add_argument("--prompt-style", choices=["scene", "full"], default="full")
     parser.add_argument("--judge", action="store_true", help="Run Opus judge on each day with growing context")
     parser.add_argument("--judge-model", default=None, help="Override judge model (default: config.judge_model)")
     args = parser.parse_args()
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     models = parse_models(args.models) if args.models else [args.model]
-    character_models = json.loads(args.character_models) if args.character_models else None
 
     all_results: list[dict[str, Any]] = []
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -1769,14 +1756,11 @@ def main() -> None:
                 run_index=i,
                 stage_only=args.stage,
                 injected_event=args.event,
-                ticks_per_day=args.ticks_per_day,
                 mode=args.mode,
-                prompt_style=args.prompt_style,
-                character_models=character_models,
             )
             suffix = f"{args.stage}" if args.stage else "full-week"
             safe_model = model.replace("/", "_").replace(":", "-")
-            out_path = OUT_DIR / f"sim-{stamp}-{concept_slug}-{safe_model}-{args.prompt_style}-run{i}-{suffix}.json"
+            out_path = OUT_DIR / f"sim-{stamp}-{concept_slug}-{safe_model}-authored-run{i}-{suffix}.json"
             # Run judge if requested
             judge_results: dict[str, str] = {}
             if args.judge and not args.stage:
@@ -1847,7 +1831,6 @@ def main() -> None:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "concept": args.concept,
         "mode": args.mode,
-        "prompt_style": args.prompt_style,
         "models": models,
         "results": all_results,
     }

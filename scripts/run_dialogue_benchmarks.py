@@ -5,7 +5,6 @@ Phases:
 1) Enumerate accessible OpenAI chat-like models.
 2) Ensure >=2 monday-stage quick-pass attempts per model (using existing runs + new runs).
 3) Run deeper full-week passes for a curated stable subset.
-4) Run character-model assignment experiments (>=3 variants).
 """
 
 from __future__ import annotations
@@ -21,7 +20,6 @@ ROOT = Path(__file__).resolve().parents[1]
 SIM = ROOT / "scripts" / "simulate_dialogue_week.py"
 LIST = ROOT / "scripts" / "list_openai_models.py"
 OUT_DIR = ROOT / "data" / "simulations"
-ASSIGNMENTS_PATH = ROOT / "data" / "dialogue_model_assignments.json"
 
 MONDAY_CONCEPT = "Jalapeño Corn Dog Bites"
 FULL_WEEK_CONCEPTS = [
@@ -96,8 +94,6 @@ def quick_attempt(model: str, run_tag: str) -> tuple[bool, str]:
         "1",
         "--stage",
         "monday",
-        "--ticks-per-day",
-        "1",
         "--mode",
         "llm",
         "--event",
@@ -106,7 +102,7 @@ def quick_attempt(model: str, run_tag: str) -> tuple[bool, str]:
     return run_cmd(cmd)
 
 
-def run_full_week(model: str, concept: str, prompt_style: str = "scene") -> tuple[bool, str]:
+def run_full_week(model: str, concept: str) -> tuple[bool, str]:
     cmd = [
         "uv",
         "run",
@@ -117,69 +113,8 @@ def run_full_week(model: str, concept: str, prompt_style: str = "scene") -> tupl
         model,
         "--runs",
         "1",
-        "--ticks-per-day",
-        "3",
         "--mode",
         "llm",
-        "--prompt-style",
-        prompt_style,
-    ]
-    return run_cmd(cmd, timeout=240)
-
-
-def assignment_variants() -> dict[str, dict[str, str]]:
-    base = json.loads(ASSIGNMENTS_PATH.read_text())
-
-    v1 = dict(base)
-    v1.update(
-        {
-            "default": "openai/gpt-5-mini",
-            "Devon Park": "openai/gpt-5-nano",
-        }
-    )
-
-    v2 = dict(base)
-    v2.update(
-        {
-            "default": "openai/gpt-5-mini",
-            "Margaret Chen": "openai/gpt-5.1",
-            "Stephanie 'Steph' Whitmore": "openai/gpt-5-mini",
-            "Julian Torres": "openai/gpt-5.1",
-            "Marcus Reid": "openai/gpt-5-mini",
-            "Devon Park": "openai/gpt-5-nano",
-        }
-    )
-
-    v3 = dict(base)
-    v3.update(
-        {
-            "default": "anthropic/claude-haiku-4-5-20251001",
-            "Margaret Chen": "openai/gpt-5.1",
-            "Stephanie 'Steph' Whitmore": "openai/gpt-5-mini",
-            "Julian Torres": "anthropic/claude-haiku-4-5-20251001",
-            "Marcus Reid": "openai/gpt-5-mini",
-            "Devon Park": "anthropic/claude-haiku-4-5-20251001",
-        }
-    )
-
-    return {"variant_balanced": v1, "variant_openai_leads": v2, "variant_anthropic_mix": v3}
-
-
-def run_assignment_variant(name: str, mapping: dict[str, str]) -> tuple[bool, str]:
-    cmd = [
-        "uv",
-        "run",
-        str(SIM),
-        "--concept",
-        "Mini Shepherd's Pies",
-        "--runs",
-        "1",
-        "--ticks-per-day",
-        "3",
-        "--mode",
-        "llm",
-        "--character-models",
-        json.dumps(mapping),
     ]
     return run_cmd(cmd, timeout=240)
 
@@ -239,49 +174,21 @@ def main() -> None:
     deep_runs: list[dict[str, Any]] = []
     for model in full_week_models:
         for concept in FULL_WEEK_CONCEPTS:
-            ok, out = run_full_week(model, concept, prompt_style="scene")
+            ok, out = run_full_week(model, concept)
             deep_runs.append(
                 {
                     "model": model,
                     "concept": concept,
-                    "prompt_style": "scene",
                     "ok": ok,
                     "reason": "pass" if ok else reason_from_output(out),
                 }
             )
-
-    # Comparison context only: one full-prompt run for a representative concept.
-    for model in full_week_models:
-        ok, out = run_full_week(model, MONDAY_CONCEPT, prompt_style="full")
-        deep_runs.append(
-            {
-                "model": model,
-                "concept": MONDAY_CONCEPT,
-                "prompt_style": "full",
-                "ok": ok,
-                "reason": "pass" if ok else reason_from_output(out),
-            }
-        )
-
-    variants = assignment_variants()
-    variant_results: list[dict[str, Any]] = []
-    for name, mapping in variants.items():
-        ok, out = run_assignment_variant(name, mapping)
-        variant_results.append(
-            {
-                "variant": name,
-                "ok": ok,
-                "reason": "pass" if ok else reason_from_output(out),
-                "mapping": mapping,
-            }
-        )
 
     summary = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "openai_models_total": len(models),
         "compatibility": compatibility,
         "deep_runs": deep_runs,
-        "assignment_variants": variant_results,
     }
     out_path = OUT_DIR / "openai_benchmark_summary.json"
     out_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False))
