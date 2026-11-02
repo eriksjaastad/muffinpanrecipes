@@ -157,8 +157,6 @@ def test_a_retry_is_told_why_the_judge_rejected_the_attempt_before_it(monkeypatc
         return True, "PASS"
 
     monkeypatch.setattr(sdw, "generate_response", _model)
-    monkeypatch.setattr(sdw, "build_system_prompt", lambda persona: "SYS")
-    monkeypatch.setattr(sdw, "_guard_cot_leak", lambda msg, **_kw: msg)
     with patch.object(cron_routes, "_judge_dialogue", _judge), \
          patch.object(cron_routes, "_score_dialogue_qa", lambda *a, **kw: None):
         cron_routes._generate_and_judge_dialogue(

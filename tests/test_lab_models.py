@@ -339,123 +339,12 @@ def test_resolve_lab_model_set_honors_explicit_deepseek():
 
 
 # ---------------------------------------------------------------------------
-# STOP_CHECK provider="haiku" is out of scope for #7714 (lab convention is
-# provider="jev") - combining it with a non-default model set must refuse
-# instead of silently spending on real Anthropic Claude. But STOP_CHECK is
-# only ever consulted when WINDDOWN_TRIGGER == "check" (see
-# scripts/simulate_dialogue_week.py's run_simulation), so the refusal must
-# key off each arm's EFFECTIVE (trigger, provider) pair, not the provider
-# alone - the production default WINDDOWN_TRIGGER is "regex", under which a
-# "haiku" STOP_CHECK is never actually called (#7680 over-strict refusal).
-# ---------------------------------------------------------------------------
-
-def test_stop_check_haiku_refuses_with_non_default_models(monkeypatch):
-    """Real conflict: control's effective trigger is "check" (not the
-    "regex" default) AND its provider is "haiku" - check_scene_done would
-    call real Anthropic Claude Haiku on every tick."""
-    monkeypatch.setattr(sdw, "WINDDOWN_TRIGGER", "check")
-    monkeypatch.setattr(sdw, "STOP_CHECK", {**sdw.STOP_CHECK, "provider": "haiku"})
-    with pytest.raises(SystemExit, match="haiku"):
-        cl._refuse_if_stop_check_conflicts_with_models(_args(models="deepseek"), variant={})
-
-
-def test_stop_check_haiku_control_allowed_when_trigger_stays_regex(monkeypatch):
-    """Was `test_stop_check_haiku_refuses_with_non_default_models` before the
-    #7680 fix: it monkeypatched STOP_CHECK provider="haiku" but never touched
-    WINDDOWN_TRIGGER, leaving it at the module default "regex" - under which
-    check_scene_done is never called, so there is nothing to conflict with.
-    The old test asserted this refused; that was the over-strict bug."""
-    monkeypatch.setattr(sdw, "STOP_CHECK", {**sdw.STOP_CHECK, "provider": "haiku"})
-    cl._refuse_if_stop_check_conflicts_with_models(_args(models="deepseek"), variant={})  # must not raise
-
-
-def test_stop_check_jev_control_allowed_with_non_default_models(monkeypatch):
-    monkeypatch.setattr(sdw, "WINDDOWN_TRIGGER", "check")
-    monkeypatch.setattr(sdw, "STOP_CHECK", {**sdw.STOP_CHECK, "provider": "jev"})
-    cl._refuse_if_stop_check_conflicts_with_models(_args(models="deepseek"), variant={})  # must not raise
-
-
-def test_stop_check_variant_check_jev_allowed_with_non_default_models(monkeypatch):
-    """The exact reproduced-bug shape: control stays at the production
-    default (WINDDOWN_TRIGGER="regex", STOP_CHECK provider="haiku"), and the
-    variant sets WINDDOWN_TRIGGER="check" with STOP_CHECK provider="jev".
-    Neither arm ever calls the haiku stop check, so this must be allowed."""
-    variant = {
-        "WINDDOWN_TRIGGER": "check",
-        "STOP_CHECK": {
-            "provider": "jev", "decided_threshold": 0.7, "require_pushback": True, "pushback_threshold": 0.5,
-        },
-    }
-    cl._refuse_if_stop_check_conflicts_with_models(_args(models="deepseek"), variant=variant)  # must not raise
-
-
-def test_stop_check_variant_check_haiku_refuses(monkeypatch):
-    """A variant that sets WINDDOWN_TRIGGER="check" but STOP_CHECK provider
-    stays "haiku" (explicitly, or inherited because the variant never
-    mentions STOP_CHECK at all) is a real conflict."""
-    variant = {
-        "WINDDOWN_TRIGGER": "check",
-        "STOP_CHECK": {
-            "provider": "haiku", "decided_threshold": 0.7, "require_pushback": True, "pushback_threshold": 0.5,
-        },
-    }
-    with pytest.raises(SystemExit, match="haiku"):
-        cl._refuse_if_stop_check_conflicts_with_models(_args(models="deepseek"), variant=variant)
-
-
-def test_stop_check_variant_check_only_inherits_haiku_and_refuses(monkeypatch):
-    """A variant that sets WINDDOWN_TRIGGER="check" but does not mention
-    STOP_CHECK at all inherits the module default provider ("haiku") for
-    that arm - still a real conflict."""
-    variant = {"WINDDOWN_TRIGGER": "check"}
-    with pytest.raises(SystemExit, match="haiku"):
-        cl._refuse_if_stop_check_conflicts_with_models(_args(models="deepseek"), variant=variant)
-
-
-def test_stop_check_variant_override_to_jev_still_refuses_if_control_stays_haiku(monkeypatch):
-    """Control is never variant-patched, so a variant that fixes STOP_CHECK
-    for the variant arm alone does not save a control arm whose effective
-    trigger/provider pair is still (check, haiku)."""
-    monkeypatch.setattr(sdw, "WINDDOWN_TRIGGER", "check")
-    monkeypatch.setattr(sdw, "STOP_CHECK", {**sdw.STOP_CHECK, "provider": "haiku"})
-    variant = {"STOP_CHECK": {
-        "provider": "jev", "decided_threshold": 0.7, "require_pushback": True, "pushback_threshold": 0.5,
-    }}
-    with pytest.raises(SystemExit, match="haiku"):
-        cl._refuse_if_stop_check_conflicts_with_models(_args(models="deepseek"), variant=variant)
-
-
-def test_stop_check_variant_override_to_haiku_refuses_even_if_control_is_jev(monkeypatch):
-    """The variant arm alone can trip the refusal: it sets its own
-    WINDDOWN_TRIGGER="check" and STOP_CHECK provider="haiku" even though the
-    control's own STOP_CHECK (unused, since control stays "regex") is jev."""
-    monkeypatch.setattr(sdw, "STOP_CHECK", {**sdw.STOP_CHECK, "provider": "jev"})
-    variant = {
-        "WINDDOWN_TRIGGER": "check",
-        "STOP_CHECK": {
-            "provider": "haiku", "decided_threshold": 0.7, "require_pushback": True, "pushback_threshold": 0.5,
-        },
-    }
-    with pytest.raises(SystemExit, match="haiku"):
-        cl._refuse_if_stop_check_conflicts_with_models(_args(models="deepseek"), variant=variant)
-
-
-def test_stop_check_haiku_ok_with_default_models_set(monkeypatch):
-    monkeypatch.setattr(sdw, "WINDDOWN_TRIGGER", "check")
-    monkeypatch.setattr(sdw, "STOP_CHECK", {**sdw.STOP_CHECK, "provider": "haiku"})
-    cl._refuse_if_stop_check_conflicts_with_models(_args(models=None), variant={})
-    cl._refuse_if_stop_check_conflicts_with_models(_args(models="claude"), variant={})
-
-
-# ---------------------------------------------------------------------------
 # End-to-end `ab --models deepseek`: every real generation/judge call gets
 # the deepseek ids, and the report records the set + both resolved ids.
 # ---------------------------------------------------------------------------
 
 def _write_variant(tmp_path, extra=None):
-    body = {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"}
-    if extra:
-        body.update(extra)
+    body = {"TICKS_RANGE": {"monday": [3, 4]}}
     path = tmp_path / "variant.json"
     path.write_text(json.dumps(body))
     return path
@@ -485,12 +374,9 @@ def test_ab_dry_run_reports_deepseek_provider_route_and_models_without_any_calls
     """--dry-run makes zero calls (so no OpenRouter key/balance check runs),
     but the report must still show the REAL deepseek ids - --models is
     resolved independently of --dry-run's "template" collapse used for
-    actual dispatch. The stop-check/--models conflict guard DOES still run
-    under --dry-run (see test_dry_run_* below), but this variant/control
-    pairing (module defaults: WINDDOWN_TRIGGER="regex") has no conflict to
-    catch, so it passes through silently either way."""
+    actual dispatch. Authored scenes do not run stop checks, so the legacy
+    stop-check provider cannot conflict with the selected model set."""
     model_router.reset_cost_log()
-    sdw.STOP_CHECK_LOG.clear()
     monkeypatch.setattr(
         cl, "_openrouter_fetch_key",
         lambda: (_ for _ in ()).throw(AssertionError("key check must not run under --dry-run")),
@@ -523,9 +409,6 @@ def test_ab_models_deepseek_sends_deepseek_ids_to_dialogue_and_judge_calls(tmp_p
     `default_model` parameter) and the judge with the deepseek ids, never
     the claude default."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
-    # Lab convention: STOP_CHECK provider="jev" - out of #7714's scope, but a
-    # non-default set refuses outright while it's "haiku" (module default).
-    monkeypatch.setattr(sdw, "STOP_CHECK", {**sdw.STOP_CHECK, "provider": "jev"})
     monkeypatch.setattr(cl, "_openrouter_fetch_key", lambda: {"limit": 10.0, "limit_remaining": 9.5, "usage": 0.0})
     monkeypatch.setattr(cl, "_openrouter_fetch_account_balance", lambda: 100.0)
     _stub_model_prices(monkeypatch, "deepseek")
@@ -534,7 +417,6 @@ def test_ab_models_deepseek_sends_deepseek_ids_to_dialogue_and_judge_calls(tmp_p
     seen_default_models = []
 
     def fake_run_simulation(*, default_model, **kwargs):
-        sdw.STOP_CHECK_LOG.clear()
         seen_default_models.append(default_model)
         return {"messages": _messages()}
 
@@ -579,39 +461,32 @@ def test_ab_models_flag_rejects_unknown_set_name(tmp_path):
         ])
 
 
-def test_ab_models_deepseek_refuses_before_any_call_when_stop_check_is_haiku(tmp_path, monkeypatch):
-    """Real conflict: control's effective WINDDOWN_TRIGGER is "check" (not
-    the "regex" default), so its "haiku" STOP_CHECK would actually be
-    called."""
-    monkeypatch.setattr(sdw, "WINDDOWN_TRIGGER", "check")
-    monkeypatch.setattr(sdw, "STOP_CHECK", {**sdw.STOP_CHECK, "provider": "haiku"})
-    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
-    monkeypatch.setattr(cl, "_openrouter_fetch_key", lambda: {"limit": 10.0, "limit_remaining": 9.5, "usage": 0.0})
-    monkeypatch.setattr(cl, "_openrouter_fetch_account_balance", lambda: 100.0)
-    _stub_model_prices(monkeypatch, "deepseek")
-
-    def fail_generation(**kwargs):
-        raise AssertionError("generation must not start when STOP_CHECK/--models conflict")
-
-    monkeypatch.setattr(sdw, "run_simulation", fail_generation)
-    with pytest.raises(SystemExit, match="haiku"):
+def test_retired_stop_variant_refuses_before_preflight_or_generation(tmp_path, monkeypatch):
+    variant_path = tmp_path / "retired-stop.json"
+    variant_path.write_text(json.dumps({"LEGACY_STOP_CONTROL": "check"}))
+    monkeypatch.setattr(
+        cl, "_openrouter_fetch_key",
+        lambda: (_ for _ in ()).throw(AssertionError("no preflight for a no-op variant")),
+    )
+    monkeypatch.setattr(
+        sdw, "run_simulation",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("no generation for a no-op variant")),
+    )
+    with pytest.raises(SystemExit, match="does not affect authored scenes"):
         cl.main([
             "ab", "--models", "deepseek",
             "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
-            "--variant", str(_write_variant(tmp_path)), "--recipe-context", "anchor",
+            "--variant", str(variant_path), "--recipe-context", "anchor",
             "--no-log", "--results-dir", str(tmp_path / "results"),
         ])
 
 
-def test_ab_testbed_models_deepseek_with_check_jev_variant_proceeds_past_stop_check_guard(tmp_path, monkeypatch):
-    """Reproduces the exact #7680 bug shape: `ab --testbed --models
-    deepseek --variant <file>` where the variant sets
-    WINDDOWN_TRIGGER="check" and STOP_CHECK provider="jev". The control
-    stays at the untouched module defaults (WINDDOWN_TRIGGER="regex",
-    STOP_CHECK provider="haiku"), which used to look like a conflict but
-    never actually calls the haiku stop check. Generation and judging are
-    mocked; this only asserts the run proceeds past
-    `_refuse_if_stop_check_conflicts_with_models` and reaches run_simulation."""
+def test_ab_testbed_deepseek_accepts_effective_ticks_variant(tmp_path, monkeypatch):
+    """A valid authored-scene variant works with a non-default model set.
+
+    Authored scenes do not run the legacy stop check, so its provider does
+    not create a model-set conflict.
+    """
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
     monkeypatch.setattr(cl, "_openrouter_fetch_key", lambda: {"limit": 10.0, "limit_remaining": 9.5, "usage": 0.0})
     monkeypatch.setattr(cl, "_openrouter_fetch_account_balance", lambda: 100.0)
@@ -621,7 +496,6 @@ def test_ab_testbed_models_deepseek_with_check_jev_variant_proceeds_past_stop_ch
     run_simulation_calls = []
 
     def fake_run_simulation(*, default_model, **kwargs):
-        sdw.STOP_CHECK_LOG.clear()
         run_simulation_calls.append(default_model)
         return {"messages": _messages()}
 
@@ -635,12 +509,7 @@ def test_ab_testbed_models_deepseek_with_check_jev_variant_proceeds_past_stop_ch
     monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
     monkeypatch.setattr(model_router, "generate_judge_response", fake_judge)
 
-    variant_path = _write_variant(tmp_path, extra={
-        "WINDDOWN_TRIGGER": "check",
-        "STOP_CHECK": {
-            "provider": "jev", "decided_threshold": 0.7, "require_pushback": True, "pushback_threshold": 0.5,
-        },
-    })
+    variant_path = _write_variant(tmp_path)
     results_dir = tmp_path / "results"
 
     cl.main([
@@ -663,9 +532,8 @@ def test_ab_testbed_models_deepseek_with_check_jev_variant_proceeds_past_stop_ch
 # `args.dry_run`.
 # ---------------------------------------------------------------------------
 
-def test_dry_run_with_real_conflict_still_refuses(tmp_path, monkeypatch):
-    """A --dry-run with a genuine (check, haiku) conflict must refuse before
-    touching anything real - no key check, no generation."""
+def test_dry_run_with_retired_variant_refuses_before_generation(tmp_path, monkeypatch):
+    """Dry runs also reject no-op levers before entering either arm."""
     monkeypatch.setattr(
         cl, "_openrouter_fetch_key",
         lambda: (_ for _ in ()).throw(AssertionError("key check must not run under --dry-run")),
@@ -676,15 +544,11 @@ def test_dry_run_with_real_conflict_still_refuses(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sdw, "run_simulation", fail_generation)
 
-    variant_path = _write_variant(tmp_path, extra={
-        "WINDDOWN_TRIGGER": "check",
-        "STOP_CHECK": {
-            "provider": "haiku", "decided_threshold": 0.7, "require_pushback": True, "pushback_threshold": 0.5,
-        },
-    })
+    variant_path = tmp_path / "retired-stop.json"
+    variant_path.write_text(json.dumps({"LEGACY_STOP_CONTROL": {"provider": "haiku"}}))
     results_dir = tmp_path / "results"
 
-    with pytest.raises(SystemExit, match="haiku"):
+    with pytest.raises(SystemExit, match="does not affect authored scenes"):
         cl.main([
             "ab", "--models", "deepseek", "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
             "--variant", str(variant_path), "--recipe-context", "anchor",
@@ -695,22 +559,14 @@ def test_dry_run_with_real_conflict_still_refuses(tmp_path, monkeypatch):
 
 
 def test_dry_run_without_conflict_makes_zero_calls(tmp_path, monkeypatch):
-    """The exact previously-buggy shape (WINDDOWN_TRIGGER='check' +
-    STOP_CHECK provider='jev' + --models deepseek) run under --dry-run: no
-    conflict, so it must proceed all the way through with zero real calls -
-    no key/balance check, no generation, no judge - and still report the
-    real deepseek ids."""
+    """A valid authored line-range variant runs under --dry-run without
+    credentials, generation calls, or judge calls and still reports models."""
     monkeypatch.setattr(
         cl, "_openrouter_fetch_key",
         lambda: (_ for _ in ()).throw(AssertionError("key check must not run under --dry-run")),
     )
     monkeypatch.setattr(sdw, "run_simulation", lambda **kw: {"messages": _messages()})
-    variant_path = _write_variant(tmp_path, extra={
-        "WINDDOWN_TRIGGER": "check",
-        "STOP_CHECK": {
-            "provider": "jev", "decided_threshold": 0.7, "require_pushback": True, "pushback_threshold": 0.5,
-        },
-    })
+    variant_path = _write_variant(tmp_path)
     results_dir = tmp_path / "results"
 
     cl.main([
@@ -820,7 +676,6 @@ def test_ab_resolves_claude_o55_judge_model(tmp_path, monkeypatch):
     seen_judge_models = []
 
     def fake_run_simulation(*, default_model, **kwargs):
-        sdw.STOP_CHECK_LOG.clear()
         return {"messages": [{
             "day": "monday", "stage": "brainstorm", "character": "Margaret Chen",
             "message": "Fixture line.", "timestamp": "2026-09-30T09:00:00+00:00",
@@ -838,7 +693,7 @@ def test_ab_resolves_claude_o55_judge_model(tmp_path, monkeypatch):
     monkeypatch.setattr(sdw, "run_simulation", fake_run_simulation)
     monkeypatch.setattr(model_router, "generate_judge_response", fake_judge)
     variant_path = tmp_path / "variant.json"
-    variant_path.write_text(json.dumps({"WORD_CAPS": True}))
+    variant_path.write_text(json.dumps({"TICKS_RANGE": {"monday": [3, 4]}}))
     results_dir = tmp_path / "results"
 
     cl.main([
@@ -968,7 +823,6 @@ def test_ab_with_local_set_generates_locally_and_prices_only_the_judge(tmp_path,
     model_router.reset_cost_log()
 
     def fake_run_simulation(*, default_model, **kwargs):
-        sdw.STOP_CHECK_LOG.clear()
         # Two calls: the second passes the guard only if the first left a
         # readable ($0.00) cost entry.
         lines = [model_router.generate_response(f"line {i}", model=default_model) for i in range(2)]

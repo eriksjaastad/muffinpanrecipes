@@ -348,8 +348,7 @@ def get_cost_entries() -> list[dict]:
 
 def record_external_cost(provider: str, model: str, cost: Any) -> None:
     """Record a cost-log entry for a paid unit that never goes through
-    generate_response()/generate_judge_response() - backend.utils.stop_check's
-    Jev HTTP attempts (#7714) and backend.utils.image_generation's images.
+    generate_response()/generate_judge_response() - for example, backend.utils.image_generation.s images.
 
     Stored as ``actual_cost`` with zero tokens, exactly like an OpenRouter
     call's real ``usage.cost`` - so it counts toward
@@ -368,8 +367,7 @@ def record_external_cost(provider: str, model: str, cost: Any) -> None:
 #
 # A caller (scripts/conversation_lab.py) may install a callback here that
 # fires immediately before every generate_response()/generate_judge_response()
-# call - and, via backend.utils.stop_check's own hook, before every Jev HTTP
-# attempt - so it can enforce --max-calls/--max-cost INSIDE a running arm
+# call, so it can enforce --max-calls/--max-cost INSIDE a running arm
 # instead of only at coarser boundaries. With no hook installed (the
 # production default, and every test that never calls set_pre_call_hook),
 # this is a complete no-op and behavior is byte-identical to before #7714.

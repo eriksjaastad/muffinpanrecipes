@@ -265,7 +265,7 @@ def test_testbed_run_hands_the_judge_the_recipe_method(tmp_path, monkeypatch):
     """0 of 2 judge prompts carried ground truth before this fix."""
     prompts = _capture_judge_prompts(monkeypatch)
     variant = tmp_path / "v.json"
-    variant.write_text(json.dumps({"_SHARED_CHARACTER_RULES": "VARIANT"}))
+    variant.write_text(json.dumps({"TICKS_RANGE": {"tuesday": [3, 4]}}))
 
     cl.main([
         "ab",
@@ -286,7 +286,7 @@ def test_sweep_run_hands_the_judge_the_recipe_method(tmp_path, monkeypatch):
     prompts = _capture_judge_prompts(monkeypatch)
     sweep = tmp_path / "sweep"
     sweep.mkdir()
-    (sweep / "a.json").write_text(json.dumps({"_SHARED_CHARACTER_RULES": "VARIANT_A"}))
+    (sweep / "a.json").write_text(json.dumps({"TICKS_RANGE": {"tuesday": [3, 4]}}))
 
     cl.main([
         "ab",
@@ -305,7 +305,7 @@ def test_the_w38_method_reaches_the_judge_verbatim(tmp_path, monkeypatch):
     """The point of the W38 scenario: the judge must see a dough rolled ONCE."""
     prompts = _capture_judge_prompts(monkeypatch)
     variant = tmp_path / "v.json"
-    variant.write_text(json.dumps({"_SHARED_CHARACTER_RULES": "VARIANT"}))
+    variant.write_text(json.dumps({"TICKS_RANGE": {"tuesday": [3, 4]}}))
 
     cl.main([
         "ab",
@@ -324,7 +324,7 @@ def test_the_w38_method_reaches_the_judge_verbatim(tmp_path, monkeypatch):
 
 def test_testbed_no_log_keeps_the_module_default_log_untouched(tmp_path):
     variant = tmp_path / "variant.json"
-    variant.write_text(json.dumps({"_SHARED_CHARACTER_RULES": "VARIANT"}))
+    variant.write_text(json.dumps({"TICKS_RANGE": {"tuesday": [3, 4]}}))
     cl.main([
         "ab", "--stage", "tuesday", "--testbed", "--runs", "1", "--variant",
         str(variant), "--dry-run", "--no-log", "--max-calls", "4",

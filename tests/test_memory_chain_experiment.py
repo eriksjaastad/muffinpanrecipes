@@ -58,13 +58,9 @@ def _fake_adapters(*, fail_week=None, observed=None):
             "week": week["week"],
             "seed": week["seed"],
             "arm": arm,
-            "cache_at_start": dict(STATE._system_prompt_cache),
             "root": memory_root,
             "prior_memories": prior_memories,
         })
-        assert STATE._system_prompt_cache == {}
-        STATE._system_prompt_cache["added during week"] = week["week"]
-        STATE.DAY_STAGE_DIRECTIONS["monday"] = "mutated in fake simulator"
         if fail_week == week["week"] and arm == ARMS[1]:
             raise RuntimeError("synthetic simulation failure")
         if arm == ARMS[1]:
@@ -216,7 +212,6 @@ def test_fake_chain_keeps_arms_isolated_and_links_week_memories(tmp_path, monkey
             assert all(turn["week"] == week["week"] for turn in week["turns"])
             assert all(turn["source_id"].startswith("turn_") for turn in week["turns"])
             assert len(week["source_ids"]) == len(set(week["source_ids"]))
-    assert all(observation["cache_at_start"] == {} for observation in observed)
     assert STATE.CHARACTERS_DIR == production_root
     assert sentinel.read_text(encoding="utf-8") == "preserve"
     assert sorted(path.name for path in production_root.iterdir()) == ["sentinel.json"]

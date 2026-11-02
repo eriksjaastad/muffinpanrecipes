@@ -380,7 +380,7 @@ def test_openrouter_judge_uses_openrouter_judge_allowlist(monkeypatch):
 
 def _write_variant(tmp_path):
     path = tmp_path / "variant.json"
-    path.write_text(json.dumps({"_SHARED_CHARACTER_RULES": "VARIANT_RULES"}))
+    path.write_text(json.dumps({"TICKS_RANGE": {"monday": [3, 4]}}))
     return path
 
 
@@ -420,7 +420,6 @@ def test_openrouter_dry_run_skips_key_check_and_records_provider_route(tmp_path,
     """A dry run makes zero calls, so the key check must not run; the result
     still records provider_route and zeroed openrouter cost totals."""
     model_router.reset_cost_log()
-    sdw.STOP_CHECK_LOG.clear()
     monkeypatch.setattr(
         cl,
         "_openrouter_fetch_key",
@@ -443,12 +442,9 @@ def test_openrouter_dry_run_skips_key_check_and_records_provider_route(tmp_path,
     assert report["total_cost_usd"] == 0.0
 
 
-def test_openrouter_cost_by_model_totals_router_and_jev_costs():
-    """#7714 finding 4: Jev cost comes from the router LEDGER
-    (record_external_cost), the same source --max-cost reads - not from a
-    pair's stop_check_log, which only ever holds the last SUCCESSFUL check
-    per tick and would miss a retried/failed attempt that was already
-    charged against the cap."""
+def test_openrouter_cost_report_includes_only_openrouter_router_costs():
+    """The OpenRouter report is scoped to provider=openrouter entries;
+    separately recorded Jev costs remain in the shared ledger for the cap."""
     model_router.reset_cost_log()
     model_router._record_cost(
         "openrouter", "anthropic/claude-haiku-4.5", 10, 2,
@@ -460,17 +456,16 @@ def test_openrouter_cost_by_model_totals_router_and_jev_costs():
     )
     model_router.record_external_cost("jev", "typesafe/jev-1.13-20260917", 0.000013272)
 
-    # pairs/partial_pairs are accepted for call-site compatibility only -
-    # the function no longer reads them for jev cost.
+    # Pair logs and separately billed Jev entries do not contribute to this
+    # provider-specific report.
     totals = cl._openrouter_cost_by_model_for_pairs([{"control_stop_check_log": [], "variant_stop_check_log": []}], [])
     report = cl._openrouter_cost_report(totals)
 
     assert report["cost_by_model"] == {
         "openrouter/anthropic/claude-haiku-4.5": 0.001,
         "openrouter/anthropic/claude-opus-4.6": 0.0004,
-        "jev/typesafe/jev-1.13-20260917": 0.000013272,
     }
-    assert report["total_cost_usd"] == pytest.approx(0.001413272)
+    assert report["total_cost_usd"] == pytest.approx(0.0014)
 
 
 def test_openrouter_ab_end_to_end_records_costs_and_key_before_after(tmp_path, monkeypatch):
@@ -492,7 +487,6 @@ def test_openrouter_ab_end_to_end_records_costs_and_key_before_after(tmp_path, m
     seen_default_models = []
 
     def fake_run_simulation(*, default_model, **kwargs):
-        sdw.STOP_CHECK_LOG.clear()
         seen_default_models.append(default_model)
         return {"messages": _messages()}
 

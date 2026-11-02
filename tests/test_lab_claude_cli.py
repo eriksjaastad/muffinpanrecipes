@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-from types import SimpleNamespace
 
 import pytest
 
@@ -84,14 +83,3 @@ def test_max_calls_stops_a_claude_cli_arm_mid_run(monkeypatch):
             model_router.generate_response("p", model="openrouter/anthropic/claude-haiku-4.5")
         with pytest.raises(cl.LabBudgetAbort):
             model_router.generate_response("p", model="openrouter/anthropic/claude-haiku-4.5")
-
-
-def test_claude_cli_sets_refuse_jev_and_accept_haiku_stop_checks():
-    args = SimpleNamespace(models="claude-o55")
-    with pytest.raises(SystemExit, match="'jev' only exists on OpenRouter"):
-        cl._refuse_if_stop_check_conflicts_with_models(
-            args, {"WINDDOWN_TRIGGER": "check", "STOP_CHECK": {"provider": "jev"}},
-        )
-    cl._refuse_if_stop_check_conflicts_with_models(
-        args, {"WINDDOWN_TRIGGER": "check", "STOP_CHECK": {"provider": "haiku"}},
-    )

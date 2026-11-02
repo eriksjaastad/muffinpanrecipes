@@ -157,7 +157,7 @@ independent of the judge. The targets are DIALS.md section 3:
 ## 5. Design rules (apply to every study)
 
 1. **One change per arm.** Every arm differs from its reference in exactly one registered
-   change. Coupled knobs are named as coupled (OPEN_ENDED_MAX_TICKS requires the stop check;
+   change. Coupled knobs are named as coupled (retired_open_ended_cap requires the stop check;
    `simulate_dialogue_week.py:2325`).
 2. **Paired design.** Each pair's baseline is regenerated with the same recipe and run index,
    so both arms share prompt inputs apart from the change.
@@ -336,7 +336,7 @@ EXPERIMENTS.md.
 | S5-MM | Replication | MiMo V2.6 Pro | as above | as above | as above | as above | future | - | - |
 | S5-QW | Replication | Qwen3.5-27B | as above | as above | as above | as above | future | - | - |
 | S5-KM | Replication | Kimi K3 | as above | as above | as above | as above | future | - | - |
-| S6 | Does one author write a better Monday meeting? (#8383) | Haiku 4.5 / Opus 5.5 informational judge | Legacy per-line control vs one-author variant; author sees Method and judge_recipe_facts | 14 (7 v3 recipes x 2) | Erik's blind picks with one-line why | Human preference decides; judge informational. Each pair within 15% total words and 25% words/line (larger/smaller - 1); regenerate author at most twice, report remaining exceptions. Silent roster members allowed, traits as tendencies. | 14 picks saved 2026-10-17; preference unresolved, 3 reasons persisted | Human 7 author / 7 control, largely opening-hook judgments; original 14/14 length matched. Separate format validation 12/14 matched, exceptions 13/14 reported. Raw, attribution and offline metrics in EXPERIMENTS.md | $2.799075 including failures and format validation; $12.200925 remains for card #8384; reserve $20 |
+| S6 | Does one author write a better Monday meeting? (#8383) | Haiku 4.5 / Opus 5.5 informational judge | Production vs retired_one_author_variant; author sees Method and judge_recipe_facts | 14 (7 v3 recipes x 2) | Erik's blind picks with one-line why | Human preference decides; judge informational. Each pair within 15% total words and 25% words/line (larger/smaller - 1); regenerate author at most twice, report remaining exceptions. Silent roster members allowed, traits as tendencies. | 14 picks saved 2026-10-17; preference unresolved, 3 reasons persisted | Human 7 author / 7 control, largely opening-hook judgments; original 14/14 length matched. Separate format validation 12/14 matched, exceptions 13/14 reported. Raw, attribution and offline metrics in EXPERIMENTS.md | $2.799075 including failures and format validation; $12.200925 remains for card #8384; reserve $20 |
 
 S6 follows Erik's 2026-10-17 card amendments: the human read decides, overriding
 the judge-based ship rules above for this study. The legacy full-cast and fixed-trait
@@ -362,7 +362,7 @@ the author recipe Method/facts that the production control does not see.
   that B and every arm are judged against one shared set of control transcripts
   (`ab --sweep`, controls generated once per scenario and run). Variant files are the S0a bundle
   `monday-limits-off.json` with exactly one key removed per arm (A5 removes the coupled trio
-  OPEN_ENDED_MAX_TICKS, WINDDOWN_TRIGGER and STOP_CHECK). sha256 prefixes: B 32d5f7ce12f5,
+  retired_open_ended_cap, retired_wind_down_switch and retired_model_stop_check). sha256 prefixes: B 32d5f7ce12f5,
   A1 a5797c478a25, A2 c06cce5906a0, A4 b116eaf4c2a0, A5 b598e2c5c0b3. Command:
   `ab --sweep <dir> --testbed --stage monday --runs 2 --models claude-o55 --provider openrouter
   --max-cost 4` (as run 10-01; #8343 later removed `--provider`, since OpenRouter became the only

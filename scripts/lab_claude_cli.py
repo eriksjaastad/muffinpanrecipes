@@ -2,8 +2,7 @@
 
 The lab's dialogue and judge calls go through ``backend.utils.model_router``,
 whose only network path is ``_generate_openrouter``. ``installed()`` swaps
-that one function (plus the judge-instrument description and the Jev stop
-check, which has no subscription equivalent) for a ``claude -p`` subprocess
+that one function (plus the judge-instrument description) for a ``claude -p`` subprocess
 for the duration of a lab run. Production never enters this context, so the
 router itself is unchanged and the Vercel crons keep calling OpenRouter.
 
@@ -25,7 +24,7 @@ import tempfile
 from contextlib import contextmanager
 from typing import Any, Iterator, Optional
 
-from backend.utils import model_router, stop_check
+from backend.utils import model_router
 
 # Paid-API keys, plus the settings that would send `claude` somewhere other
 # than the subscription (a custom endpoint or token, Bedrock, Vertex).
@@ -114,23 +113,18 @@ def judge_request_settings(model: str, temperature: float) -> dict[str, Any]:
     }
 
 
-def _refuse_jev(state: str, objective: str) -> stop_check.StopCheckResult:
-    raise RuntimeError("STOP_CHECK provider 'jev' calls OpenRouter; use 'haiku' on the claude -p lab sets")
-
-
 @contextmanager
 def installed() -> Iterator[None]:
     """Route every lab model call to ``claude -p`` until the block exits."""
     global _active
     if shutil.which("claude") is None:
         raise SystemExit("conversation_lab: the `claude` CLI is not on PATH; this model set runs on the subscription")
-    saved = (model_router._generate_openrouter, model_router.judge_request_settings, stop_check._check_jev)
+    saved = (model_router._generate_openrouter, model_router.judge_request_settings)
     model_router._generate_openrouter = generate
     model_router.judge_request_settings = judge_request_settings
-    stop_check._check_jev = _refuse_jev
     _active = True
     try:
         yield
     finally:
-        model_router._generate_openrouter, model_router.judge_request_settings, stop_check._check_jev = saved
+        model_router._generate_openrouter, model_router.judge_request_settings = saved
         _active = False

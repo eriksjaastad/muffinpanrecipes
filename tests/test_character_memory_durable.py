@@ -881,83 +881,37 @@ def test_load_memories_falls_back_to_known_coworker_on_unavailable(monkeypatch):
         assert sdw._load_memories("Margaret Chen") == []
 
 
-def test_is_genuinely_first_episode_true_only_when_all_empty_and_none_unavailable():
+def test_author_prompt_marks_empty_memory_without_false_onboarding(monkeypatch):
     import scripts.simulate_dialogue_week as sdw
 
-    assert sdw._is_genuinely_first_episode([([], False), ([], False)]) is True
-    assert sdw._is_genuinely_first_episode([([], False), ([{"week": "2026-W40"}], False)]) is False
-
-
-def test_is_genuinely_first_episode_false_on_any_unavailable_read():
-    """The round-2 finding 3 scenario, still true under the redesign: every
-    character's read failing must not look like a genuine premiere week."""
-    import scripts.simulate_dialogue_week as sdw
-
-    assert sdw._is_genuinely_first_episode([([], True), ([], True), ([], True)]) is False
-    assert sdw._is_genuinely_first_episode([([], False), ([], False), ([], True)]) is False
-
-
-def test_empty_memory_gets_known_coworker_fallback_not_first_week(monkeypatch):
-    import scripts.simulate_dialogue_week as sdw
-
-    monkeypatch.setattr(sdw, "MEMORY_ONBOARDING_PILOT", False)
     monkeypatch.setattr(sdw, "_load_memories", lambda name: [])
-    sdw._system_prompt_cache.clear()
-
-    prompt = sdw.build_system_prompt(_persona("Ria Castillo"))
-
-    assert "THIS IS YOUR FIRST WEEK" not in prompt
-    assert "established coworkers" in prompt
-
-
-def test_pilot_flag_restores_first_week_block(monkeypatch):
-    import scripts.simulate_dialogue_week as sdw
-
-    monkeypatch.setattr(sdw, "MEMORY_ONBOARDING_PILOT", True)
-    monkeypatch.setattr(sdw, "_load_memories", lambda name: [])
-    sdw._system_prompt_cache.clear()
-
-    prompt = sdw.build_system_prompt(_persona("Ria Castillo"))
-
-    assert "THIS IS YOUR FIRST WEEK ON THE JOB" in prompt
-
-
-def test_returning_character_with_memory_never_sees_first_week_text(monkeypatch):
-    import scripts.simulate_dialogue_week as sdw
-
-    monkeypatch.setattr(sdw, "MEMORY_ONBOARDING_PILOT", False)
-    monkeypatch.setattr(
-        sdw, "_load_memories",
-        lambda name: [{"concept": "Lemon Tarts", "summary": "Ria pushed for bolder captions."}],
+    prompt = sdw._author_prompt(
+        sdw.load_personas(), ["Ria Castillo"], "Test Cups", "monday",
+        None, None, None, [], [],
     )
-    sdw._system_prompt_cache.clear()
-
-    prompt = sdw.build_system_prompt(_persona("Ria Castillo"))
 
     assert "THIS IS YOUR FIRST WEEK" not in prompt
-    assert "Ria pushed for bolder captions" in prompt
+    assert "Remembers from recent weeks:\n(nothing specific)" in prompt
 
 
-def test_system_prompt_cache_cleared_between_runs_picks_up_new_memory(monkeypatch):
-    """A warm process must never serve a stale prompt across runs (#6968)."""
+def test_author_prompt_reads_fresh_saved_memory_each_time(monkeypatch):
+    """A warm process must not serve stale character memory across runs (#6968)."""
     import scripts.simulate_dialogue_week as sdw
 
-    persona = _persona("Ria Castillo")
-    memories = [[]]  # first run: no memory
-
+    memories = [[]]
     monkeypatch.setattr(sdw, "_load_memories", lambda name: memories[0])
-    monkeypatch.setattr(sdw, "MEMORY_ONBOARDING_PILOT", False)
+    first = sdw._author_prompt(
+        sdw.load_personas(), ["Ria Castillo"], "Test Cups", "monday",
+        None, None, None, [], [],
+    )
 
-    sdw._system_prompt_cache.clear()
-    first = sdw.build_system_prompt(persona)
-    assert "established coworkers" in first
-
-    # New week's memory becomes available — simulate what run_simulation()
-    # does at the top of every call.
     memories[0] = [{"concept": "Lemon Tarts", "summary": "Ria shipped a strong caption."}]
-    sdw._system_prompt_cache.clear()
-    second = sdw.build_system_prompt(persona)
+    second = sdw._author_prompt(
+        sdw.load_personas(), ["Ria Castillo"], "Test Cups", "monday",
+        None, None, None, [], [],
+    )
 
+    assert "Ria shipped a strong caption" not in first
     assert "Ria shipped a strong caption" in second
     assert second != first
 
