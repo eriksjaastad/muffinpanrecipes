@@ -974,6 +974,33 @@ def test_sunday_that_finds_a_claim_stops_before_spending():
     assert store.saves == []
 
 
+def test_review_conflict_never_records_a_hold_attempt_on_stale_episode():
+    wed = wednesday_stage(confirmed_winner={})
+    stale = _episode(wed)
+    stale["publish_hold"] = {
+        "reason": "awaiting_photo_approval",
+        "image_set_id": wed["photo_review"]["image_set_id"],
+        "since": "2026-10-01T00:00:00+00:00",
+        "notified": True,
+    }
+    store = _Store({EP_ID: stale})
+    register(EP_ID, wed, store)
+    replacement = copy.deepcopy(stale)
+    replacement["events"].append("wednesday: rival registration completed")
+
+    def ownership_lost(*_args, **_kwargs):
+        store.put(EP_ID, replacement)
+        raise photo_review.ReviewConflict("the photos changed after registration")
+
+    with patch.object(cron_routes, "_claim_photo_for_sunday", side_effect=ownership_lost):
+        env = _sunday(store)
+
+    assert _status(env) == 409
+    assert store.get(EP_ID) == replacement
+    assert store.saves == []
+    assert "stale episode was not saved" in env.error.detail
+
+
 @pytest.mark.parametrize("failure", ["qa", "dialogue"])
 def test_pre_publication_failure_saves_unpublished_and_releases_the_claim(failure):
     store, ep, _ = _approved_store()
@@ -1701,6 +1728,59 @@ def test_wednesday_registers_the_request_before_one_photos_ready_alert(tmp_path)
     assert wed["status"] == "complete"
     assert wed["photo_review"]["image_set_id"] == ctrl["request"]["image_set_id"]
     assert wed["photo_review"]["notification"]["status"] == "sent"
+
+
+def test_wednesday_holds_registration_through_dialogue_and_final_save(tmp_path):
+    store = _Store()
+    competing = wednesday_stage(generation="g20261008T000000Z-compete")
+
+    def dialogue_while_registration_is_open(*_args, **_kwargs):
+        pending = photo_review.read_view(store, EP_ID, store.get(EP_ID))
+        assert pending.reshoots["in_flight"]["registration_pending"] is True
+        with pytest.raises(photo_review.PublicationUnderway, match="registration is still finishing"):
+            photo_review.claim_for_publication(
+                store, EP_ID, store.get(EP_ID), allow_team_fallback=True,
+            )
+        with pytest.raises(photo_review.PublicationUnderway, match="registration is still saving"):
+            photo_review.register_request(
+                store,
+                EP_ID,
+                photo_review.new_review(competing),
+                defer_publication_until_episode_saved=True,
+            )
+        return [{"character": "Julian Torres", "message": "Done."}], "PASS"
+
+    run = _wednesday(store, tmp_path, dialogue_effect=dialogue_while_registration_is_open)
+
+    assert run.error is None
+    final = store.get(EP_ID)
+    assert final["stages"]["wednesday"]["status"] == "complete"
+    ready = photo_review.read_view(store, EP_ID, final)
+    assert "in_flight" not in ready.reshoots
+    assert ready.image_set_id != competing["photo_review"]["image_set_id"]
+
+
+def test_wednesday_failure_save_precedes_registration_release(tmp_path):
+    store = _Store()
+    marker_seen_during_failure_save = False
+
+    def observe_failure_save(data):
+        nonlocal marker_seen_during_failure_save
+        stage = (data.get("stages") or {}).get("wednesday") or {}
+        if stage.get("status") == "failed":
+            view = photo_review.read_view(store, EP_ID, data)
+            marker_seen_during_failure_save = bool(
+                (view.reshoots.get("in_flight") or {}).get("registration_pending")
+            )
+
+    store.before_save = observe_failure_save
+    run = _wednesday(store, tmp_path, dialogue_effect=RuntimeError("dialogue failed"))
+
+    assert run.error is not None
+    assert marker_seen_during_failure_save is True
+    assert "in_flight" not in photo_review.read_view(
+        store, EP_ID, store.get(EP_ID),
+    ).reshoots
 
 
 def test_wednesday_passes_the_episode_id_so_the_pan_follows_the_week(tmp_path):

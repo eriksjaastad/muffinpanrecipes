@@ -1873,6 +1873,7 @@ def _shoot_and_register(
     episode_id: str, ep: dict, concept: str, recipe_data: dict, *,
     max_rounds: int | None = None, reshoot_id: str | None = None,
     shoot_budget_s: float | None = None, shoot_deadline: float | None = None,
+    defer_registration_finish: bool = False,
 ) -> tuple[dict, dict, list[str], list[str]]:
     """Shoot Wednesday's images, upload them, and put the new set up for review.
 
@@ -1973,12 +1974,25 @@ def _shoot_and_register(
         "confirmed_winner": photography_result.get("winner", {}) if isinstance(photography_result, dict) else {},
     }
     return _register_photos(
-        episode_id, ep, concept, wed, photo_review.new_review(wed), reshoot_id=reshoot_id,
+        episode_id,
+        ep,
+        concept,
+        wed,
+        photo_review.new_review(wed),
+        reshoot_id=reshoot_id,
+        finish_registration=not defer_registration_finish,
     ), photography_result, image_paths, image_urls
 
 
 def _register_photos(
-    episode_id: str, ep: dict, concept: str, wed: dict, request: dict, *, reshoot_id: str | None = None,
+    episode_id: str,
+    ep: dict,
+    concept: str,
+    wed: dict,
+    request: dict,
+    *,
+    reshoot_id: str | None = None,
+    finish_registration: bool = True,
 ) -> dict:
     """Put ``request`` up for review: register it, mirror it on the episode, send the email.
 
@@ -2066,14 +2080,44 @@ def _register_photos(
         "at": datetime.now(timezone.utc).isoformat(),
     }
     storage.save_episode(episode_id, ep)
-    if registration_pending:
+    if registration_pending and finish_registration:
         # Every producer retains its control marker until all whole-episode
         # writes above are finished.  This exact transition is what makes the
         # new set eligible for a rival publication claim or replacement.
         photo_review.finish_request_registration(
             storage, episode_id, registration_marker["id"],
         )
+    elif registration_pending:
+        # Internal handoff only; assigned after the persisted saves above and
+        # removed by cron_wednesday before its next save.
+        wed["_registration_id"] = registration_marker["id"]
     return wed
+
+
+@contextmanager
+def _finish_photo_registration_after_stage(episode_id: str, owner: dict[str, str | None]):
+    """Release Wednesday's registration only after its final success/failure save."""
+    failed = False
+    try:
+        yield
+    except BaseException:
+        failed = True
+        raise
+    finally:
+        registration_id = owner.get("id")
+        if registration_id is not None:
+            try:
+                photo_review.finish_request_registration(
+                    storage, episode_id, registration_id,
+                )
+            except Exception as exc:
+                if not failed:
+                    raise
+                logger.error(
+                    f"Wednesday {episode_id}: failed to release photo registration after stage "
+                    f"failure ({type(exc).__name__}: {exc}); the lease expires after "
+                    f"{photo_review.RESHOOT_IN_FLIGHT_S}s"
+                )
 
 
 # After a failure the handler cannot always know what the photo control
@@ -2241,7 +2285,9 @@ async def cron_wednesday(request: Request):
       # image set would race publication. Refuse BEFORE paying for images.
       _refuse_wednesday_on_frozen_photos(episode_id, ep, concept)
 
-      with _run_stage(ep, "wednesday"):
+      registration_owner: dict[str, str | None] = {"id": None}
+      with _finish_photo_registration_after_stage(episode_id, registration_owner), \
+           _run_stage(ep, "wednesday"):
         # #8297: a re-fire after Erik approved a photo keeps that set and reruns
         # only the dialogue. Reshooting replaced the photos he had picked when
         # only the conversation had failed (W42). No image is generated and no
@@ -2257,7 +2303,9 @@ async def cron_wednesday(request: Request):
         else:
             wed, photography_result, image_paths, image_urls = _shoot_and_register(
                 episode_id, ep, concept, recipe_data,
+                defer_registration_finish=True,
             )
+            registration_owner["id"] = wed.pop("_registration_id")
 
         wed_photo_ctx = photography_result if isinstance(photography_result, dict) else None
         review_ctx = _photo_review_dialogue_context(episode_id, ep)
@@ -3298,7 +3346,9 @@ async def cron_sunday(request: Request):
                 "published or spent; run Sunday again."
             )
             raise _sunday_storage_failure(
-                episode_id, concept, detail + _record_failed_hold_attempt(episode_id, ep, detail),
+                episode_id,
+                concept,
+                detail + " The stale episode was not saved because photo-control ownership changed.",
                 status_code=409,
             )
         except Exception as exc:
