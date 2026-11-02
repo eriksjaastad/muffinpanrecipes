@@ -13,6 +13,11 @@ This experiment uses only the nine Erik-labelled E0 pairs in:
 - `erik-review-completed.json` SHA-256 `5519bfcbcea80058f4467c17dc89dc4cefa7d55125429110c651d080a044c875`
 - `human-result.md` SHA-256 `6b94a0a57e8fcec765ef1cbcb9cc1c8bc57c946bd65a828416dd68ac8d42e709`
 
+Both are archived E0 source artifacts outside Git because the first contains
+the complete labelled transcripts. Replay takes their paths as CLI inputs,
+verifies both hashes, and emits only source basenames and hashes into committed
+receipts; no absolute workstation path is part of the measurement contract.
+
 The nine labels contain repeated evidence for room continuity (review items 1 and 8), immediate turn response (4 and 9), operational/temporal plausibility (5 and 6), and stock/model language (2, 3, and 7). The queue is disagreement-enriched and cannot estimate population accuracy.
 
 ## One measurement hypothesis

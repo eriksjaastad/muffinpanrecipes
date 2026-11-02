@@ -1,5 +1,4 @@
 {
-  "evidence_sha256": "5519bfcbcea80058f4467c17dc89dc4cefa7d55125429110c651d080a044c875",
   "pairs": [
     {
       "agrees_with_human": false,
@@ -49,6 +48,9 @@
         "room_continuity_reset_count": 0,
         "room_continuity_reset_hits": []
       },
+      "evidence_flags": [
+        "stock_language"
+      ],
       "human_pick": "control",
       "measurement_pick": "variant",
       "pair": 3,
@@ -149,6 +151,9 @@
           }
         ]
       },
+      "evidence_flags": [
+        "room_continuity"
+      ],
       "human_pick": "variant",
       "measurement_pick": "variant",
       "pair": 8,
@@ -308,6 +313,9 @@
         "room_continuity_reset_count": 0,
         "room_continuity_reset_hits": []
       },
+      "evidence_flags": [
+        "direct_response"
+      ],
       "human_pick": "variant",
       "measurement_pick": "control",
       "pair": 9,
@@ -378,6 +386,16 @@
       }
     }
   ],
+  "sources": {
+    "evidence": {
+      "name": "erik-review-completed.json",
+      "sha256": "5519bfcbcea80058f4467c17dc89dc4cefa7d55125429110c651d080a044c875"
+    },
+    "human_result": {
+      "name": "human-result.md",
+      "sha256": "6b94a0a57e8fcec765ef1cbcb9cc1c8bc57c946bd65a828416dd68ac8d42e709"
+    }
+  },
   "split": "holdout",
   "study": "E1 situated-response measurement"
 }

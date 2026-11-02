@@ -17,8 +17,20 @@ from typing import Any
 from scripts.conversation_metrics import STOPWORDS, adjacency_continuity
 
 EVIDENCE_SHA256 = "5519bfcbcea80058f4467c17dc89dc4cefa7d55125429110c651d080a044c875"
+HUMAN_RESULT_SHA256 = "6b94a0a57e8fcec765ef1cbcb9cc1c8bc57c946bd65a828416dd68ac8d42e709"
 DEVELOPMENT_PAIRS = (1, 2, 4, 5, 6, 7)
 HOLDOUT_PAIRS = (3, 8, 9)
+EVIDENCE_FLAGS = {
+    1: ("room_continuity",),
+    2: ("stock_language",),
+    3: ("stock_language",),
+    4: ("direct_response",),
+    5: ("temporal_plausibility",),
+    6: ("operational_plausibility",),
+    7: ("stock_language", "platform_language"),
+    8: ("room_continuity",),
+    9: ("direct_response",),
+}
 
 ROOM_RESET_PATTERNS = (
     re.compile(r"\b(?:everybody|everyone)\s+(?:is\s+)?here\b", re.IGNORECASE),
@@ -123,11 +135,21 @@ def compare_arms(control: dict[str, Any], variant: dict[str, Any]) -> str:
     return "control" if control_uptake > variant_uptake else "variant"
 
 
-def score_evidence(path: Path, split: str) -> dict[str, Any]:
+def _verified_sha256(path: Path, expected_hash: str, label: str) -> str:
+    actual_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+    if actual_hash != expected_hash:
+        raise ValueError(f"{label} hash mismatch: expected {expected_hash}, got {actual_hash}")
+    return actual_hash
+
+
+def score_evidence(path: Path, human_result_path: Path, split: str) -> dict[str, Any]:
     raw = path.read_bytes()
     actual_hash = hashlib.sha256(raw).hexdigest()
     if actual_hash != EVIDENCE_SHA256:
         raise ValueError(f"evidence hash mismatch: expected {EVIDENCE_SHA256}, got {actual_hash}")
+    human_result_hash = _verified_sha256(
+        human_result_path, HUMAN_RESULT_SHA256, "human result"
+    )
     evidence = json.loads(raw)
     wanted = DEVELOPMENT_PAIRS if split == "development" else HOLDOUT_PAIRS
     if split == "all":
@@ -149,6 +171,7 @@ def score_evidence(path: Path, split: str) -> dict[str, Any]:
                 "human_pick": human_pick,
                 "measurement_pick": measurement_pick,
                 "agrees_with_human": measurement_pick == human_pick,
+                "evidence_flags": list(EVIDENCE_FLAGS[pair_number]),
                 "control": control,
                 "variant": variant,
             }
@@ -156,7 +179,13 @@ def score_evidence(path: Path, split: str) -> dict[str, Any]:
     return {
         "study": "E1 situated-response measurement",
         "split": split,
-        "evidence_sha256": actual_hash,
+        "sources": {
+            "evidence": {"name": path.name, "sha256": actual_hash},
+            "human_result": {
+                "name": human_result_path.name,
+                "sha256": human_result_hash,
+            },
+        },
         "pairs": results,
     }
 
@@ -165,11 +194,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("evidence", type=Path, help="Frozen erik-review-completed.json")
     parser.add_argument(
+        "--human-result",
+        type=Path,
+        required=True,
+        help="Frozen human-result.md used to verify label provenance",
+    )
+    parser.add_argument(
         "--split", choices=("development", "holdout", "all"), default="development"
     )
     parser.add_argument("--output", type=Path, help="Optional JSON result path")
     args = parser.parse_args()
-    result = score_evidence(args.evidence, args.split)
+    result = score_evidence(args.evidence, args.human_result, args.split)
     rendered = json.dumps(result, indent=2, sort_keys=True) + "\n"
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

@@ -1,3 +1,8 @@
+import hashlib
+import json
+
+import pytest
+
 from scripts import e1_situated_response as e1
 
 
@@ -35,3 +40,54 @@ def test_compare_arms_uses_reset_count_before_uptake_then_abstains_on_tie():
 
 def test_content_terms_freezes_stopwords_and_aliases():
     assert e1.content_terms("The photos are shooting filled cups") == {"shot", "fill", "cups"}
+
+
+def test_score_evidence_verifies_sources_split_and_structured_flags(tmp_path, monkeypatch):
+    evidence_path = tmp_path / "erik-review-completed.json"
+    human_result_path = tmp_path / "human-result.md"
+    pairs = []
+    for pair in range(1, 10):
+        pairs.append(
+            {
+                "run_index": pair,
+                "scenario_id": f"scenario-{pair}",
+                "control_messages": _messages("Which shot?", "Yes, this shot."),
+                "variant_messages": _messages("Which shot?", "The recipe is done."),
+            }
+        )
+    evidence_path.write_text(
+        json.dumps(
+            {
+                "human_picks": {str(pair): "control" for pair in range(1, 10)},
+                "pairs": pairs,
+            }
+        )
+    )
+    human_result_path.write_text("frozen labels\n")
+    monkeypatch.setattr(
+        e1, "EVIDENCE_SHA256", hashlib.sha256(evidence_path.read_bytes()).hexdigest()
+    )
+    monkeypatch.setattr(
+        e1,
+        "HUMAN_RESULT_SHA256",
+        hashlib.sha256(human_result_path.read_bytes()).hexdigest(),
+    )
+
+    result = e1.score_evidence(evidence_path, human_result_path, "holdout")
+
+    assert [pair["pair"] for pair in result["pairs"]] == [3, 8, 9]
+    assert result["pairs"][0]["evidence_flags"] == ["stock_language"]
+    assert result["sources"] == {
+        "evidence": {
+            "name": "erik-review-completed.json",
+            "sha256": e1.EVIDENCE_SHA256,
+        },
+        "human_result": {
+            "name": "human-result.md",
+            "sha256": e1.HUMAN_RESULT_SHA256,
+        },
+    }
+
+    human_result_path.write_text("mutated labels\n")
+    with pytest.raises(ValueError, match="human result hash mismatch"):
+        e1.score_evidence(evidence_path, human_result_path, "holdout")

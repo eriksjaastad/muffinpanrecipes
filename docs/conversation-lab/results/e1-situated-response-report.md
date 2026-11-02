@@ -14,18 +14,23 @@ negative (pair 3). Per the preregistration, no rule was changed after unsealing.
 The holdout result was 1/3 against Erik. Across the deliberately
 disagreement-enriched nine-pair queue, the measurement matched Erik on 5/9
 (55.6%), compared with Saga on 4/9 (44.4%) and the stored judge score direction
-on 2/9 (22.2%). These are calibration results, not population accuracy estimates.
+on 5/9 (55.6%). These are calibration results, not population accuracy estimates.
 
 ## Frozen evidence and execution
 
-- `erik-review-completed.json`: SHA-256
+- Archived source `erik-review-completed.json`: SHA-256
   `5519bfcbcea80058f4467c17dc89dc4cefa7d55125429110c651d080a044c875`
-- `human-result.md`: SHA-256
+- Archived source `human-result.md`: SHA-256
   `6b94a0a57e8fcec765ef1cbcb9cc1c8bc57c946bd65a828416dd68ac8d42e709`
 - Development pairs 1, 2, 4, 5, 6, and 7 were scored before the scorer was
   frozen. Holdout pairs 3, 8, and 9 were unsealed once after commit `4d0dbc8`.
 - The analysis was deterministic and offline. No provider, production prompt,
   production model, episode, or deployment was touched.
+- The replay CLI now requires both archived source paths, verifies both hashes,
+  and records their basenames and hashes in each generated receipt. The source
+  archives are intentionally not committed because they contain the full E0
+  transcripts; the committed receipts and tests contain no hidden dependency
+  on an absolute workstation path.
 
 ## Pair comparison
 
@@ -43,6 +48,15 @@ The stored judge direction was control for every queue item.
 | 3 | holdout | control | variant | variant | 0/0 | .4000/1.0000 | false positive; failed hard-negative abstention |
 | 8 | holdout | variant | variant | control | 1/0 | .5000/.6000 | correct; room reset detected |
 | 9 | holdout | variant | control | control | 0/0 | 1.0000/.8333 | false negative; direct-response replication missed |
+
+The scorer agreed with the all-control stored judge direction on pairs 4, 5, 6,
+7, and 9: 5/9. The earlier 2/9 summary was an arithmetic error.
+
+Each generated pair receipt now also carries the preregistered structured
+`evidence_flags`: `room_continuity` (1, 8), `direct_response` (4, 9),
+`temporal_plausibility` (5), `operational_plausibility` (6), and
+`stock_language` (2, 3, 7; pair 7 additionally has `platform_language`). These
+are audit categories only and do not alter the frozen arm comparison.
 
 ## Error analysis
 

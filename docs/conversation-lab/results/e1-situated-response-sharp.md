@@ -40,6 +40,11 @@ provider or model call was made.
   preregistration header; replaced it with explicit blank lines. Repository-wide
   Ruff still reports 17 inherited findings outside this branch's changed files;
   focused Ruff on both changed Python files passes.
+- **Independent-review remediation:** corrected the stored-judge aggregate from
+  2/9 to the table-consistent 5/9; made both frozen source hashes executable
+  provenance checks; added structured evidence-category flags without changing
+  the frozen comparison; and added an end-to-end hermetic test covering source
+  hashes, the sealed split, receipt metadata, and flags.
 
 ## Verdict
 
