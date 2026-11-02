@@ -143,7 +143,7 @@ current code is `_SHARED_CHARACTER_RULES`. This is where the v2 nudge
 - `_REACTION_DIRECTIVE` - `scripts/simulate_dialogue_week.py:248`, the
 #6840 turn-taking rule itself ("Your first sentence must respond to what
 was just said...").
-- `retired per-speaker prompt builder` - `scripts/simulate_dialogue_week.py:484`. Assembles
+- <code>build&#95;system&#95;prompt</code> (retired) - `scripts/simulate_dialogue_week.py:484`. Assembles
 a character's full system prompt from their persona card, voice guide, and
 `_SHARED_CHARACTER_RULES`. Per-character voice tuning happens upstream of
 this function, in the voice guides it reads.

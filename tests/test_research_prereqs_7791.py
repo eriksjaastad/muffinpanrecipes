@@ -1,9 +1,8 @@
-"""Tests for card #7791 (RESEARCH_PLAN.md section 3.2 prerequisites P1-P4):
+"""Tests for card #7791 (retained RESEARCH_PLAN.md section 3.2 prerequisites P1-P3):
 
 - P1: `calibrate --models NAME`
 - P2: `rejudge RESULT.json --models NAME` (re-judge saved transcripts, no regeneration)
 - P3: `scripts/lab_offline_metrics.py` (zero-API-call offline metrics + V4)
-- P4: the SPEAKERS_SEE_JUDGE_RECIPE_FACTS variant lever (R3)
 
 P0 (scripts/lab_models.json's claude-o55/deepseek-o55 sets and the generic
 per-vendor routing/pricing/max-tokens machinery they rely on) is covered in

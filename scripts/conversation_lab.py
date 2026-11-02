@@ -2004,33 +2004,18 @@ def _bench_photography_inputs(episode: dict[str, Any], stage: str) -> dict[str, 
 
 
 def _effective_bench_photography_inputs(
-    stage: str, concept: str, photography_context: Any
+    _stage: str, _concept: str, photography_context: Any
 ) -> dict[str, Any]:
-    """Render the photo inputs that can affect bench prompts or Wednesday turns.
+    """Return exactly the photography payload inserted into authored prompts.
 
-    Call the simulator's pure renderers directly so comparison semantics stay
-    tied to the code that creates the prompts, rather than a copied field list.
-    Image attachments are audit metadata and are added after turn generation.
+    The whole-scene author receives the complete truthy mapping as serialized
+    JSON. Comparison must therefore include every field, even audit metadata,
+    and treat only falsey mappings as absent.
     """
-    try:
-        dynamic_arc = simulate_module._build_dynamic_arc(
-            stage, concept, photography_context=photography_context
-        )
-        scene_direction = simulate_module._build_photography_scene_direction(
-            photography_context, stage
-        )
-        tick_floor = 0
-        if stage == "wednesday" and photography_context:
-            tick_floor = 10 if photography_context.get("reshoot_happened") else 7
-    except Exception as exc:
-        raise ConversationLabError(
-            f"photography inputs cannot be rendered for stage={stage!r}: "
-            f"{type(exc).__name__}: {exc}"
-        ) from exc
     return {
-        "dynamic_arc": dynamic_arc,
-        "scene_direction": scene_direction,
-        "wednesday_tick_floor": tick_floor,
+        "author_prompt_photography_context": (
+            copy.deepcopy(photography_context) if photography_context else None
+        ),
     }
 
 def _resolve_recipe_context_and_facts(
@@ -2415,10 +2400,9 @@ def _generate_and_judge_pairs(
                 )
             except BaseException as exc:
                 # #7714 round 3 / round 4 finding 1: the control arm's
-                # turns generated before ANY exception - a LabBudgetAbort
-                # from the guard, or any other mid-arm error (dialogue,
-                # rewrite, director, the Haiku stop-check path, an empty-
-                # content RuntimeError from an OpenRouter reasoning model)
+                # calls completed before ANY exception - a LabBudgetAbort
+                # from the guard, a malformed authored scene after retries,
+                # or an empty-content RuntimeError from the model router
                 # - are real, paid work, saved as a partial pair (never
                 # judged, see the docstring above) instead of discarded.
                 # A budget abort still reads as a clean aborted result; any
@@ -5080,11 +5064,10 @@ def _judge_input_digest(
             for day, stage in sorted(prior_stages.items())
         },
         "recipe_facts": recipe_facts or "",
-        # NOT sorted (Codex): run_simulation passes participants_for_day()'s
-        # ORDERED list into retired weighted speaker scheduler, whose weighted selection
-        # iterates it, and _judge_dialogue renders the roster in that same
-        # order. Sorting here hid a difference that really does change both
-        # the generated conversation and the judge's input.
+        # NOT sorted: run_simulation passes participants_for_day()'s ordered list
+        # into the authored prompt, and _judge_dialogue renders the roster in
+        # that same order. Sorting would hide a real prompt and judge-input
+        # difference.
         "expected_cast": list(expected_cast),
     }
     blob = json.dumps(payload, sort_keys=True, ensure_ascii=False)
@@ -5127,7 +5110,7 @@ def _assert_comparable_scenario(baseline: dict[str, Any], report: dict[str, Any]
             theirs, ours = baseline.get(field), report.get(field)
         if theirs != ours:
             label = (
-                "photography_context effective prompts/tick floor"
+                "photography_context authored prompt"
                 if field == "effective_photography_inputs" else field
             )
             mismatches.append(f"{label}: {theirs!r} vs {ours!r}")
@@ -5174,12 +5157,9 @@ def cmd_bench(args: argparse.Namespace) -> None:
     if baseline_report is not None and not args.allow_mismatched_baseline:
         _assert_comparable_scenario(baseline_report, scenario)
 
-    # Worst-case reservation, not last-observed (Codex P1). run_simulation
-    # makes one paid call PER TURN plus possible rewrite retries, so
-    # reserving the previous arm's count let `--max-calls 1` sail through
-    # the check and then spend a whole day's turns. The cap is a runaway
-    # guard and must be a real upper bound, so reserve what an arm can cost
-    # at worst and refuse to start one that would not fit.
+    # Worst-case reservation, not last-observed. Each authored scene gets three
+    # parse attempts, and each router call can retry an empty response. Reserve
+    # that complete arm ceiling so the cap remains a real runaway guard.
     # A --dry-run makes zero API calls (mode="template", no judge), so it
     # must neither reserve nor record any (Codex): a one-run plumbing check
     # was reporting `calls_used: 10`, and an explicit low --max-calls could
