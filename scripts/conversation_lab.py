@@ -71,9 +71,8 @@ Five subcommands:
       (_SHARED_CHARACTER_RULES, _REACTION_DIRECTIVE, DAY_STAGE_DIRECTIONS,
       CHARACTER_DAY_GOALS), the history window HISTORY_DEPTH, the
       output-contract guards (SHAPE_WINDOW, SHAPE_MAX_IN_WINDOW,
-      WORD_BUDGET_TOLERANCE, REWRITE_GUARDS, WORD_CAPS), the wind-down/stop knobs (TICKS_RANGE,
-      WINDDOWN_TRIGGER, STOP_CHECK, OPEN_ENDED_MAX_TICKS), and the director
-      knob (DIRECTOR). The patch applies
+      WORD_BUDGET_TOLERANCE, REWRITE_GUARDS, WORD_CAPS), the scene-length
+      range TICKS_RANGE, and recipe-fact visibility. The patch applies
       to the variant arm's generation call only and is always restored
       afterward, even on error.
 
@@ -184,10 +183,8 @@ control/variant generation, or a judge call), whichever hits first:
     - every `ab` mode (single --concept/--recipe-context, --testbed,
       --sweep) sums one worst-case reservation per unit of work (#7732):
       per judged pair, the control arm + the variant arm (each
-      `_arm_call_reservation`: four generation requests per turn across the
-      stage's turn ceiling, plus per-tick stop-check attempts when the
-      effective WINDDOWN_TRIGGER is "check"; a variant that widens
-      TICKS_RANGE/OPEN_ENDED_MAX_TICKS raises it) + both judge orientations
+      `_arm_call_reservation`: three authored-scene attempts, each with the
+      router's empty-response retry allowance) + both judge orientations
       with their JSON retries; times panel_size * runs. A --sweep counts
       its shared control once per scenario-run. `calibrate` keeps its own
       flat default of 40.
@@ -420,7 +417,6 @@ _CDN_TIMEOUT_SECONDS = 8
 # PROTOCOL.md deliberately treats a judge-prompt change as a separate,
 # rarer kind of experiment, never bundled with a character-prompt change).
 ALLOWED_VARIANT_ATTRS: tuple[str, ...] = (
-    "AUTHOR_MODE",
     "_SHARED_CHARACTER_RULES",
     "_REACTION_DIRECTIVE",
     "DAY_STAGE_DIRECTIONS",
@@ -1424,7 +1420,7 @@ def _validate_lever_shape(name: str, value: Any) -> None:
     if name == "REWRITE_GUARDS":
         _validate_rewrite_guards_shape(value)
         return
-    if name in ("WORD_CAPS", "AUTHOR_MODE"):
+    if name == "WORD_CAPS":
         if not isinstance(value, bool):
             raise ConversationLabError(
                 f"{name} must be a bool, got {value!r}"
@@ -1669,7 +1665,6 @@ def _run_arm(
     prior_lines: list[str] | None = None,
     message_sink: list | None = None,
     recipe_facts: str | None = None,
-    author_length_target: dict | None = None,
 ) -> dict[str, Any]:
     """Call run_simulation with the exact production call shape.
 
@@ -1716,7 +1711,6 @@ def _run_arm(
         initial_highlights=None,
         initial_recent_lines=list(prior_lines) if prior_lines is not None else None,
         message_sink=message_sink,
-        **({"author_length_target": author_length_target} if author_length_target else {}),
     )
 
 class LabBudgetAbort(BaseException):
@@ -1874,7 +1868,6 @@ def _run_arm_and_count(
     default_model: str,
     prior_lines: list[str] | None = None,
     recipe_facts: str | None = None,
-    author_length_target: dict | None = None,
 ) -> tuple[dict[str, Any], int]:
     """Run one arm and estimate its call cost.
 
@@ -1920,7 +1913,6 @@ def _run_arm_and_count(
         result = _run_arm(
             concept, stage, run_index, recipe_context, mode, default_model,
             prior_lines=prior_lines, message_sink=sink, recipe_facts=recipe_facts,
-            **({"author_length_target": author_length_target} if author_length_target else {}),
         )
     except BaseException as exc:
         if not hasattr(exc, "conversation_lab_calls_made"):
@@ -2851,22 +2843,6 @@ def _load_testbed(path: Path) -> list[dict[str, Any]]:
         )
     return scenarios
 
-def _pair_length_match(control: list[dict], variant: list[dict]) -> dict[str, Any]:
-    """Conservative relative gaps: larger/smaller minus one, excluding labels."""
-    words = [_total_word_count(arm) for arm in (control, variant)]
-    means = [n / len(arm) if arm else 0 for n, arm in zip(words, (control, variant))]
-    gaps = [max(ns) / min(ns) - 1 if min(ns) else None for ns in (words, means)]
-    lo, hi = simulate_module.TICKS_RANGE['monday']
-    line_count_in_range = lo <= len(variant) <= hi
-    return {
-        "control_words": words[0], "variant_words": words[1],
-        "control_words_per_line": means[0], "variant_words_per_line": means[1],
-        "total_words_gap": gaps[0], "words_per_line_gap": gaps[1],
-        "line_count_in_range": line_count_in_range,
-        "matched": line_count_in_range and gaps[0] is not None and gaps[0] <= 0.15 and gaps[1] <= 0.25,
-    }
-
-
 def _generate_and_judge_pairs(
     *,
     concept: str,
@@ -2903,21 +2879,15 @@ def _generate_and_judge_pairs(
     cmd_ab additionally writes a partial result (with "error"/"aborted")
     on any exception from this function - see its call sites.
 
-    Before each generation arm, reserve the structural worst case of four
-    paid requests per turn: the initial request, its CoT retry, a fault
-    rewrite, and the rewrite's CoT retry. Recording still uses actual calls.
+    Before each generation arm, reserve three authored-scene attempts,
+    including the router's empty-response retry allowance. Recording still
+    uses actual calls.
     """
     aborted = False
     restore_pending: dict[str, Any] | None = None
     partial_pairs = partial_pairs if partial_pairs is not None else []
-    arm_call_reservation = _arm_call_reservation(stage, variant, dry_run=dry_run)
-    # The control still uses the per-line path when the variant is one author.
-    control_call_reservation = max(
-        arm_call_reservation, _arm_call_reservation(stage, None, dry_run=dry_run),
-    )
-    author = variant.get("AUTHOR_MODE", False)
-    if author and stage != 'monday':
-        raise ConversationLabError("AUTHOR_MODE currently supports Monday only (#8383)")
+    arm_call_reservation = _arm_call_reservation(dry_run=dry_run)
+    control_call_reservation = _arm_call_reservation(dry_run=dry_run)
 
     # Before the control arm costs anything (Codex audit): a malformed variant
     # used to surface only when _apply_variant ran, which is after the control
@@ -2932,7 +2902,7 @@ def _generate_and_judge_pairs(
     guard_ctx.__enter__()
     try:
         for run_index in range(1, runs + 1):
-            pair_cost_start = _lab_cost_total() if author else 0.0
+            pair_cost_start = _lab_cost_total()
             if budget.would_exceed(control_call_reservation) or _would_exceed_cost(max_cost):
                 aborted = True
                 break
@@ -2973,7 +2943,7 @@ def _generate_and_judge_pairs(
             control_stop_check_log = _snapshot_stop_check_log()
             control_director_log = _snapshot_director_log()
             control_rewrite_log = _snapshot_rewrite_log()
-            control_cost = _lab_cost_total() - pair_cost_start if author else 0.0
+            control_cost = _lab_cost_total() - pair_cost_start
             budget.record(0 if dry_run else control_calls)
             pending_pair: dict[str, Any] = {
                 "run_index": run_index,
@@ -2984,7 +2954,6 @@ def _generate_and_judge_pairs(
                 "control_rewrite_log": control_rewrite_log,
                 "variant_messages": None,
                 "judge_orientations": [],
-                "author_attempts": [],
             }
             partial_pairs.append(pending_pair)
 
@@ -2995,27 +2964,11 @@ def _generate_and_judge_pairs(
             restore_pending = _apply_variant(simulate_module, variant)
             try:
                 try:
-                    reference = control_result.get("messages", [])
-                    for attempt in range(3 if author and not dry_run else 1):
-                        attempt_cost_start = _lab_cost_total() if author else 0.0
-                        variant_result, variant_calls = _run_arm_and_count(
-                            concept, stage, run_index, recipe_context, mode, default_model,
-                            prior_lines=prior_lines, recipe_facts=recipe_facts,
-                            **({"author_length_target": {
-                                "lines": len(reference), "words": _total_word_count(reference),
-                            }} if author else {}),
-                        )
-                        budget.record(0 if dry_run else variant_calls)
-                        if not author:
-                            break
-                        match = _pair_length_match(reference, variant_result["messages"])
-                        pending_pair["author_attempts"].append({
-                            "attempt": attempt + 1, "messages": variant_result["messages"],
-                            "length_match": match, "cost_usd": _lab_cost_total() - attempt_cost_start,
-                        })
-                        if match["matched"] or dry_run:
-                            break
-                        print(f"[author] run {run_index}, attempt {attempt + 1}: length mismatch {match}")
+                    variant_result, variant_calls = _run_arm_and_count(
+                        concept, stage, run_index, recipe_context, mode, default_model,
+                        prior_lines=prior_lines, recipe_facts=recipe_facts,
+                    )
+                    budget.record(0 if dry_run else variant_calls)
                 except BaseException as exc:
                     # #7714 finding 2 / round 3 / round 4 finding 1: the
                     # pending pair already reflects real, paid control-arm
@@ -3042,7 +2995,7 @@ def _generate_and_judge_pairs(
             finally:
                 _restore_variant(simulate_module, restore_pending)
                 restore_pending = None
-            generation_cost = _lab_cost_total() - pair_cost_start if author else 0.0
+            generation_cost = _lab_cost_total() - pair_cost_start
 
             control_messages = control_result.get("messages", [])
             variant_messages = variant_result.get("messages", [])
@@ -3096,15 +3049,11 @@ def _generate_and_judge_pairs(
                 "judge_diagnostics": _orientation_diagnostics(first, second) if not dry_run else None,
                 "judge_orientations": pending_pair["judge_orientations"],
                 "dry_run": bool(dry_run),
-                **({
-                    "length_match": _pair_length_match(control_messages, variant_messages),
-                    "author_attempts": pending_pair["author_attempts"],
-                    "cost_usd": {
-                        "control": control_cost,
-                        "variant_including_regenerations": generation_cost - control_cost,
-                        "judge": _lab_cost_total() - pair_cost_start - generation_cost,
-                    },
-                } if variant.get("AUTHOR_MODE") else {}),
+                "cost_usd": {
+                    "control": control_cost,
+                    "variant": generation_cost - control_cost,
+                    "judge": _lab_cost_total() - pair_cost_start - generation_cost,
+                },
             }
             pairs.append(completed_pair)
             partial_pairs.remove(pending_pair)
@@ -3135,103 +3084,11 @@ def _ab_result_path(results_dir: Path, slug: str, variant_path: Path, model_set:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     return _unique_result_path(results_dir, f"{stamp}-ab-{slug}-{model_set}-{variant_path.stem}")
 
-# Floor under a stage's TICKS_RANGE upper bound when deriving --max-calls
-# for --testbed/--sweep (below). Some stages can run MORE turns than their
-# static TICKS_RANGE says: scripts/simulate_dialogue_week.py bumps
-# Wednesday's day_ticks to max(day_ticks, 7) (or 10 on a reshoot) whenever
-# photography_context is present - a case this module's own --testbed/
-# --sweep calls never hit (they always pass photography_context=None via
-# _run_arm), but the derived cap is a safety margin, not a tight budget,
-# so it is worth padding for every stage rather than special-casing just
-# Wednesday.
-_MIN_MAX_TURNS_FLOOR = 10
-
-def _max_turns_for_stage(stage: str) -> int:
-    upper = simulate_module.TICKS_RANGE.get(stage, (4, 6))[1]
-    return max(upper, _MIN_MAX_TURNS_FLOOR)
-
-def _effective_max_turns_for_stage(stage: str, variant: dict[str, Any] | None) -> int:
-    """Like `_max_turns_for_stage`, but also honors whatever a VARIANT
-    raises TICKS_RANGE/OPEN_ENDED_MAX_TICKS to for `stage` (#7714 finding
-    3) - `arm_call_reservation` used to be computed once, from
-    `_max_turns_for_stage` alone, BEFORE `_apply_variant` ever ran for
-    that run, so a variant whose OPEN_ENDED_MAX_TICKS[stage] (or raised
-    TICKS_RANGE[stage] upper bound) exceeded the unpatched module default
-    silently under-reserved: the pre-arm budget check passed using a
-    ceiling the variant arm could - and, per `validate_variant`'s own
-    HISTORY_DEPTH cross-check, was explicitly allowed to - exceed.
-
-    Also honors the CONTROL's own current module attributes (not just
-    their checked-in defaults) - a test or future CLI knob that sets
-    OPEN_ENDED_MAX_TICKS directly on the module without going through a
-    variant must not be under-reserved either.
-    """
-    upper = simulate_module.TICKS_RANGE.get(stage, (4, 6))[1]
-
-    control_open_ended = getattr(simulate_module, "OPEN_ENDED_MAX_TICKS", None)
-    if isinstance(control_open_ended, dict):
-        cap = control_open_ended.get(stage)
-        if isinstance(cap, int) and not isinstance(cap, bool):
-            upper = max(upper, cap)
-
-    if isinstance(variant, dict):
-        variant_ticks_range = variant.get("TICKS_RANGE")
-        if isinstance(variant_ticks_range, dict):
-            pair = variant_ticks_range.get(stage)
-            if isinstance(pair, (list, tuple)) and len(pair) == 2:
-                try:
-                    upper = max(upper, int(pair[1]))
-                except (TypeError, ValueError):  # governance: allow-silent SF001: a malformed pair is rejected by validate_variant right after the reservation is computed, before any arm runs or spends
-                    pass
-        variant_open_ended = variant.get("OPEN_ENDED_MAX_TICKS")
-        if isinstance(variant_open_ended, dict):
-            cap = variant_open_ended.get(stage)
-            if isinstance(cap, int) and not isinstance(cap, bool):
-                upper = max(upper, cap)
-
-    return max(upper, _MIN_MAX_TURNS_FLOOR)
-
-def _effective_stop_check_active(variant: dict[str, Any] | None) -> bool:
-    """True when EITHER arm's effective WINDDOWN_TRIGGER is "check" - the
-    only trigger under which `check_scene_done` (and therefore Jev HTTP
-    attempts) runs per tick (see
-    `_refuse_if_stop_check_conflicts_with_models`, which reasons about the
-    same two effective triggers)."""
-    control_trigger = simulate_module.WINDDOWN_TRIGGER
-    is_dict = isinstance(variant, dict)
-    variant_trigger = (
-        variant.get("WINDDOWN_TRIGGER")
-        if is_dict and "WINDDOWN_TRIGGER" in variant
-        else control_trigger
-    )
-    return control_trigger == "check" or variant_trigger == "check"
-
-# backend.utils.stop_check._JEV_MAX_ATTEMPTS: the worst case number of Jev
-# HTTP attempts (first try + retries) ONE stop check can make in a single
-# tick - reserved per tick, on top of _MAX_CALLS_PER_TURN's four generation
-# requests, whenever the effective WINDDOWN_TRIGGER is "check" (#7714
-# finding 2/3: those attempts are real paid calls that used to run entirely
-# outside this reservation).
-_MAX_STOP_CHECK_ATTEMPTS_PER_TICK = stop_check._JEV_MAX_ATTEMPTS
-
-def _arm_call_reservation(stage: str, variant: dict[str, Any] | None, *, dry_run: bool) -> int:
-    """Structural worst-case call reservation for ONE arm (one generated
-    conversation) at `stage` under `variant`: four paid generation requests per turn (the initial
-    request, its CoT retry, a fault rewrite, and the rewrite's CoT retry)
-    across `_effective_max_turns_for_stage`'s ceiling (#7714 finding 3),
-    PLUS - when a stop check can actually run - up to
-    `_MAX_STOP_CHECK_ATTEMPTS_PER_TICK` Jev HTTP attempts per tick (#7714
-    finding 2)."""
+def _arm_call_reservation(*, dry_run: bool) -> int:
+    """Reserve three authored-scene attempts, including router empty retries."""
     if dry_run:
         return 0
-    if variant and variant.get("AUTHOR_MODE"):
-        # Three scene attempts; each router request can retry empty responses.
-        return 3 * model_router._OPENROUTER_EMPTY_STOP_MAX_ATTEMPTS
-    max_turns = _effective_max_turns_for_stage(stage, variant)
-    reservation = _MAX_CALLS_PER_TURN * max_turns
-    if _effective_stop_check_active(variant):
-        reservation += _MAX_STOP_CHECK_ATTEMPTS_PER_TICK * max_turns
-    return reservation
+    return 3 * model_router._OPENROUTER_EMPTY_STOP_MAX_ATTEMPTS
 
 def _judge_call_reservation() -> int:
     """Worst-case judge calls for ONE pair: two position-swapped
@@ -3257,9 +3114,7 @@ def _derive_max_calls(
     reservation; the per-pair judge allowance also ignored judge retries).
 
     - "single" / "testbed": per pair, the control arm
-      (`_arm_call_reservation(stage, None)`) + the variant arm
-      (`_arm_call_reservation(stage, variant)`, which honours the variant's
-      TICKS_RANGE / OPEN_ENDED_MAX_TICKS / stop check) + both judge
+      (the authored-scene reservation for each arm) + both judge
       orientations with their retries (`_judge_call_reservation()`), times
       `scenario_count * runs` (scenario_count is 1 for "single").
     - "sweep": the shared control is generated once per scenario-run, and
@@ -3270,14 +3125,14 @@ def _derive_max_calls(
     A call cap is a runaway guard, not a budget (PROTOCOL.md "Cost budget");
     --max-cost is enforced separately by the pre-call guard.
     """
-    control = _arm_call_reservation(stage, None, dry_run=False)
+    control = _arm_call_reservation(dry_run=False)
     judge = _judge_call_reservation()
     if mode == "sweep":
         per_unit = control + sum(
-            _arm_call_reservation(stage, v, dry_run=False) + judge for v in (sweep_variants or [])
+            _arm_call_reservation(dry_run=False) + judge for v in (sweep_variants or [])
         )
     else:
-        per_unit = control + _arm_call_reservation(stage, variant, dry_run=False) + judge
+        per_unit = control + _arm_call_reservation(dry_run=False) + judge
     return scenario_count * runs * per_unit
 
 def cmd_ab(args: argparse.Namespace) -> None:
@@ -3556,8 +3411,6 @@ def _build_ab_report(
     }
     if error is not None:
         report["error"] = error
-    if variant.get("AUTHOR_MODE"):
-        _annotate_author_report(report)
     return report
 
 def _build_testbed_ab_report(
@@ -3617,24 +3470,7 @@ def _build_testbed_ab_report(
     prior_days = getattr(args, "prior_days_provenance", None)
     if prior_days is not None:
         report["prior_days"] = prior_days
-    if variant.get("AUTHOR_MODE"):
-        _annotate_author_report(report)
     return report
-
-
-def _annotate_author_report(report: dict[str, Any]) -> None:
-    """Author screens are decided by the human read, with length exceptions explicit."""
-    report['judge_meets_numeric_rule'] = report['meets_decision_rule']
-    report['meets_decision_rule'] = False  # cannot authorize a change before Erik's read
-    report['decision_rule'] = "Erik's blind read with a one-line why decides; judge is information only."
-    report['min_balance'] = _OPENROUTER_MIN_BALANCE
-    report['length_matching'] = {
-        'total_words_tolerance': 0.15, 'words_per_line_tolerance': 0.25,
-        'gap_definition': 'larger / smaller - 1', 'max_regenerations': 2,
-        'unmatched_pair_positions': [
-            i for i, pair in enumerate(report['pairs'], 1) if not pair['length_match']['matched']
-        ],
-    }
 
 def _print_dimension_table(per_dimension_counts: dict[str, dict[str, int]]) -> None:
     print(f"{'dimension':<24}{'variant':>8}{'tie':>8}{'control':>8}")
@@ -3851,9 +3687,6 @@ def _append_experiments_row(
         meets_decision_rule=report["meets_decision_rule"], target_win_rate=report["target_win_rate"],
         target_dimension=report["target_dimension"],
     )
-    if variant.get('AUTHOR_MODE'):
-        decision = 'Awaiting Erik blind read; judge informational'
-
     row = (
         f"| {report['generated_at']} | {result_path.stem} | {lever} | "
         f"{report['target_dimension']} | {report['completed_pairs']} | "
@@ -3877,10 +3710,7 @@ def _load_sweep_variants(sweep_dir: Path) -> dict[str, dict[str, Any]]:
     variant_files = sorted(sweep_dir.glob("*.json"))
     if not variant_files:
         raise SystemExit(f"conversation_lab ab: --sweep directory has no *.json variant files: {sweep_dir}")
-    variants = {vf.stem: _load_variant_file(vf) for vf in variant_files}
-    if any(v.get('AUTHOR_MODE') for v in variants.values()):
-        raise ConversationLabError('AUTHOR_MODE requires --variant for length matching, not --sweep')
-    return variants
+    return {vf.stem: _load_variant_file(vf) for vf in variant_files}
 
 def _generate_sweep_control(
     *,
@@ -3905,7 +3735,7 @@ def _generate_sweep_control(
     every (scenario, run) pair got a control transcript.
     """
     dry_run = mode == "template"
-    arm_call_reservation = _arm_call_reservation(stage, None, dry_run=dry_run)
+    arm_call_reservation = _arm_call_reservation(dry_run=dry_run)
     # #7714 round 2, finding 1: this loop had NO guard at all - max_cost=None
     # disables the cost side (this loop is calls-only by design, see the
     # docstring above), but every arm here is still covered for --max-calls
@@ -4001,7 +3831,7 @@ def _run_sweep_variant(
     baseline_cost = _total_cost_or_none() or 0.0
     aborted = False
     restore_pending: dict[str, Any] | None = None
-    arm_call_reservation = _arm_call_reservation(stage, variant, dry_run=dry_run)
+    arm_call_reservation = _arm_call_reservation(dry_run=dry_run)
 
     # #7714 round 2: ONE guard install for this whole variant's run - every
     # arm and judge call across every (scenario, run) pair it processes is
@@ -5524,8 +5354,6 @@ def _validate_bench_args(args: argparse.Namespace) -> None:
 # it a worst case, so an arm admitted under `--max-calls 20` could still
 # spend 40 when both guards fired. A reservation that is not actually the
 # maximum is not a guard at all.
-_MAX_CALLS_PER_TURN = 4
-
 def _publish_json_atomically(path: Path, payload: dict[str, Any]) -> None:
     """Serialize to a sibling `.partial` WRITE BUFFER, then rename onto `path`.
 
@@ -5968,7 +5796,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
                 f"--experiments-log {log_path} exists and is not a regular file"
             )
 
-    gen_reserve = 0 if args.dry_run else _MAX_CALLS_PER_TURN * _max_turns_for_stage(args.stage)
+    gen_reserve = _arm_call_reservation(dry_run=args.dry_run)
     judge_reserve = 0 if args.dry_run else 2  # the judge retries once on an unparseable verdict
 
     max_calls = args.max_calls
@@ -5977,7 +5805,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
     budget = CallBudget(max_calls=max_calls)
 
     runs: list[dict[str, Any]] = []
-    # Turns from a run the mid-arm guard cut short: paid for, so saved, but
+    # Messages from a run the mid-arm guard cut short: paid for, so saved, but
     # never summarized, judged, aggregated or counted as completed (#7714).
     aborted_runs: list[dict[str, Any]] = []
     aborted = False
@@ -5990,7 +5818,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
     guard_ctx = _installed_budget_guard(budget, args.max_cost)
     guard_ctx.__enter__()
     # #7714 round 3: a fresh list per run_index, passed to _run_arm as
-    # message_sink - run_simulation appends into it as turns are
+    # message_sink - run_simulation appends into it as scenes are
     # generated, so whatever it holds is recoverable even if _run_arm
     # raises before returning (most commonly a mid-arm LabBudgetAbort).
     # `generation_recorded` distinguishes "the exception happened before
@@ -6021,7 +5849,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
                     message_sink=sink,
                     recipe_facts=recipe_facts,
                 ),
-                fallback=0 if args.dry_run else _max_turns_for_stage(args.stage),
+                fallback=gen_reserve,
                 reservation=gen_reserve,
             )
             messages = result.get("messages", [])
@@ -7990,9 +7818,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Defaults to a value DERIVED from the mode when omitted (printed in the report): "
             "every mode sums one worst-case reservation per judged pair - the control arm plus the "
-            "variant arm (four calls/turn across the stage's turn ceiling, plus per-tick stop-check "
-            "attempts when the effective WINDDOWN_TRIGGER is \"check\"; a --variant that widens "
-            "TICKS_RANGE or OPEN_ENDED_MAX_TICKS raises it) plus both judge orientations with their "
+            "variant arm (three authored-scene attempts with router retries) plus both judge orientations with their "
             "retries - times panel_size * runs (a --sweep counts its shared control once). "
             "Pass an explicit value to override."
         ),
@@ -8063,12 +7889,9 @@ def _build_parser() -> argparse.ArgumentParser:
     bench.add_argument(
         "--max-calls", type=int, default=None,
         help=(
-            f"Defaults to `runs * ({_MAX_CALLS_PER_TURN} * max_turns + 2)` when omitted, "
-            "where max_turns is the upper bound of "
-            "scripts.simulate_dialogue_week.TICKS_RANGE for --stage (floored at "
-            f"{_MIN_MAX_TURNS_FLOOR}) and {_MAX_CALLS_PER_TURN} is the most paid calls one "
-            "turn can cost (initial response, CoT-leak retry, fault rewrite, CoT-leak retry "
-            "on the rewrite). Pass an explicit value to override. Ignored under --dry-run, "
+            f"Defaults to `runs * ({3 * model_router._OPENROUTER_EMPTY_STOP_MAX_ATTEMPTS} generation calls + 2 judge calls)` when omitted. "
+            "The generation allowance covers three authored-scene attempts, each with the "
+            "router's empty-response retries. Pass an explicit value to override. Ignored under --dry-run, "
             "which cannot spend anything."
         ),
     )

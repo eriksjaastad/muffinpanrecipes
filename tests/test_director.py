@@ -25,12 +25,6 @@ from backend.utils.director import (
     roll_day,
 )
 
-@pytest.fixture(autouse=True)
-def _per_line_path(monkeypatch):
-    """These tests cover the per-line generator; production uses the author (#8384)."""
-    monkeypatch.setattr(sdw, "AUTHOR_MODE", False)
-
-
 CHARACTERS = [
     "Margaret Chen",
     "Stephanie 'Steph' Whitmore",
@@ -481,122 +475,22 @@ def test_private_line_appears_only_in_its_owners_prompt(monkeypatch, prompt_styl
     assert "Before this meeting:" not in steph_prompt
 
 
-def test_run_simulation_calls_director_once_per_day_and_passes_direction(monkeypatch) -> None:
-    calls: dict = {"rolls": [], "direct": [], "turns": []}
-    sdw.DIRECTOR_LOG[:] = [{"junk": True}]
+def test_run_simulation_uses_authored_scene_without_calling_per_line_director(monkeypatch) -> None:
+    prompts = []
+    monkeypatch.setattr(sdw, "generate_response", lambda **kw: prompts.append(kw["prompt"]) or
+                        '\n'.join(['Margaret: "A line."'] * 6))
+    monkeypatch.setattr("backend.utils.director.direct_day", lambda **_: pytest.fail("per-line director called"))
+    monkeypatch.setattr(sdw, "generate_turn", lambda **_: pytest.fail("per-line generator called"))
 
-    def fake_roll_day(seed_key, characters, probability, rng_seed, day=""):
-        calls["rolls"].append({
-            "seed_key": seed_key,
-            "characters": list(characters),
-            "probability": probability,
-            "rng_seed": rng_seed,
-            "day": day,
-        })
-        return [Roll(character=characters[0], category="personal", u=0.1, has_something=True)]
-
-    def fake_direct_day(day, concept, objective, rolls, intensity, history, model,
-                        no_repeat_window=14):
-        calls["direct"].append({
-            "day": day,
-            "concept": concept,
-            "objective": objective,
-            "rolls": rolls,
-            "intensity": intensity,
-            "history": list(history),
-            "model": model,
-            "no_repeat_window": no_repeat_window,
-        })
-        return Direction(scene=f"Scene for {day}.", characters={rolls[0].character: f"Line for {day}."})
-
-    def fake_generate_turn(**kwargs):
-        calls["turns"].append({"direction": kwargs.get("direction"), "persona": kwargs["persona"]["name"]})
-        return "Line."
-
-    monkeypatch.setattr(sdw, "DIRECTOR", {
-        "enabled": True,
-        "probability": 0.5,
-        "intensity": 3,
-        "rng_seed": 0,
-        "no_repeat_window": 14,
-    })
-    monkeypatch.setattr(sdw, "roll_day", fake_roll_day)
-    monkeypatch.setattr(sdw, "direct_day", fake_direct_day)
-    monkeypatch.setattr(sdw, "generate_turn", fake_generate_turn)
-
-    sdw.run_simulation(
-        concept="Jalapeno Corn Dog Bites",
-        default_model="stub",
-        run_index=0,
-        stage_only="monday",
-        injected_event=None,
-        ticks_per_day=5,
-        mode="llm",
-        prompt_style="scene",
-        character_models=None,
+    result = sdw.run_simulation(
+        concept="Jalapeno Corn Dog Bites", default_model="stub", run_index=0,
+        stage_only="monday", injected_event=None, ticks_per_day=5, mode="llm",
+        prompt_style="scene", character_models=None,
     )
 
-    assert len(calls["rolls"]) == 1
-    assert calls["rolls"][0]["seed_key"] == "Jalapeno Corn Dog Bites"
-    assert calls["rolls"][0]["day"] == "monday"
-    assert len(calls["direct"]) == 1
-    assert calls["direct"][0]["model"] == "stub"
-    assert calls["direct"][0]["history"] == []
-    assert calls["direct"][0]["no_repeat_window"] == 14
-    assert len(calls["turns"]) == 5
-    assert all(turn["direction"] is not None for turn in calls["turns"])
-    assert all(turn["direction"].scene == "Scene for monday." for turn in calls["turns"])
-    assert sdw.DIRECTOR_LOG == [{
-        "day": "monday",
-        "rolls": [{"character": "Margaret Chen", "category": "personal", "u": 0.1,
-                   "has_something": True}],
-        "direction": {"scene": "Scene for monday.",
-                      "characters": {"Margaret Chen": "Line for monday."}},
-        "fallback": False,
-    }]
-
-
-def test_run_simulation_director_history_accumulates_across_days(monkeypatch) -> None:
-    history_lengths: list[int] = []
-
-    def fake_roll_day(seed_key, characters, probability, rng_seed, day=""):
-        return [Roll(character=characters[0], category="personal", u=0.1, has_something=True)]
-
-    def fake_direct_day(day, concept, objective, rolls, intensity, history, model,
-                        no_repeat_window=14):
-        history_lengths.append(len(history))
-        return Direction(scene=f"Scene for {day}.", characters={rolls[0].character: f"Line for {day}."})
-
-    def fake_generate_turn(**kwargs):
-        return "Line."
-
-    monkeypatch.setattr(sdw, "DIRECTOR", {
-        "enabled": True,
-        "probability": 0.5,
-        "intensity": 3,
-        "rng_seed": 0,
-        "no_repeat_window": 14,
-    })
-    monkeypatch.setattr(sdw, "roll_day", fake_roll_day)
-    monkeypatch.setattr(sdw, "direct_day", fake_direct_day)
-    monkeypatch.setattr(sdw, "generate_turn", fake_generate_turn)
-    monkeypatch.setattr(sdw, "_generate_day_highlights", lambda **kwargs: "Summary")
-    monkeypatch.setattr(sdw, "_generate_episode_memories", lambda *a, **k: None)
-
-    sdw.run_simulation(
-        concept="Jalapeno Corn Dog Bites",
-        default_model="stub",
-        run_index=0,
-        stage_only=None,
-        injected_event=None,
-        ticks_per_day=5,
-        mode="llm",
-        prompt_style="scene",
-        character_models=None,
-    )
-
-    assert history_lengths == [0, 1, 2, 3, 4, 5, 6]
-    assert len(sdw.DIRECTOR_LOG) == 7
+    assert len(prompts) == 1
+    assert len(result["messages"]) == 6
+    assert sdw.DIRECTOR_LOG == []
 
 
 def test_run_simulation_skips_director_in_template_mode(monkeypatch) -> None:
@@ -613,10 +507,10 @@ def test_run_simulation_skips_director_in_template_mode(monkeypatch) -> None:
         "rng_seed": 0,
         "no_repeat_window": 14,
     })
-    monkeypatch.setattr(sdw, "roll_day", fail_roll_day)
-    monkeypatch.setattr(sdw, "direct_day", fail_direct_day)
+    monkeypatch.setattr("backend.utils.director.roll_day", fail_roll_day)
+    monkeypatch.setattr("backend.utils.director.direct_day", fail_direct_day)
 
-    sdw.run_simulation(
+    result = sdw.run_simulation(
         concept="Jalapeno Corn Dog Bites",
         default_model="template",
         run_index=0,
@@ -627,6 +521,7 @@ def test_run_simulation_skips_director_in_template_mode(monkeypatch) -> None:
         prompt_style="scene",
         character_models=None,
     )
+    assert result["messages"]
     assert sdw.DIRECTOR_LOG == []
 
 
