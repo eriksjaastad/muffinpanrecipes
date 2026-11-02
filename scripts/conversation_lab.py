@@ -7143,9 +7143,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "ab",
         help="Offline blind, position-swapped A/B between a control and one or many authored-scene line-range variants.",
         description=(
-            "Generate N control/variant pairs through the production call "
-            "shape (mode='openai') "
-            "and judge each pair twice with positions swapped. --variant is "
+            "Generate N control/variant pairs through the shared authored-scene API. "
+            "The lab adds frozen prior lines, optional recipe facts, and recovery accounting. "
+            "It judges each pair twice with positions swapped. --variant is "
             "a JSON object mapping scripts.simulate_dialogue_week module "
             "attribute names to replacement values (a string or a dict) - "
             "effective authored-scene lever: " + ", ".join(ALLOWED_VARIANT_ATTRS) + ". "
