@@ -163,9 +163,10 @@ def test_genuine_awaiting_and_rejected_holds_are_unchanged():
 
 # --- F3 ---------------------------------------------------------------------------------
 
-def test_claim_conflict_is_reported_as_a_conflict_and_recorded_on_the_hold():
+def test_claim_conflict_is_reported_without_saving_the_stale_episode():
     store, wed = _held_store()
     decide(EP_ID, store.get(EP_ID), store=store)
+    before = copy.deepcopy(store.get(EP_ID))
     with patch.object(photo_review, "claim_for_publication",
                       side_effect=photo_review.ReviewConflict("photo control kept changing while Sunday tried to claim it")):
         env = _sunday(store)
@@ -173,12 +174,10 @@ def test_claim_conflict_is_reported_as_a_conflict_and_recorded_on_the_hold():
     assert "kept changing" in env.error.detail and "another Sunday" not in env.error.detail
     env.dialogue.assert_not_called()
     assert env.failure.call_count == 1
-    assert "was recorded on the episode" in env.failure.call_args.kwargs["error_message"]
+    assert "stale episode was not saved" in env.failure.call_args.kwargs["error_message"]
     saved = store.get(EP_ID)
-    assert saved["publish_hold"]["last_attempt"]["outcome"] == "failed"
-    assert recorded_photo_hold(saved) is None
-    failures, summary = _monitor(saved)
-    assert any("attempt after the photo hold failed" in f for f in failures) and "awaiting" not in summary
+    assert saved == before
+    assert recorded_photo_hold(saved) == "awaiting_photo_approval"
     assert _control(store)["state"] == "approved"
 
 
