@@ -55,14 +55,13 @@ def test_score_evidence_verifies_sources_split_and_structured_flags(tmp_path, mo
                 "variant_messages": _messages("Which shot?", "The recipe is done."),
             }
         )
-    evidence_path.write_text(
-        json.dumps(
-            {
-                "human_picks": {str(pair): "control" for pair in range(1, 10)},
-                "pairs": pairs,
-            }
-        )
+    frozen_evidence = json.dumps(
+        {
+            "human_picks": {str(pair): "control" for pair in range(1, 10)},
+            "pairs": pairs,
+        }
     )
+    evidence_path.write_text(frozen_evidence)
     human_result_path.write_text("frozen labels\n")
     monkeypatch.setattr(
         e1, "EVIDENCE_SHA256", hashlib.sha256(evidence_path.read_bytes()).hexdigest()
@@ -75,19 +74,44 @@ def test_score_evidence_verifies_sources_split_and_structured_flags(tmp_path, mo
 
     result = e1.score_evidence(evidence_path, human_result_path, "holdout")
 
-    assert [pair["pair"] for pair in result["pairs"]] == [3, 8, 9]
-    assert result["pairs"][0]["evidence_flags"] == ["stock_language"]
-    assert result["sources"] == {
-        "evidence": {
-            "name": "erik-review-completed.json",
-            "sha256": e1.EVIDENCE_SHA256,
+    connected = e1.score_arm(_messages("Which shot?", "Yes, this shot."))
+    disconnected = e1.score_arm(_messages("Which shot?", "The recipe is done."))
+    assert result == {
+        "study": "E1 situated-response measurement",
+        "split": "holdout",
+        "sources": {
+            "evidence": {
+                "name": "erik-review-completed.json",
+                "sha256": e1.EVIDENCE_SHA256,
+            },
+            "human_result": {
+                "name": "human-result.md",
+                "sha256": e1.HUMAN_RESULT_SHA256,
+            },
         },
-        "human_result": {
-            "name": "human-result.md",
-            "sha256": e1.HUMAN_RESULT_SHA256,
-        },
+        "pairs": [
+            {
+                "pair": pair,
+                "scenario_id": f"scenario-{pair}",
+                "human_pick": "control",
+                "measurement_pick": "control",
+                "agrees_with_human": True,
+                "evidence_flags": list(e1.EVIDENCE_FLAGS[pair]),
+                "control": connected,
+                "variant": disconnected,
+            }
+            for pair in e1.HOLDOUT_PAIRS
+        ],
     }
 
+    evidence_path.write_text(frozen_evidence + "\n")
+    with pytest.raises(ValueError, match="evidence hash mismatch"):
+        e1.score_evidence(evidence_path, human_result_path, "holdout")
+
+    evidence_path.write_text(frozen_evidence)
     human_result_path.write_text("mutated labels\n")
     with pytest.raises(ValueError, match="human result hash mismatch"):
         e1.score_evidence(evidence_path, human_result_path, "holdout")
+
+    with pytest.raises(ValueError, match="invalid split: typo"):
+        e1.score_evidence(evidence_path, human_result_path, "typo")

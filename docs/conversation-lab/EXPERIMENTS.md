@@ -936,6 +936,29 @@ name a bounded batch and the precise judgment needed. Agent agreement with
 these opening judgments can be measured later; no judge is declared trained
 from this tied screen.
 
+## 2026-11-01 — E1 situated-response calibration against human labels (#8714)
+
+E1 preregistered one deterministic offline hypothesis before implementation:
+room-continuity resets followed by adjacent-turn uptake would match Erik on at
+least two of three sealed pairs, including both positive replications, with no
+hard-negative false positive. The scorer was frozen before the holdout was
+opened. Development pairs were 1, 2, 4, 5, 6, and 7; sealed holdout pairs were
+8, 9, and 3. Production prompts and models were not changed, and no provider
+calls were made.
+
+**Result: FAILED.** Pair 8 replicated room continuity, pair 9 missed the
+direct-response preference, and pair 3 chose a variant instead of abstaining:
+1/3 holdout agreement. Across the deliberately disagreement-enriched nine-pair
+queue, the frozen measurement agreed with Erik on 5/9, Saga on 4/9, and the
+stored judge direction on 5/9. These are calibration diagnostics, not a
+population accuracy estimate. The failed hypothesis does not authorize tuning
+on the opened holdout or any production judge/model change.
+
+Preregistration, immutable development and holdout receipts, false-positive and
+false-negative analysis, source hashes, and reproduction commands:
+`e1-situated-response-preregistration.md` and
+`results/e1-situated-response-report.md`.
+
 ## Benchmarks
 
 

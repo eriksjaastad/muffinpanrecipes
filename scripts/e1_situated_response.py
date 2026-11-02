@@ -143,6 +143,8 @@ def _verified_sha256(path: Path, expected_hash: str, label: str) -> str:
 
 
 def score_evidence(path: Path, human_result_path: Path, split: str) -> dict[str, Any]:
+    if split not in {"development", "holdout", "all"}:
+        raise ValueError(f"invalid split: {split}")
     raw = path.read_bytes()
     actual_hash = hashlib.sha256(raw).hexdigest()
     if actual_hash != EVIDENCE_SHA256:
@@ -151,9 +153,11 @@ def score_evidence(path: Path, human_result_path: Path, split: str) -> dict[str,
         human_result_path, HUMAN_RESULT_SHA256, "human result"
     )
     evidence = json.loads(raw)
-    wanted = DEVELOPMENT_PAIRS if split == "development" else HOLDOUT_PAIRS
-    if split == "all":
-        wanted = DEVELOPMENT_PAIRS + HOLDOUT_PAIRS
+    wanted = {
+        "development": DEVELOPMENT_PAIRS,
+        "holdout": HOLDOUT_PAIRS,
+        "all": DEVELOPMENT_PAIRS + HOLDOUT_PAIRS,
+    }[split]
     human_picks = evidence["human_picks"]
     results = []
     for pair in evidence["pairs"]:
