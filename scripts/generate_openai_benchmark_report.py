@@ -112,14 +112,7 @@ def main():
     lines.append("")
 
     lines.append("## Prompt/settings recommendations")
-    lines.append("- Keep monday quick-pass at `--ticks-per-day 2` for compatibility sweeps; use `3` for full-week quality checks.")
     lines.append("- For reasoning-heavy families (`o1/o3/o4`, `gpt-5*`), avoid forcing temperature when unsupported (router fallback already handles this for many models).")
-    lines.append("- Continue mixed casting: strong results when Steph/Julian/Marcus use 4o/5-tier models while Devon stays on Ollama baseline.")
-    lines.append("")
-
-    lines.append("## Assignment variant experiments")
-    for v in summary.get("assignment_variants", []):
-        lines.append(f"- **{v['variant']}**: {'PASS' if v['ok'] else 'FAIL'} ({v['reason']})")
     lines.append("")
 
     lines.append("## Next actions")

@@ -28,7 +28,7 @@ Five subcommands:
       The offline controlled experiment: generate N control/variant pairs
       through the *production* call shape
       (scripts.simulate_dialogue_week.run_simulation with
-      mode="openai", prompt_style="scene", ticks_per_day=0, plus a
+      mode="openai", plus a
       recipe_context anchor - see .scratch/regen_w36.py and
       backend/admin/cron_routes.py's `_generate_dialogue` for the exact
       shape this mirrors), then judge every pair TWICE with positions
@@ -1250,8 +1250,7 @@ def _run_arm(
     """Call run_simulation with the exact production call shape.
 
     Mirrors backend/admin/cron_routes.py's `_generate_dialogue` (~line
-    228) and .scratch/regen_w36.py: mode="openai", prompt_style="scene",
-    ticks_per_day=0, plus a recipe_context anchor. --dry-run substitutes
+    228) and .scratch/regen_w36.py: mode="openai",
     mode="template" for a zero-API-call plumbing check.
 
     `prior_lines` (frozen earlier days from `conversation_lab freeze`)
@@ -1279,10 +1278,7 @@ def _run_arm(
         run_index=run_index,
         stage_only=stage,
         injected_event=None,
-        ticks_per_day=0,
         mode=mode,
-        prompt_style="scene",
-        character_models=None,
         image_paths=copy.deepcopy(image_paths) if image_paths is not None else [],
         photography_context=copy.deepcopy(photography_context),
         recipe_context=recipe_context,
@@ -2013,8 +2009,9 @@ def _effective_bench_photography_inputs(
     and treat only falsey mappings as absent.
     """
     return {
-        "author_prompt_photography_context": (
-            copy.deepcopy(photography_context) if photography_context else None
+        "author_prompt_photography_json": (
+            json.dumps(photography_context, ensure_ascii=False)
+            if photography_context else None
         ),
     }
 
@@ -7152,7 +7149,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Offline blind, position-swapped A/B between a control and one or many authored-scene line-range variants.",
         description=(
             "Generate N control/variant pairs through the production call "
-            "shape (mode='openai', prompt_style='scene', ticks_per_day=0) "
+            "shape (mode='openai') "
             "and judge each pair twice with positions swapped. --variant is "
             "a JSON object mapping scripts.simulate_dialogue_week module "
             "attribute names to replacement values (a string or a dict) - "
@@ -7254,7 +7251,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Characterize ONE setting over N runs: mean and spread per metric, plus a judge pass rate.",
         description=(
             "Run a single arm --runs times through the production call shape "
-            "(mode='openai', prompt_style='scene', ticks_per_day=0, plus a recipe "
+            "(mode='openai', plus a recipe "
             "anchor), score every run with the deterministic metrics in "
             "scripts/conversation_metrics.py AND with the production publish gate "
             "(backend/admin/cron_routes.py's _judge_dialogue, the same judge the "

@@ -25,9 +25,7 @@ not a sandbox: arbitrary callbacks cannot be proven offline, so provider calls
 are reported as unverified. For each arm and week:
 - a fresh temporary simulator character root is used, so a control-week write
   cannot leak into the next week; the treatment arm has a separate
-  harness-owned memory store. The simulator prompt cache is cleared before every
-  week, and the original character root, and the original character root is
-  restored even if a fake week raises;
+  harness-owned memory store. The original simulator character root is restored even if a fake week raises;
 - every turn gets a stable source ID from experiment, arm, ISO week, day, turn
   index, speaker and exact text; speakers outside the fixed roster are rejected;
 - the treatment arm writes one slot per character per week. The harness

@@ -434,8 +434,7 @@ def test_openrouter_dry_run_skips_key_check_and_records_provider_route(tmp_path,
 
 
 def test_openrouter_cost_report_includes_only_openrouter_router_costs():
-    """The OpenRouter report is scoped to provider=openrouter entries;
-    separately recorded Jev costs remain in the shared ledger for the cap."""
+    """The report excludes external-provider costs from OpenRouter totals."""
     model_router.reset_cost_log()
     model_router._record_cost(
         "openrouter", "anthropic/claude-haiku-4.5", 10, 2,
@@ -445,11 +444,10 @@ def test_openrouter_cost_report_includes_only_openrouter_router_costs():
         "openrouter", "anthropic/claude-opus-4.6", 5, 1,
         actual_cost=0.0004, served_provider="Anthropic",
     )
-    model_router.record_external_cost("jev", "typesafe/jev-1.13-20260917", 0.000013272)
+    model_router.record_external_cost("other", "external-model", 0.000013272)
 
-    # Pair logs and separately billed Jev entries do not contribute to this
-    # provider-specific report.
-    totals = cl._openrouter_cost_by_model_for_pairs([{"control_stop_check_log": [], "variant_stop_check_log": []}], [])
+    # Pair data and separately billed external entries do not contribute.
+    totals = cl._openrouter_cost_by_model_for_pairs([{}], [])
     report = cl._openrouter_cost_report(totals)
 
     assert report["cost_by_model"] == {
