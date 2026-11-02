@@ -1,7 +1,9 @@
 # E1 preregistration: situated-response measurement
 
-Registered: 2026-11-01 before E1 implementation  
-Card: #108610799669506048  
+Registered: 2026-11-01 before E1 implementation
+
+Card: #108610799669506048
+
 Production prompts/models: frozen
 
 ## Frozen evidence
