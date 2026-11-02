@@ -1255,7 +1255,7 @@ def _restore_variant(module: Any, original: dict[str, Any]) -> None:
         setattr(module, name, value)
 
 # ---------------------------------------------------------------------------
-# Generation (production call shape)
+# Generation (shared authored-scene path)
 # ---------------------------------------------------------------------------
 
 def _run_arm(
@@ -1272,9 +1272,9 @@ def _run_arm(
     message_sink: list | None = None,
     recipe_facts: str | None = None,
 ) -> dict[str, Any]:
-    """Call run_simulation with the exact production call shape.
+    """Call the shared authored-scene API with frozen lab context.
 
-    Mirrors backend/admin/cron_routes.py's `_generate_dialogue` call. Dry-run substitutes `mode="template"` for a zero-API-call plumbing check.
+    Uses the same `run_simulation` entry point as production. The lab additionally supplies frozen prior lines, optional recipe facts, and a recovery sink; dry-run substitutes `mode="template"` for a zero-API-call plumbing check.
 
     `prior_lines` (frozen earlier days from `conversation_lab freeze`)
     seed run_simulation's `initial_recent_lines` so a stage-only run sees
@@ -7319,7 +7319,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "bench",
         help="Characterize ONE setting over N runs: mean and spread per metric, plus a judge pass rate.",
         description=(
-            "Run a single arm --runs times through the production call shape "
+            "Run a single arm --runs times through the shared authored-scene path "
             "(mode='openai', plus a recipe "
             "anchor), score every run with the deterministic metrics in "
             "scripts/conversation_metrics.py AND with the production publish gate "
