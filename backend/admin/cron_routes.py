@@ -2171,7 +2171,8 @@ def _reshoot_flow(episode_id: str, image_set_id: str, calls: int, noun: str, sho
         )
     try:
         started = photo_review.start_reshoot(
-            storage, episode_id, ep, image_set_id, calls, automatic_sunday=automatic_sunday,
+            storage, episode_id, ep, image_set_id, calls,
+            automatic_sunday=automatic_sunday, deadline=deadline,
         )
     except (photo_review.ReshootRefused, photo_review.ReviewConflict) as exc:
         raise HTTPException(status_code=409, detail=str(exc))
@@ -2325,6 +2326,19 @@ async def cron_wednesday(request: Request):
                         f"reserve its final saves: {exc}. Re-fire Wednesday."
                     ),
                 ) from exc
+            except Exception as exc:
+                detail = (
+                    f"Wednesday could not reserve the approved-photo episode writes for "
+                    f"{episode_id}: {type(exc).__name__}: {exc}. Nothing was saved; "
+                    "re-fire Wednesday."
+                )
+                notify_pipeline_failure(
+                    recipe_id=ep.get("recipe_id") or "unknown",
+                    concept=concept,
+                    stage="wednesday (photo review)",
+                    error_message=detail,
+                )
+                raise HTTPException(status_code=503, detail=detail) from exc
             photo_write_owner.update(id=write_id, kind="episode_write")
             photography_result = wed["photography_data"]
             image_paths = wed["image_paths"]

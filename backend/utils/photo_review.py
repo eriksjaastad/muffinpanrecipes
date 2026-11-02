@@ -57,6 +57,7 @@ import hashlib
 import json
 import re
 import secrets
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -87,6 +88,7 @@ _ACTIONS = {"select": APPROVED, "reject": REJECTED}
 # A Wednesday replacement or a decision retries a lost compare-and-swap
 # against the new latest version this many times, re-validating each time.
 _CAS_ATTEMPTS = 3
+_monotonic = time.monotonic
 
 # #8073: the dashboard Reshoot. Reshoot image calls per episode, on top of Wednesday's
 # own shoot, counted on the control
@@ -866,8 +868,16 @@ def reshoot_in_flight_active(view: ControlView) -> bool:
     return age < RESHOOT_IN_FLIGHT_S
 
 
-def start_reshoot(store, episode_id: str, verified_ep: dict | None, image_set: str, calls: int,
-                  *, automatic_sunday: bool = False) -> ControlView:
+def start_reshoot(
+    store,
+    episode_id: str,
+    verified_ep: dict | None,
+    image_set: str,
+    calls: int,
+    *,
+    automatic_sunday: bool = False,
+    deadline: float | None = None,
+) -> ControlView:
     """Dashboard Reshoot (#8073): count ``calls`` image calls and mark a shoot in flight.
 
     One compare-and-swap does both jobs. The cap is checked against the count
@@ -880,6 +890,10 @@ def start_reshoot(store, episode_id: str, verified_ep: dict | None, image_set: s
     """
     for _ in range(_CAS_ATTEMPTS):
         view = read_view(store, episode_id, verified_ep)
+        if deadline is not None and _monotonic() >= deadline:
+            raise ReshootRefused(
+                "The automatic photo window expired during reshoot start; nothing was counted or changed."
+            )
         if view.frozen:
             raise ReshootRefused("Publishing is underway. Photos are frozen.")
         if verified_ep and episode_is_published(verified_ep):

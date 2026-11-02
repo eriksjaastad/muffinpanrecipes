@@ -310,6 +310,7 @@ def _sunday_reshooting(store, orch, clock=None, failure_effect=None):
     with patch.object(cron_routes, "_get_orchestrator", return_value=orch), \
          patch.object(cron_routes, "_previous_pan_material", return_value=None), \
          patch.object(cron_routes, "_monotonic", side_effect=clock), \
+         patch.object(photo_review, "_monotonic", side_effect=clock), \
          patch.object(cron_routes, "notify_photos_ready", return_value=True):
         return _sunday(store, failure_effect=failure_effect)
 
@@ -651,6 +652,7 @@ def test_automatic_reshoot_returns_registered_episode_without_a_post_release_con
          patch.object(cron_routes, "_get_orchestrator", return_value=orch), \
          patch.object(cron_routes, "_previous_pan_material", return_value=None), \
          patch.object(cron_routes, "_monotonic", return_value=1000.0), \
+         patch.object(photo_review, "_monotonic", return_value=1000.0), \
          patch.object(cron_routes, "notify_photos_ready", return_value=True), \
          patch.object(photo_review, "finish_request_registration", side_effect=finish_then_make_control_unreadable):
         result = cron_routes.reshoot_wednesday_photos(
@@ -677,6 +679,22 @@ def test_sunday_spends_no_photo_calls_when_preflight_consumes_the_window(tmp_pat
     orch.return_value._execute_stage_photography.assert_not_called()
     assert not _control(store).get("reshoots", {}).get("calls_used")
     assert "window expired" in env.failure.call_args.kwargs["error_message"]
+
+
+def test_reshoot_start_rechecks_deadline_after_authoritative_control_read():
+    wed = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+    view = photo_review.read_view(store, EP_ID, store.get(EP_ID))
+
+    with patch.object(photo_review, "_monotonic", return_value=1121.0), \
+         pytest.raises(photo_review.ReshootRefused, match="window expired"):
+        photo_review.start_reshoot(
+            store, EP_ID, store.get(EP_ID), view.image_set_id,
+            photo_review.RESHOOT_CALLS, automatic_sunday=True, deadline=1120.0,
+        )
+
+    assert not (_control(store).get("reshoots", {}).get("calls_used"))
 
 
 def test_photo_hold_lease_blocks_rival_reshoot_and_registration_during_notification():
@@ -1942,6 +1960,24 @@ def test_wednesday_rerun_after_an_approval_keeps_the_photos_and_reruns_the_dialo
     assert wed["status"] == "complete"
     assert wed["image_urls"] == approved.request["image_urls"]
     assert wed["photo_review"]["image_set_id"] == approved.image_set_id
+
+
+def test_kept_photos_reservation_failure_alerts_without_saving(tmp_path):
+    store = _Store()
+    _wednesday(store, tmp_path)
+    decide(EP_ID, store.get(EP_ID), store=store)
+    before = copy.deepcopy(store.get(EP_ID))
+
+    with patch.object(
+        photo_review, "begin_episode_write",
+        side_effect=PhotoControlUnavailable("control write unavailable"),
+    ):
+        rerun = _wednesday(store, tmp_path)
+
+    assert getattr(rerun.error, "status_code", None) == 503
+    assert store.get(EP_ID) == before
+    assert rerun.failure.call_count == 1
+    assert "Nothing was saved" in rerun.failure.call_args.kwargs["error_message"]
 
 
 @pytest.mark.parametrize("dialogue_fails", [False, True])
