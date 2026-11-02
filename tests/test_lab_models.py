@@ -11,6 +11,7 @@ from __future__ import annotations
 import builtins
 import importlib
 import json
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -234,6 +235,29 @@ def test_bounded_vision_empty_stop_does_not_restart_the_timeout(monkeypatch):
     assert captured["requests"] == 1
     assert captured["timeout"] == 12.5
     assert captured["max_retries"] == 0
+
+
+def test_bounded_vision_enforces_elapsed_wall_clock(monkeypatch):
+    model_router.reset_cost_log()
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+    model_router.allow_openrouter_models(dialogue="openai/gpt-5-mini", judge="openai/gpt-5-mini")
+
+    class FakeOpenAI:
+        def __init__(self, **_kwargs):
+            self.chat = SimpleNamespace(completions=SimpleNamespace())
+
+    def trickling_request(*_args, **_kwargs):
+        time.sleep(1.0)
+        return "too late", "stop", 1
+
+    monkeypatch.setattr("openai.OpenAI", FakeOpenAI)
+    monkeypatch.setattr(model_router, "_openrouter_attempt", trickling_request)
+    started = time.monotonic()
+    with pytest.raises(model_router.OpenRouterWallClockTimeout, match="wall-clock timeout"):
+        model_router.generate_vision_response(
+            "rate it", [b"png"], model="openai/gpt-5-mini", timeout_s=0.05,
+        )
+    assert time.monotonic() - started < 0.5
 
 
 def test_allow_openrouter_models_extends_both_allowlists(monkeypatch):
