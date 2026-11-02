@@ -634,7 +634,7 @@ def test_an_approval_with_an_unusable_selection_selects_nothing(selected):
     env = _sunday(store)
     assert json.loads(env.result.body)["status"] == "awaiting_photo_approval"
     env.dialogue.assert_not_called()
-    assert _control(store)["version"] == 2 or _control(store)["version"] == 1  # hold writes no control
+    assert _control(store)["version"] == 3  # hold reservation and release
     assert _control(store)["state"] == "approved"
 
 

@@ -137,7 +137,10 @@ def _request(method="POST", path="/api/cron/sunday"):
 
 
 @contextmanager
-def _sunday_env(store, test=False, dialogue_effect=None, qa=(True, "PASS", False)):
+def _sunday_env(
+    store, test=False, dialogue_effect=None, qa=(True, "PASS", False),
+    failure_effect=None,
+):
     body = cron_routes.StageRequest(episode_id=EP_ID, force=True, test=test)
     dialogue = MagicMock(return_value=([{"character": "Devon Park", "message": "Ready."}], "PASS"))
     if dialogue_effect:
@@ -154,7 +157,11 @@ def _sunday_env(store, test=False, dialogue_effect=None, qa=(True, "PASS", False
          patch.object(cron_routes, "regenerate_and_upload", return_value="ok"), \
          patch.object(cron_routes, "_indexnow_submit_urls"), \
          patch.object(cron_routes, "notify_publish_held", return_value=True) as held, \
-         patch.object(cron_routes, "notify_pipeline_failure", return_value=True) as failure, \
+         patch.object(
+             cron_routes, "notify_pipeline_failure",
+             side_effect=failure_effect if failure_effect is not None else None,
+             return_value=True,
+         ) as failure, \
          patch.object(cron_routes, "notify_judge_failure", return_value=True), \
          patch("backend.publishing.episode_renderer.publish_recipe_to_catalog") as catalog, \
          patch("backend.publishing.episode_renderer.render_episode_page", return_value="<html></html>"):
@@ -296,7 +303,7 @@ def test_sunday_without_a_decision_publishes_the_team_winner_as_automatic():
     assert states == ["awaiting", "approved", "claimed", "publishing", "published"]
 
 
-def _sunday_reshooting(store, orch, clock=None):
+def _sunday_reshooting(store, orch, clock=None, failure_effect=None):
     """Sunday on the real reshoot path with a fake shoot, so no provider is called."""
     clock = clock or (lambda: 1000.0)
     store.save_image = lambda p, _b: f"{BLOB}/{p.split('images/')[1]}"
@@ -304,7 +311,7 @@ def _sunday_reshooting(store, orch, clock=None):
          patch.object(cron_routes, "_previous_pan_material", return_value=None), \
          patch.object(cron_routes, "_monotonic", side_effect=clock), \
          patch.object(cron_routes, "notify_photos_ready", return_value=True):
-        return _sunday(store)
+        return _sunday(store, failure_effect=failure_effect)
 
 
 @pytest.mark.parametrize("review_status", ["unavailable", "failed"])
@@ -630,7 +637,9 @@ def test_sunday_spends_no_photo_calls_when_preflight_consumes_the_window(tmp_pat
     store = _Store({EP_ID: _episode(wed)})
     register(EP_ID, wed, store)
     orch = MagicMock()
-    ticks = iter((1000.0, 1121.0))
+    # Route entry establishes the deadline, the outer claim check still has
+    # time, then the verified episode/control preflight consumes the window.
+    ticks = iter((1000.0, 1001.0, 1121.0))
 
     env = _sunday_reshooting(store, orch, clock=lambda: next(ticks))
 
@@ -638,6 +647,69 @@ def test_sunday_spends_no_photo_calls_when_preflight_consumes_the_window(tmp_pat
     orch.return_value._execute_stage_photography.assert_not_called()
     assert not _control(store).get("reshoots", {}).get("calls_used")
     assert "window expired" in env.failure.call_args.kwargs["error_message"]
+
+
+def test_photo_hold_lease_blocks_rival_reshoot_and_registration_during_notification():
+    wed = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+    ep = store.get(EP_ID)
+    view = photo_review.read_view(store, EP_ID, ep)
+    replacement = wednesday_stage(generation="g20261008T000000Z-holdrace")
+    attempted = []
+
+    def race_during_notification(*_args, **_kwargs):
+        current = photo_review.read_view(store, EP_ID, store.get(EP_ID))
+        with pytest.raises(photo_review.ReshootRefused, match="already running"):
+            photo_review.start_reshoot(
+                store, EP_ID, store.get(EP_ID), current.image_set_id,
+                photo_review.RESHOOT_CALLS, automatic_sunday=True,
+            )
+        with pytest.raises(photo_review.PublicationUnderway, match="still saving"):
+            register(EP_ID, replacement, store)
+        attempted.append(True)
+        return True
+
+    with patch.object(cron_routes, "storage", store), \
+         patch.object(cron_routes, "notify_publish_held", side_effect=race_during_notification):
+        response = cron_routes._hold_for_photo_approval(
+            EP_ID, ep, ep["concept"], "awaiting_photo_approval", view,
+        )
+
+    assert response.status_code == 202 and attempted == [True]
+    assert not (_control(store).get("reshoots", {}).get("in_flight"))
+    assert store.get(EP_ID)["publish_hold"]["notified"] is True
+    assert _control(store)["request"]["image_set_id"] == wed["photo_review"]["image_set_id"]
+
+
+def test_rival_publication_during_failure_alert_is_not_overwritten_by_a_stale_hold(tmp_path):
+    original = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(original)})
+    register(EP_ID, original, store)
+    result = _photography_result(tmp_path)
+    result["winner"] = {}  # the replacement still has no automatic winner
+    orch = MagicMock()
+    orch.return_value._execute_stage_photography.return_value = result
+    published = []
+
+    def rival_publishes(*_args, **_kwargs):
+        ep = store.get(EP_ID)
+        decide(EP_ID, ep, pick=1, store=store)
+        claimed = photo_review.claim_for_publication(store, EP_ID, ep)
+        pub = cron_routes._published_copy(ep, claimed, [], "PASS", ep["concept"])
+        publishing = photo_review.mark_publishing(store, claimed, pub)
+        store.save_episode(EP_ID, pub)
+        photo_review.mark_published(store, publishing, pub["published_at"])
+        published.append(copy.deepcopy(pub))
+        return True
+
+    env = _sunday_reshooting(store, orch, failure_effect=rival_publishes)
+
+    assert env.result.status_code == 409
+    assert json.loads(env.result.body)["status"] == "publication_underway"
+    assert published and store.get(EP_ID) == published[0]
+    assert _control(store)["state"] == photo_review.PUBLISHED
+    assert store.get(EP_ID).get("publish_hold") is None
 
 
 @pytest.mark.parametrize("failure, spent, expected_calls_used", [
@@ -847,13 +919,14 @@ def test_rejected_holds_and_repeat_runs_send_one_alert():
 
 
 @pytest.mark.usefixtures("sunday_reshoot_refused")
-def test_week_without_a_control_holds_from_the_derived_request_and_writes_no_control():
+def test_week_without_a_control_holds_from_the_derived_request_under_a_write_lease():
     wed = wednesday_stage(confirmed_winner={})
     del wed["photo_review"]  # a pre-#7936 Wednesday
     store = _Store({EP_ID: _episode(wed)})
     env = _sunday(store)
     assert json.loads(env.result.body)["status"] == "awaiting_photo_approval"
-    assert _control(store) is None
+    assert _control(store)["state"] == "awaiting"
+    assert _control(store)["version"] == 2
     env.dialogue.assert_not_called()
 
 

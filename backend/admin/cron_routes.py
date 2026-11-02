@@ -2126,7 +2126,7 @@ _RESHOOT_RELOAD = "Reload the page to see the current photos and reshoot calls l
 
 
 def _reshoot_flow(episode_id: str, image_set_id: str, calls: int, noun: str, shoot, precheck=None,
-                  *, automatic_sunday: bool = False) -> dict:
+                  *, automatic_sunday: bool = False, deadline: float | None = None) -> dict:
     """The shared frame of a dashboard reshoot (#8073): checks, count the calls, shoot, report.
 
     ``shoot(ep, concept, recipe_data, started, reshoot_id)`` makes and registers
@@ -2159,6 +2159,11 @@ def _reshoot_flow(episode_id: str, image_set_id: str, calls: int, noun: str, sho
                 status_code=503,
                 detail=f"Could not read the current photos ({type(exc).__name__}); nothing was counted or changed.",
             )
+    if deadline is not None and _monotonic() >= deadline:
+        raise HTTPException(
+            status_code=409,
+            detail="The automatic photo window expired during reshoot preflight; nothing was counted or changed.",
+        )
     try:
         started = photo_review.start_reshoot(
             storage, episode_id, ep, image_set_id, calls, automatic_sunday=automatic_sunday,
@@ -2221,6 +2226,7 @@ def reshoot_wednesday_photos(
             shoot_deadline=shoot_deadline if automatic_sunday else None,
         )[0],
         automatic_sunday=automatic_sunday,
+        deadline=shoot_deadline if automatic_sunday else None,
     )
 
 
@@ -2814,46 +2820,63 @@ def _hold_for_photo_approval(episode_id: str, ep: dict, concept: str, reason: st
     """
     from fastapi.responses import JSONResponse
 
-    image_set = view.image_set_id
-    episode_changed = False
-    if view.version and view.request:
-        before = copy.deepcopy((ep.get("stages") or {}).get("wednesday"))
-        photo_review.apply_request_mirror(ep, view.request)
-        episode_changed = before != ep["stages"]["wednesday"]
-    # An earlier Sunday that failed after its claim (editorial QA, dialogue)
-    # left a failed stage. This run is deliberately waiting, which is the
-    # current truth; the failure stays in events/editorial_qa. The monitor
-    # does not recognise a hold beside a Sunday stage, so the stale one goes.
-    stale_sunday = (ep.get("stages") or {}).get("sunday")
-    if isinstance(stale_sunday, dict) and stale_sunday.get("status") != "complete":
-        ep["stages"].pop("sunday", None)
-        ep.setdefault("events", []).append("sunday: earlier failed attempt superseded by hold")
-        episode_changed = True
-    prior = ep.get("publish_hold") if isinstance(ep.get("publish_hold"), dict) else {}
-    prior_attempt = prior.get("last_attempt") if isinstance(prior.get("last_attempt"), dict) else {}
-    if prior_attempt.get("outcome") == "failed":
-        # This run reached the hold decision, so the earlier failed attempt
-        # is superseded; the hold is quiet again.
-        episode_changed = True
-    if episode_changed or not (
-        prior.get("reason") == reason and prior.get("image_set_id") == image_set and prior.get("notified")
-    ):
-        same_hold = prior.get("reason") == reason and prior.get("image_set_id") == image_set
-        hold = {
-            "reason": reason,
-            "image_set_id": image_set,
-            "since": prior.get("since") or datetime.now(timezone.utc).isoformat(),
-            "notified": bool(same_hold and prior.get("notified")),
-            "last_attempt": {"at": datetime.now(timezone.utc).isoformat(), "outcome": "held"},
-        }
-        ep["publish_hold"] = hold
-        ep.setdefault("events", []).append(f"sunday: held ({reason})")
-        storage.save_episode(episode_id, ep)
-        if not hold["notified"]:
-            hold["notified"] = bool(notify_publish_held(
-                episode_id, reason, namespace=photo_review_namespace(storage.prefix),
-            ))
+    # Reserve the control before saving this whole-episode snapshot.  A slow
+    # notification may let another Sunday or Wednesday advance the control;
+    # without this lease our later save could erase that publication or
+    # replacement.  If the control already advanced, return a conflict and do
+    # not touch the stale episode.
+    try:
+        write_id, _ = photo_review.begin_episode_write(
+            storage, episode_id, view, "sunday photo hold", ep,
+        )
+    except (photo_review.PublicationUnderway, photo_review.ReviewConflict) as exc:
+        return _publication_underway_response(episode_id, concept, str(exc))
+
+    try:
+        image_set = view.image_set_id
+        episode_changed = False
+        if view.version and view.request:
+            before = copy.deepcopy((ep.get("stages") or {}).get("wednesday"))
+            photo_review.apply_request_mirror(ep, view.request)
+            episode_changed = before != ep["stages"]["wednesday"]
+        # An earlier Sunday that failed after its claim (editorial QA, dialogue)
+        # left a failed stage. This run is deliberately waiting, which is the
+        # current truth; the failure stays in events/editorial_qa. The monitor
+        # does not recognise a hold beside a Sunday stage, so the stale one goes.
+        stale_sunday = (ep.get("stages") or {}).get("sunday")
+        if isinstance(stale_sunday, dict) and stale_sunday.get("status") != "complete":
+            ep["stages"].pop("sunday", None)
+            ep.setdefault("events", []).append("sunday: earlier failed attempt superseded by hold")
+            episode_changed = True
+        prior = ep.get("publish_hold") if isinstance(ep.get("publish_hold"), dict) else {}
+        prior_attempt = prior.get("last_attempt") if isinstance(prior.get("last_attempt"), dict) else {}
+        if prior_attempt.get("outcome") == "failed":
+            # This run reached the hold decision, so the earlier failed attempt
+            # is superseded; the hold is quiet again.
+            episode_changed = True
+        if episode_changed or not (
+            prior.get("reason") == reason and prior.get("image_set_id") == image_set and prior.get("notified")
+        ):
+            same_hold = prior.get("reason") == reason and prior.get("image_set_id") == image_set
+            hold = {
+                "reason": reason,
+                "image_set_id": image_set,
+                "since": prior.get("since") or datetime.now(timezone.utc).isoformat(),
+                "notified": bool(same_hold and prior.get("notified")),
+                "last_attempt": {"at": datetime.now(timezone.utc).isoformat(), "outcome": "held"},
+            }
+            ep["publish_hold"] = hold
+            ep.setdefault("events", []).append(f"sunday: held ({reason})")
             storage.save_episode(episode_id, ep)
+            if not hold["notified"]:
+                hold["notified"] = bool(notify_publish_held(
+                    episode_id, reason, namespace=photo_review_namespace(storage.prefix),
+                ))
+                storage.save_episode(episode_id, ep)
+    finally:
+        photo_review.finish_episode_write(
+            storage, episode_id, write_id, "sunday photo hold",
+        )
 
     return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content={
         "status": reason,

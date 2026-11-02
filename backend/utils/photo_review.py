@@ -711,7 +711,7 @@ def register_request(
             raise PublicationUnderway(f"photo control is {view.state}; the image set is frozen")
         in_flight = view.reshoots.get("in_flight") or {}
         if (
-            in_flight.get("registration_pending")
+            (in_flight.get("registration_pending") or in_flight.get("episode_write_pending"))
             and in_flight.get("id") != reshoot_id
             and reshoot_in_flight_active(view)
         ):
@@ -773,6 +773,77 @@ def finish_request_registration(store, episode_id: str, registration_id: str) ->
         except PhotoControlConflict:
             continue
     raise ReviewConflict("photo control kept changing while the reshoot registration finished")
+
+
+def begin_episode_write(
+    store,
+    episode_id: str,
+    expected: ControlView,
+    purpose: str,
+    verified_ep: dict | None = None,
+) -> tuple[str, ControlView]:
+    """Reserve the current request while Sunday persists a whole-episode update.
+
+    Photo decisions live in the append-only control, but holds and monitoring
+    state live on the whole episode.  A publisher or registrar must not pass the
+    control gate while an older episode snapshot can still be saved.  The
+    marker therefore serializes those writes exactly like registration does,
+    without changing the request or decision.
+    """
+    write_id = secrets.token_hex(8)
+    for _ in range(_CAS_ATTEMPTS):
+        view = read_view(store, episode_id, verified_ep)
+        if view.frozen:
+            raise PublicationUnderway(f"photo control is {view.state}; the image set is frozen")
+        if view.version != expected.version or view.image_set_id != expected.image_set_id:
+            raise ReviewConflict("photo control changed before the episode update could be reserved")
+        if reshoot_in_flight_active(view):
+            raise PublicationUnderway("another photo operation is still saving the episode")
+        reshoots = dict(view.reshoots)
+        reshoots["in_flight"] = {
+            "id": write_id,
+            "started_at": _now(),
+            "episode_write_pending": True,
+            "purpose": purpose,
+        }
+        try:
+            reserved = _append(
+                store,
+                view,
+                state=view.state,
+                request=view.request,
+                decision=view.decision,
+                claim=None,
+                event=f"episode write: {purpose} reserved",
+                reshoots=reshoots,
+            )
+            return write_id, reserved
+        except PhotoControlConflict:
+            continue
+    raise ReviewConflict("photo control kept changing while the episode update was reserved")
+
+
+def finish_episode_write(store, episode_id: str, write_id: str, purpose: str) -> ControlView:
+    """Release an episode-write reservation while preserving any human decision."""
+    for _ in range(_CAS_ATTEMPTS):
+        view = read_view(store, episode_id, None)
+        in_flight = view.reshoots.get("in_flight") or {}
+        if in_flight.get("id") != write_id or not in_flight.get("episode_write_pending"):
+            raise ReshootRefused("The episode-write reservation changed before it finished.")
+        try:
+            return _append(
+                store,
+                view,
+                state=view.state,
+                request=view.request,
+                decision=view.decision,
+                claim=None,
+                event=f"episode write: {purpose} complete",
+                reshoots={k: v for k, v in view.reshoots.items() if k != "in_flight"},
+            )
+        except PhotoControlConflict:
+            continue
+    raise ReviewConflict("photo control kept changing while the episode update finished")
 
 
 def reshoot_in_flight_active(view: ControlView) -> bool:
@@ -996,7 +1067,7 @@ def claim_for_publication(store, episode_id: str, verified_ep: dict, *,
         if view.frozen:
             raise PublicationUnderway(f"photo control is already {view.state}")
         in_flight = view.reshoots.get("in_flight") or {}
-        if in_flight.get("registration_pending"):
+        if in_flight.get("registration_pending") or in_flight.get("episode_write_pending"):
             # A replacement is registered in the control, but its producer
             # still owns whole-episode writes.  It becomes claimable only when
             # that producer explicitly finishes registration.  The 360-second
@@ -1018,7 +1089,11 @@ def claim_for_publication(store, episode_id: str, verified_ep: dict, *,
                     request=view.request,
                     decision=view.decision,
                     claim=None,
-                    event="reshoot: expired registration recovered",
+                    event=(
+                        "reshoot: expired registration recovered"
+                        if in_flight.get("registration_pending")
+                        else "episode write: expired reservation recovered"
+                    ),
                     reshoots={k: v for k, v in view.reshoots.items() if k != "in_flight"},
                 )
             except PhotoControlConflict:
