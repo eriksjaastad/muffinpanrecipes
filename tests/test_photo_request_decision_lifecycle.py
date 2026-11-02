@@ -1980,6 +1980,31 @@ def test_kept_photos_reservation_failure_alerts_without_saving(tmp_path):
     assert "Nothing was saved" in rerun.failure.call_args.kwargs["error_message"]
 
 
+def test_approved_photo_lookup_failure_never_erases_a_rival_publication(tmp_path):
+    store = _Store()
+    _wednesday(store, tmp_path)
+    decide(EP_ID, store.get(EP_ID), store=store)
+
+    def fail_after_rival_publication(*_args, **_kwargs):
+        live = copy.deepcopy(store.get(EP_ID))
+        live["published_at"] = "2026-10-11T12:00:00+00:00"
+        live["stages"]["sunday"] = {"status": "complete", "published": True}
+        store.put(EP_ID, live)
+        raise PhotoControlUnavailable("control read unavailable")
+
+    saves_before = len(store.saves)
+    with patch.object(photo_review, "read_view", side_effect=fail_after_rival_publication):
+        rerun = _wednesday(store, tmp_path)
+
+    assert getattr(rerun.error, "status_code", None) == 503
+    assert len(store.saves) == saves_before
+    final = store.get(EP_ID)
+    assert final["published_at"] == "2026-10-11T12:00:00+00:00"
+    assert final["stages"]["sunday"] == {"status": "complete", "published": True}
+    assert rerun.failure.call_count == 1
+    assert "Nothing was saved" in rerun.failure.call_args.kwargs["error_message"]
+
+
 @pytest.mark.parametrize("dialogue_fails", [False, True])
 def test_kept_photos_rerun_saves_nothing_when_the_editor_rejects_during_dialogue(
     tmp_path, dialogue_fails,

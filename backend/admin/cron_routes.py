@@ -2302,6 +2302,25 @@ async def cron_wednesday(request: Request):
       # image set would race publication. Refuse BEFORE paying for images.
       _refuse_wednesday_on_frozen_photos(episode_id, ep, concept)
 
+      # This second control read can race Sunday's publication after the
+      # frozen-photo check above. It must happen outside _run_stage: until a
+      # write lease is acquired, this caller's whole-episode snapshot is not
+      # safe to persist, even as a failure record.
+      try:
+          kept = _approved_wednesday_photos(episode_id, ep, concept)
+      except Exception as exc:
+          detail = (
+              f"Wednesday could not resolve approved photos for {episode_id}: "
+              f"{type(exc).__name__}: {exc}. Nothing was saved; re-fire Wednesday."
+          )
+          notify_pipeline_failure(
+              recipe_id=ep.get("recipe_id") or "unknown",
+              concept=concept,
+              stage="wednesday (photo review)",
+              error_message=detail,
+          )
+          raise HTTPException(status_code=503, detail=detail) from exc
+
       photo_write_owner: dict[str, str | None] = {"id": None, "kind": None}
       with _finish_photo_write_after_stage(episode_id, photo_write_owner), \
            _run_stage(ep, "wednesday"):
@@ -2310,7 +2329,6 @@ async def cron_wednesday(request: Request):
         # only the conversation had failed (W42). No image is generated and no
         # "Photos ready" alert goes out; to replace an approved set, choose
         # "None usable" first and the re-fire reshoots.
-        kept = _approved_wednesday_photos(episode_id, ep, concept)
         if kept is not None:
             wed, kept_view = kept
             try:
