@@ -89,21 +89,6 @@ class TestHappyPath:
 class TestEmptyAndErrorStates:
     """Admin pages should render styled HTML even when data is missing."""
 
-    def test_recipes_pending_filter_is_html(
-        self, page: Page, live_server_url: str
-    ) -> None:
-        """Filtered recipes page with no results must show a styled empty state."""
-        url = f"{live_server_url}/admin/recipes?status_filter=pending"
-        page.goto(url, wait_until="networkidle")
-        _check_page_basics(page, url)
-        _is_html_page(page, url)
-        assert _has_nav(page), "Filtered recipes page needs nav"
-        # Should NOT show raw 'recipes' JSON key
-        content = page.content()
-        assert '"recipes"' not in content, (
-            "Raw JSON key found — page should render HTML, not JSON"
-        )
-
     def test_nonexistent_episode_shows_error_page(
         self, page: Page, live_server_url: str
     ) -> None:
@@ -147,18 +132,6 @@ class TestEmptyAndErrorStates:
         assert '"detail"' not in page.content(), (
             "Should not return raw FastAPI JSON 404"
         )
-
-    def test_recipes_invalid_status_filter_shows_error(
-        self, page: Page, live_server_url: str
-    ) -> None:
-        url = f"{live_server_url}/admin/recipes?status_filter=garbage"
-        page.goto(url, wait_until="networkidle")
-        _check_page_basics(page, url)
-        _is_html_page(page, url)
-        content = page.content().lower()
-        assert (
-            "invalid" in content or "error" in content or "not a valid" in content
-        ), "Invalid status filter should show styled error"
 
 
 # ---------------------------------------------------------------------------

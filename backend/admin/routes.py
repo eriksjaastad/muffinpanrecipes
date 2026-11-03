@@ -391,63 +391,58 @@ def create_routes(app: FastAPI):
             }
         )
     
+    _SAFE_SLUG_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
+
+    def _published_catalog() -> list[dict]:
+        """Published recipes from the Blob catalog (pages/recipes.json), in catalog order.
+
+        Catalog order is newest first. Any read failure, absent catalog, invalid
+        JSON or wrong shape raises 503: an unreadable catalog must never render
+        as a successful empty list.
+        """
+        store = _cloud_storage()
+        try:
+            with store.prefix_scope(""):
+                raw = store.load_page("pages/recipes.json")
+        except Exception as exc:
+            logger.error(f"Recipes catalog read failed: {type(exc).__name__}: {exc}")
+            raise HTTPException(status_code=503, detail="Could not read the published catalog")
+        if raw is None:
+            logger.error("Recipes catalog is absent from storage")
+            raise HTTPException(status_code=503, detail="Published catalog not found in storage")
+        try:
+            data = json.loads(raw)
+        except (TypeError, ValueError):
+            logger.error("Recipes catalog JSON is unparseable")
+            raise HTTPException(status_code=503, detail="Published catalog is not valid JSON")
+        recipes = data.get("recipes") if isinstance(data, dict) else None
+        if not isinstance(recipes, list):
+            logger.error("Recipes catalog has no 'recipes' list")
+            raise HTTPException(status_code=503, detail="Published catalog has an unexpected shape")
+        return [
+            {
+                "slug": r["slug"],
+                "title": r["title"].strip(),
+                "category": str(r.get("category") or ""),
+                "episode_id": str(r.get("episode_id") or ""),
+            }
+            for r in recipes
+            if isinstance(r, dict)
+            and isinstance(r.get("slug"), str)
+            and _SAFE_SLUG_RE.fullmatch(r["slug"])
+            and isinstance(r.get("title"), str)
+            and r["title"].strip()
+        ]
+
     @app.get("/admin/recipes", response_class=HTMLResponse)
     async def list_recipes(
         request: Request,
-        status_filter: Optional[str] = None,
         user: dict = Depends(require_auth)
     ):
-        """
-        Render recipes list page, optionally filtered by status.
-
-        Query params:
-            status_filter: pending, approved, published, or rejected
-        """
-        data_dir = app.state.project_root / "data" / "recipes"
-        templates = app.state.templates
-
-        if status_filter:
-            try:
-                status_enum = RecipeStatus(status_filter)
-                recipes = Recipe.list_by_status(data_dir, status_enum)
-            except ValueError:
-                return templates.TemplateResponse(
-                    "admin_error.html",
-                    {
-                        "request": request,
-                        "title": "Invalid Filter",
-                        "message": f"'{status_filter}' is not a valid status. Use: pending, approved, published, or rejected.",
-                        "status_code": 400,
-                    },
-                    status_code=400,
-                )
-        else:
-            # Get all recipes
-            recipes = []
-            for s in RecipeStatus:
-                recipes.extend(Recipe.list_by_status(data_dir, s))
-
-        # Sort by updated_at desc
-        recipes.sort(key=lambda r: r.updated_at, reverse=True)
-
-        recipe_rows = [
-            {
-                "recipe_id": r.recipe_id,
-                "title": r.title,
-                "status": r.status.value,
-                "created_at": r.created_at.isoformat(),
-                "updated_at": r.updated_at.isoformat(),
-            }
-            for r in recipes
-        ]
-
-        return templates.TemplateResponse(
+        """The Published catalog, read from cloud storage (#8604)."""
+        return app.state.templates.TemplateResponse(
             "recipes.html",
-            {
-                "request": request,
-                "recipes": recipe_rows,
-                "status_filter": status_filter,
-            },
+            {"request": request, "recipes": _published_catalog()},
         )
     
     @app.get("/admin/recipes/{recipe_id}")
