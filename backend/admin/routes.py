@@ -31,11 +31,54 @@ from backend.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Module-level rate limit storage for newsletter subscription (3 req / IP / min)
-_SUBSCRIBE_RATE_LIMITS: dict[str, list[float]] = {}
-_SUBSCRIBE_RATE_LIMITS_LAST_SWEPT: float = 0.0
-_SUBSCRIBE_RATE_LIMITS_SWEEP_INTERVAL: float = 300.0  # sweep every 5 minutes
-_SUBSCRIBE_RATE_LIMITS_MAX_ENTRIES: int = 500         # hard cap on dict size
+class _SlidingWindowRateLimiter:
+    """Per-client in-memory sliding-window limit: ``limit`` requests per minute.
+
+    State lives in the process, so on serverless each warm instance counts on its
+    own; that bounds a single client's burst without needing shared storage.
+    Expired clients are swept every few minutes and the table is capped so a
+    flood of distinct IPs cannot grow it unbounded.
+    """
+
+    window = 60.0
+    sweep_interval = 300.0
+    max_entries = 500
+
+    def __init__(self, name: str, limit: int):
+        self.name = name
+        self.limit = limit
+        self.hits: dict[str, list[float]] = {}
+        self.last_swept = 0.0
+
+    def check(self, request: Request) -> None:
+        """Record a request from this client, raising HTTP 429 once over the limit."""
+        client_ip = request.client.host if request.client else "unknown"
+        now = time.time()
+
+        if now - self.last_swept > self.sweep_interval:
+            stale = [ip for ip, ts in self.hits.items() if not any(now - t < self.window for t in ts)]
+            for ip in stale:
+                del self.hits[ip]
+            excess = len(self.hits) - self.max_entries
+            for ip in list(self.hits)[:max(excess, 0)]:
+                del self.hits[ip]
+            self.last_swept = now
+
+        timestamps = [t for t in self.hits.get(client_ip, []) if now - t < self.window]
+        if len(timestamps) >= self.limit:
+            logger.warning(f"{self.name} rate limit exceeded for IP: {client_ip}")
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many requests. Please try again later.",
+            )
+        timestamps.append(now)
+        self.hits[client_ip] = timestamps
+
+
+_SUBSCRIBE_LIMITER = _SlidingWindowRateLimiter("Newsletter", limit=3)
+# Each endpoint gets its own budget; one sign-in uses one request of each.
+_LOGIN_LIMITER = _SlidingWindowRateLimiter("Auth login", limit=10)
+_CALLBACK_LIMITER = _SlidingWindowRateLimiter("Auth callback", limit=10)
 
 # ---------------------------------------------------------------------------
 # Path-safety helpers (Governance H4)
@@ -248,6 +291,7 @@ def create_routes(app: FastAPI):
     @app.get("/auth/login")
     async def login(request: Request, redirect: Optional[str] = None):
         """Initiate Google OAuth login flow."""
+        _LOGIN_LIMITER.check(request)
         oauth = app.state.oauth_client
 
         # Generate authorization URL with CSRF state parameter
@@ -274,6 +318,7 @@ def create_routes(app: FastAPI):
         state: str
     ):
         """Handle OAuth callback from Google."""
+        _CALLBACK_LIMITER.check(request)
         oauth = app.state.oauth_client
         session_manager = app.state.session_manager
 
@@ -702,40 +747,7 @@ def create_routes(app: FastAPI):
     @app.post("/api/newsletter/subscribe")
     async def newsletter_subscribe(request: Request, request_data: NewsletterSubscribeRequest):
         """Public endpoint for newsletter subscription with rate limiting (3 req/IP/min)."""
-        client_ip = request.client.host if request.client else "unknown"
-        now = time.time()
-
-        # Periodic sweep: evict all IPs whose timestamps are fully expired
-        global _SUBSCRIBE_RATE_LIMITS_LAST_SWEPT
-        if now - _SUBSCRIBE_RATE_LIMITS_LAST_SWEPT > _SUBSCRIBE_RATE_LIMITS_SWEEP_INTERVAL:
-            stale_keys = [
-                ip for ip, ts_list in _SUBSCRIBE_RATE_LIMITS.items()
-                if not any(now - t < 60 for t in ts_list)
-            ]
-            for k in stale_keys:
-                del _SUBSCRIBE_RATE_LIMITS[k]
-            # Hard cap: if still over limit, evict oldest entries
-            if len(_SUBSCRIBE_RATE_LIMITS) > _SUBSCRIBE_RATE_LIMITS_MAX_ENTRIES:
-                excess = len(_SUBSCRIBE_RATE_LIMITS) - _SUBSCRIBE_RATE_LIMITS_MAX_ENTRIES
-                for k in list(_SUBSCRIBE_RATE_LIMITS.keys())[:excess]:
-                    del _SUBSCRIBE_RATE_LIMITS[k]
-            _SUBSCRIBE_RATE_LIMITS_LAST_SWEPT = now
-
-        # Sliding-window: keep only timestamps within the last 60 seconds
-        timestamps = _SUBSCRIBE_RATE_LIMITS.get(client_ip, [])
-        timestamps = [ts for ts in timestamps if now - ts < 60]
-        if not timestamps:
-            _SUBSCRIBE_RATE_LIMITS.pop(client_ip, None)
-
-        if len(timestamps) >= 3:
-            logger.warning(f"Newsletter rate limit exceeded for IP: {client_ip}")
-            raise HTTPException(
-                status_code=429,
-                detail="Too many requests. Please try again later.",
-            )
-
-        timestamps.append(now)
-        _SUBSCRIBE_RATE_LIMITS[client_ip] = timestamps
+        _SUBSCRIBE_LIMITER.check(request)
 
         manager = NewsletterManager()
         result = await manager.subscribe(request_data.email)
