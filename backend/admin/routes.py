@@ -453,17 +453,17 @@ def create_routes(app: FastAPI):
             key=lambda d: (str(d.get("episode_id") or ""), str(d.get("created_at") or "")),
             reverse=True,
         )
+        # Summarize every stored episode once; cards and the queue both read these summaries.
+        summaries = [_dashboard_episode(d) for d in episodes]
         current_id = current_episode_id()
-        current_raw = next((d for d in episodes if d.get("episode_id") == current_id), None)
-        recent_raw = [d for d in episodes if d.get("episode_id") != current_id][:_DASHBOARD_RECENT_EPISODES]
-        current = _dashboard_episode(current_raw) if current_raw else None
-        recent = [_dashboard_episode(d) for d in recent_raw]
+        current = next((s for s in summaries if s["episode_id"] == current_id), None)
+        recent = [s for s in summaries if s["episode_id"] != current_id][:_DASHBOARD_RECENT_EPISODES]
 
-        # One queue across current + recent, rendered once at the top of the page.
+        # The queue spans the full episode list, newest first, not just the cards shown.
         action_queue = [
-            {**action, "episode_id": card["episode_id"], "title": card["title"]}
-            for card in ([current] if current else []) + recent
-            for action in card["actions"]
+            {**action, "episode_id": s["episode_id"], "title": s["title"]}
+            for s in summaries
+            for action in s["actions"]
         ]
 
         return templates.TemplateResponse(
