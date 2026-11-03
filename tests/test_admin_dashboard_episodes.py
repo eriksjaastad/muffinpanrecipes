@@ -257,6 +257,7 @@ def test_dashboard_queue_covers_all_episodes_while_cards_show_current_and_four_r
     app.state.templates = Jinja2Templates(directory=str(TEMPLATES))
     create_routes(app)
     app.dependency_overrides[require_auth] = lambda: {"email": "admin@example.com"}
+    assert not any(route.path == "/admin/simulations" for route in app.routes)
 
     import backend.storage
 
@@ -292,6 +293,8 @@ def test_dashboard_queue_covers_all_episodes_while_cards_show_current_and_four_r
         assert label in body
     assert "PASS" in body  # Tuesday's judge verdict
     assert "Pending Review" not in body and "Recent Pending Recipes" not in body
+    assert "/admin/simulations" not in body
+    assert "Simulations" not in body
 
     # (b) a recent published week's card says Published.
     assert (
