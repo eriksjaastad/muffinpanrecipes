@@ -1483,11 +1483,47 @@ def create_routes(app: FastAPI):
         except admin_rerun_claim.RerunBusy:
             raise HTTPException(
                 status_code=409,
-                detail=f"A re-run is already in progress for {episode_id}, or its release is unconfirmed. Reload and try again later.",
+                detail=(
+                    f"A re-run is already in progress for {episode_id}, or its release is unconfirmed. "
+                    f"Wait for it to finish. If its process crashed, POST /admin/episodes/{episode_id}/rerun-claim/reconcile "
+                    f"releases the claim once it is older than {admin_rerun_claim.RECONCILE_MIN_AGE}."
+                ),
             )
         except admin_rerun_claim.RerunClaimUnavailable as exc:
             logger.error(f"Re-run claim unavailable for {episode_id}: {exc}")
             raise HTTPException(status_code=503, detail="Re-run control storage is unavailable; nothing was dispatched.")
+
+    @app.post("/admin/episodes/{episode_id}/rerun-claim/reconcile")
+    async def admin_rerun_claim_reconcile(
+        episode_id: str,
+        request: Request,
+        user: dict = Depends(require_auth),
+        ns: Optional[str] = None,
+    ):
+        """Release this episode's re-run claim after a crashed run (#8604).
+
+        Appends a ``released`` version only if the latest is a claim older than
+        ``RECONCILE_MIN_AGE``; a recent claim, or nothing to release, is a 409.
+        """
+        from backend.utils import admin_rerun_claim
+        from backend.utils.episode_integrity import parse_episode_id
+
+        _require_same_origin(request)
+        _sanitize_id(episode_id, "episode_id")
+        if ns:
+            raise HTTPException(status_code=400, detail="Stage re-runs are production-only")
+        try:
+            parse_episode_id(episode_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Not an ISO week episode id: {episode_id}")
+        try:
+            release = admin_rerun_claim.reconcile(_cloud_storage(), episode_id)
+        except admin_rerun_claim.RerunNotReconcilable as exc:
+            raise HTTPException(status_code=409, detail=f"{exc}. Nothing was changed.")
+        except admin_rerun_claim.RerunClaimUnavailable as exc:
+            logger.error(f"Re-run claim reconcile unavailable for {episode_id}: {exc}")
+            raise HTTPException(status_code=503, detail="Re-run control storage is unavailable or unexpected; the claim is not confirmed released. Re-check before retrying.")
+        return {"reconciled": True, "episode_id": episode_id, "stage": release["stage"], "released_version": release["version"]}
 
     # Test-namespace images are stored under test/images/ in the same public
     # store; only exact URLs under this origin are ever fetched (#7936).

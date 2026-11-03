@@ -10,6 +10,7 @@ import asyncio
 import json
 import re
 import threading
+from datetime import datetime, timedelta, timezone
 from unittest.mock import PropertyMock, patch
 
 import pytest
@@ -18,7 +19,7 @@ import backend.storage as storage_module
 from backend.admin import cron_routes
 from backend.storage import PhotoControlUnavailable
 from backend.utils.episode_integrity import DAY_ORDER
-from backend.utils import photo_review
+from backend.utils import admin_rerun_claim, photo_review
 from tests.photo_review_helpers import decide, register, wednesday_stage
 from tests.test_photo_request_decision_lifecycle import _SAME_ORIGIN, _Store, _client, _episode
 
@@ -251,13 +252,19 @@ def test_a_handler_that_raises_still_releases_the_claim(rerun_client, calls, mon
     assert _post_rerun(client, "friday").status_code == 200
 
 
-@pytest.mark.parametrize("fault", ["read_fails", "claim_write_fails", "unknown_state"])
+@pytest.mark.parametrize(
+    "fault", ["read_fails", "claim_write_fails", "unknown_state", "malformed_release"],
+)
 def test_unreadable_or_unwritable_claim_never_dispatches(rerun_client, calls, fault):
     store, client = rerun_client
     if fault == "read_fails":
         store.fail_read = PhotoControlUnavailable("storage down")
     elif fault == "claim_write_fails":
         store.fail_write = lambda body: True
+    elif fault == "malformed_release":
+        store.create_admin_rerun_control_version(
+            WEEK, 1, {"episode_id": WEEK, "version": 1, "write_id": "x", "state": "released"},
+        )
     else:
         store.create_admin_rerun_control_version(
             WEEK, 1, {"episode_id": WEEK, "version": 1, "write_id": "x", "state": "weird"},
@@ -385,3 +392,153 @@ def test_authenticated_request_without_same_origin_cannot_dispatch(calls, header
     assert resp.status_code == 403
     assert calls == []
     assert _claim_log() == []
+
+
+# --- Crash reconciliation (#8604): an operator releases a claim no live run can hold --
+#
+# A hard process crash skips the release, so the log keeps a ``claimed`` version.
+# Acquisition never expires it; only the explicit reconcile POST appends a release.
+
+_RECONCILE = f"/admin/episodes/{WEEK}/rerun-claim/reconcile"
+
+
+def _crash_after_claim(monkeypatch):
+    """Simulate a killed process: the handler runs, the release never happens."""
+    monkeypatch.setattr(admin_rerun_claim, "_release", lambda *args, **kwargs: None)
+
+
+def _clock_after_bound(monkeypatch, extra=timedelta(minutes=1)):
+    later = datetime.now(timezone.utc) + admin_rerun_claim.RECONCILE_MIN_AGE + extra
+    monkeypatch.setattr(admin_rerun_claim, "_utcnow", lambda: later)
+
+
+def _reconcile_post(client, headers=_SAME_ORIGIN):
+    return client.post(_RECONCILE, headers=headers)
+
+
+def _seed_claim(store, claimed_at, **overrides):
+    body = admin_rerun_claim._body(WEEK, 1, "claimed", "thursday", at=claimed_at)
+    store.create_admin_rerun_control_version(WEEK, 1, {**body, **overrides})
+
+
+def test_crashed_claim_blocks_until_old_reconcile_releases_it_then_a_rerun_runs(rerun_client, calls, monkeypatch):
+    store, client = rerun_client
+    with monkeypatch.context() as crash:
+        _crash_after_claim(crash)
+        assert _post_rerun(client, "thursday").status_code == 200
+    assert [v["state"] for v in _claim_log()] == ["claimed"]
+
+    busy = _post_rerun(client, "friday")
+    assert busy.status_code == 409
+    assert f"/admin/episodes/{WEEK}/rerun-claim/reconcile" in busy.json()["detail"]
+    assert "try again later" not in busy.json()["detail"]
+
+    _clock_after_bound(monkeypatch)
+    resp = _reconcile_post(client)
+
+    assert resp.status_code == 200
+    assert resp.json() == {"reconciled": True, "episode_id": WEEK, "stage": "thursday", "released_version": 2}
+    log = _claim_log()
+    assert [(v["state"], v["stage"], v["version"]) for v in log] == [("claimed", "thursday", 1), ("released", "thursday", 2)]
+    assert log[1]["outcome"] == admin_rerun_claim.RECONCILED_OUTCOME and log[1]["reconciled_version"] == 1
+    assert not {"email", "sub", "user"} & set(log[1])
+    assert SECRET not in json.dumps(log) and "erik@example.com" not in json.dumps(log)
+
+    assert _post_rerun(client, "friday").status_code == 200
+    assert _days(calls) == ["thursday", "friday"]
+
+
+def test_recent_claim_is_not_reconciled_and_still_blocks(rerun_client, calls, monkeypatch):
+    store, client = rerun_client
+    _crash_after_claim(monkeypatch)
+    assert _post_rerun(client, "thursday").status_code == 200
+
+    refused = _reconcile_post(client)
+
+    assert refused.status_code == 409 and "Nothing was changed" in refused.json()["detail"]
+    assert [v["state"] for v in _claim_log()] == ["claimed"]
+    assert _post_rerun(client, "friday").status_code == 409
+    assert _days(calls) == ["thursday"]
+
+
+def test_reconcile_age_bound_uses_the_injected_clock_and_exceeds_vercel_max_duration():
+    assert admin_rerun_claim.RECONCILE_MIN_AGE > timedelta(seconds=300) * 10  # vercel.json maxDuration is 300
+    store = _ClaimStore()
+    claimed_at = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    _seed_claim(store, claimed_at)
+    just_before = claimed_at + admin_rerun_claim.RECONCILE_MIN_AGE - timedelta(seconds=1)
+
+    with pytest.raises(admin_rerun_claim.RerunNotReconcilable):
+        admin_rerun_claim.reconcile(store, WEEK, now=lambda: just_before)
+    assert admin_rerun_claim.reconcile(store, WEEK, now=lambda: claimed_at + admin_rerun_claim.RECONCILE_MIN_AGE)["version"] == 2
+
+
+def test_concurrent_reconcile_lost_cas_writes_nothing_and_reports_conflict(rerun_client, monkeypatch):
+    store, client = rerun_client
+    _seed_claim(store, datetime(2026, 10, 1, tzinfo=timezone.utc))
+    original = store.create_admin_rerun_control_version
+
+    def other_operator_wins_first(episode_id, version, body):
+        monkeypatch.setattr(store, "create_admin_rerun_control_version", original)
+        original(episode_id, version, {**body, "write_id": "other-operator"})
+        original(episode_id, version, body)  # the real CAS refuses the loser
+
+    monkeypatch.setattr(store, "create_admin_rerun_control_version", other_operator_wins_first)
+
+    resp = _reconcile_post(client)
+
+    assert resp.status_code == 409 and "Nothing was changed" in resp.json()["detail"]
+    log = _claim_log()
+    assert [v["state"] for v in log] == ["claimed", "released"]
+    assert log[1]["write_id"] == "other-operator"  # the winner's record is the only release
+
+
+@pytest.mark.parametrize("name, setup, status", [
+    ("no claim ever written", lambda s: None, 409),
+    ("already released", lambda s: (_seed_claim(s, datetime(2026, 10, 1, tzinfo=timezone.utc)),
+                                    s.create_admin_rerun_control_version(WEEK, 2, admin_rerun_claim._body(WEEK, 2, "released", "thursday"))), 409),
+    ("unknown state", lambda s: _seed_claim(s, datetime(2026, 10, 1, tzinfo=timezone.utc), state="weird"), 503),
+    ("unusable timestamp", lambda s: _seed_claim(s, datetime(2026, 10, 1, tzinfo=timezone.utc), at="not-a-time"), 503),
+    ("unreadable log", lambda s: setattr(s, "fail_read", PhotoControlUnavailable("storage down")), 503),
+    ("release write fails", lambda s: (_seed_claim(s, datetime(2026, 10, 1, tzinfo=timezone.utc)),
+                                       setattr(s, "fail_write", lambda body: True)), 503),
+])
+def test_reconcile_fails_truthfully_and_leaves_the_log_unchanged(rerun_client, name, setup, status):
+    store, client = rerun_client
+    setup(store)
+    before = _claim_log()
+
+    resp = _reconcile_post(client)
+
+    assert resp.status_code == status, name
+    assert resp.json().get("reconciled") is None
+    assert _claim_log() == before
+
+
+def test_reconcile_requires_auth_and_same_origin():
+    from backend.auth.middleware import get_session_manager
+    from backend.config import config
+
+    store = _eligible_store()
+    _seed_claim(store, datetime(2026, 10, 1, tzinfo=timezone.utc))
+    before = _claim_log()
+
+    anon, patcher = _client(store, authed=False)
+    anon.app.dependency_overrides[get_session_manager] = lambda: object()
+    try:
+        with patch.object(type(config), "auth_bypass", new_callable=PropertyMock, return_value=False):
+            unauthenticated = anon.post(_RECONCILE, headers=_SAME_ORIGIN, follow_redirects=False)
+    finally:
+        patcher.stop()
+    assert unauthenticated.status_code == 307
+
+    client, patcher = _client(store)
+    try:
+        refusals = [
+            _reconcile_post(client, headers).status_code
+            for headers in ({}, {"Origin": "https://evil.test"}, {"Referer": "https://evil.test/x"})
+        ]
+    finally:
+        patcher.stop()
+    assert refusals == [403, 403, 403]
+    assert _claim_log() == before
