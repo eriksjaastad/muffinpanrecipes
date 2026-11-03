@@ -181,6 +181,8 @@
         {% endif %}
 
         <!-- Stage cards -->
+        <p id="stage-rerun-result" class="text-sm hidden" role="status"></p>
+
         {% for stage in episode.stages %}
         <section class="bg-white border border-slate-200 rounded-lg overflow-hidden">
 
@@ -210,6 +212,12 @@
                     {% if stage.key == 'wednesday' and stage.image_paths %}
                     <span class="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">📷 {{ stage.image_paths |
                         length }} images</span>
+                    {% endif %}
+
+                    {% if stage.rerunnable %}
+                    <button data-action="stage-rerun" data-episode-id="{{ episode.episode_id }}" data-stage="{{ stage.key }}"
+                        class="text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 hover:bg-amber-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+                        Re-run</button>
                     {% endif %}
                 </div>
 
@@ -458,6 +466,8 @@
 
             if (action === 'run-week' && episodeId) {
                 runCompressedWeek(episodeId, btn.dataset.ns || '');
+            } else if (action === 'stage-rerun' && episodeId) {
+                rerunStage(episodeId, btn);
             } else if (action === 'photo-select' && episodeId) {
                 submitPhotoReview(episodeId, btn, { action: 'select', image_set_id: btn.dataset.imageSet, path: btn.dataset.path });
             } else if (action === 'photo-reject' && episodeId) {
@@ -514,6 +524,29 @@
                 btn.textContent = '▶ Run Compressed Week';
                 btn.classList.replace('bg-slate-400', 'bg-emerald-600');
             }
+        }
+
+        async function rerunStage(episodeId, btn) {
+            const out = document.getElementById('stage-rerun-result');
+            const label = btn.textContent;
+            const show = (cls, text) => { out.className = 'text-sm ' + cls; out.textContent = text; };
+            btn.disabled = true;
+            btn.textContent = 'Running...';
+            show('text-blue-700', `Re-running ${btn.dataset.stage}. This can take several minutes; keep this page open.`);
+            try {
+                const resp = await fetch(`/admin/episodes/${encodeURIComponent(episodeId)}/stages/${encodeURIComponent(btn.dataset.stage)}/rerun`, { method: 'POST' });
+                const data = await resp.json().catch(() => ({}));
+                if (resp.ok) {
+                    show('text-emerald-700', `Re-ran ${btn.dataset.stage}.`);
+                    setTimeout(() => location.reload(), 1500);
+                    return;
+                }
+                show('text-red-700', data.detail || `Re-run failed (${resp.status}). Reload to check the stage.`);
+            } catch (e) {
+                show('text-red-700', 'Could not confirm the re-run. Reload to check the stage.');
+            }
+            btn.disabled = false;
+            btn.textContent = label;
         }
 
         async function submitPhotoReview(episodeId, btn, payload, endpoint = 'review') {
