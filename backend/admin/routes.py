@@ -361,36 +361,120 @@ def create_routes(app: FastAPI):
     
     # ==================== ADMIN DASHBOARD ====================
     
+    _DASHBOARD_RECENT_EPISODES = 4
+
+    def _dashboard_episode(data: dict) -> dict:
+        """One dashboard card (#8604): title, Mon-Sun statuses, judge result, and the top actions.
+
+        The actions are the pending photo choice, then every failed stage and
+        every due stage with no complete result, in day order.
+        """
+        from backend.utils import photo_review
+        from backend.utils.episode_integrity import _recipe_title, episode_is_published, stages_due
+
+        episode_id = str(data.get("episode_id") or "")
+        stages = data.get("stages")
+        if not isinstance(stages, dict):
+            stages = {}
+        days = []
+        for day in STAGE_ORDER:
+            entry = stages.get(day)
+            days.append({
+                "day": day,
+                "label": STAGE_LABELS[day],
+                "status": entry.get("status", "unknown") if isinstance(entry, dict) else "not_started",
+            })
+
+        judged = [
+            (day, stages[day]["judge_verdict"])
+            for day in STAGE_ORDER
+            if isinstance(stages.get(day), dict) and stages[day].get("judge_verdict")
+        ]
+        judge = {"day": STAGE_LABELS[judged[-1][0]], "verdict": judged[-1][1]} if judged else None
+
+        published = episode_is_published(data)
+        if published:
+            status = "Published"
+        elif any(d["status"] == "failed" for d in days):
+            status = "Failed"
+        else:
+            status = "In progress"
+
+        episode_url = f"/admin/episodes/{episode_id}"
+        actions = []
+        if not published:
+            view = _load_photo_view(episode_id, data)
+            if view.state == photo_review.AWAITING and view.request is not None:
+                actions.append({"label": "Pending photo choice", "url": f"{episode_url}#photo-review"})
+        try:
+            due = stages_due(episode_id)
+        except ValueError:  # governance: allow-silent SF002: a non-ISO-week id has no cron schedule, so no stage can be known to be missing
+            due = []
+        # Every failed stage, and every due stage with no complete result, in day order.
+        for d in days:
+            if d["status"] == "failed":
+                kind = "Failed"
+            elif d["day"] in due and d["status"] != "complete":
+                kind = "Missing"
+            else:
+                continue
+            actions.append({"label": f"{kind}: {d['label']}", "url": episode_url})
+
+        return {
+            "episode_id": episode_id,
+            "title": _recipe_title(data) or str(data.get("concept") or episode_id),
+            "status": status,
+            "days": days,
+            "judge": judge,
+            "actions": actions,
+            "url": episode_url,
+        }
+
     @app.get("/admin/", response_class=HTMLResponse)
     async def admin_dashboard(
         request: Request,
         user: dict = Depends(require_auth)
     ):
-        """Admin dashboard home with statistics."""
+        """Current and recent episodes from cloud storage (#8604)."""
+        from backend.utils.episode_integrity import current_episode_id
+
         templates = app.state.templates
-        data_dir = app.state.project_root / "data" / "recipes"
+        store = _cloud_storage()
+        lister = getattr(store, "list_episodes_strict", None) or store.list_episodes
+        try:
+            with store.prefix_scope(""):
+                raw = lister()
+        except Exception as exc:
+            logger.error(f"Dashboard episode list failed: {type(exc).__name__}: {exc}")
+            raise HTTPException(status_code=503, detail="Could not list episodes from storage")
 
-        # Get counts by status
-        pending_recipes = Recipe.list_by_status(data_dir, RecipeStatus.PENDING)
-        approved_recipes = Recipe.list_by_status(data_dir, RecipeStatus.APPROVED)
-        published_recipes = Recipe.list_by_status(data_dir, RecipeStatus.PUBLISHED)
-        rejected_recipes = Recipe.list_by_status(data_dir, RecipeStatus.REJECTED)
+        episodes = sorted(
+            (d for d in raw if isinstance(d, dict)),
+            key=lambda d: (str(d.get("episode_id") or ""), str(d.get("created_at") or "")),
+            reverse=True,
+        )
+        current_id = current_episode_id()
+        current_raw = next((d for d in episodes if d.get("episode_id") == current_id), None)
+        recent_raw = [d for d in episodes if d.get("episode_id") != current_id][:_DASHBOARD_RECENT_EPISODES]
+        current = _dashboard_episode(current_raw) if current_raw else None
+        recent = [_dashboard_episode(d) for d in recent_raw]
 
-        stats = {
-            "pending": len(pending_recipes),
-            "approved": len(approved_recipes),
-            "published": len(published_recipes),
-            "rejected": len(rejected_recipes),
-            "total": len(pending_recipes) + len(approved_recipes) + len(published_recipes) + len(rejected_recipes)
-        }
+        # One queue across current + recent, rendered once at the top of the page.
+        action_queue = [
+            {**action, "episode_id": card["episode_id"], "title": card["title"]}
+            for card in ([current] if current else []) + recent
+            for action in card["actions"]
+        ]
 
         return templates.TemplateResponse(
             "dashboard.html",
             {
                 "request": request,
-                "stats": stats,
                 "user_email": user.get("email", "Unknown"),
-                "recent_pending": pending_recipes[:5],
+                "current_id": current_id,
+                "current": current,
+                "recent": recent,
+                "action_queue": action_queue,
             }
         )
     
