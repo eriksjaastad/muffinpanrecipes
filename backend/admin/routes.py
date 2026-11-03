@@ -399,16 +399,17 @@ def create_routes(app: FastAPI):
             due = stages_due(episode_id)
         except ValueError:  # governance: allow-silent SF002: a non-ISO-week id has no cron schedule, so no stage can be known to be missing
             due = []
-        # A recorded photo hold is a deliberate wait, not a missing Sunday (#7936).
-        if recorded_photo_hold(data):
-            due = [d for d in due if d != "sunday"]
-        # Stages that are due and have no complete result.
-        missing = {d["day"] for d in days if d["day"] in due and d["status"] != "complete"}
-
         # One authoritative photo read per unpublished episode, shared by status and actions.
+        view = None if published else _load_photo_view(episode_id, data)
+        # A recorded photo hold is a deliberate wait only while the current control
+        # still warrants it; once the photos are approved, Sunday needs a rerun.
+        if view and recorded_photo_hold(data) and view.state in (photo_review.AWAITING, photo_review.REJECTED):
+            due = [d for d in due if d != "sunday"]
+        # Stages that are due and have no complete result. A published week is history.
+        missing = set() if published else {d["day"] for d in days if d["day"] in due and d["status"] != "complete"}
+
         photo_actions = []
-        if not published:
-            view = _load_photo_view(episode_id, data)
+        if view:
             if view.state == photo_review.AWAITING:
                 photo_actions.append({"label": "Pending photo choice", "url": f"{episode_url}#photo-review"})
             elif view.state == photo_review.REJECTED:
@@ -424,7 +425,7 @@ def create_routes(app: FastAPI):
 
         actions = list(photo_actions)
         # Every failed stage, and every due stage with no complete result, in day order.
-        for d in days:
+        for d in ([] if published else days):
             if d["status"] == "failed":
                 kind = "Failed"
             elif d["day"] in missing:

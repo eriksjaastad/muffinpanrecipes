@@ -117,6 +117,7 @@ def _episodes() -> tuple[list[dict], dict[str, str]]:
     older_id = week_before(filler_b_id)  # fifth week: queue only (d)
     held_id = week_before(older_id)  # sixth week: queue only, a legitimate photo hold (e)
     rejected_id = week_before(held_id)  # seventh week: queue only, photos rejected (g)
+    approved_id = week_before(rejected_id)  # eighth week: hold recorded, photos since approved (h)
 
     failed_week = {
         "episode_id": failed_id,
@@ -179,6 +180,27 @@ def _episodes() -> tuple[list[dict], dict[str, str]]:
             "last_attempt": {"at": "2026-10-28T12:00:00+00:00", "outcome": "held"},
         },
     }
+    # Eighth week: a recorded hold, but Erik has since approved the photos, so the
+    # hold no longer warrants the missing Sunday. The control is written by the test.
+    approved_wed = wednesday_stage(recipe_id="approved-soup")
+    approved_week = {
+        "episode_id": approved_id,
+        "stages": {
+            "monday": {"status": "complete", "recipe_data": {"title": "Approved Soup Muffins"}},
+            "tuesday": {"status": "complete"},
+            "wednesday": approved_wed,
+            "thursday": {"status": "complete"},
+            "friday": {"status": "complete"},
+            "saturday": {"status": "complete"},
+        },
+        "publish_hold": {
+            "reason": "awaiting_photo_approval",
+            "image_set_id": approved_wed["photo_review"]["image_set_id"],
+            "since": "2026-10-14T12:00:00+00:00",
+            "notified": True,
+            "last_attempt": {"at": "2026-10-18T12:00:00+00:00", "outcome": "held"},
+        },
+    }
     # Recent week with only due stages missing (Photography and Publish), no explicit failure.
     filler_b_week = {
         "episode_id": filler_b_id,
@@ -191,15 +213,20 @@ def _episodes() -> tuple[list[dict], dict[str, str]]:
             # wednesday and sunday absent: both due, neither held
         },
     }
+    # A published week keeps old history: a failed Deployment and an absent Final Review.
+    published_week = _complete_week(published_id, "Maple Muffins")
+    published_week["stages"]["saturday"] = {"status": "failed", "error": "old deploy failure"}
+    del published_week["stages"]["friday"]
     episodes = [
         current,
         failed_week,
-        _complete_week(published_id, "Maple Muffins"),
+        published_week,
         _complete_week(filler_a_id, "Bran Muffins"),
         filler_b_week,
         older_week,
         held_week,
         rejected_week,
+        approved_week,
     ]
     ids = {
         "failed": failed_id,
@@ -208,6 +235,7 @@ def _episodes() -> tuple[list[dict], dict[str, str]]:
         "older": older_id,
         "held": held_id,
         "rejected": rejected_id,
+        "approved": approved_id,
     }
     return episodes, ids
 
@@ -221,6 +249,9 @@ def test_dashboard_queue_covers_all_episodes_while_cards_show_current_and_four_r
     rejected = next(e for e in episodes if e["episode_id"] == ids["rejected"])
     register(ids["rejected"], rejected["stages"]["wednesday"], store=store)
     decide(ids["rejected"], rejected, action="reject", store=store)
+    approved = next(e for e in episodes if e["episode_id"] == ids["approved"])
+    register(ids["approved"], approved["stages"]["wednesday"], store=store)
+    decide(ids["approved"], approved, store=store)
 
     app = FastAPI()
     app.state.templates = Jinja2Templates(directory=str(TEMPLATES))
@@ -311,3 +342,14 @@ def test_dashboard_queue_covers_all_episodes_while_cards_show_current_and_four_r
     assert "Reshoot needed: photos rejected" in rejected_items[0]
     assert "Missing: Publish" not in rejected_items[0]
     assert "Rejected Soup Muffins" in rejected_items[0]
+
+    # (h) a recorded hold whose photos are now approved: Sunday needs a rerun.
+    approved_items = [
+        li for li in re.findall(r"<li>(.*?)</li>", body, re.DOTALL) if ids["approved"] in li
+    ]
+    assert len(approved_items) == 1
+    assert "Missing: Publish" in approved_items[0]
+
+    # (i) a published week never queues its historical failed or missing stages.
+    assert "Maple Muffins" in body
+    assert not [li for li in re.findall(r"<li>(.*?)</li>", body, re.DOTALL) if ids["published"] in li]
