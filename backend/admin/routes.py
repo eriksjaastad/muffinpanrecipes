@@ -366,8 +366,10 @@ def create_routes(app: FastAPI):
     def _dashboard_episode(data: dict) -> dict:
         """One dashboard card (#8604): title, Mon-Sun statuses, judge result, and the top actions.
 
-        The actions are the pending photo choice, then every failed stage and
-        every due stage with no complete result, in day order.
+        The actions are the photo action (a pending choice, or a rejected set
+        that needs reshooting), then every failed stage and every due stage
+        with no complete result, in day order. A legitimately held Sunday is
+        neither failed nor missing.
         """
         from backend.utils import photo_review
         from backend.utils.episode_integrity import (
@@ -390,27 +392,9 @@ def create_routes(app: FastAPI):
                 "status": entry.get("status", "unknown") if isinstance(entry, dict) else "not_started",
             })
 
-        judged = [
-            (day, stages[day]["judge_verdict"])
-            for day in STAGE_ORDER
-            if isinstance(stages.get(day), dict) and stages[day].get("judge_verdict")
-        ]
-        judge = {"day": STAGE_LABELS[judged[-1][0]], "verdict": judged[-1][1]} if judged else None
-
         published = episode_is_published(data)
-        if published:
-            status = "Published"
-        elif any(d["status"] == "failed" for d in days):
-            status = "Failed"
-        else:
-            status = "In progress"
-
         episode_url = f"/admin/episodes/{episode_id}"
-        actions = []
-        if not published:
-            view = _load_photo_view(episode_id, data)
-            if view.state == photo_review.AWAITING and view.request is not None:
-                actions.append({"label": "Pending photo choice", "url": f"{episode_url}#photo-review"})
+
         try:
             due = stages_due(episode_id)
         except ValueError:  # governance: allow-silent SF002: a non-ISO-week id has no cron schedule, so no stage can be known to be missing
@@ -418,15 +402,43 @@ def create_routes(app: FastAPI):
         # A recorded photo hold is a deliberate wait, not a missing Sunday (#7936).
         if recorded_photo_hold(data):
             due = [d for d in due if d != "sunday"]
+        # Stages that are due and have no complete result.
+        missing = {d["day"] for d in days if d["day"] in due and d["status"] != "complete"}
+
+        # One authoritative photo read per unpublished episode, shared by status and actions.
+        photo_actions = []
+        if not published:
+            view = _load_photo_view(episode_id, data)
+            if view.state == photo_review.AWAITING:
+                photo_actions.append({"label": "Pending photo choice", "url": f"{episode_url}#photo-review"})
+            elif view.state == photo_review.REJECTED:
+                # Publication is blocked until new photos are shot and chosen.
+                photo_actions.append({"label": "Reshoot needed: photos rejected", "url": f"{episode_url}#photo-review"})
+
+        if published:
+            status = "Published"
+        elif any(d["status"] == "failed" for d in days) or missing:
+            status = "Failed"
+        else:
+            status = "In progress"
+
+        actions = list(photo_actions)
         # Every failed stage, and every due stage with no complete result, in day order.
         for d in days:
             if d["status"] == "failed":
                 kind = "Failed"
-            elif d["day"] in due and d["status"] != "complete":
+            elif d["day"] in missing:
                 kind = "Missing"
             else:
                 continue
             actions.append({"label": f"{kind}: {d['label']}", "url": episode_url})
+
+        judged = [
+            (day, stages[day]["judge_verdict"])
+            for day in STAGE_ORDER
+            if isinstance(stages.get(day), dict) and stages[day].get("judge_verdict")
+        ]
+        judge = {"day": STAGE_LABELS[judged[-1][0]], "verdict": judged[-1][1]} if judged else None
 
         return {
             "episode_id": episode_id,

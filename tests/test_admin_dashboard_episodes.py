@@ -1,10 +1,11 @@
 """The admin dashboard shows the current episode from cloud storage (#8604).
 
 A fake in-memory store stands in for the storage singleton, so nothing reads
-Blob or the network. The fake list holds the current week plus five earlier
-weeks. Only the current week and the four newest earlier weeks render as
-cards; the fifth older week is off the cards but still actionable, so it must
-appear in Needs attention. Earlier week ids come from ``week_before`` (derived
+Blob or the network. The fake list holds the current week plus six earlier
+weeks, and its photo control log is the real photo_review transitions' store.
+Only the current week and the four newest earlier weeks render as cards; the
+older weeks are off the cards but still actionable, so they must appear in
+Needs attention. Earlier week ids come from ``week_before`` (derived
 from each episode id, never the clock), so the test is date-stable.
 """
 
@@ -21,16 +22,25 @@ from fastapi.testclient import TestClient
 
 from backend.admin.routes import create_routes
 from backend.auth.middleware import require_auth
+from backend.storage import PhotoControlConflict
 from backend.utils.episode_integrity import current_episode_id, week_before
-from tests.photo_review_helpers import wednesday_stage
+from tests.photo_review_helpers import decide, register, wednesday_stage
 
 TEMPLATES = Path(__file__).resolve().parents[1] / "backend" / "admin" / "templates"
 DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
 
 class FakeStore:
+    """Episodes plus an in-memory photo control log with the real version rules.
+
+    ``create_photo_control_version`` mirrors the storage contract: a version is
+    written once, and only after the one before it, so the real photo_review
+    transitions (register, decide) run unchanged against this log.
+    """
+
     def __init__(self, episodes: list[dict]) -> None:
         self._episodes = episodes
+        self._control: dict[str, dict[int, dict]] = {}
 
     @contextmanager
     def prefix_scope(self, prefix: str):
@@ -40,7 +50,18 @@ class FakeStore:
         return [dict(e) for e in self._episodes]
 
     def read_photo_control(self, episode_id: str):
-        return None  # no control stored yet: the photo view derives from the episode
+        versions = self._control.get(episode_id)
+        if not versions:
+            return None  # no control yet: the photo view derives from the episode
+        return dict(versions[max(versions)])
+
+    def create_photo_control_version(self, episode_id: str, version: int, body: dict) -> None:
+        versions = self._control.setdefault(episode_id, {})
+        if version in versions:
+            raise PhotoControlConflict(f"photo control {episode_id} v{version} already exists")
+        if version > 1 and version - 1 not in versions:
+            raise PhotoControlConflict(f"photo control {episode_id} v{version - 1} does not exist")
+        versions[version] = dict(body)
 
 
 def _current_episode() -> dict:
@@ -91,9 +112,11 @@ def _episodes() -> tuple[list[dict], dict[str, str]]:
     failed_id = week_before(current["episode_id"])  # recent card (c)
     published_id = week_before(failed_id)  # recent card (b)
     filler_a_id = week_before(published_id)  # recent card, no actions
-    filler_b_id = week_before(filler_a_id)  # recent card, no actions
+    # recent card: due stages missing, no explicit failure (f)
+    filler_b_id = week_before(filler_a_id)
     older_id = week_before(filler_b_id)  # fifth week: queue only (d)
     held_id = week_before(older_id)  # sixth week: queue only, a legitimate photo hold (e)
+    rejected_id = week_before(held_id)  # seventh week: queue only, photos rejected (g)
 
     failed_week = {
         "episode_id": failed_id,
@@ -134,22 +157,71 @@ def _episodes() -> tuple[list[dict], dict[str, str]]:
             "last_attempt": {"at": "2026-11-01T12:00:00+00:00", "outcome": "held"},
         },
     }
+    # Seventh week: Wednesday's photos were rejected, so cron_sunday recorded the
+    # photos_rejected hold on this image set. The control is written by the test.
+    rejected_wed = wednesday_stage(recipe_id="rejected-soup")
+    rejected_week = {
+        "episode_id": rejected_id,
+        "stages": {
+            "monday": {"status": "complete", "recipe_data": {"title": "Rejected Soup Muffins"}},
+            "tuesday": {"status": "complete", "judge_verdict": "PASS"},
+            "wednesday": rejected_wed,
+            "thursday": {"status": "complete"},
+            "friday": {"status": "complete"},
+            "saturday": {"status": "complete"},
+            # sunday absent, held: the photos were rejected, so no Sunday run can publish
+        },
+        "publish_hold": {
+            "reason": "photos_rejected",
+            "image_set_id": rejected_wed["photo_review"]["image_set_id"],
+            "since": "2026-10-21T12:00:00+00:00",
+            "notified": True,
+            "last_attempt": {"at": "2026-10-28T12:00:00+00:00", "outcome": "held"},
+        },
+    }
+    # Recent week with only due stages missing (Photography and Publish), no explicit failure.
+    filler_b_week = {
+        "episode_id": filler_b_id,
+        "stages": {
+            "monday": {"status": "complete", "recipe_data": {"title": "Corn Muffins"}},
+            "tuesday": {"status": "complete"},
+            "thursday": {"status": "complete"},
+            "friday": {"status": "complete"},
+            "saturday": {"status": "complete"},
+            # wednesday and sunday absent: both due, neither held
+        },
+    }
     episodes = [
         current,
         failed_week,
         _complete_week(published_id, "Maple Muffins"),
         _complete_week(filler_a_id, "Bran Muffins"),
-        _complete_week(filler_b_id, "Corn Muffins"),
+        filler_b_week,
         older_week,
         held_week,
+        rejected_week,
     ]
-    ids = {"failed": failed_id, "published": published_id, "older": older_id, "held": held_id}
+    ids = {
+        "failed": failed_id,
+        "published": published_id,
+        "filler_b": filler_b_id,
+        "older": older_id,
+        "held": held_id,
+        "rejected": rejected_id,
+    }
     return episodes, ids
 
 
 def test_dashboard_queue_covers_all_episodes_while_cards_show_current_and_four_recent():
     episodes, ids = _episodes()
     current = episodes[0]
+    store = FakeStore(episodes)
+    # The rejected week's photos go through the real transitions: Wednesday
+    # registers the set, then Erik rejects it. Both write the in-memory log.
+    rejected = next(e for e in episodes if e["episode_id"] == ids["rejected"])
+    register(ids["rejected"], rejected["stages"]["wednesday"], store=store)
+    decide(ids["rejected"], rejected, action="reject", store=store)
+
     app = FastAPI()
     app.state.templates = Jinja2Templates(directory=str(TEMPLATES))
     create_routes(app)
@@ -157,7 +229,7 @@ def test_dashboard_queue_covers_all_episodes_while_cards_show_current_and_four_r
 
     import backend.storage
 
-    with patch.object(backend.storage, "storage", FakeStore(episodes)):
+    with patch.object(backend.storage, "storage", store):
         response = TestClient(app).get("/admin/")
 
     assert response.status_code == 200
@@ -220,3 +292,22 @@ def test_dashboard_queue_covers_all_episodes_while_cards_show_current_and_four_r
     assert "Pending photo choice" in held_items[0]
     assert "Missing: Publish" not in held_items[0]
     assert "Held Soup Muffins" in held_items[0]
+
+    # (f) a recent week with only due stages missing and no explicit failed stage
+    # has a card that says Failed, and each missing due stage is queued.
+    assert f'Recent episode · {ids["filler_b"]} · <span class="font-semibold">Failed</span>' in body
+    assert "Missing: Photography →" in body
+    assert "Missing: Publish →" in body
+    assert f"Corn Muffins · {ids['filler_b']}" in body
+
+    # (g) an older rejected photo control: the reshoot-needed action is queued and
+    # blocks publication, and the held Sunday is not also a Missing: Publish.
+    assert f"Recent episode · {ids['rejected']}" not in body
+    rejected_items = [
+        li for li in re.findall(r"<li>(.*?)</li>", body, re.DOTALL) if ids["rejected"] in li
+    ]
+    assert len(rejected_items) == 1
+    assert f'href="/admin/episodes/{ids["rejected"]}#photo-review"' in rejected_items[0]
+    assert "Reshoot needed: photos rejected" in rejected_items[0]
+    assert "Missing: Publish" not in rejected_items[0]
+    assert "Rejected Soup Muffins" in rejected_items[0]
