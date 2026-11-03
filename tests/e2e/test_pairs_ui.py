@@ -1,5 +1,5 @@
 """Browser tests for the pairs-ui why box (#8342): the page's own JavaScript,
-which the HTTP tests in tests/test_pairs_ui_7793.py cannot reach.
+which the HTTP tests in tests/test_reviewer_ui.py cannot reach.
 
 How to run (tests/e2e is skipped by the default pytest run):
     uv run --extra dev pytest -o addopts="" tests/e2e/test_pairs_ui.py
