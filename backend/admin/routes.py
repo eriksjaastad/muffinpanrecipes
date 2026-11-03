@@ -762,6 +762,27 @@ def create_routes(app: FastAPI):
             raise HTTPException(status_code=404, detail=f"Episode not found: {episode_id}")
         return data
 
+    def _load_verified_episode(episode_id: str, prefix: str = "") -> dict:
+        """Read current episode authority before a paid or editorial mutation."""
+        from backend.storage import EpisodeReadStale
+
+        store = _cloud_storage()
+        try:
+            with store.prefix_scope(prefix):
+                data = store.load_episode_verified(episode_id)
+        except EpisodeReadStale as exc:
+            logger.error(f"Episode read not verified for {episode_id}: {exc}")
+            raise HTTPException(
+                status_code=503,
+                detail="Storage is still updating. Nothing was dispatched; try again in a minute.",
+            )
+        except Exception as exc:
+            logger.error(f"Episode verified read failed for {episode_id}: {type(exc).__name__}: {exc}")
+            raise HTTPException(status_code=503, detail="Could not verify the current episode; nothing was dispatched")
+        if not data:
+            raise HTTPException(status_code=404, detail=f"Episode not found: {episode_id}")
+        return data
+
     def _load_photo_view(episode_id: str, data: dict, prefix: str = ""):
         """The authoritative photo control view; a storage failure is a 503."""
         from backend.utils import photo_review
@@ -1469,7 +1490,7 @@ def create_routes(app: FastAPI):
         # under the claim, so a request that waited behind a finished run sees its result.
         try:
             with admin_rerun_claim.claim(_cloud_storage(), episode_id, stage):
-                data = _load_cloud_episode(episode_id, "")
+                data = _load_verified_episode(episode_id, "")
                 # Only Sunday eligibility depends on photo authority. A Blob
                 # outage in that separate log must not block a failed weekday.
                 view = _load_photo_view(episode_id, data) if stage == "sunday" else None

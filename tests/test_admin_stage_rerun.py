@@ -17,7 +17,7 @@ import pytest
 
 import backend.storage as storage_module
 from backend.admin import cron_routes
-from backend.storage import PhotoControlUnavailable
+from backend.storage import EpisodeReadStale, PhotoControlUnavailable
 from backend.utils.episode_integrity import DAY_ORDER
 from backend.utils import admin_rerun_claim, photo_review
 from tests.photo_review_helpers import decide, register, wednesday_stage
@@ -279,6 +279,30 @@ def test_unreadable_or_unwritable_claim_never_dispatches(rerun_client, calls, fa
 
     assert resp.status_code == 503 and "nothing was dispatched" in resp.json()["detail"]
     assert calls == []
+
+
+def test_verified_episode_truth_blocks_a_sequential_duplicate(rerun_client, calls):
+    store, client = rerun_client
+    current = {"episode_id": WEEK, "stages": _stages(monday="complete", thursday="complete")}
+    store.load_episode_verified = lambda episode_id: current
+
+    resp = _post_rerun(client, "thursday")
+
+    assert resp.status_code == 409
+    assert calls == []
+    assert [v["state"] for v in _claim_log()] == ["claimed", "released"]
+
+
+def test_unverified_stale_episode_never_dispatches(rerun_client, calls):
+    store, client = rerun_client
+    store.fail_verified = EpisodeReadStale("served old ETag")
+
+    resp = _post_rerun(client, "thursday")
+
+    assert resp.status_code == 503
+    assert "Nothing was dispatched" in resp.json()["detail"]
+    assert calls == []
+    assert [v["state"] for v in _claim_log()] == ["claimed", "released"]
 
 
 def test_unconfirmed_release_keeps_the_episode_blocked(rerun_client, calls):
