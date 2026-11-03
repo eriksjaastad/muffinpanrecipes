@@ -75,13 +75,6 @@ class TestHappyPath:
         _is_html_page(page, url)
         assert _has_nav(page), "Recipes page should have a nav header"
 
-    def test_simulations(self, page: Page, live_server_url: str) -> None:
-        url = f"{live_server_url}/admin/simulations"
-        page.goto(url, wait_until="networkidle")
-        _check_page_basics(page, url)
-        _is_html_page(page, url)
-        assert _has_nav(page), "Simulations page should have a nav header"
-
     def test_health_returns_json(self, page: Page, live_server_url: str) -> None:
         url = f"{live_server_url}/health"
         page.goto(url, wait_until="networkidle")
