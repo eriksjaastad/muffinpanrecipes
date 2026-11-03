@@ -33,11 +33,8 @@ project; job-search only records that the tools were used.
 `SEO_RUNBOOK.md` at the repo root now owns the procedure. Do not reconstruct the crawl by
 hand:
 
-```bash
-./scripts/seo_weekly_crawl.sh --against baseline
-```
-
-That script pins the crawl configuration, so successive runs stay comparable. If you ever
+Use the baseline crawl diff in `SEO_RUNBOOK.md` Procedure 1 (project-tracker's central
+collector, since 2026-11-03). Project-tracker's `sites/muffinpanrecipes.json` pins the crawl configuration, so successive runs stay comparable. If you ever
 change a flag in it, say so here — runs from before and after the change cannot be
 compared.
 

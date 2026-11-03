@@ -15,6 +15,23 @@ procedure by changing that section and nothing else.
 
 ---
 
+## Central collection (since 2026-11-03)
+
+Every site's stats are collected the same way by project-tracker's central collector
+(#8868, #8870). This site's settings are `sites/muffinpanrecipes.json` in project-tracker.
+`pt site-stats run` is scheduled daily at 6:30 (its LaunchAgent, `local.project-tracker.site-stats`) and stores Search Console, GA4, Bing, PageSpeed and
+the weekly Screaming Frog crawl in pt, and the dashboard main page shows them under
+**Website stats**. Private evidence, the crawls and `report.md` live in project-tracker
+under `data/site-stats/muffinpanrecipes/`. The weekly crawl, the crawl diff and the Bing
+snapshot that used to be scripts here are part of that run.
+
+Search Console and GA4 are read by the central collector's shared read-only Google
+service account. Until the site owner grants it access on this site's properties
+(Restricted user in Search Console, Viewer in GA4), those two sources show an HTTP 403
+error and the browser route below is still the only way to read them. Ahrefs has no API at this tier and stays a browser task.
+
+---
+
 ## Who can actually operate each tool
 
 This is the part worth reading before anything else. The five tools do not have the same
@@ -23,8 +40,8 @@ back-and-forth.
 
 | Tool | What it answers | Access route | Who runs it |
 |---|---|---|---|
-| **Screaming Frog** | What a crawler sees on our own HTML | Local CLI, headless | **Agent, directly and unattended.** No Erik. |
-| **Bing Webmaster API** | Bing's crawl stats, index status, and query stats | REST API, `BING_WEBMASTER_API_KEY` in Doppler | **Agent, directly and unattended.** No Erik. |
+| **Screaming Frog** | What a crawler sees on our own HTML | Local CLI, headless | **The central collector, weekly, unattended.** |
+| **Bing Webmaster API** | Bing's crawl stats, index status, and query stats | REST API, `BING_WEBMASTER_API_KEY` in Doppler | **The central collector, daily, unattended.** |
 | **Google Search Console** | What Google actually *did* — impressions, position, indexing verdicts | Web UI, Erik's Google account | **Agent via Claude-in-Chrome**, in Erik's logged-in session |
 | **GA4** | What humans did once they arrived | Web UI, Erik's Google account | **Agent via Claude-in-Chrome** |
 | **Ahrefs Webmaster Tools** | Backlinks, and a second opinion on the crawl | Web UI, Erik's Ahrefs account | **Agent via Claude-in-Chrome** |
@@ -57,8 +74,8 @@ diff reads.)
 | Configuration locked to defaults | Diffs are automatically comparable, which is a genuine upside. |
 | API integrations (GSC/GA4/PageSpeed) unavailable | The crawl carries no traffic data — join it manually. |
 
-The lost crawl-comparison feature is replaced by `scripts/seo_crawl_diff.py`, which diffs
-the CSV exports instead. That is arguably the better artifact: a CSV diffs in git and
+The lost crawl-comparison feature is replaced by project-tracker's `seo_monitor/crawl_diff.py`,
+which diffs the CSV exports instead. That is arguably the better artifact: a CSV diffs in git and
 survives a Screaming Frog upgrade; a `.seospider` binary does neither.
 
 Buy a licence (£199/yr) when either the crawl approaches 500 URLs or we want the crawl to
@@ -73,14 +90,9 @@ verified property (`www` 308-redirects to the apex at the Vercel domain level, a
 `prd`) — presence-check it with the usual `doppler secrets --only-names`, never print the
 value.
 
-Run the baseline:
-
-```
-doppler run --project muffinpanrecipes --config dev -- \
-    uv run python scripts/bing_webmaster_baseline.py
-```
-
-It calls three JSON/HTTP endpoints (the supported protocol — Bing retired the legacy
+The central collector reads it daily (see **Central collection** above). The dated
+snapshots in `seo-audits/weekly/<date>/bing_webmaster.json` came from the retired
+`scripts/bing_webmaster_baseline.py`, which called three JSON/HTTP endpoints (the supported protocol — Bing retired the legacy
 SOAP/POX APIs 2026-08-31, see
 [API Services](https://learn.microsoft.com/en-us/bingwebmaster/api-protocols)):
 `GetCrawlStats`, `GetQueryStats`, and `GetUrlInfo` with a `domain:` prefix on the `url`
@@ -91,11 +103,7 @@ A missing key, a non-200 response, or a 429 all exit nonzero with a message on s
 there is no empty-result fallback, and the apikey (a query parameter) is scrubbed out of
 every error path before it can reach stderr or the output file.
 
-Output lands at `seo-audits/weekly/<date>/bing_webmaster.json`, same dated-folder
-convention as the Screaming Frog crawl, and is committed. **First baseline: 2026-09-30.**
-Rerun with the same command; there is no `--against` flag here because the script writes
-one point-in-time snapshot rather than a diff — read the committed JSON files side by side
-to see movement.
+**First baseline: 2026-09-30.** Movement since then is in pt, read from the dashboard.
 
 ### Search Console, GA4, and Ahrefs — the browser tools
 
@@ -132,7 +140,7 @@ Change these and only these when porting this runbook.
 | GA4 property | `549934218`, stream `G-05P73D3237` |
 | GSC property | Domain property (DNS TXT verified) |
 | Baseline crawl | `seo-audits/baseline-2026-08/` |
-| Weekly output | `seo-audits/weekly/<YYYY-MM-DD>/` |
+| Weekly output | project-tracker `data/site-stats/muffinpanrecipes/crawls/` (before 2026-11-03: `seo-audits/weekly/<YYYY-MM-DD>/`) |
 
 > The old `react-my-burger` GA4 property is **not** this site. Ignore it.
 
@@ -142,7 +150,7 @@ Change these and only these when porting this runbook.
 
 | When | What | Who | Effort |
 |---|---|---|---|
-| **Weekly**, Sunday after the publish cron | Crawl + diff | Agent, unattended | ~2 min |
+| **Weekly** (every seven days) | Crawl + diff | Central collector, unattended | none |
 | **Biweekly** | Browser pass across GSC, GA4, Ahrefs | Agent in Erik's session | ~20 min |
 | **Quarterly** | Full re-baseline and written report | Agent + Erik | ~1 hr |
 
@@ -154,21 +162,20 @@ notice if that publish broke an existing page.
 
 ## Procedure 1 — the weekly crawl diff
 
-Fully automated. Run it after Sunday's publish completes.
+Fully automated: the central collector crawls every seven days and diffs each crawl
+against the previous one; a regression becomes a finding in its report and on the
+dashboard. To measure against the original baseline instead, from the project-tracker
+checkout:
 
 ```bash
-./scripts/seo_weekly_crawl.sh
+cd ~/projects/project-tracker
+state=data/site-stats/muffinpanrecipes
+export_path="$(python3 -c "import json; print(json.load(open('$state/screaming_frog.json'))['export_path'])")"
+python3 -m seo_monitor.crawl_diff ~/projects/muffinpanrecipes/seo-audits/baseline-2026-08/screaming-frog-internal_all.csv \
+  "$state/$export_path" --after-log "$state/$(dirname "$export_path")/crawl.log"
 ```
 
-It crawls the live site headless, writes `seo-audits/weekly/<date>/internal_all.csv`, and
-diffs against the previous weekly crawl. `scripts/seo_crawl_diff.py` **exits non-zero when
-it finds a regression**, so this can be wired to something that fails loudly.
-
-To measure against the original baseline instead of last week:
-
-```bash
-./scripts/seo_weekly_crawl.sh --against baseline
-```
+`crawl_diff` **exits 1 on a regression and 2 on incomplete coverage**.
 
 ### Reading the output
 
@@ -264,7 +271,7 @@ without dates are how "I thought we had metrics" happens.
 Due **December 2026** (four months after the August baseline, per
 `seo-audits/baseline-2026-08/README.md`).
 
-1. `./scripts/seo_weekly_crawl.sh --against baseline`
+1. The baseline crawl diff from Procedure 1.
 2. Full Ahrefs Site Audit; export the PDF alongside the August one.
 3. GSC Performance over the **full period since the baseline**, not 28 days.
 4. Write `seo-audits/report-<date>.md`: what changed, what caused it, what is next.
@@ -343,7 +350,7 @@ The last line is the point. A blocked tool blocks one step, not the pass.
 
 ## Standing rules
 
-- **One crawl configuration, forever.** Change it in `scripts/seo_weekly_crawl.sh` and
+- **One crawl configuration, forever.** Change it in project-tracker's `sites/muffinpanrecipes.json` (`crawl`) and
   note in `seo-audits/README.md` that runs before and after are not comparable. A silent
   config change makes every past crawl worthless.
 - **Never fabricate a metric.** If a number can't be reached, the report says it can't be
@@ -398,16 +405,8 @@ number attached, and "thin" is much easier to deprioritise than "94 words".
 
 ## Porting this to another project
 
-The procedures are stack-agnostic — Screaming Frog crawls HTML over HTTP and does not care
-what served it. To adopt:
-
-1. Copy `SEO_RUNBOOK.md`, `scripts/seo_crawl_diff.py`, `scripts/seo_weekly_crawl.sh`, and
-   `tests/test_seo_crawl_diff.py`.
-2. Rewrite **Site constants**. Change `SITE` in `seo_weekly_crawl.sh`.
-3. Capture a baseline crawl before changing anything, and commit it. The August baseline
-   here is worth more than any single fix that followed it.
-4. Delete the site-specific carve-outs — the `aggregateRating` decision, the seed-recipe
-   thinness, the `react-my-burger` warning. Keep the *rules*; drop this site's history.
-5. Re-check the free-tier limits. A larger site will blow the 500-URL cap immediately, and
-   the runbook's central claim — that one of the four tools is fully automatable — stops
-   being true the moment it does.
+Add the site to project-tracker's central collector: copy one of its `sites/*.json`, set
+the site's URLs, properties and Doppler block, and run `pt site-stats run`. The procedures
+here are stack-agnostic and can be copied with **Site constants** rewritten; keep the
+*rules* and drop this site's history (the `aggregateRating` decision, the seed-recipe
+thinness, the `react-my-burger` warning).

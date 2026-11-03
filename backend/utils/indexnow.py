@@ -9,7 +9,7 @@ fetchable from the site itself (``https://<host>/<key>.txt``), so anyone can
 read it — that's the point, not a leak. It lives as a plain constant here,
 and the matching file is committed at ``src/<INDEXNOW_KEY>.txt`` (served at
 the site root via a `vercel.json` route next to `BingSiteAuth.xml`). This is
-the opposite of `scripts/bing_webmaster_baseline.py`'s `BING_WEBMASTER_API_KEY`,
+the opposite of `BING_WEBMASTER_API_KEY` (read by project-tracker's central collector),
 which is a real credential from Doppler and must never reach a log or an
 exception message.
 
@@ -77,7 +77,7 @@ def submit_urls(urls: list[str]) -> IndexNowResult:
         response = requests.post(_ENDPOINT, json=payload, timeout=_TIMEOUT_SECONDS)
     except requests.RequestException as exc:
         # Nothing to scrub here (the key is public), unlike the Bing
-        # Webmaster API client in scripts/bing_webmaster_baseline.py.
+        # Webmaster API client in project-tracker's central collector.
         return IndexNowResult(ok=False, status_code=None, detail=f"{type(exc).__name__}: {exc}")
 
     if response.status_code in (200, 202):
