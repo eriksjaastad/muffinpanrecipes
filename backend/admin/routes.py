@@ -370,7 +370,12 @@ def create_routes(app: FastAPI):
         every due stage with no complete result, in day order.
         """
         from backend.utils import photo_review
-        from backend.utils.episode_integrity import _recipe_title, episode_is_published, stages_due
+        from backend.utils.episode_integrity import (
+            _recipe_title,
+            episode_is_published,
+            recorded_photo_hold,
+            stages_due,
+        )
 
         episode_id = str(data.get("episode_id") or "")
         stages = data.get("stages")
@@ -410,6 +415,9 @@ def create_routes(app: FastAPI):
             due = stages_due(episode_id)
         except ValueError:  # governance: allow-silent SF002: a non-ISO-week id has no cron schedule, so no stage can be known to be missing
             due = []
+        # A recorded photo hold is a deliberate wait, not a missing Sunday (#7936).
+        if recorded_photo_hold(data):
+            due = [d for d in due if d != "sunday"]
         # Every failed stage, and every due stage with no complete result, in day order.
         for d in days:
             if d["status"] == "failed":

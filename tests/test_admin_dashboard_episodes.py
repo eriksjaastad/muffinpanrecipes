@@ -10,6 +10,7 @@ from each episode id, never the clock), so the test is date-stable.
 
 from __future__ import annotations
 
+import re
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
@@ -21,6 +22,7 @@ from fastapi.testclient import TestClient
 from backend.admin.routes import create_routes
 from backend.auth.middleware import require_auth
 from backend.utils.episode_integrity import current_episode_id, week_before
+from tests.photo_review_helpers import wednesday_stage
 
 TEMPLATES = Path(__file__).resolve().parents[1] / "backend" / "admin" / "templates"
 DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
@@ -91,6 +93,7 @@ def _episodes() -> tuple[list[dict], dict[str, str]]:
     filler_a_id = week_before(published_id)  # recent card, no actions
     filler_b_id = week_before(filler_a_id)  # recent card, no actions
     older_id = week_before(filler_b_id)  # fifth week: queue only (d)
+    held_id = week_before(older_id)  # sixth week: queue only, a legitimate photo hold (e)
 
     failed_week = {
         "episode_id": failed_id,
@@ -111,6 +114,26 @@ def _episodes() -> tuple[list[dict], dict[str, str]]:
             # sunday absent: a past due stage with no result
         },
     }
+    held_wed = wednesday_stage(recipe_id="held-soup")
+    held_week = {
+        "episode_id": held_id,
+        "stages": {
+            "monday": {"status": "complete", "recipe_data": {"title": "Held Soup Muffins"}},
+            "tuesday": {"status": "complete", "judge_verdict": "PASS"},
+            "wednesday": held_wed,
+            "thursday": {"status": "complete"},
+            "friday": {"status": "complete"},
+            "saturday": {"status": "complete"},
+            # sunday absent, but held: cron_sunday recorded the photo hold for this image set
+        },
+        "publish_hold": {
+            "reason": "awaiting_photo_approval",
+            "image_set_id": held_wed["photo_review"]["image_set_id"],
+            "since": "2026-10-28T12:00:00+00:00",
+            "notified": True,
+            "last_attempt": {"at": "2026-11-01T12:00:00+00:00", "outcome": "held"},
+        },
+    }
     episodes = [
         current,
         failed_week,
@@ -118,8 +141,9 @@ def _episodes() -> tuple[list[dict], dict[str, str]]:
         _complete_week(filler_a_id, "Bran Muffins"),
         _complete_week(filler_b_id, "Corn Muffins"),
         older_week,
+        held_week,
     ]
-    ids = {"failed": failed_id, "published": published_id, "older": older_id}
+    ids = {"failed": failed_id, "published": published_id, "older": older_id, "held": held_id}
     return episodes, ids
 
 
@@ -186,3 +210,13 @@ def test_dashboard_queue_covers_all_episodes_while_cards_show_current_and_four_r
     assert older_label < body.index("Current episode")
     assert body.index("Missing: Copywriting →") < older_label
     assert body.index("Failed: Photography →") < older_label
+
+    # (e) the sixth week holds for photo approval: its pending photo choice is queued,
+    # but its absent Sunday is a deliberate hold, so it gets no Missing: Publish action.
+    assert f"Recent episode · {ids['held']}" not in body
+    held_items = [li for li in re.findall(r"<li>(.*?)</li>", body, re.DOTALL) if ids["held"] in li]
+    assert len(held_items) == 1
+    assert f'href="/admin/episodes/{ids["held"]}#photo-review"' in held_items[0]
+    assert "Pending photo choice" in held_items[0]
+    assert "Missing: Publish" not in held_items[0]
+    assert "Held Soup Muffins" in held_items[0]
