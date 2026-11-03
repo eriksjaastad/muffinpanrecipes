@@ -6,7 +6,9 @@ creates a clean detached worktree at that commit, copies the validated source
 project link into the ignored worktree, deploys that directory through the
 workspace Vercel-safe wrapper with ``gitSha`` metadata, runs the preview health
 check, deploys the same directory to production, runs the production health
-check, and proves the production alias resolves to the fetched SHA.
+check, and proves the production alias resolves to the fetched SHA. Deployment
+health gates are read-only: they pass ``--no-alert`` so an operator invocation
+cannot overwrite the shared monitor state or require alert-transport secrets.
 
 Vercel mutations use ``~/.openclaw/workspace/ops/vercel-safe-command.sh`` so
 raw CLI output cannot expose an operations token. Deployment URL discovery and
@@ -321,7 +323,11 @@ def _deploy_preview(worktree: Path, sha: str) -> str:
 
 
 def _health_check(worktree: Path, *, base_url: str | None = None) -> None:
-    command = [sys.executable, "scripts/health_check.py"]
+    # Deployments use the repository's dev Doppler environment for provider
+    # credentials, while production alert transport lives in the prd config.
+    # A deploy gate must validate the site without impersonating the dedicated
+    # monitor or mutating its persisted recovery state.
+    command = [sys.executable, "scripts/health_check.py", "--no-alert"]
     if base_url:
         command.extend(["--base-url", base_url])
     _run(command, cwd=worktree, timeout=HEALTH_TIMEOUT_SECONDS)

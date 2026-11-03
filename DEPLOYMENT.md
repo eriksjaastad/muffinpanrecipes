@@ -102,6 +102,9 @@ doppler run -- uv run python scripts/deploy_main.py --check
 `deploy_main.py` is the only supported production deployment entry point. It
 binds deployment to reviewed `origin/main`, requires preview health before the
 production deploy, and requires production health plus provenance afterwards.
+Its preview and production health gates use `--no-alert`, so deploys cannot
+overwrite the dedicated monitor's recovery state or depend on production
+alert-transport credentials.
 See `uv run python scripts/deploy_main.py --help` and its module docstring for
 the operator commands and gates.
 
