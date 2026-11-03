@@ -783,13 +783,16 @@ def create_routes(app: FastAPI):
         except (ValueError, KeyError, TypeError):  # governance: allow-silent SF002: a non-ISO-week episode id has no schedule; the caller then says publication needs a Sunday run without promising a time
             return None
 
-    def _rerunnable_stages(episode_id: str, data: dict) -> list[str]:
+    def _rerunnable_stages(episode_id: str, data: dict, view) -> list[str]:
         """Stages the admin may re-run: failed, or absent once their cron window passed.
 
-        Never for a published week, and never for a Sunday that
-        ``recorded_photo_hold`` says is deliberately waiting on photo approval.
+        Never for a published week, and never for a Sunday that is deliberately
+        waiting on photo approval: a recorded hold counts only while the
+        authoritative photo ``view`` is still AWAITING or REJECTED (as on the
+        dashboard), so an approved set exposes Sunday despite a stale hold.
         A non-ISO-week id has no schedule, so nothing is offered.
         """
+        from backend.utils import photo_review
         from backend.utils.episode_integrity import (
             DAY_ORDER, episode_is_published, recorded_photo_hold, stages_due,
         )
@@ -801,7 +804,9 @@ def create_routes(app: FastAPI):
         except ValueError:  # governance: allow-silent SF002: a non-ISO-week id has no cron schedule, so no stage is offered
             return []
         recorded = data.get("stages") or {}
-        held = recorded_photo_hold(data)
+        held = bool(
+            recorded_photo_hold(data) and view and view.state in (photo_review.AWAITING, photo_review.REJECTED)
+        )
         return [
             day for day in DAY_ORDER
             if not (day == "sunday" and held)
@@ -1200,14 +1205,15 @@ def create_routes(app: FastAPI):
 
         data = _load_cloud_episode(episode_id, prefix)
         local_production = not _is_cloud_store(_cloud_storage()) and not prefix
+        photo_view = _load_photo_view(episode_id, data, prefix)
         episode = _build_episode_detail(
-            data, _load_photo_view(episode_id, data, prefix), ns=ns or "",
+            data, photo_view, ns=ns or "",
             # The compressed-week simulation writes production stages with no
             # namespace of its own (#7936): local, production view, and never a
             # published week (published_at OR complete Sunday, the legacy-aware
             # predicate the static builder uses).
             can_run=local_production and not episode_is_published(data),
-            rerunnable=tuple(() if prefix else _rerunnable_stages(episode_id, data)),
+            rerunnable=tuple(() if prefix else _rerunnable_stages(episode_id, data, photo_view)),
         )
 
         return templates.TemplateResponse(
@@ -1421,6 +1427,7 @@ def create_routes(app: FastAPI):
 
         from backend.admin import cron_routes
         from backend.config import config
+        from backend.utils import admin_rerun_claim
         from backend.utils.episode_integrity import DAY_ORDER, parse_episode_id
 
         _require_same_origin(request)
@@ -1433,13 +1440,6 @@ def create_routes(app: FastAPI):
             raise HTTPException(status_code=400, detail=f"Not an ISO week episode id: {episode_id}")
         if stage not in DAY_ORDER:
             raise HTTPException(status_code=400, detail=f"Unknown stage: {stage}")
-
-        data = _load_cloud_episode(episode_id, "")
-        if stage not in _rerunnable_stages(episode_id, data):
-            raise HTTPException(
-                status_code=409,
-                detail=f"{stage} is not re-runnable for {episode_id}: it must be failed or missing, and the week unpublished and not held for photos.",
-            )
 
         secret = os.environ.get("CRON_SECRET", "")
         if not secret and not config.is_local_dev:
@@ -1465,8 +1465,29 @@ def create_routes(app: FastAPI):
             },
             receive,
         )
-        logger.info(f"Admin re-run of {stage} for {episode_id}")
-        return await getattr(cron_routes, f"cron_{stage}")(cron_request)
+        # One run per episode across all stages and instances. Eligibility is read
+        # under the claim, so a request that waited behind a finished run sees its result.
+        try:
+            with admin_rerun_claim.claim(_cloud_storage(), episode_id, stage):
+                data = _load_cloud_episode(episode_id, "")
+                # Only Sunday eligibility depends on photo authority. A Blob
+                # outage in that separate log must not block a failed weekday.
+                view = _load_photo_view(episode_id, data) if stage == "sunday" else None
+                if stage not in _rerunnable_stages(episode_id, data, view):
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"{stage} is not re-runnable for {episode_id}: it must be failed or missing, and the week unpublished and not held for photos.",
+                    )
+                logger.info(f"Admin re-run of {stage} for {episode_id}")
+                return await getattr(cron_routes, f"cron_{stage}")(cron_request)
+        except admin_rerun_claim.RerunBusy:
+            raise HTTPException(
+                status_code=409,
+                detail=f"A re-run is already in progress for {episode_id}, or its release is unconfirmed. Reload and try again later.",
+            )
+        except admin_rerun_claim.RerunClaimUnavailable as exc:
+            logger.error(f"Re-run claim unavailable for {episode_id}: {exc}")
+            raise HTTPException(status_code=503, detail="Re-run control storage is unavailable; nothing was dispatched.")
 
     # Test-namespace images are stored under test/images/ in the same public
     # store; only exact URLs under this origin are ever fetched (#7936).

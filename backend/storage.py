@@ -93,6 +93,11 @@ CHARACTER_MEMORY_DIR = ROOT / "data" / "character_memory"
 #   lose its create, never win with old state.
 # * Nothing is deleted: the log is the audit history.
 PHOTO_CONTROL_DIR = ROOT / "data" / "photo_control"
+# The admin stage re-run claim (#8604) is a second log of the same kind, one per
+# episode: it serialises paid cron dispatches across processes. Same rules, its
+# own directory / key prefix, kept beside photo_control.
+PHOTO_CONTROL_LOG = "photo_control"
+ADMIN_RERUN_LOG = "admin_rerun_control"
 _PHOTO_CONTROL_EPISODE_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _PHOTO_CONTROL_VERSION_RE = re.compile(r"^v(\d{6})\.json$")
 PHOTO_CONTROL_MAX_VERSION = 999_999
@@ -121,6 +126,10 @@ def _check_photo_control_args(episode_id: str, version: int | None = None) -> No
         or not 1 <= version <= PHOTO_CONTROL_MAX_VERSION
     ):
         raise ValueError(f"invalid photo control version: {version!r}")
+
+
+def _control_root(log: str) -> Path:
+    return PHOTO_CONTROL_DIR if log == PHOTO_CONTROL_LOG else PHOTO_CONTROL_DIR.parent / log
 
 
 def _photo_control_name(version: int) -> str:
@@ -696,7 +705,7 @@ class _FilesystemBackend:
         """Whether episodes are separated by the storage prefix. Locally they are not."""
         return False
 
-    def _photo_control_dir(self, episode_id: str) -> Path:
+    def _photo_control_dir(self, episode_id: str, log: str = PHOTO_CONTROL_LOG) -> Path:
         _check_photo_control_args(episode_id)
         # Local episodes ignore the prefix, so a local test-mode week shares
         # production's episode file. A separate test control would pair it
@@ -710,14 +719,34 @@ class _FilesystemBackend:
         namespace = self.prefix.strip("/") or "production"
         if not _PHOTO_CONTROL_EPISODE_RE.match(namespace):
             raise ValueError(f"invalid storage prefix for photo control: {self.prefix!r}")
-        return PHOTO_CONTROL_DIR / namespace / episode_id
+        return _control_root(log) / namespace / episode_id
 
     def read_photo_control(self, episode_id: str) -> Optional[dict]:
         """The latest control version, or None when the episode has none.
 
         Raises PhotoControlUnavailable when it cannot be read.
         """
-        directory = self._photo_control_dir(episode_id)
+        return self._read_control_log(episode_id, PHOTO_CONTROL_LOG)
+
+    def create_photo_control_version(self, episode_id: str, version: int, body: dict) -> None:
+        """Create version ``version``; PhotoControlConflict if it already exists.
+
+        An exclusive lock serialises writers, the body is written to a
+        temporary file and renamed into place, so a reader never sees a
+        partial version and nothing is ever replaced or deleted.
+        """
+        self._create_control_version(episode_id, version, body, PHOTO_CONTROL_LOG)
+
+    def read_admin_rerun_control(self, episode_id: str) -> Optional[dict]:
+        """The latest admin re-run claim version (#8604), or None. Same contract as photo control."""
+        return self._read_control_log(episode_id, ADMIN_RERUN_LOG)
+
+    def create_admin_rerun_control_version(self, episode_id: str, version: int, body: dict) -> None:
+        """Create admin re-run claim version ``version``; PhotoControlConflict if it exists."""
+        self._create_control_version(episode_id, version, body, ADMIN_RERUN_LOG)
+
+    def _read_control_log(self, episode_id: str, log: str) -> Optional[dict]:
+        directory = self._photo_control_dir(episode_id, log)
         try:
             if not directory.exists():
                 return None
@@ -731,21 +760,15 @@ class _FilesystemBackend:
             latest = versions[-1]
             data = json.loads((directory / _photo_control_name(latest)).read_text(encoding="utf-8"))
         except (OSError, ValueError) as e:
-            raise PhotoControlUnavailable(f"could not read photo control for {episode_id}: {e}") from e
+            raise PhotoControlUnavailable(f"could not read {log} for {episode_id}: {e}") from e
         return _validated_control_body(data, episode_id, latest)
 
-    def create_photo_control_version(self, episode_id: str, version: int, body: dict) -> None:
-        """Create version ``version``; PhotoControlConflict if it already exists.
-
-        An exclusive lock serialises writers, the body is written to a
-        temporary file and renamed into place, so a reader never sees a
-        partial version and nothing is ever replaced or deleted.
-        """
+    def _create_control_version(self, episode_id: str, version: int, body: dict, log: str) -> None:
         import fcntl
         import tempfile
 
         _check_photo_control_args(episode_id, version)
-        directory = self._photo_control_dir(episode_id)
+        directory = self._photo_control_dir(episode_id, log)
         target = directory / _photo_control_name(version)
         try:
             directory.mkdir(parents=True, exist_ok=True)
@@ -753,10 +776,10 @@ class _FilesystemBackend:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
                 try:
                     if target.exists():
-                        raise PhotoControlConflict(f"photo control {episode_id} v{version} already exists")
+                        raise PhotoControlConflict(f"{log} {episode_id} v{version} already exists")
                     if version > 1 and not (directory / _photo_control_name(version - 1)).exists():
                         raise PhotoControlConflict(
-                            f"photo control {episode_id} v{version - 1} does not exist"
+                            f"{log} {episode_id} v{version - 1} does not exist"
                         )
                     fd, tmp = tempfile.mkstemp(dir=directory, prefix=".tmp-", suffix=".json")
                     with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -767,7 +790,7 @@ class _FilesystemBackend:
         except PhotoControlConflict:
             raise
         except OSError as e:
-            raise PhotoControlUnavailable(f"could not write photo control for {episode_id}: {e}") from e
+            raise PhotoControlUnavailable(f"could not write {log} for {episode_id}: {e}") from e
 
     def save_page(self, pathname: str, html_content: str) -> str:
         """Save an HTML page locally and return its URL path."""
@@ -1495,14 +1518,14 @@ class _CloudBackend:
         self._episode_cache[(self.prefix, episode_id)] = data
         return data
 
-    def _photo_control_prefix(self, episode_id: str) -> str:
+    def _photo_control_prefix(self, episode_id: str, log: str = PHOTO_CONTROL_LOG) -> str:
         _check_photo_control_args(episode_id)
-        return f"{self.prefix}photo_control/{episode_id}/"
+        return f"{self.prefix}{log}/{episode_id}/"
 
-    def _list_photo_control(self, episode_id: str) -> dict[int, dict]:
+    def _list_photo_control(self, episode_id: str, log: str = PHOTO_CONTROL_LOG) -> dict[int, dict]:
         """version -> listed blob, from the authenticated list API."""
 
-        list_prefix = self._photo_control_prefix(episode_id)
+        list_prefix = self._photo_control_prefix(episode_id, log)
         found: dict[int, dict] = {}
         cursor: Optional[str] = None
         for _ in range(_EXACT_BLOB_MAX_LIST_PAGES):
@@ -1539,8 +1562,18 @@ class _CloudBackend:
         if not self._has_cloud():
             with self._fs.prefix_scope(self.prefix):
                 return self._fs.read_photo_control(episode_id)
+        return self._read_blob_control(episode_id, PHOTO_CONTROL_LOG)
+
+    def read_admin_rerun_control(self, episode_id: str) -> Optional[dict]:
+        """The latest admin re-run claim version (#8604), or None. Same contract as photo control."""
+        if not self._has_cloud():
+            with self._fs.prefix_scope(self.prefix):
+                return self._fs.read_admin_rerun_control(episode_id)
+        return self._read_blob_control(episode_id, ADMIN_RERUN_LOG)
+
+    def _read_blob_control(self, episode_id: str, log: str) -> Optional[dict]:
         try:
-            listed = self._list_photo_control(episode_id)
+            listed = self._list_photo_control(episode_id, log)
             if not listed:
                 return None
             latest = max(listed)
@@ -1548,8 +1581,8 @@ class _CloudBackend:
         except PhotoControlUnavailable:
             raise
         except Exception as e:
-            logger.error(f"Blob read_photo_control failed for {episode_id}: {type(e).__name__}: {e}")
-            raise PhotoControlUnavailable(f"could not read photo control: {e}") from e
+            logger.error(f"Blob read of {log} failed for {episode_id}: {type(e).__name__}: {e}")
+            raise PhotoControlUnavailable(f"could not read {log}: {e}") from e
 
     def create_photo_control_version(self, episode_id: str, version: int, body: dict) -> None:
         """Create version ``version`` with overwrite refused.
@@ -1562,11 +1595,21 @@ class _CloudBackend:
             with self._fs.prefix_scope(self.prefix):
                 self._fs.create_photo_control_version(episode_id, version, body)
             return
+        self._create_blob_control_version(episode_id, version, body, PHOTO_CONTROL_LOG)
 
+    def create_admin_rerun_control_version(self, episode_id: str, version: int, body: dict) -> None:
+        """Create admin re-run claim version ``version`` (#8604); same CAS as photo control."""
+        if not self._has_cloud():
+            with self._fs.prefix_scope(self.prefix):
+                self._fs.create_admin_rerun_control_version(episode_id, version, body)
+            return
+        self._create_blob_control_version(episode_id, version, body, ADMIN_RERUN_LOG)
+
+    def _create_blob_control_version(self, episode_id: str, version: int, body: dict, log: str) -> None:
         import requests as _requests
 
         _check_photo_control_args(episode_id, version)
-        pathname = self._photo_control_prefix(episode_id) + _photo_control_name(version)
+        pathname = self._photo_control_prefix(episode_id, log) + _photo_control_name(version)
         headers = {
             **self._auth_headers(),
             "Content-Type": "application/json",
@@ -1589,22 +1632,22 @@ class _CloudBackend:
         except _requests.RequestException as e:
             put_error = f"{type(e).__name__}: {e}"
         try:
-            listed = self._list_photo_control(episode_id)
+            listed = self._list_photo_control(episode_id, log)
             existing = listed.get(version)
             if existing is None:
                 raise PhotoControlUnavailable(
-                    f"photo control {episode_id} v{version} was not written ({put_error})"
+                    f"{log} {episode_id} v{version} was not written ({put_error})"
                 )
             landed = self._fetch_control_body(episode_id, version, existing["url"])
         except (PhotoControlUnavailable, PhotoControlConflict):
             raise
         except Exception as e:
             raise PhotoControlUnavailable(
-                f"photo control {episode_id} v{version}: write outcome unknown ({put_error}; {e})"
+                f"{log} {episode_id} v{version}: write outcome unknown ({put_error}; {e})"
             ) from e
         if landed.get("write_id") == body.get("write_id"):
             return
-        raise PhotoControlConflict(f"photo control {episode_id} v{version} already exists")
+        raise PhotoControlConflict(f"{log} {episode_id} v{version} already exists")
 
     # --- Simulations ---
 
