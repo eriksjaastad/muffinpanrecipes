@@ -122,8 +122,6 @@ def mock_openrouter_preflight(monkeypatch):
 
 
 def no_judge_calls(monkeypatch):
-    def fail(*_args, **_kwargs):
+    def fail(*_a, **_k):
         raise AssertionError("rejudge must refuse before making any judge call")
-
-
     monkeypatch.setattr(model_router, "generate_judge_response", fail)
