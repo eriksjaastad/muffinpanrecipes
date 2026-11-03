@@ -78,6 +78,12 @@ def _seed_isolated_project(root: Path) -> None:
     (episodes / f"{_EPISODE_ID}.json").write_text(
         json.dumps(episode), encoding="utf-8"
     )
+    # The admin Recipes page reads the published catalog through storage (#8604).
+    (root / "pages").mkdir()
+    (root / "pages" / "recipes.json").write_text(
+        json.dumps({"recipes": [{"slug": "e2e-browser-cups", "title": "E2E Browser Cups", "category": "Sweet"}]}),
+        encoding="utf-8",
+    )
 
 
 def _server_environment(project_root: Path) -> dict[str, str]:
