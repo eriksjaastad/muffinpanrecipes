@@ -29,7 +29,11 @@ import secrets
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
-from backend.storage import PhotoControlConflict, PhotoControlUnavailable
+from backend.storage import (
+    PHOTO_CONTROL_MAX_VERSION,
+    PhotoControlConflict,
+    PhotoControlUnavailable,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +86,7 @@ def _validated_latest(body: object, episode_id: str) -> dict | None:
         or body.get("episode_id") != episode_id
         or isinstance(body.get("version"), bool)
         or not isinstance(body.get("version"), int)
+        or not 1 <= body["version"] <= PHOTO_CONTROL_MAX_VERSION
         or body.get("state") not in {"claimed", "released"}
         or body.get("stage") not in DAY_ORDER
         or not isinstance(body.get("write_id"), str)

@@ -253,7 +253,8 @@ def test_a_handler_that_raises_still_releases_the_claim(rerun_client, calls, mon
 
 
 @pytest.mark.parametrize(
-    "fault", ["read_fails", "claim_write_fails", "unknown_state", "malformed_release"],
+    "fault",
+    ["read_fails", "claim_write_fails", "unknown_state", "malformed_release", "version_zero"],
 )
 def test_unreadable_or_unwritable_claim_never_dispatches(rerun_client, calls, fault):
     store, client = rerun_client
@@ -261,6 +262,10 @@ def test_unreadable_or_unwritable_claim_never_dispatches(rerun_client, calls, fa
         store.fail_read = PhotoControlUnavailable("storage down")
     elif fault == "claim_write_fails":
         store.fail_write = lambda body: True
+    elif fault == "version_zero":
+        malformed = admin_rerun_claim._body(WEEK, 1, "released", "thursday")
+        malformed["version"] = 0
+        store.read_admin_rerun_control = lambda episode_id: malformed
     elif fault == "malformed_release":
         store.create_admin_rerun_control_version(
             WEEK, 1, {"episode_id": WEEK, "version": 1, "write_id": "x", "state": "released"},
