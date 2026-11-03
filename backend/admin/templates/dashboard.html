@@ -24,140 +24,73 @@
     <!-- Main Content -->
     <main class="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
 
-        <!-- Stats Cards -->
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-            <div class="bg-white overflow-hidden shadow rounded-lg">
-                <div class="p-5">
-                    <div class="flex items-center">
-                        <div class="flex-shrink-0 bg-yellow-400 rounded-md p-3">
-                            <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                        </div>
-                        <div class="ml-5 w-0 flex-1">
-                            <dl>
-                                <dt class="text-sm font-medium text-gray-500 truncate">Pending Review</dt>
-                                <dd class="text-3xl font-bold text-gray-900">{{ stats.pending }}</dd>
-                            </dl>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="bg-white overflow-hidden shadow rounded-lg">
-                <div class="p-5">
-                    <div class="flex items-center">
-                        <div class="flex-shrink-0 bg-green-500 rounded-md p-3">
-                            <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M5 13l4 4L19 7" />
-                            </svg>
-                        </div>
-                        <div class="ml-5 w-0 flex-1">
-                            <dl>
-                                <dt class="text-sm font-medium text-gray-500 truncate">Approved</dt>
-                                <dd class="text-3xl font-bold text-gray-900">{{ stats.approved }}</dd>
-                            </dl>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="bg-white overflow-hidden shadow rounded-lg">
-                <div class="p-5">
-                    <div class="flex items-center">
-                        <div class="flex-shrink-0 bg-blue-500 rounded-md p-3">
-                            <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
-                            </svg>
-                        </div>
-                        <div class="ml-5 w-0 flex-1">
-                            <dl>
-                                <dt class="text-sm font-medium text-gray-500 truncate">Published</dt>
-                                <dd class="text-3xl font-bold text-gray-900">{{ stats.published }}</dd>
-                            </dl>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="bg-white overflow-hidden shadow rounded-lg">
-                <div class="p-5">
-                    <div class="flex items-center">
-                        <div class="flex-shrink-0 bg-gray-400 rounded-md p-3">
-                            <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                        </div>
-                        <div class="ml-5 w-0 flex-1">
-                            <dl>
-                                <dt class="text-sm font-medium text-gray-500 truncate">Total</dt>
-                                <dd class="text-3xl font-bold text-gray-900">{{ stats.total }}</dd>
-                            </dl>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Recent Pending Recipes -->
-        <div class="bg-white shadow rounded-lg">
+        <section class="bg-white shadow rounded-lg mb-8">
             <div class="px-6 py-4 border-b border-gray-200">
-                <h2 class="text-xl font-semibold text-gray-900">Recent Pending Recipes</h2>
+                <h2 class="text-xl font-semibold text-gray-900">Needs attention</h2>
             </div>
             <div class="p-6">
-                {% if recent_pending %}
-                <ul class="divide-y divide-gray-200">
-                    {% for recipe in recent_pending %}
-                    <li class="py-4">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <h3 class="text-lg font-medium text-gray-900">{{ recipe.title }}</h3>
-                                <p class="text-sm text-gray-500">{{ recipe.description[:100] }}...</p>
-                                <p class="mt-1 text-xs text-gray-400">Created: {{ recipe.created_at.strftime('%Y-%m-%d
-                                    %H:%M') }}</p>
-                            </div>
-                            <div class="flex space-x-2">
-                                <button onclick="approveRecipe('{{ recipe.recipe_id }}')"
-                                    class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition">
-                                    Approve
-                                </button>
-                                <button onclick="rejectRecipe('{{ recipe.recipe_id }}')"
-                                    class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition">
-                                    Reject
-                                </button>
-                                <a href="/admin/recipes/{{ recipe.recipe_id }}/view"
-                                    class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition">
-                                    View Details
-                                </a>
-                            </div>
-                        </div>
+                {% if action_queue %}
+                <ul class="space-y-2">
+                    {% for action in action_queue %}
+                    <li>
+                        <a href="{{ action.url }}" class="font-semibold text-blue-700 hover:underline">{{ action.label }} →</a>
+                        <span class="text-sm text-gray-500">{{ action.title }} · {{ action.episode_id }}</span>
                     </li>
                     {% endfor %}
                 </ul>
                 {% else %}
-                <p class="text-gray-500 text-center py-8">No pending recipes</p>
+                <p class="text-sm text-gray-500">Nothing needs attention.</p>
                 {% endif %}
             </div>
-        </div>
+        </section>
+
+        {% macro episode_card(ep, heading) %}
+        <section class="bg-white shadow rounded-lg mb-8">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <p class="text-sm text-gray-500">{{ heading }} · {{ ep.episode_id }} · <span class="font-semibold">{{ ep.status }}</span></p>
+                <h2 class="text-xl font-semibold text-gray-900">
+                    <a href="{{ ep.url }}" class="hover:underline">{{ ep.title }}</a>
+                </h2>
+            </div>
+            <div class="p-6">
+                <ol class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-4">
+                    {% for day in ep.days %}
+                    <li class="rounded border border-gray-200 p-3">
+                        <p class="text-xs font-medium text-gray-500">{{ day.label }}</p>
+                        <p class="text-sm font-semibold {% if day.status == 'complete' %}text-green-700{% elif day.status == 'failed' %}text-red-700{% else %}text-gray-700{% endif %}">{{ day.status }}</p>
+                    </li>
+                    {% endfor %}
+                </ol>
+                <p class="text-sm text-gray-700 mb-2">
+                    Judge:
+                    {% if ep.judge %}
+                    <span class="font-semibold">{{ ep.judge.verdict }}</span> <span class="text-gray-500">({{ ep.judge.day }})</span>
+                    {% else %}
+                    <span class="text-gray-500">no judge result yet</span>
+                    {% endif %}
+                </p>
+            </div>
+        </section>
+        {% endmacro %}
+
+        {% if current %}
+            {{ episode_card(current, "Current episode") }}
+        {% else %}
+        <section class="bg-white shadow rounded-lg mb-8 p-6">
+            <p class="text-sm text-gray-500">Current episode · {{ current_id }}</p>
+            <p class="text-gray-500">No episode has been started this week.</p>
+        </section>
+        {% endif %}
+
+        {% if recent %}
+        <h2 class="text-lg font-semibold text-gray-900 mb-4">Recent episodes</h2>
+        {% for ep in recent %}
+            {{ episode_card(ep, "Recent episode") }}
+        {% endfor %}
+        {% endif %}
 
         <!-- Quick Actions -->
         <div class="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
-            <a href="/admin/recipes?status_filter=pending"
-                class="block p-6 bg-white shadow rounded-lg hover:bg-gray-50 transition">
-                <h3 class="text-lg font-semibold text-gray-900 mb-2">Review Pending</h3>
-                <p class="text-sm text-gray-600">Review all recipes awaiting approval</p>
-            </a>
-
-            <a href="/admin/recipes?status_filter=approved"
-                class="block p-6 bg-white shadow rounded-lg hover:bg-gray-50 transition">
-                <h3 class="text-lg font-semibold text-gray-900 mb-2">Publish Approved</h3>
-                <p class="text-sm text-gray-600">Publish approved recipes to the live site</p>
-            </a>
-
             <a href="/admin/simulations" class="block p-6 bg-white shadow rounded-lg hover:bg-gray-50 transition">
                 <h3 class="text-lg font-semibold text-gray-900 mb-2">View Simulated Dialogues</h3>
                 <p class="text-sm text-gray-600">Browse group-text style simulation transcripts</p>
@@ -179,53 +112,6 @@
     </main>
 
     <script>
-        async function approveRecipe(recipeId) {
-            if (!confirm('Approve this recipe?')) return;
-
-            try {
-                const response = await fetch(`/admin/recipes/${recipeId}/approve`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ notes: null })
-                });
-
-                const data = await response.json();
-
-                if (data.success) {
-                    alert('Recipe approved!');
-                    location.reload();
-                } else {
-                    alert('Failed to approve recipe');
-                }
-            } catch (error) {
-                alert('Error: ' + error.message);
-            }
-        }
-
-        async function rejectRecipe(recipeId) {
-            const notes = prompt('Rejection reason (required):');
-            if (!notes) return;
-
-            try {
-                const response = await fetch(`/admin/recipes/${recipeId}/reject`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ notes: notes })
-                });
-
-                const data = await response.json();
-
-                if (data.success) {
-                    alert('Recipe rejected');
-                    location.reload();
-                } else {
-                    alert('Failed to reject recipe');
-                }
-            } catch (error) {
-                alert('Error: ' + error.message);
-            }
-        }
-
         async function generateRecipe() {
             if (!confirm('Trigger new recipe generation?')) return;
 

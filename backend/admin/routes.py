@@ -361,36 +361,141 @@ def create_routes(app: FastAPI):
     
     # ==================== ADMIN DASHBOARD ====================
     
+    _DASHBOARD_RECENT_EPISODES = 4
+
+    def _dashboard_episode(data: dict) -> dict:
+        """One dashboard card (#8604): title, Mon-Sun statuses, judge result, and the top actions.
+
+        The actions are the photo action (a pending choice, or a rejected set
+        that needs reshooting), then every failed stage and every due stage
+        with no complete result, in day order. A legitimately held Sunday is
+        neither failed nor missing.
+        """
+        from backend.utils import photo_review
+        from backend.utils.episode_integrity import (
+            _recipe_title,
+            episode_is_published,
+            recorded_photo_hold,
+            stages_due,
+        )
+
+        episode_id = str(data.get("episode_id") or "")
+        stages = data.get("stages")
+        if not isinstance(stages, dict):
+            stages = {}
+        days = []
+        for day in STAGE_ORDER:
+            entry = stages.get(day)
+            days.append({
+                "day": day,
+                "label": STAGE_LABELS[day],
+                "status": entry.get("status", "unknown") if isinstance(entry, dict) else "not_started",
+            })
+
+        published = episode_is_published(data)
+        episode_url = f"/admin/episodes/{episode_id}"
+
+        try:
+            due = stages_due(episode_id)
+        except ValueError:  # governance: allow-silent SF002: a non-ISO-week id has no cron schedule, so no stage can be known to be missing
+            due = []
+        # One authoritative photo read per unpublished episode, shared by status and actions.
+        view = None if published else _load_photo_view(episode_id, data)
+        # A recorded photo hold is a deliberate wait only while the current control
+        # still warrants it; once the photos are approved, Sunday needs a rerun.
+        if view and recorded_photo_hold(data) and view.state in (photo_review.AWAITING, photo_review.REJECTED):
+            due = [d for d in due if d != "sunday"]
+        # Stages that are due and have no complete result. A published week is history.
+        missing = set() if published else {d["day"] for d in days if d["day"] in due and d["status"] != "complete"}
+
+        photo_actions = []
+        if view:
+            if view.state == photo_review.AWAITING:
+                photo_actions.append({"label": "Pending photo choice", "url": f"{episode_url}#photo-review"})
+            elif view.state == photo_review.REJECTED:
+                # Publication is blocked until new photos are shot and chosen.
+                photo_actions.append({"label": "Reshoot needed: photos rejected", "url": f"{episode_url}#photo-review"})
+
+        if published:
+            status = "Published"
+        elif any(d["status"] == "failed" for d in days) or missing:
+            status = "Failed"
+        else:
+            status = "In progress"
+
+        actions = list(photo_actions)
+        # Every failed stage, and every due stage with no complete result, in day order.
+        for d in ([] if published else days):
+            if d["status"] == "failed":
+                kind = "Failed"
+            elif d["day"] in missing:
+                kind = "Missing"
+            else:
+                continue
+            actions.append({"label": f"{kind}: {d['label']}", "url": episode_url})
+
+        judged = [
+            (day, stages[day]["judge_verdict"])
+            for day in STAGE_ORDER
+            if isinstance(stages.get(day), dict) and stages[day].get("judge_verdict")
+        ]
+        judge = {"day": STAGE_LABELS[judged[-1][0]], "verdict": judged[-1][1]} if judged else None
+
+        return {
+            "episode_id": episode_id,
+            "title": _recipe_title(data) or str(data.get("concept") or episode_id),
+            "status": status,
+            "days": days,
+            "judge": judge,
+            "actions": actions,
+            "url": episode_url,
+        }
+
     @app.get("/admin/", response_class=HTMLResponse)
     async def admin_dashboard(
         request: Request,
         user: dict = Depends(require_auth)
     ):
-        """Admin dashboard home with statistics."""
+        """Current and recent episodes from cloud storage (#8604)."""
+        from backend.utils.episode_integrity import current_episode_id
+
         templates = app.state.templates
-        data_dir = app.state.project_root / "data" / "recipes"
+        store = _cloud_storage()
+        lister = getattr(store, "list_episodes_strict", None) or store.list_episodes
+        try:
+            with store.prefix_scope(""):
+                raw = lister()
+        except Exception as exc:
+            logger.error(f"Dashboard episode list failed: {type(exc).__name__}: {exc}")
+            raise HTTPException(status_code=503, detail="Could not list episodes from storage")
 
-        # Get counts by status
-        pending_recipes = Recipe.list_by_status(data_dir, RecipeStatus.PENDING)
-        approved_recipes = Recipe.list_by_status(data_dir, RecipeStatus.APPROVED)
-        published_recipes = Recipe.list_by_status(data_dir, RecipeStatus.PUBLISHED)
-        rejected_recipes = Recipe.list_by_status(data_dir, RecipeStatus.REJECTED)
+        episodes = sorted(
+            (d for d in raw if isinstance(d, dict)),
+            key=lambda d: (str(d.get("episode_id") or ""), str(d.get("created_at") or "")),
+            reverse=True,
+        )
+        # Summarize every stored episode once; cards and the queue both read these summaries.
+        summaries = [_dashboard_episode(d) for d in episodes]
+        current_id = current_episode_id()
+        current = next((s for s in summaries if s["episode_id"] == current_id), None)
+        recent = [s for s in summaries if s["episode_id"] != current_id][:_DASHBOARD_RECENT_EPISODES]
 
-        stats = {
-            "pending": len(pending_recipes),
-            "approved": len(approved_recipes),
-            "published": len(published_recipes),
-            "rejected": len(rejected_recipes),
-            "total": len(pending_recipes) + len(approved_recipes) + len(published_recipes) + len(rejected_recipes)
-        }
+        # The queue spans the full episode list, newest first, not just the cards shown.
+        action_queue = [
+            {**action, "episode_id": s["episode_id"], "title": s["title"]}
+            for s in summaries
+            for action in s["actions"]
+        ]
 
         return templates.TemplateResponse(
             "dashboard.html",
             {
                 "request": request,
-                "stats": stats,
                 "user_email": user.get("email", "Unknown"),
-                "recent_pending": pending_recipes[:5],
+                "current_id": current_id,
+                "current": current,
+                "recent": recent,
+                "action_queue": action_queue,
             }
         )
     
