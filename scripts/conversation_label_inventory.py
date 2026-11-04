@@ -26,6 +26,15 @@ def _load(path: Path) -> tuple[bytes, dict[str, Any], list[dict[str, Any]]]:
     return raw, data, pairs
 
 
+def _pair_id(path: Path, value: Any) -> str:
+    if isinstance(value, bool):
+        raise ValueError(f"{path.name}: invalid pair ID {value!r}")
+    rendered = str(value)
+    if not rendered.isdigit() or int(rendered) < 1 or str(int(rendered)) != rendered:
+        raise ValueError(f"{path.name}: invalid pair ID {value!r}")
+    return rendered
+
+
 def _validated_pick(path: Path, value: Any) -> str:
     if value not in VALID_PICKS:
         raise ValueError(f"{path.name}: invalid human pick {value!r}")
@@ -44,7 +53,7 @@ def _label(path: Path, pair: dict[str, Any], label_id: str, pick: Any) -> dict[s
         message_day = messages[0].get("day") if isinstance(messages, list) and messages else None
         day = str(message_day or "unknown").lower()
     return {
-        "id": label_id,
+        "pair_id": _pair_id(path, label_id),
         "scenario_id": scenario_id,
         "day": day,
         "pick": _validated_pick(path, pick),
@@ -54,26 +63,37 @@ def _label(path: Path, pair: dict[str, Any], label_id: str, pick: Any) -> dict[s
 def inspect_file(path: Path, source_kind: str) -> dict[str, Any]:
     raw, data, pairs = _load(path)
     labels: list[dict[str, str]] = []
+    evidence_sha256: str | None = None
 
     if source_kind == "primary":
         picks = data.get("human_picks")
         if not isinstance(picks, dict) or not picks:
             raise ValueError(f"{path.name}: primary source needs non-empty human_picks")
         for key, pick in sorted(picks.items(), key=lambda item: int(item[0])):
-            index = int(key) - 1
-            if index < 0 or index >= len(pairs):
+            canonical_id = _pair_id(path, key)
+            index = int(canonical_id) - 1
+            if index >= len(pairs):
                 raise ValueError(f"{path.name}: human pick {key} has no matching pair")
-            labels.append(_label(path, pairs[index], str(key), pick))
+            labels.append(_label(path, pairs[index], canonical_id, pick))
     elif source_kind == "derived":
+        sources = data.get("sources")
+        evidence = sources.get("evidence") if isinstance(sources, dict) else None
+        evidence_sha256 = evidence.get("sha256") if isinstance(evidence, dict) else None
+        if (
+            not isinstance(evidence_sha256, str)
+            or len(evidence_sha256) != 64
+            or any(char not in "0123456789abcdef" for char in evidence_sha256)
+        ):
+            raise ValueError(f"{path.name}: derived source needs an evidence SHA-256")
         for pair in pairs:
             if "human_pick" in pair:
-                labels.append(_label(path, pair, str(pair.get("pair")), pair["human_pick"]))
+                labels.append(_label(path, pair, _pair_id(path, pair.get("pair")), pair["human_pick"]))
         if not labels:
             raise ValueError(f"{path.name}: derived source has no pair-level human_pick")
     else:
         raise ValueError(f"unsupported source kind: {source_kind}")
 
-    return {
+    receipt = {
         "source_name": path.name,
         "sha256": hashlib.sha256(raw).hexdigest(),
         "source_kind": source_kind,
@@ -81,10 +101,13 @@ def inspect_file(path: Path, source_kind: str) -> dict[str, Any]:
         "days": dict(sorted(Counter(label["day"] for label in labels).items())),
         "labels": labels,
     }
+    if evidence_sha256:
+        receipt["evidence_sha256"] = evidence_sha256
+    return receipt
 
 
-def _identity(label: dict[str, str]) -> tuple[str, str]:
-    return label["scenario_id"], label["pick"]
+def _identity(label: dict[str, str]) -> tuple[str, str, str]:
+    return label["pair_id"], label["scenario_id"], label["pick"]
 
 
 def build_inventory(primary_paths: list[Path], derived_paths: list[Path]) -> dict[str, Any]:
@@ -95,18 +118,29 @@ def build_inventory(primary_paths: list[Path], derived_paths: list[Path]) -> dic
     if len(hashes) != len(set(hashes)):
         raise ValueError("the same source content was supplied more than once")
 
-    primary_identities = Counter(_identity(label) for item in primary for label in item["labels"])
-    derived_identities = Counter(_identity(label) for item in derived for label in item["labels"])
-    missing = derived_identities - primary_identities
-    if missing:
-        scenarios = ", ".join(sorted(identity[0] for identity in missing))
-        raise ValueError(f"derived labels do not match primary evidence: {scenarios}")
+    primary_by_sha = {item["sha256"]: item for item in primary}
+    derived_by_evidence: dict[str, Counter[tuple[str, str, str]]] = {}
+    for item in derived:
+        evidence_sha = item["evidence_sha256"]
+        if evidence_sha not in primary_by_sha:
+            raise ValueError(f"{item['source_name']}: declared primary evidence is missing")
+        derived_by_evidence.setdefault(evidence_sha, Counter()).update(
+            _identity(label) for label in item["labels"]
+        )
+    for evidence_sha, derived_identities in derived_by_evidence.items():
+        primary_identities = Counter(
+            _identity(label) for label in primary_by_sha[evidence_sha]["labels"]
+        )
+        missing = derived_identities - primary_identities
+        if missing:
+            scenarios = ", ".join(sorted(identity[1] for identity in missing))
+            raise ValueError(f"derived labels do not match primary evidence: {scenarios}")
 
     primary_days: Counter[str] = Counter()
     for item in primary:
         primary_days.update(item["days"])
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "summary": {
             "primary_human_labels": sum(item["label_count"] for item in primary),
             "primary_days": dict(sorted(primary_days.items())),

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 
 import pytest
@@ -20,17 +21,26 @@ def _primary_payload(pick: str = "variant") -> dict:
     }
 
 
-def test_inventory_counts_primary_and_verifies_derived_reference(tmp_path):
+def _derived_payload(evidence_sha: str, *, pair=1, pick="variant") -> dict:
+    return {
+        "sources": {"evidence": {"sha256": evidence_sha}},
+        "pairs": [
+            {
+                "pair": pair,
+                "scenario_id": "2026-W40:sunday:3",
+                "human_pick": pick,
+            }
+        ],
+    }
+
+
+def _sha(path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_inventory_counts_primary_and_verifies_exact_derived_provenance(tmp_path):
     primary = _write_json(tmp_path, "primary.json", _primary_payload())
-    derived = _write_json(
-        tmp_path,
-        "derived.json",
-        {
-            "pairs": [
-                {"pair": 1, "scenario_id": "2026-W40:sunday:3", "human_pick": "variant"}
-            ]
-        },
-    )
+    derived = _write_json(tmp_path, "derived.json", _derived_payload(_sha(primary)))
 
     result = build_inventory([primary], [derived])
 
@@ -42,22 +52,28 @@ def test_inventory_counts_primary_and_verifies_derived_reference(tmp_path):
         "derived_files_are_not_new_labels": True,
     }
     assert result["files"][0]["source_name"] == "primary.json"
-    assert len(result["files"][0]["sha256"]) == 64
+    assert result["files"][1]["evidence_sha256"] == _sha(primary)
 
 
-def test_derived_label_must_match_primary_scenario_and_pick(tmp_path):
+@pytest.mark.parametrize(
+    "evidence_sha, pair, pick, message",
+    [
+        ("0" * 64, 1, "variant", "declared primary evidence is missing"),
+        (None, 999, "variant", "do not match primary evidence"),
+        (None, 1, "control", "do not match primary evidence"),
+    ],
+)
+def test_derived_provenance_must_match_source_pair_scenario_and_pick(
+    tmp_path, evidence_sha, pair, pick, message
+):
     primary = _write_json(tmp_path, "primary.json", _primary_payload())
     derived = _write_json(
         tmp_path,
         "derived.json",
-        {
-            "pairs": [
-                {"pair": 1, "scenario_id": "2026-W40:sunday:3", "human_pick": "control"}
-            ]
-        },
+        _derived_payload(evidence_sha or _sha(primary), pair=pair, pick=pick),
     )
 
-    with pytest.raises(ValueError, match="do not match primary evidence"):
+    with pytest.raises(ValueError, match=message):
         build_inventory([primary], [derived])
 
 
@@ -69,6 +85,13 @@ def test_derived_label_must_match_primary_scenario_and_pick(tmp_path):
         (
             {"pairs": [{"scenario_id": "2026-W40:sunday:3"}], "human_picks": {"1": "banana"}},
             "invalid human pick",
+        ),
+        (
+            {
+                "pairs": [{"scenario_id": "2026-W40:sunday:3"}],
+                "human_picks": {"1": "variant", "01": "variant"},
+            },
+            "invalid pair ID",
         ),
     ],
 )

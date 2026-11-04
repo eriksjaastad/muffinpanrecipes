@@ -19,8 +19,9 @@ uv run python scripts/conversation_label_inventory.py \
 
 The committed receipt hashes every input. It counts 23 primary human labels:
 15 Monday, 2 Wednesday, 2 Friday, and 4 Sunday. The tool verifies that all nine
-E1 development and holdout rows match primary E0 `(scenario_id, pick)`
-identities, then reports but does not count those derived rows again.
+E1 development and holdout rows match their declared primary evidence SHA-256,
+pair ID, scenario ID, and pick, then reports but does not count those derived
+rows again.
 
 ## Acceptance check
 
