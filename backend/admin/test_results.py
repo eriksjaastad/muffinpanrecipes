@@ -13,6 +13,7 @@ used: a git checkout sets them, so they say nothing about when a run happened.
 from __future__ import annotations
 
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -110,7 +111,10 @@ def summarize(path: Path) -> dict[str, Any]:
             row["error"] = f"invalid JSON: {exc}"
         else:
             if isinstance(data, dict):
-                _summarize_json(row, data)
+                try:
+                    _summarize_json(row, data)
+                except ValueError as exc:
+                    row["error"] = f"invalid result data: {exc}"
             else:
                 row["error"] = f"unexpected JSON top level: {type(data).__name__}, not an object"
     if row["date"] is None:
@@ -153,7 +157,13 @@ def _str(value: Any) -> str | None:
 def _num(value: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    return float(value)
+    try:
+        number = float(value)
+    except OverflowError:
+        raise ValueError("numeric value is too large") from None
+    if not math.isfinite(number):
+        raise ValueError("numeric value is not finite")
+    return number
 
 
 def _dict(value: Any) -> dict[str, Any]:

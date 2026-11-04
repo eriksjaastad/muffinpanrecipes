@@ -119,6 +119,8 @@ def test_malformed_files_get_an_error_row_and_stay_inspectable(tmp_path: Path) -
     results = _results(tmp_path)
     (results / "broken.json").write_text('{"command": "ab", ')
     (results / "list-top.json").write_text("[1, 2]")
+    (results / "non-finite.json").write_text('{"aggregate": {"pass_rate": NaN}}')
+    (results / "oversized.json").write_text('{"total_cost_usd": 1' + "0" * 400 + "}")
     (results / "wrong-types.json").write_text(
         json.dumps({"aggregate": [], "target_win_rate": "n/a", "cost_summary": "x"})
     )
@@ -127,8 +129,10 @@ def test_malformed_files_get_an_error_row_and_stay_inspectable(tmp_path: Path) -
     client = _client(tmp_path)
     body = client.get("/admin/tests").text
 
-    assert "2 could not be read or parsed" in body
+    assert "4 could not be read or parsed" in body
     assert "invalid JSON" in body and "unexpected JSON top level: list" in body
+    assert "numeric value is not finite" in body
+    assert "numeric value is too large" in body
     assert "wrong-types.json" in body and "fine" in body
     detail = client.get("/admin/tests/broken.json")
     assert detail.status_code == 200 and "{&#34;command&#34;: &#34;ab&#34;, " in detail.text
