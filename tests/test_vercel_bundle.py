@@ -196,6 +196,22 @@ def test_every_runtime_data_file_ships(tmp_path: Path) -> None:
     )
 
 
+def test_admin_test_results_ship_without_the_rest_of_docs(tmp_path: Path) -> None:
+    """The admin inventory has source artifacts in production, not a 503."""
+    paths = [
+        "docs/conversation-lab/results/example.json",
+        "docs/conversation-lab/results/report.md",
+        "docs/conversation-lab/PROTOCOL.md",
+        "docs/PRD.md",
+    ]
+
+    assert _vercel_ignored(paths, tmp_path) == {
+        "docs/conversation-lab/PROTOCOL.md",
+        "docs/PRD.md",
+    }
+
+
+
 def test_every_bio_the_dialogue_prompt_loads_ships(tmp_path: Path) -> None:
     from scripts.simulate_dialogue_week import CHARACTERS_DIR, _char_dir_slug, load_personas
 

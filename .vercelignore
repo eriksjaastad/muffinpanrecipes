@@ -6,6 +6,15 @@ Documents/
 docs/
 *.md
 !README.md
+# /admin/tests reads the tracked conversation-lab artifacts at runtime. Keep
+# only that bounded directory; all other docs stay out of the deployment.
+!docs/
+docs/*
+!docs/conversation-lab/
+docs/conversation-lab/*
+!docs/conversation-lab/results/
+!docs/conversation-lab/results/*.json
+!docs/conversation-lab/results/*.md
 # backend/data/ is runtime data and ships whole, Markdown included: the
 # dialogue prompt reads backend/data/characters/<slug>/bio.md. Without this
 # line the `*.md` rule above dropped every bio from the Lambda, and
