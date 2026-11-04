@@ -22,6 +22,7 @@ from fastapi import FastAPI, Request, HTTPException, Depends, status
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from pydantic import BaseModel, field_validator
 
+from backend.admin import test_results
 from backend.data.recipe import Recipe, RecipeStatus
 from backend.newsletter.manager import NewsletterManager
 from backend.auth.middleware import require_auth, create_session_cookie, clear_session_cookie
@@ -1748,6 +1749,63 @@ def create_routes(app: FastAPI):
             "message": f"Compressed week run complete for episode {episode_id}: {completed}/{len(stages)} stages succeeded.",
             "stages": stage_results,
         })
+
+    @app.get("/admin/tests", response_class=HTMLResponse)
+    async def admin_tests(request: Request, user: dict = Depends(require_auth)):
+        """Inventory of canonical test-result sources, newest first (#8608)."""
+        rows, absent = test_results.inventory(app.state.project_root)
+        required_missing = {
+            key: reason
+            for key, reason in absent.items()
+            if test_results.SOURCES_BY_KEY[key].required
+        }
+        if required_missing:
+            # .vercelignore drops what is not shipped, so a deployment can lack a
+            # required source. Saying "0 results" there would be a false success.
+            details = "; ".join(
+                f"{test_results.SOURCES_BY_KEY[key].rel}: {reason}"
+                for key, reason in required_missing.items()
+            )
+            return app.state.templates.TemplateResponse(
+                "admin_error.html",
+                {
+                    "request": request,
+                    "title": "Test results unavailable",
+                    "message": f"Required sources are missing from this deployment. {details}",
+                    "status_code": 503,
+                },
+                status_code=503,
+            )
+        return app.state.templates.TemplateResponse(
+            "tests.html",
+            {
+                "request": request,
+                "rows": rows,
+                "malformed": sum(1 for r in rows if r["error"]),
+                "absent": [
+                    (str(test_results.SOURCES_BY_KEY[key].rel), reason)
+                    for key, reason in absent.items()
+                ],
+            },
+        )
+
+    @app.get("/admin/tests/{source_key}/{filename}", response_class=HTMLResponse)
+    async def admin_test_detail(
+        request: Request, source_key: str, filename: str, user: dict = Depends(require_auth)
+    ):
+        """One source file: its summary row and the full artifact."""
+        path = test_results.resolve(app.state.project_root, source_key, filename)
+        if path is None:
+            raise HTTPException(status_code=404, detail="No such result file")
+        return app.state.templates.TemplateResponse(
+            "test_detail.html",
+            {
+                "request": request,
+                "row": test_results.summarize(path),
+                "source_rel": str(test_results.SOURCES_BY_KEY[source_key].rel),
+                "artifact": path.read_text(encoding="utf-8", errors="replace"),
+            },
+        )
 
     @app.get("/admin/{path:path}", response_class=HTMLResponse)
     async def admin_404(request: Request, path: str, user: dict = Depends(require_auth)):
