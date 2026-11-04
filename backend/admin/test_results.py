@@ -106,8 +106,8 @@ def summarize(path: Path) -> dict[str, Any]:
         _summarize_markdown(row, text)
     else:
         try:
-            data = json.loads(text)
-        except json.JSONDecodeError as exc:
+            data = json.loads(text, parse_constant=_reject_nonfinite_json)
+        except ValueError as exc:
             row["error"] = f"invalid JSON: {exc}"
         else:
             if isinstance(data, dict):
@@ -131,6 +131,11 @@ def _apply_filename_date(row: dict[str, Any]) -> None:
     year, month, day, hh, mm, ss = match.groups()
     row["date"] = f"{year}-{month}-{day}" + (f"T{hh}:{mm}:{ss}Z" if hh else "")
     row["date_source"] = "filename"
+
+
+def _reject_nonfinite_json(value: str) -> None:
+    raise ValueError(f"non-finite number {value} is not valid result data")
+
 
 
 def _apply_json_date(row: dict[str, Any], data: dict[str, Any], keys: tuple[str, ...]) -> None:
