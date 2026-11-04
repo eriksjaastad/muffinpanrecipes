@@ -163,7 +163,14 @@ def inventory(project_root: Path) -> tuple[list[dict[str, Any]], dict[str, str]]
         except SourceUnavailable as exc:
             absent[source.key] = str(exc)
             continue
-        found = list_results(path) if source.is_dir else [summarize(path)]
+        if source.is_dir:
+            found = list_results(path)
+        elif source.key == "experiments":
+            found = summarize_experiment_ledger(path)
+        elif source.key == "prompt-research":
+            found = summarize_tsv_runs(path)
+        else:
+            found = [summarize(path)]
         for row in found:
             row["source"] = source.key
         rows.extend(found)
@@ -172,20 +179,104 @@ def inventory(project_root: Path) -> tuple[list[dict[str, Any]], dict[str, str]]
     return rows, absent
 
 
+def _empty_row(name: str) -> dict[str, Any]:
+    return {
+        "name": name, "detail_name": name, "kind": None, "size": None,
+        "date": None, "date_source": None, "label": None, "rate": None,
+        "cost": None, "verdict": None, "error": None,
+    }
+
+
+def _child_row(path: Path, name: str) -> dict[str, Any]:
+    """A parsed run row whose detail link still opens its authoritative source."""
+    row = _empty_row(name)
+    row["detail_name"] = path.name
+    row["kind"] = path.suffix.lstrip(".")
+    return row
+
+
+def _pipe_cells(line: str) -> list[str]:
+    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+
+def summarize_experiment_ledger(path: Path) -> list[dict[str, Any]]:
+    """Expand the canonical ``## Experiments`` table into one row per run."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        row = summarize(path)
+        row["error"] = f"unreadable experiment ledger: {type(exc).__name__}: {exc}"
+        return [row]
+    section = re.search(r"^## Experiments\s*$([\s\S]*?)(?=^## |\Z)", text, re.MULTILINE)
+    if not section:
+        return [summarize(path)]
+    lines = [line for line in section.group(1).splitlines() if line.startswith("|")]
+    if len(lines) < 2:
+        return []
+    header = _pipe_cells(lines[0])
+    rows: list[dict[str, Any]] = []
+    for line_number, line in enumerate(lines[2:], start=3):
+        cells = _pipe_cells(line)
+        if len(cells) != len(header):
+            row = _child_row(path, f"ledger line {line_number}")
+            row["error"] = f"invalid ledger row: {len(cells)} fields; header has {len(header)}"
+            rows.append(row)
+            continue
+        record = dict(zip(header, cells, strict=True))
+        row = _child_row(path, record.get("Experiment ID") or f"ledger line {line_number}")
+        row["date"] = record.get("Date") or None
+        row["date_source"] = "ledger Date"
+        row["label"] = record.get("Lever (one)") or None
+        row["rate"] = record.get("Wins/Ties/Losses on target") or None
+        row["verdict"] = record.get("Decision") or None
+        rows.append(row)
+    return rows
+
+
+def _normalized_header(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", value.strip().lower()).strip("_")
+
+
+def _first(record: dict[str, str], *keys: str) -> str | None:
+    return next((record[key].strip() for key in keys if record.get(key, "").strip()), None)
+
+
+def summarize_tsv_runs(path: Path) -> list[dict[str, Any]]:
+    """Expand a prompt-research TSV into one source-linked row per record."""
+    try:
+        text = path.read_text(encoding="utf-8")
+        records = [record for record in csv.reader(text.splitlines(), delimiter="\t") if record]
+        if not records:
+            raise ValueError("no header row")
+        header = [_normalized_header(value) for value in records[0]]
+        if any(not value for value in header) or len(set(header)) != len(header):
+            raise ValueError("header names must be non-empty and unique")
+        rows: list[dict[str, Any]] = []
+        for line_number, values in enumerate(records[1:], start=2):
+            if len(values) != len(header):
+                raise ValueError(f"line {line_number} has {len(values)} fields; header has {len(header)}")
+            record = dict(zip(header, values, strict=True))
+            run_id = _first(record, "experiment_id", "run_id", "id", "variant", "name")
+            row = _child_row(path, run_id or f"TSV row {line_number}")
+            row["date"] = _first(record, "date", "timestamp", "created_at", "generated_at")
+            row["date_source"] = "TSV date column" if row["date"] else None
+            row["label"] = _first(record, "what_changed", "change", "lever", "prompt", "notes", "variant")
+            row["rate"] = _first(record, "pass_rate", "win_rate", "score", "result")
+            cost = _first(record, "cost", "cost_usd", "total_cost_usd")
+            row["cost"] = f"${cost}" if cost and not cost.startswith("$") else cost
+            row["verdict"] = _first(record, "verdict", "decision", "status", "outcome")
+            rows.append(row)
+        return rows
+    except (OSError, UnicodeDecodeError, ValueError, csv.Error) as exc:
+        row = summarize(path)
+        row["error"] = f"invalid TSV: {exc}"
+        return [row]
+
+
 def summarize(path: Path) -> dict[str, Any]:
     """Summary row for one file. Read and parse errors land in ``error``."""
-    row: dict[str, Any] = {
-        "name": path.name,
-        "kind": path.suffix.lstrip("."),
-        "size": None,
-        "date": None,
-        "date_source": None,
-        "label": None,
-        "rate": None,
-        "cost": None,
-        "verdict": None,
-        "error": None,
-    }
+    row = _empty_row(path.name)
+    row["kind"] = path.suffix.lstrip(".")
     data: Any = None
     try:
         raw = path.read_bytes()

@@ -178,11 +178,48 @@ def test_tsv_is_summarized_and_a_ragged_row_is_named(tmp_path: Path) -> None:
     client = _client(tmp_path)
 
     body = client.get("/admin/tests").text
-    assert "TSV · 2 rows · columns: variant, pass_rate, notes" in body
+    assert "base" in body and "next" in body
+    assert "0.5" in body and "better" in body
     assert client.get("/admin/tests/prompt-research/results.tsv").status_code == 200
 
     tsv.write_text("variant\tpass_rate\tnotes\nbase\t0.5\n")
     assert "invalid TSV: line 2 has 2 fields; header has 3" in client.get("/admin/tests").text
+
+
+def test_experiment_ledger_is_one_source_backed_row_per_run(tmp_path: Path) -> None:
+    _results(tmp_path)
+    ledger = tmp_path / "docs" / "conversation-lab" / "EXPERIMENTS.md"
+    ledger.write_text(
+        "# Log\n\n## Experiments\n\n"
+        "| Date | Experiment ID | Lever (one) | Target dimension(s) | N | "
+        "Wins/Ties/Losses on target | Other dimensions lost | Decision | Shipped PR | "
+        "Live confirmation week + scores |\n"
+        "|---|---|---|---|---|---|---|---|---|---|\n"
+        "| 2026-10-01 | run-a | SHORTER_PROMPT | voice | 14 | 9/3/2 | none | "
+        "signal: HOLD | TBD | TBD |\n"
+        "| 2026-10-02 | run-b | MORE_TURNS | progression | 7 | 7/0/0 | none | "
+        "signal: SHIP | #99 | W40 |\n"
+    )
+    body = _client(tmp_path).get("/admin/tests").text
+    assert "run-a" in body and "run-b" in body
+    assert "SHORTER_PROMPT" in body and "MORE_TURNS" in body
+    assert "9/3/2" in body and "7/0/0" in body
+    assert "signal: HOLD" in body and "signal: SHIP" in body
+    assert body.count('href="/admin/tests/experiments/EXPERIMENTS.md"') == 2
+
+
+def test_tsv_rows_map_common_run_fields_and_keep_one_detail_source(tmp_path: Path) -> None:
+    _results(tmp_path)
+    tsv = tmp_path / "prompt-research" / "results.tsv"
+    tsv.parent.mkdir()
+    tsv.write_text(
+        "run_id\tdate\twhat_changed\tpass_rate\tcost_usd\tverdict\n"
+        "trial-1\t2026-03-14\tcompression model\t0.96\t0.003\tSHIP\n"
+    )
+    body = _client(tmp_path).get("/admin/tests").text
+    assert "trial-1" in body and "compression model" in body
+    assert "2026-03-14" in body and "0.96" in body and "$0.003" in body and "SHIP" in body
+    assert 'href="/admin/tests/prompt-research/results.tsv"' in body
 
 
 def test_detail_serves_only_names_listed_in_their_source(tmp_path: Path) -> None:

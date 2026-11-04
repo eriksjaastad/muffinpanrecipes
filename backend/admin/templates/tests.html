@@ -21,7 +21,7 @@
 
     <main class="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
         <p class="text-sm text-slate-500 mb-4">
-            {{ rows | length }} file{{ '' if rows | length == 1 else 's' }} across the canonical sources
+            {{ rows | length }} run{{ '' if rows | length == 1 else 's' }} across the canonical sources
             {% if malformed %}
             &mdash; <span class="text-red-500">{{ malformed }} could not be read or parsed</span>
             {% endif %}
@@ -35,7 +35,7 @@
         {% if rows %}
         <div class="space-y-3">
             {% for row in rows %}
-            <a href="/admin/tests/{{ row.source }}/{{ row.name | urlencode }}"
+            <a href="/admin/tests/{{ row.source }}/{{ row.detail_name | urlencode }}"
                 class="block bg-white border border-slate-200 rounded-lg px-5 py-4 hover:shadow-md transition-shadow">
                 <div class="flex items-center justify-between gap-4">
                     <div class="min-w-0 flex-1">
@@ -67,8 +67,8 @@
         </div>
         {% else %}
         <div class="bg-white border border-slate-200 rounded-lg p-12 text-center text-slate-500">
-            <p class="text-lg font-medium">No result files</p>
-            <p class="text-sm mt-1">The present sources hold no result files.</p>
+            <p class="text-lg font-medium">No test runs</p>
+            <p class="text-sm mt-1">The present sources hold no test runs.</p>
         </div>
         {% endif %}
     </main>
