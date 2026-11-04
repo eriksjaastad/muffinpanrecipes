@@ -21,21 +21,27 @@
 
     <main class="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
         <p class="text-sm text-slate-500 mb-4">
-            {{ rows | length }} file{{ '' if rows | length == 1 else 's' }} in <code>{{ results_subdir }}</code>
+            {{ rows | length }} file{{ '' if rows | length == 1 else 's' }} across the canonical sources
             {% if malformed %}
             &mdash; <span class="text-red-500">{{ malformed }} could not be read or parsed</span>
             {% endif %}
         </p>
+        {% for rel, reason in absent %}
+        <p class="text-sm text-slate-500 mb-2">
+            <code>{{ rel }}</code>: {{ reason }} &mdash; local-only and not shipped to the deployment; nothing was created.
+        </p>
+        {% endfor %}
 
         {% if rows %}
         <div class="space-y-3">
             {% for row in rows %}
-            <a href="/admin/tests/{{ row.name | urlencode }}"
+            <a href="/admin/tests/{{ row.source }}/{{ row.name | urlencode }}"
                 class="block bg-white border border-slate-200 rounded-lg px-5 py-4 hover:shadow-md transition-shadow">
                 <div class="flex items-center justify-between gap-4">
                     <div class="min-w-0 flex-1">
                         <div class="flex items-center gap-3 flex-wrap">
                             <span class="font-semibold text-slate-900">{{ row.name }}</span>
+                            <span class="text-xs text-slate-400">{{ row.source }}</span>
                             {% if row.error %}
                             <span class="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700">Malformed</span>
                             {% endif %}
@@ -62,7 +68,7 @@
         {% else %}
         <div class="bg-white border border-slate-200 rounded-lg p-12 text-center text-slate-500">
             <p class="text-lg font-medium">No result files</p>
-            <p class="text-sm mt-1"><code>{{ results_subdir }}</code> exists but holds no .json or .md files.</p>
+            <p class="text-sm mt-1">The present sources hold no result files.</p>
         </div>
         {% endif %}
     </main>

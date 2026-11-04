@@ -196,19 +196,40 @@ def test_every_runtime_data_file_ships(tmp_path: Path) -> None:
     )
 
 
-def test_admin_test_results_ship_without_the_rest_of_docs(tmp_path: Path) -> None:
-    """The admin inventory has source artifacts in production, not a 503."""
-    paths = [
+def test_admin_test_sources_ship_and_nothing_else_does(tmp_path: Path) -> None:
+    """/admin/tests reads these sources in production; the rest stays out (#8608)."""
+    shipped = [
         "docs/conversation-lab/results/example.json",
         "docs/conversation-lab/results/report.md",
+        "docs/conversation-lab/EXPERIMENTS.md",
+        "data/simulations/sim-x.json",
+        "data/simulations/BENCH.md",
+    ]
+    not_shipped = [
         "docs/conversation-lab/PROTOCOL.md",
+        "docs/conversation-lab/results/example.tsv",
+        "docs/conversation-lab/results/nested/example.json",
+        "data/simulations/sub/sim-x.json",
+        "data/simulations/sim-x.txt",
+        "data/other.json",
         "docs/PRD.md",
+        "prompt-research/results.tsv",
     ]
 
-    assert _vercel_ignored(paths, tmp_path) == {
-        "docs/conversation-lab/PROTOCOL.md",
-        "docs/PRD.md",
-    }
+    assert _vercel_ignored(shipped + not_shipped, tmp_path) == set(not_shipped)
+
+
+def test_every_tracked_admin_test_source_ships(tmp_path: Path) -> None:
+    """A tracked artifact the page lists must not be left behind by .vercelignore."""
+    tracked = subprocess.run(
+        ["git", "-C", str(ROOT), "ls-files", "--",
+         "docs/conversation-lab/results", "docs/conversation-lab/EXPERIMENTS.md", "data/simulations"],
+        capture_output=True, text=True, timeout=30, check=True,
+    ).stdout.split()
+    listed = [p for p in tracked if p.endswith((".json", ".md"))]
+
+    assert len(listed) > 1, "no tracked artifacts found; the check would be vacuous"
+    assert not _vercel_ignored(listed, tmp_path)
 
 
 

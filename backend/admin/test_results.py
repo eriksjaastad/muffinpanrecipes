@@ -1,10 +1,15 @@
-"""Read-only inventory of conversation-lab result files for /admin/tests (#8608).
+"""Read-only inventory of canonical test-result sources for /admin/tests (#8608).
 
-The page reads ``docs/conversation-lab/results`` under ``app.state.project_root``
-directly on every request; nothing is copied into another store. Every ``.json``
-and ``.md`` file in that directory becomes one row, newest first. A file that
-cannot be read or parsed still gets a row that names the error, so a broken
-artifact is visible instead of silently dropped.
+The page reads a fixed list of sources under ``app.state.project_root`` on every
+request; nothing is copied into another store. Each source is one directory or
+one file, named in ``SOURCES``. A file that cannot be read or parsed still gets
+a row that names the error, so a broken artifact is visible instead of silently
+dropped.
+
+A row's ID is ``<source>/<filename>``. The detail route only serves files found
+by the same enumeration as the list, so a name cannot escape its source. Two
+files in one source whose names differ only by case are both marked ambiguous
+and neither is served.
 
 Rows carry a date and say where it came from. File modification times are never
 used: a git checkout sets them, so they say nothing about when a run happened.
@@ -12,16 +17,37 @@ used: a git checkout sets them, so they say nothing about when a run happened.
 
 from __future__ import annotations
 
+import csv
 import json
 import math
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+
+@dataclass(frozen=True)
+class Source:
+    key: str
+    rel: Path
+    is_dir: bool
+    # A required source that is absent is shown as missing; an optional one is
+    # local-only (gitignored) and is shown as not present.
+    required: bool
+
+
+SOURCES = (
+    Source("results", Path("docs/conversation-lab/results"), True, True),
+    Source("experiments", Path("docs/conversation-lab/EXPERIMENTS.md"), False, True),
+    Source("simulations", Path("data/simulations"), True, True),
+    Source("prompt-research", Path("prompt-research/results.tsv"), False, False),
+)
+SOURCES_BY_KEY = {source.key: source for source in SOURCES}
 RESULTS_SUBDIR = Path("docs") / "conversation-lab" / "results"
+# Directory sources list only these; a single-file source may be any of the three.
 RESULT_SUFFIXES = (".json", ".md")
 
-_FILENAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:json|md)$")
+_FILENAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:json|md|tsv)$")
 _STAMP_RE = re.compile(r"(?<!\d)(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})Z)?(?!\d)")
 _MD_DATE_RE = re.compile(r"^Date:\s*(\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
 # generated_at is when a run finished. A filename stamp beats created_at, which on a
@@ -39,17 +65,24 @@ _JSON_LABEL_KEYS = (
 )
 
 
-def results_dir(project_root: Path) -> Path:
-    return project_root / RESULTS_SUBDIR
+class SourceUnavailable(Exception):
+    """A source that cannot be read; the message says why, for display."""
 
 
-def resolve_result(directory: Path, filename: str) -> Path | None:
-    """Return the result file named ``filename``, or None if it is not one.
+def _source_path(project_root: Path, source: Source) -> Path:
+    """The source's path if it is present and not a symlink, else SourceUnavailable."""
+    path = project_root / source.rel
+    if path.is_symlink():
+        raise SourceUnavailable("is a symlink; refused")
+    if source.is_dir and path.is_dir():
+        return path
+    if not source.is_dir and path.is_file():
+        return path
+    raise SourceUnavailable("not present")
 
-    Only a plain name made of letters, digits, ``.``, ``_`` and ``-`` with a
-    result suffix is accepted, and it must resolve to a regular, non-symlink
-    file directly inside ``directory``.
-    """
+
+def _plain_file(directory: Path, filename: str) -> Path | None:
+    """``directory/filename`` if it is a regular, non-symlink file directly inside it."""
     if ".." in filename or not _FILENAME_RE.match(filename):
         return None
     candidate = directory / filename
@@ -60,6 +93,38 @@ def resolve_result(directory: Path, filename: str) -> Path | None:
     return candidate
 
 
+def _case_twins(directory: Path, filename: str) -> bool:
+    """True when another entry in ``directory`` differs from ``filename`` only by case."""
+    return sum(1 for p in directory.iterdir() if p.name.lower() == filename.lower()) > 1
+
+
+def resolve_result(directory: Path, filename: str) -> Path | None:
+    """Return the result file named ``filename``, or None if it is not one.
+
+    It must be a plain name with a result suffix that ``list_results`` would
+    list: a regular, non-symlink file directly inside ``directory`` with no
+    case-twin.
+    """
+    path = _plain_file(directory, filename)
+    if path is None or path.suffix not in RESULT_SUFFIXES or _case_twins(directory, filename):
+        return None
+    return path
+
+
+def resolve(project_root: Path, source_key: str, filename: str) -> Path | None:
+    """The file ``filename`` of source ``source_key``, or None if it is not served."""
+    source = SOURCES_BY_KEY.get(source_key)
+    if source is None:
+        return None
+    try:
+        path = _source_path(project_root, source)
+    except SourceUnavailable:
+        return None
+    if source.is_dir:
+        return resolve_result(path, filename)
+    return path if filename == path.name else None
+
+
 def list_results(directory: Path) -> list[dict[str, Any]]:
     """One summary row per result file in ``directory``, newest first, undated last.
 
@@ -68,14 +133,43 @@ def list_results(directory: Path) -> list[dict[str, Any]]:
     """
     if not directory.is_dir():
         raise FileNotFoundError(str(directory))
-    rows = [
-        summarize(path)
+    names = [
+        path.name
         for path in directory.iterdir()
-        if path.suffix in RESULT_SUFFIXES and resolve_result(directory, path.name)
+        if path.suffix in RESULT_SUFFIXES and _plain_file(directory, path.name)
     ]
+    rows = []
+    for name in names:
+        row = summarize(directory / name)
+        if _case_twins(directory, name):
+            row["error"] = "ambiguous: another file differs only by case; not served"
+        rows.append(row)
     rows.sort(key=lambda r: r["name"], reverse=True)
     rows.sort(key=lambda r: r["date"] or "", reverse=True)
     return rows
+
+
+def inventory(project_root: Path) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """Rows for every present source, newest first, plus ``{key: reason}`` for absent ones.
+
+    Each row carries its ``source`` key. A missing source is reported, never
+    created, and never turned into an empty list.
+    """
+    rows: list[dict[str, Any]] = []
+    absent: dict[str, str] = {}
+    for source in SOURCES:
+        try:
+            path = _source_path(project_root, source)
+        except SourceUnavailable as exc:
+            absent[source.key] = str(exc)
+            continue
+        found = list_results(path) if source.is_dir else [summarize(path)]
+        for row in found:
+            row["source"] = source.key
+        rows.extend(found)
+    rows.sort(key=lambda r: r["name"], reverse=True)
+    rows.sort(key=lambda r: r["date"] or "", reverse=True)
+    return rows, absent
 
 
 def summarize(path: Path) -> dict[str, Any]:
@@ -104,6 +198,11 @@ def summarize(path: Path) -> dict[str, Any]:
 
     if row["kind"] == "md":
         _summarize_markdown(row, text)
+    elif row["kind"] == "tsv":
+        try:
+            _summarize_tsv(row, text)
+        except (ValueError, csv.Error) as exc:
+            row["error"] = f"invalid TSV: {exc}"
     else:
         try:
             data = json.loads(text, parse_constant=_reject_nonfinite_json)
@@ -137,7 +236,6 @@ def _reject_nonfinite_json(value: str) -> None:
     raise ValueError(f"non-finite number {value} is not valid result data")
 
 
-
 def _apply_json_date(row: dict[str, Any], data: dict[str, Any], keys: tuple[str, ...]) -> None:
     key = next((k for k in keys if _str(data.get(k))), None)
     if key:
@@ -153,6 +251,20 @@ def _summarize_markdown(row: dict[str, Any], text: str) -> None:
     verdict = re.search(r"^## Verdict\s*\n+(.+?)(?:\n\s*\n|\Z)", text, re.MULTILINE | re.DOTALL)
     if verdict:
         row["verdict"] = " ".join(verdict.group(1).split())
+
+
+def _summarize_tsv(row: dict[str, Any], text: str) -> None:
+    """Header columns and data-row count. Every data row must match the header width."""
+    records = [r for r in csv.reader(text.splitlines(), delimiter="\t") if r]
+    if not records:
+        raise ValueError("no header row")
+    header, data = records[0], records[1:]
+    for number, record in enumerate(data, start=2):
+        if len(record) != len(header):
+            raise ValueError(
+                f"line {number} has {len(record)} fields; header has {len(header)}"
+            )
+    row["label"] = f"TSV · {len(data)} rows · columns: {', '.join(header)}"
 
 
 def _str(value: Any) -> str | None:

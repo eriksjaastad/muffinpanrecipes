@@ -16,7 +16,7 @@
 
 <body class="bg-slate-100 min-h-screen">
     {% set nav_title = "🧪 " ~ row.name %}
-    {% set nav_subtitle = "Source artifact from <code>" ~ results_subdir ~ "</code>" %}
+    {% set nav_subtitle = "Source artifact from <code>" ~ source_rel ~ "</code>" %}
     {% include "_nav.html" %}
 
     <main class="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
@@ -34,7 +34,7 @@
             <p class="text-xs text-slate-400 mt-1">{{ row.size }} bytes</p>
         </div>
 
-        <pre class="bg-white border border-slate-200 rounded-lg p-4 mt-3 text-xs overflow-x-auto whitespace-pre-wrap">{{ source }}</pre>
+        <pre class="bg-white border border-slate-200 rounded-lg p-4 mt-3 text-xs overflow-x-auto whitespace-pre-wrap">{{ artifact }}</pre>
     </main>
 </body>
 

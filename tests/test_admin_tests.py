@@ -1,7 +1,7 @@
-"""/admin/tests inventories conversation-lab result files straight from disk (#8608).
+"""/admin/tests inventories the canonical test-result sources straight from disk (#8608).
 
-Every test builds its own results directory under tmp_path; nothing reads the
-repo's real results, storage, or the network.
+Every test builds its own project root under tmp_path; nothing reads the repo's
+real results, storage, or the network.
 """
 
 from __future__ import annotations
@@ -33,12 +33,15 @@ def _client(project_root: Path, *, authed: bool = True) -> TestClient:
 
 
 def _results(tmp_path: Path) -> Path:
+    """A project root with every required source present; returns the results dir."""
     directory = tmp_path / RESULTS_SUBDIR
     directory.mkdir(parents=True)
+    (tmp_path / "docs" / "conversation-lab" / "EXPERIMENTS.md").write_text("# Experiments\n")
+    (tmp_path / "data" / "simulations").mkdir(parents=True)
     return directory
 
 
-def test_listing_shows_every_result_newest_first_with_summary_fields(tmp_path: Path) -> None:
+def test_listing_shows_every_source_newest_first_with_summary_fields(tmp_path: Path) -> None:
     results = _results(tmp_path)
     (results / "bench-monday-n2-20260925T165714Z.json").write_text(
         json.dumps(
@@ -80,6 +83,9 @@ def test_listing_shows_every_result_newest_first_with_summary_fields(tmp_path: P
             }
         )
     )
+    (tmp_path / "data" / "simulations" / "sim-20260226-run.json").write_text(
+        json.dumps({"label": "simulated week"})
+    )
 
     response = _client(tmp_path).get("/admin/tests")
 
@@ -91,9 +97,11 @@ def test_listing_shows_every_result_newest_first_with_summary_fields(tmp_path: P
         "bench-monday-n2-20260925T165714Z.json",
         "e1-undated.json",
     ]
-    assert [body.index(f'href="/admin/tests/{name}"') for name in order] == sorted(
-        body.index(f'href="/admin/tests/{name}"') for name in order
+    assert [body.index(f'href="/admin/tests/results/{name}"') for name in order] == sorted(
+        body.index(f'href="/admin/tests/results/{name}"') for name in order
     )
+    assert 'href="/admin/tests/simulations/sim-20260226-run.json"' in body
+    assert 'href="/admin/tests/experiments/EXPERIMENTS.md"' in body
     assert ".gitkeep" not in body
     assert "pass 50% (1/2)" in body and "$0.09" in body and "(generated_at)" in body
     assert "target win 43% of 14 pairs on turn_taking" in body and "$1.62" in body
@@ -109,7 +117,7 @@ def test_detail_serves_the_source_artifact(tmp_path: Path) -> None:
     source = {"command": "bench", "runs": [{"transcript": "Margaret: <b>batter</b>"}]}
     (results / "bench-x.json").write_text(json.dumps(source))
 
-    response = _client(tmp_path).get("/admin/tests/bench-x.json")
+    response = _client(tmp_path).get("/admin/tests/results/bench-x.json")
 
     assert response.status_code == 200
     assert "Margaret: &lt;b&gt;batter&lt;/b&gt;" in response.text
@@ -139,33 +147,98 @@ def test_malformed_files_get_an_error_row_and_stay_inspectable(tmp_path: Path) -
     assert "non-finite number Infinity" in body
     assert "numeric value is too large" in body
     assert "wrong-types.json" in body and "fine" in body
-    detail = client.get("/admin/tests/broken.json")
+    detail = client.get("/admin/tests/results/broken.json")
     assert detail.status_code == 200 and "{&#34;command&#34;: &#34;ab&#34;, " in detail.text
 
 
-def test_missing_results_directory_is_an_error_not_an_empty_list(tmp_path: Path) -> None:
+def test_missing_required_source_is_an_error_not_an_empty_list(tmp_path: Path) -> None:
     response = _client(tmp_path).get("/admin/tests")
 
     assert response.status_code == 503
-    assert "not present in this deployment" in response.text
+    assert "Required sources are missing from this deployment" in response.text
+    assert "docs/conversation-lab/results: not present" in response.text
 
 
-def test_detail_rejects_names_outside_the_results_directory(tmp_path: Path) -> None:
+def test_absent_optional_tsv_is_shown_as_not_present_and_never_created(tmp_path: Path) -> None:
+    _results(tmp_path)
+
+    response = _client(tmp_path).get("/admin/tests")
+
+    assert response.status_code == 200
+    assert "<code>prompt-research/results.tsv</code>: not present" in response.text
+    assert "nothing was created" in response.text
+    assert not (tmp_path / "prompt-research").exists()
+
+
+def test_tsv_is_summarized_and_a_ragged_row_is_named(tmp_path: Path) -> None:
+    _results(tmp_path)
+    tsv = tmp_path / "prompt-research" / "results.tsv"
+    tsv.parent.mkdir()
+    tsv.write_text("variant\tpass_rate\tnotes\nbase\t0.5\tok\nnext\t0.7\tbetter\n")
+    client = _client(tmp_path)
+
+    body = client.get("/admin/tests").text
+    assert "TSV · 2 rows · columns: variant, pass_rate, notes" in body
+    assert client.get("/admin/tests/prompt-research/results.tsv").status_code == 200
+
+    tsv.write_text("variant\tpass_rate\tnotes\nbase\t0.5\n")
+    assert "invalid TSV: line 2 has 2 fields; header has 3" in client.get("/admin/tests").text
+
+
+def test_detail_serves_only_names_listed_in_their_source(tmp_path: Path) -> None:
     results = _results(tmp_path)
     (tmp_path / "secret.json").write_text('{"token": "outside-the-results-dir"}')
     (results / "link.json").symlink_to(tmp_path / "secret.json")
+    (results / "x.tsv").write_text("a\tb\n")
     client = _client(tmp_path)
 
     for url in (
-        "/admin/tests/..%2Fsecret.json",
-        "/admin/tests/link.json",
-        "/admin/tests/%2E%2E%2Fsecret.json",
-        "/admin/tests/secret.txt",
+        "/admin/tests/results/..%2Fsecret.json",
+        "/admin/tests/results/link.json",
+        "/admin/tests/results/%2E%2E%2Fsecret.json",
+        "/admin/tests/results/secret.txt",
+        "/admin/tests/results/x.tsv",
+        "/admin/tests/results/missing.json",
+        "/admin/tests/unlisted/secret.json",
+        "/admin/tests/experiments/other.md",
+        "/admin/tests/secret.json",
     ):
         response = client.get(url)
         assert response.status_code == 404, url
         assert "outside-the-results-dir" not in response.text, url
     assert "link.json" not in client.get("/admin/tests").text
+    assert client.get("/admin/tests/experiments/EXPERIMENTS.md").status_code == 200
+
+
+def test_case_twins_are_marked_ambiguous_and_neither_is_served(tmp_path: Path) -> None:
+    results = _results(tmp_path)
+    (results / "Bench.json").write_text('{"label": "upper"}')
+    (results / "bench.json").write_text('{"label": "lower"}')
+    if len(list(results.iterdir())) != 2:
+        pytest.skip("filesystem is case-insensitive; two case-twins cannot exist")
+    client = _client(tmp_path)
+
+    body = client.get("/admin/tests").text
+
+    assert body.count("ambiguous: another file differs only by case") == 2
+    assert client.get("/admin/tests/results/Bench.json").status_code == 404
+    assert client.get("/admin/tests/results/bench.json").status_code == 404
+
+
+def test_symlinked_source_is_refused_not_followed(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "leak.json").write_text('{"token": "outside-the-results-dir"}')
+    _results(tmp_path)
+    simulations = tmp_path / "data" / "simulations"
+    simulations.rmdir()
+    simulations.symlink_to(outside, target_is_directory=True)
+
+    response = _client(tmp_path).get("/admin/tests")
+
+    assert response.status_code == 503
+    assert "data/simulations: is a symlink; refused" in response.text
+    assert "outside-the-results-dir" not in response.text
 
 
 def test_pages_require_auth(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -174,7 +247,7 @@ def test_pages_require_auth(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     client = _client(tmp_path, authed=False)
     client.app.dependency_overrides[get_current_user] = lambda: None  # no session cookie
 
-    for url in ("/admin/tests", "/admin/tests/a.json"):
+    for url in ("/admin/tests", "/admin/tests/results/a.json"):
         response = client.get(url, follow_redirects=False)
         assert response.status_code == 307, url
         assert "unauthenticated-read" not in response.text, url

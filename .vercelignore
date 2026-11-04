@@ -1,18 +1,28 @@
 # Exclude non-deployment files from Vercel CLI uploads
 data/*
 !data/episodes/
+# prompt-research/results.tsv is optional local-only research (gitignored). The
+# admin page shows it as not present on a deployment; it is never uploaded.
+prompt-research/
 !backend/data/
 Documents/
 docs/
 *.md
 !README.md
-# /admin/tests reads the tracked conversation-lab artifacts at runtime. Keep
-# only that bounded directory; all other docs stay out of the deployment.
+# /admin/tests reads a fixed set of tracked artifacts at runtime
+# (backend/admin/test_results.py SOURCES). Keep exactly those; all other docs
+# stay out of the deployment. These come after `*.md`, which they must override.
+!data/simulations/
+data/simulations/*
+!data/simulations/*.json
+!data/simulations/*.md
 !docs/
 docs/*
 !docs/conversation-lab/
 docs/conversation-lab/*
+!docs/conversation-lab/EXPERIMENTS.md
 !docs/conversation-lab/results/
+docs/conversation-lab/results/*
 !docs/conversation-lab/results/*.json
 !docs/conversation-lab/results/*.md
 # backend/data/ is runtime data and ships whole, Markdown included: the

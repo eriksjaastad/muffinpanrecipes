@@ -1752,19 +1752,26 @@ def create_routes(app: FastAPI):
 
     @app.get("/admin/tests", response_class=HTMLResponse)
     async def admin_tests(request: Request, user: dict = Depends(require_auth)):
-        """Inventory of conversation-lab result files, newest first (#8608)."""
-        directory = test_results.results_dir(app.state.project_root)
-        try:
-            rows = test_results.list_results(directory)
-        except FileNotFoundError:
-            # .vercelignore drops docs/, so a deployment has no results to show.
-            # Saying "0 results" there would be a false empty success.
+        """Inventory of canonical test-result sources, newest first (#8608)."""
+        rows, absent = test_results.inventory(app.state.project_root)
+        required_missing = {
+            key: reason
+            for key, reason in absent.items()
+            if test_results.SOURCES_BY_KEY[key].required
+        }
+        if required_missing:
+            # .vercelignore drops what is not shipped, so a deployment can lack a
+            # required source. Saying "0 results" there would be a false success.
+            details = "; ".join(
+                f"{test_results.SOURCES_BY_KEY[key].rel}: {reason}"
+                for key, reason in required_missing.items()
+            )
             return app.state.templates.TemplateResponse(
                 "admin_error.html",
                 {
                     "request": request,
                     "title": "Test results unavailable",
-                    "message": f"{test_results.RESULTS_SUBDIR} is not present in this deployment.",
+                    "message": f"Required sources are missing from this deployment. {details}",
                     "status_code": 503,
                 },
                 status_code=503,
@@ -1775,16 +1782,19 @@ def create_routes(app: FastAPI):
                 "request": request,
                 "rows": rows,
                 "malformed": sum(1 for r in rows if r["error"]),
-                "results_subdir": str(test_results.RESULTS_SUBDIR),
+                "absent": [
+                    (str(test_results.SOURCES_BY_KEY[key].rel), reason)
+                    for key, reason in absent.items()
+                ],
             },
         )
 
-    @app.get("/admin/tests/{filename}", response_class=HTMLResponse)
-    async def admin_test_detail(request: Request, filename: str, user: dict = Depends(require_auth)):
-        """One result file: its summary row and the full source artifact."""
-        path = test_results.resolve_result(
-            test_results.results_dir(app.state.project_root), filename
-        )
+    @app.get("/admin/tests/{source_key}/{filename}", response_class=HTMLResponse)
+    async def admin_test_detail(
+        request: Request, source_key: str, filename: str, user: dict = Depends(require_auth)
+    ):
+        """One source file: its summary row and the full artifact."""
+        path = test_results.resolve(app.state.project_root, source_key, filename)
         if path is None:
             raise HTTPException(status_code=404, detail="No such result file")
         return app.state.templates.TemplateResponse(
@@ -1792,8 +1802,8 @@ def create_routes(app: FastAPI):
             {
                 "request": request,
                 "row": test_results.summarize(path),
-                "source": path.read_text(encoding="utf-8", errors="replace"),
-                "results_subdir": str(test_results.RESULTS_SUBDIR),
+                "source_rel": str(test_results.SOURCES_BY_KEY[source_key].rel),
+                "artifact": path.read_text(encoding="utf-8", errors="replace"),
             },
         )
 
