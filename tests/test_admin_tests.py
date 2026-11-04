@@ -199,6 +199,10 @@ def test_experiment_ledger_is_one_source_backed_row_per_run(tmp_path: Path) -> N
         "signal: HOLD | TBD | TBD |\n"
         "| 2026-10-02 | run-b | MORE_TURNS | progression | 7 | 7/0/0 | none | "
         "signal: SHIP | #99 | W40 |\n"
+        "\n### Calibration notes\n\n"
+        "| Degradation | Completed | Verdict |\n"
+        "|---|---:|---|\n"
+        "| rotated speakers | 3/3 | suspect |\n"
     )
     body = _client(tmp_path).get("/admin/tests").text
     assert "run-a" in body and "run-b" in body
@@ -206,6 +210,7 @@ def test_experiment_ledger_is_one_source_backed_row_per_run(tmp_path: Path) -> N
     assert "9/3/2" in body and "7/0/0" in body
     assert "signal: HOLD" in body and "signal: SHIP" in body
     assert body.count('href="/admin/tests/experiments/EXPERIMENTS.md"') == 2
+    assert "ledger line" not in body
 
 
 def test_tsv_rows_map_common_run_fields_and_keep_one_detail_source(tmp_path: Path) -> None:

@@ -210,7 +210,17 @@ def summarize_experiment_ledger(path: Path) -> list[dict[str, Any]]:
     section = re.search(r"^## Experiments\s*$([\s\S]*?)(?=^## |\Z)", text, re.MULTILINE)
     if not section:
         return [summarize(path)]
-    lines = [line for line in section.group(1).splitlines() if line.startswith("|")]
+    section_lines = section.group(1).splitlines()
+    table_start = next(
+        (index for index, line in enumerate(section_lines) if "Experiment ID" in line), None
+    )
+    if table_start is None:
+        return []
+    lines = []
+    for line in section_lines[table_start:]:
+        if not line.startswith("|"):
+            break
+        lines.append(line)
     if len(lines) < 2:
         return []
     header = _pipe_cells(lines[0])
