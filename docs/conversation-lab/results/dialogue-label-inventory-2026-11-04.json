@@ -1,0 +1,227 @@
+{
+  "files": [
+    {
+      "days": {
+        "friday": 2,
+        "monday": 1,
+        "sunday": 4,
+        "wednesday": 2
+      },
+      "label_count": 9,
+      "labels": [
+        {
+          "day": "sunday",
+          "id": "1",
+          "pick": "variant"
+        },
+        {
+          "day": "sunday",
+          "id": "2",
+          "pick": "variant"
+        },
+        {
+          "day": "sunday",
+          "id": "3",
+          "pick": "control"
+        },
+        {
+          "day": "wednesday",
+          "id": "4",
+          "pick": "variant"
+        },
+        {
+          "day": "friday",
+          "id": "5",
+          "pick": "control"
+        },
+        {
+          "day": "friday",
+          "id": "6",
+          "pick": "control"
+        },
+        {
+          "day": "monday",
+          "id": "7",
+          "pick": "variant"
+        },
+        {
+          "day": "sunday",
+          "id": "8",
+          "pick": "variant"
+        },
+        {
+          "day": "wednesday",
+          "id": "9",
+          "pick": "variant"
+        }
+      ],
+      "path": "../../.openclaw/workspace/artifacts/2026-10-27/muffin-dialogue-calibration-e0/erik-review-completed.json",
+      "sha256": "5519bfcbcea80058f4467c17dc89dc4cefa7d55125429110c651d080a044c875",
+      "source_kind": "primary"
+    },
+    {
+      "days": {
+        "monday": 14
+      },
+      "label_count": 14,
+      "labels": [
+        {
+          "day": "monday",
+          "id": "1",
+          "pick": "variant"
+        },
+        {
+          "day": "monday",
+          "id": "2",
+          "pick": "control"
+        },
+        {
+          "day": "monday",
+          "id": "3",
+          "pick": "control"
+        },
+        {
+          "day": "monday",
+          "id": "4",
+          "pick": "control"
+        },
+        {
+          "day": "monday",
+          "id": "5",
+          "pick": "variant"
+        },
+        {
+          "day": "monday",
+          "id": "6",
+          "pick": "variant"
+        },
+        {
+          "day": "monday",
+          "id": "7",
+          "pick": "control"
+        },
+        {
+          "day": "monday",
+          "id": "8",
+          "pick": "variant"
+        },
+        {
+          "day": "monday",
+          "id": "9",
+          "pick": "control"
+        },
+        {
+          "day": "monday",
+          "id": "10",
+          "pick": "control"
+        },
+        {
+          "day": "monday",
+          "id": "11",
+          "pick": "variant"
+        },
+        {
+          "day": "monday",
+          "id": "12",
+          "pick": "variant"
+        },
+        {
+          "day": "monday",
+          "id": "13",
+          "pick": "control"
+        },
+        {
+          "day": "monday",
+          "id": "14",
+          "pick": "variant"
+        }
+      ],
+      "path": "docs/conversation-lab/results/20261017T051229Z-ab-testbed-claude-o55-author.json",
+      "sha256": "0a946b698ccc9abbd132b6e3e23cf9b601a07a5899d64627c56fce346ef1e790",
+      "source_kind": "primary"
+    },
+    {
+      "days": {
+        "friday": 2,
+        "monday": 1,
+        "sunday": 2,
+        "wednesday": 1
+      },
+      "label_count": 6,
+      "labels": [
+        {
+          "day": "sunday",
+          "id": "1",
+          "pick": "variant"
+        },
+        {
+          "day": "sunday",
+          "id": "2",
+          "pick": "variant"
+        },
+        {
+          "day": "wednesday",
+          "id": "4",
+          "pick": "variant"
+        },
+        {
+          "day": "friday",
+          "id": "5",
+          "pick": "control"
+        },
+        {
+          "day": "friday",
+          "id": "6",
+          "pick": "control"
+        },
+        {
+          "day": "monday",
+          "id": "7",
+          "pick": "variant"
+        }
+      ],
+      "path": "docs/conversation-lab/results/e1-situated-response-development.json",
+      "sha256": "edb29a2085a3b3377463ab8977e75acd210ad653c595fbfb769635550c452282",
+      "source_kind": "derived"
+    },
+    {
+      "days": {
+        "sunday": 2,
+        "wednesday": 1
+      },
+      "label_count": 3,
+      "labels": [
+        {
+          "day": "sunday",
+          "id": "3",
+          "pick": "control"
+        },
+        {
+          "day": "sunday",
+          "id": "8",
+          "pick": "variant"
+        },
+        {
+          "day": "wednesday",
+          "id": "9",
+          "pick": "variant"
+        }
+      ],
+      "path": "docs/conversation-lab/results/e1-situated-response-holdout.json",
+      "sha256": "46f04f4884f3d3d262574f91f6cd73f3154c5f5a9f6f72b1d1c4286d5d1c7794",
+      "source_kind": "derived"
+    }
+  ],
+  "schema_version": 1,
+  "summary": {
+    "derived_files_are_not_new_labels": true,
+    "derived_label_references": 9,
+    "primary_days": {
+      "friday": 2,
+      "monday": 15,
+      "sunday": 4,
+      "wednesday": 2
+    },
+    "primary_human_labels": 23
+  }
+}
