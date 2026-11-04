@@ -1,0 +1,1395 @@
+{
+  "study": "E0 Erik blind calibration queue",
+  "instructions": "Choose the better whole scene. Arm identity, Saga choice, and production judge result are intentionally hidden by pairs-ui.",
+  "pairs": [
+    {
+      "run_index": 1,
+      "scenario_id": "2026-W40:sunday:3",
+      "concept": "Lebanese Kibbeh Tartlets",
+      "control_messages": [
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Alright, everyone here? I think we're ready - just want to make sure we're all on the same page before we go live with the kibbeh.",
+          "timestamp": "2026-10-04T09:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Ria Castillo",
+          "message": "Yeah, I'm here - the labneh dollop moment is the hero, that's our first post.",
+          "timestamp": "2026-10-04T10:36:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Marcus Reid",
+          "message": "The labneh's the right call - it's the textural anchor, the cool break after all that spice and crisp. But we have to show readers why that matters, not just that it looks good.",
+          "timestamp": "2026-10-04T12:12:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Margaret Chen",
+          "message": "The crisp shell holds everything - that's what makes the cool labneh land.",
+          "timestamp": "2026-10-04T13:48:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Ria Castillo",
+          "message": "Shell cracking, labneh catching light, short caption, cook-time posting. We're good. Night.",
+          "timestamp": "2026-10-04T15:24:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        }
+      ],
+      "variant_messages": [
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Okay, everyone here? Lebanese kibbeh tartlets go live in a bit and I want to make sure we're all on the same page before we hit publish.",
+          "timestamp": "2026-10-04T09:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Margaret Chen",
+          "message": "The bulgur-lamb ratio holds. Tartlets crisp properly. Ready to go.",
+          "timestamp": "2026-10-04T10:36:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Marcus Reid",
+          "message": "The copy's tight - I cut another hundred words this morning and I think it actually breathes now, which is what we needed.",
+          "timestamp": "2026-10-04T12:12:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Ria Castillo",
+          "message": "Good - breathing copy actually converts better. Lead with Margaret's pull shot, then the labneh dollop. That's the stop.",
+          "timestamp": "2026-10-04T13:48:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Perfect. That's the shot sequence then - we're good. Hitting publish now.",
+          "timestamp": "2026-10-04T15:24:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        }
+      ],
+      "judge": {
+        "overall": "control"
+      },
+      "e0_pair_number": 3,
+      "review_reason": "disagreement"
+    },
+    {
+      "run_index": 2,
+      "scenario_id": "2026-W41:sunday:1",
+      "concept": "Black Sesame Popovers",
+      "control_messages": [
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Okay, I'm here and I've had my coffee. Black sesame popovers go live today and I'm feeling... ready? Mostly ready. Let's do this.",
+          "timestamp": "2026-10-11T09:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Margaret Chen",
+          "message": "Good. The popover batter needs to rest at least an hour before you bake - did that happen yesterday?",
+          "timestamp": "2026-10-11T10:20:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Marcus Reid",
+          "message": "The batter rested overnight, which actually gives us something interesting - that long hydration deepens the nuttiness of the black sesame, makes the interior less eggy and more custard-like in texture.",
+          "timestamp": "2026-10-11T11:40:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Ria Castillo",
+          "message": "That overnight rest deepens the nuttiness - way better for video. Lead with the cross-section, then the unmold.",
+          "timestamp": "2026-10-11T13:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Margaret Chen",
+          "message": "The shell needs to be the hero in that shot. Crisp exterior reads on camera.",
+          "timestamp": "2026-10-11T14:20:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Ria Castillo",
+          "message": "The unmold moment is the close - that's what stops the scroll. We're locked in.",
+          "timestamp": "2026-10-11T15:40:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        }
+      ],
+      "variant_messages": [
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Okay, we're here. Black sesame popovers go live in a bit and I'm feeling... ready? Mostly ready. Everyone good to do a final check before we push?",
+          "timestamp": "2026-10-11T09:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Marcus Reid",
+          "message": "I've read through twice and the copy feels earned - the black sesame angle doesn't collapse into novelty, it actually tracks the technique, so yeah, I'm ready to let it live in the world.",
+          "timestamp": "2026-10-11T10:20:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Ria Castillo",
+          "message": "Need the hero shot - Margaret pulling them out of the oven, that steam moment - going first, then we layer the filled cups after.",
+          "timestamp": "2026-10-11T11:40:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Margaret Chen",
+          "message": "The steam shot only works once. Get it right.",
+          "timestamp": "2026-10-11T13:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Got it - one shot, no do-overs. I trust you to nail it.",
+          "timestamp": "2026-10-11T14:20:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Margaret Chen",
+          "message": "Popovers are live. Don't mess up the steam shot.",
+          "timestamp": "2026-10-11T15:40:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        }
+      ],
+      "judge": {
+        "overall": "control"
+      },
+      "e0_pair_number": 7,
+      "review_reason": "disagreement"
+    },
+    {
+      "run_index": 3,
+      "scenario_id": "2026-W41:sunday:3",
+      "concept": "Black Sesame Popovers",
+      "control_messages": [
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Okay, I'm here and I've had my coffee. Black sesame popovers go live today and I'm feeling... ready? Mostly ready. Let's do this.",
+          "timestamp": "2026-10-11T09:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Margaret Chen",
+          "message": "Good. The popover batter needs to rest at least an hour before you bake - did that happen yesterday?",
+          "timestamp": "2026-10-11T10:20:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Marcus Reid",
+          "message": "The batter rested overnight, which actually gives us something interesting - that long hydration deepens the nuttiness of the black sesame, makes the interior less eggy and more custard-like in texture.",
+          "timestamp": "2026-10-11T11:40:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Ria Castillo",
+          "message": "That overnight rest deepens the nuttiness - way better for video. Lead with the cross-section, then the unmold.",
+          "timestamp": "2026-10-11T13:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Margaret Chen",
+          "message": "The shell needs to be the hero in that shot. Crisp exterior reads on camera.",
+          "timestamp": "2026-10-11T14:20:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Ria Castillo",
+          "message": "The unmold moment is the close - that's what stops the scroll. We're locked in.",
+          "timestamp": "2026-10-11T15:40:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        }
+      ],
+      "variant_messages": [
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Okay, we're here. Black sesame popovers go live in a few hours and I'm feeling... ready? Nervous? Both? Let's make sure everything's locked before we hit publish.",
+          "timestamp": "2026-10-11T09:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Ria Castillo",
+          "message": "Both is right - lead with the rise shot, caption \"nutty and hollow, ready to fill,\" post during peak scroll time.",
+          "timestamp": "2026-10-11T10:36:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Marcus Reid",
+          "message": "Eight words feels reductive when the rise itself is doing the narrative work - that hollow interior is the whole story, the payoff people are waiting for.",
+          "timestamp": "2026-10-11T12:12:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Margaret Chen",
+          "message": "The hollow is structural - steam needs that space to work.",
+          "timestamp": "2026-10-11T13:48:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Marcus Reid",
+          "message": "Yeah, the pan's walls give us those bronzed edges while steam does the work. Caption stays at eight. It's live. Good night.",
+          "timestamp": "2026-10-11T15:24:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        }
+      ],
+      "judge": {
+        "overall": "control"
+      },
+      "e0_pair_number": 9,
+      "review_reason": "disagreement"
+    },
+    {
+      "run_index": 4,
+      "scenario_id": "2026-W42:wednesday:3",
+      "concept": "Filipino Lumpia Crisp Cakes",
+      "control_messages": [
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Julian Torres",
+          "message": "Got the lumpia shots. Three totally different reads. I'm pushing for the macro - that phyllo shatter is everything.",
+          "timestamp": "2026-10-15T09:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": [
+            "src/assets/images/35cda768/g20261015T011304Z-a7522e/round_1/macro_closeup.png",
+            "src/assets/images/35cda768/g20261015T011304Z-a7522e/round_1/overhead_flatlay.png",
+            "src/assets/images/35cda768/g20261015T011304Z-a7522e/round_1/hero_threequarter.png"
+          ]
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Margaret Chen",
+          "message": "Macro shatter tells you nothing about how they actually eat - you need the whole cake in someone's hand.",
+          "timestamp": "2026-10-15T09:48:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Ria Castillo",
+          "message": "The hand shot reads slower on mobile - people need that shatter moment to stop the scroll.",
+          "timestamp": "2026-10-15T10:36:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "I get what you're saying about the scroll, but Margaret's right - people need to see this is actually biteable, actually something you'd grab at a party.",
+          "timestamp": "2026-10-15T11:24:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Ria Castillo",
+          "message": "Carousel solves it - macro first to stop the scroll, hand shot second so they see the bite.",
+          "timestamp": "2026-10-15T12:12:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Margaret Chen",
+          "message": "People scroll past slide two. The hand shot becomes invisible the second that shatter stops them.",
+          "timestamp": "2026-10-15T13:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Julian Torres",
+          "message": "The hand shot proves it's edible, but it doesn't show the structural difference the pan created with the phyllo.",
+          "timestamp": "2026-10-15T13:48:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Ria Castillo",
+          "message": "The crispy walls that form against the pan - that's the story. But we're not getting anyone to swipe for it.",
+          "timestamp": "2026-10-15T14:36:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "But if the macro stops them, and they never see the hand - we're betting everything on that first image being enough to make them actually want to make these, right?",
+          "timestamp": "2026-10-15T15:24:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Julian Torres",
+          "message": "The macro leads. It's the sell - everything else is just proof. Let's lock it.",
+          "timestamp": "2026-10-15T16:12:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        }
+      ],
+      "variant_messages": [
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Julian Torres",
+          "message": "Got the lumpia shots backed up. Three totally different reads - which one lands for you?",
+          "timestamp": "2026-10-15T09:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": [
+            "src/assets/images/35cda768/g20261015T011304Z-a7522e/round_1/macro_closeup.png",
+            "src/assets/images/35cda768/g20261015T011304Z-a7522e/round_1/overhead_flatlay.png"
+          ]
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Ria Castillo",
+          "message": "Show me the phyllo break - that shattering moment when someone bites through is the scroll-stopper, everything else is supporting it.",
+          "timestamp": "2026-10-15T10:08:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Margaret Chen",
+          "message": "The shattering is real, but if the filling looks wet in that shot, people won't believe the crisp.",
+          "timestamp": "2026-10-15T11:16:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Ria Castillo",
+          "message": "Yeah, but we show the cross-section first - let people see it's dry before the bite lands.",
+          "timestamp": "2026-10-15T12:24:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Julian Torres",
+          "message": "Cross-section first, absolutely - but only if we nail the filling's dryness in that shot, otherwise the bite shot doesn't sell it.",
+          "timestamp": "2026-10-15T13:32:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": [
+            "src/assets/images/35cda768/g20261015T011304Z-a7522e/round_1/hero_threequarter.png"
+          ]
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Did we actually test the cheesecloth drain on the filling, or are we assuming it'll work when Julian shoots?",
+          "timestamp": "2026-10-15T14:40:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Margaret Chen",
+          "message": "Drain it tomorrow morning, cross-section hero shot. That's the call.",
+          "timestamp": "2026-10-15T15:48:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        }
+      ],
+      "judge": {
+        "overall": "control"
+      },
+      "e0_pair_number": 12,
+      "review_reason": "disagreement"
+    },
+    {
+      "run_index": 5,
+      "scenario_id": "2026-W43:friday:3",
+      "concept": "French Gruy\u00e8re Goug\u00e8res Bites",
+      "control_messages": [
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Margaret Chen",
+          "message": "The crown's barely visible in that shot. We're losing the whole thing.",
+          "timestamp": "2026-10-23T09:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Marcus Reid",
+          "message": "The crown is half the whole argument - those frilly edges are what the tin's walls do, so if we're not showing that rise, we're just saying \"cheese puff\" instead of proving why the pan matters.",
+          "timestamp": "2026-10-23T10:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Yeah, but the shot Devon pulled shows maybe an inch of that crown and the rest is just... flat cheese puff sitting there - so are we reshooting or cropping tighter to actually feature what's happening?",
+          "timestamp": "2026-10-23T11:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Devon Park",
+          "message": "Shooting new or cropping - what's the call?",
+          "timestamp": "2026-10-23T12:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Julian Torres",
+          "message": "Cropping kills the rise - we need to reshoot and actually get the steam coming off the cheese.",
+          "timestamp": "2026-10-23T13:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Marcus Reid",
+          "message": "Reshoot it - but the copy has to show what's actually happening in that pan, not just describe a pretty crown. Those walls trap steam from the water in the batter, and that pressure is what creates the rise. Without naming that mechanism, we're just food porn.",
+          "timestamp": "2026-10-23T14:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "So we need to show the mechanism - the steam doing the work - before we zoom in on the crown itself?",
+          "timestamp": "2026-10-23T15:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Devon Park",
+          "message": "Site's ready whenever you get the new shot back.",
+          "timestamp": "2026-10-23T16:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        }
+      ],
+      "variant_messages": [
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Margaret Chen",
+          "message": "Goug\u00e8res are choux. The hollow interior has to read in the photo.",
+          "timestamp": "2026-10-23T09:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Julian Torres",
+          "message": "The three-quarter angle shows that hollow the second the steam escapes - we're locking it.",
+          "timestamp": "2026-10-23T10:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "That angle works, but I'm worried the chives in the batter might get lost in the steam - should we call out the fresh ones we're garnishing on top?",
+          "timestamp": "2026-10-23T11:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Marcus Reid",
+          "message": "The chives are only in the batter - step seven. We can't write around a garnish that doesn't exist. The copy has to let the interior speak for itself.",
+          "timestamp": "2026-10-23T12:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Julian Torres",
+          "message": "Right - so we shoot it hot and the chives get buried in the steam. Lead with the Gruy\u00e8re.",
+          "timestamp": "2026-10-23T13:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Marcus is right about the chives. We lead with Gruy\u00e8re and approve it.",
+          "timestamp": "2026-10-23T14:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Devon Park",
+          "message": "Site's ready whenever you push it live.",
+          "timestamp": "2026-10-23T15:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Marcus Reid",
+          "message": "Approved then - lead with the nutty cheese, let the hollow interior breathe in that angle, copy stays spare. Good week.",
+          "timestamp": "2026-10-23T16:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        }
+      ],
+      "judge": {
+        "overall": "control"
+      },
+      "e0_pair_number": 21,
+      "review_reason": "disagreement"
+    },
+    {
+      "run_index": 6,
+      "scenario_id": "2026-W43:friday:2",
+      "concept": "French Gruy\u00e8re Goug\u00e8res Bites",
+      "control_messages": [
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Margaret Chen",
+          "message": "The crown's barely visible in that shot. We're losing the whole thing.",
+          "timestamp": "2026-10-23T09:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Marcus Reid",
+          "message": "The crown is half the whole argument - those frilly edges are what the tin's walls do, so if we're not showing that rise, we're just saying \"cheese puff\" instead of proving why the pan matters.",
+          "timestamp": "2026-10-23T10:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Yeah, but the shot Devon pulled shows maybe an inch of that crown and the rest is just... flat cheese puff sitting there - so are we reshooting or cropping tighter to actually feature what's happening?",
+          "timestamp": "2026-10-23T11:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Devon Park",
+          "message": "Shooting new or cropping - what's the call?",
+          "timestamp": "2026-10-23T12:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Julian Torres",
+          "message": "Cropping kills the rise - we need to reshoot and actually get the steam coming off the cheese.",
+          "timestamp": "2026-10-23T13:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Marcus Reid",
+          "message": "Reshoot it - but the copy has to show what's actually happening in that pan, not just describe a pretty crown. Those walls trap steam from the water in the batter, and that pressure is what creates the rise. Without naming that mechanism, we're just food porn.",
+          "timestamp": "2026-10-23T14:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "So we need to show the mechanism - the steam doing the work - before we zoom in on the crown itself?",
+          "timestamp": "2026-10-23T15:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Devon Park",
+          "message": "Site's ready whenever you get the new shot back.",
+          "timestamp": "2026-10-23T16:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        }
+      ],
+      "variant_messages": [
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Margaret Chen",
+          "message": "Hero shot ready? Can't approve blind.",
+          "timestamp": "2026-10-23T09:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Julian Torres",
+          "message": "Yeah, we locked it this morning - overhead angle, dark slate background to make those golden crowns pop against the negative space.",
+          "timestamp": "2026-10-23T09:48:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "The overhead really does show off those frilly edges - I'm just wondering if we need to see one broken open so people know what the inside actually looks like?",
+          "timestamp": "2026-10-23T10:36:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Devon Park",
+          "message": "Breaking open shot means more files to manage - overhead alone works fine.",
+          "timestamp": "2026-10-23T11:24:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "But that's exactly what people want to see - the cheese pull, the steam coming out.",
+          "timestamp": "2026-10-23T12:12:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Margaret Chen",
+          "message": "Stephanie's right. You need to see the interior - that's what sells the technique.",
+          "timestamp": "2026-10-23T13:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Marcus Reid",
+          "message": "Margaret's right - you need that break to see the choux actually working, the steam still rising off the custard inside. That's what makes goug\u00e8res goug\u00e8res and not just puffed cheese bread.",
+          "timestamp": "2026-10-23T13:48:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Margaret Chen",
+          "message": "The chives go into the batter at step seven, then you garnish with fresh on top?",
+          "timestamp": "2026-10-23T14:36:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Marcus Reid",
+          "message": "That's what the copy hinges on - the chives do the double duty, structure from within and then that fresh herbaceous note when you bite down.",
+          "timestamp": "2026-10-23T15:24:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "friday",
+          "stage": "final_review",
+          "character": "Margaret Chen",
+          "message": "We're locked. Break shot, overhead, copy as written.",
+          "timestamp": "2026-10-23T16:12:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        }
+      ],
+      "judge": {
+        "overall": "control"
+      },
+      "e0_pair_number": 20,
+      "review_reason": "deterministic_audit"
+    },
+    {
+      "run_index": 7,
+      "scenario_id": "2026-W43:monday:1",
+      "concept": "French Gruy\u00e8re Goug\u00e8res Bites",
+      "control_messages": [
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "Gougeres this week. The real ones, not Instagram shortcuts.",
+          "timestamp": "2026-10-22T09:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Julian Torres",
+          "message": "Yeah, but the muffin tin forces vertical rise - that's how you get the frilly crowns.",
+          "timestamp": "2026-10-22T10:08:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Ria Castillo",
+          "message": "The crown is the hook, but we need that steam shot the second they come out - that's what stops the scroll.",
+          "timestamp": "2026-10-22T11:16:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "Steam collapses the shell if you shoot it too early. Structure first.",
+          "timestamp": "2026-10-22T12:24:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "So we shoot them right after they cool enough to hold their shape - still got that steam coming through?",
+          "timestamp": "2026-10-22T13:32:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Marcus Reid",
+          "message": "That timing window is brutal - you're catching steam before it ruins the structure, which is exactly why the mini tin matters. Smaller rounds set faster, give you actual seconds to work with instead of guessing.",
+          "timestamp": "2026-10-22T14:40:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Got it - five minutes out, steam still rising, structure holding. That's the shot. Let's build it tomorrow.",
+          "timestamp": "2026-10-22T15:48:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        }
+      ],
+      "variant_messages": [
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Margaret Chen",
+          "message": "Gougeres this week. Pate a choux in the muffin tin - uniform rise, proper technique.",
+          "timestamp": "2026-10-19T09:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Yeah, that uniform dome they get in the pan is exactly what makes them work for passing around at a party - no one ends up with a flat one.",
+          "timestamp": "2026-10-19T10:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Julian Torres",
+          "message": "Those domes are going to read as pure luxury - we shoot them just out of the pan while they're still steaming.",
+          "timestamp": "2026-10-19T11:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Marcus Reid",
+          "message": "The steam matters because that's when they go from baked to actually functional - you get the hollow center that lets someone grab it without it falling apart.",
+          "timestamp": "2026-10-19T12:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Julian Torres",
+          "message": "The walls force vertical rise - that's what creates the structural integrity to survive the pass-around.",
+          "timestamp": "2026-10-19T13:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "So we're catching them right when they come out - that moment before they deflate is actually when they're most structurally sound for handling.",
+          "timestamp": "2026-10-19T14:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Ria Castillo",
+          "message": "The unmold is the hero shot - catch it while the steam's still visible and they've got that dome intact. That's what people actually want to watch.",
+          "timestamp": "2026-10-19T15:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "monday",
+          "stage": "brainstorm",
+          "character": "Julian Torres",
+          "message": "The steam catching light from behind - that's what separates this from every other cheese puff shot. We're locked. I'm out.",
+          "timestamp": "2026-10-19T16:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        }
+      ],
+      "judge": {
+        "overall": "control"
+      },
+      "e0_pair_number": 13,
+      "review_reason": "deterministic_audit"
+    },
+    {
+      "run_index": 8,
+      "scenario_id": "2026-W40:sunday:1",
+      "concept": "Lebanese Kibbeh Tartlets",
+      "control_messages": [
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Alright, everyone here? I think we're ready - just want to make sure we're all on the same page before we go live with the kibbeh.",
+          "timestamp": "2026-10-04T09:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Ria Castillo",
+          "message": "Yeah, I'm here - the labneh dollop moment is the hero, that's our first post.",
+          "timestamp": "2026-10-04T10:36:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Marcus Reid",
+          "message": "The labneh's the right call - it's the textural anchor, the cool break after all that spice and crisp. But we have to show readers why that matters, not just that it looks good.",
+          "timestamp": "2026-10-04T12:12:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Margaret Chen",
+          "message": "The crisp shell holds everything - that's what makes the cool labneh land.",
+          "timestamp": "2026-10-04T13:48:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Ria Castillo",
+          "message": "Shell cracking, labneh catching light, short caption, cook-time posting. We're good. Night.",
+          "timestamp": "2026-10-04T15:24:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        }
+      ],
+      "variant_messages": [
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Alright, we're here. Lebanese kibbeh tartlets go live today - everyone feeling ready for this?",
+          "timestamp": "2026-10-04T09:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Margaret Chen",
+          "message": "Did the final version lock in the filling ratio for the bulgur walls?",
+          "timestamp": "2026-10-04T10:20:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "Yeah, we locked it at 60-40 bulgur to lamb for the shell - that ratio's what gives you those crisp edges without the walls falling apart when you fill them.",
+          "timestamp": "2026-10-04T11:40:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Marcus Reid",
+          "message": "That 60-40 ratio only works because the muffin cup's walls and heat set the bulgur shell firm before the filling goes in - flat won't cut it.",
+          "timestamp": "2026-10-04T13:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Ria Castillo",
+          "message": "That's exactly why we need the muffin pan - the walls set the shell firm before you fill it.",
+          "timestamp": "2026-10-04T14:20:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "sunday",
+          "stage": "publish",
+          "character": "Margaret Chen",
+          "message": "It's live. Going home.",
+          "timestamp": "2026-10-04T15:40:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        }
+      ],
+      "judge": {
+        "overall": "control"
+      },
+      "e0_pair_number": 1,
+      "review_reason": "deterministic_audit"
+    },
+    {
+      "run_index": 9,
+      "scenario_id": "2026-W42:wednesday:2",
+      "concept": "Filipino Lumpia Crisp Cakes",
+      "control_messages": [
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Julian Torres",
+          "message": "Got the lumpia shots. Three totally different reads. I'm pushing for the macro - that phyllo shatter is everything.",
+          "timestamp": "2026-10-15T09:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": [
+            "src/assets/images/35cda768/g20261015T011304Z-a7522e/round_1/macro_closeup.png",
+            "src/assets/images/35cda768/g20261015T011304Z-a7522e/round_1/overhead_flatlay.png",
+            "src/assets/images/35cda768/g20261015T011304Z-a7522e/round_1/hero_threequarter.png"
+          ]
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Margaret Chen",
+          "message": "Macro shatter tells you nothing about how they actually eat - you need the whole cake in someone's hand.",
+          "timestamp": "2026-10-15T09:48:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Ria Castillo",
+          "message": "The hand shot reads slower on mobile - people need that shatter moment to stop the scroll.",
+          "timestamp": "2026-10-15T10:36:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "I get what you're saying about the scroll, but Margaret's right - people need to see this is actually biteable, actually something you'd grab at a party.",
+          "timestamp": "2026-10-15T11:24:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Ria Castillo",
+          "message": "Carousel solves it - macro first to stop the scroll, hand shot second so they see the bite.",
+          "timestamp": "2026-10-15T12:12:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Margaret Chen",
+          "message": "People scroll past slide two. The hand shot becomes invisible the second that shatter stops them.",
+          "timestamp": "2026-10-15T13:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Julian Torres",
+          "message": "The hand shot proves it's edible, but it doesn't show the structural difference the pan created with the phyllo.",
+          "timestamp": "2026-10-15T13:48:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Ria Castillo",
+          "message": "The crispy walls that form against the pan - that's the story. But we're not getting anyone to swipe for it.",
+          "timestamp": "2026-10-15T14:36:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "But if the macro stops them, and they never see the hand - we're betting everything on that first image being enough to make them actually want to make these, right?",
+          "timestamp": "2026-10-15T15:24:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Julian Torres",
+          "message": "The macro leads. It's the sell - everything else is just proof. Let's lock it.",
+          "timestamp": "2026-10-15T16:12:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        }
+      ],
+      "variant_messages": [
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Julian Torres",
+          "message": "Just got the shots back. Three totally different reads on this - macro detail, overhead geometry, or the broken-open hero. Let me know what you're seeing.",
+          "timestamp": "2026-10-15T09:00:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": [
+            "src/assets/images/35cda768/g20261015T011304Z-a7522e/round_1/macro_closeup.png",
+            "src/assets/images/35cda768/g20261015T011304Z-a7522e/round_1/overhead_flatlay.png"
+          ]
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Margaret Chen",
+          "message": "The one where it's cracked open. People need to see that phyllo shell actually shatters - that's not something you can fake with a garnish.",
+          "timestamp": "2026-10-15T10:08:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Julian Torres",
+          "message": "That's the one. The phyllo break is what makes people believe it's actually crispy.",
+          "timestamp": "2026-10-15T11:16:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": [
+            "src/assets/images/35cda768/g20261015T011304Z-a7522e/round_1/hero_threequarter.png"
+          ]
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Ria Castillo",
+          "message": "That phyllo shatters and you can hear it - that's the moment someone stops scrolling and actually watches the whole thing.",
+          "timestamp": "2026-10-15T12:24:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Margaret Chen",
+          "message": "Light hits the inside. That's where the shatter actually shows.",
+          "timestamp": "2026-10-15T13:32:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Stephanie 'Steph' Whitmore",
+          "message": "So the light has to catch that moment right when it breaks - that's what sells it, yeah? I think that's our shot.",
+          "timestamp": "2026-10-15T14:40:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        },
+        {
+          "day": "wednesday",
+          "stage": "photography",
+          "character": "Ria Castillo",
+          "message": "Cool. I'll get these prepped and ready to cut tomorrow morning.",
+          "timestamp": "2026-10-15T15:48:00+00:00",
+          "model": "anthropic/claude-haiku-4-5-20251001",
+          "attachments": []
+        }
+      ],
+      "judge": {
+        "overall": "control"
+      },
+      "e0_pair_number": 11,
+      "review_reason": "deterministic_audit"
+    }
+  ],
+  "human_picks": {
+    "1": "variant",
+    "2": "variant",
+    "3": "control",
+    "4": "variant",
+    "5": "control",
+    "6": "control",
+    "7": "variant",
+    "8": "variant",
+    "9": "variant"
+  },
+  "human_pick_meta": {
+    "1": {
+      "longer_arm": "control",
+      "picked_longer": false
+    },
+    "2": {
+      "longer_arm": "control",
+      "picked_longer": false
+    },
+    "3": {
+      "longer_arm": "control",
+      "picked_longer": true
+    },
+    "4": {
+      "longer_arm": "control",
+      "picked_longer": false
+    },
+    "5": {
+      "longer_arm": "control",
+      "picked_longer": true
+    },
+    "6": {
+      "longer_arm": "control",
+      "picked_longer": true
+    },
+    "7": {
+      "longer_arm": "variant",
+      "picked_longer": true
+    },
+    "8": {
+      "longer_arm": "variant",
+      "picked_longer": true
+    },
+    "9": {
+      "longer_arm": "control",
+      "picked_longer": false
+    }
+  },
+  "human_pick_reasons": {
+    "1": "Everybody is in the same room, so asking if everybody is here is a little odd. I'm picking B because, in A, Ria is saying they're there, but all of them are sitting at the same table.",
+    "2": "I really like the \"I'm feeling... ready, mostly ready. Everyone good?\" That sounds really good. I'm not a big fan of the excessive dashes that are happening. They look odd, and I'm guessing the model's trying to prevent itself from using em dashes, but that's just when you're writing dialogue. It's",
+    "3": "Okay, now the... ready is getting a little bit excessive. I don't really like either of these, but I'm going to pick A because it's less bad.",
+    "4": "I like the interaction in B better. It is a little weird that people are kind of ignoring Julian's first question in B, but I feel like B is better. Still, these are a long way off from actually looking like people sitting around a table and talking to each other.",
+    "5": "I'm going with B because Stephanie talks about steam and the chives in the batter. That doesn't come out right: steam comes after it's cooked, and batter comes before it's cooked.",
+    "6": "I'm picking B because Devon is saying that, and breaking open a shot means more files to manage. That's totally dumb.",
+    "7": "I'm going with B. The mention of Instagram shortcuts doesn't land right.",
+    "8": "Going with B again. Again, they're all in the same room. Asking if everybody's here is just kind of weird.",
+    "9": "Both of these are much better. It's actually like Margaret's talking, or at least responding to Julian. I like that Julian responds back to Margaret. I'm definitely going with B. That is awesome."
+  },
+  "human_review_order": {
+    "1": {
+      "A": "control",
+      "B": "variant"
+    },
+    "2": {
+      "A": "variant",
+      "B": "control"
+    },
+    "3": {
+      "A": "control",
+      "B": "variant"
+    },
+    "4": {
+      "A": "control",
+      "B": "variant"
+    },
+    "5": {
+      "A": "variant",
+      "B": "control"
+    },
+    "6": {
+      "A": "variant",
+      "B": "control"
+    },
+    "7": {
+      "A": "control",
+      "B": "variant"
+    },
+    "8": {
+      "A": "control",
+      "B": "variant"
+    },
+    "9": {
+      "A": "control",
+      "B": "variant"
+    }
+  },
+  "human_judge_agreement_rate": 0.3333,
+  "human_judge_agreed_count": 3,
+  "human_judge_disagreed_count": 6,
+  "human_judge_tie_count": 0
+}

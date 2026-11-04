@@ -1,24 +1,26 @@
 # Dialogue calibration label coverage
 
-Date: 2026-11-04  
+Date: 2026-11-04
 Card: #8275 / task 103773194834571264
 
 ## Reproducible inventory
 
-Run from the repository root:
+Run from a clean repository checkout:
 
 ```bash
 uv run python scripts/conversation_label_inventory.py \
-  ../../.openclaw/workspace/artifacts/2026-10-27/muffin-dialogue-calibration-e0/erik-review-completed.json \
+  --primary \
+  docs/conversation-lab/results/e0-human-labels-2026-10-27.json \
   docs/conversation-lab/results/20261017T051229Z-ab-testbed-claude-o55-author.json \
+  --derived \
   docs/conversation-lab/results/e1-situated-response-development.json \
   docs/conversation-lab/results/e1-situated-response-holdout.json
 ```
 
 The committed receipt hashes every input. It counts 23 primary human labels:
-15 Monday, 2 Wednesday, 2 Friday, and 4 Sunday. The nine E1 development and
-holdout rows are derived references to the same nine E0 labels, so the tool
-reports but does not count them again.
+15 Monday, 2 Wednesday, 2 Friday, and 4 Sunday. The tool verifies that all nine
+E1 development and holdout rows match primary E0 `(scenario_id, pick)`
+identities, then reports but does not count those derived rows again.
 
 ## Acceptance check
 
@@ -26,10 +28,10 @@ reports but does not count them again.
 - **At least 3 chained days:** not met. The 14 author/control labels are Monday
   only. The nine E0 labels cover four day names but are independently sampled
   scenes from several weeks, not day-chained choices on a frozen prior winner.
-- **Held-out dialogue-judge agreement before and after tuning:** not met. E0
-  records the existing stored judge at 2/9 against Erik. E1's 1/3 holdout is a
-  failed deterministic situated-response measurement experiment, not a revised
-  dialogue judge.
+- **Held-out dialogue-judge agreement before and after tuning:** not met. E0's
+  structured fields record the all-control stored judge at 3/9 against Erik.
+  E1's 1/3 holdout is a failed deterministic situated-response measurement
+  experiment, not a revised dialogue judge.
 - **Deterministic metrics beside judge scores:** met for the nine E0 labels by
   the E1 receipts and report.
 
