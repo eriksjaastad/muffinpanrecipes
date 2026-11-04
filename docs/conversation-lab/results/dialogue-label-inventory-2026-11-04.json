@@ -1,0 +1,262 @@
+{
+  "files": [
+    {
+      "days": {
+        "monday": 14
+      },
+      "label_count": 14,
+      "labels": [
+        {
+          "day": "monday",
+          "pair_id": "1",
+          "pick": "variant",
+          "scenario_id": "2026-W36"
+        },
+        {
+          "day": "monday",
+          "pair_id": "2",
+          "pick": "control",
+          "scenario_id": "2026-W36"
+        },
+        {
+          "day": "monday",
+          "pair_id": "3",
+          "pick": "control",
+          "scenario_id": "2026-W32"
+        },
+        {
+          "day": "monday",
+          "pair_id": "4",
+          "pick": "control",
+          "scenario_id": "2026-W32"
+        },
+        {
+          "day": "monday",
+          "pair_id": "5",
+          "pick": "variant",
+          "scenario_id": "2026-W27"
+        },
+        {
+          "day": "monday",
+          "pair_id": "6",
+          "pick": "variant",
+          "scenario_id": "2026-W27"
+        },
+        {
+          "day": "monday",
+          "pair_id": "7",
+          "pick": "control",
+          "scenario_id": "2026-W33"
+        },
+        {
+          "day": "monday",
+          "pair_id": "8",
+          "pick": "variant",
+          "scenario_id": "2026-W33"
+        },
+        {
+          "day": "monday",
+          "pair_id": "9",
+          "pick": "control",
+          "scenario_id": "2026-W37"
+        },
+        {
+          "day": "monday",
+          "pair_id": "10",
+          "pick": "control",
+          "scenario_id": "2026-W37"
+        },
+        {
+          "day": "monday",
+          "pair_id": "11",
+          "pick": "variant",
+          "scenario_id": "2026-W11"
+        },
+        {
+          "day": "monday",
+          "pair_id": "12",
+          "pick": "variant",
+          "scenario_id": "2026-W11"
+        },
+        {
+          "day": "monday",
+          "pair_id": "13",
+          "pick": "control",
+          "scenario_id": "2026-W38"
+        },
+        {
+          "day": "monday",
+          "pair_id": "14",
+          "pick": "variant",
+          "scenario_id": "2026-W38"
+        }
+      ],
+      "sha256": "0a946b698ccc9abbd132b6e3e23cf9b601a07a5899d64627c56fce346ef1e790",
+      "source_kind": "primary",
+      "source_name": "20261017T051229Z-ab-testbed-claude-o55-author.json"
+    },
+    {
+      "days": {
+        "friday": 2,
+        "monday": 1,
+        "sunday": 4,
+        "wednesday": 2
+      },
+      "label_count": 9,
+      "labels": [
+        {
+          "day": "sunday",
+          "pair_id": "1",
+          "pick": "variant",
+          "scenario_id": "2026-W40:sunday:3"
+        },
+        {
+          "day": "sunday",
+          "pair_id": "2",
+          "pick": "variant",
+          "scenario_id": "2026-W41:sunday:1"
+        },
+        {
+          "day": "sunday",
+          "pair_id": "3",
+          "pick": "control",
+          "scenario_id": "2026-W41:sunday:3"
+        },
+        {
+          "day": "wednesday",
+          "pair_id": "4",
+          "pick": "variant",
+          "scenario_id": "2026-W42:wednesday:3"
+        },
+        {
+          "day": "friday",
+          "pair_id": "5",
+          "pick": "control",
+          "scenario_id": "2026-W43:friday:3"
+        },
+        {
+          "day": "friday",
+          "pair_id": "6",
+          "pick": "control",
+          "scenario_id": "2026-W43:friday:2"
+        },
+        {
+          "day": "monday",
+          "pair_id": "7",
+          "pick": "variant",
+          "scenario_id": "2026-W43:monday:1"
+        },
+        {
+          "day": "sunday",
+          "pair_id": "8",
+          "pick": "variant",
+          "scenario_id": "2026-W40:sunday:1"
+        },
+        {
+          "day": "wednesday",
+          "pair_id": "9",
+          "pick": "variant",
+          "scenario_id": "2026-W42:wednesday:2"
+        }
+      ],
+      "sha256": "5519bfcbcea80058f4467c17dc89dc4cefa7d55125429110c651d080a044c875",
+      "source_kind": "primary",
+      "source_name": "e0-human-labels-2026-10-27.json"
+    },
+    {
+      "days": {
+        "friday": 2,
+        "monday": 1,
+        "sunday": 2,
+        "wednesday": 1
+      },
+      "evidence_sha256": "5519bfcbcea80058f4467c17dc89dc4cefa7d55125429110c651d080a044c875",
+      "label_count": 6,
+      "labels": [
+        {
+          "day": "sunday",
+          "pair_id": "1",
+          "pick": "variant",
+          "scenario_id": "2026-W40:sunday:3"
+        },
+        {
+          "day": "sunday",
+          "pair_id": "2",
+          "pick": "variant",
+          "scenario_id": "2026-W41:sunday:1"
+        },
+        {
+          "day": "wednesday",
+          "pair_id": "4",
+          "pick": "variant",
+          "scenario_id": "2026-W42:wednesday:3"
+        },
+        {
+          "day": "friday",
+          "pair_id": "5",
+          "pick": "control",
+          "scenario_id": "2026-W43:friday:3"
+        },
+        {
+          "day": "friday",
+          "pair_id": "6",
+          "pick": "control",
+          "scenario_id": "2026-W43:friday:2"
+        },
+        {
+          "day": "monday",
+          "pair_id": "7",
+          "pick": "variant",
+          "scenario_id": "2026-W43:monday:1"
+        }
+      ],
+      "sha256": "edb29a2085a3b3377463ab8977e75acd210ad653c595fbfb769635550c452282",
+      "source_kind": "derived",
+      "source_name": "e1-situated-response-development.json"
+    },
+    {
+      "days": {
+        "sunday": 2,
+        "wednesday": 1
+      },
+      "evidence_sha256": "5519bfcbcea80058f4467c17dc89dc4cefa7d55125429110c651d080a044c875",
+      "label_count": 3,
+      "labels": [
+        {
+          "day": "sunday",
+          "pair_id": "3",
+          "pick": "control",
+          "scenario_id": "2026-W41:sunday:3"
+        },
+        {
+          "day": "sunday",
+          "pair_id": "8",
+          "pick": "variant",
+          "scenario_id": "2026-W40:sunday:1"
+        },
+        {
+          "day": "wednesday",
+          "pair_id": "9",
+          "pick": "variant",
+          "scenario_id": "2026-W42:wednesday:2"
+        }
+      ],
+      "sha256": "46f04f4884f3d3d262574f91f6cd73f3154c5f5a9f6f72b1d1c4286d5d1c7794",
+      "source_kind": "derived",
+      "source_name": "e1-situated-response-holdout.json"
+    }
+  ],
+  "schema_version": 3,
+  "summary": {
+    "derived_files_are_not_new_labels": true,
+    "derived_label_references": 9,
+    "derived_references_verified": true,
+    "primary_days": {
+      "friday": 2,
+      "monday": 15,
+      "sunday": 4,
+      "wednesday": 2
+    },
+    "primary_human_labels": 23
+  }
+}
