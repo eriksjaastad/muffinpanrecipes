@@ -9,8 +9,7 @@ Provides:
 - Recipe generation triggers
 """
 
-from pathlib import Path
-from typing import Optional, List
+from typing import Optional
 import hashlib
 import hmac
 import json
@@ -23,6 +22,7 @@ from fastapi import FastAPI, Request, HTTPException, Depends, status
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from pydantic import BaseModel, field_validator
 
+from backend.admin import test_results
 from backend.data.recipe import Recipe, RecipeStatus
 from backend.newsletter.manager import NewsletterManager
 from backend.auth.middleware import require_auth, create_session_cookie, clear_session_cookie
@@ -31,11 +31,54 @@ from backend.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Module-level rate limit storage for newsletter subscription (3 req / IP / min)
-_SUBSCRIBE_RATE_LIMITS: dict[str, list[float]] = {}
-_SUBSCRIBE_RATE_LIMITS_LAST_SWEPT: float = 0.0
-_SUBSCRIBE_RATE_LIMITS_SWEEP_INTERVAL: float = 300.0  # sweep every 5 minutes
-_SUBSCRIBE_RATE_LIMITS_MAX_ENTRIES: int = 500         # hard cap on dict size
+class _SlidingWindowRateLimiter:
+    """Per-client in-memory sliding-window limit: ``limit`` requests per minute.
+
+    State lives in the process, so on serverless each warm instance counts on its
+    own; that bounds a single client's burst without needing shared storage.
+    Expired clients are swept every few minutes and the table is capped so a
+    flood of distinct IPs cannot grow it unbounded.
+    """
+
+    window = 60.0
+    sweep_interval = 300.0
+    max_entries = 500
+
+    def __init__(self, name: str, limit: int):
+        self.name = name
+        self.limit = limit
+        self.hits: dict[str, list[float]] = {}
+        self.last_swept = 0.0
+
+    def check(self, request: Request) -> None:
+        """Record a request from this client, raising HTTP 429 once over the limit."""
+        client_ip = request.client.host if request.client else "unknown"
+        now = time.time()
+
+        if now - self.last_swept > self.sweep_interval:
+            stale = [ip for ip, ts in self.hits.items() if not any(now - t < self.window for t in ts)]
+            for ip in stale:
+                del self.hits[ip]
+            excess = len(self.hits) - self.max_entries
+            for ip in list(self.hits)[:max(excess, 0)]:
+                del self.hits[ip]
+            self.last_swept = now
+
+        timestamps = [t for t in self.hits.get(client_ip, []) if now - t < self.window]
+        if len(timestamps) >= self.limit:
+            logger.warning(f"{self.name} rate limit exceeded for IP: {client_ip}")
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many requests. Please try again later.",
+            )
+        timestamps.append(now)
+        self.hits[client_ip] = timestamps
+
+
+_SUBSCRIBE_LIMITER = _SlidingWindowRateLimiter("Newsletter", limit=3)
+# Each endpoint gets its own budget; one sign-in uses one request of each.
+_LOGIN_LIMITER = _SlidingWindowRateLimiter("Auth login", limit=10)
+_CALLBACK_LIMITER = _SlidingWindowRateLimiter("Auth callback", limit=10)
 
 # ---------------------------------------------------------------------------
 # Path-safety helpers (Governance H4)
@@ -112,104 +155,6 @@ STAGE_LABELS = {
 }
 
 
-def _safe_parse_iso(value: Optional[str]) -> datetime:
-    """Best-effort parser for ISO-ish timestamps."""
-    if not value:
-        return datetime.min
-
-    normalized = value.replace("Z", "+00:00")
-    try:
-        return datetime.fromisoformat(normalized)
-    except ValueError:
-        return datetime.min
-
-
-def _load_simulation_runs(sim_dir: Path, limit: int = 100) -> List[dict]:
-    """Load simulation JSON files and return newest-first summary rows."""
-    runs: List[dict] = []
-
-    if not sim_dir.exists():
-        return runs
-
-    for path in sim_dir.glob('*.json'):
-        try:
-            payload = json.loads(path.read_text(encoding='utf-8'))
-        except Exception as exc:
-            logger.warning(f"Skipping invalid simulation file {path.name}: {exc}")
-            continue
-
-        messages = payload.get('messages') or []
-        if not isinstance(messages, list):
-            messages = []
-
-        # Skip benchmark comparison/summary sidecars — they have no messages
-        if not messages and 'results' in payload:
-            continue
-
-        message_models = {m.get('model') for m in messages if isinstance(m, dict) and m.get('model')}
-
-        models = sorted({
-            *message_models,
-            *(payload.get('models') or []),
-            payload.get('default_model'),
-        } - {None, ''})
-
-        generated_at = payload.get('generated_at')
-        runs.append({
-            'filename': path.name,
-            'filepath': str(path),
-            'generated_at': generated_at,
-            'generated_at_dt': _safe_parse_iso(generated_at),
-            'concept': payload.get('concept') or 'Unknown concept',
-            'default_model': payload.get('default_model'),
-            'models': models,
-            'message_count': len(messages),
-            'has_messages': len(messages) > 0,
-            'raw': payload,
-        })
-
-    runs.sort(key=lambda r: r['generated_at_dt'], reverse=True)
-
-    # Governance E4: zero-result sanity check
-    if sim_dir.exists() and not runs:
-        logger.warning(f"Simulation directory {sim_dir} exists but yielded 0 valid runs")
-
-    return runs[:limit]
-
-
-def _build_selected_simulation(run: dict) -> dict:
-    """Expand a run row into template-friendly details."""
-    payload = run['raw']
-    messages = payload.get('messages') or []
-
-    day_counts: dict[str, int] = {}
-    stage_counts: dict[str, int] = {}
-
-    for msg in messages:
-        if not isinstance(msg, dict):
-            continue
-        day = msg.get('day')
-        stage = msg.get('stage')
-        if day:
-            day_counts[day] = day_counts.get(day, 0) + 1
-        if stage:
-            stage_counts[stage] = stage_counts.get(stage, 0) + 1
-
-    return {
-        'filename': run['filename'],
-        'concept': run['concept'],
-        'generated_at': run['generated_at'],
-        'default_model': payload.get('default_model'),
-        'models': run['models'],
-        'messages': messages,
-        'day_counts': day_counts,
-        'stage_counts': stage_counts,
-        'message_count': len(messages),
-        'run': payload.get('run'),
-        'mode': payload.get('mode'),
-    }
-
-
 # Request/Response models
 class ApproveRequest(BaseModel):
     """Request to approve a recipe."""
@@ -239,6 +184,7 @@ def create_routes(app: FastAPI):
     @app.get("/auth/login")
     async def login(request: Request, redirect: Optional[str] = None):
         """Initiate Google OAuth login flow."""
+        _LOGIN_LIMITER.check(request)
         oauth = app.state.oauth_client
 
         # Generate authorization URL with CSRF state parameter
@@ -265,6 +211,7 @@ def create_routes(app: FastAPI):
         state: str
     ):
         """Handle OAuth callback from Google."""
+        _CALLBACK_LIMITER.check(request)
         oauth = app.state.oauth_client
         session_manager = app.state.session_manager
 
@@ -307,96 +254,196 @@ def create_routes(app: FastAPI):
     
     # ==================== ADMIN DASHBOARD ====================
     
+    _DASHBOARD_RECENT_EPISODES = 4
+
+    def _dashboard_episode(data: dict) -> dict:
+        """One dashboard card (#8604): title, Mon-Sun statuses, judge result, and the top actions.
+
+        The actions are the photo action (a pending choice, or a rejected set
+        that needs reshooting), then every failed stage and every due stage
+        with no complete result, in day order. A legitimately held Sunday is
+        neither failed nor missing.
+        """
+        from backend.utils import photo_review
+        from backend.utils.episode_integrity import (
+            _recipe_title,
+            episode_is_published,
+            recorded_photo_hold,
+            stages_due,
+        )
+
+        episode_id = str(data.get("episode_id") or "")
+        stages = data.get("stages")
+        if not isinstance(stages, dict):
+            stages = {}
+        days = []
+        for day in STAGE_ORDER:
+            entry = stages.get(day)
+            days.append({
+                "day": day,
+                "label": STAGE_LABELS[day],
+                "status": entry.get("status", "unknown") if isinstance(entry, dict) else "not_started",
+            })
+
+        published = episode_is_published(data)
+        episode_url = f"/admin/episodes/{episode_id}"
+
+        try:
+            due = stages_due(episode_id)
+        except ValueError:  # governance: allow-silent SF002: a non-ISO-week id has no cron schedule, so no stage can be known to be missing
+            due = []
+        # One authoritative photo read per unpublished episode, shared by status and actions.
+        view = None if published else _load_photo_view(episode_id, data)
+        # A recorded photo hold is a deliberate wait only while the current control
+        # still warrants it; once the photos are approved, Sunday needs a rerun.
+        if view and recorded_photo_hold(data) and view.state in (photo_review.AWAITING, photo_review.REJECTED):
+            due = [d for d in due if d != "sunday"]
+        # Stages that are due and have no complete result. A published week is history.
+        missing = set() if published else {d["day"] for d in days if d["day"] in due and d["status"] != "complete"}
+
+        photo_actions = []
+        if view:
+            if view.state == photo_review.AWAITING:
+                photo_actions.append({"label": "Pending photo choice", "url": f"{episode_url}#photo-review"})
+            elif view.state == photo_review.REJECTED:
+                # Publication is blocked until new photos are shot and chosen.
+                photo_actions.append({"label": "Reshoot needed: photos rejected", "url": f"{episode_url}#photo-review"})
+
+        if published:
+            status = "Published"
+        elif any(d["status"] == "failed" for d in days) or missing:
+            status = "Failed"
+        else:
+            status = "In progress"
+
+        actions = list(photo_actions)
+        # Every failed stage, and every due stage with no complete result, in day order.
+        for d in ([] if published else days):
+            if d["status"] == "failed":
+                kind = "Failed"
+            elif d["day"] in missing:
+                kind = "Missing"
+            else:
+                continue
+            actions.append({"label": f"{kind}: {d['label']}", "url": episode_url})
+
+        judged = [
+            (day, stages[day]["judge_verdict"])
+            for day in STAGE_ORDER
+            if isinstance(stages.get(day), dict) and stages[day].get("judge_verdict")
+        ]
+        judge = {"day": STAGE_LABELS[judged[-1][0]], "verdict": judged[-1][1]} if judged else None
+
+        return {
+            "episode_id": episode_id,
+            "title": _recipe_title(data) or str(data.get("concept") or episode_id),
+            "status": status,
+            "days": days,
+            "judge": judge,
+            "actions": actions,
+            "url": episode_url,
+        }
+
     @app.get("/admin/", response_class=HTMLResponse)
     async def admin_dashboard(
         request: Request,
         user: dict = Depends(require_auth)
     ):
-        """Admin dashboard home with statistics."""
+        """Current and recent episodes from cloud storage (#8604)."""
+        from backend.utils.episode_integrity import current_episode_id
+
         templates = app.state.templates
-        data_dir = app.state.project_root / "data" / "recipes"
+        store = _cloud_storage()
+        lister = getattr(store, "list_episodes_strict", None) or store.list_episodes
+        try:
+            with store.prefix_scope(""):
+                raw = lister()
+        except Exception as exc:
+            logger.error(f"Dashboard episode list failed: {type(exc).__name__}: {exc}")
+            raise HTTPException(status_code=503, detail="Could not list episodes from storage")
 
-        # Get counts by status
-        pending_recipes = Recipe.list_by_status(data_dir, RecipeStatus.PENDING)
-        approved_recipes = Recipe.list_by_status(data_dir, RecipeStatus.APPROVED)
-        published_recipes = Recipe.list_by_status(data_dir, RecipeStatus.PUBLISHED)
-        rejected_recipes = Recipe.list_by_status(data_dir, RecipeStatus.REJECTED)
+        episodes = sorted(
+            (d for d in raw if isinstance(d, dict)),
+            key=lambda d: (str(d.get("episode_id") or ""), str(d.get("created_at") or "")),
+            reverse=True,
+        )
+        # Summarize every stored episode once; cards and the queue both read these summaries.
+        summaries = [_dashboard_episode(d) for d in episodes]
+        current_id = current_episode_id()
+        current = next((s for s in summaries if s["episode_id"] == current_id), None)
+        recent = [s for s in summaries if s["episode_id"] != current_id][:_DASHBOARD_RECENT_EPISODES]
 
-        stats = {
-            "pending": len(pending_recipes),
-            "approved": len(approved_recipes),
-            "published": len(published_recipes),
-            "rejected": len(rejected_recipes),
-            "total": len(pending_recipes) + len(approved_recipes) + len(published_recipes) + len(rejected_recipes)
-        }
+        # The queue spans the full episode list, newest first, not just the cards shown.
+        action_queue = [
+            {**action, "episode_id": s["episode_id"], "title": s["title"]}
+            for s in summaries
+            for action in s["actions"]
+        ]
 
         return templates.TemplateResponse(
             "dashboard.html",
             {
                 "request": request,
-                "stats": stats,
                 "user_email": user.get("email", "Unknown"),
-                "recent_pending": pending_recipes[:5],
+                "current_id": current_id,
+                "current": current,
+                "recent": recent,
+                "action_queue": action_queue,
             }
         )
     
+    _SAFE_SLUG_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
+
+    def _published_catalog() -> list[dict]:
+        """Published recipes from the Blob catalog (pages/recipes.json), in catalog order.
+
+        Catalog order is newest first. Any read failure, absent catalog, invalid
+        JSON or wrong shape raises 503: an unreadable catalog must never render
+        as a successful empty list.
+        """
+        store = _cloud_storage()
+        try:
+            with store.prefix_scope(""):
+                raw = store.load_page("pages/recipes.json")
+        except Exception as exc:
+            logger.error(f"Recipes catalog read failed: {type(exc).__name__}: {exc}")
+            raise HTTPException(status_code=503, detail="Could not read the published catalog")
+        if raw is None:
+            logger.error("Recipes catalog is absent from storage")
+            raise HTTPException(status_code=503, detail="Published catalog not found in storage")
+        try:
+            data = json.loads(raw)
+        except (TypeError, ValueError):
+            logger.error("Recipes catalog JSON is unparseable")
+            raise HTTPException(status_code=503, detail="Published catalog is not valid JSON")
+        recipes = data.get("recipes") if isinstance(data, dict) else None
+        if not isinstance(recipes, list):
+            logger.error("Recipes catalog has no 'recipes' list")
+            raise HTTPException(status_code=503, detail="Published catalog has an unexpected shape")
+        return [
+            {
+                "slug": r["slug"],
+                "title": r["title"].strip(),
+                "category": str(r.get("category") or ""),
+                "episode_id": str(r.get("episode_id") or ""),
+            }
+            for r in recipes
+            if isinstance(r, dict)
+            and isinstance(r.get("slug"), str)
+            and _SAFE_SLUG_RE.fullmatch(r["slug"])
+            and isinstance(r.get("title"), str)
+            and r["title"].strip()
+        ]
+
     @app.get("/admin/recipes", response_class=HTMLResponse)
     async def list_recipes(
         request: Request,
-        status_filter: Optional[str] = None,
         user: dict = Depends(require_auth)
     ):
-        """
-        Render recipes list page, optionally filtered by status.
-
-        Query params:
-            status_filter: pending, approved, published, or rejected
-        """
-        data_dir = app.state.project_root / "data" / "recipes"
-        templates = app.state.templates
-
-        if status_filter:
-            try:
-                status_enum = RecipeStatus(status_filter)
-                recipes = Recipe.list_by_status(data_dir, status_enum)
-            except ValueError:
-                return templates.TemplateResponse(
-                    "admin_error.html",
-                    {
-                        "request": request,
-                        "title": "Invalid Filter",
-                        "message": f"'{status_filter}' is not a valid status. Use: pending, approved, published, or rejected.",
-                        "status_code": 400,
-                    },
-                    status_code=400,
-                )
-        else:
-            # Get all recipes
-            recipes = []
-            for s in RecipeStatus:
-                recipes.extend(Recipe.list_by_status(data_dir, s))
-
-        # Sort by updated_at desc
-        recipes.sort(key=lambda r: r.updated_at, reverse=True)
-
-        recipe_rows = [
-            {
-                "recipe_id": r.recipe_id,
-                "title": r.title,
-                "status": r.status.value,
-                "created_at": r.created_at.isoformat(),
-                "updated_at": r.updated_at.isoformat(),
-            }
-            for r in recipes
-        ]
-
-        return templates.TemplateResponse(
+        """The Published catalog, read from cloud storage (#8604)."""
+        return app.state.templates.TemplateResponse(
             "recipes.html",
-            {
-                "request": request,
-                "recipes": recipe_rows,
-                "status_filter": status_filter,
-            },
+            {"request": request, "recipes": _published_catalog()},
         )
     
     @app.get("/admin/recipes/{recipe_id}")
@@ -587,56 +634,6 @@ def create_routes(app: FastAPI):
     # the legacy static-build PublishingPipeline (#6304). Publishing now runs
     # automatically through the Sunday cron + unified episode_renderer.
 
-    @app.get("/admin/simulations", response_class=HTMLResponse)
-    async def admin_simulations(
-        request: Request,
-        selected_file: Optional[str] = None,
-        concept_filter: Optional[str] = None,
-        model_filter: Optional[str] = None,
-        user: dict = Depends(require_auth),
-    ):
-        """Browse local simulation transcripts in a chat-style UI."""
-        templates = app.state.templates
-        simulations_dir = app.state.project_root / 'data' / 'simulations'
-
-        all_runs = _load_simulation_runs(simulations_dir)
-
-        filtered_runs = all_runs
-        if concept_filter:
-            needle = concept_filter.strip().lower()
-            filtered_runs = [r for r in filtered_runs if needle in (r['concept'] or '').lower()]
-
-        if model_filter:
-            needle = model_filter.strip().lower()
-            filtered_runs = [
-                r
-                for r in filtered_runs
-                if any(needle in model.lower() for model in r['models'])
-            ]
-
-        selected_run = None
-        if filtered_runs:
-            if selected_file:
-                selected_run = next((r for r in filtered_runs if r['filename'] == selected_file), None)
-            if selected_run is None:
-                selected_run = filtered_runs[0]
-
-        selected_payload = _build_selected_simulation(selected_run) if selected_run else None
-
-        return templates.TemplateResponse(
-            'simulations.html',
-            {
-                'request': request,
-                'runs': filtered_runs,
-                'selected_run': selected_payload,
-                'selected_file': selected_file or (selected_run['filename'] if selected_run else None),
-                'concept_filter': concept_filter or '',
-                'model_filter': model_filter or '',
-                'total_runs': len(all_runs),
-                'filtered_count': len(filtered_runs),
-            },
-        )
-
     @app.get("/admin/agents")
     async def get_agent_status(user: dict = Depends(require_auth)):
         """Get status of AI agents."""
@@ -693,40 +690,7 @@ def create_routes(app: FastAPI):
     @app.post("/api/newsletter/subscribe")
     async def newsletter_subscribe(request: Request, request_data: NewsletterSubscribeRequest):
         """Public endpoint for newsletter subscription with rate limiting (3 req/IP/min)."""
-        client_ip = request.client.host if request.client else "unknown"
-        now = time.time()
-
-        # Periodic sweep: evict all IPs whose timestamps are fully expired
-        global _SUBSCRIBE_RATE_LIMITS_LAST_SWEPT
-        if now - _SUBSCRIBE_RATE_LIMITS_LAST_SWEPT > _SUBSCRIBE_RATE_LIMITS_SWEEP_INTERVAL:
-            stale_keys = [
-                ip for ip, ts_list in _SUBSCRIBE_RATE_LIMITS.items()
-                if not any(now - t < 60 for t in ts_list)
-            ]
-            for k in stale_keys:
-                del _SUBSCRIBE_RATE_LIMITS[k]
-            # Hard cap: if still over limit, evict oldest entries
-            if len(_SUBSCRIBE_RATE_LIMITS) > _SUBSCRIBE_RATE_LIMITS_MAX_ENTRIES:
-                excess = len(_SUBSCRIBE_RATE_LIMITS) - _SUBSCRIBE_RATE_LIMITS_MAX_ENTRIES
-                for k in list(_SUBSCRIBE_RATE_LIMITS.keys())[:excess]:
-                    del _SUBSCRIBE_RATE_LIMITS[k]
-            _SUBSCRIBE_RATE_LIMITS_LAST_SWEPT = now
-
-        # Sliding-window: keep only timestamps within the last 60 seconds
-        timestamps = _SUBSCRIBE_RATE_LIMITS.get(client_ip, [])
-        timestamps = [ts for ts in timestamps if now - ts < 60]
-        if not timestamps:
-            _SUBSCRIBE_RATE_LIMITS.pop(client_ip, None)
-
-        if len(timestamps) >= 3:
-            logger.warning(f"Newsletter rate limit exceeded for IP: {client_ip}")
-            raise HTTPException(
-                status_code=429,
-                detail="Too many requests. Please try again later.",
-            )
-
-        timestamps.append(now)
-        _SUBSCRIBE_RATE_LIMITS[client_ip] = timestamps
+        _SUBSCRIBE_LIMITER.check(request)
 
         manager = NewsletterManager()
         result = await manager.subscribe(request_data.email)
@@ -799,6 +763,27 @@ def create_routes(app: FastAPI):
             raise HTTPException(status_code=404, detail=f"Episode not found: {episode_id}")
         return data
 
+    def _load_verified_episode(episode_id: str, prefix: str = "") -> dict:
+        """Read current episode authority before a paid or editorial mutation."""
+        from backend.storage import EpisodeReadStale
+
+        store = _cloud_storage()
+        try:
+            with store.prefix_scope(prefix):
+                data = store.load_episode_verified(episode_id)
+        except EpisodeReadStale as exc:
+            logger.error(f"Episode read not verified for {episode_id}: {exc}")
+            raise HTTPException(
+                status_code=503,
+                detail="Storage is still updating. Nothing was dispatched; try again in a minute.",
+            )
+        except Exception as exc:
+            logger.error(f"Episode verified read failed for {episode_id}: {type(exc).__name__}: {exc}")
+            raise HTTPException(status_code=503, detail="Could not verify the current episode; nothing was dispatched")
+        if not data:
+            raise HTTPException(status_code=404, detail=f"Episode not found: {episode_id}")
+        return data
+
     def _load_photo_view(episode_id: str, data: dict, prefix: str = ""):
         """The authoritative photo control view; a storage failure is a 503."""
         from backend.utils import photo_review
@@ -819,6 +804,39 @@ def create_routes(app: FastAPI):
             return datetime.now(timezone.utc) >= stage_deadline(episode_id, "sunday")
         except (ValueError, KeyError, TypeError):  # governance: allow-silent SF002: a non-ISO-week episode id has no schedule; the caller then says publication needs a Sunday run without promising a time
             return None
+
+    def _rerunnable_stages(episode_id: str, data: dict, view) -> list[str]:
+        """Stages the admin may re-run: failed, or absent once their cron window passed.
+
+        Never for a published week, and never for a Sunday that is deliberately
+        waiting on photo approval: a recorded hold counts only while the
+        authoritative photo ``view`` is still AWAITING or REJECTED (as on the
+        dashboard), so an approved set exposes Sunday despite a stale hold.
+        A non-ISO-week id has no schedule, so nothing is offered.
+        """
+        from backend.utils import photo_review
+        from backend.utils.episode_integrity import (
+            DAY_ORDER, episode_is_published, recorded_photo_hold, stages_due,
+        )
+
+        if episode_is_published(data):
+            return []
+        try:
+            due = set(stages_due(episode_id))
+        except ValueError:  # governance: allow-silent SF002: a non-ISO-week id has no cron schedule, so no stage is offered
+            return []
+        recorded = data.get("stages") or {}
+        held = bool(
+            recorded_photo_hold(data) and view and view.state in (photo_review.AWAITING, photo_review.REJECTED)
+        )
+        return [
+            day for day in DAY_ORDER
+            if not (day == "sunday" and held)
+            and (
+                (recorded.get(day) or {}).get("status") == "failed"
+                or (not recorded.get(day) and day in due)
+            )
+        ]
 
     def _approval_message(episode_id: str) -> str:
         passed = _sunday_run_has_passed(episode_id)
@@ -918,7 +936,9 @@ def create_routes(app: FastAPI):
                 logger.warning(f"Skipping invalid episode {data.get('episode_id') if isinstance(data, dict) else '?'}: {exc}")
         return episodes
 
-    def _build_episode_detail(data: dict, view=None, ns: str = "", can_run: bool = False) -> dict:
+    def _build_episode_detail(
+        data: dict, view=None, ns: str = "", can_run: bool = False, rerunnable: tuple = (),
+    ) -> dict:
         """Build template-friendly detail from raw episode JSON."""
         stages_raw = data.get("stages", {})
         stages = []
@@ -927,6 +947,7 @@ def create_routes(app: FastAPI):
             if entry is None:
                 stages.append({
                     "key": key,
+                    "rerunnable": key in rerunnable,
                     "label": STAGE_LABELS.get(key, key),
                     "present": False,
                     "status": "not_started",
@@ -951,6 +972,7 @@ def create_routes(app: FastAPI):
             image_paths_raw = entry.get("image_paths") or []
             stages.append({
                 "key": key,
+                "rerunnable": key in rerunnable,
                 "label": STAGE_LABELS.get(key, key),
                 "present": True,
                 "status": entry.get("status", "unknown"),
@@ -1205,13 +1227,15 @@ def create_routes(app: FastAPI):
 
         data = _load_cloud_episode(episode_id, prefix)
         local_production = not _is_cloud_store(_cloud_storage()) and not prefix
+        photo_view = _load_photo_view(episode_id, data, prefix)
         episode = _build_episode_detail(
-            data, _load_photo_view(episode_id, data, prefix), ns=ns or "",
+            data, photo_view, ns=ns or "",
             # The compressed-week simulation writes production stages with no
             # namespace of its own (#7936): local, production view, and never a
             # published week (published_at OR complete Sunday, the legacy-aware
             # predicate the static builder uses).
             can_run=local_production and not episode_is_published(data),
+            rerunnable=tuple(() if prefix else _rerunnable_stages(episode_id, data, photo_view)),
         )
 
         return templates.TemplateResponse(
@@ -1404,6 +1428,124 @@ def create_routes(app: FastAPI):
             lambda cron: cron.remake_wednesday_photo(episode_id, request_data.image_set_id, request_data.path),
             "remake",
         )
+
+    @app.post("/admin/episodes/{episode_id}/stages/{stage}/rerun")
+    async def admin_stage_rerun(
+        episode_id: str,
+        stage: str,
+        request: Request,
+        user: dict = Depends(require_auth),
+        ns: Optional[str] = None,
+    ):
+        """Re-run one failed or missing stage by calling its real cron handler once.
+
+        Production namespace only. Eligibility is re-read from storage here, not
+        trusted from the page. The handler gets a synthetic POST carrying the
+        CRON_SECRET (never logged) and ``force``; no cron logic is duplicated.
+        """
+        import os
+
+        from starlette.requests import Request as StarletteRequest
+
+        from backend.admin import cron_routes
+        from backend.config import config
+        from backend.utils import admin_rerun_claim
+        from backend.utils.episode_integrity import DAY_ORDER, parse_episode_id
+
+        _require_same_origin(request)
+        _sanitize_id(episode_id, "episode_id")
+        if ns:
+            raise HTTPException(status_code=400, detail="Stage re-runs are production-only")
+        try:
+            parse_episode_id(episode_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Not an ISO week episode id: {episode_id}")
+        if stage not in DAY_ORDER:
+            raise HTTPException(status_code=400, detail=f"Unknown stage: {stage}")
+
+        secret = os.environ.get("CRON_SECRET", "")
+        if not secret and not config.is_local_dev:
+            raise HTTPException(status_code=503, detail="CRON_SECRET is not configured; cannot dispatch the stage")
+        payload = json.dumps({"episode_id": episode_id, "force": True}).encode()
+
+        async def receive():
+            return {"type": "http.request", "body": payload, "more_body": False}
+
+        cron_request = StarletteRequest(
+            {
+                "type": "http",
+                "method": "POST",
+                "scheme": "https",
+                "server": ("localhost", 443),
+                "root_path": "",
+                "path": f"/api/cron/{stage}",
+                "query_string": b"",
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"authorization", f"Bearer {secret}".encode()),
+                ],
+            },
+            receive,
+        )
+        # One run per episode across all stages and instances. Eligibility is read
+        # under the claim, so a request that waited behind a finished run sees its result.
+        try:
+            with admin_rerun_claim.claim(_cloud_storage(), episode_id, stage):
+                data = _load_verified_episode(episode_id, "")
+                # Only Sunday eligibility depends on photo authority. A Blob
+                # outage in that separate log must not block a failed weekday.
+                view = _load_photo_view(episode_id, data) if stage == "sunday" else None
+                if stage not in _rerunnable_stages(episode_id, data, view):
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"{stage} is not re-runnable for {episode_id}: it must be failed or missing, and the week unpublished and not held for photos.",
+                    )
+                logger.info(f"Admin re-run of {stage} for {episode_id}")
+                return await getattr(cron_routes, f"cron_{stage}")(cron_request)
+        except admin_rerun_claim.RerunBusy:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"A re-run is already in progress for {episode_id}, or its release is unconfirmed. "
+                    f"Wait for it to finish. If its process crashed, POST /admin/episodes/{episode_id}/rerun-claim/reconcile "
+                    f"releases the claim once it is older than {admin_rerun_claim.RECONCILE_MIN_AGE}."
+                ),
+            )
+        except admin_rerun_claim.RerunClaimUnavailable as exc:
+            logger.error(f"Re-run claim unavailable for {episode_id}: {exc}")
+            raise HTTPException(status_code=503, detail="Re-run control storage is unavailable; nothing was dispatched.")
+
+    @app.post("/admin/episodes/{episode_id}/rerun-claim/reconcile")
+    async def admin_rerun_claim_reconcile(
+        episode_id: str,
+        request: Request,
+        user: dict = Depends(require_auth),
+        ns: Optional[str] = None,
+    ):
+        """Release this episode's re-run claim after a crashed run (#8604).
+
+        Appends a ``released`` version only if the latest is a claim older than
+        ``RECONCILE_MIN_AGE``; a recent claim, or nothing to release, is a 409.
+        """
+        from backend.utils import admin_rerun_claim
+        from backend.utils.episode_integrity import parse_episode_id
+
+        _require_same_origin(request)
+        _sanitize_id(episode_id, "episode_id")
+        if ns:
+            raise HTTPException(status_code=400, detail="Stage re-runs are production-only")
+        try:
+            parse_episode_id(episode_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Not an ISO week episode id: {episode_id}")
+        try:
+            release = admin_rerun_claim.reconcile(_cloud_storage(), episode_id)
+        except admin_rerun_claim.RerunNotReconcilable as exc:
+            raise HTTPException(status_code=409, detail=f"{exc}. Nothing was changed.")
+        except admin_rerun_claim.RerunClaimUnavailable as exc:
+            logger.error(f"Re-run claim reconcile unavailable for {episode_id}: {exc}")
+            raise HTTPException(status_code=503, detail="Re-run control storage is unavailable or unexpected; the claim is not confirmed released. Re-check before retrying.")
+        return {"reconciled": True, "episode_id": episode_id, "stage": release["stage"], "released_version": release["version"]}
 
     # Test-namespace images are stored under test/images/ in the same public
     # store; only exact URLs under this origin are ever fetched (#7936).
@@ -1607,6 +1749,63 @@ def create_routes(app: FastAPI):
             "message": f"Compressed week run complete for episode {episode_id}: {completed}/{len(stages)} stages succeeded.",
             "stages": stage_results,
         })
+
+    @app.get("/admin/tests", response_class=HTMLResponse)
+    async def admin_tests(request: Request, user: dict = Depends(require_auth)):
+        """Inventory of canonical test-result sources, newest first (#8608)."""
+        rows, absent = test_results.inventory(app.state.project_root)
+        required_missing = {
+            key: reason
+            for key, reason in absent.items()
+            if test_results.SOURCES_BY_KEY[key].required
+        }
+        if required_missing:
+            # .vercelignore drops what is not shipped, so a deployment can lack a
+            # required source. Saying "0 results" there would be a false success.
+            details = "; ".join(
+                f"{test_results.SOURCES_BY_KEY[key].rel}: {reason}"
+                for key, reason in required_missing.items()
+            )
+            return app.state.templates.TemplateResponse(
+                "admin_error.html",
+                {
+                    "request": request,
+                    "title": "Test results unavailable",
+                    "message": f"Required sources are missing from this deployment. {details}",
+                    "status_code": 503,
+                },
+                status_code=503,
+            )
+        return app.state.templates.TemplateResponse(
+            "tests.html",
+            {
+                "request": request,
+                "rows": rows,
+                "malformed": sum(1 for r in rows if r["error"]),
+                "absent": [
+                    (str(test_results.SOURCES_BY_KEY[key].rel), reason)
+                    for key, reason in absent.items()
+                ],
+            },
+        )
+
+    @app.get("/admin/tests/{source_key}/{filename}", response_class=HTMLResponse)
+    async def admin_test_detail(
+        request: Request, source_key: str, filename: str, user: dict = Depends(require_auth)
+    ):
+        """One source file: its summary row and the full artifact."""
+        path = test_results.resolve(app.state.project_root, source_key, filename)
+        if path is None:
+            raise HTTPException(status_code=404, detail="No such result file")
+        return app.state.templates.TemplateResponse(
+            "test_detail.html",
+            {
+                "request": request,
+                "row": test_results.summarize(path),
+                "source_rel": str(test_results.SOURCES_BY_KEY[source_key].rel),
+                "artifact": path.read_text(encoding="utf-8", errors="replace"),
+            },
+        )
 
     @app.get("/admin/{path:path}", response_class=HTMLResponse)
     async def admin_404(request: Request, path: str, user: dict = Depends(require_auth)):

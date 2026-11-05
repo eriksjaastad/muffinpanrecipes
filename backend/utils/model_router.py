@@ -21,7 +21,10 @@ from __future__ import annotations
 import base64
 import math
 import os
+import signal
+import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -534,12 +537,57 @@ def openrouter_max_tokens(model_id: str) -> int:
 _OPENROUTER_EMPTY_STOP_MAX_ATTEMPTS = 3
 
 
-def _generate_openrouter(
+class OpenRouterWallClockTimeout(RuntimeError):
+    """A bounded OpenRouter call consumed its total wall-clock allowance."""
+
+
+@contextmanager
+def _openrouter_wall_clock_timeout(timeout_s: float | None):
+    """Bound one synchronous OpenRouter call by elapsed wall-clock time.
+
+    HTTPX timeouts apply separately to connect/read/write/pool operations and
+    read timeouts restart when a server trickles another chunk. Sunday's
+    reservation needs one total deadline instead. Vercel runs this synchronous
+    path on the main POSIX thread, where ``ITIMER_REAL`` interrupts the request
+    and unwinds the SDK. Any runtime that cannot provide that guarantee fails
+    closed before a paid bounded call is sent.
+    """
+    if timeout_s is None:
+        yield
+        return
+    if isinstance(timeout_s, bool) or not isinstance(timeout_s, (int, float)):
+        raise RuntimeError("bounded OpenRouter timeout must be a finite positive number")
+    timeout = float(timeout_s)
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise RuntimeError("bounded OpenRouter timeout must be a finite positive number")
+    if threading.current_thread() is not threading.main_thread() or not hasattr(signal, "setitimer"):
+        raise RuntimeError("bounded OpenRouter wall-clock timeout requires the main POSIX thread")
+    previous_timer = signal.getitimer(signal.ITIMER_REAL)
+    if previous_timer[0] > 0:
+        raise RuntimeError("bounded OpenRouter call refused while another wall-clock timer is active")
+    previous_handler = signal.getsignal(signal.SIGALRM)
+
+    def _expired(_signum, _frame):
+        raise OpenRouterWallClockTimeout(
+            f"bounded OpenRouter call exceeded its {timeout:g}s wall-clock timeout"
+        )
+
+    signal.signal(signal.SIGALRM, _expired)
+    signal.setitimer(signal.ITIMER_REAL, timeout)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+
+
+def _generate_openrouter_request(
     prompt: str,
     system_prompt: Optional[str],
     model: str,
     temperature: float,
     images: Optional[list[bytes]] = None,
+    timeout_s: float | None = None,
 ) -> str:
     """Generate through OpenRouter's OpenAI-compatible chat-completions API.
 
@@ -558,12 +606,17 @@ def _generate_openrouter(
     except Exception as e:
         raise RuntimeError("openai package is not installed") from e
 
-    # The SDK's own default client (redirects, limits, timeouts unchanged),
-    # plus the hook that counts every request it sends.
-    client = OpenAI(
-        base_url=OPENROUTER_BASE_URL, api_key=api_key,
-        http_client=DefaultHttpxClient(event_hooks={"request": [_count_sent_request]}),
-    )
+    # Keep SDK defaults for ordinary calls. A bounded workflow may supply a
+    # timeout and disable SDK retries so its wall-clock reservation is real.
+    # The request hook still counts every request sent.
+    client_kwargs: dict[str, Any] = {
+        "base_url": OPENROUTER_BASE_URL,
+        "api_key": api_key,
+        "http_client": DefaultHttpxClient(event_hooks={"request": [_count_sent_request]}),
+    }
+    if timeout_s is not None:
+        client_kwargs.update(timeout=timeout_s, max_retries=0)
+    client = OpenAI(**client_kwargs)
     messages: list[dict[str, Any]] = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
@@ -582,7 +635,13 @@ def _generate_openrouter(
     prompt_bytes = _prompt_bytes(prompt, system_prompt)
     finish_reason: Any = None
     completion_tokens: Any = None
-    for attempt in range(_OPENROUTER_EMPTY_STOP_MAX_ATTEMPTS):
+    # A caller-supplied timeout is a total reservation owned by a bounded
+    # workflow, not a fresh allowance for each application-level retry. The
+    # SDK timeout/max_retries pair bounds one HTTP request; limiting this loop
+    # to that one request keeps an empty-stop response from multiplying the
+    # caller's wall-clock budget.
+    max_attempts = 1 if timeout_s is not None else _OPENROUTER_EMPTY_STOP_MAX_ATTEMPTS
+    for attempt in range(max_attempts):
         if attempt:
             # A retry is another paid call: it passes the caller's guard too.
             _fire_pre_call_hook("openrouter", model, prompt_bytes)
@@ -599,6 +658,21 @@ def _generate_openrouter(
         f"OpenRouter {model} returned empty content "
         f"(finish_reason={finish_reason!r}, completion_tokens={completion_tokens})"
     )
+
+
+def _generate_openrouter(
+    prompt: str,
+    system_prompt: Optional[str],
+    model: str,
+    temperature: float,
+    images: Optional[list[bytes]] = None,
+    timeout_s: float | None = None,
+) -> str:
+    """Run one OpenRouter generation, optionally under a total wall-clock cap."""
+    with _openrouter_wall_clock_timeout(timeout_s):
+        return _generate_openrouter_request(
+            prompt, system_prompt, model, temperature, images=images, timeout_s=timeout_s,
+        )
 
 
 def _openrouter_request_kwargs(model: str, messages: list, temperature: float) -> dict[str, Any]:
@@ -749,6 +823,7 @@ def generate_vision_response(
     system_prompt: Optional[str] = None,
     model: str = "openai/gpt-5-mini",
     temperature: float = 0.3,
+    timeout_s: float | None = None,
 ) -> str:
     """Generate a text response from a vision-capable LLM given images.
 
@@ -759,6 +834,8 @@ def generate_vision_response(
         model: Provider-prefixed model name, checked against that
                provider's allowlist and sent through OpenRouter.
         temperature: Sampling temperature.
+        timeout_s: Optional wall-clock timeout for a bounded vision request;
+                   SDK transport retries are disabled when supplied.
 
     Returns:
         Generated text.
@@ -769,7 +846,7 @@ def generate_vision_response(
     return _generate_openrouter(
         prompt=prompt, system_prompt=system_prompt,
         model=openrouter_model_id(routed.provider, routed.model),
-        temperature=temperature, images=images,
+        temperature=temperature, images=images, timeout_s=timeout_s,
     )
 
 

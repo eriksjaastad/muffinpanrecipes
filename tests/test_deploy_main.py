@@ -86,6 +86,43 @@ def test_deploy_sequence_health_precedes_production_deploy_and_proof(
     assert f"production is main: gitSha {SHA}" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize(
+    ("health_base_url", "expected"),
+    [
+        (None, [deploy_main.sys.executable, "scripts/health_check.py", "--no-alert"]),
+        (
+            "https://preview.example",
+            [
+                deploy_main.sys.executable,
+                "scripts/health_check.py",
+                "--no-alert",
+                "--base-url",
+                "https://preview.example",
+            ],
+        ),
+    ],
+)
+def test_deploy_health_gate_never_alerts_or_writes_monitor_state(
+    monkeypatch, tmp_path, health_base_url, expected
+):
+    seen = {}
+    monkeypatch.setattr(
+        deploy_main,
+        "_run",
+        lambda command, *, cwd, timeout: seen.update(
+            command=command, cwd=cwd, timeout=timeout
+        ),
+    )
+
+    deploy_main._health_check(tmp_path, base_url=health_base_url)
+
+    assert seen == {
+        "command": expected,
+        "cwd": tmp_path,
+        "timeout": deploy_main.HEALTH_TIMEOUT_SECONDS,
+    }
+
+
 def test_detached_worktree_is_created_at_fetched_sha(monkeypatch, tmp_path):
     commands = []
     parent = tmp_path / "deploy"

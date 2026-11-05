@@ -13,7 +13,7 @@ external_resources:
     purpose: SEO baseline (crawl stats, query stats, index status) for the apex property https://muffinpanrecipes.com.
     env_vars:
       - BING_WEBMASTER_API_KEY
-    notes: Local-only script scripts/bing_webmaster_baseline.py (JSON endpoints at ssl.bing.com/webmaster/api.svc/json); run via doppler run. Output in seo-audits/weekly/<date>/bing_webmaster.json. Not used by the Lambda.
+    notes: Read daily by project-tracker's central collector (sites/muffinpanrecipes.json, since 2026-11-03), via doppler run. Not used by the Lambda.
 
   - name: IndexNow
     purpose: Notify participating search engines (Bing and others) of new/changed URLs on each Sunday publish.

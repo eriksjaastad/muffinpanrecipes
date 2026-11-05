@@ -19,7 +19,7 @@ import pytest
 from backend.storage import EpisodeReadStale
 from backend.utils import photo_review
 from backend.utils.episode_integrity import episode_summary, recorded_photo_hold
-from tests.photo_review_helpers import decide, register, wednesday_stage
+from tests.photo_review_helpers import decide, register, sunday_reshoot_refused, wednesday_stage  # noqa: F401 - pytest fixture, used by usefixtures/pytestmark
 from tests.test_photo_request_decision_lifecycle import (
     EP_ID,
     _Store,
@@ -33,6 +33,8 @@ from tests.test_photo_request_decision_lifecycle import (
 )
 from tests.test_photo_claim_publication_lifecycle import _monitor, _page
 from tests.test_photo_claim_publication_invariants import _held_store, _legacy_published_episode
+
+pytestmark = pytest.mark.usefixtures("sunday_reshoot_refused")
 
 
 # --- F1 ---------------------------------------------------------------------------------
@@ -145,13 +147,14 @@ def test_no_photos_failure_that_cannot_be_saved_says_so():
 
 
 def test_genuine_awaiting_and_rejected_holds_are_unchanged():
-    wed = wednesday_stage()
+    wed = wednesday_stage(confirmed_winner={})  # no team winner, so Sunday holds
     store = _Store()
     store.put(EP_ID, _episode(wed))
     register(EP_ID, wed, store)
     env = _sunday(store)
+    # The refused automatic reshoot (#8606) is the one alerted failure here.
     assert json.loads(env.result.body)["status"] == "awaiting_photo_approval" and env.held.call_count == 1
-    assert env.failure.call_count == 0
+    assert env.failure.call_count == 1
     decide(EP_ID, store.get(EP_ID), action="reject", store=store)
     env = _sunday(store)
     assert json.loads(env.result.body)["status"] == "photos_rejected" and env.failure.call_count == 0
@@ -160,9 +163,10 @@ def test_genuine_awaiting_and_rejected_holds_are_unchanged():
 
 # --- F3 ---------------------------------------------------------------------------------
 
-def test_claim_conflict_is_reported_as_a_conflict_and_recorded_on_the_hold():
+def test_claim_conflict_is_reported_without_saving_the_stale_episode():
     store, wed = _held_store()
     decide(EP_ID, store.get(EP_ID), store=store)
+    before = copy.deepcopy(store.get(EP_ID))
     with patch.object(photo_review, "claim_for_publication",
                       side_effect=photo_review.ReviewConflict("photo control kept changing while Sunday tried to claim it")):
         env = _sunday(store)
@@ -170,12 +174,10 @@ def test_claim_conflict_is_reported_as_a_conflict_and_recorded_on_the_hold():
     assert "kept changing" in env.error.detail and "another Sunday" not in env.error.detail
     env.dialogue.assert_not_called()
     assert env.failure.call_count == 1
-    assert "was recorded on the episode" in env.failure.call_args.kwargs["error_message"]
+    assert "stale episode was not saved" in env.failure.call_args.kwargs["error_message"]
     saved = store.get(EP_ID)
-    assert saved["publish_hold"]["last_attempt"]["outcome"] == "failed"
-    assert recorded_photo_hold(saved) is None
-    failures, summary = _monitor(saved)
-    assert any("attempt after the photo hold failed" in f for f in failures) and "awaiting" not in summary
+    assert saved == before
+    assert recorded_photo_hold(saved) == "awaiting_photo_approval"
     assert _control(store)["state"] == "approved"
 
 
@@ -208,11 +210,11 @@ def test_failed_hold_clear_never_records_a_successful_clear_event():
     saved = store.get(EP_ID)
     assert "sunday: hold cleared (approved photo claimed)" not in saved["events"]
     assert "publish_hold" in saved
-    # The attempt record itself persisted here (the predicate only refused the clear),
-    # and it carries the honest events.
-    assert "sunday: hold clear NOT persisted (save failed)" in saved["events"]
-    assert "sunday: attempt after hold failed" in saved["events"]
-    assert saved["publish_hold"]["last_attempt"]["outcome"] == "failed"
+    # No follow-up stale save is attempted after the claim is released. The
+    # persisted episode therefore remains the earlier, truthful hold.
+    assert "sunday: hold clear NOT persisted (save failed)" not in saved["events"]
+    assert "sunday: attempt after hold failed" not in saved["events"]
+    assert saved["publish_hold"]["last_attempt"]["outcome"] == "held"
     store.fail_save = None
     env = _sunday(store)
     assert env.result["published"] is True
@@ -249,8 +251,8 @@ def test_failed_hold_clear_keeps_an_earlier_genuine_clear_event_in_history():
     assert events.count("sunday: hold cleared (approved photo claimed)") == 1, "only the historical success remains"
     assert events.index("sunday: hold cleared (approved photo claimed)") == 1, "the historical event kept its slot"
     assert events[: len(before_events)] == before_events, "no earlier history was removed or reordered"
-    assert events[-2:] == ["sunday: hold clear NOT persisted (save failed)", "sunday: attempt after hold failed"]
-    assert "publish_hold" in saved and saved["publish_hold"]["last_attempt"]["outcome"] == "failed"
+    assert events == before_events
+    assert "publish_hold" in saved and saved["publish_hold"]["last_attempt"]["outcome"] == "held"
     store.fail_save = None
     assert _sunday(store).result["published"] is True
     assert store.get(EP_ID)["events"].count("sunday: hold cleared (approved photo claimed)") == 2

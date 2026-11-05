@@ -76,9 +76,6 @@ Each `vercel deploy` and each `vercel promote` is a build, and both count agains
 ## 📋 Status
 - **Status:** #status/active. Live, publishing one recipe a week through the Mon-Sun Vercel crons.
 
-## 🖥️ Admin Simulation Viewer (MVP)
-Route: `/admin/simulations` - View character-driven dialogue transcripts and recipe generation runs.
-
 ## Code Review
 
 No GitHub Actions run on this repo. Every PR gets an independent local review on its exact

@@ -57,6 +57,7 @@ import hashlib
 import json
 import re
 import secrets
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -87,6 +88,7 @@ _ACTIONS = {"select": APPROVED, "reject": REJECTED}
 # A Wednesday replacement or a decision retries a lost compare-and-swap
 # against the new latest version this many times, re-validating each time.
 _CAS_ATTEMPTS = 3
+_monotonic = time.monotonic
 
 # #8073: the dashboard Reshoot. Reshoot image calls per episode, on top of Wednesday's
 # own shoot, counted on the control
@@ -684,7 +686,14 @@ def _append(store, view: ControlView, *, state: str, request: dict | None, decis
 
 # --- Transitions -----------------------------------------------------------------
 
-def register_request(store, episode_id: str, request: dict, *, reshoot_id: str | None = None) -> ControlView:
+def register_request(
+    store,
+    episode_id: str,
+    request: dict,
+    *,
+    reshoot_id: str | None = None,
+    defer_publication_until_episode_saved: bool = False,
+) -> ControlView:
     """Wednesday: make ``request`` the current set, voiding any earlier decision.
 
     ``reshoot_id`` (a dashboard reshoot, #8073) registers only while that
@@ -696,54 +705,214 @@ def register_request(store, episode_id: str, request: dict, *, reshoot_id: str |
     """
     if not _valid_request(request):
         raise PhotoReviewError("No uploaded candidate photos to review")
+    registration_id = reshoot_id or secrets.token_hex(8)
     for _ in range(_CAS_ATTEMPTS):
         ctrl = store.read_photo_control(episode_id)
         view = _derived_view(episode_id, None) if ctrl is None else _view_from_control(episode_id, ctrl)
         if view.frozen:
             raise PublicationUnderway(f"photo control is {view.state}; the image set is frozen")
-        if reshoot_id is not None and (view.reshoots.get("in_flight") or {}).get("id") != reshoot_id:
+        in_flight = view.reshoots.get("in_flight") or {}
+        if (
+            (in_flight.get("registration_pending") or in_flight.get("episode_write_pending"))
+            and in_flight.get("id") != reshoot_id
+            and reshoot_in_flight_active(view)
+        ):
+            raise PublicationUnderway(
+                "another photo registration is still saving the episode"
+            )
+        if reshoot_id is not None and in_flight.get("id") != reshoot_id:
             raise ReshootRefused("Newer photos took over while this reshoot ran; its photos were not registered.")
+        # An automatic Sunday reshoot must not overwrite a human decision made while it ran.
+        if reshoot_id is not None and in_flight.get("automatic_sunday") and view.state != AWAITING:
+            raise ReshootRefused("Erik decided the photos while this automatic reshoot ran; its photos were not registered.")
+        reshoots = {k: v for k, v in view.reshoots.items() if k != "in_flight"}
+        if defer_publication_until_episode_saved:
+            # Registration is not publication-ready until _register_photos has
+            # finished every whole-episode save.  Otherwise a rival Sunday can
+            # claim this replacement during the photos-ready notification and
+            # the registering run can subsequently overwrite its publication.
+            pending = dict(in_flight) if reshoot_id is not None else {
+                "id": registration_id,
+                "started_at": _now(),
+            }
+            pending["registration_pending"] = True
+            reshoots["in_flight"] = pending
         try:
             return _append(store, view, state=AWAITING, request=request, decision=None, claim=None,
                            event="wednesday: new image set",
-                           reshoots={k: v for k, v in view.reshoots.items() if k != "in_flight"})
+                           reshoots=reshoots)
         except PhotoControlConflict:
             continue
     raise ReviewConflict("photo control kept changing while Wednesday registered its photos")
 
 
-def start_reshoot(store, episode_id: str, verified_ep: dict | None, image_set: str, calls: int) -> ControlView:
+def finish_request_registration(store, episode_id: str, registration_id: str) -> ControlView:
+    """Make a registered photo request eligible after episode writes end.
+
+    The exact reshoot marker is retained by ``register_request`` while
+    ``_register_photos`` saves the episode and records notification status.
+    Clearing it is the publication eligibility boundary.  Human decisions made
+    meanwhile are preserved; a newer set or reshoot is never cleared.
+    """
+    for _ in range(_CAS_ATTEMPTS):
+        view = read_view(store, episode_id, None)
+        in_flight = view.reshoots.get("in_flight") or {}
+        if in_flight.get("id") != registration_id or not in_flight.get("registration_pending"):
+            raise ReshootRefused(
+                "The automatic reshoot registration changed before it became publishable."
+            )
+        try:
+            return _append(
+                store,
+                view,
+                state=view.state,
+                request=view.request,
+                decision=view.decision,
+                claim=None,
+                event="reshoot: registration complete",
+                reshoots={k: v for k, v in view.reshoots.items() if k != "in_flight"},
+            )
+        except PhotoControlConflict:
+            continue
+    raise ReviewConflict("photo control kept changing while the reshoot registration finished")
+
+
+def begin_episode_write(
+    store,
+    episode_id: str,
+    expected: ControlView,
+    purpose: str,
+    verified_ep: dict | None = None,
+) -> tuple[str, ControlView]:
+    """Reserve the current request while Sunday persists a whole-episode update.
+
+    Photo decisions live in the append-only control, but holds and monitoring
+    state live on the whole episode.  A publisher or registrar must not pass the
+    control gate while an older episode snapshot can still be saved.  The
+    marker therefore serializes those writes exactly like registration does,
+    without changing the request or decision.
+    """
+    write_id = secrets.token_hex(8)
+    for _ in range(_CAS_ATTEMPTS):
+        view = read_view(store, episode_id, verified_ep)
+        if view.frozen:
+            raise PublicationUnderway(f"photo control is {view.state}; the image set is frozen")
+        if view.version != expected.version or view.image_set_id != expected.image_set_id:
+            raise ReviewConflict("photo control changed before the episode update could be reserved")
+        if reshoot_in_flight_active(view):
+            raise PublicationUnderway("another photo operation is still saving the episode")
+        reshoots = dict(view.reshoots)
+        reshoots["in_flight"] = {
+            "id": write_id,
+            "started_at": _now(),
+            "episode_write_pending": True,
+            "purpose": purpose,
+        }
+        try:
+            reserved = _append(
+                store,
+                view,
+                state=view.state,
+                request=view.request,
+                decision=view.decision,
+                claim=None,
+                event=f"episode write: {purpose} reserved",
+                reshoots=reshoots,
+            )
+            return write_id, reserved
+        except PhotoControlConflict:
+            continue
+    raise ReviewConflict("photo control kept changing while the episode update was reserved")
+
+
+def finish_episode_write(store, episode_id: str, write_id: str, purpose: str) -> ControlView:
+    """Release an episode-write reservation while preserving any human decision."""
+    for _ in range(_CAS_ATTEMPTS):
+        view = read_view(store, episode_id, None)
+        in_flight = view.reshoots.get("in_flight") or {}
+        if in_flight.get("id") != write_id or not in_flight.get("episode_write_pending"):
+            raise ReshootRefused("The episode-write reservation changed before it finished.")
+        try:
+            return _append(
+                store,
+                view,
+                state=view.state,
+                request=view.request,
+                decision=view.decision,
+                claim=None,
+                event=f"episode write: {purpose} complete",
+                reshoots={k: v for k, v in view.reshoots.items() if k != "in_flight"},
+            )
+        except PhotoControlConflict:
+            continue
+    raise ReviewConflict("photo control kept changing while the episode update finished")
+
+
+def reshoot_in_flight_active(view: ControlView) -> bool:
+    """Whether the current reshoot marker is still inside its lease.
+
+    Unreadable timestamps fail closed as active. Every caller deciding whether
+    a rival shoot owns the set uses this rule so an expired crash marker cannot
+    become a permanent publication block.
+    """
+    in_flight = view.reshoots.get("in_flight")
+    if not isinstance(in_flight, dict):
+        return False
+    try:
+        age = (
+            datetime.now(timezone.utc)
+            - datetime.fromisoformat(str(in_flight.get("started_at")))
+        ).total_seconds()
+    except (TypeError, ValueError):
+        return True
+    return age < RESHOOT_IN_FLIGHT_S
+
+
+def start_reshoot(
+    store,
+    episode_id: str,
+    verified_ep: dict | None,
+    image_set: str,
+    calls: int,
+    *,
+    automatic_sunday: bool = False,
+    deadline: float | None = None,
+) -> ControlView:
     """Dashboard Reshoot (#8073): count ``calls`` image calls and mark a shoot in flight.
 
     One compare-and-swap does both jobs. The cap is checked against the count
     on the control, and two clicks that both read version N cannot both create
     N+1; the loser re-reads, sees ``in_flight`` and is refused. Raises
     ReshootRefused (frozen, published, stale page, a shoot in flight, over the
-    cap), PhotoControlUnavailable on storage failure.
+    cap), PhotoControlUnavailable on storage failure. ``automatic_sunday``
+    (#8606) starts only while the set is undecided, and the marker records it
+    so ``register_request`` can refuse if Erik decides during the shoot.
     """
     for _ in range(_CAS_ATTEMPTS):
         view = read_view(store, episode_id, verified_ep)
+        if deadline is not None and _monotonic() >= deadline:
+            raise ReshootRefused(
+                "The automatic photo window expired during reshoot start; nothing was counted or changed."
+            )
         if view.frozen:
             raise ReshootRefused("Publishing is underway. Photos are frozen.")
         if verified_ep and episode_is_published(verified_ep):
             raise ReshootRefused("Episode is already published; its hero is pinned.")
         if view.request is None or not image_set or image_set != view.image_set_id:
             raise ReshootRefused("The photos changed since this page loaded; reload and review again.")
-        in_flight = view.reshoots.get("in_flight")
-        if isinstance(in_flight, dict):
-            try:
-                age = (datetime.now(timezone.utc) - datetime.fromisoformat(str(in_flight.get("started_at")))).total_seconds()
-            except ValueError:  # governance: allow-silent SF002: an unreadable start time cannot prove the shoot is dead, so it counts as in flight
-                age = 0.0
-            if age < RESHOOT_IN_FLIGHT_S:
-                raise ReshootRefused("A reshoot is already running. Wait for it to finish, then reload.")
+        if automatic_sunday and view.state != AWAITING:
+            raise ReshootRefused("Erik decided the photos; no automatic reshoot is needed.")
+        if reshoot_in_flight_active(view):
+            raise ReshootRefused("A reshoot is already running. Wait for it to finish, then reload.")
         used = int(view.reshoots.get("calls_used") or 0)
         if used + calls > RESHOOT_CALL_CAP:
             raise ReshootRefused(
                 f"Reshoot limit reached: {used} of {RESHOOT_CALL_CAP} reshoot image calls used for this episode."
             )
-        reshoots = {"calls_used": used + calls,
-                    "in_flight": {"id": secrets.token_hex(8), "started_at": _now()}}
+        marker = {"id": secrets.token_hex(8), "started_at": _now()}
+        if automatic_sunday:
+            marker["automatic_sunday"] = True
+        reshoots = {"calls_used": used + calls, "in_flight": marker}
         try:
             return _append(store, view, state=view.state or AWAITING, request=view.request,
                            decision=view.decision, claim=None, event="reshoot: started", reshoots=reshoots)
@@ -874,17 +1043,76 @@ def hold_reason(view: ControlView) -> str | None:
     return "awaiting_photo_approval"
 
 
-def claim_for_publication(store, episode_id: str, verified_ep: dict) -> ControlView:
+def _team_winner_candidate(view: ControlView) -> dict | None:
+    """Resolve Wednesday's frozen team winner to one current candidate.
+
+    The recommendation is only authoritative for the request that contains
+    its snapshot. Matching by canonical path keeps a stale episode mirror
+    or a winner from an older image set from selecting current pixels.
+    """
+    snapshot = request_snapshot(view.request)
+    winner = (snapshot or {}).get("confirmed_winner")
+    winner_path = winner.get("path") if isinstance(winner, dict) else None
+    if not _nonempty_str(winner_path) or winner.get("team_recommended") is not True:
+        return None
+    matches = [c for c in (view.request or {}).get("candidates", []) if c.get("path") == winner_path]
+    if len(matches) != 1:
+        return None
+    return {k: matches[0].get(k) for k in ("index", "path", "url", "variant", "round")}
+
+
+def claim_for_publication(store, episode_id: str, verified_ep: dict, *,
+                          allow_team_fallback: bool = False,
+                          expected_image_set_id: str | None = None) -> ControlView:
     """Sunday, BEFORE any paid work: take the exclusive publication claim.
 
     Raises PhotoHold (not approved: no claim taken), PublicationUnderway
     (another run holds or finished it) or PhotoControlUnavailable. Exactly
     one concurrent Sunday can win the create of the claimed version.
+    ``allow_team_fallback`` first approves an undecided (awaiting) set's
+    frozen Wednesday winner, recorded as automatic; a decision is never
+    overridden, and a set with no current winner still holds.
+    ``expected_image_set_id`` pins every CAS read to one set. It is used after
+    Sunday's own reshoot so a concurrent Wednesday replacement cannot become
+    the automatic fallback between comparison, approval, and claim.
     """
     for _ in range(_CAS_ATTEMPTS):
         view = read_view(store, episode_id, verified_ep)
         if view.frozen:
             raise PublicationUnderway(f"photo control is already {view.state}")
+        in_flight = view.reshoots.get("in_flight") or {}
+        if in_flight.get("registration_pending") or in_flight.get("episode_write_pending"):
+            # A replacement is registered in the control, but its producer
+            # still owns whole-episode writes.  It becomes claimable only when
+            # that producer explicitly finishes registration.  The 360-second
+            # lease outlives Vercel's 300-second function ceiling, so an
+            # expired marker cannot belong to a process that may still save.
+            if reshoot_in_flight_active(view):
+                raise PublicationUnderway("automatic photo registration is still finishing")
+            episode_mirror = episode_request(verified_ep)
+            if not episode_mirror or episode_mirror.get("image_set_id") != view.image_set_id:
+                raise ReviewConflict(
+                    "expired automatic photo registration is missing from the episode; "
+                    "refusing to publish"
+                )
+            try:
+                _append(
+                    store,
+                    view,
+                    state=view.state,
+                    request=view.request,
+                    decision=view.decision,
+                    claim=None,
+                    event=(
+                        "reshoot: expired registration recovered"
+                        if in_flight.get("registration_pending")
+                        else "episode write: expired reservation recovered"
+                    ),
+                    reshoots={k: v for k, v in view.reshoots.items() if k != "in_flight"},
+                )
+            except PhotoControlConflict:
+                continue
+            continue
         if view.request is None:
             # No valid candidates were ever uploaded (or the derived request
             # does not add up): there is nothing a human could approve, so
@@ -893,6 +1121,39 @@ def claim_for_publication(store, episode_id: str, verified_ep: dict) -> ControlV
                 "Wednesday left no reviewable photo set (no uploaded candidates with usable URLs); "
                 "nothing can be approved. Re-fire Wednesday to produce photos."
             )
+        if expected_image_set_id is not None and view.image_set_id != expected_image_set_id:
+            raise ReviewConflict(
+                "the photos changed while Sunday tried to claim its automatic reshoot"
+            )
+        if allow_team_fallback and view.state == AWAITING:
+            selected = _team_winner_candidate(view)
+            if selected is not None:
+                decision = {
+                    "status": APPROVED,
+                    "image_set_id": view.image_set_id,
+                    "selected": selected,
+                    "decided_at": _now(),
+                    "decided_by": "photo_team_automatic_sunday_fallback",
+                    "decided_by_id": None,
+                    "automatic": True,
+                }
+                try:
+                    _append(
+                        store,
+                        view,
+                        state=APPROVED,
+                        request=view.request,
+                        decision=decision,
+                        claim=None,
+                        event="sunday: team winner auto-approved",
+                    )
+                except PhotoControlConflict:
+                    # A human decision or another Sunday won. Re-read and
+                    # honor that newest state instead of overwriting it.
+                    continue
+                # Claim from a fresh read so this path has the same race
+                # semantics as an explicit approval.
+                continue
         reason = hold_reason(view)
         if reason:
             raise PhotoHold(reason, view)

@@ -20,7 +20,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 
@@ -34,7 +34,7 @@ from backend.storage import (
     _FilesystemBackend,
 )
 from backend.utils import photo_review
-from tests.photo_review_helpers import BLOB, VARIANTS, decide, register, wednesday_stage
+from tests.photo_review_helpers import BLOB, VARIANTS, decide, register, sunday_reshoot_refused, wednesday_stage  # noqa: F401 - pytest fixture, used by usefixtures/pytestmark
 
 EP_ID = "2026-W41"
 
@@ -137,7 +137,10 @@ def _request(method="POST", path="/api/cron/sunday"):
 
 
 @contextmanager
-def _sunday_env(store, test=False, dialogue_effect=None, qa=(True, "PASS", False)):
+def _sunday_env(
+    store, test=False, dialogue_effect=None, qa=(True, "PASS", False),
+    failure_effect=None,
+):
     body = cron_routes.StageRequest(episode_id=EP_ID, force=True, test=test)
     dialogue = MagicMock(return_value=([{"character": "Devon Park", "message": "Ready."}], "PASS"))
     if dialogue_effect:
@@ -154,7 +157,11 @@ def _sunday_env(store, test=False, dialogue_effect=None, qa=(True, "PASS", False
          patch.object(cron_routes, "regenerate_and_upload", return_value="ok"), \
          patch.object(cron_routes, "_indexnow_submit_urls"), \
          patch.object(cron_routes, "notify_publish_held", return_value=True) as held, \
-         patch.object(cron_routes, "notify_pipeline_failure", return_value=True) as failure, \
+         patch.object(
+             cron_routes, "notify_pipeline_failure",
+             side_effect=failure_effect if failure_effect is not None else None,
+             return_value=True,
+         ) as failure, \
          patch.object(cron_routes, "notify_judge_failure", return_value=True), \
          patch("backend.publishing.episode_renderer.publish_recipe_to_catalog") as catalog, \
          patch("backend.publishing.episode_renderer.render_episode_page", return_value="<html></html>"):
@@ -195,9 +202,745 @@ def _approved_store(pick=1, prefix="", wed=None):
 
 # --- Sunday gate --------------------------------------------------------------
 
-@pytest.mark.parametrize("prefix", ["", "test/"])
-def test_awaiting_review_holds_before_any_paid_call_and_takes_no_claim(prefix):
+def test_team_fallback_approves_and_claims_the_frozen_wednesday_winner():
     wed = wednesday_stage()
+    ep = _episode(wed)
+    store = _Store({EP_ID: ep})
+    register(EP_ID, wed, store)
+
+    claimed = photo_review.claim_for_publication(
+        store, EP_ID, ep, allow_team_fallback=True,
+    )
+
+    assert claimed.state == photo_review.CLAIMED
+    assert claimed.selected["path"] == wed["confirmed_winner"]["path"]
+    assert claimed.decision["automatic"] is True
+    assert claimed.decision["decided_by"] == "photo_team_automatic_sunday_fallback"
+    assert claimed.raw["event"] == "sunday: publication claimed"
+    assert _control(store)["version"] == 3
+
+
+def test_team_fallback_never_overrides_an_explicit_human_pick():
+    store, ep, wed = _approved_store(pick=2)
+
+    claimed = photo_review.claim_for_publication(
+        store, EP_ID, ep, allow_team_fallback=True,
+    )
+
+    assert claimed.selected["path"] == wed["image_paths"][1]
+    assert claimed.decision["decided_by"] == "site editor"
+    assert claimed.decision.get("automatic") is None
+    assert _control(store)["version"] == 3
+
+
+def test_team_fallback_preserves_rejection_and_holds_without_a_current_winner():
+    rejected, ep, _ = _approved_store()
+    decide(EP_ID, ep, action="reject", store=rejected)
+    with pytest.raises(photo_review.PhotoHold, match="photos_rejected"):
+        photo_review.claim_for_publication(
+            rejected, EP_ID, ep, allow_team_fallback=True,
+        )
+    assert _control(rejected)["state"] == photo_review.REJECTED
+
+    wed = wednesday_stage()
+    wed["confirmed_winner"] = {"path": "src/assets/images/r1/stale/round_1/old.png"}
+    ep = _episode(wed)
+    awaiting = _Store({EP_ID: ep})
+    register(EP_ID, wed, awaiting)
+    with pytest.raises(photo_review.PhotoHold, match="awaiting_photo_approval"):
+        photo_review.claim_for_publication(
+            awaiting, EP_ID, ep, allow_team_fallback=True,
+        )
+    assert _control(awaiting)["state"] == photo_review.AWAITING
+
+
+def test_expected_reshoot_set_is_checked_again_after_lost_auto_approval_race():
+    original = wednesday_stage()
+    replacement = wednesday_stage(generation="g20261008T000000Z-bbbbbb")
+    ep = _episode(original)
+    store = _Store({EP_ID: ep})
+    register(EP_ID, original, store)
+    real_append = photo_review._append
+    raced = False
+
+    def replace_before_approval(*args, **kwargs):
+        nonlocal raced
+        if not raced and kwargs.get("event") == "sunday: team winner auto-approved":
+            raced = True
+            register(EP_ID, replacement, store)
+            raise photo_review.PhotoControlConflict("Wednesday replaced the set")
+        return real_append(*args, **kwargs)
+
+    with patch.object(photo_review, "_append", side_effect=replace_before_approval):
+        with pytest.raises(photo_review.ReviewConflict, match="photos changed"):
+            photo_review.claim_for_publication(
+                store, EP_ID, ep, allow_team_fallback=True,
+                expected_image_set_id=original["photo_review"]["image_set_id"],
+            )
+
+    ctrl = _control(store)
+    assert raced is True
+    assert ctrl["request"]["image_set_id"] == replacement["photo_review"]["image_set_id"]
+    assert ctrl["state"] == photo_review.AWAITING
+    assert ctrl["decision"] is None
+
+
+def test_sunday_without_a_decision_publishes_the_team_winner_as_automatic():
+    wed = wednesday_stage()
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+    env = _sunday(store)
+    assert env.error is None and env.result["published"] is True
+    env.held.assert_not_called()
+    published = store.get(EP_ID)
+    assert published["hero_image_url"] == wed["image_urls"][0]
+    assert published["photo_approval"]["path"] == wed["confirmed_winner"]["path"]
+    assert published["photo_approval"]["decided_by"] == "photo_team_automatic_sunday_fallback"
+    ctrl = _control(store)
+    assert ctrl["state"] == "published" and ctrl["decision"]["automatic"] is True
+    states = [json.loads(p.read_text())["state"]
+              for p in sorted((storage_module.PHOTO_CONTROL_DIR / "production" / EP_ID).glob("v*.json"))]
+    assert states == ["awaiting", "approved", "claimed", "publishing", "published"]
+
+
+def _sunday_reshooting(store, orch, clock=None, failure_effect=None):
+    """Sunday on the real reshoot path with a fake shoot, so no provider is called."""
+    clock = clock or (lambda: 1000.0)
+    store.save_image = lambda p, _b: f"{BLOB}/{p.split('images/')[1]}"
+    with patch.object(cron_routes, "_get_orchestrator", return_value=orch), \
+         patch.object(cron_routes, "_previous_pan_material", return_value=None), \
+         patch.object(cron_routes, "_monotonic", side_effect=clock), \
+         patch.object(photo_review, "_monotonic", side_effect=clock), \
+         patch.object(cron_routes, "notify_photos_ready", return_value=True):
+        return _sunday(store, failure_effect=failure_effect)
+
+
+@pytest.mark.parametrize("review_status", ["unavailable", "failed"])
+def test_sunday_reshoots_display_winner_without_explicit_team_recommendation(tmp_path, review_status):
+    generation = "g20261007T000000Z-abcdef"
+    wed = wednesday_stage()
+    wed["confirmed_winner"]["team_recommended"] = False
+    wed["confirmed_winner"]["automated_review_status"] = review_status
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+    orch = MagicMock()
+    orch.return_value._execute_stage_photography.return_value = _photography_result(tmp_path, generation)
+
+    env = _sunday_reshooting(store, orch)
+
+    assert env.error is None and env.result["published"] is True
+    orch.return_value._execute_stage_photography.assert_called_once()
+    published = store.get(EP_ID)
+    winner = f"src/assets/images/r1/{generation}/round_1/{VARIANTS[0]}.png"
+    assert published["photo_approval"]["path"] == winner
+    assert published["photo_approval"]["path"] != wed["confirmed_winner"]["path"]
+
+
+def test_sunday_reshoots_a_set_with_no_team_winner_and_publishes_the_new_pick(tmp_path):
+    generation = "g20261007T000000Z-abcdef"
+    wed = wednesday_stage(confirmed_winner={})  # the awaiting set has no usable winner
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+    orch = MagicMock()
+    orch.return_value._execute_stage_photography.return_value = _photography_result(tmp_path, generation)
+
+    env = _sunday_reshooting(store, orch)
+
+    assert env.error is None and env.result["published"] is True
+    env.held.assert_not_called()
+    env.failure.assert_not_called()
+    _, kwargs = orch.return_value._execute_stage_photography.call_args
+    assert kwargs["max_rounds"] == 1  # one whole-set round, as the dashboard reshoot
+    assert kwargs["shoot_deadline"] == 1000.0 + cron_routes._SUNDAY_AUTOMATIC_RESHOOT_WINDOW_S
+    published = store.get(EP_ID)
+    winner = f"src/assets/images/r1/{generation}/round_1/{VARIANTS[0]}.png"
+    assert published["photo_approval"]["path"] == winner
+    assert published["photo_approval"]["decided_by"] == "photo_team_automatic_sunday_fallback"
+    assert published["hero_image_url"] == f"{BLOB}/r1/{generation}/round_1/{VARIANTS[0]}.png"
+    ctrl = _control(store)
+    assert ctrl["state"] == "published" and ctrl["reshoots"]["calls_used"] == photo_review.RESHOOT_CALLS
+    states = [json.loads(p.read_text())["state"]
+              for p in sorted((storage_module.PHOTO_CONTROL_DIR / "production" / EP_ID).glob("v*.json"))]
+    # awaiting (first set), reshoot start, pending registration, completed
+    # registration, then the approval/claim/publication chain.
+    assert states == [
+        "awaiting", "awaiting", "awaiting", "awaiting",
+        "approved", "claimed", "publishing", "published",
+    ]
+
+
+@pytest.mark.parametrize("automatic_sunday", [False, True])
+def test_rival_sunday_cannot_publish_while_reshoot_registration_still_saves(
+    tmp_path, automatic_sunday,
+):
+    """The photos-ready callback may overlap another scheduled Sunday.
+
+    The replacement must not become claimable until the registering run has
+    made its final whole-episode save, or that save can erase the rival's
+    completed publication.
+    """
+    original = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(original)})
+    register(EP_ID, original, store)
+    ep = store.get(EP_ID)
+    current = photo_review.read_view(store, EP_ID, ep)
+    started = photo_review.start_reshoot(
+        store,
+        EP_ID,
+        ep,
+        current.image_set_id,
+        photo_review.RESHOOT_CALLS,
+        automatic_sunday=automatic_sunday,
+    )
+    generation = "g20261008T000000Z-race01"
+    result = _photography_result(tmp_path, generation)
+    replacement = {
+        "photography_data": result,
+        "reshoot_happened": True,
+        "image_paths": [v["path"] for v in result["rounds"][0]["variants"]],
+        "image_urls": [f"{BLOB}/{v['path'].split('images/')[1]}" for v in result["rounds"][0]["variants"]],
+        "image_status": "auto_selected",
+        "confirmed_winner": result["winner"],
+    }
+    request = photo_review.new_review(replacement)
+    competing = photo_review.new_review(
+        wednesday_stage(generation="g20261008T000000Z-rival2")
+    )
+    rival_attempted = False
+
+    def rival_sunday(*_args, **_kwargs):
+        nonlocal rival_attempted
+        rival_attempted = True
+        pending = photo_review.read_view(store, EP_ID, store.get(EP_ID))
+        assert pending.reshoots["in_flight"]["registration_pending"] is True
+        with pytest.raises(photo_review.PublicationUnderway, match="registration is still finishing"):
+            photo_review.claim_for_publication(
+                store, EP_ID, store.get(EP_ID), allow_team_fallback=True,
+            )
+        with pytest.raises(photo_review.PublicationUnderway, match="registration is still saving"):
+            photo_review.register_request(
+                store,
+                EP_ID,
+                competing,
+                defer_publication_until_episode_saved=True,
+            )
+        return True
+
+    with patch.object(cron_routes, "storage", store), \
+         patch.object(cron_routes, "notify_photos_ready", side_effect=rival_sunday):
+        cron_routes._register_photos(
+            EP_ID,
+            ep,
+            ep["concept"],
+            replacement,
+            request,
+            reshoot_id=started.reshoots["in_flight"]["id"],
+        )
+
+    assert rival_attempted is True
+    assert not store.get(EP_ID).get("published_at")
+    ready = photo_review.read_view(store, EP_ID, store.get(EP_ID))
+    assert "in_flight" not in ready.reshoots
+    claimed = photo_review.claim_for_publication(
+        store,
+        EP_ID,
+        store.get(EP_ID),
+        allow_team_fallback=True,
+        expected_image_set_id=request["image_set_id"],
+    )
+    assert claimed.state == photo_review.CLAIMED
+
+
+def test_initial_wednesday_registration_is_not_claimable_until_final_save():
+    wed = wednesday_stage(generation="g20261008T000000Z-initial")
+    ep = _episode(wed)
+    ep["stages"].pop("wednesday")
+    store = _Store({EP_ID: ep})
+    request = photo_review.new_review(wed)
+
+    def rival_sunday(*_args, **_kwargs):
+        with pytest.raises(photo_review.PublicationUnderway, match="registration is still finishing"):
+            photo_review.claim_for_publication(
+                store, EP_ID, store.get(EP_ID), allow_team_fallback=True,
+            )
+        return True
+
+    with patch.object(cron_routes, "storage", store), \
+         patch.object(cron_routes, "notify_photos_ready", side_effect=rival_sunday):
+        cron_routes._register_photos(
+            EP_ID, ep, ep["concept"], wed, request,
+        )
+
+    ready = photo_review.read_view(store, EP_ID, store.get(EP_ID))
+    assert "in_flight" not in ready.reshoots
+    claimed = photo_review.claim_for_publication(
+        store, EP_ID, store.get(EP_ID), allow_team_fallback=True,
+    )
+    assert claimed.state == photo_review.CLAIMED
+
+
+def test_expired_pending_registration_recovers_after_function_ceiling(tmp_path):
+    """A killed registrar cannot strand an otherwise registered replacement."""
+    original = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(original)})
+    register(EP_ID, original, store)
+    ep = store.get(EP_ID)
+    current = photo_review.read_view(store, EP_ID, ep)
+    with patch.object(photo_review, "_now", return_value="2020-01-01T00:00:00+00:00"):
+        started = photo_review.start_reshoot(
+            store,
+            EP_ID,
+            ep,
+            current.image_set_id,
+            photo_review.RESHOOT_CALLS,
+            automatic_sunday=True,
+        )
+    replacement = wednesday_stage(generation="g20261008T000000Z-expire")
+    request = photo_review.new_review(replacement)
+    pending = photo_review.register_request(
+        store,
+        EP_ID,
+        request,
+        reshoot_id=started.reshoots["in_flight"]["id"],
+        defer_publication_until_episode_saved=True,
+    )
+    assert pending.reshoots["in_flight"]["registration_pending"] is True
+    assert photo_review.apply_request_mirror(ep, request) is True
+    store.put(EP_ID, ep)
+
+    claimed = photo_review.claim_for_publication(
+        store,
+        EP_ID,
+        ep,
+        allow_team_fallback=True,
+        expected_image_set_id=request["image_set_id"],
+    )
+
+    assert claimed.state == photo_review.CLAIMED
+    assert "in_flight" not in claimed.reshoots
+    events = [
+        json.loads(path.read_text())["event"]
+        for path in sorted(
+            (storage_module.PHOTO_CONTROL_DIR / "production" / EP_ID).glob("v*.json")
+        )
+    ]
+    assert "reshoot: expired registration recovered" in events
+
+
+def test_expired_pending_registration_without_episode_mirror_fails_closed():
+    original = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(original)})
+    ep = store.get(EP_ID)
+    register(EP_ID, original, store)
+    current = photo_review.read_view(store, EP_ID, ep)
+    with patch.object(photo_review, "_now", return_value="2020-01-01T00:00:00+00:00"):
+        started = photo_review.start_reshoot(
+            store,
+            EP_ID,
+            ep,
+            current.image_set_id,
+            photo_review.RESHOOT_CALLS,
+            automatic_sunday=True,
+        )
+    replacement = wednesday_stage(generation="g20261008T000000Z-nosave")
+    request = photo_review.new_review(replacement)
+    photo_review.register_request(
+        store,
+        EP_ID,
+        request,
+        reshoot_id=started.reshoots["in_flight"]["id"],
+        defer_publication_until_episode_saved=True,
+    )
+
+    with pytest.raises(photo_review.ReviewConflict, match="missing from the episode"):
+        photo_review.claim_for_publication(
+            store,
+            EP_ID,
+            ep,
+            allow_team_fallback=True,
+            expected_image_set_id=request["image_set_id"],
+        )
+
+    pending = photo_review.read_view(store, EP_ID, ep)
+    assert pending.state == photo_review.AWAITING
+    assert pending.reshoots["in_flight"]["registration_pending"] is True
+
+
+def test_human_pick_during_registration_is_preserved_before_eligibility(tmp_path):
+    original = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(original)})
+    register(EP_ID, original, store)
+    ep = store.get(EP_ID)
+    started = photo_review.start_reshoot(
+        store,
+        EP_ID,
+        ep,
+        photo_review.read_view(store, EP_ID, ep).image_set_id,
+        photo_review.RESHOOT_CALLS,
+        automatic_sunday=True,
+    )
+    replacement = wednesday_stage(generation="g20261008T000000Z-human1")
+    replacement.update(reshoot_happened=True, image_status="auto_selected")
+    request = photo_review.new_review(replacement)
+
+    def human_picks(*_args, **_kwargs):
+        decide(EP_ID, store.get(EP_ID), pick=2, store=store)
+        with pytest.raises(photo_review.PublicationUnderway, match="registration is still finishing"):
+            photo_review.claim_for_publication(store, EP_ID, store.get(EP_ID))
+        return True
+
+    with patch.object(cron_routes, "storage", store), \
+         patch.object(cron_routes, "notify_photos_ready", side_effect=human_picks):
+        cron_routes._register_photos(
+            EP_ID,
+            ep,
+            ep["concept"],
+            replacement,
+            request,
+            reshoot_id=started.reshoots["in_flight"]["id"],
+        )
+
+    claimed = photo_review.claim_for_publication(store, EP_ID, store.get(EP_ID))
+    assert claimed.state == photo_review.CLAIMED
+    assert claimed.selected["path"] == replacement["image_paths"][1]
+    assert claimed.decision["decided_by"] == "site editor"
+    assert claimed.decision.get("automatic") is None
+
+
+def test_sunday_claims_the_registered_reshoot_without_a_cloud_freshness_reread(tmp_path):
+    """The write just accepted by storage is authoritative even if its read replica lags."""
+    wed = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+    orch = MagicMock()
+    orch.return_value._execute_stage_photography.return_value = _photography_result(tmp_path)
+    verified_reads = 0
+    load_verified = store.load_episode_verified
+
+    def lag_after_registration(episode_id):
+        nonlocal verified_reads
+        verified_reads += 1
+        if verified_reads > 3:
+            raise EpisodeReadStale("cloud replica still exposes the pre-reshoot episode")
+        return load_verified(episode_id)
+
+    store.load_episode_verified = lag_after_registration
+
+    env = _sunday_reshooting(store, orch)
+
+    assert env.error is None and env.result["published"] is True
+    assert verified_reads == 3
+    assert store.get(EP_ID)["photo_approval"]["decided_by"] == "photo_team_automatic_sunday_fallback"
+
+
+def test_automatic_reshoot_returns_registered_episode_without_a_post_release_control_read(tmp_path):
+    wed = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+    current = photo_review.read_view(store, EP_ID, store.get(EP_ID))
+    orch = MagicMock()
+    orch.return_value._execute_stage_photography.return_value = _photography_result(tmp_path)
+    store.save_image = lambda p, _b: f"{BLOB}/{p.split('images/')[1]}"
+    real_finish = photo_review.finish_request_registration
+
+    def finish_then_make_control_unreadable(*args, **kwargs):
+        ready = real_finish(*args, **kwargs)
+        store.fail_control_read = PhotoControlUnavailable("control unavailable after release")
+        return ready
+
+    with patch.object(cron_routes, "storage", store), \
+         patch.object(cron_routes, "_get_orchestrator", return_value=orch), \
+         patch.object(cron_routes, "_previous_pan_material", return_value=None), \
+         patch.object(cron_routes, "_monotonic", return_value=1000.0), \
+         patch.object(photo_review, "_monotonic", return_value=1000.0), \
+         patch.object(cron_routes, "notify_photos_ready", return_value=True), \
+         patch.object(photo_review, "finish_request_registration", side_effect=finish_then_make_control_unreadable):
+        result = cron_routes.reshoot_wednesday_photos(
+            EP_ID, current.image_set_id,
+            automatic_sunday=True, shoot_deadline=2000.0,
+        )
+
+    assert result["registered_episode"]["stages"]["wednesday"]["photo_review"]["image_set_id"] == result["image_set_id"]
+    assert result["calls_left"] == photo_review.RESHOOT_CALL_CAP - photo_review.RESHOOT_CALLS
+
+
+def test_sunday_spends_no_photo_calls_when_preflight_consumes_the_window(tmp_path):
+    wed = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+    orch = MagicMock()
+    # Route entry establishes the deadline, the outer claim check still has
+    # time, then the verified episode/control preflight consumes the window.
+    ticks = iter((1000.0, 1001.0, 1121.0))
+
+    env = _sunday_reshooting(store, orch, clock=lambda: next(ticks))
+
+    assert json.loads(env.result.body)["status"] == "awaiting_photo_approval"
+    orch.return_value._execute_stage_photography.assert_not_called()
+    assert not _control(store).get("reshoots", {}).get("calls_used")
+    assert "window expired" in env.failure.call_args.kwargs["error_message"]
+
+
+def test_reshoot_start_rechecks_deadline_after_authoritative_control_read():
+    wed = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+    view = photo_review.read_view(store, EP_ID, store.get(EP_ID))
+
+    with patch.object(photo_review, "_monotonic", return_value=1121.0), \
+         pytest.raises(photo_review.ReshootRefused, match="window expired"):
+        photo_review.start_reshoot(
+            store, EP_ID, store.get(EP_ID), view.image_set_id,
+            photo_review.RESHOOT_CALLS, automatic_sunday=True, deadline=1120.0,
+        )
+
+    assert not (_control(store).get("reshoots", {}).get("calls_used"))
+
+
+def test_photo_hold_lease_blocks_rival_reshoot_and_registration_during_notification():
+    wed = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+    ep = store.get(EP_ID)
+    view = photo_review.read_view(store, EP_ID, ep)
+    replacement = wednesday_stage(generation="g20261008T000000Z-holdrace")
+    attempted = []
+
+    def race_during_notification(*_args, **_kwargs):
+        current = photo_review.read_view(store, EP_ID, store.get(EP_ID))
+        with pytest.raises(photo_review.ReshootRefused, match="already running"):
+            photo_review.start_reshoot(
+                store, EP_ID, store.get(EP_ID), current.image_set_id,
+                photo_review.RESHOOT_CALLS, automatic_sunday=True,
+            )
+        with pytest.raises(photo_review.PublicationUnderway, match="still saving"):
+            register(EP_ID, replacement, store)
+        attempted.append(True)
+        return True
+
+    with patch.object(cron_routes, "storage", store), \
+         patch.object(cron_routes, "notify_publish_held", side_effect=race_during_notification):
+        response = cron_routes._hold_for_photo_approval(
+            EP_ID, ep, ep["concept"], "awaiting_photo_approval", view,
+        )
+
+    assert response.status_code == 202 and attempted == [True]
+    assert not (_control(store).get("reshoots", {}).get("in_flight"))
+    assert store.get(EP_ID)["publish_hold"]["notified"] is True
+    assert _control(store)["request"]["image_set_id"] == wed["photo_review"]["image_set_id"]
+
+
+def test_rival_publication_during_failure_alert_is_not_overwritten_by_a_stale_hold(tmp_path):
+    original = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(original)})
+    register(EP_ID, original, store)
+    result = _photography_result(tmp_path)
+    result["winner"] = {}  # the replacement still has no automatic winner
+    orch = MagicMock()
+    orch.return_value._execute_stage_photography.return_value = result
+    published = []
+
+    def rival_publishes(*_args, **_kwargs):
+        ep = store.get(EP_ID)
+        decide(EP_ID, ep, pick=1, store=store)
+        claimed = photo_review.claim_for_publication(store, EP_ID, ep)
+        pub = cron_routes._published_copy(ep, claimed, [], "PASS", ep["concept"])
+        publishing = photo_review.mark_publishing(store, claimed, pub)
+        store.save_episode(EP_ID, pub)
+        photo_review.mark_published(store, publishing, pub["published_at"])
+        published.append(copy.deepcopy(pub))
+        return True
+
+    env = _sunday_reshooting(store, orch, failure_effect=rival_publishes)
+
+    assert env.result.status_code == 409
+    assert json.loads(env.result.body)["status"] == "publication_underway"
+    assert published and store.get(EP_ID) == published[0]
+    assert _control(store)["state"] == photo_review.PUBLISHED
+    assert store.get(EP_ID).get("publish_hold") is None
+
+
+@pytest.mark.parametrize("failure, spent, expected_calls_used", [
+    # Two calls left and a set needs three: refused before any shoot, nothing added.
+    ("cap", photo_review.RESHOOT_CALL_CAP - 2, photo_review.RESHOOT_CALL_CAP - 2),
+    # The shoot itself fails: its calls were counted before it ran, and are not refunded.
+    ("generation", 0, photo_review.RESHOOT_CALLS),
+])
+def test_sunday_without_a_usable_winner_after_the_reshoot_publishes_nothing(tmp_path, failure, spent, expected_calls_used):
+    wed = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+    if spent:
+        ep = store.get(EP_ID)
+        view = photo_review.read_view(store, EP_ID, ep)
+        started = photo_review.start_reshoot(store, EP_ID, ep, view.image_set_id, spent)
+        photo_review.clear_reshoot_in_flight(store, EP_ID, started.reshoots["in_flight"]["id"])
+    orch = MagicMock()
+    if failure == "generation":
+        orch.return_value._execute_stage_photography.side_effect = RuntimeError("image provider down")
+    else:
+        orch.return_value._execute_stage_photography.return_value = _photography_result(tmp_path)
+
+    env = _sunday_reshooting(store, orch)
+
+    assert json.loads(env.result.body)["status"] == "awaiting_photo_approval"
+    env.dialogue.assert_not_called()
+    env.qa.assert_not_called()
+    env.catalog.assert_not_called()
+    _never_published(store)
+    assert env.failure.call_count == 1
+    assert "cannot publish without a photo approval" in env.failure.call_args.kwargs["error_message"]
+    assert _control(store)["state"] == photo_review.AWAITING and _control(store)["decision"] is None
+    assert _control(store)["reshoots"]["calls_used"] == expected_calls_used
+    assert orch.return_value._execute_stage_photography.call_count == (0 if failure == "cap" else 1)
+
+
+def test_sunday_never_reshoots_a_rejected_set(tmp_path):
+    wed = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+    decide(EP_ID, store.get(EP_ID), action="reject", store=store)
+    orch = MagicMock()
+
+    env = _sunday_reshooting(store, orch)
+
+    assert json.loads(env.result.body)["status"] == "photos_rejected"
+    orch.return_value._execute_stage_photography.assert_not_called()
+    assert not _control(store).get("reshoots", {}).get("calls_used")
+    _never_published(store)
+
+
+def test_concurrent_wednesday_replacement_is_not_auto_approved(tmp_path):
+    wed = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+    replacement = wednesday_stage(generation="g20261008T000000Z-bbbbbb")
+
+    def photography(*_a, **_k):
+        register(EP_ID, replacement, store)
+        return _photography_result(tmp_path)
+
+    orch = MagicMock()
+    orch.return_value._execute_stage_photography.side_effect = photography
+    env = _sunday_reshooting(store, orch)
+
+    assert _status(env) == 409
+    env.dialogue.assert_not_called()
+    env.qa.assert_not_called()
+    env.catalog.assert_not_called()
+    _never_published(store)
+    ctrl = _control(store)
+    assert ctrl["state"] == photo_review.AWAITING
+    assert ctrl["request"]["image_set_id"] == replacement["photo_review"]["image_set_id"]
+    assert ctrl["decision"] is None
+
+
+def test_rival_sunday_reshoot_returns_underway_without_saving_a_hold():
+    wed = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+    ep = store.get(EP_ID)
+    view = photo_review.read_view(store, EP_ID, ep)
+    photo_review.start_reshoot(
+        store, EP_ID, ep, view.image_set_id, photo_review.RESHOOT_CALLS,
+        automatic_sunday=True,
+    )
+
+    env = _sunday(store)
+
+    assert _status(env) == 409
+    assert json.loads(env.result.body)["status"] == "publication_underway"
+    env.dialogue.assert_not_called()
+    env.qa.assert_not_called()
+    env.catalog.assert_not_called()
+    _never_published(store)
+    assert store.get(EP_ID).get("publish_hold") is None
+
+
+def test_expired_capped_sunday_reshoot_becomes_an_actionable_hold():
+    wed = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+    ep = store.get(EP_ID)
+    view = photo_review.read_view(store, EP_ID, ep)
+    photo_review._append(
+        store, view, state=view.state, request=view.request, decision=view.decision,
+        claim=None, event="test: expired automatic reshoot",
+        reshoots={
+            "calls_used": photo_review.RESHOOT_CALL_CAP,
+            "in_flight": {
+                "id": "expired-sunday",
+                "started_at": "2020-01-01T00:00:00+00:00",
+                "automatic_sunday": True,
+            },
+        },
+    )
+
+    env = _sunday(store)
+
+    assert _status(env) == 202
+    assert json.loads(env.result.body)["status"] == "awaiting_photo_approval"
+    env.dialogue.assert_not_called()
+    env.qa.assert_not_called()
+    env.catalog.assert_not_called()
+    _never_published(store)
+    assert "Reshoot limit reached" in env.failure.call_args.kwargs["error_message"]
+
+
+def test_human_pick_during_the_automatic_shoot_is_published_not_the_generated_set(tmp_path):
+    wed = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+
+    def photography(*_a, **_k):
+        decide(EP_ID, store.get(EP_ID), pick=2, store=store)  # Erik picks candidate 2 meanwhile
+        return _photography_result(tmp_path)
+
+    orch = MagicMock()
+    orch.return_value._execute_stage_photography.side_effect = photography
+    env = _sunday_reshooting(store, orch)
+
+    assert env.error is None and env.result["published"] is True
+    env.held.assert_not_called()
+    env.failure.assert_not_called()
+    published = store.get(EP_ID)
+    assert published["photo_approval"]["path"] == wed["image_paths"][1]
+    assert published["photo_approval"]["decided_by"] == "site editor"
+    assert published["hero_image_url"] == wed["image_urls"][1]
+    ctrl = _control(store)
+    assert ctrl["state"] == "published"
+    assert ctrl["request"]["image_set_id"] == wed["photo_review"]["image_set_id"]
+    assert ctrl["decision"]["decided_by"] == "site editor" and ctrl["decision"].get("automatic") is None
+    assert ctrl["reshoots"]["calls_used"] == photo_review.RESHOOT_CALLS
+
+
+def test_rejection_during_the_automatic_shoot_registers_nothing_and_holds_without_a_failure_alert(tmp_path):
+    wed = wednesday_stage(confirmed_winner={})
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+
+    def photography(*_a, **_k):
+        decide(EP_ID, store.get(EP_ID), action="reject", store=store)  # Erik rejects meanwhile
+        return _photography_result(tmp_path)
+
+    orch = MagicMock()
+    orch.return_value._execute_stage_photography.side_effect = photography
+    env = _sunday_reshooting(store, orch)
+
+    assert json.loads(env.result.body)["status"] == "photos_rejected"
+    orch.return_value._execute_stage_photography.assert_called_once()
+    ctrl = _control(store)
+    assert ctrl["state"] == photo_review.REJECTED
+    assert ctrl["request"]["image_set_id"] == wed["photo_review"]["image_set_id"]
+    env.catalog.assert_not_called()
+    _never_published(store)
+    assert not [c for c in env.failure.call_args_list if c.kwargs.get("stage") == "sunday (photo review)"]
+
+
+@pytest.mark.parametrize("prefix", ["", "test/"])
+@pytest.mark.usefixtures("sunday_reshoot_refused")
+def test_awaiting_review_holds_before_any_paid_call_and_takes_no_claim(prefix):
+    wed = wednesday_stage(confirmed_winner={})  # no team winner to fall back on
     store = _Store()
     store.put(EP_ID, _episode(wed), prefix)
     with store.prefix_scope(prefix):
@@ -223,13 +966,15 @@ def test_rejected_holds_and_repeat_runs_send_one_alert():
     _never_published(store)
 
 
-def test_week_without_a_control_holds_from_the_derived_request_and_writes_no_control():
-    wed = wednesday_stage()
+@pytest.mark.usefixtures("sunday_reshoot_refused")
+def test_week_without_a_control_holds_from_the_derived_request_under_a_write_lease():
+    wed = wednesday_stage(confirmed_winner={})
     del wed["photo_review"]  # a pre-#7936 Wednesday
     store = _Store({EP_ID: _episode(wed)})
     env = _sunday(store)
     assert json.loads(env.result.body)["status"] == "awaiting_photo_approval"
-    assert _control(store) is None
+    assert _control(store)["state"] == "awaiting"
+    assert _control(store)["version"] == 2
     env.dialogue.assert_not_called()
 
 
@@ -251,11 +996,12 @@ def test_approved_photo_is_claimed_then_published_everywhere():
     assert states == ["awaiting", "approved", "claimed", "publishing", "published"]
 
 
+@pytest.mark.usefixtures("sunday_reshoot_refused")
 def test_stale_stage_save_cannot_resurrect_an_earlier_approved_set():
     """Approve A, Wednesday reruns B, a stale Thursday save puts A back."""
     a = wednesday_stage(generation="g20260101T000000Z-aaaaaa")
     store, ep, _ = _approved_store(wed=a)
-    b = wednesday_stage(generation="g20260102T000000Z-bbbbbb")
+    b = wednesday_stage(generation="g20260102T000000Z-bbbbbb", confirmed_winner={})
     register(EP_ID, b, store)
     # The stored episode still (again) carries set A and its mirror.
     stale = _episode(a)
@@ -349,6 +1095,33 @@ def test_sunday_that_finds_a_claim_stops_before_spending():
     assert store.saves == []
 
 
+def test_review_conflict_never_records_a_hold_attempt_on_stale_episode():
+    wed = wednesday_stage(confirmed_winner={})
+    stale = _episode(wed)
+    stale["publish_hold"] = {
+        "reason": "awaiting_photo_approval",
+        "image_set_id": wed["photo_review"]["image_set_id"],
+        "since": "2026-10-01T00:00:00+00:00",
+        "notified": True,
+    }
+    store = _Store({EP_ID: stale})
+    register(EP_ID, wed, store)
+    replacement = copy.deepcopy(stale)
+    replacement["events"].append("wednesday: rival registration completed")
+
+    def ownership_lost(*_args, **_kwargs):
+        store.put(EP_ID, replacement)
+        raise photo_review.ReviewConflict("the photos changed after registration")
+
+    with patch.object(cron_routes, "_claim_photo_for_sunday", side_effect=ownership_lost):
+        env = _sunday(store)
+
+    assert _status(env) == 409
+    assert store.get(EP_ID) == replacement
+    assert store.saves == []
+    assert "stale episode was not saved" in env.error.detail
+
+
 @pytest.mark.parametrize("failure", ["qa", "dialogue"])
 def test_pre_publication_failure_saves_unpublished_and_releases_the_claim(failure):
     store, ep, _ = _approved_store()
@@ -384,9 +1157,75 @@ def test_failed_hold_write_never_leaks_publication():
     calls = []
     store.fail_save = lambda data: not calls and not calls.append(1)  # the hold's own save fails once
     env = _sunday(store)
-    assert _status(env) == 500
+    assert _status(env) == 503
     _never_published(store)
     assert _control(store)["state"] == "rejected"
+
+
+def test_hold_reservation_failure_alerts_without_saving():
+    store, ep, _ = _approved_store()
+    decide(EP_ID, ep, action="reject", store=store)
+    before = copy.deepcopy(store.get(EP_ID))
+    saves_before = len(store.saves)
+
+    with patch.object(
+        photo_review, "begin_episode_write",
+        side_effect=PhotoControlUnavailable("control write unavailable"),
+    ):
+        env = _sunday(store)
+
+    assert _status(env) == 503
+    assert store.get(EP_ID) == before
+    assert len(store.saves) == saves_before
+    assert env.failure.call_count == 1
+    assert "Nothing was saved" in env.failure.call_args.kwargs["error_message"]
+
+
+def test_failed_hold_save_cannot_overwrite_publication_after_lease_release():
+    store, ep, _ = _approved_store()
+    decide(EP_ID, ep, action="reject", store=store)
+    stale = copy.deepcopy(store.get(EP_ID))
+    view = photo_review.read_view(store, EP_ID, stale)
+    real_finish = photo_review.finish_episode_write
+    failed = []
+
+    def approve_during_notification(*_args, **_kwargs):
+        decide(EP_ID, store.get(EP_ID), store=store)
+        return True
+
+    def fail_second_hold_save(data):
+        hold = data.get("publish_hold") or {}
+        if hold.get("notified") and not failed:
+            failed.append(True)
+            return True
+        return False
+
+    def release_then_publish(*args, **kwargs):
+        result = real_finish(*args, **kwargs)
+        live = copy.deepcopy(store.get(EP_ID))
+        claimed = photo_review.claim_for_publication(store, EP_ID, live)
+        publication = cron_routes._published_copy(live, claimed, [], "PASS", live["concept"])
+        publishing = photo_review.mark_publishing(store, claimed, publication)
+        store.put(EP_ID, publication)
+        photo_review.mark_published(store, publishing, publication["published_at"])
+        return result
+
+    store.fail_save = fail_second_hold_save
+    with patch.object(cron_routes, "storage", store), \
+         patch.object(cron_routes, "notify_publish_held", side_effect=approve_during_notification), \
+         patch.object(cron_routes, "notify_pipeline_failure", return_value=True), \
+         patch.object(photo_review, "finish_episode_write", side_effect=release_then_publish):
+        with pytest.raises(HTTPException) as raised:
+            with cron_routes._run_stage(stale, "sunday"):
+                cron_routes._hold_for_photo_approval(
+                    EP_ID, stale, stale["concept"], "photos_rejected", view,
+                )
+
+    assert raised.value.status_code == 503
+    final = store.get(EP_ID)
+    assert final.get("published_at")
+    assert final["stages"]["sunday"]["status"] == "complete"
+    assert _control(store)["state"] == photo_review.PUBLISHED
 
 
 def test_failed_publishing_save_stays_frozen_and_is_completed_from_the_checkpoint():
@@ -1019,7 +1858,7 @@ def _photography_result(tmp_path, generation="g20261007T000000Z-abcdef"):
         variants.append({"variant": v, "path": f"src/assets/images/r1/{generation}/round_1/{v}.png",
                          "local_path": str(local)})
     return {"rounds": [{"round": 1, "variants": variants, "passed": True}],
-            "winner": {**variants[0], "round": 1}, "generation_id": generation,
+            "winner": {**variants[0], "round": 1, "team_recommended": True}, "generation_id": generation,
             "selected_shots": [v["path"] for v in variants]}
 
 
@@ -1078,6 +1917,59 @@ def test_wednesday_registers_the_request_before_one_photos_ready_alert(tmp_path)
     assert wed["photo_review"]["notification"]["status"] == "sent"
 
 
+def test_wednesday_holds_registration_through_dialogue_and_final_save(tmp_path):
+    store = _Store()
+    competing = wednesday_stage(generation="g20261008T000000Z-compete")
+
+    def dialogue_while_registration_is_open(*_args, **_kwargs):
+        pending = photo_review.read_view(store, EP_ID, store.get(EP_ID))
+        assert pending.reshoots["in_flight"]["registration_pending"] is True
+        with pytest.raises(photo_review.PublicationUnderway, match="registration is still finishing"):
+            photo_review.claim_for_publication(
+                store, EP_ID, store.get(EP_ID), allow_team_fallback=True,
+            )
+        with pytest.raises(photo_review.PublicationUnderway, match="registration is still saving"):
+            photo_review.register_request(
+                store,
+                EP_ID,
+                photo_review.new_review(competing),
+                defer_publication_until_episode_saved=True,
+            )
+        return [{"character": "Julian Torres", "message": "Done."}], "PASS"
+
+    run = _wednesday(store, tmp_path, dialogue_effect=dialogue_while_registration_is_open)
+
+    assert run.error is None
+    final = store.get(EP_ID)
+    assert final["stages"]["wednesday"]["status"] == "complete"
+    ready = photo_review.read_view(store, EP_ID, final)
+    assert "in_flight" not in ready.reshoots
+    assert ready.image_set_id != competing["photo_review"]["image_set_id"]
+
+
+def test_wednesday_failure_save_precedes_registration_release(tmp_path):
+    store = _Store()
+    marker_seen_during_failure_save = False
+
+    def observe_failure_save(data):
+        nonlocal marker_seen_during_failure_save
+        stage = (data.get("stages") or {}).get("wednesday") or {}
+        if stage.get("status") == "failed":
+            view = photo_review.read_view(store, EP_ID, data)
+            marker_seen_during_failure_save = bool(
+                (view.reshoots.get("in_flight") or {}).get("registration_pending")
+            )
+
+    store.before_save = observe_failure_save
+    run = _wednesday(store, tmp_path, dialogue_effect=RuntimeError("dialogue failed"))
+
+    assert run.error is not None
+    assert marker_seen_during_failure_save is True
+    assert "in_flight" not in photo_review.read_view(
+        store, EP_ID, store.get(EP_ID),
+    ).reshoots
+
+
 def test_wednesday_passes_the_episode_id_so_the_pan_follows_the_week(tmp_path):
     store = _Store()
     orch = MagicMock()
@@ -1098,9 +1990,9 @@ def test_a_shoot_out_of_time_fails_the_wednesday_stage_and_alerts(tmp_path):
     orch.return_value._execute_stage_photography.side_effect = ShootBudgetExceeded("image budget (180s) exhausted")
     run = _wednesday(store, tmp_path, orch=orch)
     assert run.error is not None
-    wed = store.get(EP_ID)["stages"]["wednesday"]
-    assert wed["status"] == "failed"
-    assert "image budget" in str(wed.get("error", ""))
+    assert "wednesday" not in store.get(EP_ID)["stages"]
+    assert "Nothing was saved" in run.failure.call_args.kwargs["error_message"]
+    assert "image budget" in run.failure.call_args.kwargs["error_message"]
     assert run.failure.called
 
 
@@ -1136,10 +2028,52 @@ def test_wednesday_rerun_after_an_approval_keeps_the_photos_and_reruns_the_dialo
     assert wed["photo_review"]["image_set_id"] == approved.image_set_id
 
 
+def test_kept_photos_reservation_failure_alerts_without_saving(tmp_path):
+    store = _Store()
+    _wednesday(store, tmp_path)
+    decide(EP_ID, store.get(EP_ID), store=store)
+    before = copy.deepcopy(store.get(EP_ID))
+
+    with patch.object(
+        photo_review, "begin_episode_write",
+        side_effect=PhotoControlUnavailable("control write unavailable"),
+    ):
+        rerun = _wednesday(store, tmp_path)
+
+    assert getattr(rerun.error, "status_code", None) == 503
+    assert store.get(EP_ID) == before
+    assert rerun.failure.call_count == 1
+    assert "Nothing was saved" in rerun.failure.call_args.kwargs["error_message"]
+
+
+def test_approved_photo_lookup_failure_never_erases_a_rival_publication(tmp_path):
+    store = _Store()
+    _wednesday(store, tmp_path)
+    decide(EP_ID, store.get(EP_ID), store=store)
+
+    def fail_after_rival_publication(*_args, **_kwargs):
+        live = copy.deepcopy(store.get(EP_ID))
+        live["published_at"] = "2026-10-11T12:00:00+00:00"
+        live["stages"]["sunday"] = {"status": "complete", "published": True}
+        store.put(EP_ID, live)
+        raise PhotoControlUnavailable("control read unavailable")
+
+    saves_before = len(store.saves)
+    with patch.object(photo_review, "read_view", side_effect=fail_after_rival_publication):
+        rerun = _wednesday(store, tmp_path)
+
+    assert getattr(rerun.error, "status_code", None) == 503
+    assert len(store.saves) == saves_before
+    final = store.get(EP_ID)
+    assert final["published_at"] == "2026-10-11T12:00:00+00:00"
+    assert final["stages"]["sunday"] == {"status": "complete", "published": True}
+    assert rerun.failure.call_count == 1
+    assert "Nothing was saved" in rerun.failure.call_args.kwargs["error_message"]
+
+
 @pytest.mark.parametrize("dialogue_fails", [False, True])
-@pytest.mark.parametrize("change", ["claimed", "rejected"])
-def test_kept_photos_rerun_saves_nothing_when_the_review_changes_during_the_dialogue(
-    tmp_path, change, dialogue_fails,
+def test_kept_photos_rerun_saves_nothing_when_the_editor_rejects_during_dialogue(
+    tmp_path, dialogue_fails,
 ):
     """Neither the stage's save nor _run_stage's failure save may run after
     Sunday claimed the approved set, or the editor rejected it, mid-dialogue."""
@@ -1149,10 +2083,7 @@ def test_kept_photos_rerun_saves_nothing_when_the_review_changes_during_the_dial
     before = copy.deepcopy(store.get(EP_ID))
 
     def review_changes_meanwhile(*_a, **_k):
-        if change == "claimed":
-            photo_review.claim_for_publication(store, EP_ID, store.get(EP_ID))
-        else:
-            decide(EP_ID, store.get(EP_ID), action="reject", store=store)
+        decide(EP_ID, store.get(EP_ID), action="reject", store=store)
         if dialogue_fails:
             raise RuntimeError("judge failed all attempts")
         return [{"character": "Julian Torres", "message": "Again."}], "PASS"
@@ -1160,8 +2091,29 @@ def test_kept_photos_rerun_saves_nothing_when_the_review_changes_during_the_dial
     rerun = _wednesday(store, tmp_path, dialogue_effect=review_changes_meanwhile)
 
     assert getattr(rerun.error, "status_code", None) == 409
-    assert _control(store)["state"] == change
+    assert _control(store)["state"] == "rejected"
     assert store.get(EP_ID) == before
+
+
+def test_kept_photos_rerun_blocks_rival_sunday_until_its_final_save(tmp_path):
+    store = _Store()
+    _wednesday(store, tmp_path)
+    decide(EP_ID, store.get(EP_ID), store=store)
+
+    def rival_sunday_while_dialogue_runs(*_a, **_k):
+        pending = photo_review.read_view(store, EP_ID, store.get(EP_ID))
+        assert pending.reshoots["in_flight"]["episode_write_pending"] is True
+        with pytest.raises(photo_review.PublicationUnderway, match="still finishing"):
+            photo_review.claim_for_publication(store, EP_ID, store.get(EP_ID))
+        return [{"character": "Julian Torres", "message": "Again."}], "PASS"
+
+    rerun = _wednesday(store, tmp_path, dialogue_effect=rival_sunday_while_dialogue_runs)
+
+    assert rerun.error is None
+    final = store.get(EP_ID)
+    assert final["stages"]["wednesday"]["status"] == "complete"
+    ready = photo_review.read_view(store, EP_ID, final)
+    assert ready.state == "approved" and "in_flight" not in ready.reshoots
 
 
 def test_wednesday_refuses_a_claimed_week_before_paying_for_photos(tmp_path):
@@ -1192,6 +2144,35 @@ def test_wednesday_that_loses_to_a_claim_does_not_replace_the_set(tmp_path):
     ctrl = _control(store)
     assert ctrl["state"] == "claimed" and ctrl["request"]["image_set_id"] == wed["photo_review"]["image_set_id"]
     assert not [k for k, _ in run.order if k == "notify"]
+
+
+def test_wednesday_generation_failure_cannot_overwrite_rival_publication(tmp_path):
+    wed = wednesday_stage()
+    store = _Store({EP_ID: _episode(wed)})
+    register(EP_ID, wed, store)
+    published = []
+
+    def rival_publishes_then_generation_fails(*_args, **_kwargs):
+        live = copy.deepcopy(store.get(EP_ID))
+        claimed = photo_review.claim_for_publication(
+            store, EP_ID, live, allow_team_fallback=True,
+        )
+        publication = cron_routes._published_copy(live, claimed, [], "PASS", live["concept"])
+        publishing = photo_review.mark_publishing(store, claimed, publication)
+        store.put(EP_ID, publication)
+        photo_review.mark_published(store, publishing, publication["published_at"])
+        published.append(copy.deepcopy(publication))
+        raise RuntimeError("image provider failed after rival publication")
+
+    orch = MagicMock()
+    orch.return_value._execute_stage_photography.side_effect = rival_publishes_then_generation_fails
+    run = _wednesday(store, tmp_path, orch=orch)
+
+    assert getattr(run.error, "status_code", None) == 500
+    assert published and store.get(EP_ID) == published[0]
+    assert _control(store)["state"] == photo_review.PUBLISHED
+    assert run.failure.call_count == 1
+    assert "Nothing was saved" in run.failure.call_args.kwargs["error_message"]
 
 
 def test_wednesday_dialogue_failure_keeps_photos_and_request(tmp_path):
@@ -1421,14 +2402,14 @@ def test_checkpoint_publication_is_the_approved_set_even_after_a_stale_mirror():
 
 # --- Authoritative set B, stale mirror A: hold record and admin display --------
 
-def _stale_mirror_store(snapshot=True):
+def _stale_mirror_store(snapshot=True, team_winner=True):
     """Set A approved, Wednesday registers B (awaiting), a stale save restores A's mirror."""
     a = wednesday_stage(generation="g20260101T000000Z-aaaaaa")
     a["photography_data"]["rounds"][0]["variants"][0]["scores"] = {"defects": ["A-only defect"]}
     a["photography_data"]["automated_review_status"] = "passed"
     store, _, _ = _approved_store(wed=a)
     b = wednesday_stage(generation="g20260102T000000Z-bbbbbb")
-    b["confirmed_winner"] = {"variant": VARIANTS[2], "path": b["image_paths"][2]}
+    b["confirmed_winner"] = {"variant": VARIANTS[2], "path": b["image_paths"][2]} if team_winner else {}
     b["photography_data"]["rounds"][0]["variants"][1]["scores"] = {"defects": ["B pan rim warped"]}
     b["photography_data"]["automated_review_status"] = "failed"
     if snapshot:
@@ -1445,10 +2426,12 @@ def _stale_mirror_store(snapshot=True):
     return store, a, b
 
 
+@pytest.mark.usefixtures("sunday_reshoot_refused")
 def test_hold_on_the_authoritative_set_is_recognised_by_the_integrity_monitor():
     from backend.utils import episode_integrity
 
-    store, a, b = _stale_mirror_store()
+    # Without a team winner Sunday holds instead of falling back (#8606).
+    store, a, b = _stale_mirror_store(team_winner=False)
     env = _sunday(store)
     assert json.loads(env.result.body)["status"] == "awaiting_photo_approval"
     saved = store.get(EP_ID)
