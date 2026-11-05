@@ -50,6 +50,39 @@ grep -rn -E 'blob\.vercel-storage\.com|_requests\.(put|post)\(|requests\.(put|po
 
 Review every hit that is not a read-only URL constant or a comment. Hits in `tests/` are excluded.
 
+### 2.3 Verified Vercel interface boundary (2026-11-05)
+
+The table above inventories this repository's existing wire calls; it is not a
+specification for new backup code. The first-party interfaces establish a safer
+boundary:
+
+- Vercel's [Python SDK reference](https://vercel.com/docs/vercel-blob/python-sdk-reference)
+  documents `vercel-blob` 0.5.0 or later, OIDC on Vercel, `put_blob(...,
+  allow_overwrite=False)` as the default create-without-overwrite operation,
+  and the supported read, head, list and delete methods. Future reconciliation
+  uses those SDK operations for source LIST/HEAD/GET and does not copy private
+  wire headers from this repository.
+- Vercel's [Blob documentation](https://vercel.com/docs/vercel-blob#overwriting-blobs)
+  states that duplicate-path uploads fail by default and require an explicit
+  overwrite option. That verifies the behavioral distinction represented by
+  this repository's `x-allow-overwrite` inventory, but not the stability of the
+  private header itself.
+- The official JavaScript SDK at pinned source revision
+  [`05031ce`](https://github.com/vercel/storage/blob/05031ce80224bd8e4cc35c5b8083e76514b3bb73/packages/blob/src/api.ts#L148-L162)
+  sends API version 13, while several of this repository's legacy direct calls
+  send version 7 and others omit that header.
+  Therefore version 7 is legacy implementation detail, not a current Vercel
+  contract, and no new backup path may depend on it.
+- The same pinned SDK implements deletion through
+  [`del()`](https://github.com/vercel/storage/blob/05031ce80224bd8e4cc35c5b8083e76514b3bb73/packages/blob/src/del.ts#L16-L49).
+  Backup has no delete requirement, so acceptance check A6 asserts that no
+  delete operation occurs; it does not reproduce or depend on a private delete
+  request body.
+
+This resolves the source-side HTTP-semantics research check without adding a
+dependency. Adding and pinning the Python SDK belongs to the later implementation
+PR and remains blocked with the rest of implementation.
+
 ## 3. Current cron seam
 
 - `vercel.json` `crons`: `/api/cron/{monday,tuesday,wednesday,thursday,friday,saturday,sunday}` and `/api/cron/repair`.
@@ -154,5 +187,8 @@ No Mini relay, bulk transfer, LaunchAgent, new account, spend, credential change
 
 - Before implementation, root LIST must prove the **total** object count, including `test/`, is below an approved warning threshold with RPO growth headroom; otherwise official cursor mutation/lifetime semantics need a separately reviewed design. This draft never persists a cursor and fails closed on `has_more`.
 - Approved RPO/staleness and warning thresholds remain unresolved operations decisions. Cron enablement is blocked until both are selected and the off-Vercel stale-fixture receipt passes.
-- The Blob HTTP semantics that the code relies on (`x-allow-overwrite: 0` as create-if-absent, `x-api-version: 7`, the `/delete` body shape) are taken from code comments and not checked against official docs. Per the project's spec-driven rule, they must be verified against Vercel's docs before implementation.
+- Source Blob operations must use the documented Python SDK boundary in §2.3;
+  do not copy this repository's legacy API-version header or private delete
+  payload into the backup implementation. Pin the selected SDK version in the
+  implementation PR; A6 must prove source use remains LIST/HEAD/GET-only.
 - Vercel-compatible auth for reading Blob and writing the destination is unresolved (§1, item 2). The rclone OAuth behind `gbackup` is not one.
