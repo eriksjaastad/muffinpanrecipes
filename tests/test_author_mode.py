@@ -1,5 +1,7 @@
 """Hermetic tests for the authored dialogue path."""
 
+import re
+
 import pytest
 
 from backend.admin import cron_routes
@@ -146,6 +148,26 @@ def test_full_authored_week_keeps_saved_memories_and_wednesday_images(monkeypatc
     saved_messages, saved_concept = memory_writes[0]
     assert saved_concept == "Custard Cups"
     assert {message.day for message in saved_messages} == set(sim.DAY_ORDER)
+
+
+def test_author_prompt_keeps_persona_markers_and_drops_numeric_caps(monkeypatch):
+    names = sim.participants_for_day("monday")
+    monkeypatch.setattr(sim, "_load_bio", lambda name: f"Bio of {name}.")
+    monkeypatch.setattr(sim, "_load_memories", lambda name: [])
+    personas = {name: {"role": "role"} for name in names}
+
+    prompt = sim._author_prompt(
+        personas, names, "Custard Cups", "monday", None, None, None, [], [],
+    )
+
+    # Distinctive persona lines from the voice guides survive the cap stripping.
+    assert "Fragments. Verdicts, not speeches." in prompt
+    assert "Her internal war:" in prompt
+    # Every numeric word/sentence cap is gone from the authored prompt.
+    assert not re.search(r"\d+(?:\s*-\s*\d+)?\s+sentences?", prompt, re.IGNORECASE)
+    assert not re.search(r"Average message", prompt, re.IGNORECASE)
+    assert not re.search(r"MAXIMUM\s+\d+\s+words", prompt, re.IGNORECASE)
+    assert not re.search(r"Be punchy", prompt, re.IGNORECASE)
 
 
 def test_author_scene_parser_rejects_narration_and_accepts_literal_parentheses():

@@ -626,7 +626,7 @@ def _load_memories(name: str) -> list[dict[str, str]]:
 
 # Deterministic patterns for removing obsolete per-line length limits. Each entry is a regex that
 # matches one numeric length constraint and removes it. The list is explicit
-# and covered by tests (tests/test_word_caps.py): a new phrasing in the voice
+# and covered by tests (tests/test_author_mode.py, test_author_prompt_keeps_persona_markers_and_drops_numeric_caps): a new phrasing in the voice
 # guides or shared rules must be added here deliberately, not discovered by
 # drifting past a catch-all.
 WORD_CAP_PATTERNS: tuple[str, ...] = (
