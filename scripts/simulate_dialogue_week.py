@@ -652,8 +652,9 @@ def _strip_word_caps(text: str) -> str:
     """Remove every numeric length constraint from `text`, leaving the rest.
 
     Used on _CHARACTER_VOICE_GUIDES and _SHARED_CHARACTER_RULES when
-    the obsolete per-speaker prompt needs its numeric limits removed. Deterministic: same input always maps to the same
-    output, and every removed phrase is one of WORD_CAP_PATTERNS above.
+    building the whole-scene author prompt. Deterministic: the same input
+    always maps to the same output, and every removed phrase is one of
+    WORD_CAP_PATTERNS above.
     """
     for pattern in WORD_CAP_PATTERNS:
         text = re.sub(pattern, "", text, flags=re.IGNORECASE)
@@ -1634,7 +1635,7 @@ def run_simulation(
     initial_highlights: list[str] | None = None,  # pre-computed week highlights for context injection
     initial_recent_lines: list[str] | None = None,  # seed recent_lines (e.g. Saturday msgs for Sunday-only runs)
     recipe_context: str | None = None,  # one-line recipe summary; anchors dialogue to the actual dish
-    recipe_facts: str | None = None,  # #7791 P4: the judge's ground-truth facts; only reaches a speaker
+    recipe_facts: str | None = None,  # #7791 P4: the judge's ground-truth facts
     # shown to the whole-scene author alongside the recipe summary
     message_sink: list | None = None,  # #7714: when given, IS the messages list - turns land here as
     # they are generated, so a caller that holds a reference to it can recover whatever was paid for

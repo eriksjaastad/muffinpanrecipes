@@ -348,7 +348,8 @@ def get_cost_entries() -> list[dict]:
 
 def record_external_cost(provider: str, model: str, cost: Any) -> None:
     """Record a cost-log entry for a paid unit that never goes through
-    generate_response()/generate_judge_response() - for example, backend.utils.image_generation.s images.
+    generate_response()/generate_judge_response() - for example, images from
+    backend.utils.image_generation.
 
     Stored as ``actual_cost`` with zero tokens, exactly like an OpenRouter
     call's real ``usage.cost`` - so it counts toward
